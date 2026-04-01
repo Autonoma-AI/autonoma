@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { registerStepFunction } from "workflow/internal/private";
 
 /**
  * Durable workflow entrypoint for Stripe webhooks.
@@ -13,6 +14,9 @@ export type StripeWebhookWorkflowInput = {
     event: Stripe.Event;
     processUrl: string;
 };
+
+const PROCESS_STRIPE_WEBHOOK_EVENT_STEP_ID =
+    "step//./src/workflows/stripe-webhook.workflow//processStripeWebhookEventStep";
 
 export async function processStripeWebhookEventStep(input: StripeWebhookWorkflowInput): Promise<void> {
     "use step";
@@ -36,3 +40,5 @@ export async function processStripeWebhookEventStep(input: StripeWebhookWorkflow
         throw new Error(`Failed processing Stripe webhook in internal API (${response.status}): ${body}`);
     }
 }
+
+registerStepFunction(PROCESS_STRIPE_WEBHOOK_EVENT_STEP_ID, processStripeWebhookEventStep);
