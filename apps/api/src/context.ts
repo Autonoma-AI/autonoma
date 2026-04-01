@@ -26,9 +26,7 @@ export const triggerGenerationReview =
 export const triggerRunReview = env.NODE_ENV === "production" ? prodReplayReviewWorkflow : triggerLocalReplayReview;
 
 export const storageProvider = S3Storage.createFromEnv();
-
 export const redisClient = await connectRedis({ url: env.REDIS_URL });
-
 export const auth = buildAuth({ redisClient, conn: db });
 
 const encryptionHelper = new EncryptionHelper(env.SCENARIO_ENCRYPTION_KEY);
