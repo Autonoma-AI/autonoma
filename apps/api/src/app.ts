@@ -12,8 +12,7 @@ import { appRouter } from "./routes/router";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
 
 const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS;
-
-const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook", "/v1/stripe/process-webhook"]);
+const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook"]);
 
 const corsOptions = {
     origin: (origin: string) => {

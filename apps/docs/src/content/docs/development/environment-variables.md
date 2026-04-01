@@ -83,9 +83,6 @@ The API server extends the database, storage, logger, and billing environments, 
 | `LOCAL_GENERATION` | No | `false` | When `true`, runs test generation locally instead of dispatching to Kubernetes jobs. Useful for development. |
 | `LOCAL_GENERATION_CONCURRENCY` | No | `2` | Maximum number of concurrent local generation workers when `LOCAL_GENERATION` is enabled. |
 | `TESTING` | No | `false` | Set to `true` in test environments. Prevents importing certain modules. Not for general use. |
-| `STRIPE_WEBHOOK_DISPATCH_MODE` | No | `workflow` | How Stripe webhooks are processed: `direct` (inline) or `workflow` (via Argo Workflows). |
-| `STRIPE_INTERNAL_WEBHOOK_SECRET` | No | - | Secret for verifying internal Stripe webhook signatures. Only needed when using workflow dispatch mode. |
-| `STRIPE_INTERNAL_WEBHOOK_PROCESS_URL` | No | - | URL where internal Stripe webhook processing happens. Only needed when using workflow dispatch mode. |
 | `ENGINE_BILLING_SECRET` | No | - | Shared secret for authenticating billing calls from the engine. |
 
 ---

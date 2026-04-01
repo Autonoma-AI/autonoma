@@ -9,10 +9,8 @@
         }
     },
     "scripts": {
-        "dev": "set -a && . ../../.env && set +a && pnpm exec nitro dev --port 4000",
-        "dev:legacy": "tsx watch --env-file=../../.env src/index.ts",
-        "build": "nitro build",
-        "build:legacy": "tsup",
+        "dev": "tsx watch --env-file=../../.env src/index.ts",
+        "build": "tsup",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
@@ -35,7 +33,6 @@
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
-        "@aws-sdk/client-sqs": "^3.975.0",
         "@better-auth/redis-storage": "^1.5.3",
         "@hono/node-server": "^1.19.10",
         "@octokit/app": "^16.1.2",
@@ -59,7 +56,6 @@
         "@testcontainers/redis": "^11.12.0",
         "@types/node": "catalog:",
         "gray-matter": "^4.0.3",
-        "nitro": "3.0.260311-beta",
         "rollup": "^4.59.0",
         "tsup": "^8.5.1",
         "tsx": "catalog:",

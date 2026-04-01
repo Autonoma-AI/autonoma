@@ -27,7 +27,7 @@ jobs:
             image: api
             dockerfile: apps/api/Dockerfile
             turbo-filter: "@autonoma/api..."
-            prepare: mkdir -p pruned && cp -r apps/api/.output pruned/.output
+            prepare: mkdir -p pruned && cp -r apps/api/dist pruned/dist
             context: ./pruned
 
           - name: UI

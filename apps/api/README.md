@@ -48,8 +48,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `LOCAL_GENERATION` | No | `false` | Run test generation locally instead of via Argo |
 | `LOCAL_GENERATION_CONCURRENCY` | No | `2` | Concurrency limit for local generation |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
-| `WORKFLOW_TARGET_WORLD` | No | auto (`vercel` or `local`) | Workflow world backend. For self-hosted Stripe webhook dispatch use `@workflow/world-postgres` |
-| `WORKFLOW_POSTGRES_URL` | No | falls back to `DATABASE_URL` | PostgreSQL connection string for `@workflow/world-postgres` |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
 
