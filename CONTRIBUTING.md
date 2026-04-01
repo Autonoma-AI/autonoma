@@ -32,8 +32,8 @@ This project and everyone participating in it is governed by our [Code of Conduc
 1. Fork and clone the repository:
 
 ```bash
-git clone https://github.com/<your-username>/agent.git
-cd agent
+git clone https://github.com/<your-username>/autonoma.git
+cd autonoma
 ```
 
 2. Install dependencies:
@@ -42,7 +42,7 @@ cd agent
 pnpm install
 ```
 
-3. Start infrastructure (PostgreSQL and Redis):
+3. Start infrastructure (PostgreSQL, Redis, and MinIO):
 
 ```bash
 docker compose up -d
@@ -54,7 +54,7 @@ docker compose up -d
 cp .env.example .env
 ```
 
-Fill in the required values. See `.env.example` for the full list grouped by service. At minimum you need `DATABASE_URL`, `REDIS_URL`, and `BETTER_AUTH_SECRET`.
+Fill in the required values. See `.env.example` for the full list grouped by service. For local development, `.env.example` includes MinIO-backed storage defaults for `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_ENDPOINT`.
 
 5. Set up the database:
 

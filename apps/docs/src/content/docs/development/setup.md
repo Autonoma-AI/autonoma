@@ -22,7 +22,7 @@ You need three things installed before starting:
 
 ```bash
 git clone https://github.com/autonoma-ai/autonoma.git
-cd agent
+cd autonoma
 pnpm install
 ```
 
@@ -30,7 +30,7 @@ pnpm install
 
 ## Start infrastructure
 
-PostgreSQL and Redis run via Docker Compose:
+PostgreSQL, Redis, and MinIO run via Docker Compose:
 
 ```bash
 docker compose up -d
@@ -40,6 +40,8 @@ This starts:
 
 - **PostgreSQL 18** on `localhost:5432` (user: `postgres`, password: `postgres`)
 - **Redis** on `localhost:6379`
+- **MinIO** on `localhost:9000` (console on `http://localhost:9001`)
+- The `autonoma-local` bucket and MinIO API CORS for loading local screenshots and videos in the UI
 
 Verify they're running:
 
@@ -67,6 +69,11 @@ cp .env.example .env
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Set the authorized redirect URI to `http://localhost:4000/api/auth/callback/google` |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Same Google Cloud Console OAuth credentials page |
 | `GEMINI_API_KEY` | Google Gemini API key | Get one from [Google AI Studio](https://aistudio.google.com/apikey) |
+| `S3_BUCKET` | Local artifact bucket name | Use `autonoma-local` for the default Docker Compose MinIO setup |
+| `S3_REGION` | S3 region | Use `us-east-1` for the default Docker Compose MinIO setup |
+| `S3_ACCESS_KEY_ID` | MinIO access key | Use `minioadmin` for the default Docker Compose MinIO setup |
+| `S3_SECRET_ACCESS_KEY` | MinIO secret key | Use `minioadmin` for the default Docker Compose MinIO setup |
+| `S3_ENDPOINT` | Local MinIO endpoint | Use `http://localhost:9000` for the default Docker Compose MinIO setup |
 
 ### How environment variables work in the codebase
 
@@ -74,7 +81,7 @@ The project uses `createEnv` from `@t3-oss/env-core` for environment variable va
 
 You should never read `process.env` directly in application code. Instead, import from the app's `env.ts` file.
 
-See `.env.example` for the full list of variables grouped by service. Most optional variables have sensible defaults or are only needed for specific features (S3 storage, Sentry, PostHog, etc.).
+See `.env.example` for the full list of variables grouped by service. The MinIO-backed storage values in that file match the default local Docker Compose setup.
 
 ## Database setup
 

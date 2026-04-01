@@ -32,6 +32,7 @@ S3_BUCKET=autonoma-local
 S3_REGION=us-east-1
 S3_ACCESS_KEY_ID=minioadmin
 S3_SECRET_ACCESS_KEY=minioadmin
+S3_ENDPOINT=http://localhost:9000
 ```
 
 Everything else has sensible defaults or is optional for local development. The sections below cover every variable in detail.
@@ -149,9 +150,12 @@ Used for storing screenshots, video recordings, test artifacts, and other binary
 | `S3_REGION` | Yes | - | AWS region of the S3 bucket (e.g., `us-east-1`). |
 | `S3_ACCESS_KEY_ID` | Yes | - | AWS access key ID (or MinIO equivalent) for S3 authentication. |
 | `S3_SECRET_ACCESS_KEY` | Yes | - | AWS secret access key (or MinIO equivalent) for S3 authentication. |
+| `S3_ENDPOINT` | No | - | Optional custom endpoint URL for S3-compatible providers. Set this to `http://localhost:9000` when using local MinIO. |
 
 :::tip[Local development with MinIO]
-You can run [MinIO](https://min.io/) locally as an S3-compatible object store. The default credentials are `minioadmin`/`minioadmin`. Point `S3_REGION` to any valid region string (e.g., `us-east-1`) and create a bucket matching your `S3_BUCKET` value.
+Autonoma's default `docker compose up -d` path starts [MinIO](https://min.io/) on `http://localhost:9000`, creates the `autonoma-local` bucket, and configures MinIO API CORS for `http://localhost:3000` and `http://127.0.0.1:3000` so signed screenshot and video URLs load in the local UI.
+
+If your UI runs on a different origin, update the `cors_allow_origin` list in `docker-compose.yaml` and rerun the `minio-init` service.
 :::
 
 ---

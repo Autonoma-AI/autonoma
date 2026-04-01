@@ -33,7 +33,7 @@ Production provider backed by AWS S3. Accepts an explicit config or reads from e
 ```ts
 import { S3Storage } from "@autonoma/storage";
 
-// From environment variables (S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)
+// From environment variables (S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, optional S3_ENDPOINT)
 const storage = S3Storage.createFromEnv();
 
 // Or with explicit config
@@ -74,7 +74,7 @@ Creates directories recursively on upload. `getSignedUrl` simply returns a `file
 
 ## Environment Variables
 
-When using `S3Storage.createFromEnv()`, the following variables are required and validated at import time via `@t3-oss/env-core`:
+When using `S3Storage.createFromEnv()`, the following variables are validated at import time via `@t3-oss/env-core`:
 
 | Variable | Description |
 |---|---|
@@ -82,6 +82,7 @@ When using `S3Storage.createFromEnv()`, the following variables are required and
 | `S3_REGION` | AWS region |
 | `S3_ACCESS_KEY_ID` | AWS access key ID |
 | `S3_SECRET_ACCESS_KEY` | AWS secret access key |
+| `S3_ENDPOINT` | Optional custom endpoint URL for S3-compatible providers such as MinIO |
 
 Import the validated env object directly if needed:
 
