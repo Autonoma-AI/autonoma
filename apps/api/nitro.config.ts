@@ -6,7 +6,4 @@ export default defineConfig({
     routes: {
         "/**": "./src/nitro-entry.ts",
     },
-    externals: {
-        inline: ["@workflow/world-postgres"],
-    },
 });
