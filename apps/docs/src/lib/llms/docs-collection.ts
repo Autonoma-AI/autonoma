@@ -17,6 +17,14 @@ const SIDEBAR_ORDER: string[] = [
     "examples/react-vite",
     "examples/elixir-phoenix",
     "examples/tanstack-start",
+    "development/setup",
+    "development/architecture",
+    "development/packages",
+    "development/conventions",
+    "development/workflows",
+    "development/environment-variables",
+    "architecture/execution-agent",
+    "architecture/ai-package",
 ];
 
 export interface DocPage {

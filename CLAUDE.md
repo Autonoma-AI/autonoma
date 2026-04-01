@@ -29,7 +29,6 @@ root/
 │   ├── engine/           # Shared engine: execution agent, commands, driver interfaces
 │   ├── device-lock/      # Redis-based distributed device locking
 │   ├── blacklight/          # Shared UI component library (Radix + Tailwind + CVA)
-│   ├── try/              # Go-style error handling (fx.runAsync, fx.run, Try type)
 │   └── utils/            # Logger (Sentry), storage, image, k8s helpers
 ├── docker/               # Dockerfiles for all services
 └── deployment/           # K8s manifests (future)
@@ -112,31 +111,6 @@ class StepExecutor {
 
 A file exports exactly one thing. The exported function/class tells the story top-to-bottom. Private helpers follow in call order.
 
-### Error Handling with `Try`
-
-Use `fx` from `@autonoma/try` for all fallible operations.
-
-```ts
-import { fx, type Try } from "@autonoma/try";
-
-async function loadUserSubscription(id: string): Promise<Try<Subscription>> {
-  const [user, userError] = await fx.runAsync(() => fetchUser(id));
-  if (userError != null) return fx.failure(userError);
-
-  const [subscription, subError] = await fx.runAsync(
-    () => fetchSubscription(user.subscriptionId),
-  );
-  if (subError != null) return fx.failure(subError);
-
-  return fx.success(subscription);
-}
-```
-
-- `fx.runAsync` for async, `fx.run` for sync.
-- Return `fx.success()` and `fx.failure()`.
-- Prefer original errors to preserve stack traces. Only wrap in typed errors when callers need to distinguish failures.
-- One fallible operation per check. Never batch in a single try/catch.
-
 ### Database Transactions
 
 **Wrap sequential DB queries in a Prisma `$transaction` when they must be consistent.** If a service method reads then writes (or writes multiple tables), use `db.$transaction(async (tx) => { ... })` and pass `tx` to all queries inside.
@@ -205,17 +179,17 @@ Extract a function with early returns instead.
 ```ts
 // GOOD
 function processOrder(order: Order): Result {
-  if (order.status === "cancelled") return fx.failure(new OrderCancelledError());
-  if (order.items.length === 0) return fx.failure(new EmptyOrderError());
+  if (order.status === "cancelled") throw new OrderCancelledError();
+  if (order.items.length === 0) throw new EmptyOrderError();
 
-  return fx.success(calculateTotal(order));
+  return calculateTotal(order);
 }
 
 // BAD - deeply nested
 function processOrder(order: Order): Result {
   if (order.status !== "cancelled") {
     if (order.items.length > 0) {
-      return fx.success(calculateTotal(order));
+      return calculateTotal(order);
     }
   }
   // ...
@@ -720,8 +694,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 4. **Static frontend.** No SSR. React SPA compiled to static files.
 5. **Engines are separate images.** Web and mobile never share a Docker image.
 6. **Jobs are separate images.** Each job type has its own Dockerfile.
-7. **One concern per package.** db = schema, types = contracts, engine = execution logic, ai = AI primitives, try = error handling, api = HTTP layer.
-8. **Explicit error handling.** `fx` from `@autonoma/try`. No silent failures.
+7. **One concern per package.** db = schema, types = contracts, engine = execution logic, ai = AI primitives, api = HTTP layer.
 9. **Constructor injection.** No DI framework.
 10. **Integration tests over unit tests.**
 11. **Strictest TypeScript.** Every strict flag enabled.

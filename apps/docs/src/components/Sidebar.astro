@@ -54,6 +54,24 @@ const sidebar: SidebarGroup[] = [
             },
         ],
     },
+    {
+        label: "Development",
+        items: [
+            { label: "Setup", slug: "development/setup" },
+            { label: "Architecture", slug: "development/architecture" },
+            { label: "Packages", slug: "development/packages" },
+            { label: "Conventions", slug: "development/conventions" },
+            { label: "Common Workflows", slug: "development/workflows" },
+            { label: "Environment Variables", slug: "development/environment-variables" },
+        ],
+    },
+    {
+        label: "Architecture",
+        items: [
+            { label: "Execution Agent", slug: "architecture/execution-agent" },
+            { label: "AI Package", slug: "architecture/ai-package" },
+        ],
+    },
 ]
 
 function isSidebarLink(item: SidebarLink | SidebarSubGroup): item is SidebarLink {
