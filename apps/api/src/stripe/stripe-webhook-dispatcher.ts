@@ -1,42 +1,29 @@
 import { processWebhookEvent } from "@autonoma/billing";
 import { logger } from "@autonoma/logger";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type Stripe from "stripe";
 import { env } from "../env.ts";
-import type { StripeWebhookWorkflowInput } from "../workflows/stripe-webhook.workflow.ts";
 
-type WorkflowApi = {
-    start: (
-        workflow: (input: StripeWebhookWorkflowInput) => Promise<void>,
-        args: [StripeWebhookWorkflowInput],
-    ) => Promise<unknown>;
-};
+const sqsClient = new SQSClient({
+    region: env.AWS_REGION,
+    credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+    },
+});
 
-async function loadWorkflowApi(): Promise<WorkflowApi> {
-    const workflowApi = (await import("workflow/api")) as WorkflowApi;
-    if (typeof workflowApi.start !== "function") {
-        throw new Error("workflow/api.start is not available");
-    }
-    return workflowApi;
-}
+async function dispatchWithSqs(event: Stripe.Event): Promise<void> {
+    const result = await sqsClient.send(
+        new SendMessageCommand({
+            QueueUrl: env.STRIPE_WEBHOOK_SQS_QUEUE_URL,
+            MessageBody: JSON.stringify({ event }),
+        }),
+    );
 
-async function dispatchWithWorkflow(event: Stripe.Event): Promise<void> {
-    const { stripeWebhookWorkflow } = await import("../workflows/stripe-webhook.workflow.ts");
-    const processUrl =
-        env.STRIPE_INTERNAL_WEBHOOK_PROCESS_URL ?? `http://localhost:${env.API_PORT}/v1/stripe/process-webhook`;
-    const input: StripeWebhookWorkflowInput = {
-        event,
-        processUrl,
-    };
-
-    const workflowApi = await loadWorkflowApi();
-
-    const run = await workflowApi.start(stripeWebhookWorkflow, [input]);
-
-    logger.info("Stripe webhook dispatched to workflow", {
+    logger.info("Stripe webhook event queued in SQS", {
         eventId: event.id,
         eventType: event.type,
-        runId: (run as { runId?: string }).runId,
-        processUrl,
+        messageId: result.MessageId,
     });
 }
 
@@ -52,8 +39,8 @@ function dispatchDirect(event: Stripe.Event): void {
 }
 
 export async function dispatchStripeWebhookEvent(event: Stripe.Event): Promise<void> {
-    if (env.STRIPE_WEBHOOK_DISPATCH_MODE === "workflow") {
-        await dispatchWithWorkflow(event);
+    if (env.STRIPE_WEBHOOK_DISPATCH_MODE === "sqs") {
+        await dispatchWithSqs(event);
         return;
     }
 

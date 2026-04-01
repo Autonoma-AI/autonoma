@@ -21,10 +21,14 @@ export const env = createEnv({
         REDIS_URL: z.string().min(1),
         LOCAL_GENERATION: z.stringbool().default(false),
         LOCAL_GENERATION_CONCURRENCY: z.coerce.number().int().positive().default(2),
+        AWS_REGION: z.string(),
+        AWS_ACCESS_KEY_ID: z.string(),
+        AWS_SECRET_ACCESS_KEY: z.string(),
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),
-        STRIPE_WEBHOOK_DISPATCH_MODE: z.enum(["direct", "workflow"]).optional().default("workflow"),
+        STRIPE_WEBHOOK_DISPATCH_MODE: z.enum(["direct", "sqs"]).optional().default("sqs"),
+        STRIPE_WEBHOOK_SQS_QUEUE_URL: z.url().optional(),
         STRIPE_INTERNAL_WEBHOOK_SECRET: z.string().min(1).optional(),
         STRIPE_INTERNAL_WEBHOOK_PROCESS_URL: z.url().optional(),
         ENGINE_BILLING_SECRET: z.string().min(1).optional(),
