@@ -78,7 +78,14 @@ export type AuthSession = {
     activeOrganizationId?: string;
 };
 
-async function ensureOrgMembership(conn: PrismaClient, userId: string, email: string): Promise<string> {
+const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com"]);
+
+async function ensureOrgMembership(
+    conn: PrismaClient,
+    userId: string,
+    email: string,
+    displayName?: string,
+): Promise<string> {
     const existing = await conn.member.findFirst({
         where: { userId },
         select: { organizationId: true },
@@ -108,12 +115,13 @@ async function ensureOrgMembership(conn: PrismaClient, userId: string, email: st
         });
     } else {
         const domain = extractDomain(email);
-        const slug = toSlug(domain);
-        const name = titleCase(domain.split(".")[0] ?? domain);
+        const isPersonalDomain = PERSONAL_EMAIL_DOMAINS.has(domain);
+        const name = isPersonalDomain && displayName != null ? displayName : titleCase(domain.split(".")[0] ?? domain);
+        const slug = toSlug(isPersonalDomain && displayName != null ? displayName : domain);
         const org = await conn.organization.upsert({
-            where: { domain },
+            where: { domain: isPersonalDomain ? email : domain },
             update: {},
-            create: { name, slug, domain, status: "pending" },
+            create: { name, slug, domain: isPersonalDomain ? email : domain, status: "approved" },
         });
         orgId = org.id;
     }
@@ -174,7 +182,7 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
                 getUserInfo: async (token) => {
                     if (token.idToken == null) return null;
                     const payload = decodeIdTokenPayload(token.idToken);
-                    if (payload.hd == null || payload.hd === "") return null;
+                    if (payload.email == null || payload.email === "") return null;
 
                     return {
                         user: {
@@ -193,7 +201,7 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
             user: {
                 create: {
                     after: async (user) => {
-                        await ensureOrgMembership(conn, user.id, user.email);
+                        await ensureOrgMembership(conn, user.id, user.email, user.name);
                     },
                 },
             },
@@ -202,12 +210,12 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
                     before: async (session) => {
                         const user = await conn.user.findUnique({
                             where: { id: session.userId },
-                            select: { email: true },
+                            select: { email: true, name: true },
                         });
 
                         if (user == null) throw new Error("User not found");
 
-                        const organizationId = await ensureOrgMembership(conn, session.userId, user.email);
+                        const organizationId = await ensureOrgMembership(conn, session.userId, user.email, user.name);
 
                         return {
                             data: {
