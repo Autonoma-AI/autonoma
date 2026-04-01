@@ -1,7 +1,7 @@
 import type { Application, PrismaClient } from "@autonoma/db";
 import { ApplicationArchitecture, Prisma, SnapshotStatus, TriggerSource } from "@autonoma/db";
+import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { toSlug } from "@autonoma/utils";
-import { ConflictError, NotFoundError } from "../../api-errors";
 import { Service } from "../service";
 
 const deploymentInclude = {

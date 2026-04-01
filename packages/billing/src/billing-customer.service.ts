@@ -1,12 +1,12 @@
 import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import { BILLING_CHECKOUT_TYPES, BILLING_PAYMENT_INTENT_TYPES, type BillingCheckoutType } from "@autonoma/types";
-import { NotFoundError } from "../../api-errors.ts";
-import { env } from "../../env.ts";
-import { getStripe } from "../../stripe/stripe-client.ts";
-import { syncStripeDataToDb } from "../../stripe/stripe-sync.ts";
-import { Service } from "../service.ts";
-import { ensureBillingProvisioning } from "./billing-provisioning.ts";
-import { buildCustomerCreateIdempotencyKey, isUniqueConstraintError } from "./billing-utils.ts";
+import { ensureBillingProvisioning } from "./billing-provisioning";
+import { buildCustomerCreateIdempotencyKey, isUniqueConstraintError } from "./billing-utils";
+import { env } from "./env";
+import { Service } from "./service";
+import { getStripe } from "./stripe-client";
+import { syncStripeDataToDb } from "./stripe-sync";
 
 export class BillingCustomerService extends Service {
     constructor(private readonly db: PrismaClient) {

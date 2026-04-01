@@ -2,12 +2,12 @@ import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { BILLING_PAYMENT_INTENT_TYPES, BILLING_STRIPE_SUBSCRIPTION_SYNC_EVENT_TYPES } from "@autonoma/types";
 import type Stripe from "stripe";
-import { env } from "../env.ts";
-import { type BillingService, createBillingService } from "../routes/billing/billing.service.ts";
-import { getStripe } from "./stripe-client.ts";
-import { syncStripeDataToDb } from "./stripe-sync.ts";
+import { type StripeBillingService, createBillingServices } from "./billing.service";
+import { env } from "./env";
+import { getStripe } from "./stripe-client";
+import { syncStripeDataToDb } from "./stripe-sync";
 
-type StripeWebhookHandler = (event: Stripe.Event, billingService: BillingService) => Promise<void>;
+type StripeWebhookHandler = (event: Stripe.Event, billingService: StripeBillingService) => Promise<void>;
 const STRIPE_INVOICE_PARENT_TYPE_SUBSCRIPTION_DETAILS = "subscription_details" as const;
 
 const webhookHandlers: Partial<Record<Stripe.Event.Type, StripeWebhookHandler>> = {
@@ -24,7 +24,14 @@ for (const eventType of BILLING_STRIPE_SUBSCRIPTION_SYNC_EVENT_TYPES) {
 }
 
 export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
-    const billingService = createBillingService(db);
+    const { stripeBillingService: billingService } = createBillingServices(db);
+    if (billingService == null) {
+        logger.info("Ignoring Stripe webhook event because STRIPE_ENABLED=false", {
+            type: event.type,
+            id: event.id,
+        });
+        return;
+    }
 
     logger.info("Processing Stripe webhook event", { type: event.type, id: event.id });
     const handler = webhookHandlers[event.type as Stripe.Event.Type];
@@ -42,7 +49,7 @@ async function handleSubscriptionSync(event: Stripe.Event): Promise<void> {
     await syncCustomerByRef(subscription.customer);
 }
 
-async function handleInvoicePaid(event: Stripe.Event, billingService: BillingService): Promise<void> {
+async function handleInvoicePaid(event: Stripe.Event, billingService: StripeBillingService): Promise<void> {
     const invoice = event.data.object as Stripe.Invoice;
     const stripeCustomerId = await syncCustomerByRef(invoice.customer);
     if (stripeCustomerId == null) return;
@@ -61,7 +68,10 @@ async function handleInvoicePaid(event: Stripe.Event, billingService: BillingSer
     await billingService.grantSubscriptionCredits(customer.organizationId, invoice.id);
 }
 
-async function handleInvoicePaymentStateChange(event: Stripe.Event, billingService: BillingService): Promise<void> {
+async function handleInvoicePaymentStateChange(
+    event: Stripe.Event,
+    billingService: StripeBillingService,
+): Promise<void> {
     const invoice = event.data.object as Stripe.Invoice;
     const stripeCustomerId = await syncCustomerByRef(invoice.customer);
     if (stripeCustomerId == null) return;
@@ -72,7 +82,7 @@ async function handleInvoicePaymentStateChange(event: Stripe.Event, billingServi
     await billingService.startGracePeriodByStripeCustomerId(stripeCustomerId, env.BILLING_GRACE_PERIOD_DAYS);
 }
 
-async function handlePaymentIntentSucceeded(event: Stripe.Event, billingService: BillingService): Promise<void> {
+async function handlePaymentIntentSucceeded(event: Stripe.Event, billingService: StripeBillingService): Promise<void> {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const paymentIntentType = paymentIntent.metadata.type;
     const organizationId = paymentIntent.metadata.organizationId;
@@ -85,7 +95,7 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     await syncCustomerByRef(session.customer);
 }
 
-async function handleRefundCreated(event: Stripe.Event, billingService: BillingService): Promise<void> {
+async function handleRefundCreated(event: Stripe.Event, billingService: StripeBillingService): Promise<void> {
     const refund = event.data.object as Stripe.Refund;
     const refundId = refund.id;
     if (refund.status !== "succeeded") {

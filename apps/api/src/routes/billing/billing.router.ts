@@ -2,7 +2,7 @@ import { BILLING_CHECKOUT_TYPES } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
 
-export const billingRouter = router({
+const billingRouterImpl = router({
     status: protectedProcedure.query(({ ctx: { services, organizationId } }) =>
         services.billing.getBillingStatus(organizationId),
     ),
@@ -38,3 +38,5 @@ export const billingRouter = router({
             services.billing.redeemPromoCode(organizationId, input.code),
         ),
 });
+
+export const billingRouter: typeof billingRouterImpl = billingRouterImpl;

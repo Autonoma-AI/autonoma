@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import { NotFoundError } from "../../api-errors";
 import { Service } from "../service";
 
 export class TestsService extends Service {

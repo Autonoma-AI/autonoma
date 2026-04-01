@@ -1,13 +1,13 @@
 import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
 import type { BillingCheckoutType } from "@autonoma/types";
-import { AutoTopUpService } from "./auto-topup.service.ts";
-import { BillingCustomerService } from "./billing-customer.service.ts";
-import { BillingPricingService } from "./billing-pricing.service.ts";
-import { BillingPromoService } from "./billing-promo.service.ts";
-import type { BillingConsumptionTarget, BillingService, DeductGenerationContext } from "./billing-service.types.ts";
-import { CreditsService } from "./credits.service.ts";
+import { AutoTopUpService } from "./auto-topup.service";
+import { BillingCustomerService } from "./billing-customer.service";
+import { BillingPricingService } from "./billing-pricing.service";
+import { BillingPromoService } from "./billing-promo.service";
+import { CreditsService } from "./credits.service";
+import type { BillingConsumptionTarget, BillingService, DeductGenerationContext, StripeBillingService } from "./types";
 
-export class EnabledBillingService implements BillingService {
+export class EnabledBillingService implements BillingService, StripeBillingService {
     private readonly billingCustomerService: BillingCustomerService;
     private readonly creditsService: CreditsService;
     private readonly billingPricingService: BillingPricingService;

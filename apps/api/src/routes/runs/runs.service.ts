@@ -1,10 +1,10 @@
+import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { Architecture } from "@autonoma/types";
 import { type TriggerRunWorkflowParams, findLatestWorkflowByRunId } from "@autonoma/workflow";
-import { NotFoundError } from "../../api-errors";
 import { env } from "../../env";
-import type { BillingService } from "../billing/billing.service.ts";
 import { Service } from "../service";
 
 function computeDuration(startedAt: Date | null, completedAt: Date | null): string | null {

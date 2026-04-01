@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
-import { BadRequestError, NotFoundError } from "../../api-errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { Service } from "../service";
 
 export class FoldersService extends Service {

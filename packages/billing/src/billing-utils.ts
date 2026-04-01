@@ -1,5 +1,5 @@
 import { ApplicationArchitecture, Prisma } from "@autonoma/db";
-import type { BillingPricingValues } from "./billing-pricing.types.ts";
+import type { BillingPricingValues } from "./billing-pricing.types";
 
 export function isUniqueConstraintError(error: unknown) {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";

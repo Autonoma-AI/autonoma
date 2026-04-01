@@ -1,18 +1,18 @@
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { type ApplicationArchitecture, CreditTransactionType } from "@autonoma/db";
+import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "@autonoma/errors";
 import * as Sentry from "@sentry/node";
-import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "../../api-errors.ts";
-import { Service } from "../service.ts";
-import type { AutoTopUpService } from "./auto-topup.service.ts";
-import type { BillingPricingService } from "./billing-pricing.service.ts";
-import type { BillingConsumptionTarget, DeductGenerationContext } from "./billing-service.types.ts";
-import { getGenerationCreditCost, getRunCreditCost, isUniqueConstraintError } from "./billing-utils.ts";
+import type { AutoTopUpService } from "./auto-topup.service";
+import type { BillingPricingService } from "./billing-pricing.service";
+import { getGenerationCreditCost, getRunCreditCost, isUniqueConstraintError } from "./billing-utils";
 import type {
     DeductCreditsResultRow,
     GenerationRefundResultRow,
     SubscriptionGrantCustomerRow,
     TopupRefundResultRow,
-} from "./billing.types.ts";
+} from "./billing.types";
+import { Service } from "./service";
+import type { BillingConsumptionTarget, DeductGenerationContext } from "./types";
 
 type TxClient = Prisma.TransactionClient;
 type RawTxClient = TxClient & Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -112,6 +112,18 @@ export class CreditsService extends Service {
             architecture = generation.testPlan.testCase.application.architecture;
         }
 
+        const isRerun = context?.isRerun ?? false;
+        let transactionId: string;
+
+        if (isRerun) {
+            const existingCount = await this.db.creditTransaction.count({
+                where: { generationId, type: CreditTransactionType.GENERATION_CONSUMPTION },
+            });
+            transactionId = `ctr_gen_${generationId}_rerun_${existingCount + 1}`;
+        } else {
+            transactionId = `ctr_gen_${generationId}`;
+        }
+
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
         const cost = getGenerationCreditCost(architecture, pricing);
 
@@ -144,14 +156,14 @@ export class CreditsService extends Service {
                             generation_id
                         )
                         SELECT
-                            ${`ctr_gen_${generationId}`},
+                            ${transactionId},
                             organization_id,
                             'GENERATION_CONSUMPTION'::credit_transaction_type,
                             ${-cost},
                             credit_balance - ${cost},
                             ${generationId}
                         FROM eligible
-                        ON CONFLICT (generation_id) DO NOTHING
+                        ON CONFLICT (id) DO NOTHING
                         RETURNING id
                     ),
                     updated AS (
@@ -179,7 +191,7 @@ export class CreditsService extends Service {
 
                 if (result.inserted_count === 0n) {
                     const existing = await tx.creditTransaction.findUnique({
-                        where: { generationId },
+                        where: { id: transactionId },
                         select: { id: true },
                     });
                     if (existing != null) {
@@ -406,7 +418,6 @@ export class CreditsService extends Service {
         }
 
         const organizationId = generation.organizationId;
-        const refundTxId = `ctr_gen_refund_${generationId}`;
 
         await this.db.$transaction(async (tx) => {
             const rawTx = this.asRawTx(tx);
@@ -425,16 +436,19 @@ export class CreditsService extends Service {
                 ),
                 consumed AS (
                     SELECT
+                        id,
                         organization_id,
                         ABS(amount)::int AS refunded_amount
                     FROM credit_transaction
                     WHERE generation_id = ${generationId}
                       AND type = 'GENERATION_CONSUMPTION'::credit_transaction_type
+                    ORDER BY created_at DESC
                     LIMIT 1
                 ),
                 adjusted AS (
                     SELECT
                         customer.organization_id,
+                        consumed.id AS consumption_id,
                         consumed.refunded_amount,
                         customer.credit_balance + consumed.refunded_amount AS new_balance,
                         customer.subscription_credit_balance
@@ -458,7 +472,7 @@ export class CreditsService extends Service {
                         balance_after
                     )
                     SELECT
-                        ${refundTxId},
+                        'ctr_gen_refund_' || adjusted.consumption_id,
                         adjusted.organization_id,
                         'GENERATION_REFUND'::credit_transaction_type,
                         adjusted.refunded_amount,

@@ -1,3 +1,4 @@
+import { createBillingServices, getStripe, processWebhookEvent } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { BILLING_STRIPE_WEBHOOK_EVENT_TYPES, type BillingStripeWebhookEventType } from "@autonoma/types";
@@ -5,10 +6,7 @@ import { Hono } from "hono";
 import type Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../env.ts";
-import { createBillingService } from "../routes/billing/billing.service.ts";
-import { getStripe } from "./stripe-client.ts";
 import { dispatchStripeWebhookEvent } from "./stripe-webhook-dispatcher.ts";
-import { processWebhookEvent } from "./webhook-handlers.ts";
 
 export const stripeHttpRouter = new Hono();
 
@@ -122,7 +120,7 @@ stripeHttpRouter.post("/run-failed", async (c) => {
     }
 
     const { generationId } = parsed.data;
-    const billingService = createBillingService(db);
+    const { billingService } = createBillingServices(db);
 
     try {
         await billingService.refundCreditsForGeneration(generationId);

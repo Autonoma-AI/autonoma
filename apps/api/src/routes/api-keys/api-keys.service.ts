@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "../../api-errors";
+import { NotFoundError } from "@autonoma/errors";
 import { hashApiKey } from "../../application-setup/verify-api-key";
 import { Service } from "../service";
 

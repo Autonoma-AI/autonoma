@@ -18,7 +18,7 @@ import { snapshotEditRouter } from "./snapshot-edit/snapshot-edit.router";
 import { generationsRouter } from "./test-generations/test-generations.router";
 import { testsRouter } from "./tests/tests.router";
 
-export const appRouter = router({
+const appRouterImpl = router({
     admin: adminRouter,
     apiKeys: apiKeysRouter,
     applicationSetups: applicationSetupsRouter,
@@ -38,5 +38,7 @@ export const appRouter = router({
     onboarding: onboardingRouter,
     snapshotEdit: snapshotEditRouter,
 });
+
+export const appRouter: typeof appRouterImpl = appRouterImpl;
 
 export type AppRouter = typeof appRouter;

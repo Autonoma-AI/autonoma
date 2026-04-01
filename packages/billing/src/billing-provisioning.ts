@@ -1,5 +1,5 @@
 import { CreditTransactionType, type PrismaClient } from "@autonoma/db";
-import { isUniqueConstraintError } from "./billing-utils.ts";
+import { isUniqueConstraintError } from "./billing-utils";
 
 export async function ensureBillingProvisioning(db: PrismaClient, organizationId: string) {
     const existing = await db.billingCustomer.findUnique({

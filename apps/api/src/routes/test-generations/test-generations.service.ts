@@ -1,11 +1,11 @@
+import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { GenerationStatus } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import { type WorkflowArchitecture, findLatestWorkflowByGenerationId } from "@autonoma/workflow";
-import { NotFoundError } from "../../api-errors";
 import { env } from "../../env";
-import type { BillingService } from "../billing/billing.service.ts";
 import { Service } from "../service";
 
 export class TestGenerationsService extends Service {
@@ -227,18 +227,6 @@ export class TestGenerationsService extends Service {
 
         const scenarioId = existing.testPlan.scenarioId ?? undefined;
         const architecture = existing.testPlan.testCase.application.architecture as WorkflowArchitecture;
-
-        try {
-            await this.billingService.deductCreditsForGeneration(generationId);
-        } catch (error) {
-            this.logger.error("Failed to deduct credits for generation", error, {
-                organizationId,
-                generationId,
-                target: "generation",
-                architecture,
-            });
-            throw error;
-        }
 
         await this.generationProvider.fireJobs([
             { testGenerationId: generationId, planId: existing.testPlanId, scenarioId, architecture },

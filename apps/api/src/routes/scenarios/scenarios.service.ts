@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
-import { NotFoundError } from "../../api-errors";
 import { Service } from "../service";
 
 export class ScenariosService extends Service {

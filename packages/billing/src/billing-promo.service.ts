@@ -1,15 +1,9 @@
 import { CreditTransactionType, type PrismaClient } from "@autonoma/db";
-import { BadRequestError } from "../../api-errors.ts";
-import { Service } from "../service.ts";
-import { ensureBillingProvisioning } from "./billing-provisioning.ts";
-import { isUniqueConstraintError, normalizePromoCode } from "./billing-utils.ts";
-
-export type RedeemPromoCodeResult = {
-    promoCode: string;
-    grantedCredits: number;
-    newBalance: number;
-    remainingRedemptions: number | null;
-};
+import { BadRequestError } from "@autonoma/errors";
+import { ensureBillingProvisioning } from "./billing-provisioning";
+import { isUniqueConstraintError, normalizePromoCode } from "./billing-utils";
+import { Service } from "./service";
+import type { RedeemPromoCodeResult } from "./types";
 
 export class BillingPromoService extends Service {
     constructor(private readonly db: PrismaClient) {

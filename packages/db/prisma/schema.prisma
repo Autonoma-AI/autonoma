@@ -1310,7 +1310,7 @@ model CreditTransaction {
     amount         Int
     balanceAfter   Int                   @map("balance_after")
 
-    generationId          String? @unique @map("generation_id")
+    generationId          String? @map("generation_id")
     runId                 String? @unique @map("run_id")
     stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
     stripeInvoiceId       String? @unique @map("stripe_invoice_id")

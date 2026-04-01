@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { SnapshotStatus, TriggerSource } from "@autonoma/db";
-import { BadRequestError, InternalError, NotFoundError } from "../../api-errors";
+import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import { Service } from "../service";
 
 export class BranchesService extends Service {

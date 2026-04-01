@@ -1,7 +1,7 @@
 import { type PrismaClient, SubscriptionStatus } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
-import { getStripe } from "./stripe-client.ts";
+import { getStripe } from "./stripe-client";
 
 /**
  * Syncs Stripe subscription data into the BillingCustomer record.

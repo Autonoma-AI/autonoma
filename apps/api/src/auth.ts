@@ -1,3 +1,4 @@
+import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
@@ -7,7 +8,6 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { apiKey, organization } from "better-auth/plugins";
 import type Redis from "ioredis";
 import { env } from "./env";
-import { ensureBillingProvisioning } from "./routes/billing/billing-provisioning.ts";
 
 const INTERNAL_DOMAIN = `@${env.INTERNAL_DOMAIN}`;
 

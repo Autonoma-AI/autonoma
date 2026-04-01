@@ -24,7 +24,9 @@
     "dependencies": {
         "@autonoma/ai": "workspace:*",
         "@autonoma/analytics": "workspace:*",
+        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
+        "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/review": "workspace:*",
         "@autonoma/scenario": "workspace:*",
@@ -44,7 +46,6 @@
         "dotenv": "catalog:",
         "hono": "^4.12.4",
         "ioredis": "^5.9.3",
-        "stripe": "^20.4.1",
         "superjson": "^2.2.6",
         "workflow": "latest",
         "zod": "catalog:",

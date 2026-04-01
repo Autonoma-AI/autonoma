@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
-import { Service } from "../service.ts";
-import type { BillingPricingValues } from "./billing-pricing.types.ts";
+import type { BillingPricingValues } from "./billing-pricing.types";
+import { Service } from "./service";
 
 export class BillingPricingService extends Service {
     constructor(private readonly db: PrismaClient) {

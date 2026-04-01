@@ -1,4 +1,5 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
+import { createBillingServices, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { BugLinker, BugMatcher } from "@autonoma/review";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
@@ -12,8 +13,6 @@ import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
 import { ApplicationsService } from "./applications/applications.service";
 import { AuthService } from "./auth/auth.service";
-import { createBillingService } from "./billing/billing.service.ts";
-import type { BillingService } from "./billing/billing.service.ts";
 import { BranchesService } from "./branches/branches.service";
 import { BugsService } from "./bugs/bugs.service";
 import { FoldersService } from "./folders/folders.service";
@@ -78,7 +77,7 @@ export function buildServices({
     });
     const bugMatcher = new BugMatcher(registry.getModel({ model: "smart-text", tag: "bug-matching" }));
     const bugLinker = new BugLinker(bugMatcher);
-    const billingService = createBillingService(conn);
+    const { billingService } = createBillingServices(conn);
 
     return {
         admin: new AdminService(conn, auth),

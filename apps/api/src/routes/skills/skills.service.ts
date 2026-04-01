@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from "@autonoma/db";
+import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { toSlug } from "@autonoma/utils";
 import matter from "gray-matter";
-import { BadRequestError, ConflictError, NotFoundError } from "../../api-errors";
 import { Service } from "../service";
 
 type CreateSkillInput = {

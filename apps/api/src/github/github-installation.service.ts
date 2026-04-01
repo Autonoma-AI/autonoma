@@ -1,6 +1,6 @@
 import type { GitHubDeploymentTrigger, GitHubRepository, PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import { triggerTestCaseGenerationJob } from "@autonoma/workflow";
-import { NotFoundError } from "../api-errors";
 import { Service } from "../routes/service";
 import { getGithubApp } from "./github-app";
 

@@ -1,0 +1,33 @@
+{
+    "name": "@autonoma/billing",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./env": "./src/env.ts",
+        "./types": "./src/types.ts"
+    },
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix src/",
+        "fmt": "oxfmt --write src/",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "@autonoma/db": "workspace:*",
+        "@autonoma/errors": "workspace:*",
+        "@autonoma/logger": "workspace:*",
+        "@autonoma/types": "workspace:*",
+        "@sentry/node": "catalog:",
+        "@t3-oss/env-core": "catalog:",
+        "stripe": "^20.4.1",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

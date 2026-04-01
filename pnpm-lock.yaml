@@ -159,9 +159,15 @@ importers:
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@autonoma/billing':
+        specifier: workspace:*
+        version: file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db':
         specifier: workspace:*
         version: file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/errors':
+        specifier: workspace:*
+        version: link:../../packages/errors
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -219,9 +225,6 @@ importers:
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
-      stripe:
-        specifier: ^20.4.1
-        version: 20.4.1(@types/node@25.2.3)
       superjson:
         specifier: ^2.2.6
         version: 2.2.6
@@ -981,6 +984,43 @@ importers:
         specifier: 'catalog:'
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/billing:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
+      '@autonoma/errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.39.0
+      '@t3-oss/env-core':
+        specifier: 'catalog:'
+        version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
+      stripe:
+        specifier: ^20.4.1
+        version: 20.4.1(@types/node@25.2.3)
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/blacklight:
     dependencies:
       '@base-ui/react':
@@ -1640,6 +1680,9 @@ packages:
 
   '@autonoma/api@file:apps/api':
     resolution: {directory: apps/api, type: directory}
+
+  '@autonoma/billing@file:packages/billing':
+    resolution: {directory: packages/billing, type: directory}
 
   '@autonoma/blacklight@file:packages/blacklight':
     resolution: {directory: packages/blacklight, type: directory}
@@ -11953,7 +11996,9 @@ snapshots:
     dependencies:
       '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/analytics': file:packages/analytics
+      '@autonoma/billing': file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/errors': file:packages/errors(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/logger': file:packages/logger(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/review': file:packages/review(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/scenario': file:packages/scenario(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -11973,7 +12018,6 @@ snapshots:
       dotenv: 17.3.1
       hono: 4.12.9
       ioredis: 5.9.3
-      stripe: 20.4.1(@types/node@25.2.3)
       superjson: 2.2.6
       workflow: 4.2.0-beta.73(@nestjs/common@11.1.17(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.17(@nestjs/common@11.1.17(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.0(@swc/core@1.15.3(@swc/helpers@0.5.18))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.18))(@swc/helpers@0.5.18)(magicast@0.5.2)(typescript@5.9.3)
       zod: 4.3.6
@@ -12021,6 +12065,25 @@ snapshots:
       - valibot
       - vitest
       - vue
+
+  '@autonoma/billing@file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
+    dependencies:
+      '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/errors': file:packages/errors(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/logger': file:packages/logger(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/types': file:packages/types
+      '@sentry/node': 10.39.0
+      '@t3-oss/env-core': 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
+      stripe: 20.4.1(@types/node@25.2.3)
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - '@types/node'
+      - arktype
+      - pg-native
+      - prisma
+      - supports-color
+      - typescript
+      - valibot
 
   '@autonoma/blacklight@file:packages/blacklight(@types/node@25.2.3)(@types/react@19.2.14)(typescript@5.9.3)(vite@6.4.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))':
     dependencies:

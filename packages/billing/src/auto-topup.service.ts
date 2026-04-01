@@ -1,9 +1,9 @@
 import type { PrismaClient } from "@autonoma/db";
 import { BILLING_PAYMENT_INTENT_TYPES } from "@autonoma/types";
-import { getStripe } from "../../stripe/stripe-client.ts";
-import { Service } from "../service.ts";
-import type { BillingPricingValues } from "./billing-pricing.types.ts";
-import { buildAutoTopUpIdempotencyKey } from "./billing-utils.ts";
+import type { BillingPricingValues } from "./billing-pricing.types";
+import { buildAutoTopUpIdempotencyKey } from "./billing-utils";
+import { Service } from "./service";
+import { getStripe } from "./stripe-client";
 
 export class AutoTopUpService extends Service {
     constructor(private readonly db: PrismaClient) {

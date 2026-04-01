@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import { BUG_CONFIDENCE_THRESHOLD, type BugLinker } from "@autonoma/review";
 import type { StorageProvider } from "@autonoma/storage";
-import { NotFoundError } from "../../api-errors";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
 

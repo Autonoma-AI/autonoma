@@ -1,4 +1,6 @@
+import type { BillingService } from "@autonoma/billing";
 import { ApplicationArchitecture, type PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import {
     AddTest,
     ApplicationNotFoundError,
@@ -9,8 +11,6 @@ import {
     TestSuiteUpdater,
     UpdateTest,
 } from "@autonoma/test-updates";
-import { NotFoundError } from "../../api-errors";
-import type { BillingService } from "../billing/billing.service.ts";
 import { Service } from "../service";
 
 interface AddTestInput {
