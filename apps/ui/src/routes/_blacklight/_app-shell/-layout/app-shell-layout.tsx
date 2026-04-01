@@ -136,9 +136,11 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
                 <div className="flex items-center gap-3">
                   <AppBreadcrumb />
                 </div>
-                <Suspense>
-                  <GenerationBanner />
-                </Suspense>
+                {hasBranchNav ? (
+                  <Suspense>
+                    <GenerationBanner />
+                  </Suspense>
+                ) : null}
               </div>
             </div>
 

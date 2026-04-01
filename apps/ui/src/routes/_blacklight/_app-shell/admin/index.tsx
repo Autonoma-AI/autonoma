@@ -18,6 +18,7 @@ import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
+import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
@@ -27,11 +28,15 @@ import { Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
+  type AdminPromoCodesInput,
   useAdminOrganizations,
   useAdminPendingOrgs,
   useApproveOrg,
+  useAdminPromoCodes,
+  useCreatePromoCodeAdmin,
   useCreateOrg,
   useRejectOrg,
+  useSetPromoCodeActiveAdmin,
   useSwitchToOrg,
 } from "lib/query/admin.queries";
 import { Suspense, useState } from "react";
@@ -40,7 +45,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/admin/")({
   component: AdminPage,
 });
 
-type Tab = "organizations" | "pending";
+type Tab = "organizations" | "pending" | "promoCodes";
 
 // ─── Guard ────────────────────────────────────────────────────────────────────
 
@@ -197,6 +202,243 @@ function OrgListSkeleton() {
       ))}
     </div>
   );
+}
+
+function PromoCodesAdmin() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <PromoCodeCreateCard />
+      <Suspense fallback={<PromoCodeListSkeleton />}>
+        <PromoCodeListCard />
+      </Suspense>
+    </div>
+  );
+}
+
+function PromoCodeCreateCard() {
+  const [code, setCode] = useState("");
+  const [credits, setCredits] = useState("100000");
+  const [maxRedemptions, setMaxRedemptions] = useState("");
+  const [endsAt, setEndsAt] = useState("");
+  const createPromoCode = useCreatePromoCodeAdmin();
+
+  function handleCreatePromoCode() {
+    const normalizedCode = code.trim();
+    const grantCredits = Number.parseInt(credits, 10);
+    const max = maxRedemptions.trim() === "" ? null : Number.parseInt(maxRedemptions, 10);
+    const expiration = endsAt.trim() === "" ? null : new Date(endsAt);
+    if (normalizedCode.length === 0 || !Number.isFinite(grantCredits) || grantCredits <= 0) return;
+    if (max != null && (!Number.isFinite(max) || max <= 0)) return;
+    if (expiration != null && Number.isNaN(expiration.getTime())) return;
+
+    createPromoCode.mutate(
+      {
+        code: normalizedCode,
+        grantCredits,
+        maxRedemptions: max,
+        endsAt: expiration,
+      },
+      {
+        onSuccess: () => {
+          setCode("");
+          setCredits("100000");
+          setMaxRedemptions("");
+          setEndsAt("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border-dim bg-surface-base p-4">
+      <h2 className="text-sm font-medium text-text-primary">Create promo code</h2>
+      <div className="mt-3 space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="admin-promo-code">Name / code</Label>
+          <Input
+            id="admin-promo-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="0BUGS"
+            aria-label="admin-promo-code-name"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="admin-promo-credits">Credits</Label>
+          <Input
+            id="admin-promo-credits"
+            type="number"
+            min={1}
+            value={credits}
+            onChange={(e) => setCredits(e.target.value)}
+            aria-label="admin-promo-code-credits"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="admin-promo-max-redemptions">Max redemptions (optional)</Label>
+          <Input
+            id="admin-promo-max-redemptions"
+            type="number"
+            min={1}
+            value={maxRedemptions}
+            onChange={(e) => setMaxRedemptions(e.target.value)}
+            aria-label="admin-promo-code-max-redemptions"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="admin-promo-expiration">Expires at (optional)</Label>
+          <Input
+            id="admin-promo-expiration"
+            type="datetime-local"
+            value={endsAt}
+            onChange={(e) => setEndsAt(e.target.value)}
+            aria-label="admin-promo-code-expires-at"
+          />
+          <p className="text-2xs text-text-tertiary">Timezone: local browser time (stored in UTC).</p>
+        </div>
+        <Button
+          onClick={handleCreatePromoCode}
+          disabled={code.trim().length === 0 || createPromoCode.isPending}
+          aria-label="admin-promo-code-create"
+        >
+          {createPromoCode.isPending ? "Creating..." : "Create promo code"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PromoCodeListCard() {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  const listInput: AdminPromoCodesInput = {
+    page,
+    pageSize,
+    query: search.trim() === "" ? undefined : search.trim(),
+    isActive: status === "all" ? undefined : status === "active",
+  };
+  const { data } = useAdminPromoCodes(listInput);
+  const setPromoCodeActive = useSetPromoCodeActiveAdmin();
+
+  return (
+    <div className="rounded-md border border-border-dim bg-surface-base p-4">
+      <h2 className="text-sm font-medium text-text-primary">Manage promo codes</h2>
+      <div className="mt-3 space-y-3">
+        <div className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_180px_140px]">
+          <Input
+            placeholder="Search code or description..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="h-9"
+            aria-label="admin-promo-code-search"
+          />
+          <select
+            className="h-9 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
+            value={status}
+            onChange={(e) => {
+              const value = e.target.value as "all" | "active" | "inactive";
+              setStatus(value);
+              setPage(1);
+            }}
+            aria-label="admin-promo-code-status-filter"
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select
+            className="h-9 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number.parseInt(e.target.value, 10));
+              setPage(1);
+            }}
+            aria-label="admin-promo-code-page-size"
+          >
+            <option value={10}>10 / page</option>
+            <option value={20}>20 / page</option>
+            <option value={50}>50 / page</option>
+          </select>
+        </div>
+
+        {data.items.length === 0 ? (
+          <p className="text-sm text-text-tertiary">No promo codes yet.</p>
+        ) : (
+          data.items.map((promo) => {
+            const remaining =
+              promo.maxRedemptions == null ? "∞" : Math.max(0, promo.maxRedemptions - promo.redeemedCount);
+
+            return (
+              <div key={promo.id} className="rounded-md border border-border-dim px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-2xs text-text-primary">{promo.code}</p>
+                    <p className="font-mono text-3xs text-text-tertiary">
+                      +{promo.grantCredits.toLocaleString()} credits · Remaining: {remaining}
+                    </p>
+                    <p className="font-mono text-3xs text-text-tertiary">
+                      {promo.endsAt == null
+                        ? "No expiration"
+                        : `Expires ${new Date(promo.endsAt).toLocaleString()} (local)`}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setPromoCodeActive.mutate({
+                        promoCodeId: promo.id,
+                        isActive: !promo.isActive,
+                      })
+                    }
+                    disabled={setPromoCodeActive.isPending}
+                    aria-label={`admin-promo-code-toggle-${promo.code.toLowerCase()}`}
+                  >
+                    {promo.isActive ? "Disable" : "Enable"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div className="flex items-center justify-between pt-1">
+          <p className="text-2xs text-text-tertiary">
+            Page {data.page} of {data.totalPages} · {data.total} total
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={data.page <= 1}
+              aria-label="admin-promo-code-prev-page"
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))}
+              disabled={data.page >= data.totalPages}
+              aria-label="admin-promo-code-next-page"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PromoCodeListSkeleton() {
+  return <Skeleton className="h-[380px] w-full rounded-md" />;
 }
 
 // ─── Pending Approvals ────────────────────────────────────────────────────────
@@ -425,7 +667,7 @@ function AdminContent() {
               <button
                 type="button"
                 onClick={() => setTab("pending")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-2xs font-medium transition-colors rounded-r-md ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-2xs font-medium transition-colors ${
                   tab === "pending"
                     ? "bg-surface-raised text-text-primary"
                     : "text-text-tertiary hover:text-text-primary"
@@ -433,6 +675,18 @@ function AdminContent() {
               >
                 <ClockIcon size={14} />
                 Pending
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("promoCodes")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-2xs font-medium transition-colors rounded-r-md ${
+                  tab === "promoCodes"
+                    ? "bg-surface-raised text-text-primary"
+                    : "text-text-tertiary hover:text-text-primary"
+                }`}
+              >
+                <GiftIcon size={14} />
+                Promo codes
               </button>
             </div>
           </div>
@@ -447,6 +701,12 @@ function AdminContent() {
         {tab === "pending" && (
           <Suspense fallback={<OrgListSkeleton />}>
             <PendingOrgList />
+          </Suspense>
+        )}
+
+        {tab === "promoCodes" && (
+          <Suspense fallback={<OrgListSkeleton />}>
+            <PromoCodesAdmin />
           </Suspense>
         )}
       </div>

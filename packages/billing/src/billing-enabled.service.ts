@@ -107,4 +107,16 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
     redeemPromoCode(organizationId: string, code: string) {
         return this.billingPromoService.redeemPromoCode(organizationId, code);
     }
+
+    listPromoCodes(input?: Parameters<BillingPromoService["listPromoCodes"]>[0]) {
+        return this.billingPromoService.listPromoCodes(input);
+    }
+
+    createPromoCode(input: Parameters<BillingPromoService["createPromoCode"]>[0]) {
+        return this.billingPromoService.createPromoCode(input);
+    }
+
+    setPromoCodeActive(promoCodeId: string, isActive: boolean) {
+        return this.billingPromoService.setPromoCodeActive(promoCodeId, isActive);
+    }
 }

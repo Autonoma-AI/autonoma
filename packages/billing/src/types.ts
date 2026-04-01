@@ -8,6 +8,43 @@ export type RedeemPromoCodeResult = {
     remainingRedemptions: number | null;
 };
 
+export type BillingPromoCodeItem = {
+    id: string;
+    code: string;
+    description: string | null;
+    grantCredits: number;
+    maxRedemptions: number | null;
+    redeemedCount: number;
+    startsAt: Date | null;
+    endsAt: Date | null;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+};
+
+export type CreatePromoCodeInput = {
+    code: string;
+    description?: string | null;
+    grantCredits: number;
+    maxRedemptions?: number | null;
+    endsAt?: Date | null;
+};
+
+export type ListPromoCodesInput = {
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    isActive?: boolean;
+};
+
+export type ListPromoCodesResult = {
+    items: BillingPromoCodeItem[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+};
+
 export type BillingConsumptionTarget = "generation" | "run";
 export type DeductGenerationContext = {
     organizationId?: string;
@@ -48,6 +85,9 @@ export interface BillingService {
     deductCreditsForRun(runId: string): Promise<boolean>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;
+    listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;
+    createPromoCode(input: CreatePromoCodeInput): Promise<BillingPromoCodeItem>;
+    setPromoCodeActive(promoCodeId: string, isActive: boolean): Promise<BillingPromoCodeItem>;
 }
 
 export interface StripeBillingService {

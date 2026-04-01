@@ -1,6 +1,11 @@
+import type { AppRouter } from "@autonoma/api/router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import type { inferRouterInputs } from "@trpc/server";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
+
+type RouterInputs = inferRouterInputs<AppRouter>;
+export type AdminPromoCodesInput = RouterInputs["admin"]["billing"]["listPromoCodes"];
 
 export function useAdminOrganizations() {
     return useSuspenseQuery(trpc.admin.listOrganizations.queryOptions());
@@ -55,5 +60,33 @@ export function useCreateOrg() {
         }),
         successToast: { title: "Organization created" },
         errorToast: { title: "Failed to create organization" },
+    });
+}
+
+export function useAdminPromoCodes(input: AdminPromoCodesInput) {
+    return useSuspenseQuery(trpc.admin.billing.listPromoCodes.queryOptions(input));
+}
+
+export function useCreatePromoCodeAdmin() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.billing.createPromoCode.mutationOptions({
+            onSuccess: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.billing.listPromoCodes.queryKey() });
+            },
+        }),
+        successToast: { title: "Promo code created" },
+    });
+}
+
+export function useSetPromoCodeActiveAdmin() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.billing.setPromoCodeActive.mutationOptions({
+            onSuccess: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.billing.listPromoCodes.queryKey() });
+            },
+        }),
+        successToast: { title: "Promo code updated" },
     });
 }
