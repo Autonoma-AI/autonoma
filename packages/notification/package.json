@@ -1,0 +1,25 @@
+{
+    "name": "@autonoma/notification",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix src/",
+        "fmt": "oxfmt --write src/",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "@autonoma/logger": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "dotenv": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

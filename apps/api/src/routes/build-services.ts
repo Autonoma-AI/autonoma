@@ -17,6 +17,7 @@ import { BranchesService } from "./branches/branches.service";
 import { BugsService } from "./bugs/bugs.service";
 import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
+import { NotificationsService } from "./notifications/notifications.service";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
@@ -44,6 +45,7 @@ export interface Services {
     snapshotEdit: SnapshotEditService;
     billing: BillingService;
     applicationSetups: ApplicationSetupsService;
+    notifications: NotificationsService;
 }
 
 export type TriggerGenerationReview = (generationId: string) => void | Promise<void>;
@@ -98,5 +100,6 @@ export function buildServices({
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
+        notifications: new NotificationsService(conn),
     };
 }

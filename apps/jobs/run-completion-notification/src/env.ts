@@ -9,6 +9,7 @@ export const env = createEnv({
         API_URL: z.string().optional(),
         ENGINE_BILLING_SECRET: z.string().optional(),
         STRIPE_ENABLED: z.stringbool().default(false),
+        APP_URL: z.string().optional().default("http://localhost:3000"),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

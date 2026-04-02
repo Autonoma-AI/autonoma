@@ -5,6 +5,7 @@ import { getK8sClient } from "../k8s/k8s-client";
 import { replayReviewerTemplate } from "./replay-reviewer/replay-reviewer-template";
 import { runReplayMobileTemplate } from "./replay/run-replay-mobile";
 import { runReplayWebTemplate } from "./replay/run-replay-web";
+import { runNotificationTemplate } from "./run-notification/run-notification.template";
 import { scenarioDownTemplate } from "./scenario/scenario-down.template";
 import { scenarioUpTemplate } from "./scenario/scenario-up.template";
 
@@ -28,6 +29,7 @@ export async function triggerRunWorkflow({
         architecture === Architecture.web ? await runReplayWebTemplate() : await runReplayMobileTemplate(),
     );
     const reviewTemplate = dag.addTemplate(await replayReviewerTemplate());
+    const notifyTemplate = dag.addTemplate(await runNotificationTemplate());
 
     if (scenarioId != null) {
         const [upTemplate, downTemplate] = await Promise.all([scenarioUpTemplate(), scenarioDownTemplate()]);
@@ -66,6 +68,13 @@ export async function triggerRunWorkflow({
             args: { runId },
             depends: runReplayTask.completed,
         });
+
+        dag.addTask({
+            name: "notify-run-exit",
+            template: notifyTemplate,
+            args: { runId },
+            depends: runReplayTask.completed,
+        });
     } else {
         const runReplayTask = dag.addTask({
             name: "run-replay",
@@ -76,6 +85,13 @@ export async function triggerRunWorkflow({
         dag.addTask({
             name: "review-replay",
             template: reviewTemplate,
+            args: { runId },
+            depends: runReplayTask.completed,
+        });
+
+        dag.addTask({
+            name: "notify-run-exit",
+            template: notifyTemplate,
             args: { runId },
             depends: runReplayTask.completed,
         });

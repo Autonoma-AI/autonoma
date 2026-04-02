@@ -131,7 +131,8 @@ model Organization {
   billingPricing       BillingPricing?
   promoRedemptions     BillingPromoRedemption[]
   billingCustomer     BillingCustomer?
-  applicationSetups  ApplicationSetup[]
+  applicationSetups   ApplicationSetup[]
+  notificationConfigs NotificationConfig[]
 
   @@map("organization")
 }
@@ -267,8 +268,9 @@ model Application {
   webhookCalls       WebhookCall[]
   branches           Branch[]
   githubRepositories GitHubRepository[]
-    onboardingState    OnboardingState?
-    applicationSetups  ApplicationSetup[]
+    onboardingState     OnboardingState?
+    applicationSetups   ApplicationSetup[]
+    notificationConfigs NotificationConfig[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1364,4 +1366,32 @@ model BillingPromoRedemption {
     @@index([organizationId])
     @@unique([promoCodeId, organizationId])
     @@map("billing_promo_redemption")
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+enum NotificationChannel {
+  SLACK
+
+  @@map("notification_channel")
+}
+
+model NotificationConfig {
+  id      String              @id @default(cuid())
+  channel NotificationChannel
+  enabled Boolean             @default(true)
+
+  slackWebhookUrl String? @map("slack_webhook_url")
+
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, channel])
+  @@index([applicationId])
+  @@map("notification_config")
 }

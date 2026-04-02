@@ -12,11 +12,14 @@
     "dependencies": {
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/notification": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "tsup": "^8.5.1",
         "typescript": "catalog:",
