@@ -21,6 +21,12 @@ interface CartItem {
   quantity: number;
 }
 
+interface OrderConfirmation {
+  email: string;
+  orderNumber: string;
+  totalCents: number;
+}
+
 const PRODUCTS: Product[] = [
   {
     slug: "wireless-headphones",
@@ -98,6 +104,7 @@ const ROUTES = {
   login: "/login",
   products: "/products",
   cart: "/cart",
+  checkout: "/checkout",
 } as const;
 
 function navigate(path: string) {
@@ -133,6 +140,7 @@ export function App() {
   const pathname = usePathname();
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [lastOrder, setLastOrder] = useState<OrderConfirmation | null>(null);
 
   const selectedProduct = PRODUCTS.find((product) => pathname === `/products/${product.slug}`);
   const cartLineItems = cart.flatMap((item) => {
@@ -185,6 +193,16 @@ export function App() {
     setCart((currentCart) => currentCart.filter((item) => item.slug !== slug));
   }
 
+  function completeOrder(email: string) {
+    const orderNumber = `NS-${Math.floor(100000 + Math.random() * 900000)}`;
+    setLastOrder({
+      email,
+      orderNumber,
+      totalCents: orderTotal,
+    });
+    setCart([]);
+  }
+
   return (
     <div className="page-shell">
       <div className="background-grid" />
@@ -234,6 +252,16 @@ export function App() {
             onDecrement={decrementQuantity}
             onIncrement={incrementQuantity}
             onRemove={removeFromCart}
+          />
+        ) : null}
+        {pathname === ROUTES.checkout ? (
+          <CheckoutPage
+            cartLineItems={cartLineItems}
+            lastOrder={lastOrder}
+            orderTotal={orderTotal}
+            shippingTotal={shippingTotal}
+            subtotal={subtotal}
+            onPlaceOrder={completeOrder}
           />
         ) : null}
         {!Object.values(ROUTES).includes(pathname as (typeof ROUTES)[keyof typeof ROUTES]) &&
@@ -557,9 +585,147 @@ function CartPage(props: {
             <span>Total</span>
             <strong>{formatMoney(props.orderTotal)}</strong>
           </div>
-          <button className="primary-button" type="button">
+          <button className="primary-button" onClick={() => navigate(ROUTES.checkout)} type="button">
             Secure checkout
           </button>
+        </aside>
+      </section>
+    </section>
+  );
+}
+
+function CheckoutPage(props: {
+  cartLineItems: { product: Product; quantity: number }[];
+  lastOrder: OrderConfirmation | null;
+  orderTotal: number;
+  shippingTotal: number;
+  subtotal: number;
+  onPlaceOrder: (email: string) => void;
+}) {
+  if (props.lastOrder != null) {
+    return (
+      <section className="page-stack">
+        <section className="checkout-shell">
+          <div className="panel-section checkout-success">
+            <span className="eyebrow">Order confirmed</span>
+            <h2>Your order is on the way.</h2>
+            <p>
+              Confirmation <strong>{props.lastOrder.orderNumber}</strong> was sent to {props.lastOrder.email}.
+            </p>
+            <div className="status-banner">
+              <strong>Total charged:</strong> {formatMoney(props.lastOrder.totalCents)}
+            </div>
+            <div className="hero-actions">
+              <button className="primary-button" onClick={() => navigate(ROUTES.products)} type="button">
+                Continue shopping
+              </button>
+              <button className="secondary-button" onClick={() => navigate(ROUTES.home)} type="button">
+                Return home
+              </button>
+            </div>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (props.cartLineItems.length === 0) {
+    return (
+      <section className="page-stack">
+        <section className="empty-cart-shell panel-section narrow-panel">
+          <span className="eyebrow">Checkout</span>
+          <h2>Your cart is empty.</h2>
+          <p>Add an item to your cart before checking out.</p>
+          <button className="primary-button" onClick={() => navigate(ROUTES.products)} type="button">
+            Browse products
+          </button>
+        </section>
+      </section>
+    );
+  }
+
+  return (
+    <section className="page-stack">
+      <section className="checkout-shell">
+        <form
+          className="panel-section checkout-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            const email = formData.get("email");
+
+            if (typeof email === "string" && email.length > 0) {
+              props.onPlaceOrder(email);
+            }
+          }}
+        >
+          <span className="eyebrow">Checkout</span>
+          <h2>Shipping and payment</h2>
+          <div className="checkout-grid">
+            <label className="field">
+              <span>Email address</span>
+              <input defaultValue="demo@northstar-electronics.com" name="email" type="email" />
+            </label>
+            <label className="field">
+              <span>Full name</span>
+              <input defaultValue="Taylor Morgan" name="name" type="text" />
+            </label>
+            <label className="field checkout-wide">
+              <span>Street address</span>
+              <input defaultValue="2417 Mission Street" name="address" type="text" />
+            </label>
+            <label className="field">
+              <span>City</span>
+              <input defaultValue="San Francisco" name="city" type="text" />
+            </label>
+            <label className="field">
+              <span>State</span>
+              <input defaultValue="CA" name="state" type="text" />
+            </label>
+            <label className="field">
+              <span>ZIP code</span>
+              <input defaultValue="94110" name="zip" type="text" />
+            </label>
+            <label className="field checkout-wide">
+              <span>Delivery method</span>
+              <input defaultValue="Free 2-day delivery" name="delivery" type="text" />
+            </label>
+            <label className="field checkout-wide">
+              <span>Payment</span>
+              <input defaultValue="Visa ending in 4242" name="payment" type="text" />
+            </label>
+          </div>
+          <button className="primary-button" type="submit">
+            Place order
+          </button>
+        </form>
+
+        <aside className="panel-section checkout-summary">
+          <span className="eyebrow">Summary</span>
+          <h2>Order review</h2>
+          <div className="checkout-items">
+            {props.cartLineItems.map((item) => (
+              <div className="checkout-item" key={item.product.slug}>
+                <div>
+                  <strong>{item.product.name}</strong>
+                  <p>Qty {item.quantity}</p>
+                </div>
+                <strong>{formatMoney(item.product.priceCents * item.quantity)}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="summary-row">
+            <span>Subtotal</span>
+            <strong>{formatMoney(props.subtotal)}</strong>
+          </div>
+          <div className="summary-row">
+            <span>Shipping</span>
+            <strong>{props.shippingTotal === 0 ? "Free" : formatMoney(props.shippingTotal)}</strong>
+          </div>
+          <div className="summary-row total-row">
+            <span>Total</span>
+            <strong>{formatMoney(props.orderTotal)}</strong>
+          </div>
         </aside>
       </section>
     </section>
