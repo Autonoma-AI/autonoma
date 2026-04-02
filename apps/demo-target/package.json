@@ -1,0 +1,26 @@
+{
+    "name": "@autonoma/demo-target",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "typecheck": "tsc --noEmit",
+        "build": "pnpm run typecheck && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "react": "catalog:",
+        "react-dom": "catalog:"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.2.0",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
+        "@vitejs/plugin-react": "^4.3.0",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+        "vite": "^6.0.0",
+        "vite-tsconfig-paths": "^6.1.1"
+    }
+}

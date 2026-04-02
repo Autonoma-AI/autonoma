@@ -11,6 +11,7 @@
     "scripts": {
         "dev": "tsx watch --env-file=../../.env src/index.ts",
         "build": "tsup",
+        "start": "node --enable-source-maps dist/index.js",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
