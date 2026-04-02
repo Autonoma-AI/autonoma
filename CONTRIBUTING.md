@@ -160,8 +160,8 @@ We actively welcome Pull Requests. Before submitting:
 
 ### Before You Start
 
-- **Bug fixes** - Search existing [Issues](https://github.com/autonomaai/agent/issues) to make sure the bug has been reported. If not, open one first.
-- **New features** - Open a [Discussion](https://github.com/autonomaai/agent/discussions) or Issue first to propose and discuss the feature. Unvetted features may be closed.
+- **Bug fixes** - Search existing [Issues](https://github.com/autonoma-ai/autonoma/issues) to make sure the bug has been reported. If not, open one first.
+- **New features** - Open a [Discussion](https://github.com/autonoma-ai/autonoma/discussions) or Issue first to propose and discuss the feature. Unvetted features may be closed.
 - **Good first issues** - If you're new to the project, look for issues labeled `good first issue`.
 
 ### Submitting a PR

@@ -7,6 +7,7 @@ import { env } from "./env";
 const execFileAsync = promisify(execFile);
 
 const REPO_DIR = "/tmp/repo";
+const gitEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
 
 async function resolveInstallationToken(installationId: string): Promise<string> {
     const app = new App({
@@ -34,22 +35,24 @@ export async function cloneRepository(params: CloneRepoParams): Promise<string> 
 
     const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
 
-    logger.info("Cloning repository", { fullName, headSha });
+    logger.info("Cloning repository without LFS smudge", { fullName, headSha });
     await execFileAsync("git", ["clone", "--depth=50", cloneUrl, REPO_DIR], {
+        env: gitEnv,
         maxBuffer: 10 * 1024 * 1024,
         timeout: 120_000,
     });
 
     logger.info("Checking out HEAD_SHA", { headSha });
-    await execFileAsync("git", ["checkout", headSha], { cwd: REPO_DIR });
+    await execFileAsync("git", ["checkout", headSha], { cwd: REPO_DIR, env: gitEnv });
 
     if (baseSha != null) {
         logger.info("Fetching BASE_SHA", { baseSha });
         try {
-            await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: REPO_DIR });
+            await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: REPO_DIR, env: gitEnv });
         } catch {
             await execFileAsync("git", ["fetch", "--depth=50", "origin", baseSha], {
                 cwd: REPO_DIR,
+                env: gitEnv,
                 timeout: 60_000,
             });
         }

@@ -14,7 +14,7 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests",
         "db": "dotenv -e ../../.env -- prisma",
-        "db:generate": "DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/placeholder} pnpm db generate",
+        "db:generate": "node scripts/run-db-generate.mjs",
         "postinstall": "pnpm db:generate",
         "db:migrate": "pnpm db migrate dev",
         "db:seed": "dotenv -e ../../.env -- tsx src/seed.ts"

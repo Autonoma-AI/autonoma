@@ -9,6 +9,7 @@ import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
+import { isTextFile } from "./is-text-file";
 import { runPhase } from "./run-phase";
 
 const REPO_DIR = "/tmp/repo";
@@ -18,56 +19,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = path.join(__dirname, "../prompts");
 
 const MAX_FILE_SIZE_BYTES = 500 * 1024; // 500 KB
-const TEXT_EXTENSIONS = new Set([
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".xml",
-    ".md",
-    ".mdx",
-    ".txt",
-    ".csv",
-    ".html",
-    ".css",
-    ".scss",
-    ".sass",
-    ".less",
-    ".py",
-    ".rb",
-    ".go",
-    ".rs",
-    ".java",
-    ".kt",
-    ".swift",
-    ".c",
-    ".cpp",
-    ".h",
-    ".sh",
-    ".bash",
-    ".zsh",
-    ".fish",
-    ".env",
-    ".env.example",
-    ".gitignore",
-    ".dockerignore",
-    ".prisma",
-    ".graphql",
-    ".gql",
-    ".sql",
-]);
-
-function isTextFile(filePath: string): boolean {
-    const lastDot = filePath.lastIndexOf(".");
-    if (lastDot === -1) return false;
-    return TEXT_EXTENSIONS.has(filePath.slice(lastDot).toLowerCase());
-}
 
 async function main(): Promise<void> {
     const { REPOSITORY_ID } = env;
