@@ -25,6 +25,7 @@
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/review": "workspace:*",
         "@autonoma/scenario": "workspace:*",

@@ -443,7 +443,8 @@ model Branch {
   id   String @id @default(cuid())
   name String
 
-  githubRef String? @map("github_ref")
+  githubRef      String? @map("github_ref")
+  lastHandledSha String? @map("last_handled_sha")
 
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

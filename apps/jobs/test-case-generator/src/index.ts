@@ -1,12 +1,11 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db } from "@autonoma/db";
+import { GitHubApp, type GitHubInstallationClient } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { ArgoGenerationProvider } from "@autonoma/test-updates/argo";
-import { App } from "@octokit/app";
-import { Octokit } from "@octokit/rest";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
 import { runPhase } from "./run-phase";
@@ -79,7 +78,6 @@ async function main(): Promise<void> {
         select: {
             fullName: true,
             defaultBranch: true,
-            applicationId: true,
             application: { select: { mainBranchId: true } },
             installation: {
                 select: {
@@ -90,12 +88,11 @@ async function main(): Promise<void> {
         },
     });
 
-    if (repo.applicationId == null) throw new Error(`Repository ${REPOSITORY_ID} has no linked application`);
+    if (repo.application == null) throw new Error(`Repository ${REPOSITORY_ID} has no linked application`);
 
-    const mainBranchId = repo.application?.mainBranchId;
-    if (mainBranchId == null) throw new Error(`Application for repository ${REPOSITORY_ID} has no main branch`);
+    if (repo.application.mainBranchId == null) throw new Error(`Repository ${REPOSITORY_ID} has no main branch`);
 
-    const githubToken = await resolveInstallationToken(repo.installation.installationId);
+    const client = await githubApp.getInstallationClient(repo.installation.installationId);
 
     await db.gitHubRepository.update({
         where: { id: REPOSITORY_ID },
@@ -105,41 +102,34 @@ async function main(): Promise<void> {
     try {
         await generateTestCases(
             REPOSITORY_ID,
-            githubToken,
+            client,
             repo.fullName,
             repo.defaultBranch,
-            mainBranchId,
+            repo.application.mainBranchId,
             repo.installation.organizationId,
         );
     } catch (error) {
         logger.fatal("Test case generator failed", error);
         await db.gitHubRepository
-            .update({ where: { id: REPOSITORY_ID }, data: { generationStatus: "failed" } })
+            .update({
+                where: { id: REPOSITORY_ID },
+                data: { generationStatus: "failed" },
+            })
             .catch(() => undefined);
         throw error;
     }
 }
 
-async function resolveInstallationToken(installationId: number): Promise<string> {
-    const appId = process.env.GITHUB_APP_ID;
-    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY;
-    const webhookSecret = process.env.GITHUB_APP_WEBHOOK_SECRET;
-
-    if (appId == null || privateKey == null || webhookSecret == null) {
-        throw new Error(
-            "Missing GitHub App credentials: GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_WEBHOOK_SECRET",
-        );
-    }
-
-    const app = new App({ appId, privateKey, webhooks: { secret: webhookSecret } });
-    const octokit = await app.getInstallationOctokit(installationId);
-    const { token } = (await octokit.auth({ type: "installation" })) as { token: string };
-    return token;
-}
+const githubApp = new GitHubApp({
+    appSlug: env.GITHUB_APP_SLUG,
+    appId: env.GITHUB_APP_ID,
+    privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
+});
 
 async function generateTestCases(
     repositoryId: string,
-    githubToken: string,
+    client: GitHubInstallationClient,
     repoFullName: string,
     defaultBranch: string,
     branchId: string,
@@ -147,32 +137,44 @@ async function generateTestCases(
 ): Promise<void> {
     const jobLogger = logger.child({ repositoryId, repoFullName });
 
-    await fetchRepoFiles(githubToken, repoFullName, defaultBranch, jobLogger);
+    await fetchRepoFiles(client, repoFullName, defaultBranch, jobLogger);
 
     const prompt000 = readFileSync(path.join(PROMPTS_DIR, "000-generate-autonoma-knowledge-base.md"), "utf-8");
     const prompt001 = readFileSync(path.join(PROMPTS_DIR, "001-generate-scenarios.md"), "utf-8");
     const prompt002 = readFileSync(path.join(PROMPTS_DIR, "002-generate-e2e-tests.md"), "utf-8");
 
     jobLogger.info("Starting phase 1: KB generation");
-    Sentry.addBreadcrumb({ message: "Starting phase 1: KB generation", level: "info" });
+    Sentry.addBreadcrumb({
+        message: "Starting phase 1: KB generation",
+        level: "info",
+    });
     let phaseStart = Date.now();
     await runPhase(prompt000, jobLogger.child({ phase: 1 }));
     jobLogger.info("Phase 1 complete", { durationMs: Date.now() - phaseStart });
 
     jobLogger.info("Starting phase 2: scenario generation");
-    Sentry.addBreadcrumb({ message: "Starting phase 2: scenario generation", level: "info" });
+    Sentry.addBreadcrumb({
+        message: "Starting phase 2: scenario generation",
+        level: "info",
+    });
     phaseStart = Date.now();
     await runPhase(prompt001, jobLogger.child({ phase: 2 }));
     jobLogger.info("Phase 2 complete", { durationMs: Date.now() - phaseStart });
 
     jobLogger.info("Starting phase 3: E2E test generation");
-    Sentry.addBreadcrumb({ message: "Starting phase 3: E2E test generation", level: "info" });
+    Sentry.addBreadcrumb({
+        message: "Starting phase 3: E2E test generation",
+        level: "info",
+    });
     phaseStart = Date.now();
     await runPhase(prompt002, jobLogger.child({ phase: 3 }));
     jobLogger.info("Phase 3 complete", { durationMs: Date.now() - phaseStart });
 
     jobLogger.info("Saving test cases to database");
-    Sentry.addBreadcrumb({ message: "Saving test cases to database", level: "info" });
+    Sentry.addBreadcrumb({
+        message: "Saving test cases to database",
+        level: "info",
+    });
     const count = await saveTestCases(branchId, organizationId, jobLogger);
 
     await db.gitHubRepository.update({
@@ -184,7 +186,7 @@ async function generateTestCases(
 }
 
 async function fetchRepoFiles(
-    githubToken: string,
+    client: GitHubInstallationClient,
     repoFullName: string,
     defaultBranch: string,
     jobLogger: ReturnType<typeof logger.child>,
@@ -194,22 +196,18 @@ async function fetchRepoFiles(
     const [owner, repoName] = repoFullName.split("/");
     if (owner == null || repoName == null) throw new Error(`Invalid REPO_FULL_NAME: ${repoFullName}`);
 
-    const octokit = new Octokit({ auth: githubToken });
+    const tree = await client.getTree(owner, repoName, defaultBranch, true);
 
-    const { data: tree } = await octokit.git.getTree({
-        owner,
-        repo: repoName,
-        tree_sha: defaultBranch,
-        recursive: "1",
-    });
-
-    const blobs = tree.tree.filter((item) => item.type === "blob" && item.path != null);
+    const blobs = tree.filter((item) => item.type === "blob" && item.path != null);
     const textBlobs = blobs.filter(
         (item) => item.path != null && isTextFile(item.path) && (item.size ?? 0) <= MAX_FILE_SIZE_BYTES,
     );
     const skipped = blobs.length - textBlobs.length;
 
-    jobLogger.info("Fetching files from GitHub", { total: textBlobs.length, skipped });
+    jobLogger.info("Fetching files from GitHub", {
+        total: textBlobs.length,
+        skipped,
+    });
 
     let fetched = 0;
     let failed = 0;
@@ -219,19 +217,8 @@ async function fetchRepoFiles(
         if (item.path == null) continue;
 
         try {
-            const { data } = await octokit.repos.getContent({
-                owner,
-                repo: repoName,
-                path: item.path,
-                ref: defaultBranch,
-            });
-
-            if (Array.isArray(data) || data.type !== "file" || !("content" in data)) {
-                failed++;
-                continue;
-            }
-
-            const content = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+            const file = await client.getContent(owner, repoName, item.path, defaultBranch);
+            const content = Buffer.from(file.content.replace(/\n/g, ""), "base64").toString("utf-8");
             const filePath = path.join(REPO_DIR, item.path);
             mkdirSync(path.dirname(filePath), { recursive: true });
             writeFileSync(filePath, content, "utf-8");
@@ -251,7 +238,11 @@ async function fetchRepoFiles(
         }
     }
 
-    jobLogger.info("File fetch complete", { fetched, failed, durationMs: Date.now() - startTime });
+    jobLogger.info("File fetch complete", {
+        fetched,
+        failed,
+        durationMs: Date.now() - startTime,
+    });
 }
 
 function collectMarkdownFiles(dir: string): string[] {
@@ -296,8 +287,15 @@ async function saveTestCases(
         items.push({ name, content });
     }
 
-    const jobProvider = new ArgoGenerationProvider({ agentVersion: env.AGENT_VERSION });
-    const updater = await TestSuiteUpdater.startUpdate({ db, branchId, jobProvider, organizationId });
+    const jobProvider = new ArgoGenerationProvider({
+        agentVersion: env.AGENT_VERSION,
+    });
+    const updater = await TestSuiteUpdater.startUpdate({
+        db,
+        branchId,
+        jobProvider,
+        organizationId,
+    });
 
     for (const { name, content } of items) {
         await updater.apply(new AddTest({ name, plan: content }));

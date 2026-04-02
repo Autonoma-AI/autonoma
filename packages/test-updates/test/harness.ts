@@ -2,6 +2,7 @@ import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
+
 import type { GenerationProvider } from "../src/generation/generation-job-provider";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
@@ -65,16 +66,61 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return app.id;
     }
 
-    async createBranch(organizationId: string, applicationId: string): Promise<string> {
+    async createBranch(
+        organizationId: string,
+        applicationId: string,
+        options?: { githubRef?: string; lastHandledSha?: string },
+    ): Promise<string> {
         const date = Date.now();
         const branch = await this.db.branch.create({
             data: {
                 name: `branch-${date}`,
                 organizationId,
                 applicationId,
+                githubRef: options?.githubRef,
+                lastHandledSha: options?.lastHandledSha,
             },
         });
         return branch.id;
+    }
+
+    private counter = 0;
+
+    async createGitHubInstallation(organizationId: string): Promise<string> {
+        const existing = await this.db.gitHubInstallation.findUnique({
+            where: { organizationId },
+            select: { id: true },
+        });
+
+        if (existing != null) return existing.id;
+
+        this.counter++;
+        const installation = await this.db.gitHubInstallation.create({
+            data: {
+                installationId: this.counter,
+                organizationId,
+                accountLogin: `account-${this.counter}`,
+                accountId: this.counter,
+                accountType: "Organization",
+            },
+        });
+        return installation.id;
+    }
+
+    async createGitHubRepository(installationId: string, applicationId: string, fullName: string): Promise<string> {
+        this.counter++;
+        const repo = await this.db.gitHubRepository.create({
+            data: {
+                installationId,
+                githubRepoId: this.counter,
+                name: fullName.split("/")[1] ?? fullName,
+                fullName,
+                defaultBranch: "main",
+                private: false,
+                applicationId,
+            },
+        });
+        return repo.id;
     }
 
     /** Creates a fresh branch and starts a new SnapshotDraft on it. */
@@ -87,10 +133,16 @@ export class TestUpdatesHarness implements IntegrationHarness {
     async startUpdater(
         organizationId: string,
         applicationId: string,
-        jobProvider?: GenerationProvider,
+        options?: {
+            jobProvider?: GenerationProvider;
+        },
     ): Promise<TestSuiteUpdater> {
         const branchId = await this.createBranch(organizationId, applicationId);
-        return TestSuiteUpdater.startUpdate({ db: this.db, branchId, jobProvider });
+        return TestSuiteUpdater.startUpdate({
+            db: this.db,
+            branchId,
+            jobProvider: options?.jobProvider,
+        });
     }
 }
 

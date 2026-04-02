@@ -1,10 +1,12 @@
 import { fork } from "node:child_process";
 import path from "node:path";
+
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import { GenerationSubject, type ScenarioManager } from "@autonoma/scenario";
 import { fx } from "@autonoma/try";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
+
 import { TestSuiteUpdater } from "../test-update-manager";
 import type { GenerationJobOptions, GenerationProvider, PendingGeneration } from "./generation-job-provider";
 
@@ -67,7 +69,10 @@ export class LocalGenerationProvider implements GenerationProvider {
         });
 
         const branchId = generationRecord.snapshot.branchId;
-        const updater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
+        const updater = await TestSuiteUpdater.continueUpdate({
+            db: this.db,
+            branchId,
+        });
         const { assigned, failed } = await updater.assignGenerationResults(generations.map((g) => g.testGenerationId));
 
         this.logger.info("Generation results assigned", { assigned, failed });

@@ -78,6 +78,12 @@ interface LoadSnapshotDraftParams {
     organizationId?: string;
 }
 
+interface StartSnapshotDraftParams extends LoadSnapshotDraftParams {
+    source?: TriggerSource;
+    headSha?: string;
+    baseSha?: string;
+}
+
 /**
  * Manages mutations on a pending (processing) branch snapshot.
  *
@@ -163,7 +169,14 @@ export class SnapshotDraft {
      *
      * @throws {BranchAlreadyHasPendingSnapshotError} If the branch already has a pending snapshot.
      */
-    static async start({ db, branchId, organizationId: filterOrgId }: LoadSnapshotDraftParams): Promise<SnapshotDraft> {
+    static async start({
+        db,
+        branchId,
+        organizationId: filterOrgId,
+        source,
+        headSha,
+        baseSha,
+    }: StartSnapshotDraftParams): Promise<SnapshotDraft> {
         const logger = rootLogger.child({ name: "SnapshotDraft", branchId });
 
         const { snapshotId, applicationId, organizationId } = await db.$transaction(async (tx) => {
@@ -198,8 +211,9 @@ export class SnapshotDraft {
             const created = await tx.branchSnapshot.create({
                 data: {
                     branchId,
-                    // TODO: Model this correctly.
-                    source: TriggerSource.MANUAL,
+                    source: source ?? TriggerSource.MANUAL,
+                    headSha,
+                    baseSha,
                     // TODO: Support different deployments per-snapshot.
                     deploymentId: branch.activeSnapshot?.deploymentId ?? undefined,
                     prevSnapshotId: branch.activeSnapshotId ?? undefined,

@@ -1,10 +1,11 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
+import type { GitHubApp } from "@autonoma/github";
 import { BugLinker, BugMatcher } from "@autonoma/review";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
-import type { GenerationProvider } from "@autonoma/test-updates";
+import { CommitDiffHandler, type GenerationProvider, type TriggerDiffPlanner } from "@autonoma/test-updates";
 import type { TriggerRunWorkflowParams } from "@autonoma/workflow";
 import type { Auth } from "../auth";
 import { GitHubInstallationService } from "../github/github-installation.service";
@@ -57,9 +58,11 @@ export interface ServicesParams {
     triggerRunWorkflow: (params: TriggerRunWorkflowParams) => Promise<void>;
     triggerGenerationReview: TriggerGenerationReview;
     triggerRunReview: TriggerRunReview;
+    triggerDiffPlanner: TriggerDiffPlanner;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
     generationProvider: GenerationProvider;
+    githubApp: GitHubApp;
 }
 
 export function buildServices({
@@ -69,9 +72,11 @@ export function buildServices({
     triggerRunWorkflow,
     triggerGenerationReview,
     triggerRunReview,
+    triggerDiffPlanner,
     scenarioManager,
     encryptionHelper,
     generationProvider,
+    githubApp,
 }: ServicesParams): Services {
     const registry = new ModelRegistry({
         models: { "smart-text": MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -94,10 +99,15 @@ export function buildServices({
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager, encryptionHelper),
         skills: new SkillsService(conn),
-        github: new GitHubInstallationService(conn),
+        github: new GitHubInstallationService(conn, githubApp),
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
         onboarding: new OnboardingService(onboardingManager),
-        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
+        snapshotEdit: new SnapshotEditService(
+            conn,
+            generationProvider,
+            new CommitDiffHandler(conn, githubApp, triggerDiffPlanner),
+            billingService,
+        ),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
     };

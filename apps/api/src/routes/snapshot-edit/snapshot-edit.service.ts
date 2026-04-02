@@ -1,6 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import { ApplicationArchitecture, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import type { CommitDiffHandler } from "@autonoma/test-updates";
 import {
     AddTest,
     ApplicationNotFoundError,
@@ -35,6 +36,7 @@ export class SnapshotEditService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly generationProvider: GenerationProvider,
+        private readonly commitDiffHandler: CommitDiffHandler,
         private readonly billingService: BillingService,
     ) {
         super();
@@ -46,7 +48,10 @@ export class SnapshotEditService extends Service {
         const updater = await this.startUpdate(branchId, organizationId);
         const testSuite = await updater.currentTestSuiteInfo();
 
-        this.logger.info("Edit session started", { branchId, snapshotId: updater.snapshotId });
+        this.logger.info("Edit session started", {
+            branchId,
+            snapshotId: updater.snapshotId,
+        });
 
         return { snapshotId: updater.snapshotId, testSuite };
     }
@@ -243,6 +248,7 @@ export class SnapshotEditService extends Service {
             return await TestSuiteUpdater.startUpdate({
                 db: this.db,
                 branchId,
+                commitDiffHandler: this.commitDiffHandler,
                 jobProvider: this.generationProvider,
                 organizationId,
             });
@@ -257,6 +263,7 @@ export class SnapshotEditService extends Service {
             return await TestSuiteUpdater.continueUpdate({
                 db: this.db,
                 branchId,
+                commitDiffHandler: this.commitDiffHandler,
                 jobProvider: this.generationProvider,
                 organizationId,
             });

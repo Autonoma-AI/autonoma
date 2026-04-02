@@ -1,4 +1,5 @@
 import { expect } from "vitest";
+
 import { AddTest } from "../src/changes/add-test";
 import { FakeGenerationProvider } from "../src/generation/fake-generation-provider";
 import { testUpdateSuite } from "./harness";
@@ -11,7 +12,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -32,7 +33,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -66,7 +67,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -96,7 +97,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -151,7 +152,9 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, {
+                jobProvider,
+            });
 
             await updater.apply(
                 new AddTest({
@@ -178,7 +181,9 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, {
+                jobProvider,
+            });
 
             await updater.apply(
                 new AddTest({
@@ -199,7 +204,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -230,7 +235,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.queuePendingGenerations();
 
@@ -244,7 +249,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
@@ -268,7 +273,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
             const snapshotId = updater.snapshotId;
 
             await updater.discard();
@@ -285,7 +290,7 @@ testUpdateSuite({
             expect(snapshot).toBeNull();
 
             // Should be able to start a new session
-            const newUpdater = await harness.startUpdater(organizationId, applicationId, jobProvider);
+            const newUpdater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
             expect(newUpdater.snapshotId).toBeDefined();
         });
     },

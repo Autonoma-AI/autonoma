@@ -1,14 +1,21 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { db } from "@autonoma/db";
-import { DiffsAgent, createCallbacks } from "@autonoma/diffs";
+import { createCallbacks, DiffsAgent } from "@autonoma/diffs";
+import { GitHubApp } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
 import { ArgoGenerationProvider } from "@autonoma/test-updates/argo";
-import { App } from "@octokit/app";
+import { triggerDiffsJob } from "@autonoma/workflow";
 import * as Sentry from "@sentry/node";
-import { cloneRepository } from "./clone-repo";
 import { env } from "./env";
 import { loadBranchData, loadDiffsContext } from "./load-context";
+
+const githubApp = new GitHubApp({
+    appId: env.GITHUB_APP_ID,
+    privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
+    appSlug: env.GITHUB_APP_SLUG,
+});
 
 async function main(): Promise<void> {
     const { BRANCH_ID } = env;
@@ -17,8 +24,11 @@ async function main(): Promise<void> {
 
     logger.info("Starting diffs analysis job", { branchId: BRANCH_ID });
 
-    const jobProvider = new ArgoGenerationProvider({ agentVersion: env.AGENT_VERSION });
-    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId: BRANCH_ID, jobProvider });
+    const jobProvider = new ArgoGenerationProvider({
+        agentVersion: env.AGENT_VERSION,
+    });
+    const commitDiffHandler = new CommitDiffHandler(db, githubApp, triggerDiffsJob);
+    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId: BRANCH_ID, jobProvider, commitDiffHandler });
 
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
@@ -39,15 +49,17 @@ async function main(): Promise<void> {
         fullName: branchData.fullName,
     });
 
-    const repoDir = await cloneRepository({
+    const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
+
+    const repoDir = await githubClient.cloneRepository({
         fullName: branchData.fullName,
-        installationId: branchData.installationId,
         headSha,
         baseSha,
+        targetDir: "/tmp/repo",
     });
 
     const suiteInfo = await updater.currentTestSuiteInfo();
-    const input = await loadDiffsContext(suiteInfo, repoDir, headSha, baseSha);
+    const { input, testDirectory } = await loadDiffsContext(suiteInfo, repoDir, headSha, baseSha);
     logger.info("Loaded diffs context", {
         affectedFiles: input.analysis.affectedFiles.length,
         existingTests: input.existingTests.length,
@@ -59,21 +71,14 @@ async function main(): Promise<void> {
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-job" });
 
-    const githubApp = new App({
-        appId: env.GITHUB_APP_ID,
-        privateKey: env.GITHUB_APP_PRIVATE_KEY,
-        webhooks: { secret: env.GITHUB_APP_WEBHOOK_SECRET },
-    });
-    const octokit = await githubApp.getInstallationOctokit(Number(branchData.installationId));
-
     const callbacks = createCallbacks({
         db,
         updater,
         applicationId: branchData.applicationId,
         repoFullName: branchData.fullName,
         headSha,
-        workingDirectory: repoDir,
-        octokit,
+        testDirectory,
+        githubClient,
     });
 
     const agent = new DiffsAgent({

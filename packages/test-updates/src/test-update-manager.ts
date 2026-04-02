@@ -1,6 +1,7 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { TestSuiteChange } from "./changes";
+import type { CommitDiffHandler } from "./commit-diff-handler";
 import type { GenerationJobOptions, GenerationProvider } from "./generation/generation-job-provider";
 import type { GenerationManager } from "./generation/generation-manager";
 import { SnapshotDraft } from "./snapshot-draft";
@@ -22,7 +23,29 @@ export class IncompleteGenerationsError extends Error {
 interface TestSuiteUpdaterParams {
     snapshotDraft: SnapshotDraft;
     generationManager: GenerationManager;
+    commitDiffHandler?: CommitDiffHandler;
     jobProvider?: GenerationProvider;
+}
+
+interface StartUpdateArgs {
+    db: PrismaClient;
+    branchId: string;
+    commitDiffHandler?: CommitDiffHandler;
+    jobProvider?: GenerationProvider;
+    organizationId?: string;
+    source?: TriggerSource;
+    /** The SHA of the head commit to update the test suite for. */
+    headSha?: string;
+    /** The SHA of the base (previous) commit to update the test suite for. */
+    baseSha?: string;
+}
+
+interface ContinueUpdateArgs {
+    db: PrismaClient;
+    branchId: string;
+    commitDiffHandler?: CommitDiffHandler;
+    jobProvider?: GenerationProvider;
+    organizationId?: string;
 }
 
 /**
@@ -34,6 +57,7 @@ export class TestSuiteUpdater {
 
     private readonly snapshotDraft: SnapshotDraft;
     private readonly generationManager: GenerationManager;
+    private readonly commitDiffHandler?: CommitDiffHandler;
     private readonly jobProvider?: GenerationProvider;
 
     public get snapshotId() {
@@ -44,10 +68,11 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.branchId;
     }
 
-    private constructor({ snapshotDraft, generationManager, jobProvider }: TestSuiteUpdaterParams) {
+    private constructor({ snapshotDraft, generationManager, commitDiffHandler, jobProvider }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;
         this.generationManager = generationManager;
+        this.commitDiffHandler = commitDiffHandler;
         this.jobProvider = jobProvider;
     }
 
@@ -62,39 +87,52 @@ export class TestSuiteUpdater {
     /**
      * Creates a new pending snapshot and returns an updater for it.
      *
-     * @param params.jobProvider - Optional. Required only if `queuePendingGenerations` will be called.
+     * @param params.commitDiffHandler - Optional. When provided, enables commit recheck on finalize.
      * @param params.organizationId - Optional. When provided, verifies the branch belongs to this organization.
      */
-    public static async startUpdate(params: {
-        db: PrismaClient;
-        branchId: string;
-        jobProvider?: GenerationProvider;
-        organizationId?: string;
-    }) {
-        const { db, branchId, jobProvider, organizationId } = params;
-        const snapshotDraft = await SnapshotDraft.start({ db, branchId, organizationId });
+    public static async startUpdate({
+        db,
+        branchId,
+        commitDiffHandler,
+        jobProvider,
+        organizationId,
+        source,
+        headSha,
+        baseSha,
+    }: StartUpdateArgs) {
+        const snapshotDraft = await SnapshotDraft.start({ db, branchId, organizationId, source, headSha, baseSha });
         const generationManager = snapshotDraft.generationManager();
 
-        return new TestSuiteUpdater({ snapshotDraft, generationManager, jobProvider });
+        return new TestSuiteUpdater({
+            snapshotDraft,
+            generationManager,
+            commitDiffHandler,
+            jobProvider,
+        });
     }
 
     /**
      * Loads the existing pending snapshot and returns an updater for it.
      *
-     * @param params.jobProvider - Optional. Required only if `queuePendingGenerations` will be called.
+     * @param params.commitDiffHandler - Optional. When provided, enables commit recheck on finalize.
      * @param params.organizationId - Optional. When provided, verifies the branch belongs to this organization.
      */
-    public static async continueUpdate(params: {
-        db: PrismaClient;
-        branchId: string;
-        jobProvider?: GenerationProvider;
-        organizationId?: string;
-    }) {
-        const { db, branchId, jobProvider, organizationId } = params;
+    public static async continueUpdate({
+        db,
+        branchId,
+        commitDiffHandler,
+        jobProvider,
+        organizationId,
+    }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
         const generationManager = snapshotDraft.generationManager();
 
-        return new TestSuiteUpdater({ snapshotDraft, generationManager, jobProvider });
+        return new TestSuiteUpdater({
+            snapshotDraft,
+            generationManager,
+            commitDiffHandler,
+            jobProvider,
+        });
     }
 
     public async currentTestSuiteInfo() {
@@ -221,7 +259,8 @@ export class TestSuiteUpdater {
      * Finalizes the snapshot by activating it.
      *
      * Validates that there are no incomplete (pending, queued, or running)
-     * generations before activation.
+     * generations before activation. After activation, re-checks for new
+     * commits that arrived during processing if a commit diff handler was provided.
      *
      * @throws {IncompleteGenerationsError} If there are still incomplete generations on this snapshot.
      */
@@ -236,5 +275,19 @@ export class TestSuiteUpdater {
 
         await this.snapshotDraft.activate();
         this.logger.info("Snapshot finalized and activated");
+
+        await this.recheckForNewCommits();
+    }
+
+    private async recheckForNewCommits(): Promise<void> {
+        if (this.commitDiffHandler == null) {
+            this.logger.warn("No commit diff handler configured, skipping commit recheck");
+            return;
+        }
+
+        const newSnapshotId = await this.commitDiffHandler.checkForChanges(this.branchId);
+
+        if (newSnapshotId != null) this.logger.info("New snapshot created after recheck", { newSnapshotId });
+        else this.logger.info("No new snapshot created after recheck");
     }
 }

@@ -1,20 +1,26 @@
 import { GitHubDeploymentTriggerSchema } from "@autonoma/types";
 import { z } from "zod";
+
 import { protectedProcedure, router } from "../trpc";
 import { createInstallState } from "./github-state";
 
 export const githubRouter = router({
-    getConfig: protectedProcedure
-        .input(z.object({ returnPath: z.string().optional() }))
-        .query(({ ctx: { organizationId }, input }) => {
-            const slug = process.env.GITHUB_APP_SLUG;
-            if (slug == null) return { installUrl: null };
+    getConfig: protectedProcedure.input(z.object({ returnPath: z.string().optional() })).query(
+        ({
+            ctx: {
+                organizationId,
+                services: { github },
+            },
+            input,
+        }) => {
+            const slug = github.getSlug();
 
             const state = createInstallState(organizationId, input.returnPath);
             return {
                 installUrl: `https://github.com/apps/${slug}/installations/new?state=${state}`,
             };
-        }),
+        },
+    ),
 
     getInstallation: protectedProcedure.query(({ ctx: { services, organizationId } }) =>
         services.github.getInstallation(organizationId),

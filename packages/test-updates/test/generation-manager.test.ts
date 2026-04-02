@@ -13,7 +13,6 @@ testUpdateSuite({
 
             const { planId } = await draft.addTestCase({
                 name: "Gen test",
-                slug: "gen-test",
                 description: "Tests generation",
                 plan: "Some plan",
             });
@@ -34,7 +33,6 @@ testUpdateSuite({
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
                 name: "Replace test",
-                slug: "replace-test",
                 description: "Tests replacement",
                 plan: "First plan",
             });
@@ -62,14 +60,12 @@ testUpdateSuite({
 
             const { planId: planA } = await draft.addTestCase({
                 name: "Test A",
-                slug: "test-a",
                 description: "First test",
                 plan: "Plan A",
             });
 
             const { planId: planB } = await draft.addTestCase({
                 name: "Test B",
-                slug: "test-b",
                 description: "Second test",
                 plan: "Plan B",
             });
@@ -118,14 +114,12 @@ testUpdateSuite({
 
             const { planId: planA } = await draft.addTestCase({
                 name: "Summary A",
-                slug: "summary-a",
                 description: "First",
                 plan: "Plan A",
             });
 
             const { planId: planB } = await draft.addTestCase({
                 name: "Summary B",
-                slug: "summary-b",
                 description: "Second",
                 plan: "Plan B",
             });
@@ -147,7 +141,6 @@ testUpdateSuite({
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
                 name: "Latest gen",
-                slug: "latest-gen",
                 description: "Tests latest",
                 plan: "First plan",
             });
@@ -176,7 +169,6 @@ testUpdateSuite({
 
             const { testCaseId, planId } = await draft.addTestCase({
                 name: "Multi gen",
-                slug: "multi-gen",
                 description: "Tests multiple generations",
                 plan: "The plan",
             });

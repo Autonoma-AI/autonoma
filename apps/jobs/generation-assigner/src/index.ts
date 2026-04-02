@@ -1,7 +1,18 @@
 import { db } from "@autonoma/db";
+import { GitHubApp } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
+import { triggerDiffsJob } from "@autonoma/workflow";
 import { env } from "./env";
+
+const githubApp = new GitHubApp({
+    appId: env.GITHUB_APP_ID,
+    privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
+    appSlug: env.GITHUB_APP_SLUG,
+});
+
+const commitDiffHandler = new CommitDiffHandler(db, githubApp, triggerDiffsJob);
 
 const generationIds = process.argv.slice(2);
 if (generationIds.length === 0) {
@@ -21,7 +32,11 @@ async function main() {
     const branchId = firstGeneration.snapshot.branchId;
     logger.info("Resolved branch from generation", { branchId });
 
-    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId });
+    const updater = await TestSuiteUpdater.continueUpdate({
+        db,
+        branchId,
+        commitDiffHandler,
+    });
     const { assigned, failed } = await updater.assignGenerationResults(generationIds);
     logger.info("Generation results assigned", { assigned, failed });
 
