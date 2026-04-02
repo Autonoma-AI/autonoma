@@ -10,6 +10,7 @@ import { branchesRouter } from "./branches/branches.router";
 import { bugsRouter } from "./bugs/bugs.router";
 import { foldersRouter } from "./folders/folders.router";
 import { issuesRouter } from "./issues/issues.router";
+import { notificationsRouter } from "./notifications/notifications.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
 import { runsRouter } from "./runs/runs.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
@@ -37,6 +38,7 @@ const appRouterImpl = router({
     github: githubRouter,
     onboarding: onboardingRouter,
     snapshotEdit: snapshotEditRouter,
+    notifications: notificationsRouter,
 });
 
 export const appRouter: typeof appRouterImpl = appRouterImpl;
