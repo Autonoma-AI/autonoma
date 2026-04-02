@@ -11,6 +11,8 @@ services:
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
   minio:
     image: minio/minio:latest
@@ -21,6 +23,8 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+    volumes:
+      - miniodata:/data
 
   minio-init:
     image: minio/mc:latest
@@ -38,3 +42,7 @@ services:
           cors_allow_origin="http://localhost:3000,http://127.0.0.1:3000"
         /usr/bin/mc admin service restart --json --disable-pager local
     restart: "no"
+
+volumes:
+  pgdata:
+  miniodata:
