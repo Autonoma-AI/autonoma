@@ -35,16 +35,17 @@ The plugin runs each step in an **isolated subagent** and validates every output
 
 ## Before you start
 
-The plugin runs primarily against your **frontend codebase** - that's where the agent discovers pages, flows, and UI patterns. However, having access to the **backend codebase** is highly recommended, even if it lives in a separate repository:
+The plugin runs primarily against your **frontend codebase** - that's where the agent discovers pages, flows, and UI patterns. However, the current Step 2 flow also requires a working **Environment Factory endpoint** in your backend so it can fetch the SDK `discover` artifact before planning scenarios.
 
-- **Step 2 (Scenarios)** needs to read your database schema to understand entity types, relationships, and enumerations. Without the backend, the agent can only infer the data model from the frontend, which is less accurate.
-- **Step 4 (Implement Scenarios)** writes code directly in your backend to implement the Environment Factory endpoint.
+Before you start, make sure you have:
 
-If your frontend and backend are in the same monorepo, you're all set. If they're in separate repositories, make sure both are accessible in your workspace before starting. The agent will ask you to point to the backend location if it can't find it automatically.
+- access to the frontend codebase
+- access to the backend codebase, or at least a running Environment Factory endpoint
+- these environment variables in the Claude Code session:
+  - `AUTONOMA_ENV_FACTORY_URL`
+  - `AUTONOMA_SHARED_SECRET`
 
-:::note
-If you only have access to the frontend right now, you can still run Steps 1, 2, and 3. For Step 4, the agent will detect that the backend isn't available and generate a self-contained prompt you can copy and run in your backend workspace instead.
-:::
+If your frontend and backend are in the same monorepo, you're all set. If they're in separate repositories, make sure the frontend workspace can still reach the backend endpoint used for `discover`, `up`, and `down`.
 
 ## The four steps
 
@@ -57,10 +58,10 @@ The agent analyzes your frontend codebase and produces `AUTONOMA.md`: a user-per
 
 ### Step 2 - Generate test data scenarios
 
-The agent explores your data model and designs three named test data environments: `standard` (realistic variety for most tests), `empty` (for empty state testing), and `large` (for pagination and performance). Every entity has a concrete name, count, and explicit relationships - tests assert against these exact values.
+The agent fetches the SDK `discover` response from your Environment Factory endpoint, saves it as `autonoma/discover.json`, and then designs three named test data environments: `standard` (realistic variety for most tests), `empty` (for empty state testing), and `large` (for pagination and performance). `scenarios.md` still records concrete values and relationships, but it now also records schema metadata and generated-value placeholders for fields that must stay dynamic.
 
-**Consumes:** Knowledge base from Step 1 + your codebase.
-**Produces:** `autonoma/scenarios.md`
+**Consumes:** Knowledge base from Step 1 + `discover` output from your Environment Factory + relevant code context.
+**Produces:** `autonoma/discover.json` + `autonoma/scenarios.md`
 
 ### Step 3 - Generate E2E tests
 
@@ -69,19 +70,19 @@ The agent produces an exhaustive set of test cases as natural language markdown 
 **Consumes:** Knowledge base + scenarios from Steps 1-2.
 **Produces:** `qa-tests/` directory with test files + `INDEX.md`
 
-### Step 4 - Implement the Environment Factory
+### Step 4 - Validate scenario recipes against the Environment Factory
 
-The agent takes your scenarios and implements the `discover`, `up`, and `down` endpoints that Autonoma calls to create and tear down isolated test data before and after each run. It reads the [Environment Factory protocol](/guides/environment-factory/) and follows the example for your framework.
+The agent takes your schema-aware scenarios and validates concrete scenario recipes against the existing SDK-backed Environment Factory. It checks that the planned `up` and `down` lifecycle works for each scenario, prefers SDK-backed checks when available, and persists the approved recipes for later use.
 
-**Consumes:** Scenarios from Step 2 + your backend codebase.
-**Produces:** Working endpoint code + integration tests
+**Consumes:** `discover.json` + scenarios from Step 2 + your backend codebase and/or running Environment Factory.
+**Produces:** `autonoma/scenario-recipes.json` + any targeted backend fixes needed to make the lifecycle validate cleanly
 
 ## How the steps connect
 
 - **Step 1** output feeds Steps 2 and 3 - the knowledge base tells both agents what entities exist and what the core flows are
-- **Step 2** output feeds Steps 3 and 4 - tests reference scenario data by name, and the endpoint creates that exact data
+- **Step 2** output feeds Steps 3 and 4 - tests reference scenario data by name, and Step 4 validates the scenario recipes against the Environment Factory lifecycle
 - **Step 3** output is what you upload to Autonoma - the test suite
-- **Step 4** output is what makes those tests runnable - the endpoint that provisions isolated data per run
+- **Step 4** output is what makes those tests reliable - the validated recipe layer that confirms `up` and `down` can create and clean up the planned data
 
 ## How validation works
 
@@ -100,8 +101,8 @@ The plugin pauses between Steps 1-3 and asks for your review before the output i
 | After step | What to review | Why it matters |
 |------------|----------------|----------------|
 | Step 1 | Core flows identified | Determines 50-60% of test coverage weight. Wrong core flows = poorly prioritized tests. |
-| Step 2 | Scenario entity data | Tests assert exact values. Wrong names, counts, or relationships = tests that always fail. |
+| Step 2 | Scenario entity data + variable fields | Fixed values become direct assertions, and generated values become placeholders. Wrong names, counts, relationships, or variable markings = brittle tests. |
 | Step 3 | Journey + Critical test samples | Confirms assertions reference real UI text, not vague descriptions. |
-| Step 4 | Implementation plan | Ensures correct entity creation order, teardown order, and auth strategy before code is written. |
+| Step 4 | Scenario validation plan | Ensures the planned recipes create and clean up correctly before later automation depends on them. |
 
 Each step page explains what to look for and why it matters in detail.

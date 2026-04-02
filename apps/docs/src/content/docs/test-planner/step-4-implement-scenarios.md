@@ -1,62 +1,63 @@
 ---
-title: "Step 4: Implement Scenarios"
-description: "Implement the Environment Factory endpoint that creates and tears down isolated test data for each scenario."
+title: "Step 4: Validate Scenario Recipes"
+description: "Validate the planned scenarios against the Environment Factory lifecycle and persist approved generation recipes."
 ---
 
 :::note[We're simplifying this]
 We know the current scenario setup is more complex than it needs to be. We're actively working on a much simpler version that should be ready in the next couple of weeks. In the meantime, the process below still works - but expect it to get significantly easier soon.
 :::
 
-The scenario implementer takes your `scenarios.md` and builds the Environment Factory endpoint - the `discover`, `up`, and `down` actions that Autonoma calls to create and tear down isolated test data before and after each run. It reads the [Environment Factory protocol](/guides/environment-factory/) and follows the example for your framework.
+The Step 4 agent takes your `discover.json` and `scenarios.md`, builds concrete scenario recipes, and validates them against the Environment Factory lifecycle that already exists in your backend. Instead of treating Step 4 primarily as "implement the endpoint," the current flow assumes the SDK is already installed and focuses on proving that each scenario can be created and cleaned up successfully.
+
+In practice, this means Step 4:
+
+- assembles concrete `create` payloads for `standard`, `empty`, and `large`
+- checks that `up` can create the data cleanly
+- checks that `down` can clean it up cleanly
+- persists the approved recipes for later automation
+
+If the backend has only a small integration gap, Step 4 can fix that. But the main path is **validation of scenario recipes**, not greenfield Environment Factory implementation.
 
 ## Prerequisites
 
+- `autonoma/discover.json` must exist (output from [Step 2](/test-planner/step-2-scenarios/))
 - `autonoma/scenarios.md` must exist (output from [Step 2](/test-planner/step-2-scenarios/))
-- Your application's **backend codebase** must be open in the workspace. If it's in a separate repository from the frontend, make sure it's accessible - the agent will ask you to point to it. This is where the endpoint code will be written.
-- Optionally, the `qa-tests/` directory from [Step 3](/test-planner/step-3-e2e-tests/) (helps understand what data the tests will need, but not strictly required)
+- Your application's backend codebase must be open in the workspace, or a working Environment Factory endpoint must be reachable
+- The Environment Factory must already support `discover`, `up`, and `down`
+- Optionally, the `qa-tests/` directory from [Step 3](/test-planner/step-3-e2e-tests/) helps confirm what data the tests will need
 
-## Generating the secrets
+## Environment requirements
 
-The implementation requires **two separate secrets** with different purposes. Generate them before you start:
+If Step 4 needs to validate through the live HTTP endpoint, make sure the Claude Code session can reach it and has:
 
-```bash
-# 1. Shared secret - you AND Autonoma both know this one.
-#    Autonoma uses it to sign every request (HMAC-SHA256).
-#    Your endpoint uses it to verify the signature.
-#    You'll paste this into the Autonoma dashboard when connecting your app.
-openssl rand -hex 32
-# Example output: 4a8f...  → set as AUTONOMA_SHARED_SECRET
+- `AUTONOMA_ENV_FACTORY_URL`
+- `AUTONOMA_SHARED_SECRET`
 
-# 2. Internal secret - ONLY your server knows this one.
-#    Your `up` action uses it to sign the refs into a JWT (refsToken).
-#    Your `down` action uses it to verify the JWT before deleting data.
-#    Autonoma never sees this secret - it just passes the opaque token through.
-openssl rand -hex 32
-# Example output: 9c3d...  → set as AUTONOMA_INTERNAL_SECRET
-```
-
-Each command produces a 64-character hex string (256 bits of entropy). Use a **different** value for each - never reuse one as the other. For more details on why two secrets are needed, see the [Security Model](/guides/environment-factory/#security-model) in the Environment Factory Guide.
+If the backend exposes the SDK directly in-process, Step 4 should prefer local SDK-backed checks instead of external HTTP calls.
 
 ## What this produces
 
-- Working implementation of the `discover`, `up`, and `down` endpoint actions in your application's codebase
-- Integration tests covering the full lifecycle (create data, verify, tear down, verify clean)
-- A curl test script for manual verification
+- `autonoma/scenario-recipes.json` - the validated recipes for `standard`, `empty`, and `large`
+- Any targeted backend fixes needed to make the scenario lifecycle validate cleanly
+- Validation evidence showing which strategy was used:
+  - SDK-backed `checkScenario` / `checkAllScenarios`
+  - or signed `discover` / `up` / `down` endpoint calls
 
 ## Review checkpoint
 
-Before writing any code, the agent will present a full implementation plan. This is a standard plan-mode approval gate - review it before the agent proceeds.
+Before writing code or changing recipes, the agent will present a validation plan. This is still a standard approval gate - review it before the agent proceeds.
 
 **What to check:**
 
+- **Recipe structure** - Does each scenario recipe actually reflect the entity inventory, counts, and relationships approved in Step 2?
 - **Entity creation order** - Parents must be created before children. If the plan says "create Tests before Applications" but tests reference applications, the order is wrong.
-- **Teardown order** - Must be the reverse of creation. Children before parents. If the plan deletes an organization before its users, it will fail on foreign key constraints.
-- **Auth strategy** - Does the plan correctly identify how your app authenticates users? If you use session cookies, the `up` response should return a cookie. If JWT, a token.
-- **Security implementation** - HMAC-SHA256 signature verification, JWT signed refs, and a production guard (endpoint returns 404 unless explicitly enabled) should all be present.
-- **Environment variables** - The plan should list both secrets: `AUTONOMA_SHARED_SECRET` (HMAC, shared with Autonoma) and `AUTONOMA_INTERNAL_SECRET` (JWT refs signing, only on your server). These are two different secrets with different purposes.
+- **Cleanup order** - Teardown must remove children before parents or otherwise rely on the SDK's teardown order safely.
+- **Validation strategy** - The plan should prefer SDK-backed `checkScenario` / `checkAllScenarios` when available, then fall back to signed endpoint validation only if needed.
+- **Variable field handling** - Generated values from Step 2 must remain generated in the recipe. The plan should not collapse `<project_title>` back into a fixed literal.
+- **Rollback claims** - If the plan says "dry run" or "transaction rollback," make sure the backend actually implements that. Otherwise the plan should describe this correctly as create-then-clean validation.
 
 :::tip
-If you're unsure about the protocol details, read the [Environment Factory Guide](/guides/environment-factory/) before reviewing the plan. The guide covers the full security model, request/response format, and teardown rules.
+If you're unsure about the protocol details, read the [Environment Factory Guide](/guides/environment-factory/) before reviewing the plan. The guide covers the current SDK request/response format, security model, and validation options.
 :::
 
 ## The prompt
@@ -64,294 +65,273 @@ If you're unsure about the protocol details, read the [Environment Factory Guide
 <details>
 <summary>Expand full prompt</summary>
 
-# Environment Factory Scenario Implementer
+# Environment Factory Scenario Validator
 
-You are a backend engineer. Your job is to implement the Autonoma Environment Factory endpoint for this application, using the scenarios defined in `scenarios.md` to populate each environment with concrete test data.
+You are a backend engineer. Your job is to validate the Step 2 scenarios against the application's existing Environment Factory, then persist the approved scenario recipes for later use.
+
+The primary goal is **not** to invent new scenario data and **not** to re-implement the protocol from scratch. The goal is to:
+
+1. read `discover.json` and `scenarios.md`
+2. assemble concrete scenario recipes
+3. validate that the backend can execute those recipes through `up` and `down`
+4. persist the approved generation recipes to `autonoma/scenario-recipes.json`
+
+If you discover a small missing integration detail or a validation bug in the backend, fix it. But assume the SDK-backed Environment Factory should already exist.
 
 ---
 
 ## Phase 0: Locate prerequisites
 
-### 0.1 - Find scenarios.md
+### 0.1 - Find the Step 2 artifacts
 
-1. Check for `autonoma/scenarios.md` at the workspace root.
-2. If not found, search broadly for `scenarios.md` anywhere in the workspace.
+1. Check for `autonoma/discover.json` and `autonoma/scenarios.md` at the workspace root.
+2. If not found, search broadly for both files anywhere in the workspace.
 
-If not found, tell the user:
+If either file is missing, tell the user:
 
-> "I need `scenarios.md` to implement the Environment Factory. Please run the Scenario Generator (Step 2) first, then come back and run this prompt."
+> "I need both `discover.json` and `scenarios.md` to validate scenario recipes. Please run Step 2 first, then come back and run this prompt."
 
-Do not proceed without it.
+Do not proceed without them.
 
 ### 0.2 - Read the Environment Factory documentation
 
 Fetch the Autonoma documentation to understand the current protocol:
 
 1. Fetch `https://docs.agent.autonoma.app/llms.txt` to get the documentation index
-2. Read the **Environment Factory Guide** - understand the `discover`, `up`, and `down` actions, the security model (HMAC-SHA256 signatures, signed JWT refs), and the teardown rules
-3. Read the **framework example** that matches this project's stack (Next.js, React+Vite, Elixir/Phoenix, TanStack Start) if one exists
+2. Read the **Environment Factory Guide** - understand the current `discover`, `up`, and `down` actions, the security model, and the SDK-backed validation model
+3. Read the framework example that matches this project's stack if one exists
 
-**Always read the live docs.** The protocol may have been updated since this prompt was written. The docs at `https://docs.agent.autonoma.app` are the source of truth.
+**Always read the live docs.** The docs at `https://docs.agent.autonoma.app` are the source of truth.
 
-### 0.3 - Read scenarios.md
+### 0.3 - Read discover.json and scenarios.md
 
-Read `scenarios.md` fully. Identify:
+Read both files fully. Identify:
 
-- The three scenario names (`standard`, `empty`, `large`) and their descriptions
-- Every entity type in the `standard` scenario, with exact counts and relationships
-- The credentials format (organization name, user email/password, role)
-- The `large` scenario's volume requirements (what counts exceed pagination thresholds)
-- Any special entity relationships or ordering constraints
+- the schema models, edges, relations, and scope field from `discover.json`
+- the three scenario names (`standard`, `empty`, `large`) and their descriptions
+- every entity type in the `standard` scenario, with exact counts and relationships
+- the `large` scenario's volume requirements
+- every generated variable token and what field it maps to
 
 ---
 
-## Phase 1: Understand the codebase
+## Phase 1: Understand the codebase and validation surface
 
 ### 1.1 - Check backend access
 
-Before anything else, determine if the backend codebase is accessible in this workspace. Search for common backend indicators: database schema files (`schema.prisma`, `drizzle/`, SQL migrations), server entry points, API route directories, or `package.json` files with backend dependencies.
+Before anything else, determine if the backend codebase is accessible in this workspace.
 
-**If the backend is NOT accessible:**
+If the backend is not accessible and there is no reachable Environment Factory endpoint, tell the user:
 
-Do not attempt to implement the endpoint. Instead, tell the user:
+> "I don't have access to your backend codebase or a reachable Environment Factory endpoint, so I can't validate the scenario lifecycle. Step 4 requires one of those to be available."
 
-> "I don't have access to your backend codebase, so I can't implement the Environment Factory directly. Instead, here's a prompt you can copy and run in your backend workspace. It has everything the agent needs - your scenarios, the protocol docs, and full implementation instructions."
+Do not proceed without one of them.
 
-Then generate a **self-contained prompt** the user can copy and paste into a coding agent running on their backend. The prompt must include:
+### 1.2 - Confirm Environment Factory availability
 
-1. **The full contents of `scenarios.md`** - inline the entire file so the backend agent has all entity types, counts, relationships, and credentials
-2. **The full contents of `AUTONOMA.md`** - inline it so the backend agent understands the application's flows and pages
-3. **A link to the live documentation**: "Fetch `https://docs.agent.autonoma.app/llms.txt` to get the documentation index. Read the Environment Factory Guide for the full protocol (discover/up/down actions, HMAC-SHA256 security, signed JWT refs, teardown rules). Read the framework example that matches your stack if one exists."
-4. **All implementation instructions from Phase 2 onward** of this prompt (plan, implement, verify) - so the backend agent has the complete playbook
-5. **The test script command** to verify the implementation: `curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- --url [ENDPOINT_URL] --secret [AUTONOMA_SHARED_SECRET] --scenario standard`
+Search for:
 
-Format the prompt as a single fenced code block the user can copy. Do not proceed with the remaining phases - the user will run it themselves on their backend.
+- SDK packages and adapters
+- the mounted Environment Factory route/handler
+- configuration for `sharedSecret` and `signingSecret`
+- any local helper that wraps `checkScenario` or `checkAllScenarios`
 
-**If the backend IS accessible**, continue to Phase 1.2.
+If the SDK integration is obviously missing entirely, stop and tell the user:
 
-### 1.2 - Ask the user
+> "The current Step 4 flow assumes an existing SDK-backed Environment Factory. I couldn't find one here, so this needs the SDK integration first before scenario validation can proceed."
 
-Before exploring the codebase, ask the user these questions:
+If the SDK is present but validation appears broken or incomplete, continue and plan targeted fixes.
 
-> "Before I implement the Environment Factory, I need to understand a few things about your backend:
->
-> 1. **Where should I add this endpoint?** If you have a preferred location (e.g., `src/app/api/autonoma/route.ts`, `server/routes/autonoma.ts`), let me know. Otherwise I'll look at your existing route structure and suggest a spot.
-> 2. **What's your backend framework and language?** (e.g., Next.js, Express, Fastify, NestJS, Rails, Django, Phoenix - I'll try to detect this, but confirm so I get it right)
-> 3. **What's your database access layer?** (e.g., Prisma, Drizzle, raw SQL, Sequelize, TypeORM, Ecto)
-> 4. **What's your auth mechanism?** How do users log in? (session cookies, JWT in header, OAuth - this determines what `up` returns in the `auth` field)
-> 5. **Do you have an existing signing secret I should reuse**, or should I generate a new environment variable?
->
-> If you're unsure about any of these, just say so and I'll explore your codebase to figure it out."
+### 1.3 - Explore the creation patterns
 
-Wait for the user's answers before proceeding. If the user is uncertain about the endpoint location or framework conventions, explore the codebase to determine the right placement and patterns before proposing a plan.
+After confirming the validation surface:
 
-### 1.3 - Explore the codebase
+- map every entity in `scenarios.md` to its database table/model
+- identify any unique fields that must remain generated
+- identify parent/child creation order from the schema relationships
+- find any existing seed helpers, factories, or test helpers worth reusing
+- determine whether the backend can run SDK-backed checks locally or whether you need signed endpoint calls
 
-After getting the user's answers:
-
-- **Find the database schema** - Prisma `schema.prisma`, Drizzle schema files, SQL migrations, or equivalent
-- **Map every entity in `scenarios.md` to its database table/model** - confirm they all exist and note any field name differences between the scenario and the schema
-- **Identify entity creation patterns** - find existing code that creates entities (seed files, test helpers, API handlers). Reuse the same patterns, imports, and conventions
-- **Understand the auth creation flow** - how does a session or token get created for a user? Find the login handler or session creation code
-- **Check for circular foreign keys** - if any tables reference each other bidirectionally, you'll need the transaction + constraint drop pattern for teardown
-
-**Use subagents to parallelize exploration.** One for the database schema, one for existing entity creation patterns, one for auth flow.
+**Use subagents to parallelize exploration.** One for the schema and models, one for the SDK integration, one for existing entity creation helpers.
 
 ---
 
 ## Phase 2: Plan - go into plan mode
 
-Before writing any code, present a complete implementation plan to the user:
+Before writing any code, present a complete validation plan to the user:
 
-```
-## Implementation Plan
+```text
+## Validation Plan
 
-### Endpoint location
-[Exact file path where the endpoint will be created or updated]
+### Validation surface
+[Exact file path(s) or endpoint URL(s) that will be used]
 
-### Framework integration
-[How the endpoint fits into the existing request/response pattern - middleware, route registration, etc.]
+### Validation strategy
+[Prefer SDK-backed checkScenario/checkAllScenarios, or explain why endpoint validation is required]
 
-### Environment variables (two secrets with different purposes)
-- `AUTONOMA_SHARED_SECRET` - HMAC-SHA256 signing secret. **Shared between your server and Autonoma** - you paste this value into the Autonoma dashboard when connecting your app. Autonoma uses it to sign every request; your endpoint uses it to verify the signature. Generate with: `openssl rand -hex 32`
-- `AUTONOMA_INTERNAL_SECRET` - JWT signing secret for refs tokens. **Only on your server, never shared with Autonoma.** Your `up` action uses it to sign the refs into a JWT; your `down` action uses it to verify the JWT before deleting data. Autonoma just passes the opaque token through. Generate with: `openssl rand -hex 32` (use a **different** value than the shared secret)
-- `AUTONOMA_ENABLED` - Feature flag (endpoint returns 404 when not set in production)
+### Scenario recipe inputs
+- discover source: [path]
+- scenarios source: [path]
+- scenario names: standard, empty, large
 
-### Security implementation
-- HMAC-SHA256 signature verification on every request (uses `AUTONOMA_SHARED_SECRET`)
-- JWT signing for refsToken (24h expiry) containing created entity IDs (uses `AUTONOMA_INTERNAL_SECRET`)
-- Production guard: returns 404 unless AUTONOMA_ENABLED=true or NODE_ENV != production
-
-### Auth strategy
-[Based on user's answer - what the `up` response returns in the `auth` field]
+### Variable field handling
+- [token] -> [entity field] -> [generator or runtime derivation note]
 
 ### Scenario: standard
-Create order (parents first):
-1. Organization - name: "[org name from scenario] - {testRunId}"
-2. User - email: "test-{testRunId}@example.com", role: [role from scenario]
-3. [Entity type 2] - [count] items: [brief description]
-4. ...
-
-Teardown order (reverse):
+Create order:
 1. ...
-2. User
-3. Organization
+2. ...
+
+Cleanup order:
+1. ...
+2. ...
 
 ### Scenario: empty
 Create order:
-1. Organization
-2. User
+1. ...
 
-Teardown order:
-1. User
-2. Organization
+Cleanup order:
+1. ...
 
 ### Scenario: large
-[Summary - which entities differ from standard and by how much]
-Create order: [same structure as standard]
-Teardown order: [reverse]
+Create order:
+1. ...
 
-### Fingerprinting
-[How the fingerprint is computed - descriptor string containing entity types, counts, and field names, hashed to 16-char hex]
+Cleanup order:
+1. ...
+
+### Validation output
+- `autonoma/scenario-recipes.json`
+- [any targeted backend file changes]
+
+### Risk notes
+- [e.g. unique constraints, missing auth callback, uncertain rollback support]
 ```
 
 **Wait for the user to approve before proceeding.** Do not write code until the plan is approved.
 
 ---
 
-## Phase 3: Implement
+## Phase 3: Validate and persist recipes
 
-Implement in this exact order. Each piece should be a commit-ready unit.
+Implement in this order.
 
-### 3.1 - Types and schemas
+### 3.1 - Assemble concrete scenario recipes
 
-Define the request/response types for all three actions. Use the project's existing validation approach (Zod, io-ts, custom validators, or framework-native validation).
+Build one recipe per scenario from `discover.json` and `scenarios.md`.
 
-- Discriminated union for `discover | up | down` request bodies
-- Response shapes for each action
-- Refs token payload type
+Each recipe must preserve:
 
-### 3.2 - Security utilities
+- scenario name and description
+- entity creation structure
+- explicit relation paths
+- fixed values that later tests can assert directly
+- generated tokens for fields that must remain dynamic
 
-- **HMAC verification helper** - validates the `x-signature` header against the request body using `AUTONOMA_SHARED_SECRET` (the secret shared with Autonoma). Use constant-time comparison.
-- **JWT sign/verify for refs** - signs a payload with entity IDs on `up`, verifies on `down`, using `AUTONOMA_INTERNAL_SECRET` (the secret only your server knows). Include `testRunId` in the payload. Set 24h expiry.
-- **Production guard** - middleware or early return that returns 404 when `AUTONOMA_ENABLED` is not set and the environment is production.
+Do not collapse generated placeholders back into hardcoded literals.
 
-### 3.3 - Scenario builders
+### 3.2 - Prefer SDK-backed validation
 
-Create one builder per scenario. Each builder implements:
+If the backend exposes the SDK in-process, prefer:
 
-- `name` - the scenario name string
-- `description` - one-sentence description
-- `computeFingerprint()` - deterministic 16-char hex hash of the scenario's data structure descriptor. The descriptor includes entity types, counts, and field names. **No timestamps or random values** - the fingerprint must be stable across calls.
-- `up(testRunId: string)` - creates all entities in order, returns `{ auth, refs }` where `refs` contains the IDs of all created entities
-- `down(refs)` - deletes all entities in reverse order using the refs from `up`
+- `checkScenario`
+- `checkAllScenarios`
 
-### 3.4 - Standard scenario
+Use those checks to validate the recipes against the real database behavior.
 
-The main builder. For each entity type in `scenarios.md`:
+This is the preferred path because it runs the actual `up` -> `down` lifecycle close to the database and returns structured validation errors.
 
-1. Create entities in the order defined by entity dependencies (parents before children)
-2. Use `testRunId` to make all unique fields unique across parallel runs (e.g., email: `test-{testRunId}@example.com`, org name: `Standard Test Org - {testRunId}`)
-3. Set all fields to match the exact values in `scenarios.md` (names, statuses, types, counts)
-4. Track all created entity IDs in the refs object
+### 3.3 - Fallback to signed endpoint validation
 
-### 3.5 - Empty scenario
+If SDK-backed validation is not available but the HTTP Environment Factory is reachable, validate through the endpoint:
 
-Minimal: create only the organization and user. All other entity types have zero items.
+1. confirm `discover` works
+2. send signed `up` requests with the recipe payload
+3. confirm the response is valid
+4. send signed `down` requests
+5. confirm cleanup succeeds
 
-### 3.6 - Large scenario
+Use this only when a local SDK-backed check is unavailable.
 
-Reuse the standard scenario's creation logic but with higher counts. For entities where the `large` scenario specifies different volumes, scale up. Use loops for bulk creation - don't write 120 individual create calls.
+### 3.4 - Fix recipe or integration gaps
 
-### 3.7 - Scenario registry
+If validation fails:
 
-A simple map from scenario name to builder instance. The endpoint handler looks up the scenario by name from the request.
+- fix the recipe if the scenario shape is wrong
+- fix small backend integration issues if they prevent validation
+- preserve the Step 2 contract while doing so
 
-### 3.8 - Endpoint handler
+Common failures:
 
-The main endpoint. Routes the `action` field to the right handler:
+- unique constraint errors
+- missing required fields
+- wrong creation order
+- incorrect FK wiring
+- generated fields accidentally hardcoded
+- teardown gaps
 
-- **`discover`** - verify signature, return list of all scenarios with names, descriptions, and fingerprints
-- **`up`** - verify signature, look up scenario by name, call `up(testRunId)`, sign refs into a JWT, return `{ auth, refsToken }`
-- **`down`** - verify signature, verify and decode the refs JWT, call `down(refs)`
+Do not claim a true rollback-based dry run unless the backend explicitly implements transaction-based validation. By default, describe this correctly as create-then-clean lifecycle validation.
 
-Follow the existing codebase patterns exactly. If the app uses a service class pattern, create a service. If it uses plain handler functions, use handler functions. Match the existing import style, error handling pattern, and file organization.
+### 3.5 - Persist approved recipes
+
+Write `autonoma/scenario-recipes.json`.
+
+For each scenario, include:
+
+- scenario name
+- validation strategy used
+- whether validation passed
+- a recipe payload or generation structure
+- variable field tokens used by the recipe
+- any notes about constraints or cleanup behavior
 
 ---
 
 ## Phase 4: Verify
 
-### 4.1 - Integration tests
+### 4.1 - Verify the artifact
 
-Write integration tests using the project's existing test framework. Cover:
+Confirm that:
 
-- `discover` returns all three scenarios with 16-char hex fingerprints
-- Fingerprints are stable across calls (call twice, compare)
-- `up standard` creates the correct entity counts (query the DB after `up` and verify counts match `scenarios.md`)
-- `up empty` creates only organization + user
-- `down` deletes all created entities (query the DB after `down` and verify zero orphans)
-- Full lifecycle: `up` -> verify data exists -> `down` -> verify data is gone
-- Security: tampered signature -> 403
-- Security: missing signature -> 401
-- Security: unknown scenario name -> 400
-- Security: tampered refs token -> 403
+- all three scenarios exist
+- each scenario has a validated recipe
+- generated tokens in the recipe still match the tokens from `scenarios.md`
+- the recorded validation strategy is accurate
 
-### 4.2 - Run the test script
+### 4.2 - Verify the lifecycle
 
-Test the endpoint end-to-end using Autonoma's test script. Run it against each scenario:
+If you used SDK-backed checks, report the exact success/failure result per scenario.
 
-```bash
-curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- \
-  --url [ENDPOINT_URL] \
-  --secret [AUTONOMA_SHARED_SECRET] \
-  --scenario standard
-```
+If you used HTTP endpoint validation, report that:
 
-The script runs `discover` -> `up` -> `down` and validates every response. Run it for each scenario (`standard`, `empty`, `large`) to confirm the full lifecycle works.
+- `discover` succeeded
+- `up` succeeded
+- `down` succeeded
 
-If a scenario fails, read the error output - it shows the exact request, response, and validation failure. Fix the issue and re-run.
-
-If the endpoint is running locally, use `--url http://localhost:[PORT]/api/autonoma` (or wherever you placed it). Ask the user for the URL and signing secret if you don't know them.
+for each validated scenario.
 
 ### 4.3 - Report to the user
 
 Tell the user:
 
-> "Done! I've implemented the Environment Factory at `[endpoint path]` with three scenarios:
+> "Done! I've validated the Step 2 scenarios against the Environment Factory lifecycle and saved the approved recipes in `autonoma/scenario-recipes.json`.
 >
-> - `standard`: [brief summary of what it creates]
-> - `empty`: Organization + user only
-> - `large`: [brief summary]
+> Validation strategy: [SDK-backed checks / signed endpoint validation]
+> Scenarios validated: [list]
+> Generated fields preserved: [count]
+> Backend fixes made: [summary, or 'none']
 >
-> **Next steps:**
-> 1. Generate and set the two secrets (use a different value for each):
->    ```
->    openssl rand -hex 32  # use output for AUTONOMA_SHARED_SECRET (share this with Autonoma)
->    openssl rand -hex 32  # use output for AUTONOMA_INTERNAL_SECRET (keep this to yourself)
->    ```
-> 2. Run the integration tests: `[test command]`
-> 3. Test the endpoint end-to-end with Autonoma's test script:
->    ```
->    curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- \
->      --url [ENDPOINT_URL] --secret [AUTONOMA_SHARED_SECRET] --scenario standard
->    ```
-> 4. Share the endpoint URL with Autonoma to connect your application
->
-> The integration tests cover the full lifecycle and security model from the [Environment Factory Guide](https://docs.agent.autonoma.app/guides/environment-factory/)."
+> Next step: use these validated recipes as the source of truth for later scenario execution and test setup."
 
 ---
 
 ## Important reminders
 
-- **Always fetch the live docs at `https://docs.agent.autonoma.app/llms.txt` before implementing.** The Environment Factory protocol may have been updated since this prompt was written. The docs are the source of truth for request/response formats, security requirements, and teardown rules.
-- **Use `testRunId` to make all unique fields unique.** Emails, organization names, and any other unique-constrained fields must include the `testRunId` so parallel test runs don't collide.
-- **Delete in reverse creation order.** Never assume ORM cascades work correctly - explicitly delete children before parents. If you created Organization -> User -> Project -> Test, delete Test -> Project -> User -> Organization.
-- **The fingerprint must be deterministic.** The descriptor string should contain entity types, counts, and field structures - never timestamps, random values, or database IDs. The same scenario definition must always produce the same fingerprint.
-- **If circular foreign keys exist, use the transaction + constraint drop pattern.** Wrap the deletion in a transaction, temporarily disable the circular constraint, delete in order, re-enable the constraint. The Environment Factory Guide documents this pattern.
-- **Match existing codebase patterns.** Don't introduce new patterns, libraries, or conventions. If the app uses Prisma, use Prisma. If it uses a repository pattern, create a repository. If error handling uses a specific pattern, follow it.
-- **The `standard` scenario is the most important.** It's used by 80%+ of tests. Make sure every entity is created with the exact values from `scenarios.md` - names, counts, statuses, relationships. A mismatch means dozens of test failures.
-- **Test the full lifecycle, not just individual actions.** The most common bugs are in the seams: `up` creates data but `down` misses some entities, leaving orphans. The integration tests must verify the database is completely clean after `down`.
-- **If context compaction occurs, re-read this prompt and use a TODO list.** After compaction, immediately re-read any relevant documentation (this prompt, scenarios.md, the Environment Factory Guide). Create or update a TODO list tracking what phases have been completed and what remains. This prevents losing track of progress.
+- **Assume the Environment Factory already exists.** Step 4 is mainly about validation and recipe approval, not greenfield endpoint implementation.
+- **Use Step 2 as the contract.** `discover.json` is the schema source of truth and `scenarios.md` is the planning contract.
+- **Prefer SDK-backed validation.** Use `checkScenario` or `checkAllScenarios` whenever the backend exposes them.
+- **Generated values must stay generated.** If Step 2 marked a field as variable, do not convert it back into a fixed literal in the recipe.
+- **Be precise about cleanup semantics.** Unless the backend explicitly implements transaction rollback, describe validation as `up` followed by `down`, not as a true rollback dry run.
+- **Fix small gaps, don't redesign the system.** If validation fails, repair the recipe or a narrow integration issue. Do not rewrite the backend architecture.
 
 </details>

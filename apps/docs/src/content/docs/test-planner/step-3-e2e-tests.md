@@ -5,6 +5,11 @@ description: "Generate an exhaustive E2E test suite as markdown files, ready to 
 
 The test generation agent produces an exhaustive set of E2E test cases as natural language markdown files. Tests are distributed across tiers - core flows get 50-60% of coverage - and span happy paths, input validation, state persistence, navigation, and cross-flow journey tests. An adversarial review agent runs after to find gaps.
 
+Step 3 still consumes the named scenarios from Step 2, but `scenarios.md` can now contain both:
+
+- **fixed values** that tests should assert directly
+- **generated value tokens** that tests should reference symbolically, such as `(<project_title> variable)`
+
 ## Prerequisites
 
 - `autonoma/AUTONOMA.md` and `autonoma/skills/` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
@@ -27,6 +32,7 @@ For each sampled test, the agent will explain what flow it covers, why it was pr
 
 - **Do the steps reference actual UI text?** "Click the 'Save Changes' button" is correct. "Click the save button" is a red flag - it means the agent may not have read the actual code.
 - **Are assertions specific?** "Assert that a green toast appears with the text 'Test saved successfully'" is a real test. "Assert that the save was successful" will pass regardless of what happens.
+- **Are generated values referenced correctly?** If Step 2 marked a field as variable, the test should say something like `(<project_title> variable)` instead of inventing a literal title.
 - **Does the test budget feel right?** If 70% of tests are for settings pages and 30% for your core flow, ask the agent to rebalance.
 
 You don't need to review every test. Focus on the journey tests and a random sample from each core flow.
@@ -84,6 +90,7 @@ If scenarios exist:
 - Each scenario has a name, credentials, and a detailed inventory of what data exists (entities, counts, relationships).
 - **Tests must reference scenarios by name** in their Setup section: `Using scenario: standard`
 - **Tests must assert against known data** from the scenario. If the scenario says application "My Web App" exists, the test says `filter by application "My Web App"` - not `filter by an application`.
+- **If the scenario marks a field as generated, tests must reference the token instead of a literal.** For example, if `variable_fields` includes `<project_title>`, write `click the project titled (<project_title> variable)` - not `click the project titled "My Project"`.
 - **Never write conditional test steps.** The scenario guarantees the data exists. Don't write "if X exists, do A; otherwise verify B." Each test follows exactly one path.
 
 If no scenarios file exists, tests should create their own data in the Setup section using skills (e.g., `skills/create-a-project.md`). Even in this case, never write conditional steps - if a test needs data, the setup must create it.
