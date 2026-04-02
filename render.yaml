@@ -1,0 +1,68 @@
+services:
+  - type: web
+    name: autonoma-api
+    runtime: node
+    rootDir: .
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /health
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @autonoma/api build
+    startCommand: pnpm --filter @autonoma/api start
+    preDeployCommand: pnpm --filter @autonoma/db exec prisma migrate deploy
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 10000
+      - key: APP_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: BETTER_AUTH_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: autonoma-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: autonoma-redis
+          property: connectionString
+      - key: SCENARIO_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: AGENT_VERSION
+        value: demo
+      - key: LOCAL_GENERATION
+        value: false
+      - key: STRIPE_ENABLED
+        value: false
+  - type: keyvalue
+    name: autonoma-redis
+    plan: starter
+    ipAllowList: []
+
+databases:
+  - name: autonoma-postgres
+    databaseName: autonoma
+    plan: starter

@@ -6,19 +6,18 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
 import { auth, createContext, storageProvider } from "./context";
+import { isAllowedOrigin } from "./cors-origin-matcher";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { appRouter } from "./routes/router";
+import { shouldLogRequestBody } from "./should-log-request-body";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
 
 const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS;
-const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook"]);
 
 const corsOptions = {
     origin: (origin: string) => {
-        if (ALLOWED_ORIGINS.includes(origin)) return origin;
-        if (/^https:\/\/alpha-[a-f0-9]+\.alpha\.agent\.autonoma\.app$/.test(origin)) return origin;
-        if (/^https:\/\/alpha-[a-f0-9]+\.agent\.autonoma\.app$/.test(origin)) return origin;
+        if (isAllowedOrigin(origin, ALLOWED_ORIGINS)) return origin;
         return null;
     },
     credentials: true,
@@ -42,12 +41,7 @@ export function createApiApp() {
 
             let body: unknown;
             const contentType = c.req.header("content-type") ?? "";
-            const shouldLogBody =
-                ["POST", "PUT", "PATCH"].includes(method) &&
-                !contentType.startsWith("multipart/form-data") &&
-                !BODY_LOG_BLOCKLIST_PATHS.has(c.req.path);
-
-            if (shouldLogBody) {
+            if (shouldLogRequestBody({ method, path: c.req.path, contentType })) {
                 try {
                     const cloned = c.req.raw.clone();
                     body = await cloned.json();

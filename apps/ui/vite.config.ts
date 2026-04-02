@@ -15,7 +15,9 @@ export default defineConfig({
                 plugins: ["babel-plugin-react-compiler"],
             },
         }),
-        tsconfigPaths(),
+        tsconfigPaths({
+            root: import.meta.dirname,
+        }),
         VitePWA({
             registerType: "autoUpdate",
             workbox: {
