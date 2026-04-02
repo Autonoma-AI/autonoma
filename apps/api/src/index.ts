@@ -1,18 +1,16 @@
 import { logger } from "@autonoma/logger";
-import { serve } from "@hono/node-server";
 import * as Sentry from "@sentry/node";
 import { createApiApp, shutdownApi } from "./app";
 import { bootstrapApiRuntime } from "./bootstrap";
 import { env } from "./env";
+import { startApiServer } from "./start-api-server";
 
 bootstrapApiRuntime();
 
 const app = createApiApp();
 const port = Number.parseInt(env.API_PORT);
 
-logger.info(`Server running on port ${port}`);
-
-const server = serve({ fetch: app.fetch, port });
+const server = startApiServer({ app, port, logger });
 
 async function shutdown() {
     server.close();
