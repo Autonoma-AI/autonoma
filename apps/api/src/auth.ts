@@ -8,6 +8,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { apiKey, organization } from "better-auth/plugins";
 import type Redis from "ioredis";
 import { env } from "./env";
+import { SignupHooks } from "./signup-hooks/signup-hooks";
 
 const INTERNAL_DOMAIN = `@${env.INTERNAL_DOMAIN}`;
 
@@ -80,26 +81,43 @@ export type AuthSession = {
 
 const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com"]);
 
+interface OrgMembershipResult {
+    organizationId: string;
+    orgName: string;
+    orgSlug: string;
+    isNewUser: boolean;
+}
+
 async function ensureOrgMembership(
     conn: PrismaClient,
     userId: string,
     email: string,
     displayName?: string,
-): Promise<string> {
+): Promise<OrgMembershipResult> {
     const existing = await conn.member.findFirst({
         where: { userId },
-        select: { organizationId: true },
+        select: {
+            organizationId: true,
+            organization: { select: { name: true, slug: true } },
+        },
     });
 
     if (existing != null) {
         await ensureBillingProvisioning(conn, existing.organizationId);
-        return existing.organizationId;
+        return {
+            organizationId: existing.organizationId,
+            orgName: existing.organization.name,
+            orgSlug: existing.organization.slug,
+            isNewUser: false,
+        };
     }
 
     logger.info(`No membership found for user ${userId} - creating org on login`);
 
     const isInternal = email.endsWith(INTERNAL_DOMAIN);
     let orgId: string;
+    let orgName: string;
+    let orgSlug: string;
 
     if (isInternal) {
         const org = await conn.organization.upsert({
@@ -108,6 +126,8 @@ async function ensureOrgMembership(
             create: { name: "Autonoma", slug: "autonoma", domain: env.INTERNAL_DOMAIN, status: "approved" },
         });
         orgId = org.id;
+        orgName = org.name;
+        orgSlug = org.slug;
 
         await conn.user.update({
             where: { id: userId },
@@ -124,6 +144,8 @@ async function ensureOrgMembership(
             create: { name, slug, domain: isPersonalDomain ? email : domain, status: "approved" },
         });
         orgId = org.id;
+        orgName = org.name;
+        orgSlug = org.slug;
     }
 
     await conn.member.upsert({
@@ -134,10 +156,19 @@ async function ensureOrgMembership(
 
     await ensureBillingProvisioning(conn, orgId);
 
-    return orgId;
+    return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
 }
 
 export function buildAuth({ redisClient, conn }: BuildAuthParams) {
+    const signupHooks = new SignupHooks({
+        resendApiKey: env.RESEND_API_KEY,
+        resendAudienceId: env.RESEND_AUDIENCE_ID,
+        resendFromEmail: env.RESEND_FROM_EMAIL,
+        calLink: env.CAL_ONBOARDING_LINK,
+        slackBotToken: env.SLACK_BOT_TOKEN,
+        discordInviteUrl: env.DISCORD_INVITE_URL,
+    });
+
     return betterAuth({
         basePath: "/v1/auth",
         database: prismaAdapter(conn, { provider: "postgresql" }),
@@ -201,7 +232,24 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
             user: {
                 create: {
                     after: async (user) => {
-                        await ensureOrgMembership(conn, user.id, user.email, user.name);
+                        const result = await ensureOrgMembership(conn, user.id, user.email, user.name);
+
+                        if (result.isNewUser) {
+                            // Fire-and-forget: signup hooks run async and never block auth
+                            void signupHooks
+                                .onUserCreated({
+                                    db: conn,
+                                    userId: user.id,
+                                    email: user.email,
+                                    name: user.name,
+                                    organizationId: result.organizationId,
+                                    orgName: result.orgName,
+                                    orgSlug: result.orgSlug,
+                                })
+                                .catch((error) => {
+                                    logger.error("Failed to run signupHooks.onUserCreated", { error, userId: user.id });
+                                });
+                        }
                     },
                 },
             },
@@ -215,12 +263,31 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
 
                         if (user == null) throw new Error("User not found");
 
-                        const organizationId = await ensureOrgMembership(conn, session.userId, user.email, user.name);
+                        const result = await ensureOrgMembership(conn, session.userId, user.email, user.name);
+
+                        if (!result.isNewUser) {
+                            void signupHooks
+                                .onUserAuthenticated({
+                                    db: conn,
+                                    userId: session.userId,
+                                    email: user.email,
+                                    name: user.name,
+                                    organizationId: result.organizationId,
+                                    orgName: result.orgName,
+                                    orgSlug: result.orgSlug,
+                                })
+                                .catch((error) => {
+                                    logger.error("Failed to run signupHooks.onUserAuthenticated", {
+                                        error,
+                                        userId: session.userId,
+                                    });
+                                });
+                        }
 
                         return {
                             data: {
                                 ...session,
-                                activeOrganizationId: organizationId,
+                                activeOrganizationId: result.organizationId,
                             },
                         };
                     },

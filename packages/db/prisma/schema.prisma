@@ -31,12 +31,13 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions       Session[]
-  accounts       Account[]
-  members        Member[]
-  invitations    Invitation[] @relation("invitations")
-  apiKeys        ApiKey[]
+  sessions          Session[]
+  accounts          Account[]
+  members           Member[]
+  invitations       Invitation[] @relation("invitations")
+  apiKeys           ApiKey[]
   applicationSetups ApplicationSetup[]
+  signupHookStates  SignupHookState[]
 
   @@map("user")
 }
@@ -128,10 +129,11 @@ model Organization {
   issues             Issue[]
   bugs               Bug[]
   githubInstallation GitHubInstallation?
-  billingPricing       BillingPricing?
-  promoRedemptions     BillingPromoRedemption[]
-  billingCustomer     BillingCustomer?
+  billingPricing     BillingPricing?
+  promoRedemptions   BillingPromoRedemption[]
+  billingCustomer    BillingCustomer?
   applicationSetups  ApplicationSetup[]
+  signupHookStates   SignupHookState[]
 
   @@map("organization")
 }
@@ -224,6 +226,25 @@ model Invitation {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("invitation")
+}
+
+model SignupHookState {
+  id             String @id @default(cuid())
+  userId         String @map("user_id")
+  organizationId String @map("organization_id")
+
+  newsletterAddedAt         DateTime? @map("newsletter_added_at")
+  defaultWelcomeEmailSentAt DateTime? @map("default_welcome_email_sent_at")
+  premiumWelcomeEmailSentAt DateTime? @map("premium_welcome_email_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("signup_hook_state")
 }
 
 // --- Application Models ─────────────────────────────────────────────

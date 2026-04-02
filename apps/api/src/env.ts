@@ -25,6 +25,12 @@ export const env = createEnv({
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),
         ENGINE_BILLING_SECRET: z.string().min(1).optional(),
+        RESEND_API_KEY: z.string().min(1).optional(),
+        RESEND_AUDIENCE_ID: z.string().min(1).optional(),
+        RESEND_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <hello@autonoma.app>"),
+        CAL_ONBOARDING_LINK: z.string().url().optional(),
+        SLACK_BOT_TOKEN: z.string().min(1).optional(),
+        DISCORD_INVITE_URL: z.string().url().optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
