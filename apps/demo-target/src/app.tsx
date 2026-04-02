@@ -5,12 +5,20 @@ interface Product {
   name: string;
   category: string;
   price: string;
+  priceCents: number;
   summary: string;
   badge: string;
   highlight: string;
   specs: string[];
   shipping: string;
   support: string;
+  visual: "headphones" | "backpack" | "lamp";
+  imageSrc: string;
+}
+
+interface CartItem {
+  slug: string;
+  quantity: number;
 }
 
 const PRODUCTS: Product[] = [
@@ -19,36 +27,45 @@ const PRODUCTS: Product[] = [
     name: "AeroPulse X9 Headphones",
     category: "Audio",
     price: "$199",
+    priceCents: 19900,
     summary: "Adaptive noise cancellation with low-latency wireless audio and all-day comfort.",
     badge: "Best Seller",
     highlight: "40-hour battery with spatial audio tuning",
     specs: ["40hr battery", "Bluetooth 5.4", "USB-C fast charge"],
     shipping: "Free 2-day shipping",
     support: "2-year audio warranty included",
+    visual: "headphones",
+    imageSrc: "/products/headphones.jpg",
   },
   {
     slug: "travel-backpack",
     name: "Vector One Travel Pack",
     category: "Carry",
     price: "$129",
+    priceCents: 12900,
     summary: "Structured commuter pack with weatherproof shell and modular tech storage.",
     badge: "New",
     highlight: "Fits 16-inch laptops with cable organization",
     specs: ["24L capacity", "Weatherproof shell", "RFID passport pocket"],
     shipping: "Ships tomorrow",
     support: "30-day no-hassle returns",
+    visual: "backpack",
+    imageSrc: "/products/backpack.jpg",
   },
   {
     slug: "smart-desk-lamp",
     name: "Luma Forge Desk Lamp",
     category: "Workspace",
     price: "$89",
+    priceCents: 8900,
     summary: "Precision task lighting with warm-to-cool presets and clean cable-free charging.",
     badge: "Editor Pick",
     highlight: "Touch controls with USB-C accessory charging",
     specs: ["Touch dimmer", "Qi pad base", "CRI 95 light output"],
     shipping: "In stock for same-week delivery",
     support: "Live support seven days a week",
+    visual: "lamp",
+    imageSrc: "/products/lamp.jpg",
   },
 ];
 
@@ -59,9 +76,21 @@ const FEATURES = [
 ];
 
 const CATEGORY_SPOTLIGHTS = [
-  { title: "Portable audio", description: "Commuter-ready listening gear built for travel, calls, and focused work." },
-  { title: "Carry systems", description: "Everyday bags designed for creators, founders, and remote teams." },
-  { title: "Workspace upgrades", description: "Desk hardware that improves signal, lighting, and flow." },
+  {
+    title: "Portable audio",
+    description: "Commuter-ready listening gear built for travel, calls, and focused work.",
+    imageSrc: "/categories/audio.jpg",
+  },
+  {
+    title: "Carry systems",
+    description: "Everyday bags designed for creators, founders, and remote teams.",
+    imageSrc: "/categories/carry.jpg",
+  },
+  {
+    title: "Workspace upgrades",
+    description: "Desk hardware that improves signal, lighting, and flow.",
+    imageSrc: "/categories/workspace.jpg",
+  },
 ];
 
 const ROUTES = {
@@ -88,12 +117,73 @@ function usePathname() {
   return pathname;
 }
 
+function formatMoney(cents: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
+
+function getProductBySlug(slug: string) {
+  return PRODUCTS.find((product) => product.slug === slug);
+}
+
 export function App() {
   const pathname = usePathname();
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [cartCount, setCartCount] = useState(1);
+  const [cart, setCart] = useState<CartItem[]>([]);
 
   const selectedProduct = PRODUCTS.find((product) => pathname === `/products/${product.slug}`);
+  const cartLineItems = cart.flatMap((item) => {
+    const product = getProductBySlug(item.slug);
+    if (product == null) {
+      return [];
+    }
+
+    return [{ product, quantity: item.quantity }];
+  });
+  const cartCount = cart.reduce((count, item) => count + item.quantity, 0);
+  const subtotal = cartLineItems.reduce((total, item) => total + item.product.priceCents * item.quantity, 0);
+  const shippingTotal = subtotal > 0 ? 0 : 0;
+  const orderTotal = subtotal + shippingTotal;
+
+  function addToCart(product: Product) {
+    setCart((currentCart) => {
+      const existingItem = currentCart.find((item) => item.slug === product.slug);
+      if (existingItem == null) {
+        return [...currentCart, { slug: product.slug, quantity: 1 }];
+      }
+
+      return currentCart.map((item) => (item.slug === product.slug ? { ...item, quantity: item.quantity + 1 } : item));
+    });
+  }
+
+  function incrementQuantity(slug: string) {
+    setCart((currentCart) =>
+      currentCart.map((item) => (item.slug === slug ? { ...item, quantity: item.quantity + 1 } : item)),
+    );
+  }
+
+  function decrementQuantity(slug: string) {
+    setCart((currentCart) =>
+      currentCart.flatMap((item) => {
+        if (item.slug !== slug) {
+          return [item];
+        }
+
+        if (item.quantity <= 1) {
+          return [];
+        }
+
+        return [{ ...item, quantity: item.quantity - 1 }];
+      }),
+    );
+  }
+
+  function removeFromCart(slug: string) {
+    setCart((currentCart) => currentCart.filter((item) => item.slug !== slug));
+  }
 
   return (
     <div className="page-shell">
@@ -131,10 +221,21 @@ export function App() {
           <ProductDetailPage
             cartCount={cartCount}
             product={selectedProduct}
-            onAddToCart={() => setCartCount((count) => count + 1)}
+            onAddToCart={() => addToCart(selectedProduct)}
           />
         ) : null}
-        {pathname === ROUTES.cart ? <CartPage cartCount={cartCount} /> : null}
+        {pathname === ROUTES.cart ? (
+          <CartPage
+            cartCount={cartCount}
+            cartLineItems={cartLineItems}
+            orderTotal={orderTotal}
+            shippingTotal={shippingTotal}
+            subtotal={subtotal}
+            onDecrement={decrementQuantity}
+            onIncrement={incrementQuantity}
+            onRemove={removeFromCart}
+          />
+        ) : null}
         {!Object.values(ROUTES).includes(pathname as (typeof ROUTES)[keyof typeof ROUTES]) &&
         selectedProduct == null ? (
           <NotFoundPage />
@@ -184,6 +285,7 @@ function HomePage() {
         </div>
 
         <aside className="hero-panel">
+          <ProductVisual product={featuredProduct} className="hero-product-visual" />
           <span className="panel-label">Featured system</span>
           <h2>{featuredProduct.name}</h2>
           <p>{featuredProduct.summary}</p>
@@ -219,6 +321,7 @@ function HomePage() {
         <div className="category-grid">
           {CATEGORY_SPOTLIGHTS.map((category) => (
             <article className="category-card" key={category.title}>
+              <img alt="" className="category-image" src={category.imageSrc} />
               <span className="category-badge">{category.title}</span>
               <p>{category.description}</p>
               <button className="ghost-button" onClick={() => navigate(ROUTES.products)} type="button">
@@ -335,7 +438,7 @@ function ProductDetailPage(props: { cartCount: number; product: Product; onAddTo
     <section className="detail-layout">
       <div className="detail-visual">
         <span className="visual-badge">{props.product.badge}</span>
-        <div className="visual-core" />
+        <ProductVisual product={props.product} className="detail-product-visual" />
         <div className="visual-meta">
           <span>{props.product.highlight}</span>
         </div>
@@ -373,26 +476,66 @@ function ProductDetailPage(props: { cartCount: number; product: Product; onAddTo
   );
 }
 
-function CartPage(props: { cartCount: number }) {
+function CartPage(props: {
+  cartCount: number;
+  cartLineItems: { product: Product; quantity: number }[];
+  orderTotal: number;
+  shippingTotal: number;
+  subtotal: number;
+  onDecrement: (slug: string) => void;
+  onIncrement: (slug: string) => void;
+  onRemove: (slug: string) => void;
+}) {
+  if (props.cartLineItems.length === 0) {
+    return (
+      <section className="page-stack">
+        <section className="empty-cart-shell panel-section narrow-panel">
+          <span className="eyebrow">Cart</span>
+          <h2>Your cart is empty.</h2>
+          <p>Pick a product from the catalog to start building your order.</p>
+          <button className="primary-button" onClick={() => navigate(ROUTES.products)} type="button">
+            Browse products
+          </button>
+        </section>
+      </section>
+    );
+  }
+
   return (
     <section className="page-stack">
       <section className="cart-shell">
         <div className="panel-section cart-main">
           <span className="eyebrow">Cart</span>
           <h2>Review your order</h2>
-          <div className="cart-item">
-            <div>
-              <strong>AeroPulse X9 Headphones</strong>
-              <p>Spatial audio, adaptive ANC, USB-C fast charge</p>
+          {props.cartLineItems.map((item) => (
+            <div className="cart-item" key={item.product.slug}>
+              <div className="cart-item-layout">
+                <ProductVisual product={item.product} className="cart-product-visual" />
+                <div className="cart-item-copy">
+                  <strong>{item.product.name}</strong>
+                  <p>{item.product.highlight}</p>
+                  <span className="cart-shipping-note">{item.product.shipping}</span>
+                </div>
+              </div>
+              <div className="cart-item-actions">
+                <div className="quantity-control" aria-label={`Quantity for ${item.product.name}`}>
+                  <button onClick={() => props.onDecrement(item.product.slug)} type="button">
+                    -
+                  </button>
+                  <span>{item.quantity}</span>
+                  <button onClick={() => props.onIncrement(item.product.slug)} type="button">
+                    +
+                  </button>
+                </div>
+                <strong>{formatMoney(item.product.priceCents * item.quantity)}</strong>
+                <button className="cart-remove-button" onClick={() => props.onRemove(item.product.slug)} type="button">
+                  Remove
+                </button>
+              </div>
             </div>
-            <span>$199</span>
-          </div>
-          <div className="cart-item">
-            <div>
-              <strong>Items in cart</strong>
-              <p>Stable quantity state for the public demo flow</p>
-            </div>
-            <span>{props.cartCount}</span>
+          ))}
+          <div className="status-banner">
+            <strong>Items in cart:</strong> {props.cartCount}
           </div>
           <button className="secondary-button" onClick={() => navigate(ROUTES.products)} type="button">
             Continue shopping
@@ -404,15 +547,15 @@ function CartPage(props: { cartCount: number }) {
           <h2>Order overview</h2>
           <div className="summary-row">
             <span>Subtotal</span>
-            <strong>$199</strong>
+            <strong>{formatMoney(props.subtotal)}</strong>
           </div>
           <div className="summary-row">
             <span>Shipping</span>
-            <strong>Free</strong>
+            <strong>{props.shippingTotal === 0 ? "Free" : formatMoney(props.shippingTotal)}</strong>
           </div>
           <div className="summary-row total-row">
             <span>Total</span>
-            <strong>$199</strong>
+            <strong>{formatMoney(props.orderTotal)}</strong>
           </div>
           <button className="primary-button" type="button">
             Secure checkout
@@ -442,7 +585,7 @@ function ProductCard(props: { product: Product }) {
         <span className="product-badge">{props.product.badge}</span>
         <span className="stock-pill">{props.product.shipping}</span>
       </div>
-      <div className="product-visual" aria-hidden="true" />
+      <ProductVisual product={props.product} className="product-card-visual" />
       <div className="product-copy">
         <span className="product-category">{props.product.category}</span>
         <h3>{props.product.name}</h3>
@@ -461,5 +604,16 @@ function ProductCard(props: { product: Product }) {
         View product
       </button>
     </article>
+  );
+}
+
+function ProductVisual(props: { className?: string; product: Product }) {
+  return (
+    <div
+      className={`product-visual variant-${props.product.visual} ${props.className ?? ""}`.trim()}
+      aria-hidden="true"
+    >
+      <img alt="" className="product-image" src={props.product.imageSrc} />
+    </div>
   );
 }
