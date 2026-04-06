@@ -1,12 +1,10 @@
 import { fork } from "node:child_process";
 import path from "node:path";
-
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import { GenerationSubject, type ScenarioManager } from "@autonoma/scenario";
 import { fx } from "@autonoma/try";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
-
 import { TestSuiteUpdater } from "../test-update-manager";
 import type { GenerationJobOptions, GenerationProvider, PendingGeneration } from "./generation-job-provider";
 

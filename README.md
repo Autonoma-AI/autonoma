@@ -11,7 +11,7 @@ apps/
   engine-web/       Playwright-based web test execution
   engine-mobile/    Appium-based mobile test execution (iOS + Android)
   docs/             Astro Starlight documentation site
-  jobs/             Background jobs (reviewer, notifier, test-case-generator)
+  jobs/             Background jobs (diffs, scenario, reviewers, notifications, test-case-generator)
 
 packages/
   ai/               AI primitives - model registry, vision, point/object detection

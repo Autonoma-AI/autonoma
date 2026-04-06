@@ -1,12 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
-
 import { OctokitGithubHistory } from "./history/octokit-github-history";
 
 const execFileAsync = promisify(execFile);
+const gitEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
 
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
@@ -141,22 +140,24 @@ export class GitHubInstallationClient {
 
         const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
 
-        this.logger.info("Cloning repository", { fullName, headSha, targetDir });
+        this.logger.info("Cloning repository without LFS smudge", { fullName, headSha, targetDir });
         await execFileAsync("git", ["clone", `--depth=${depth}`, cloneUrl, targetDir], {
+            env: gitEnv,
             maxBuffer: 10 * 1024 * 1024,
             timeout: 120_000,
         });
 
         this.logger.info("Checking out commit", { headSha });
-        await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+        await execFileAsync("git", ["checkout", headSha], { cwd: targetDir, env: gitEnv });
 
         if (baseSha != null) {
             this.logger.info("Ensuring base commit is available", { baseSha });
             try {
-                await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: targetDir });
+                await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: targetDir, env: gitEnv });
             } catch {
                 await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", baseSha], {
                     cwd: targetDir,
+                    env: gitEnv,
                     timeout: 60_000,
                 });
             }
