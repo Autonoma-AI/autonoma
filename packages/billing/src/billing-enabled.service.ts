@@ -64,12 +64,12 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.creditsService.refundCreditsForGeneration(generationId);
     }
 
-    grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string) {
-        return this.creditsService.grantSubscriptionCredits(organizationId, stripeInvoiceId);
+    grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string, customerEmail?: string) {
+        return this.creditsService.grantSubscriptionCredits(organizationId, stripeInvoiceId, customerEmail);
     }
 
-    grantTopupCredits(organizationId: string, stripePaymentIntentId: string) {
-        return this.creditsService.grantTopupCredits(organizationId, stripePaymentIntentId);
+    grantTopupCredits(organizationId: string, stripePaymentIntentId: string, customerEmail?: string) {
+        return this.creditsService.grantTopupCredits(organizationId, stripePaymentIntentId, customerEmail);
     }
 
     revokeTopupCredits(

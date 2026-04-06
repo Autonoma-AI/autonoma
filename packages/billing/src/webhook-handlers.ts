@@ -65,7 +65,11 @@ async function handleInvoicePaid(event: Stripe.Event, billingService: StripeBill
         return;
     }
 
-    await billingService.grantSubscriptionCredits(customer.organizationId, invoice.id);
+    await billingService.grantSubscriptionCredits(
+        customer.organizationId,
+        invoice.id,
+        invoice.customer_email ?? undefined,
+    );
 }
 
 async function handleInvoicePaymentStateChange(
@@ -87,7 +91,7 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event, billingService:
     const paymentIntentType = paymentIntent.metadata.type;
     const organizationId = paymentIntent.metadata.organizationId;
     if (paymentIntentType !== BILLING_PAYMENT_INTENT_TYPES.TOPUP || organizationId == null) return;
-    await billingService.grantTopupCredits(organizationId, paymentIntent.id);
+    await billingService.grantTopupCredits(organizationId, paymentIntent.id, paymentIntent.receipt_email ?? undefined);
 }
 
 async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void> {

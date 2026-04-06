@@ -998,6 +998,9 @@ importers:
 
   packages/billing:
     dependencies:
+      '@autonoma/analytics':
+        specifier: workspace:*
+        version: link:../analytics
       '@autonoma/db':
         specifier: workspace:*
         version: link:../db
@@ -10820,6 +10823,7 @@ snapshots:
 
   '@autonoma/billing@file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
     dependencies:
+      '@autonoma/analytics': file:packages/analytics
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/errors': file:packages/errors(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/logger': file:packages/logger(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -10831,6 +10835,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
       - arktype
+      - debug
       - pg-native
       - prisma
       - supports-color

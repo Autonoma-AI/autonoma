@@ -95,8 +95,8 @@ export interface BillingService {
 }
 
 export interface StripeBillingService {
-    grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string): Promise<void>;
-    grantTopupCredits(organizationId: string, stripePaymentIntentId: string): Promise<void>;
+    grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string, customerEmail?: string): Promise<void>;
+    grantTopupCredits(organizationId: string, stripePaymentIntentId: string, customerEmail?: string): Promise<void>;
     revokeTopupCredits(
         organizationId: string,
         stripeRefundId: string,

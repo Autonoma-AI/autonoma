@@ -1,3 +1,4 @@
+import { analytics } from "@autonoma/analytics";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { type ApplicationArchitecture, CreditTransactionType } from "@autonoma/db";
 import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "@autonoma/errors";
@@ -535,7 +536,7 @@ export class CreditsService extends Service {
         });
     }
 
-    async grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string) {
+    async grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string, customerEmail?: string) {
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
         const amount = pricing.creditsPerSubscription;
 
@@ -601,6 +602,23 @@ export class CreditsService extends Service {
                     replacedSubscriptionBalance: customer.subscription_credit_balance,
                     topupBalance,
                 });
+
+                this.logger.info("Capturing PostHog billing.subscription_purchased event", {
+                    organizationId,
+                    stripeInvoiceId,
+                    creditsGranted: amount,
+                    newBalance,
+                    replacedSubscriptionBalance: customer.subscription_credit_balance,
+                    customerEmail,
+                });
+                analytics.capture(organizationId, "billing.subscription_purchased", {
+                    organizationId,
+                    stripeInvoiceId,
+                    creditsGranted: amount,
+                    newBalance,
+                    replacedSubscriptionBalance: customer.subscription_credit_balance,
+                    customerEmail,
+                });
             })
             .catch((error: unknown) => {
                 if (isUniqueConstraintError(error)) {
@@ -611,7 +629,7 @@ export class CreditsService extends Service {
             });
     }
 
-    async grantTopupCredits(organizationId: string, stripePaymentIntentId: string) {
+    async grantTopupCredits(organizationId: string, stripePaymentIntentId: string, customerEmail?: string) {
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
         const amount = pricing.creditsPerTopup;
 
@@ -648,6 +666,21 @@ export class CreditsService extends Service {
                     stripePaymentIntentId,
                     amount,
                     newBalance,
+                });
+
+                this.logger.info("Capturing PostHog billing.topup_purchased event", {
+                    organizationId,
+                    stripePaymentIntentId,
+                    creditsGranted: amount,
+                    newBalance,
+                    customerEmail,
+                });
+                analytics.capture(organizationId, "billing.topup_purchased", {
+                    organizationId,
+                    stripePaymentIntentId,
+                    creditsGranted: amount,
+                    newBalance,
+                    customerEmail,
                 });
             })
             .catch((error: unknown) => {

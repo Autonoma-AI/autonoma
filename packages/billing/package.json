@@ -16,6 +16,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/analytics": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
