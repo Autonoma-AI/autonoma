@@ -1,8 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { type TestSuiteUpdater, UpdateSkill } from "@autonoma/test-updates";
+import type { TestDirectory } from "../test-directory";
 
 interface UpdateSkillParams {
     skillId: string;
@@ -13,12 +12,12 @@ interface UpdateSkillDeps {
     db: PrismaClient;
     updater: TestSuiteUpdater;
     applicationId: string;
-    workingDirectory: string;
+    testDirectory: TestDirectory;
 }
 
 export async function updateSkill(
     { skillId, newContent }: UpdateSkillParams,
-    { db, updater, applicationId, workingDirectory }: UpdateSkillDeps,
+    { db, updater, applicationId, testDirectory }: UpdateSkillDeps,
 ): Promise<void> {
     logger.info("Updating skill", { skillId });
 
@@ -33,10 +32,6 @@ export async function updateSkill(
     }
 
     await updater.apply(new UpdateSkill({ skillId: skill.id, plan: newContent }));
-
-    const skillsDir = join(workingDirectory, "autonoma", "skills");
-    await mkdir(skillsDir, { recursive: true });
-    const skillFileContent = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n${newContent}`;
-    await writeFile(join(skillsDir, `${skill.slug}.md`), skillFileContent, "utf-8");
-    logger.info("Skill updated and written to disk", { skillId, dir: skillsDir });
+    await testDirectory.writeSkill({ ...skill, content: newContent });
+    logger.info("Skill updated and written to disk", { skillId });
 }

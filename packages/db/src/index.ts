@@ -65,5 +65,6 @@ declare global {
         export type ScenarioRefs = unknown;
         export type ScenarioMetadata = unknown;
         export type ScenarioLastError = { message: string };
+        export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
     }
 }

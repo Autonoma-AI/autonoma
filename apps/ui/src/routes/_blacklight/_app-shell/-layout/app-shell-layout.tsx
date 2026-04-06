@@ -16,7 +16,7 @@ import { toastManager } from "lib/toast-manager";
 import type { ReactNode } from "react";
 import { openFeedbackSurvey } from "./feedback-survey";
 import { Sidebar, useBranchNav, useSidebarCollapsed } from "./sidebar";
-import { AppBreadcrumb } from "./top-bar";
+import { AppBreadcrumb, PendingOnboardingBanner } from "./top-bar";
 
 function GridBackground() {
   return (
@@ -138,7 +138,10 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
 
-            <div className="relative z-10 flex-1 overflow-y-auto p-6">{children}</div>
+            <div className="relative z-10 flex-1 overflow-y-auto p-6">
+              <PendingOnboardingBanner />
+              {children}
+            </div>
           </main>
         </div>
         <AppShellToasts />

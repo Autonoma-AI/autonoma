@@ -4,7 +4,6 @@ import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { TalkToSupport } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
-import { hasCompletedOnboarding } from "lib/onboarding/onboarding";
 import { ensureSessionData } from "lib/query/auth.queries";
 import { useState } from "react";
 import { StepProgress } from "./-components/step-progress";
@@ -14,18 +13,15 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
   beforeLoad: async ({ context: { queryClient } }) => {
     const session = await ensureSessionData(queryClient);
     if (session == null) throw Route.redirect({ to: "/login", search: { error: undefined } });
-
-    if (hasCompletedOnboarding(session.user.id)) throw Route.redirect({ to: "/" });
   },
 });
-
-const KNOWN_STEPS = ["/onboarding/install", "/onboarding/configure", "/onboarding/working", "/onboarding/url"] as const;
 
 function getCurrentStep(pathname: string) {
   if (pathname.includes("/install")) return 0;
   if (pathname.includes("/configure")) return 1;
   if (pathname.includes("/working")) return 2;
-  if (pathname.includes("/url")) return 3;
+  if (pathname.includes("/scenario-dry-run")) return 3;
+  if (pathname.includes("/url")) return 4;
   return 0;
 }
 
@@ -50,13 +46,6 @@ function OnboardingLayout() {
   const currentStep = getCurrentStep(location.pathname);
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-
-  function handleStepClick(index: number) {
-    const route = KNOWN_STEPS[index];
-    if (route != null) {
-      void navigate({ to: route });
-    }
-  }
 
   function handleReset() {
     setIsResetting(true);
@@ -100,7 +89,7 @@ function OnboardingLayout() {
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-tertiary">New Application</h3>
-          <StepProgress currentStep={currentStep} onStepClick={handleStepClick} />
+          <StepProgress currentStep={currentStep} />
         </div>
 
         <div className="border-t border-border-dim px-8 py-6">

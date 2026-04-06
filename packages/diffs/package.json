@@ -18,9 +18,9 @@
     "dependencies": {
         "@autonoma/ai": "workspace:*",
         "@autonoma/db": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
-        "@octokit/app": "^16.1.2",
         "ai": "catalog:",
         "glob": "^11.0.0",
         "zod": "catalog:"

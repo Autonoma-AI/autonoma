@@ -13,3 +13,4 @@ export type { DiffsAgentResult, TestAction, ResultCollector } from "./tools/fini
 export type { BugReport } from "./tools/bug-found-tool";
 export type { GeneratedTest } from "./tools/add-test-tool";
 export type { SkillUpdate } from "./tools/update-skill-tool";
+export { TestDirectory } from "./test-directory";

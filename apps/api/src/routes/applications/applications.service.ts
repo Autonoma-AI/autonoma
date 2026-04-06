@@ -66,10 +66,26 @@ export class ApplicationsService extends Service {
     async listApplications(organizationId: string) {
         this.logger.info("Listing applications", { organizationId });
 
-        return this.db.application.findMany({
+        const apps = await this.db.application.findMany({
             where: { organizationId },
             include: deploymentInclude,
         });
+
+        type OnboardingRow = { application_id: string; step: string };
+        const onboardingStates: OnboardingRow[] =
+            apps.length > 0
+                ? await this.db.$queryRaw<OnboardingRow[]>`
+                          SELECT application_id, step FROM onboarding_state
+                          WHERE application_id IN (${Prisma.join(apps.map((a) => a.id))})
+                      `.catch(() => [])
+                : [];
+
+        const stateByAppId = new Map(onboardingStates.map((s) => [s.application_id, { step: s.step }]));
+
+        return apps.map((app) => ({
+            ...app,
+            onboardingState: stateByAppId.get(app.id) ?? null,
+        }));
     }
 
     async createApplicationFromFormData(data: CreateApplicationFormDataInput) {
@@ -252,6 +268,10 @@ export class ApplicationsService extends Service {
                     data: { mainBranchId: branch.id },
                 });
 
+                await tx.onboardingState.create({
+                    data: { applicationId: app.id },
+                });
+
                 this.logger.info("Minimal application created", { applicationId: app.id });
 
                 return app;
@@ -267,10 +287,32 @@ export class ApplicationsService extends Service {
     async deleteApplication(id: string, organizationId: string) {
         this.logger.info("Deleting application", { applicationId: id, organizationId });
 
-        const { count } = await this.db.application.deleteMany({
+        const app = await this.db.application.findFirst({
             where: { id, organizationId },
+            select: { id: true },
         });
-        if (count === 0) throw new NotFoundError();
+        if (app == null) throw new NotFoundError();
+
+        await this.db.$transaction(async (tx) => {
+            // Null out self-referencing FK on application so branches can be deleted
+            await tx.application.update({
+                where: { id },
+                data: { mainBranchId: null },
+            });
+
+            // Delete test generations first (they reference snapshots with Restrict)
+            await tx.$executeRaw`
+                DELETE FROM test_generation
+                WHERE snapshot_id IN (
+                    SELECT bs.id FROM branch_snapshot bs
+                    JOIN branch b ON b.id = bs.branch_id
+                    WHERE b.application_id = ${id}
+                )
+            `;
+
+            // Now Prisma cascade can handle the rest
+            await tx.application.delete({ where: { id } });
+        });
 
         this.logger.info("Application deleted", { applicationId: id });
     }

@@ -33,7 +33,7 @@ packages/
 
 - [Node.js](https://nodejs.org/) >= 24
 - [pnpm](https://pnpm.io/) 10.x (`corepack enable` to use the version pinned in `package.json`)
-- [Docker](https://www.docker.com/) (for PostgreSQL, Redis, and MinIO)
+- [Docker](https://www.docker.com/) (for PostgreSQL and Redis)
 
 ## Setup
 
@@ -41,7 +41,7 @@ packages/
 
 ```bash
 git clone https://github.com/autonoma-ai/autonoma.git
-cd autonoma
+cd agent
 ```
 
 ### 2. Install dependencies
@@ -52,7 +52,7 @@ pnpm install
 
 ### 3. Start infrastructure
 
-PostgreSQL, Redis, and MinIO run via Docker Compose:
+PostgreSQL and Redis run via Docker Compose:
 
 ```bash
 docker compose up -d
@@ -61,8 +61,6 @@ docker compose up -d
 This starts:
 - **PostgreSQL 18** on `localhost:5432` (user: `postgres`, password: `postgres`)
 - **Redis** on `localhost:6379`
-- **MinIO** on `localhost:9000` (console on `http://localhost:9001`)
-- The `autonoma-local` bucket plus MinIO API CORS for local UI media access
 
 ### 4. Configure environment variables
 
@@ -80,11 +78,6 @@ Edit `.env` and fill in the required values. At minimum for local development yo
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `GEMINI_API_KEY` | Google Gemini API key (for AI features) |
-| `S3_BUCKET` | Local artifact bucket name, defaults to `autonoma-local` in `.env.example` |
-| `S3_REGION` | S3 region, defaults to `us-east-1` in `.env.example` |
-| `S3_ACCESS_KEY_ID` | MinIO access key, defaults to `minioadmin` in `.env.example` |
-| `S3_SECRET_ACCESS_KEY` | MinIO secret key, defaults to `minioadmin` in `.env.example` |
-| `S3_ENDPOINT` | Local MinIO endpoint, defaults to `http://localhost:9000` in `.env.example` |
 
 See `.env.example` for the full list of variables grouped by service.
 

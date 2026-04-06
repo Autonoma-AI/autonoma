@@ -1,12 +1,19 @@
 import type { GitHubDeploymentTrigger, GitHubRepository, PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import type { GitHubApp } from "@autonoma/github";
 import { triggerTestCaseGenerationJob } from "@autonoma/workflow";
 import { Service } from "../routes/service";
-import { getGithubApp } from "./github-app";
 
 export class GitHubInstallationService extends Service {
-    constructor(private readonly db: PrismaClient) {
+    constructor(
+        private readonly db: PrismaClient,
+        private readonly githubApp: GitHubApp,
+    ) {
         super();
+    }
+
+    getSlug(): string {
+        return this.githubApp.slug;
     }
 
     async handleInstallation(
@@ -18,11 +25,8 @@ export class GitHubInstallationService extends Service {
     ): Promise<void> {
         this.logger.info("Handling GitHub installation", { installationId, orgId, accountLogin });
 
-        const app = getGithubApp();
-        const octokit = await app.getInstallationOctokit(installationId);
-
-        const reposResponse = await octokit.request("GET /installation/repositories", { per_page: 100 });
-        const repos = reposResponse.data.repositories;
+        const client = await this.githubApp.getInstallationClient(installationId);
+        const repos = await client.listInstallationRepos();
 
         this.logger.info("Upserting installation and repositories", { count: repos.length, installationId });
 
@@ -58,15 +62,15 @@ export class GitHubInstallationService extends Service {
                         installationId: installation.id,
                         githubRepoId: repo.id,
                         name: repo.name,
-                        fullName: repo.full_name,
-                        defaultBranch: repo.default_branch,
+                        fullName: repo.fullName,
+                        defaultBranch: repo.defaultBranch,
                         private: repo.private,
                         indexingStatus: "pending",
                     },
                     update: {
                         name: repo.name,
-                        fullName: repo.full_name,
-                        defaultBranch: repo.default_branch,
+                        fullName: repo.fullName,
+                        defaultBranch: repo.defaultBranch,
                         private: repo.private,
                         indexingStatus: "pending",
                     },
@@ -214,17 +218,12 @@ export class GitHubInstallationService extends Service {
         const resolvedBase = baseSha ?? `${sha}^`;
 
         try {
-            const app = getGithubApp();
-            const octokit = await app.getInstallationOctokit(installationId);
+            const client = await this.githubApp.getInstallationClient(installationId);
+            const comparison = await client.compareCommits(owner, repoName, resolvedBase, sha);
 
-            const response = await octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
-                owner,
-                repo: repoName,
-                basehead: `${resolvedBase}...${sha}`,
-            });
-
-            const files = response.data.files ?? [];
-            const diff = files.map((f) => `--- ${f.filename}\n+++ ${f.filename}\n${f.patch ?? ""}`).join("\n\n");
+            const diff = comparison.files
+                .map((f) => `--- ${f.filename}\n+++ ${f.filename}\n${f.patch ?? ""}`)
+                .join("\n\n");
 
             await this.db.gitHubDeployment.update({
                 where: { id: deploymentId },
@@ -233,7 +232,7 @@ export class GitHubInstallationService extends Service {
 
             this.logger.info("Diff stored for deployment", {
                 deploymentId,
-                filesChanged: files.length,
+                filesChanged: comparison.files.length,
             });
         } catch (err) {
             await this.db.gitHubDeployment.update({

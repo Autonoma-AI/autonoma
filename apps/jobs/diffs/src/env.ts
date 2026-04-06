@@ -10,6 +10,7 @@ export const env = createEnv({
         GITHUB_APP_ID: z.string().min(1),
         GITHUB_APP_PRIVATE_KEY: z.string().min(1),
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
+        GITHUB_APP_SLUG: z.string().min(1),
         AGENT_VERSION: z.string().optional().default("latest"),
     },
     runtimeEnv: process.env,

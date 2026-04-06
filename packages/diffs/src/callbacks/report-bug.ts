@@ -1,16 +1,17 @@
+import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
-import type { App } from "@octokit/app";
 import type { BugReport } from "../tools/bug-found-tool";
-
-export type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
 interface ReportBugDeps {
     repoFullName: string;
     headSha: string;
-    octokit: InstallationOctokit;
+    githubClient: GitHubInstallationClient;
 }
 
-export async function reportBug(report: BugReport, { repoFullName, headSha, octokit }: ReportBugDeps): Promise<void> {
+export async function reportBug(
+    report: BugReport,
+    { repoFullName, headSha, githubClient }: ReportBugDeps,
+): Promise<void> {
     logger.info("Reporting bug", { summary: report.summary, repo: repoFullName });
 
     const [owner, repo] = repoFullName.split("/");
@@ -20,16 +21,10 @@ export async function reportBug(report: BugReport, { repoFullName, headSha, octo
     }
 
     const body = formatBugIssueBody(report, headSha);
+    const title = `[Autonoma] Bug detected: ${report.summary}`;
+    const issue = await githubClient.createIssue(owner, repo, title, body, ["autonoma", "bug"]);
 
-    const { data: issue } = await octokit.request("POST /repos/{owner}/{repo}/issues", {
-        owner,
-        repo,
-        title: `[Autonoma] Bug detected: ${report.summary}`,
-        body,
-        labels: ["autonoma", "bug"],
-    });
-
-    logger.info("GitHub issue created", { issueNumber: issue.number, issueUrl: issue.html_url });
+    logger.info("GitHub issue created", { issueNumber: issue.number, issueUrl: issue.url });
 }
 
 function formatBugIssueBody(report: BugReport, headSha: string): string {

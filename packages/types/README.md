@@ -42,9 +42,9 @@ Webhook response schemas for the Environment Factory protocol:
 
 ### Onboarding
 
+- `OnboardingStep` - Onboarding step constants and type
 - `OnboardingStateSchema` - Tracks onboarding wizard progress
-- `SetNgrokUrlInputSchema` / `SetProductionUrlInputSchema` - URL configuration inputs
-- `TestScenariosResultSchema` / `ScenarioTestResultSchema` - Scenario test results
+- `AgentLogEntrySchema` - Agent log entry schema for onboarding logs
 
 ### Review Verdict
 

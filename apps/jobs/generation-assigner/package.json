@@ -12,9 +12,11 @@
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/try": "workspace:*",
+        "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"

@@ -67,7 +67,10 @@ export class LocalGenerationProvider implements GenerationProvider {
         });
 
         const branchId = generationRecord.snapshot.branchId;
-        const updater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
+        const updater = await TestSuiteUpdater.continueUpdate({
+            db: this.db,
+            branchId,
+        });
         const { assigned, failed } = await updater.assignGenerationResults(generations.map((g) => g.testGenerationId));
 
         this.logger.info("Generation results assigned", { assigned, failed });

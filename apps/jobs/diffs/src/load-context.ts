@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import { db } from "@autonoma/db";
 import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
+import { TestDirectory } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
 
@@ -101,43 +100,17 @@ async function buildDiffAnalysis(
     return { affectedFiles, summary };
 }
 
-async function writeContextToDisk(
-    repoDir: string,
-    tests: ExistingTestInfo[],
-    skills: ExistingSkillInfo[],
-): Promise<void> {
-    const testsDir = join(repoDir, "autonoma", "qa-tests");
-    const skillsDir = join(repoDir, "autonoma", "skills");
-
-    await Promise.all([mkdir(testsDir, { recursive: true }), mkdir(skillsDir, { recursive: true })]);
-
-    const writeOps: Promise<void>[] = [];
-
-    for (const test of tests) {
-        const content = `---\nname: ${test.name}\n---\n\n${test.prompt}`;
-        writeOps.push(writeFile(join(testsDir, `${test.slug}.md`), content, "utf-8"));
-    }
-
-    for (const skill of skills) {
-        const content = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n${skill.content}`;
-        writeOps.push(writeFile(join(skillsDir, `${skill.slug}.md`), content, "utf-8"));
-    }
-
-    await Promise.all(writeOps);
-    logger.info("Wrote context to disk", { tests: tests.length, skills: skills.length });
-}
-
 export async function loadDiffsContext(
     suiteInfo: TestSuiteInfo,
     repoDir: string,
     headSha: string,
     baseSha: string,
-): Promise<DiffsAgentInput> {
+): Promise<{ input: DiffsAgentInput; testDirectory: TestDirectory }> {
     const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-    const [analysis] = await Promise.all([
+    const [analysis, testDirectory] = await Promise.all([
         buildDiffAnalysis(repoDir, headSha, baseSha),
-        writeContextToDisk(repoDir, existingTests, existingSkills),
+        TestDirectory.create({ workingDirectory: repoDir, tests: existingTests, skills: existingSkills }),
     ]);
 
     logger.info("Loaded diffs context", {
@@ -146,8 +119,7 @@ export async function loadDiffsContext(
     });
 
     return {
-        analysis,
-        existingTests,
-        existingSkills,
+        input: { analysis, existingTests, existingSkills },
+        testDirectory,
     };
 }

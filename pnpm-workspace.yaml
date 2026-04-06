@@ -9,6 +9,7 @@ catalog:
   '@ai-sdk/google': ^3.0.30
   '@ai-sdk/groq': ^3.0.2
   '@kubernetes/client-node': ^1.4.0
+  '@octokit/app': ^16.1.2
   '@radix-ui/react-slot': ^1.2.2
   '@tanstack/react-table': ^8.21.3
   '@sentry/node': ^10.38.0

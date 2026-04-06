@@ -132,7 +132,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
         type: "success",
       });
       setTimeout(() => {
-        window.location.replace("/onboarding/url");
+        window.location.replace("/onboarding/scenario-dry-run");
       }, 1500);
     }
   }, [isCompleted]);

@@ -19,12 +19,26 @@ export const env = createEnv({
         POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),
         GEMINI_API_KEY: z.string().min(1),
         REDIS_URL: z.string().min(1),
+
         LOCAL_GENERATION: z.stringbool().default(false),
         LOCAL_GENERATION_CONCURRENCY: z.coerce.number().int().positive().default(2),
+
+        // Secrets for GitHub HTTP app authentication.
+        GITHUB_APP_ID: z.string().min(1),
+        GITHUB_APP_PRIVATE_KEY: z.string().min(1),
+        GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
+        GITHUB_APP_SLUG: z.string().min(1),
+
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),
         ENGINE_BILLING_SECRET: z.string().min(1).optional(),
+        RESEND_API_KEY: z.string().min(1).optional(),
+        RESEND_AUDIENCE_ID: z.string().min(1).optional(),
+        RESEND_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <hello@autonoma.app>"),
+        CAL_ONBOARDING_LINK: z.string().url().optional(),
+        SLACK_BOT_TOKEN: z.string().min(1).optional(),
+        DISCORD_INVITE_URL: z.string().url().optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

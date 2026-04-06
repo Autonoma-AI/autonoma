@@ -12,13 +12,11 @@
  */
 
 import { execSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
-
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 import type { DiffsAgentCallbacks } from "../src/callbacks";
+import type { DiffsAgentInput, TestRunResult } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
-import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo, TestRunResult } from "../src/types";
+import { TestDirectory } from "../src/test-directory";
 
 // --- Model setup ---
 
@@ -57,74 +55,6 @@ const repoPath = getRepoPath();
 
 function git(cwd: string, command: string): string {
     return execSync(`git ${command}`, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }).trim();
-}
-
-async function readSkills(repoDir: string): Promise<ExistingSkillInfo[]> {
-    const skillsDir = join(repoDir, "autonoma", "skills");
-    const skills: ExistingSkillInfo[] = [];
-
-    let files: string[];
-    try {
-        files = await readdir(skillsDir);
-    } catch {
-        console.log("No autonoma/skills/ directory found");
-        return skills;
-    }
-
-    for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const content = await readFile(join(skillsDir, file), "utf-8");
-
-        // Parse frontmatter
-        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-        const name = frontmatterMatch?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? file.replace(".md", "");
-        const description = frontmatterMatch?.[1]?.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
-        const slug = file.replace(".md", "");
-
-        skills.push({
-            id: `skill-${slug}`,
-            name,
-            slug,
-            description,
-            content,
-        });
-    }
-
-    console.log(`Loaded ${skills.length} skills from autonoma/skills/`);
-    return skills;
-}
-
-async function readTests(repoDir: string): Promise<ExistingTestInfo[]> {
-    const testsDir = join(repoDir, "autonoma", "qa-tests");
-    const tests: ExistingTestInfo[] = [];
-
-    let files: string[];
-    try {
-        files = await readdir(testsDir);
-    } catch {
-        console.log("No autonoma/qa-tests/ directory found, checking for scenarios.md");
-        return tests;
-    }
-
-    for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const content = await readFile(join(testsDir, file), "utf-8");
-
-        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-        const name = frontmatterMatch?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? file.replace(".md", "");
-        const slug = file.replace(".md", "");
-        const body = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
-
-        tests.push({
-            id: `test-${slug}`,
-            name,
-            slug,
-            prompt: body,
-        });
-    }
-
-    console.log(`Loaded ${tests.length} tests from autonoma/qa-tests/`);
-    return tests;
 }
 
 // --- Mock callbacks (log-only for real repo testing) ---
@@ -204,8 +134,9 @@ async function main() {
     console.log();
 
     // Read skills and tests
-    const existingSkills = await readSkills(repoPath);
-    const existingTests = await readTests(repoPath);
+    const testDirectory = await TestDirectory.load(repoPath);
+    const existingSkills = await testDirectory.readSkills();
+    const existingTests = await testDirectory.readTests();
 
     // Build input
     const input: DiffsAgentInput = {

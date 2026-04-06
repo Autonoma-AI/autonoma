@@ -7,6 +7,7 @@ import {
     applyMigrations,
     createClient,
 } from "@autonoma/db";
+import type { GitHubApp } from "@autonoma/github";
 import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
@@ -86,6 +87,7 @@ export class APITestHarness implements IntegrationHarness {
             scenarioManager,
             encryptionHelper,
             generationProvider,
+            githubApp: {} as unknown as GitHubApp,
         });
 
         const harness = new APITestHarness(
