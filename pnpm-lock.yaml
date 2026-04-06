@@ -1236,6 +1236,25 @@ importers:
         specifier: 'catalog:'
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/environment-factory:
+    dependencies:
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/errors:
     dependencies:
       '@autonoma/logger':
@@ -1388,6 +1407,9 @@ importers:
         specifier: 'catalog:'
         version: 4.3.6
     devDependencies:
+      '@autonoma/environment-factory':
+        specifier: workspace:*
+        version: link:../environment-factory
       '@autonoma/integration-test':
         specifier: workspace:*
         version: link:../integration-test
@@ -8758,10 +8780,6 @@ packages:
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
-
-  picomatch@4.0.3:
-    resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
-    engines: {node: '>=12'}
 
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
@@ -19685,8 +19703,6 @@ snapshots:
 
   picocolors@1.1.1: {}
 
-  picomatch@4.0.3: {}
-
   picomatch@4.0.4: {}
 
   pidtree@0.6.0: {}
@@ -20052,7 +20068,7 @@ snapshots:
 
   readdirp@3.6.0:
     dependencies:
-      picomatch: 4.0.3
+      picomatch: 4.0.4
 
   readdirp@4.1.2: {}
 

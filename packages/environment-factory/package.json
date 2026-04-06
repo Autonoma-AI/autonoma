@@ -1,5 +1,5 @@
 {
-    "name": "@autonoma/scenario",
+    "name": "@autonoma/environment-factory",
     "version": "0.0.1",
     "private": true,
     "type": "module",
@@ -9,23 +9,16 @@
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit",
-        "lint": "oxlint --fix src/",
-        "fmt": "oxfmt --write src/",
+        "lint": "oxlint --fix src/ test/",
+        "fmt": "oxfmt --write src/ test/",
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
-        "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@autonoma/try": "workspace:*",
-        "@autonoma/types": "workspace:*",
-        "zod": "catalog:"
+        "@autonoma/types": "workspace:*"
     },
     "devDependencies": {
-        "@autonoma/environment-factory": "workspace:*",
-        "@autonoma/integration-test": "workspace:*",
-        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
-        "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }
