@@ -1,8 +1,9 @@
 import { Button, Panel, PanelBody } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
-import { Link, createFileRoute, redirect, useRouteContext } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
 import { TalkToSupport } from "components/talk-to-support";
+import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
 import { getLastApp } from "./-last-app";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/")({
@@ -10,7 +11,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
     const lastAppSlug = getLastApp();
     if (lastAppSlug != null) {
       const app = context.applications.find((a) => a.slug === lastAppSlug);
-      if (app != null)
+      const isOnboardingComplete = app?.onboardingState == null || app.onboardingState.step === "completed";
+      if (app != null && isOnboardingComplete)
         throw redirect({
           to: "/app/$appSlug",
           params: { appSlug: app.slug },
@@ -23,6 +25,14 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
 
 function AppSelector() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
+  const navigate = useNavigate();
+
+  const incompleteApps = applications.filter(
+    (app) => app.onboardingState != null && app.onboardingState.step !== "completed",
+  );
+  const completedApps = applications.filter(
+    (app) => app.onboardingState == null || app.onboardingState.step === "completed",
+  );
 
   return (
     <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center px-4">
@@ -35,7 +45,31 @@ function AppSelector() {
         <PanelBody className="p-0">
           {applications.length > 0 ? (
             <div className="divide-y divide-border-dim">
-              {applications.map((app) => (
+              {incompleteApps.length > 0 && (
+                <>
+                  <div className="px-5 py-2.5">
+                    <span className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">
+                      Continue setup
+                    </span>
+                  </div>
+                  {incompleteApps.map((app) => (
+                    <button
+                      key={app.id}
+                      type="button"
+                      onClick={() => navigateToOnboarding(app.id, app.onboardingState?.step, navigate)}
+                      className="group flex w-full items-center justify-between gap-3 px-5 py-3.5 text-sm text-text-tertiary opacity-60 transition-all hover:bg-surface-raised hover:opacity-100"
+                    >
+                      <span className="font-medium">{app.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-3xs uppercase">resume</span>
+                        <ArrowRightIcon size={14} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {completedApps.map((app) => (
                 <Link
                   key={app.id}
                   to="/app/$appSlug"

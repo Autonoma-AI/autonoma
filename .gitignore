@@ -4,6 +4,7 @@ dist/
 .workflow-data/
 .turbo/
 *.tsbuildinfo
+.api-port
 
 # Prisma 7 generated client
 packages/db/src/generated/

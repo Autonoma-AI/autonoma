@@ -31,12 +31,13 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions       Session[]
-  accounts       Account[]
-  members        Member[]
-  invitations    Invitation[] @relation("invitations")
-  apiKeys        ApiKey[]
+  sessions          Session[]
+  accounts          Account[]
+  members           Member[]
+  invitations       Invitation[] @relation("invitations")
+  apiKeys           ApiKey[]
   applicationSetups ApplicationSetup[]
+  signupHookStates  SignupHookState[]
 
   @@map("user")
 }
@@ -128,28 +129,38 @@ model Organization {
   issues             Issue[]
   bugs               Bug[]
   githubInstallation GitHubInstallation?
-  billingPricing       BillingPricing?
-  promoRedemptions     BillingPromoRedemption[]
-  billingCustomer     BillingCustomer?
+  billingPricing     BillingPricing?
+  promoRedemptions   BillingPromoRedemption[]
+  billingCustomer    BillingCustomer?
   applicationSetups  ApplicationSetup[]
+  signupHookStates   SignupHookState[]
 
   @@map("organization")
 }
 
+enum OnboardingStep {
+  install
+  configure
+  working
+  scenario_dry_run
+  url
+  completed
+
+  @@map("onboarding_step")
+}
+
 model OnboardingState {
-  id                    String    @id @default(cuid())
-  applicationId         String    @unique @map("application_id")
-  currentStep           Int       @default(0) @map("current_step")
-  agentConnectedAt      DateTime? @map("agent_connected_at")
-  /// @prisma-json-types-generator/types AgentLogEntry[]
-  agentLogs             Json      @default("[]") @map("agent_logs")
-  ngrokUrl              String?   @map("ngrok_url")
-  ngrokTestsPassed      Boolean   @default(false) @map("ngrok_tests_passed")
-  productionUrl         String?   @map("production_url")
-  productionTestsPassed Boolean   @default(false) @map("production_tests_passed")
-  completedAt           DateTime? @map("completed_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                    String         @id @default(cuid())
+  applicationId         String         @unique @map("application_id")
+  step                  OnboardingStep @default(install) @map("step")
+  agentConnectedAt      DateTime?      @map("agent_connected_at")
+  /// [AgentLogEntry]
+  agentLogs             Json           @default("[]") @map("agent_logs")
+  productionUrl         String?        @map("production_url")
+  productionTestsPassed Boolean        @default(false) @map("production_tests_passed")
+  completedAt           DateTime?      @map("completed_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -224,6 +235,25 @@ model Invitation {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("invitation")
+}
+
+model SignupHookState {
+  id             String @id @default(cuid())
+  userId         String @map("user_id")
+  organizationId String @map("organization_id")
+
+  newsletterAddedAt         DateTime? @map("newsletter_added_at")
+  defaultWelcomeEmailSentAt DateTime? @map("default_welcome_email_sent_at")
+  premiumWelcomeEmailSentAt DateTime? @map("premium_welcome_email_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("signup_hook_state")
 }
 
 // --- Application Models ─────────────────────────────────────────────
@@ -413,7 +443,8 @@ model Branch {
   id   String @id @default(cuid())
   name String
 
-  githubRef String? @map("github_ref")
+  githubRef      String? @map("github_ref")
+  lastHandledSha String? @map("last_handled_sha")
 
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

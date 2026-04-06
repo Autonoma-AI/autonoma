@@ -55,6 +55,21 @@ export function useCreateMinimalApplication() {
     );
 }
 
+export function useDeleteApplication() {
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    return useAPIMutation({
+        ...trpc.applications.delete.mutationOptions({
+            onSettled: async () => {
+                await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                await router.invalidate();
+            },
+        }),
+        successToast: { title: "Application discarded" },
+        errorToast: { title: "Failed to discard application" },
+    });
+}
+
 export function useUpdateApplicationSettings() {
     const queryClient = useQueryClient();
     return useAPIMutation({

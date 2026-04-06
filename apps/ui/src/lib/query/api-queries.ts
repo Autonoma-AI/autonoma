@@ -35,10 +35,13 @@ export interface APIMutationOptions<
 
 const DEFAULT_ERROR_TITLE = "An unexpected error occurred";
 
+const INTERNAL_ERROR_PATTERNS = [/prisma/i, /invocation in/i, /constraint/i, /\.ts:\d+/];
+
 function extractErrorMessage(error: unknown): string | undefined {
-    if (isTRPCClientError(error)) return error.message;
-    if (error instanceof Error) return error.message;
-    return undefined;
+    const message = isTRPCClientError(error) ? error.message : error instanceof Error ? error.message : undefined;
+    if (message == null) return undefined;
+    if (INTERNAL_ERROR_PATTERNS.some((p) => p.test(message))) return "Something went wrong. Please try again.";
+    return message;
 }
 
 export function useAPIMutation<TData = unknown, TError = DefaultError, TVariables = void, TOnMutateResult = unknown>(

@@ -4,12 +4,12 @@
  */
 export {
     useOnboardingState,
-    usePollAgentConnected,
     usePollAgentLogs,
     useResetOnboarding,
-    useSetNgrokUrl,
-    useTestScenariosNgrok,
-    useSetProductionUrl,
-    useTestScenariosProduction,
+    useStartConfigure,
+    useSetUrl,
+    useConfigureAndDiscoverScenarios,
+    useOnboardingScenarios,
+    useRunScenarioDryRun,
     useCompleteOnboarding,
 } from "lib/query/onboarding.queries";

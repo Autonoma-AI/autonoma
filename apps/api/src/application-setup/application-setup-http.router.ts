@@ -9,7 +9,8 @@ import {
 import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { generationProvider } from "../context";
+import { encryptionHelper, generationProvider, scenarioManager } from "../context";
+import { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 import { ApplicationSetupService } from "./application-setup.service";
 import { verifyApiKeyAndGetContext } from "./verify-api-key";
 
@@ -17,7 +18,8 @@ export const applicationSetupHttpRouter = new Hono();
 
 applicationSetupHttpRouter.use("*", cors({ origin: "*" }));
 
-const service = new ApplicationSetupService(db, generationProvider);
+const onboardingManager = new OnboardingManager(db, generationProvider, scenarioManager, encryptionHelper);
+const service = new ApplicationSetupService(db, generationProvider, onboardingManager);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
     const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));

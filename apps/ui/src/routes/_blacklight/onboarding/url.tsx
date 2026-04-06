@@ -1,8 +1,8 @@
 import { Button } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
-import { createFileRoute } from "@tanstack/react-router";
-import { useCompleteOnboarding, useSetProductionUrl } from "lib/onboarding/onboarding-api";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useSetUrl } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
 import { getOnboardingApplicationId } from "./install";
 
@@ -14,23 +14,19 @@ function UrlPage() {
   const applicationId = getOnboardingApplicationId();
   const [appUrl, setAppUrl] = useState("");
 
-  const setProductionUrl = useSetProductionUrl();
-  const completeOnboarding = useCompleteOnboarding();
+  const navigate = useNavigate();
+  const setUrl = useSetUrl();
 
-  const isLoading = setProductionUrl.isPending || completeOnboarding.isPending;
+  const isLoading = setUrl.isPending;
 
   function handleSubmit() {
     if (appUrl.length === 0 || applicationId == null) return;
 
-    setProductionUrl.mutate(
-      { url: appUrl },
+    setUrl.mutate(
+      { productionUrl: appUrl },
       {
         onSuccess: () => {
-          completeOnboarding.mutate(undefined, {
-            onSuccess: () => {
-              window.location.replace("/onboarding/complete");
-            },
-          });
+          void navigate({ to: "/onboarding/complete" });
         },
       },
     );

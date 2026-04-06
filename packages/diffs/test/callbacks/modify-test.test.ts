@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { modifyTest } from "../../src/callbacks/modify-test";
+import { TestDirectory } from "../../src/test-directory";
 import { createTestFixture } from "../setup-fixture";
 import { diffsCallbackSuite } from "./harness";
 
@@ -26,7 +27,16 @@ diffsCallbackSuite({
             try {
                 await modifyTest(
                     { slug: "login-flow", newInstruction: "Click the new login button" },
-                    { db: harness.db, updater, applicationId, workingDirectory: fixture.workingDirectory },
+                    {
+                        db: harness.db,
+                        updater,
+                        applicationId,
+                        testDirectory: await TestDirectory.create({
+                            workingDirectory: fixture.workingDirectory,
+                            tests: [],
+                            skills: [],
+                        }),
+                    },
                 );
 
                 const filePath = join(fixture.workingDirectory, "autonoma", "qa-tests", "login-flow.md");
@@ -55,7 +65,16 @@ diffsCallbackSuite({
             try {
                 await modifyTest(
                     { slug: "nonexistent", newInstruction: "whatever" },
-                    { db: harness.db, updater, applicationId, workingDirectory: fixture.workingDirectory },
+                    {
+                        db: harness.db,
+                        updater,
+                        applicationId,
+                        testDirectory: await TestDirectory.create({
+                            workingDirectory: fixture.workingDirectory,
+                            tests: [],
+                            skills: [],
+                        }),
+                    },
                 );
 
                 const plans = await harness.db.testPlan.findMany({

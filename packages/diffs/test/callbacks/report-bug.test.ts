@@ -1,5 +1,5 @@
+import type { GitHubInstallationClient } from "@autonoma/github";
 import { describe, expect, it, vi } from "vitest";
-import type { InstallationOctokit } from "../../src/callbacks/report-bug";
 import type { BugReport } from "../../src/tools/bug-found-tool";
 
 const bugReport: BugReport = {
@@ -15,26 +15,25 @@ describe("reportBug", () => {
     it("creates a GitHub issue with the bug report", async () => {
         const { reportBug } = await import("../../src/callbacks/report-bug");
 
-        const mockOctokit = {
-            request: vi.fn().mockResolvedValue({
-                data: { number: 42, html_url: "https://github.com/org/repo/issues/42" },
+        const mockGithubClient = {
+            createIssue: vi.fn().mockResolvedValue({
+                number: 42,
+                url: "https://github.com/org/repo/issues/42",
             }),
-        } as unknown as InstallationOctokit;
+        } as unknown as GitHubInstallationClient;
 
         await reportBug(bugReport, {
             repoFullName: "org/repo",
             headSha: "abc12345def",
-            octokit: mockOctokit,
+            githubClient: mockGithubClient,
         });
 
-        expect(mockOctokit.request).toHaveBeenCalledWith(
-            "POST /repos/{owner}/{repo}/issues",
-            expect.objectContaining({
-                owner: "org",
-                repo: "repo",
-                title: "[Autonoma] Bug detected: Payment button is unresponsive",
-                labels: ["autonoma", "bug"],
-            }),
+        expect(mockGithubClient.createIssue).toHaveBeenCalledWith(
+            "org",
+            "repo",
+            "[Autonoma] Bug detected: Payment button is unresponsive",
+            expect.stringContaining("Payment button is unresponsive"),
+            ["autonoma", "bug"],
         );
     });
 });

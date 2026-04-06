@@ -1,32 +1,28 @@
 import { cn } from "@autonoma/blacklight";
+import { Link } from "@tanstack/react-router";
 
 const STEPS = [
-  { num: "01", label: "Install Plugin" },
-  { num: "02", label: "Configure" },
-  { num: "03", label: "Generation" },
-  { num: "04", label: "App URL" },
+  { num: "01", label: "Install Plugin", to: "/onboarding/install" },
+  { num: "02", label: "Configure", to: "/onboarding/configure" },
+  { num: "03", label: "Generation", to: "/onboarding/working" },
+  { num: "04", label: "Scenario Dry Run", to: "/onboarding/scenario-dry-run" },
+  { num: "05", label: "App URL", to: "/onboarding/url" },
 ] as const;
 
 interface StepProgressProps {
   currentStep: number;
-  onStepClick?: (index: number) => void;
 }
 
-export function StepProgress({ currentStep, onStepClick }: StepProgressProps) {
+export function StepProgress({ currentStep }: StepProgressProps) {
   return (
     <div className="flex flex-col">
       {STEPS.map((step, index) => {
         const isActive = index === currentStep;
         const isCompleted = index < currentStep;
-        const isClickable = isCompleted && onStepClick != null;
         const isLast = index === STEPS.length - 1;
 
-        return (
-          <div
-            key={step.num}
-            className={cn("flex gap-5", isClickable && "cursor-pointer group")}
-            onClick={() => isClickable && onStepClick(index)}
-          >
+        const content = (
+          <>
             {/* Timeline column */}
             <div className="flex flex-col items-center">
               <div
@@ -56,7 +52,7 @@ export function StepProgress({ currentStep, onStepClick }: StepProgressProps) {
                   "font-mono text-3xs tracking-widest transition-colors",
                   isActive
                     ? "text-primary-ink"
-                    : isClickable
+                    : isCompleted
                       ? "text-text-tertiary group-hover:text-primary-ink/60"
                       : "text-text-tertiary",
                 )}
@@ -68,7 +64,7 @@ export function StepProgress({ currentStep, onStepClick }: StepProgressProps) {
                   "text-sm font-medium tracking-wide transition-colors",
                   isActive
                     ? "text-text-primary"
-                    : isClickable
+                    : isCompleted
                       ? "text-text-secondary group-hover:text-text-primary"
                       : "text-text-secondary",
                 )}
@@ -76,6 +72,20 @@ export function StepProgress({ currentStep, onStepClick }: StepProgressProps) {
                 {step.label}
               </span>
             </div>
+          </>
+        );
+
+        if (isCompleted) {
+          return (
+            <Link key={step.num} to={step.to} className="group flex gap-5 cursor-pointer">
+              {content}
+            </Link>
+          );
+        }
+
+        return (
+          <div key={step.num} className="flex gap-5">
+            {content}
           </div>
         );
       })}

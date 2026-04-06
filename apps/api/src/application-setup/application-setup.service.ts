@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
 import {
     AddSkill,
@@ -12,6 +13,8 @@ import type { SetupEventBody, UpdateSetupBody, UploadArtifactsBody } from "@auto
 import { TOTAL_SETUP_STEPS } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import matter from "gray-matter";
+import type { OnboardingManager } from "../routes/onboarding/onboarding-manager";
+import { InvalidOnboardingStepError } from "../routes/onboarding/states/onboarding-state";
 
 const log = logger.child({ name: "ApplicationSetupService" });
 
@@ -19,16 +22,13 @@ export class ApplicationSetupService {
     constructor(
         private readonly db: PrismaClient,
         private readonly generationProvider: GenerationProvider,
+        private readonly onboardingManager: OnboardingManager,
     ) {}
 
     async createSetup(userId: string, organizationId: string, applicationId: string, repoName?: string) {
-        return this.db.$transaction(async (tx) => {
-            const app = await tx.application.findFirst({
-                where: { id: applicationId, organizationId },
-            });
-            if (app == null) {
-                throw new Error("Application not found");
-            }
+        const setup = await this.db.$transaction(async (tx) => {
+            const app = await tx.application.findUnique({ where: { id: applicationId, organizationId } });
+            if (app == null) throw new NotFoundError("Application not found");
 
             if (repoName != null) {
                 const uniqueName = await this.resolveUniqueName(tx, repoName, organizationId);
@@ -38,7 +38,7 @@ export class ApplicationSetupService {
                 });
             }
 
-            const setup = await tx.applicationSetup.create({
+            return await tx.applicationSetup.create({
                 data: {
                     applicationId,
                     organizationId,
@@ -46,21 +46,20 @@ export class ApplicationSetupService {
                     totalSteps: TOTAL_SETUP_STEPS,
                 },
             });
-
-            await tx.onboardingState.upsert({
-                where: { applicationId },
-                create: {
-                    applicationId,
-                    agentConnectedAt: new Date(),
-                },
-                update: {
-                    agentConnectedAt: new Date(),
-                },
-            });
-
-            log.info("Created application setup", { setupId: setup.id, applicationId });
-            return { id: setup.id };
         });
+
+        try {
+            await this.onboardingManager.markAgentConnected(applicationId);
+        } catch (err) {
+            if (err instanceof InvalidOnboardingStepError) {
+                log.info("Agent reconnected - onboarding already past configure step", { applicationId });
+            } else {
+                throw err;
+            }
+        }
+
+        log.info("Created application setup", { setupId: setup.id, applicationId });
+        return { id: setup.id };
     }
 
     private async resolveUniqueName(
@@ -82,12 +81,8 @@ export class ApplicationSetupService {
 
     async addEvent(setupId: string, organizationId: string, event: SetupEventBody) {
         await this.db.$transaction(async (tx) => {
-            const setup = await tx.applicationSetup.findFirst({
-                where: { id: setupId, organizationId },
-            });
-            if (setup == null) {
-                throw new Error("Application setup not found");
-            }
+            const setup = await tx.applicationSetup.findUnique({ where: { id: setupId, organizationId } });
+            if (setup == null) throw new NotFoundError("Application setup not found");
 
             await tx.applicationSetupEvent.create({
                 data: {
@@ -124,12 +119,8 @@ export class ApplicationSetupService {
 
     async updateSetup(setupId: string, organizationId: string, body: UpdateSetupBody) {
         await this.db.$transaction(async (tx) => {
-            const setup = await tx.applicationSetup.findFirst({
-                where: { id: setupId, organizationId },
-            });
-            if (setup == null) {
-                throw new Error("Application setup not found");
-            }
+            const setup = await tx.applicationSetup.findUnique({ where: { id: setupId, organizationId } });
+            if (setup == null) throw new NotFoundError("Application setup not found");
 
             const data: Record<string, unknown> = {};
             if (body.name != null) data.name = body.name;
@@ -160,7 +151,7 @@ export class ApplicationSetupService {
                 },
             },
         });
-        if (setup == null) throw new Error("Application setup not found");
+        if (setup == null) throw new NotFoundError("Application setup not found");
 
         const branchId = setup.application.mainBranch?.id;
         if (branchId == null) throw new Error("Application has no main branch");

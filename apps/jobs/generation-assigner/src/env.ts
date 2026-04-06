@@ -6,6 +6,10 @@ export const env = createEnv({
     extends: [loggerEnv],
     server: {
         AUTO_ACTIVATE: z.string().optional(),
+        GITHUB_APP_ID: z.string().min(1),
+        GITHUB_APP_PRIVATE_KEY: z.string().min(1),
+        GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
+        GITHUB_APP_SLUG: z.string().min(1),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

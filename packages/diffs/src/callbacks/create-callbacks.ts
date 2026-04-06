@@ -1,20 +1,22 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { TestRunResult } from "../diffs-agent";
+import type { TestDirectory } from "../test-directory";
 import type { BugReport } from "../tools/bug-found-tool";
 import { modifyTest } from "./modify-test";
-import { type InstallationOctokit, reportBug } from "./report-bug";
+import { reportBug } from "./report-bug";
 import { updateSkill } from "./update-skill";
 
 export interface CreateCallbacksParams {
     db: PrismaClient;
     updater: TestSuiteUpdater;
     applicationId: string;
-    workingDirectory: string;
+    testDirectory: TestDirectory;
     repoFullName: string;
     headSha: string;
-    octokit: InstallationOctokit;
+    githubClient: GitHubInstallationClient;
 }
 
 export interface DiffsAgentCallbacks {
@@ -29,12 +31,12 @@ export function createCallbacks({
     db,
     updater,
     applicationId,
-    workingDirectory,
+    testDirectory,
     repoFullName,
     headSha,
-    octokit,
+    githubClient,
 }: CreateCallbacksParams): DiffsAgentCallbacks {
-    const sharedDeps = { db, updater, applicationId, workingDirectory };
+    const sharedDeps = { db, updater, applicationId, testDirectory };
 
     return {
         triggerTestAndWait: async (slug: string): Promise<TestRunResult> => {
@@ -61,6 +63,6 @@ export function createCallbacks({
 
         updateSkill: (skillId, newContent) => updateSkill({ skillId, newContent }, sharedDeps),
 
-        reportBug: (report) => reportBug(report, { repoFullName, headSha, octokit }),
+        reportBug: (report) => reportBug(report, { repoFullName, headSha, githubClient }),
     };
 }

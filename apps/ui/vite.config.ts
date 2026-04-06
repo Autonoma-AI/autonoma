@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -5,6 +6,14 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import tsconfigPaths from "vite-tsconfig-paths";
+
+function readApiPort(): string {
+    try {
+        return readFileSync(path.resolve(import.meta.dirname, "..", "..", ".api-port"), "utf-8").trim();
+    } catch {
+        return process.env.API_PORT ?? "4000";
+    }
+}
 
 export default defineConfig({
     plugins: [
@@ -57,7 +66,7 @@ export default defineConfig({
         port: 3000,
         proxy: {
             "/v1": {
-                target: "http://localhost:4000",
+                target: `http://localhost:${readApiPort()}`,
                 changeOrigin: true,
             },
         },
