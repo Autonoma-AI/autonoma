@@ -16,7 +16,7 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --config vitest.config.ts --passWithNoTests",
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
-        "test:all": "vitest run --config vitest.config.ts --passWithNoTests & vitest run --config vitest.integration.config.ts --passWithNoTests & wait",
+        "test:all": "vitest run --config vitest.config.ts --passWithNoTests && vitest run --config vitest.integration.config.ts --passWithNoTests",
         "agent:execute": "tsx --env-file=../../.env src/scripts/batch-generate.ts"
     },
     "dependencies": {

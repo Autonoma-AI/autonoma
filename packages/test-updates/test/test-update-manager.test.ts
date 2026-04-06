@@ -1,5 +1,4 @@
 import { expect } from "vitest";
-
 import { AddTest } from "../src/changes/add-test";
 import { FakeGenerationProvider } from "../src/generation/fake-generation-provider";
 import { testUpdateSuite } from "./harness";

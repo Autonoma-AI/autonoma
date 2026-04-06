@@ -28,8 +28,8 @@ jobs:
     outputs:
       api: ${{ steps.filter.outputs.api }}
       ui: ${{ steps.filter.outputs.ui }}
-      reviewer: ${{ steps.filter.outputs.reviewer }}
-      notifier: ${{ steps.filter.outputs.notifier }}
+      docs: ${{ steps.filter.outputs.docs }}
+      jobs: ${{ steps.filter.outputs.jobs }}
       db: ${{ steps.filter.outputs.db }}
     steps:
       - name: Checkout
@@ -50,13 +50,13 @@ jobs:
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'package.json'
-            reviewer:
-              - 'apps/jobs/reviewer/**'
+            docs:
+              - 'apps/docs/**'
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'package.json'
-            notifier:
-              - 'apps/jobs/notifier/**'
+            jobs:
+              - 'apps/jobs/**'
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'package.json'
@@ -181,3 +181,81 @@ jobs:
 
       - name: Test
         run: pnpm turbo run test --filter @autonoma/ui
+
+  check-docs:
+    name: Check Docs
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs
+        run: pnpm --filter @autonoma/docs build
+
+  check-jobs:
+    name: Check Jobs
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    needs: changes
+    if: needs.changes.outputs.jobs == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: |
+          pnpm turbo run lint \
+            --filter @autonoma/job-diffs \
+            --filter @autonoma/generation-assigner \
+            --filter @autonoma/generation-reviewer \
+            --filter @autonoma/replay-reviewer \
+            --filter @autonoma/job-run-completion-notification \
+            --filter @autonoma/job-scenario \
+            --filter @autonoma/test-case-generator
+
+      - name: Typecheck
+        run: |
+          pnpm turbo run typecheck \
+            --filter @autonoma/job-diffs \
+            --filter @autonoma/generation-assigner \
+            --filter @autonoma/generation-reviewer \
+            --filter @autonoma/replay-reviewer \
+            --filter @autonoma/job-run-completion-notification \
+            --filter @autonoma/job-scenario \
+            --filter @autonoma/test-case-generator
+
+      - name: Test
+        run: |
+          pnpm turbo run test \
+            --filter @autonoma/job-diffs \
+            --filter @autonoma/generation-assigner \
+            --filter @autonoma/generation-reviewer \
+            --filter @autonoma/replay-reviewer \
+            --filter @autonoma/job-run-completion-notification \
+            --filter @autonoma/job-scenario \
+            --filter @autonoma/test-case-generator
