@@ -18,7 +18,8 @@ if (isPostHogEnabled) {
   const crossDomainId = params.get("ph_id");
 
   posthog.init(posthogKey, {
-    api_host: env.VITE_POSTHOG_HOST,
+    api_host: "/ingest",
+    ui_host: "https://us.posthog.com",
     session_recording: {
       recordCrossOriginIframes: true,
     },

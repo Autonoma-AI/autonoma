@@ -54,7 +54,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. All variab
 | `VITE_ARGO_URL` | No | - | Argo Workflows dashboard URL |
 | `VITE_SENTRY_DSN` | No | - | Sentry DSN for error tracking (disabled if unset) |
 | `VITE_POSTHOG_KEY` | No | - | PostHog project API key (analytics disabled if unset) |
-| `VITE_POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion host |
 
 ## Project Structure
 

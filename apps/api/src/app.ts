@@ -8,6 +8,7 @@ import { applicationSetupHttpRouter } from "./application-setup/application-setu
 import { auth, createContext, storageProvider } from "./context";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
+import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
 import { appRouter } from "./routes/router";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
 
@@ -34,7 +35,7 @@ export function createApiApp() {
             scope.setTag("url", c.req.url);
             scope.setTag("request_id", crypto.randomUUID());
 
-            if (c.req.path === "/health") return await next();
+            if (c.req.path === "/health" || c.req.path.startsWith("/ingest")) return await next();
 
             const start = Date.now();
             const { method, url } = c.req;
@@ -123,6 +124,11 @@ export function createApiApp() {
 
         return c.json({ url });
     });
+
+    // ─── PostHog Proxy (bypasses ad blockers) ──────────────────────────
+
+    app.use("/ingest/*", cors(corsOptions));
+    app.route("/ingest", posthogProxyRouter);
 
     // ─── tRPC ─────────────────────────────────────────────────────────
 

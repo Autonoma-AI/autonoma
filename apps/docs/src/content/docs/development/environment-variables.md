@@ -100,8 +100,7 @@ The frontend uses Vite's `import.meta.env` and requires the `VITE_` prefix for a
 | `VITE_ARGO_URL` | No | - | URL of the Argo Workflows UI. When set, enables links to workflow runs in the dashboard. |
 | `VITE_SENTRY_DSN` | No | - | Sentry DSN for frontend error tracking. Omit to disable Sentry in the browser. |
 | `VITE_SENTRY_URL` | No | - | Sentry organization URL. Used for linking to Sentry issues from the UI. |
-| `VITE_POSTHOG_KEY` | No | - | PostHog project API key for frontend analytics. Omit to disable analytics. |
-| `VITE_POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion endpoint for the frontend. |
+| `VITE_POSTHOG_KEY` | No | - | PostHog project API key for frontend analytics. Omit to disable analytics. PostHog events are proxied through the API server at `/ingest` to bypass ad blockers. |
 
 ---
 

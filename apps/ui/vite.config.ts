@@ -31,7 +31,7 @@ export default defineConfig({
                 globPatterns: ["**/*.{js,css,html,woff,woff2}"],
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
                 navigateFallback: "/index.html",
-                navigateFallbackDenylist: [/^\/v1\//],
+                navigateFallbackDenylist: [/^\/v1\//, /^\/ingest\//],
                 runtimeCaching: [
                     {
                         urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
@@ -66,6 +66,10 @@ export default defineConfig({
         port: 3000,
         proxy: {
             "/v1": {
+                target: `http://localhost:${readApiPort()}`,
+                changeOrigin: true,
+            },
+            "/ingest": {
                 target: `http://localhost:${readApiPort()}`,
                 changeOrigin: true,
             },

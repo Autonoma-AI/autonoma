@@ -10,7 +10,6 @@ export const env = createEnv({
         VITE_SENTRY_DSN: z.string().optional(),
         VITE_SENTRY_URL: z.string().optional(),
         VITE_POSTHOG_KEY: z.string().optional(),
-        VITE_POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),
     },
     runtimeEnv: import.meta.env,
     emptyStringAsUndefined: true,
