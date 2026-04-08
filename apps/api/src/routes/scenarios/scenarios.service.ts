@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
 
 export class ScenariosService extends Service {
@@ -116,5 +117,32 @@ export class ScenariosService extends Service {
             orderBy: { createdAt: "desc" },
             take: 50,
         });
+    }
+
+    async dryRun(applicationId: string, organizationId: string, scenarioId: string) {
+        this.logger.info("Running scenario dry run", { applicationId, scenarioId });
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+
+        const subject = new DryRunSubject(this.db, applicationId);
+        const instance = await this.scenarioManager.up(subject, scenarioId);
+
+        if (instance.status === "UP_FAILED") {
+            this.logger.info("Dry run failed during up phase", { applicationId, scenarioId });
+            return { success: false as const, phase: "up" as const, error: instance.lastError };
+        }
+
+        const downResult = await this.scenarioManager.down(instance.id);
+
+        if (downResult?.status === "DOWN_FAILED") {
+            this.logger.info("Dry run failed during down phase", { applicationId, scenarioId });
+            return { success: false as const, phase: "down" as const, error: downResult.lastError };
+        }
+
+        this.logger.info("Dry run succeeded", { applicationId, scenarioId });
+        return { success: true as const, phase: "down" as const, error: undefined };
     }
 }

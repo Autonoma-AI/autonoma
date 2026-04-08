@@ -82,3 +82,8 @@ export const ListInstancesInputSchema = z.object({
 export const ListWebhookCallsInputSchema = z.object({
     applicationId: z.string(),
 });
+
+export const DryRunInputSchema = z.object({
+    applicationId: z.string(),
+    scenarioId: z.string(),
+});

@@ -34,6 +34,7 @@ import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { FingerprintIcon } from "@phosphor-icons/react/Fingerprint";
+import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
@@ -528,8 +529,28 @@ function InstancesDrawerSkeleton() {
 // Scenario Row
 // ---------------------------------------------------------------------------
 
-function ScenarioRow({ scenario }: { scenario: ScenarioData }) {
+function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; applicationId: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  const dryRun = useAPIMutation({
+    ...trpc.scenarios.dryRun.mutationOptions({
+      onSettled: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.scenarios.listWebhookCalls.queryKey({ applicationId }),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.scenarios.listInstances.queryKey({ scenarioId: scenario.id }),
+        });
+      },
+    }),
+    successToast: { title: "Dry run passed" },
+  });
+
+  function handleDryRun(e: React.MouseEvent) {
+    e.stopPropagation();
+    dryRun.mutate({ applicationId, scenarioId: scenario.id });
+  }
 
   return (
     <>
@@ -569,6 +590,12 @@ function ScenarioRow({ scenario }: { scenario: ScenarioData }) {
             <span className="text-sm text-text-tertiary">-</span>
           )}
         </td>
+        <td className="px-4 py-3">
+          <Button variant="outline" size="sm" onClick={handleDryRun} disabled={dryRun.isPending}>
+            {dryRun.isPending ? <CircleNotchIcon size={14} className="animate-spin" /> : <FlaskIcon size={14} />}
+            Try it
+          </Button>
+        </td>
       </tr>
       <ScenarioDrawer scenario={scenario} open={drawerOpen} onOpenChange={setDrawerOpen} />
     </>
@@ -601,14 +628,15 @@ function ScenariosTable({ applicationId }: { applicationId: string }) {
       <table className="w-full min-w-100 table-fixed text-sm">
         <thead className="sticky top-0 z-10 border-b border-border-dim bg-surface-base">
           <tr>
-            <th className={`${TH} w-5/12`}>Scenario</th>
+            <th className={`${TH} w-4/12`}>Scenario</th>
             <th className={`${TH} w-3/12`}>Fingerprint</th>
-            <th className={`${TH} w-4/12`}>Last discovered</th>
+            <th className={`${TH} w-3/12`}>Last discovered</th>
+            <th className={`${TH} w-2/12`} />
           </tr>
         </thead>
         <tbody>
           {scenarios.map((scenario) => (
-            <ScenarioRow key={scenario.id} scenario={scenario} />
+            <ScenarioRow key={scenario.id} scenario={scenario} applicationId={applicationId} />
           ))}
         </tbody>
       </table>

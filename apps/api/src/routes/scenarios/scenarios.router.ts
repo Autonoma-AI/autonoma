@@ -1,6 +1,7 @@
 import {
     ConfigureWebhookInputSchema,
     DiscoverInputSchema,
+    DryRunInputSchema,
     ListInstancesInputSchema,
     ListScenariosInputSchema,
     ListWebhookCallsInputSchema,
@@ -39,4 +40,10 @@ export const scenariosRouter = router({
     listWebhookCalls: protectedProcedure
         .input(ListWebhookCallsInputSchema)
         .query(({ ctx, input }) => ctx.services.scenarios.listWebhookCalls(input.applicationId, ctx.organizationId)),
+
+    dryRun: protectedProcedure
+        .input(DryRunInputSchema)
+        .mutation(({ ctx, input }) =>
+            ctx.services.scenarios.dryRun(input.applicationId, ctx.organizationId, input.scenarioId),
+        ),
 });
