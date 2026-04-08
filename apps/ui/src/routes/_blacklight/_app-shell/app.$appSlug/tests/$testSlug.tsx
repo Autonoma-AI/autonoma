@@ -19,7 +19,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/tests
     const app = context.applications.find((a: { slug: string }) => a.slug === appSlug);
     if (app == null) throw notFound();
 
-    if (app.mainBranch == null) throw notFound();
     const snapshotId = await ensureBranchSnapshotId(context.queryClient, app.id, app.mainBranch.name);
     if (snapshotId == null) throw notFound();
 

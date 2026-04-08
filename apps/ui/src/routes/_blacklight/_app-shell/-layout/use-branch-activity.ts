@@ -29,7 +29,7 @@ function useAppContext() {
     if (params.appSlug == null) return undefined;
 
     const app = applications.find((a) => a.slug === params.appSlug);
-    if (app?.mainBranch == null) return undefined;
+    if (app == null) return undefined;
 
     return { appSlug: params.appSlug, branchName: app.mainBranch.name, applicationId: app.id };
 }

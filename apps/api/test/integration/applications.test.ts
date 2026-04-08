@@ -32,6 +32,24 @@ apiTestSuite({
             expect(ids).toContain(ios.id);
         });
 
+        test("excludes applications with no main branch from list", async ({ harness, seedResult: { web, ios } }) => {
+            await harness.db.application.create({
+                data: {
+                    name: "Broken App",
+                    slug: "broken-app",
+                    organizationId: harness.organizationId,
+                    architecture: ApplicationArchitecture.WEB,
+                },
+            });
+
+            const list = await harness.request().applications.list();
+
+            const ids = list.map((a) => a.id);
+            expect(ids).toContain(web.id);
+            expect(ids).toContain(ios.id);
+            expect(list).toHaveLength(2);
+        });
+
         test("creates with correct architecture", async ({ seedResult: { web, ios } }) => {
             expect(web.architecture).toBe(ApplicationArchitecture.WEB);
             expect(ios.architecture).toBe(ApplicationArchitecture.IOS);

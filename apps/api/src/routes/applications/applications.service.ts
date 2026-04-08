@@ -58,6 +58,12 @@ type UpdateDataInput = Partial<Pick<Application, "name">> &
 
 type UpdateSettingsInput = Pick<Application, "customInstructions">;
 
+class NoMainBranchError extends Error {
+    constructor(applicationId: string) {
+        super(`Application ${applicationId} has no main branch`);
+    }
+}
+
 export class ApplicationsService extends Service {
     constructor(private readonly db: PrismaClient) {
         super();
@@ -82,7 +88,22 @@ export class ApplicationsService extends Service {
 
         const stateByAppId = new Map(onboardingStates.map((s) => [s.application_id, { step: s.step }]));
 
-        return apps.map((app) => ({
+        type AppWithMainBranch = (typeof apps)[number] & {
+            mainBranch: NonNullable<(typeof apps)[number]["mainBranch"]>;
+        };
+
+        const validApps = apps.filter((app): app is AppWithMainBranch => {
+            if (app.mainBranch != null) return true;
+
+            this.logger.fatal("Application has no main branch", new NoMainBranchError(app.id), {
+                applicationId: app.id,
+                name: app.name,
+            });
+
+            return false;
+        });
+
+        return validApps.map((app) => ({
             ...app,
             onboardingState: stateByAppId.get(app.id) ?? null,
         }));

@@ -11,7 +11,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/histo
   loader: async ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) return;
-    if (app.mainBranch == null) return;
     const branch = await ensureBranchData(context.queryClient, app.id, app.mainBranch.name);
     await ensureSnapshotHistoryData(context.queryClient, branch.id);
   },

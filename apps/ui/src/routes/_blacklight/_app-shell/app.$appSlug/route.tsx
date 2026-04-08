@@ -7,7 +7,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug")({
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
     setLastApp(app.slug);
-    if (app.mainBranch == null) return;
     return ensureBranchData(context.queryClient, app.id, app.mainBranch.name);
   },
   notFoundComponent: AppNotFound,
