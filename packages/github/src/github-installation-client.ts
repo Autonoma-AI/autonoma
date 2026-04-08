@@ -1,9 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
-
 import { OctokitGithubHistory } from "./history/octokit-github-history";
 
 const execFileAsync = promisify(execFile);

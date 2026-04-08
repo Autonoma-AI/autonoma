@@ -1,5 +1,4 @@
 import { type Logger, logger } from "@autonoma/logger";
-
 import type { GitHubInstallationClient } from "../github-installation-client";
 import type { GithubHistory } from "./github-history";
 

@@ -1,6 +1,31 @@
 import { z } from "zod";
 
-// ─── Webhook Response Schemas ─────────────────────────────────────
+export const DiscoverRequestSchema = z.object({
+    action: z.literal("discover"),
+});
+export type DiscoverRequest = z.infer<typeof DiscoverRequestSchema>;
+
+export const UpRequestSchema = z.object({
+    action: z.literal("up"),
+    environment: z.string(),
+    testRunId: z.string(),
+});
+export type UpRequest = z.infer<typeof UpRequestSchema>;
+
+export const DownRequestSchema = z.object({
+    action: z.literal("down"),
+    refs: z.unknown().optional(),
+    refsToken: z.string().optional(),
+    testRunId: z.string(),
+});
+export type DownRequest = z.infer<typeof DownRequestSchema>;
+
+export const ScenarioWebhookRequestSchema = z.discriminatedUnion("action", [
+    DiscoverRequestSchema,
+    UpRequestSchema,
+    DownRequestSchema,
+]);
+export type ScenarioWebhookRequest = z.infer<typeof ScenarioWebhookRequestSchema>;
 
 export const DiscoverScenarioSchema = z.object({
     name: z.string(),
@@ -54,8 +79,6 @@ export const DownResponseSchema = z.object({
     ok: z.boolean(),
 });
 export type DownResponse = z.infer<typeof DownResponseSchema>;
-
-// ─── tRPC Input Schemas ───────────────────────────────────────────
 
 export const ConfigureWebhookInputSchema = z.object({
     applicationId: z.string(),

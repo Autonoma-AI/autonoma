@@ -12,7 +12,6 @@
  */
 
 import { execSync } from "node:child_process";
-
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 import type { DiffsAgentCallbacks } from "../src/callbacks";
 import type { DiffsAgentInput, TestRunResult } from "../src/diffs-agent";
