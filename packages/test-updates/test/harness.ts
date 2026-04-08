@@ -2,7 +2,6 @@ import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
-
 import type { GenerationProvider } from "../src/generation/generation-job-provider";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
