@@ -1,9 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
-
 import { OctokitGithubHistory } from "./history/octokit-github-history";
 
 const execFileAsync = promisify(execFile);
@@ -45,6 +43,16 @@ export interface FileContent {
     encoding: string;
     sha: string;
     path: string;
+}
+
+export interface PullRequest {
+    number: number;
+    title: string;
+    headRef: string;
+    headSha: string;
+    url: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface CloneRepositoryParams {
@@ -148,7 +156,16 @@ export class GitHubInstallationClient {
         });
 
         this.logger.info("Checking out commit", { headSha });
-        await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+        try {
+            await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+        } catch {
+            this.logger.info("Head SHA not in shallow clone, fetching explicitly", { headSha });
+            await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", headSha], {
+                cwd: targetDir,
+                timeout: 60_000,
+            });
+            await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+        }
 
         if (baseSha != null) {
             this.logger.info("Ensuring base commit is available", { baseSha });
@@ -231,6 +248,31 @@ export class GitHubInstallationClient {
 
     getHistory(owner: string, repo: string, branchRef: string): OctokitGithubHistory {
         return new OctokitGithubHistory(this, owner, repo, branchRef);
+    }
+
+    async listPullRequests(owner: string, repo: string): Promise<PullRequest[]> {
+        this.logger.info("Listing open pull requests", { owner, repo });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls", {
+            owner,
+            repo,
+            state: "open",
+            per_page: 50,
+        });
+
+        const pullRequests = data.map((pr) => ({
+            number: pr.number,
+            title: pr.title,
+            headRef: pr.head.ref,
+            headSha: pr.head.sha,
+            url: pr.html_url,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+        }));
+
+        this.logger.info("Listed pull requests", { owner, repo, count: pullRequests.length });
+
+        return pullRequests;
     }
 
     async getContent(owner: string, repo: string, path: string, ref?: string): Promise<FileContent> {

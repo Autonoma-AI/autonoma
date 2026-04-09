@@ -4,6 +4,7 @@ import { fx } from "@autonoma/try";
 import type { EncryptionHelper } from "./encryption";
 import type { ScenarioApplicationData, ScenarioSubject } from "./scenario-subject";
 import { WebhookClient } from "./webhook-client";
+import type { WebhookCallOptions } from "./webhook-client";
 
 const DEFAULT_EXPIRES_IN_SECONDS = 2 * 60 * 60; // 2 hours
 
@@ -17,12 +18,12 @@ export class ScenarioManager {
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async discover(applicationId: string): Promise<void> {
-        const applicationData = await this.getApplicationData(applicationId);
+    async discover(applicationId: string, deploymentId: string, options?: WebhookCallOptions): Promise<void> {
+        const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId);
         const webhookClient = this.createWebhookClient(applicationData);
 
         this.logger.info("Calling discover webhook", { applicationId });
-        const response = await webhookClient.discover();
+        const response = await webhookClient.discover(options);
 
         await Promise.all(
             response.environments.map(async (scenario) => {
@@ -59,7 +60,7 @@ export class ScenarioManager {
         this.logger.info("Discover completed", { applicationId, scenarioCount: response.environments.length });
     }
 
-    async up(subject: ScenarioSubject, scenarioId: string): Promise<ScenarioInstance> {
+    async up(subject: ScenarioSubject, scenarioId: string, options?: WebhookCallOptions): Promise<ScenarioInstance> {
         const applicationData = await subject.getApplicationData();
         const { applicationId, organizationId } = applicationData;
         const webhookClient = this.createWebhookClient(applicationData);
@@ -76,6 +77,7 @@ export class ScenarioManager {
             data: {
                 applicationId,
                 organizationId,
+                deploymentId: applicationData.deploymentId,
                 scenarioId: scenario.id,
                 status: "REQUESTED",
                 expiresAt,
@@ -87,7 +89,7 @@ export class ScenarioManager {
         this.logger.info("Calling up webhook", { applicationId, scenarioName: scenario.name, instanceId: instance.id });
 
         const [response, error] = await fx.runAsync(() =>
-            webhookClient.up({ instanceId: instance.id, scenarioName: scenario.name }),
+            webhookClient.up({ instanceId: instance.id, scenarioName: scenario.name }, options),
         );
 
         if (error != null) {
@@ -120,7 +122,7 @@ export class ScenarioManager {
         });
     }
 
-    async down(scenarioInstanceId: string): Promise<ScenarioInstance | undefined> {
+    async down(scenarioInstanceId: string, options?: WebhookCallOptions): Promise<ScenarioInstance | undefined> {
         const instance = await this.db.scenarioInstance.findUnique({
             where: { id: scenarioInstanceId },
         });
@@ -138,17 +140,27 @@ export class ScenarioManager {
             return instance;
         }
 
-        const applicationData = await this.getApplicationData(instance.applicationId);
+        if (instance.deploymentId == null) {
+            throw new Error(`Scenario instance ${scenarioInstanceId} does not have a deployment`);
+        }
+
+        const applicationData = await this.getApplicationDataForDeployment(
+            instance.applicationId,
+            instance.deploymentId,
+        );
         const webhookClient = this.createWebhookClient(applicationData);
 
         this.logger.info("Calling down webhook", { scenarioInstanceId, instanceId: instance.id });
 
         const [, error] = await fx.runAsync(() =>
-            webhookClient.down({
-                instanceId: instance.id,
-                refs: instance.refs,
-                refsToken: instance.refsToken ?? undefined,
-            }),
+            webhookClient.down(
+                {
+                    instanceId: instance.id,
+                    refs: instance.refs,
+                    refsToken: instance.refsToken ?? undefined,
+                },
+                options,
+            ),
         );
 
         if (error != null) {
@@ -175,10 +187,13 @@ export class ScenarioManager {
         });
     }
 
-    private async getApplicationData(applicationId: string): Promise<ScenarioApplicationData> {
+    private async getApplicationDataForDeployment(
+        applicationId: string,
+        deploymentId: string,
+    ): Promise<ScenarioApplicationData> {
         const application = await this.db.application.findUnique({
             where: { id: applicationId },
-            select: { id: true, webhookUrl: true, signingSecretEnc: true, organizationId: true, disabled: true },
+            select: { id: true, signingSecretEnc: true, organizationId: true, disabled: true },
         });
 
         if (application == null) {
@@ -187,20 +202,40 @@ export class ScenarioManager {
         if (application.disabled) {
             throw new Error(`Application ${applicationId} is disabled`);
         }
-        if (application.webhookUrl == null || application.signingSecretEnc == null) {
-            throw new Error(`Application ${applicationId} does not have a webhook configured`);
+        if (application.signingSecretEnc == null) {
+            throw new Error(`Application ${applicationId} does not have a signing secret configured`);
+        }
+
+        const deployment = await this.db.branchDeployment.findUnique({
+            where: { id: deploymentId },
+            select: { id: true, webhookUrl: true, webhookHeaders: true },
+        });
+
+        if (deployment == null) {
+            throw new Error(`Deployment ${deploymentId} not found`);
+        }
+        if (deployment.webhookUrl == null) {
+            throw new Error(`Deployment ${deploymentId} does not have a webhook URL configured`);
         }
 
         return {
             applicationId: application.id,
+            deploymentId: deployment.id,
             organizationId: application.organizationId,
-            webhookUrl: application.webhookUrl,
+            webhookUrl: deployment.webhookUrl,
             signingSecretEnc: application.signingSecretEnc,
+            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
         };
     }
 
     private createWebhookClient(applicationData: ScenarioApplicationData): WebhookClient {
         const signingSecret = this.encryption.decrypt(applicationData.signingSecretEnc);
-        return new WebhookClient(this.db, applicationData.applicationId, applicationData.webhookUrl, signingSecret);
+        return new WebhookClient(
+            this.db,
+            applicationData.applicationId,
+            applicationData.webhookUrl,
+            signingSecret,
+            applicationData.webhookHeaders,
+        );
     }
 }

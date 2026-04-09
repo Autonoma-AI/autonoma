@@ -4,9 +4,10 @@ import { ScrollCommand } from "@autonoma/engine";
 import type { ScreenResolution, Screenshot } from "@autonoma/image";
 import { type Browser, type BrowserContext, type Page, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PlaywrightApplicationDriver } from "../../../src/web-agent/drivers/playwright-application.driver";
-import { PlaywrightMouseDriver } from "../../../src/web-agent/drivers/playwright-mouse.driver";
-import { PlaywrightScreenDriver } from "../../../src/web-agent/drivers/playwright-screen.driver";
+import { ActivePageManager } from "../../../src/platform/active-page-manager";
+import { PlaywrightApplicationDriver } from "../../../src/platform/drivers/playwright-application.driver";
+import { PlaywrightMouseDriver } from "../../../src/platform/drivers/playwright-mouse.driver";
+import { PlaywrightScreenDriver } from "../../../src/platform/drivers/playwright-screen.driver";
 
 const VIEWPORT = { width: 1920, height: 1080 };
 const FIXTURES_DIR = path.join(import.meta.dirname, "fixtures");
@@ -131,9 +132,10 @@ describe("Freestyle Scroll Eval", { timeout: 30000 }, () => {
     }
 
     function createCommand(page: Page) {
-        const screenDriver = new PlaywrightScreenDriver(page);
-        const mouseDriver = new PlaywrightMouseDriver(page, VIEWPORT);
-        const applicationDriver = new PlaywrightApplicationDriver(page);
+        const pageManager = new ActivePageManager(page, browserContext);
+        const screenDriver = new PlaywrightScreenDriver(pageManager);
+        const mouseDriver = new PlaywrightMouseDriver(pageManager, VIEWPORT);
+        const applicationDriver = new PlaywrightApplicationDriver(pageManager);
         const pointDetector = createDomPointDetector(page);
         const visualConditionChecker = createDomVisualConditionChecker(page);
 

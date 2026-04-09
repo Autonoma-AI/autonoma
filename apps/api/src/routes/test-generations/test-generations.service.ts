@@ -1,7 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { GenerationStatus } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import { type WorkflowArchitecture, findLatestWorkflowByGenerationId } from "@autonoma/workflow";
@@ -186,6 +186,16 @@ export class TestGenerationsService extends Service {
                         },
                     },
                 },
+                snapshot: {
+                    select: {
+                        deployment: {
+                            select: {
+                                webDeployment: { select: { url: true } },
+                                mobileDeployment: { select: { deploymentId: true } },
+                            },
+                        },
+                    },
+                },
             },
         });
         if (existing == null) throw new NotFoundError();
@@ -217,6 +227,7 @@ export class TestGenerationsService extends Service {
                 memory: {},
                 stepsId: null,
                 outputsId: null,
+                scenarioInstanceId: null,
             },
         });
 
@@ -227,6 +238,20 @@ export class TestGenerationsService extends Service {
 
         const scenarioId = existing.testPlan.scenarioId ?? undefined;
         const architecture = existing.testPlan.testCase.application.architecture as WorkflowArchitecture;
+
+        // Validate deployment is properly configured before triggering
+        const deployment = existing.snapshot.deployment;
+        if (deployment == null) {
+            throw new BadRequestError("Cannot rerun generation: no deployment is configured for this application");
+        }
+        if (architecture === "WEB") {
+            const webUrl = deployment.webDeployment?.url;
+            if (webUrl == null || webUrl === "") {
+                throw new BadRequestError("Cannot rerun generation: no deployment URL is configured for this application");
+            }
+        } else if (deployment.mobileDeployment == null) {
+            throw new BadRequestError("Cannot rerun generation: no mobile deployment is configured for this application");
+        }
 
         await this.generationProvider.fireJobs([
             { testGenerationId: generationId, planId: existing.testPlanId, scenarioId, architecture },

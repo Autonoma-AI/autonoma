@@ -120,9 +120,32 @@ jobs:
 
   check-api:
     name: Check API
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: changes
     if: needs.changes.outputs.api == 'true'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -151,6 +174,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: pnpm turbo run test --filter @autonoma/api...
+
+      - name: Integration Test
+        env:
+          CI_DATABASE_URL: postgresql://test:test@localhost:5432/test
+          CI_REDIS_URL: redis://localhost:6379
+        run: pnpm --filter @autonoma/api test:integration
 
   check-ui:
     name: Check UI

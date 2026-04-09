@@ -81,11 +81,13 @@ githubHttpRouter.get("/callback", async (ctx) => {
     } catch (error) {
         logger.fatal("Failed to handle GitHub installation callback", error, { installationId });
         const errorBase = returnPath != null ? `${appUrl}${returnPath}` : appUrl;
-        return ctx.redirect(`${errorBase}?error=install_failed`);
+        const errorSeparator = errorBase.includes("?") ? "&" : "?";
+        return ctx.redirect(`${errorBase}${errorSeparator}error=install_failed`);
     }
 
     const successBase = returnPath != null ? `${appUrl}${returnPath}` : appUrl;
-    return ctx.redirect(`${successBase}?connected=true`);
+    const successSeparator = successBase.includes("?") ? "&" : "?";
+    return ctx.redirect(`${successBase}${successSeparator}connected=true`);
 });
 
 githubHttpRouter.post("/deployment", async (ctx) => {
@@ -170,9 +172,14 @@ githubHttpRouter.post("/webhook", async (ctx) => {
             }
         } else if (event === "pull_request") {
             const action = payload.action as string;
-            const pr = payload.pull_request as { number: number };
+            const pr = payload.pull_request as { number: number; head: { ref: string } };
             const repo = payload.repository as { full_name: string };
-            webhookHandler.handlePullRequest(action, pr.number, repo.full_name);
+            void webhookHandler
+                .handlePullRequest(action, pr.number, repo.full_name, pr.head.ref)
+                .catch((err: unknown) => {
+                    Sentry.captureException(err);
+                    logger.error("Error handling pull_request webhook", { event, err });
+                });
         } else if (event === "push") {
             const repo = payload.repository as { full_name: string };
             const ref = payload.ref as string;

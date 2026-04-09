@@ -4,29 +4,30 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useSetUrl } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
-import { getOnboardingApplicationId } from "./install";
+import { onboardingSearchSchema } from "./-onboarding-search";
 
 export const Route = createFileRoute("/_blacklight/onboarding/url")({
   component: UrlPage,
+  validateSearch: onboardingSearchSchema,
 });
 
 function UrlPage() {
-  const applicationId = getOnboardingApplicationId();
+  const { appId } = Route.useSearch();
   const [appUrl, setAppUrl] = useState("");
 
   const navigate = useNavigate();
-  const setUrl = useSetUrl();
+  const setUrl = useSetUrl(appId);
 
   const isLoading = setUrl.isPending;
 
   function handleSubmit() {
-    if (appUrl.length === 0 || applicationId == null) return;
+    if (appUrl.length === 0) return;
 
     setUrl.mutate(
       { productionUrl: appUrl },
       {
         onSuccess: () => {
-          void navigate({ to: "/onboarding/complete" });
+          void navigate({ to: "/onboarding/github", search: { appId } });
         },
       },
     );
@@ -58,17 +59,19 @@ function UrlPage() {
             placeholder="https://staging.your-app.com"
             className="w-full max-w-lg border border-border-dim bg-surface-base px-4 py-2.5 font-mono text-sm text-text-primary placeholder-text-tertiary/50 outline-none focus:border-primary-ink/50"
           />
-          <p className="font-mono text-2xs text-text-tertiary">This can be your staging, preview, or production URL.</p>
+          <p className="font-mono text-2xs text-text-tertiary">
+            Must include the protocol (e.g. https://). This can be your staging, preview, or production URL.
+          </p>
         </div>
 
         <Button
           variant="accent"
           className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
           onClick={handleSubmit}
-          disabled={appUrl.length === 0 || isLoading || applicationId == null}
+          disabled={appUrl.length === 0 || isLoading}
           aria-label="onboarding-url-submit"
         >
-          {isLoading ? "starting..." : "Start Generating Tests"}
+          {isLoading ? "continuing..." : "Continue"}
           <ArrowRightIcon size={18} weight="bold" />
         </Button>
       </div>

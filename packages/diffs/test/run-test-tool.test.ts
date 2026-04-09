@@ -4,20 +4,35 @@ import type { TestRunResult } from "../src/diffs-agent";
 import { buildRunTestTool } from "../src/tools/run-test-tool";
 import { executeTool } from "./execute-tool";
 
-function createMockCallbacks(result?: Partial<TestRunResult>): DiffsAgentCallbacks {
-    const defaultResult: TestRunResult = {
-        slug: "login-flow",
-        testName: "Login flow",
-        success: true,
-        finishReason: "success",
-        reasoning: "All assertions passed",
-        stepDescriptions: ["Navigated to /login", "Entered credentials", "Clicked Sign In"],
-        screenshotUrls: [],
-        ...result,
-    };
+function createMockCallbacks(results?: Partial<TestRunResult>[]): DiffsAgentCallbacks {
+    const defaultResults: TestRunResult[] = [
+        {
+            slug: "login-flow",
+            testName: "Login flow",
+            success: true,
+            finishReason: "success",
+            reasoning: "All assertions passed",
+            stepDescriptions: ["Navigated to /login", "Entered credentials", "Clicked Sign In"],
+            screenshotUrls: [],
+        },
+    ];
+
+    const mockResults =
+        results != null
+            ? results.map((r) => ({
+                  slug: "login-flow",
+                  testName: "Login flow",
+                  success: true,
+                  finishReason: "success" as const,
+                  reasoning: "All assertions passed",
+                  stepDescriptions: [],
+                  screenshotUrls: [],
+                  ...r,
+              }))
+            : defaultResults;
 
     return {
-        triggerTestAndWait: vi.fn().mockResolvedValue(defaultResult),
+        triggerTestsAndWait: vi.fn().mockResolvedValue(mockResults),
         quarantineTest: vi.fn(),
         modifyTest: vi.fn(),
         updateSkill: vi.fn(),
@@ -26,42 +41,49 @@ function createMockCallbacks(result?: Partial<TestRunResult>): DiffsAgentCallbac
 }
 
 describe("run_test tool", () => {
-    it("triggers test execution and returns result", async () => {
+    it("triggers batch test execution and returns results", async () => {
         const callbacks = createMockCallbacks();
         const completedRuns = new Set<string>();
         const tool = buildRunTestTool(callbacks, completedRuns);
 
-        const result = await executeTool<TestRunResult>(tool, { slug: "login-flow" });
+        const result = await executeTool<TestRunResult[]>(tool, { slugs: ["login-flow"] });
 
-        expect(callbacks.triggerTestAndWait).toHaveBeenCalledWith("login-flow");
-        expect(result.slug).toBe("login-flow");
-        expect(result.success).toBe(true);
+        expect(callbacks.triggerTestsAndWait).toHaveBeenCalledWith(["login-flow"]);
+        expect(result).toHaveLength(1);
+        expect(result[0]!.slug).toBe("login-flow");
+        expect(result[0]!.success).toBe(true);
     });
 
-    it("adds test to completedRuns set", async () => {
-        const callbacks = createMockCallbacks();
+    it("adds all test slugs to completedRuns set", async () => {
+        const callbacks = createMockCallbacks([
+            { slug: "login-flow", success: true },
+            { slug: "checkout-flow", success: false },
+        ]);
         const completedRuns = new Set<string>();
         const tool = buildRunTestTool(callbacks, completedRuns);
 
-        await executeTool(tool, { slug: "login-flow" });
+        await executeTool(tool, { slugs: ["login-flow", "checkout-flow"] });
 
         expect(completedRuns.has("login-flow")).toBe(true);
+        expect(completedRuns.has("checkout-flow")).toBe(true);
     });
 
-    it("returns failed test result", async () => {
-        const callbacks = createMockCallbacks({
-            slug: "checkout-flow",
-            success: false,
-            finishReason: "error",
-            reasoning: "Button not found",
-        });
+    it("returns failed test results", async () => {
+        const callbacks = createMockCallbacks([
+            {
+                slug: "checkout-flow",
+                success: false,
+                finishReason: "error",
+                reasoning: "Button not found",
+            },
+        ]);
         const completedRuns = new Set<string>();
         const tool = buildRunTestTool(callbacks, completedRuns);
 
-        const result = await executeTool<TestRunResult>(tool, { slug: "checkout-flow" });
+        const result = await executeTool<TestRunResult[]>(tool, { slugs: ["checkout-flow"] });
 
-        expect(result.success).toBe(false);
-        expect(result.finishReason).toBe("error");
+        expect(result[0]!.success).toBe(false);
+        expect(result[0]!.finishReason).toBe("error");
         expect(completedRuns.has("checkout-flow")).toBe(true);
     });
 });

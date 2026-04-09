@@ -30,6 +30,7 @@ export async function runWithSentry(
         await Sentry.flush(2000);
         process.exit(0);
     } catch (error) {
+        console.error("[FATAL] Job failed with error:", error);
         Sentry.captureException(error);
         await Sentry.flush(2000);
         process.exit(1);

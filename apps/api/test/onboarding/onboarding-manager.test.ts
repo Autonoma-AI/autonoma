@@ -37,7 +37,7 @@ integrationTestSuite({
             expect(state.completedAt).toBeNull();
         });
 
-        test("full onboarding flow: install -> configure -> working -> scenario_dry_run -> url -> completed", async ({
+        test("full onboarding flow: install -> configure -> working -> scenario_dry_run -> url -> github -> completed", async ({
             seedResult: { orgId, manager, createApp },
         }) => {
             const appId = await createApp();
@@ -55,10 +55,13 @@ integrationTestSuite({
             const afterComplete = await manager.complete(appId);
             expect(afterComplete.step).toBe("url");
 
-            const afterUrl = await manager.setUrl(appId, orgId, "https://example.com");
-            expect(afterUrl.step).toBe("completed");
+            const afterUrl = await manager.setUrl(appId, "https://example.com");
+            expect(afterUrl.step).toBe("github");
             expect(afterUrl.productionUrl).toBe("https://example.com");
-            expect(afterUrl.completedAt).not.toBeNull();
+
+            const afterGithub = await manager.completeGithub(appId, orgId);
+            expect(afterGithub.step).toBe("completed");
+            expect(afterGithub.completedAt).not.toBeNull();
         });
 
         test("cannot mark agent connected from install step", async ({ seedResult: { manager, createApp } }) => {
@@ -86,15 +89,13 @@ integrationTestSuite({
         });
 
         test("cannot set url from scenario dry run step - must go through complete first", async ({
-            seedResult: { orgId, manager, createApp },
+            seedResult: { manager, createApp },
         }) => {
             const appId = await createApp();
             await manager.startConfigure(appId);
             await manager.markAgentConnected(appId);
             await manager.startScenarioDryRun(appId);
-            await expect(manager.setUrl(appId, orgId, "https://example.com")).rejects.toThrow(
-                InvalidOnboardingStepError,
-            );
+            await expect(manager.setUrl(appId, "https://example.com")).rejects.toThrow(InvalidOnboardingStepError);
         });
 
         test("cannot advance from completed step", async ({ seedResult: { orgId, manager, createApp } }) => {
@@ -103,22 +104,31 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await manager.startScenarioDryRun(appId);
             await manager.complete(appId);
-            await manager.setUrl(appId, orgId, "https://example.com");
+            await manager.setUrl(appId, "https://example.com");
+            await manager.completeGithub(appId, orgId);
 
+            // Forward-only operations should still reject from completed step
             await expect(manager.startConfigure(appId)).rejects.toThrow(InvalidOnboardingStepError);
             await expect(manager.markAgentConnected(appId)).rejects.toThrow(InvalidOnboardingStepError);
             await expect(manager.startScenarioDryRun(appId)).rejects.toThrow(InvalidOnboardingStepError);
-            await expect(manager.setUrl(appId, orgId, "https://x.com")).rejects.toThrow(InvalidOnboardingStepError);
-            await expect(manager.complete(appId)).rejects.toThrow(InvalidOnboardingStepError);
+
+            // Backwards-compatible operations should succeed from completed step.
+            // Each call mutates state, so re-advance to completed between assertions.
+            await expect(manager.setUrl(appId, "https://x.com")).resolves.toBeDefined();
+            // setUrl moved state to github, completeGithub moves to completed
+            await expect(manager.completeGithub(appId, orgId)).resolves.toBeDefined();
+            // complete works from scenario_dry_run or later - moves state to url
+            await expect(manager.complete(appId)).resolves.toBeDefined();
+            // Re-advance: setUrl (url→github), completeGithub (github→completed)
+            await manager.setUrl(appId, "https://x.com");
+            await manager.completeGithub(appId, orgId);
         });
 
-        test("cannot set url from working step", async ({ seedResult: { orgId, manager, createApp } }) => {
+        test("cannot set url from working step", async ({ seedResult: { manager, createApp } }) => {
             const appId = await createApp();
             await manager.startConfigure(appId);
             await manager.markAgentConnected(appId);
-            await expect(manager.setUrl(appId, orgId, "https://example.com")).rejects.toThrow(
-                InvalidOnboardingStepError,
-            );
+            await expect(manager.setUrl(appId, "https://example.com")).rejects.toThrow(InvalidOnboardingStepError);
         });
 
         test("reset from completed returns to install", async ({ seedResult: { orgId, manager, createApp } }) => {
@@ -127,7 +137,8 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await manager.startScenarioDryRun(appId);
             await manager.complete(appId);
-            await manager.setUrl(appId, orgId, "https://example.com");
+            await manager.setUrl(appId, "https://example.com");
+            await manager.completeGithub(appId, orgId);
 
             const afterReset = await manager.reset(appId);
             expect(afterReset.step).toBe("install");
@@ -167,7 +178,8 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await manager.startScenarioDryRun(appId);
             await manager.complete(appId);
-            const final = await manager.setUrl(appId, orgId, "https://example.com");
+            await manager.setUrl(appId, "https://example.com");
+            const final = await manager.completeGithub(appId, orgId);
             expect(final.step).toBe("completed");
         });
 

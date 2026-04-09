@@ -153,7 +153,8 @@ async function main(testGenerationId: string) {
         logger.error("Generation job failed", error);
 
         try {
-            await generationPersister.markFailed();
+            const reason = error instanceof Error ? error.message : "Unknown error";
+            await generationPersister.markFailed(reason);
         } catch (markFailedError) {
             logger.error("Failed to mark generation as failed", markFailedError);
         }

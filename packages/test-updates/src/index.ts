@@ -3,6 +3,7 @@ export type { GenerationProvider, PendingGeneration, GenerationJobOptions } from
 export { FakeGenerationProvider } from "./generation/fake-generation-provider";
 export { LocalGenerationProvider } from "./generation/local-generation-provider";
 export {
+    SnapshotDraft,
     SnapshotNotPendingError,
     BranchAlreadyHasPendingSnapshotError,
     ApplicationNotFoundError,

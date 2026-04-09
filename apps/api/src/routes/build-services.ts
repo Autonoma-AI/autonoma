@@ -97,7 +97,7 @@ export function buildServices({
         testGenerations: new TestGenerationsService(conn, storageProvider, generationProvider, billingService),
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
-        scenarios: new ScenariosService(conn, scenarioManager, encryptionHelper),
+        scenarios: new ScenariosService(conn, scenarioManager),
         skills: new SkillsService(conn),
         github: new GitHubInstallationService(conn, githubApp),
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),

@@ -22,6 +22,8 @@ function getCurrentStep(pathname: string) {
   if (pathname.includes("/working")) return 2;
   if (pathname.includes("/scenario-dry-run")) return 3;
   if (pathname.includes("/url")) return 4;
+  if (pathname.includes("/github")) return 5;
+  if (pathname.includes("/complete")) return 6;
   return 0;
 }
 
@@ -49,8 +51,6 @@ function OnboardingLayout() {
 
   function handleReset() {
     setIsResetting(true);
-    localStorage.removeItem("autonoma.onboarding.apiKey");
-    localStorage.removeItem("autonoma.onboarding.applicationId");
     void navigate({ to: "/onboarding/install" });
     setConfirmReset(false);
     setIsResetting(false);

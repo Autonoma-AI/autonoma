@@ -1,31 +1,17 @@
 import { Badge, Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useStartConfigure } from "lib/onboarding/onboarding-api";
 import { trpcClient } from "lib/trpc";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { CodeBlock } from "./-components/code-block";
 
-const ONBOARDING_API_KEY_STORAGE = "autonoma.onboarding.apiKey";
-const ONBOARDING_APP_KEY = "autonoma.onboarding.applicationId";
-
-export function getOnboardingApiKey() {
-  return localStorage.getItem(ONBOARDING_API_KEY_STORAGE);
-}
-
-export function getOnboardingApplicationId() {
-  return localStorage.getItem(ONBOARDING_APP_KEY);
-}
-
-function setOnboardingApiKey(key: string) {
-  localStorage.setItem(ONBOARDING_API_KEY_STORAGE, key);
-}
-
-function setOnboardingApplicationId(id: string) {
-  localStorage.setItem(ONBOARDING_APP_KEY, id);
-}
+const installSearchSchema = z.object({ appId: z.string().optional() });
 
 export const Route = createFileRoute("/_blacklight/onboarding/install")({
   component: InstallPage,
+  validateSearch: installSearchSchema,
 });
 
 function obfuscateKey(key: string) {
@@ -130,6 +116,8 @@ interface SetupResult {
 }
 
 function useAutoSetup() {
+  const { appId } = Route.useSearch();
+  const navigate = useNavigate();
   const [result, setResult] = useState<SetupResult>();
   const [error, setError] = useState<string>();
   const started = useRef(false);
@@ -139,29 +127,29 @@ function useAutoSetup() {
     started.current = true;
 
     async function setup() {
-      const existingAppId = getOnboardingApplicationId();
-      const existingApiKey = getOnboardingApiKey();
-
-      if (existingAppId != null && existingApiKey != null) {
-        setResult({ apiKey: existingApiKey, applicationId: existingAppId });
+      // If we already have an appId from search params, create a fresh API key for it
+      if (appId != null) {
+        const apiKey = await trpcClient.apiKeys.create.mutate({ name: "Generation Agent" });
+        setResult({ apiKey: apiKey.key, applicationId: appId });
         return;
       }
 
+      // No appId - create a new app + API key, then redirect to self with appId in URL
       const app = await trpcClient.applications.createMinimal.mutate({
         name: `app-${crypto.randomUUID().slice(0, 8)}`,
       });
-      setOnboardingApplicationId(app.id);
 
       const apiKey = await trpcClient.apiKeys.create.mutate({ name: "Generation Agent" });
-      setOnboardingApiKey(apiKey.key);
-
       setResult({ apiKey: apiKey.key, applicationId: app.id });
+
+      // Put appId in the URL so it survives refresh
+      void navigate({ to: "/onboarding/install", search: { appId: app.id }, replace: true });
     }
 
     setup().catch((err: Error) => {
       setError(err.message);
     });
-  }, []);
+  }, [appId, navigate]);
 
   return { result, error };
 }
@@ -169,9 +157,15 @@ function useAutoSetup() {
 function InstallPage() {
   const navigate = useNavigate();
   const { result, error } = useAutoSetup();
+  const startConfigure = useStartConfigure(result?.applicationId ?? "");
 
   function handleContinue() {
-    void navigate({ to: "/onboarding/configure" });
+    if (result == null) return;
+    startConfigure.mutate(undefined, {
+      onSuccess: () => {
+        void navigate({ to: "/onboarding/configure", search: { appId: result.applicationId } });
+      },
+    });
   }
 
   return (
@@ -237,6 +231,7 @@ function InstallPage() {
           variant="accent"
           className="w-full gap-2 font-mono text-sm font-bold uppercase"
           onClick={handleContinue}
+          disabled={result == null}
           aria-label="onboarding-install-continue"
         >
           Continue

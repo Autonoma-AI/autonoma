@@ -2,7 +2,6 @@ import { Badge, Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blac
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { formatDate } from "lib/format";
-import { usePrefetchGenerationDetails } from "lib/query/generations.queries";
 import { trpc } from "lib/trpc";
 import { AppLink } from "../../-app-link";
 import { useCurrentApplication } from "../../-use-current-application";
@@ -17,8 +16,6 @@ export function LastGenerationsTable() {
   );
 
   const recent = generations.slice(0, 5);
-  usePrefetchGenerationDetails(recent.map((g) => g.id));
-
   return (
     <Panel className="flex flex-1 flex-col overflow-hidden">
       <PanelHeader className="flex items-center gap-2">

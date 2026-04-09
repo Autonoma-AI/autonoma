@@ -7,6 +7,22 @@ export interface TriggerDiffsJobParams {
     branchId: string;
 }
 
+export async function cancelDiffsJob(branchId: string): Promise<void> {
+    const k8s = getK8sClient();
+    const workflows = await k8s.queryWorkflows(`branch-id=${branchId}`);
+
+    logger.info("Cancelling diffs workflows for branch", { branchId, count: workflows.length });
+
+    for (const workflow of workflows) {
+        const name = workflow.metadata?.name;
+        if (name != null) {
+            await k8s.deleteWorkflow(name);
+        }
+    }
+
+    logger.info(`Cancelled ${workflows.length} jobs that were running while a new PR was received.`);
+}
+
 export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<void> {
     const { branchId } = params;
 

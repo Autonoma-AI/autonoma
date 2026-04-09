@@ -5,7 +5,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { ensureGenerationsListData, usePrefetchGenerationDetails } from "lib/query/generations.queries";
+import { ensureGenerationsListData } from "lib/query/generations.queries";
 import { trpc } from "lib/trpc";
 import { useState } from "react";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
@@ -33,7 +33,6 @@ function GenerationsTable() {
   const { data: generations } = useSuspenseQuery(
     trpc.generations.list.queryOptions({ applicationId: app.id }, { refetchInterval: 5000 }),
   );
-  usePrefetchGenerationDetails(generations.map((g) => g.id));
 
   function handleRowClick(id: string) {
     void appNavigate({

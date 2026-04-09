@@ -1,4 +1,6 @@
 import { expect } from "vitest";
+import { FakeGenerationProvider } from "../src/generation/fake-generation-provider";
+import { MissingJobProviderError } from "../src/generation/generation-manager";
 import { testUpdateSuite } from "./harness";
 
 testUpdateSuite({
@@ -158,6 +160,129 @@ testUpdateSuite({
             const summary = await manager.getGenerationSummary();
             expect(summary).toHaveLength(1);
             expect(summary[0]?.testCaseId).toBe(testCaseId);
+        });
+
+        // -- queuePendingGenerations() --
+
+        test("queuePendingGenerations: throws when no job provider is configured", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+            const manager = draft.generationManager();
+
+            await expect(manager.queuePendingGenerations()).rejects.toThrow(MissingJobProviderError);
+        });
+
+        test("queuePendingGenerations: returns generationsQueued false when no pending generations", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            const { manager } = await harness.startDraftWithDeployment(organizationId, applicationId, { jobProvider });
+
+            const result = await manager.queuePendingGenerations();
+
+            expect(result.generationsQueued).toBe(false);
+            expect(jobProvider.firedBatches).toHaveLength(0);
+        });
+
+        test("queuePendingGenerations: fires jobs and marks generations as queued", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            const { draft, manager } = await harness.startDraftWithDeployment(organizationId, applicationId, {
+                jobProvider,
+            });
+
+            const { planId: planA } = await draft.addTestCase({
+                name: "Queue A",
+                description: "First",
+                plan: "Plan A",
+            });
+            const { planId: planB } = await draft.addTestCase({
+                name: "Queue B",
+                description: "Second",
+                plan: "Plan B",
+            });
+
+            await manager.addJob(planA);
+            await manager.addJob(planB);
+
+            const result = await manager.queuePendingGenerations();
+
+            expect(result.generationsQueued).toBe(true);
+            expect(jobProvider.firedBatches).toHaveLength(1);
+            // biome-ignore lint/style/noNonNullAssertion: asserted above
+            expect(jobProvider.firedBatches[0]!).toHaveLength(2);
+
+            // Generations should no longer be pending
+            const pending = await manager.getPendingGenerations();
+            expect(pending).toHaveLength(0);
+        });
+
+        test("queuePendingGenerations: marks generations as failed when fireJobs throws", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            jobProvider.fireJobs = async () => {
+                throw new Error("Job provider exploded");
+            };
+            const { draft, manager } = await harness.startDraftWithDeployment(organizationId, applicationId, {
+                jobProvider,
+            });
+
+            const { planId } = await draft.addTestCase({
+                name: "Exploding test",
+                description: "Should fail on fire",
+                plan: "Some plan",
+            });
+
+            await manager.addJob(planId);
+
+            const result = await manager.queuePendingGenerations();
+
+            expect(result.generationsQueued).toBe(false);
+
+            const pending = await manager.getPendingGenerations();
+            expect(pending).toHaveLength(0);
+
+            const summary = await manager.getGenerationSummary();
+            expect(summary).toHaveLength(1);
+            expect(summary[0]?.status).toBe("failed");
+        });
+
+        test("queuePendingGenerations: marks generations as failed when no deployment is configured", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            // startDraft creates a branch without a deployment
+            const draft = await harness.startDraft(organizationId, applicationId);
+            const manager = draft.generationManager({ jobProvider });
+
+            const { planId } = await draft.addTestCase({
+                name: "No deploy test",
+                description: "Should fail validation",
+                plan: "Some plan",
+            });
+
+            await manager.addJob(planId);
+
+            const result = await manager.queuePendingGenerations();
+
+            expect(result.generationsQueued).toBe(false);
+            expect(jobProvider.firedBatches).toHaveLength(0);
+
+            // Generation should be marked as failed, not pending
+            const pending = await manager.getPendingGenerations();
+            expect(pending).toHaveLength(0);
+
+            const summary = await manager.getGenerationSummary();
+            expect(summary).toHaveLength(1);
+            expect(summary[0]?.status).toBe("failed");
         });
 
         test("getGenerationSummary: picks the most recent generation when multiple coexist", async ({

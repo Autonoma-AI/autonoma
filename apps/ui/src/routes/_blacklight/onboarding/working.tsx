@@ -4,17 +4,18 @@ import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { File } from "@phosphor-icons/react/File";
 import { FileArrowUp } from "@phosphor-icons/react/FileArrowUp";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 const SETUP_STEP_NAMES = ["Knowledge Base", "Scenarios", "E2E Tests", "Environment Factory"] as const;
 import { sounds } from "lib/onboarding/sounds";
 import { usePollApplicationSetup } from "lib/query/app-generations.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useRef } from "react";
-import { getOnboardingApplicationId } from "./install";
+import { onboardingSearchSchema } from "./-onboarding-search";
 
 export const Route = createFileRoute("/_blacklight/onboarding/working")({
   component: WorkingPage,
+  validateSearch: onboardingSearchSchema,
 });
 
 interface SetupEvent {
@@ -99,6 +100,7 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
 }
 
 function SetupProgress({ applicationId }: { applicationId: string }) {
+  const navigate = useNavigate();
   const { data: setup } = usePollApplicationSetup(applicationId);
   const consoleRef = useRef<HTMLDivElement>(null);
   const completedFiredRef = useRef(false);
@@ -132,7 +134,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
         type: "success",
       });
       setTimeout(() => {
-        window.location.replace("/onboarding/scenario-dry-run");
+        void navigate({ to: "/onboarding/scenario-dry-run", search: { appId: applicationId } });
       }, 1500);
     }
   }, [isCompleted]);
@@ -226,7 +228,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
 
       {isCompleted && (
         <div className="mt-6 flex items-center gap-3">
-          <span className="animate-pulse font-mono text-sm text-primary-ink">Redirecting to dashboard...</span>
+          <span className="animate-pulse font-mono text-sm text-primary-ink">Continuing to next step...</span>
         </div>
       )}
     </>
@@ -253,15 +255,7 @@ function WorkingPageSkeleton() {
 }
 
 function WorkingPage() {
-  const applicationId = getOnboardingApplicationId();
-
-  if (applicationId == null) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-text-tertiary">No application found. Please start from the beginning.</p>
-      </div>
-    );
-  }
+  const { appId } = Route.useSearch();
 
   return (
     <>
@@ -276,7 +270,7 @@ function WorkingPage() {
       </header>
 
       <Suspense fallback={<WorkingPageSkeleton />}>
-        <SetupProgress applicationId={applicationId} />
+        <SetupProgress applicationId={appId} />
       </Suspense>
     </>
   );

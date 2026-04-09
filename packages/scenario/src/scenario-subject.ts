@@ -2,9 +2,11 @@ import type { PrismaClient } from "@autonoma/db";
 
 export interface ScenarioApplicationData {
     applicationId: string;
+    deploymentId: string;
     organizationId: string;
     webhookUrl: string;
     signingSecretEnc: string;
+    webhookHeaders?: Record<string, string>;
 }
 
 export interface ScenarioSubject {
@@ -36,6 +38,13 @@ export class GenerationSubject implements ScenarioSubject {
         const generation = await this.db.testGeneration.findUniqueOrThrow({
             where: { id: this.generationId },
             select: {
+                snapshot: {
+                    select: {
+                        deployment: {
+                            select: { id: true, webhookUrl: true, webhookHeaders: true },
+                        },
+                    },
+                },
                 testPlan: {
                     select: {
                         testCase: {
@@ -44,7 +53,6 @@ export class GenerationSubject implements ScenarioSubject {
                                     select: {
                                         id: true,
                                         organizationId: true,
-                                        webhookUrl: true,
                                         signingSecretEnc: true,
                                     },
                                 },
@@ -56,15 +64,18 @@ export class GenerationSubject implements ScenarioSubject {
         });
 
         const { application } = generation.testPlan.testCase;
-        if (application.webhookUrl == null || application.signingSecretEnc == null) {
+        const deployment = generation.snapshot.deployment;
+        if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
             throw new Error(`Application ${application.id} does not have a webhook configured`);
         }
 
         return {
             applicationId: application.id,
+            deploymentId: deployment.id,
             organizationId: application.organizationId,
-            webhookUrl: application.webhookUrl,
+            webhookUrl: deployment.webhookUrl,
             signingSecretEnc: application.signingSecretEnc,
+            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
         };
     }
 
@@ -106,13 +117,19 @@ export class RunSubject implements ScenarioSubject {
             select: {
                 assignment: {
                     select: {
+                        snapshot: {
+                            select: {
+                                deployment: {
+                                    select: { id: true, webhookUrl: true, webhookHeaders: true },
+                                },
+                            },
+                        },
                         testCase: {
                             select: {
                                 application: {
                                     select: {
                                         id: true,
                                         organizationId: true,
-                                        webhookUrl: true,
                                         signingSecretEnc: true,
                                     },
                                 },
@@ -124,15 +141,18 @@ export class RunSubject implements ScenarioSubject {
         });
 
         const { application } = run.assignment.testCase;
-        if (application.webhookUrl == null || application.signingSecretEnc == null) {
+        const deployment = run.assignment.snapshot.deployment;
+        if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
             throw new Error(`Application ${application.id} does not have a webhook configured`);
         }
 
         return {
             applicationId: application.id,
+            deploymentId: deployment.id,
             organizationId: application.organizationId,
-            webhookUrl: application.webhookUrl,
+            webhookUrl: deployment.webhookUrl,
             signingSecretEnc: application.signingSecretEnc,
+            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
         };
     }
 

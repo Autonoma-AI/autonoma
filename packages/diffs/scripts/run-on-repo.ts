@@ -12,10 +12,9 @@
  */
 
 import { execSync } from "node:child_process";
-
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 import type { DiffsAgentCallbacks } from "../src/callbacks";
-import type { DiffsAgentInput, TestRunResult } from "../src/diffs-agent";
+import type { DiffsAgentInput } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
 import { TestDirectory } from "../src/test-directory";
 
@@ -62,7 +61,7 @@ function git(cwd: string, command: string): string {
 
 function createLoggingCallbacks(): DiffsAgentCallbacks & { calls: Record<string, unknown[]> } {
     const calls: Record<string, unknown[]> = {
-        triggerTestAndWait: [],
+        triggerTestsAndWait: [],
         quarantineTest: [],
         modifyTest: [],
         updateSkill: [],
@@ -71,15 +70,14 @@ function createLoggingCallbacks(): DiffsAgentCallbacks & { calls: Record<string,
 
     return {
         calls,
-        triggerTestAndWait: async (slug) => {
-            calls.triggerTestAndWait.push(slug);
-            console.log(`  [RUN TEST] ${slug}`);
-            // Simulate a failed test - the agent should read the diff to understand why
-            const result: TestRunResult = {
+        triggerTestsAndWait: async (slugs) => {
+            calls.triggerTestsAndWait.push(...slugs);
+            console.log(`  [RUN TESTS] ${slugs.join(", ")}`);
+            return slugs.map((slug) => ({
                 slug,
                 testName: slug,
                 success: false,
-                finishReason: "success",
+                finishReason: "success" as const,
                 reasoning:
                     "Test failed because the UI element or navigation path described in the test instructions " +
                     "could not be found. The page structure appears to have changed.",
@@ -89,8 +87,7 @@ function createLoggingCallbacks(): DiffsAgentCallbacks & { calls: Record<string,
                     "Test failed due to UI changes",
                 ],
                 screenshotUrls: [],
-            };
-            return result;
+            }));
         },
         quarantineTest: async (slug) => {
             calls.quarantineTest.push(slug);
@@ -221,7 +218,7 @@ async function main() {
 
     // Summary
     console.log("--- Summary ---");
-    console.log(`  Tests run: ${callbacks.calls.triggerTestAndWait.length}`);
+    console.log(`  Tests run: ${callbacks.calls.triggerTestsAndWait.length}`);
     console.log(`  Tests quarantined: ${result.testActions.filter((a) => a.type === "quarantine").length}`);
     console.log(`  Tests modified: ${result.testActions.filter((a) => a.type === "modify").length}`);
     console.log(`  Bugs found: ${result.bugReports.length}`);

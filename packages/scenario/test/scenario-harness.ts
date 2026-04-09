@@ -142,7 +142,10 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return org.id;
     }
 
-    async createApp(organizationId: string, opts?: { webhookUrl?: string; signingSecret?: string }): Promise<string> {
+    async createApp(
+        organizationId: string,
+        opts?: { webhookUrl?: string; signingSecret?: string },
+    ): Promise<{ appId: string; deploymentId: string }> {
         const signingSecretEnc = opts?.signingSecret != null ? this.encryption.encrypt(opts.signingSecret) : undefined;
 
         const date = Date.now();
@@ -152,11 +155,34 @@ export class ScenarioTestHarness implements IntegrationHarness {
                 slug: `app-${date}`,
                 organizationId,
                 architecture: "WEB",
-                webhookUrl: opts?.webhookUrl,
                 signingSecretEnc,
             },
         });
-        return app.id;
+
+        const branch = await this.db.branch.create({
+            data: { name: "main", applicationId: app.id, organizationId },
+        });
+
+        const deployment = await this.db.branchDeployment.create({
+            data: {
+                branchId: branch.id,
+                organizationId,
+                webhookUrl: opts?.webhookUrl,
+                active: true,
+            },
+        });
+
+        await this.db.branch.update({
+            where: { id: branch.id },
+            data: { deploymentId: deployment.id },
+        });
+
+        await this.db.application.update({
+            where: { id: app.id },
+            data: { mainBranchId: branch.id },
+        });
+
+        return { appId: app.id, deploymentId: deployment.id };
     }
 
     async createScenario(organizationId: string, applicationId: string, name: string): Promise<string> {
@@ -166,12 +192,20 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return scenario.id;
     }
 
-    async createGeneration(organizationId: string, applicationId: string, scenarioId?: string): Promise<string> {
-        const branch = await this.db.branch.create({
-            data: { name: randomBytes(8).toString("hex"), applicationId, organizationId },
+    async createGeneration(
+        organizationId: string,
+        applicationId: string,
+        deploymentId: string,
+        scenarioId?: string,
+    ): Promise<string> {
+        const app = await this.db.application.findUniqueOrThrow({
+            where: { id: applicationId },
+            select: { mainBranchId: true },
         });
+
+        const branchId = app.mainBranchId!;
         const snapshot = await this.db.branchSnapshot.create({
-            data: { branchId: branch.id, source: "MANUAL", status: SnapshotStatus.processing },
+            data: { branchId, source: "MANUAL", status: SnapshotStatus.processing, deploymentId },
         });
         const testCase = await this.db.testCase.create({
             data: {

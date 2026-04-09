@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
 import { auth, createContext, storageProvider } from "./context";
+import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
@@ -78,6 +79,10 @@ export function createApiApp() {
     // ─── Application Setup (Claude plugin API) ────────────────────────
 
     app.route("/v1/setup", applicationSetupHttpRouter);
+
+    // ─── Diffs ─────────────────────────────────────────────────────
+
+    app.route("/v1/diffs", diffsHttpRouter);
 
     // ─── GitHub ───────────────────────────────────────────────────────
 

@@ -45,7 +45,7 @@ export interface ScenarioDryRunResult {
  * Base class for the onboarding state machine (State pattern).
  *
  * Each step in the onboarding flow (install -> configure -> working ->
- * scenario_dry_run -> url -> completed) is represented by a concrete subclass that
+ * scenario_dry_run -> url -> github -> completed) is represented by a concrete subclass that
  * overrides only the transitions valid for that step. All other transitions
  * throw {@link InvalidOnboardingStepError}.
  *
@@ -80,7 +80,12 @@ export abstract class OnboardingState {
     }
 
     /** Save webhook config and trigger scenario discovery. Only valid during `scenario_dry_run`. */
-    configureAndDiscoverScenarios(_organizationId: string, _webhookUrl: string, _signingSecret: string): Promise<void> {
+    configureAndDiscoverScenarios(
+        _organizationId: string,
+        _webhookUrl: string,
+        _signingSecret: string,
+        _webhookHeaders?: Record<string, string>,
+    ): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "configure scenarios");
     }
 
@@ -94,9 +99,14 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "complete onboarding");
     }
 
-    /** Transition from `url` to `completed`, storing the production URL. */
+    /** Transition from `url` to `github`, storing the production URL. */
     setUrl(_productionUrl: string): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "set url");
+    }
+
+    /** Transition from `github` to `completed`. */
+    completeGithub(): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "complete github");
     }
 
     /** Reset onboarding back to `install`, clearing all progress. Available from any step. */

@@ -135,11 +135,17 @@ export class GenerationPersister<TSpec extends CommandSpec> {
 
     /**
      * Marks the generation as failed.
+     *
+     * @param reason - Optional human-readable reason for the failure, stored in
+     *   the `reasoning` field and displayed in the UI.
      */
-    public async markFailed() {
+    public async markFailed(reason?: string) {
         await this.db.testGeneration.update({
             where: { id: this.id },
-            data: { status: "failed" },
+            data: {
+                status: "failed",
+                ...(reason != null ? { reasoning: reason } : {}),
+            },
         });
     }
 

@@ -18,6 +18,8 @@ export const env = createEnv({
         POSTHOG_KEY: z.string().optional(),
         POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),
         GEMINI_API_KEY: z.string().min(1),
+        GROQ_KEY: z.string().min(1).optional(),
+        OPENROUTER_API_KEY: z.string().min(1).optional(),
         REDIS_URL: z.string().min(1),
 
         LOCAL_GENERATION: z.stringbool().default(false),

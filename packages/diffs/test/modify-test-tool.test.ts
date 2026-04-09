@@ -6,7 +6,7 @@ import { executeTool } from "./execute-tool";
 
 function createMockCallbacks(): DiffsAgentCallbacks {
     return {
-        triggerTestAndWait: vi.fn(),
+        triggerTestsAndWait: vi.fn(),
         quarantineTest: vi.fn(),
         modifyTest: vi.fn().mockResolvedValue(undefined),
         updateSkill: vi.fn(),

@@ -6,12 +6,7 @@ import type { GenerationJobOptions, GenerationProvider } from "./generation/gene
 import type { GenerationManager } from "./generation/generation-manager";
 import { SnapshotDraft } from "./snapshot-draft";
 
-export class MissingJobProviderError extends Error {
-    constructor() {
-        super("Cannot queue generations without a job provider");
-        this.name = "MissingJobProviderError";
-    }
-}
+export { MissingJobProviderError } from "./generation/generation-manager";
 
 export class IncompleteGenerationsError extends Error {
     constructor(snapshotId: string) {
@@ -24,7 +19,6 @@ interface TestSuiteUpdaterParams {
     snapshotDraft: SnapshotDraft;
     generationManager: GenerationManager;
     commitDiffHandler?: CommitDiffHandler;
-    jobProvider?: GenerationProvider;
 }
 
 interface StartUpdateArgs {
@@ -58,7 +52,6 @@ export class TestSuiteUpdater {
     private readonly snapshotDraft: SnapshotDraft;
     private readonly generationManager: GenerationManager;
     private readonly commitDiffHandler?: CommitDiffHandler;
-    private readonly jobProvider?: GenerationProvider;
 
     public get snapshotId() {
         return this.snapshotDraft.snapshotId;
@@ -68,12 +61,11 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.branchId;
     }
 
-    private constructor({ snapshotDraft, generationManager, commitDiffHandler, jobProvider }: TestSuiteUpdaterParams) {
+    private constructor({ snapshotDraft, generationManager, commitDiffHandler }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;
         this.generationManager = generationManager;
         this.commitDiffHandler = commitDiffHandler;
-        this.jobProvider = jobProvider;
     }
 
     public get headSha(): string | undefined {
@@ -101,13 +93,12 @@ export class TestSuiteUpdater {
         baseSha,
     }: StartUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.start({ db, branchId, organizationId, source, headSha, baseSha });
-        const generationManager = snapshotDraft.generationManager();
+        const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
             generationManager,
             commitDiffHandler,
-            jobProvider,
         });
     }
 
@@ -125,13 +116,12 @@ export class TestSuiteUpdater {
         organizationId,
     }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
-        const generationManager = snapshotDraft.generationManager();
+        const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
             generationManager,
             commitDiffHandler,
-            jobProvider,
         });
     }
 
@@ -150,43 +140,20 @@ export class TestSuiteUpdater {
     /**
      * Fires generation jobs for all pending generations and marks them as queued.
      *
-     * Queries pending generations from the generation manager, fires a job for
-     * each one via the job provider, then updates their status to "queued".
+     * Delegates to the generation manager for validation, job firing, and status updates.
+     * When `autoActivate` is set and no generations were queued (either none pending
+     * or deployment validation failed), automatically finalizes the snapshot.
      *
      * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
      */
     public async queuePendingGenerations(options?: GenerationJobOptions) {
-        if (this.jobProvider == null) throw new MissingJobProviderError();
+        this.logger.info("Queueing pending generations", { autoActivate: options?.autoActivate });
 
-        const pending = await this.generationManager.getPendingGenerations();
+        const { generationsQueued } = await this.generationManager.queuePendingGenerations(options);
 
-        if (pending.length === 0) {
-            this.logger.info("No pending generations to queue");
+        this.logger.info("Pending generations queued", { generationsQueued });
 
-            if (options?.autoActivate) await this.finalize();
-
-            return;
-        }
-
-        this.logger.info("Queueing pending generations", {
-            count: pending.length,
-            autoActivate: options?.autoActivate,
-        });
-
-        try {
-            await this.jobProvider.fireJobs(pending, options);
-        } catch (error) {
-            this.logger.fatal("Failed to queue pending generations", error, {
-                count: pending.length,
-                generationIds: pending.map((g) => g.testGenerationId),
-                autoActivate: options?.autoActivate,
-            });
-            throw error;
-        }
-
-        await this.generationManager.markAsQueued(pending.map((g) => g.testGenerationId));
-
-        this.logger.info("Pending generations queued", { count: pending.length });
+        if (!generationsQueued && options?.autoActivate) await this.finalize();
     }
 
     /**

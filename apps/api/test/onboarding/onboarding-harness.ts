@@ -1,27 +1,23 @@
-import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { type PrismaClient, createClient } from "@autonoma/db";
 import type { IntegrationHarness } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-
-const POSTGRES_IMAGE = "postgres:17-alpine";
 
 export class OnboardingTestHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pgContainer: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<OnboardingTestHarness> {
-        const pgContainer = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pgContainer.getConnectionUri());
-        const db = createClient(pgContainer.getConnectionUri());
-        return new OnboardingTestHarness(db, pgContainer);
+        const dbUrl = process.env.TEST_DATABASE_URL;
+        if (dbUrl == null) {
+            throw new Error(
+                "TEST_DATABASE_URL must be set. Run via vitest.integration.config.ts which uses globalSetup to start containers.",
+            );
+        }
+        const db = createClient(dbUrl);
+        return new OnboardingTestHarness(db);
     }
 
     async beforeAll() {}
 
-    async afterAll() {
-        await this.pgContainer.stop();
-    }
+    async afterAll() {}
 
     async beforeEach() {}
 
@@ -45,6 +41,39 @@ export class OnboardingTestHarness implements IntegrationHarness {
                 architecture: "WEB",
             },
         });
+
+        const branch = await this.db.branch.create({
+            data: {
+                name: "main",
+                applicationId: app.id,
+                organizationId,
+            },
+        });
+
+        const deployment = await this.db.branchDeployment.create({
+            data: {
+                branchId: branch.id,
+                organizationId,
+                webDeployment: {
+                    create: {
+                        url: "https://placeholder.example.com",
+                        file: "",
+                        organizationId,
+                    },
+                },
+            },
+        });
+
+        await this.db.branch.update({
+            where: { id: branch.id },
+            data: { deploymentId: deployment.id },
+        });
+
+        await this.db.application.update({
+            where: { id: app.id },
+            data: { mainBranchId: branch.id },
+        });
+
         return app.id;
     }
 }

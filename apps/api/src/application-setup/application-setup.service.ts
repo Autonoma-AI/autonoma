@@ -38,7 +38,7 @@ export class ApplicationSetupService {
                 });
             }
 
-            return await tx.applicationSetup.create({
+            return tx.applicationSetup.create({
                 data: {
                     applicationId,
                     organizationId,

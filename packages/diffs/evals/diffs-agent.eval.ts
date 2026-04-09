@@ -50,8 +50,8 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run both tests
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-add-todo");
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-delete-todo");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-add-todo");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-delete-todo");
 
                 // Add-todo test failed because button was renamed - should be modified, not quarantined
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");
@@ -99,7 +99,7 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should run the signup test (it fails due to validation bug)
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-signup");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-signup");
 
                 // Signup test failed due to a bug in the email validation regex - should report bug
                 const signupBug = result.bugReports.find((b) => b.slug === "test-signup");
@@ -146,7 +146,7 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests (at minimum the ones affected by changes)
-                const ranTests = callbacks.calls.triggerTestAndWait as string[];
+                const ranTests = callbacks.calls.triggerTestsAndWait as string[];
                 expect(ranTests.length).toBeGreaterThanOrEqual(3);
 
                 // Phone validation bug: the phone regex requires country code prefix,
@@ -218,8 +218,8 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-browse-images");
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-price-display");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-browse-images");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-price-display");
 
                 // Browse-images test failed because carousel was replaced with grid - should be modified
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");
@@ -268,9 +268,9 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-move-right");
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-move-left");
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-move-journey");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-move-right");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-move-left");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-move-journey");
 
                 // Move tests failed because buttons replaced with drag-and-drop - should be modified
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");
@@ -385,7 +385,7 @@ describe("diffs agent evals", () => {
                 expect(quarantineActions).toHaveLength(0);
 
                 // Sort ascending test exposed the inverted icon bug - should report bug
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-sort-ascending");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-sort-ascending");
                 const sortBug = result.bugReports.find((b) => b.slug === "test-sort-ascending");
                 expect(sortBug).toBeDefined();
                 expect(sortBug?.fixPrompt).toBeTruthy();
@@ -438,7 +438,7 @@ describe("diffs agent evals", () => {
                 expect(hasPaymentModify).toBe(true);
 
                 // Coupon-100 test exposed division-by-zero bug - should report bug
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-coupon-100");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-coupon-100");
                 const couponBug = result.bugReports.find((b) => b.slug === "test-coupon-100");
                 expect(couponBug).toBeDefined();
                 expect(couponBug?.fixPrompt).toBeTruthy();
@@ -483,8 +483,8 @@ describe("diffs agent evals", () => {
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run both tests
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-update-profile");
-                expect(callbacks.calls.triggerTestAndWait).toContain("test-toggle-notifications");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-update-profile");
+                expect(callbacks.calls.triggerTestsAndWait).toContain("test-toggle-notifications");
 
                 // Both tests failed because the UI changed - should be modified, NOT flagged as bugs
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");

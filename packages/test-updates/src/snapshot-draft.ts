@@ -2,10 +2,8 @@ import crypto from "node:crypto";
 import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
-import type { AddSkillParams } from "./changes/add-skill";
-import type { AddTestParams } from "./changes/add-test";
-import type { UpdateSkillParams } from "./changes/update-skill";
-import type { UpdateTestParams } from "./changes/update-test";
+import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams } from "./changes";
+import type { GenerationProvider } from "./generation/generation-job-provider";
 import { GenerationManager } from "./generation/generation-manager";
 
 export class SnapshotNotPendingError extends Error {
@@ -843,11 +841,12 @@ export class SnapshotDraft {
         this.logger.info("Pending snapshot discarded");
     }
 
-    public generationManager() {
+    public generationManager(options?: { jobProvider?: GenerationProvider }) {
         return new GenerationManager({
             db: this.db,
             snapshotId: this.snapshotId,
             organizationId: this.organizationId,
+            jobProvider: options?.jobProvider,
         });
     }
 }

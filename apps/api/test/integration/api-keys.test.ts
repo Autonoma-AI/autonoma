@@ -51,10 +51,10 @@ apiTestSuite({
         test("keys from another org are not visible", async ({ harness }) => {
             // Create a second org, user, and member
             const otherOrg = await harness.db.organization.create({
-                data: { name: "Other Org", slug: "other-org" },
+                data: { name: "Other Org", slug: `other-org-${crypto.randomUUID()}` },
             });
             const otherUser = await harness.db.user.create({
-                data: { name: "Other User", email: "other@example.com", emailVerified: true },
+                data: { name: "Other User", email: `other-${crypto.randomUUID()}@example.com`, emailVerified: true },
             });
             await harness.db.member.create({
                 data: { userId: otherUser.id, organizationId: otherOrg.id, role: "owner" },
@@ -78,10 +78,14 @@ apiTestSuite({
 
         test("delete key from another org throws error", async ({ harness }) => {
             const otherOrg = await harness.db.organization.create({
-                data: { name: "Isolated Org", slug: "isolated-org" },
+                data: { name: "Isolated Org", slug: `isolated-org-${crypto.randomUUID()}` },
             });
             const otherUser = await harness.db.user.create({
-                data: { name: "Isolated User", email: "isolated@example.com", emailVerified: true },
+                data: {
+                    name: "Isolated User",
+                    email: `isolated-${crypto.randomUUID()}@example.com`,
+                    emailVerified: true,
+                },
             });
             await harness.db.member.create({
                 data: { userId: otherUser.id, organizationId: otherOrg.id, role: "owner" },

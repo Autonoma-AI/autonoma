@@ -14,9 +14,9 @@ export class EncryptionHelper {
     constructor(masterKeyHex: string) {
         const key = Buffer.from(masterKeyHex, "hex");
         if (key.length < 32) {
-            throw new Error("SCENARIO_ENCRYPTION_KEY must be 64 hex characters (32 bytes)");
+            throw new Error("SCENARIO_ENCRYPTION_KEY must be at least 64 hex characters (32 bytes)");
         }
-        this.key = toUint8Array(key);
+        this.key = toUint8Array(key.subarray(0, 32));
     }
 
     encrypt(plaintext: string): string {

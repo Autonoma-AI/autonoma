@@ -2,7 +2,6 @@ import { type QueryClient, useQueryClient, useSuspenseQuery } from "@tanstack/re
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
-import { useEffect } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
 export function useGenerations() {
@@ -21,7 +20,7 @@ export function useGenerationDetail(generationId: string) {
         refetchInterval: (query) => {
             const data = query.state.data;
             if (data == null) return false;
-            const isActive = data.status === "pending" || data.status === "running";
+            const isActive = data.status === "queued" || data.status === "pending" || data.status === "running";
             const isReviewPending = data.review?.status === "pending";
             return isActive || isReviewPending ? 5000 : false;
         },
@@ -66,16 +65,4 @@ export function useDeleteGeneration() {
         successToast: { title: "Generation deleted" },
         errorToast: { title: "Failed to delete generation" },
     });
-}
-
-/**
- * Prefetches generation detail for all visible generation IDs after mount.
- */
-export function usePrefetchGenerationDetails(generationIds: string[]) {
-    const queryClient = useQueryClient();
-    useEffect(() => {
-        for (const id of generationIds) {
-            void queryClient.prefetchQuery(trpc.generations.detail.queryOptions({ generationId: id }));
-        }
-    }, [queryClient, generationIds]);
 }

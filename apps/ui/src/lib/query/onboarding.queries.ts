@@ -23,25 +23,21 @@ export function useResetOnboarding() {
     });
 }
 
-function getOnboardingAppId() {
-    return localStorage.getItem("autonoma.onboarding.applicationId") ?? "";
-}
-
-export function useStartConfigure() {
+export function useStartConfigure(applicationId: string) {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: () => trpcClient.onboarding.startConfigure.mutate({ applicationId: getOnboardingAppId() }),
+        mutationFn: () => trpcClient.onboarding.startConfigure.mutate({ applicationId }),
         onSettled: () => {
             void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
         },
     });
 }
 
-export function useSetUrl() {
+export function useSetUrl(applicationId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (input: { productionUrl: string }) =>
-            trpcClient.onboarding.setUrl.mutate({ ...input, applicationId: getOnboardingAppId() }),
+            trpcClient.onboarding.setUrl.mutate({ ...input, applicationId }),
         onSettled: () => {
             void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
         },
@@ -81,5 +77,15 @@ export function useCompleteOnboarding() {
             },
         }),
         errorToast: { title: "Failed to complete onboarding" },
+    });
+}
+
+export function useCompleteGithub(applicationId: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => trpcClient.onboarding.completeGithub.mutate({ applicationId }),
+        onSettled: () => {
+            void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+        },
     });
 }

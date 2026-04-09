@@ -15,19 +15,24 @@ export const scenariosRouter = router({
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.configureWebhook(
                 input.applicationId,
+                input.deploymentId,
                 ctx.organizationId,
                 input.webhookUrl,
-                input.signingSecret,
+                input.webhookHeaders,
             ),
         ),
 
     removeWebhook: protectedProcedure
         .input(RemoveWebhookInputSchema)
-        .mutation(({ ctx, input }) => ctx.services.scenarios.removeWebhook(input.applicationId, ctx.organizationId)),
+        .mutation(({ ctx, input }) =>
+            ctx.services.scenarios.removeWebhook(input.applicationId, input.deploymentId, ctx.organizationId),
+        ),
 
     discover: protectedProcedure
         .input(DiscoverInputSchema)
-        .mutation(({ ctx, input }) => ctx.services.scenarios.discover(input.applicationId, ctx.organizationId)),
+        .mutation(({ ctx, input }) =>
+            ctx.services.scenarios.discover(input.applicationId, input.deploymentId, ctx.organizationId),
+        ),
 
     list: protectedProcedure
         .input(ListScenariosInputSchema)

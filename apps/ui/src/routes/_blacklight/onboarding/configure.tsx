@@ -6,14 +6,16 @@ import { usePollApplicationSetup } from "lib/query/app-generations.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useRef } from "react";
 import { CodeBlock } from "./-components/code-block";
-import { getOnboardingApplicationId } from "./install";
+import { onboardingSearchSchema } from "./-onboarding-search";
 
 export const Route = createFileRoute("/_blacklight/onboarding/configure")({
   component: ConfigurePage,
+  validateSearch: onboardingSearchSchema,
 });
 
 function WaitingForAgent({ applicationId }: { applicationId: string }) {
   const navigate = useNavigate();
+  const { appId } = Route.useSearch();
   const { data: setup } = usePollApplicationSetup(applicationId);
   const navigatedRef = useRef(false);
 
@@ -23,10 +25,10 @@ function WaitingForAgent({ applicationId }: { applicationId: string }) {
       sounds.agentConnected();
       toastManager.add({ title: "Agent connected", type: "success", timeout: 3000 });
       setTimeout(() => {
-        void navigate({ to: "/onboarding/working" });
+        void navigate({ to: "/onboarding/working", search: { appId } });
       }, 350);
     }
-  }, [setup, navigate]);
+  }, [setup, navigate, appId]);
 
   return (
     <div className="space-y-10">
@@ -106,16 +108,7 @@ function ConfigurePageSkeleton() {
 }
 
 function ConfigurePage() {
-  const applicationId = getOnboardingApplicationId();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (applicationId == null) {
-      void navigate({ to: "/onboarding/install" });
-    }
-  }, [applicationId, navigate]);
-
-  if (applicationId == null) return null;
+  const { appId } = Route.useSearch();
 
   return (
     <>
@@ -128,7 +121,7 @@ function ConfigurePage() {
 
       <div className="ml-4 max-w-2xl">
         <Suspense fallback={<ConfigurePageSkeleton />}>
-          <WaitingForAgent applicationId={applicationId} />
+          <WaitingForAgent applicationId={appId} />
         </Suspense>
       </div>
     </>

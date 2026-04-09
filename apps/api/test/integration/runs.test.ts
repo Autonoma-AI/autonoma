@@ -276,11 +276,11 @@ apiTestSuite({
             });
 
             const otherOrg = await harness.db.organization.create({
-                data: { name: "Other Org", slug: "other-org" },
+                data: { name: "Other Org", slug: `other-org-${crypto.randomUUID()}` },
             });
             const otherSession = await harness.db.session.create({
                 data: {
-                    token: "other-session-token",
+                    token: `other-session-${crypto.randomUUID()}`,
                     expiresAt: new Date(Date.now() + 86400000),
                     userId: harness.userId,
                     activeOrganizationId: otherOrg.id,
@@ -296,11 +296,11 @@ apiTestSuite({
             seedResult: { testCase },
         }) => {
             const otherOrg = await harness.db.organization.create({
-                data: { name: "Other Org 2", slug: "other-org-2" },
+                data: { name: "Other Org 2", slug: `other-org-2-${crypto.randomUUID()}` },
             });
             const otherSession = await harness.db.session.create({
                 data: {
-                    token: "other-session-token-2",
+                    token: `other-session-2-${crypto.randomUUID()}`,
                     expiresAt: new Date(Date.now() + 86400000),
                     userId: harness.userId,
                     activeOrganizationId: otherOrg.id,

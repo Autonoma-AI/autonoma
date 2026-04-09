@@ -12,4 +12,5 @@ export {
     useOnboardingScenarios,
     useRunScenarioDryRun,
     useCompleteOnboarding,
+    useCompleteGithub,
 } from "lib/query/onboarding.queries";

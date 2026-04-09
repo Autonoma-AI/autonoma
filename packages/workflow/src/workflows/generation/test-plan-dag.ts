@@ -1,9 +1,10 @@
-import { type ArgoDagData, DagBuilder, argoTemplates } from "../../k8s/argo";
+import { DagBuilder } from "../../k8s/argo";
 import type { ArgoTemplateData } from "../../k8s/argo/templates/template";
 import { generationReviewerTemplate } from "../generation-reviewer/generation-reviewer-template";
 import { scenarioDownTemplate } from "../scenario/scenario-down.template";
 import { scenarioUpTemplate } from "../scenario/scenario-up.template";
 import { billingNotifyTemplate } from "./billing-notify.template";
+import { markGenerationFailedTemplate } from "./mark-generation-failed.template";
 import { executionAgentMobileTemplate } from "./mobile/execution-agent-mobile";
 import { executionAgentWebTemplate } from "./web/execution-agent-web";
 
@@ -28,11 +29,12 @@ export async function resolveExecutionTemplate(architecture: WorkflowArchitectur
 export async function buildGenerationDag(executionTemplate: ExecutionTemplate) {
     const dag = new DagBuilder("test-generation-workflow", GENERATION_DAG_INPUTS);
 
-    const [upTemplate, downTemplate, notifyTemplate, reviewTemplate] = await Promise.all([
+    const [upTemplate, downTemplate, notifyTemplate, reviewTemplate, markFailedTpl] = await Promise.all([
         scenarioUpTemplate(),
         scenarioDownTemplate(),
         billingNotifyTemplate(),
         generationReviewerTemplate(),
+        markGenerationFailedTemplate(),
     ]);
 
     const runExecution = dag.addTemplate(executionTemplate);
@@ -40,6 +42,7 @@ export async function buildGenerationDag(executionTemplate: ExecutionTemplate) {
     const scenarioDown = dag.addTemplate(downTemplate);
     const notifyGenerationExit = dag.addTemplate(notifyTemplate);
     const reviewGeneration = dag.addTemplate(reviewTemplate);
+    const markFailed = dag.addTemplate(markFailedTpl);
 
     const scenarioUpTask = dag.addTask({
         name: "scenario-up",
@@ -83,28 +86,21 @@ export async function buildGenerationDag(executionTemplate: ExecutionTemplate) {
         depends: runGeneration.completed,
     });
 
+    // Failure path: when scenario-up fails, mark the generation as failed
+    // so it doesn't stay stuck in "queued" forever.
+    const markGenerationFailed = dag.addTask({
+        name: "mark-generation-failed",
+        template: markFailed,
+        args: { testGenerationId: dag.input("testGenerationId") },
+        depends: scenarioUpTask.failed,
+    });
+
+    dag.addTask({
+        name: "notify-generation-exit-on-failure",
+        template: notifyGenerationExit,
+        args: { testGenerationId: dag.input("testGenerationId") },
+        depends: markGenerationFailed.completed,
+    });
+
     return dag.build();
-}
-
-export async function testPlanDags(
-    testPlans: TestPlanItem[],
-    architecture: WorkflowArchitecture,
-): Promise<ArgoDagData> {
-    const executionTemplate = await resolveExecutionTemplate(architecture);
-
-    const mainDag = new DagBuilder("main", {});
-    const generateTest = mainDag.addTemplate(argoTemplates.dag(await buildGenerationDag(executionTemplate)));
-
-    for (const [i, testPlan] of testPlans.entries()) {
-        mainDag.addTask({
-            name: `test-plan-${i}`,
-            template: generateTest,
-            args: {
-                testGenerationId: testPlan.testGenerationId,
-                scenarioId: testPlan.scenarioId ?? "",
-            },
-        });
-    }
-
-    return mainDag.build();
 }

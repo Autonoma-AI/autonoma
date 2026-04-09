@@ -2,8 +2,8 @@ import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
-
 import type { GenerationProvider } from "../src/generation/generation-job-provider";
+import type { GenerationManager } from "../src/generation/generation-manager";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
 
@@ -129,7 +129,45 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return SnapshotDraft.start({ db: this.db, branchId });
     }
 
-    /** Creates a fresh branch and starts a TestSuiteUpdater on it. */
+    /** Creates a fresh branch with a deployment and active snapshot, then starts a SnapshotDraft and GenerationManager on it. */
+    async startDraftWithDeployment(
+        organizationId: string,
+        applicationId: string,
+        options?: { jobProvider?: GenerationProvider },
+    ): Promise<{ draft: SnapshotDraft; manager: GenerationManager }> {
+        const branchId = await this.createBranch(organizationId, applicationId);
+
+        const deployment = await this.db.branchDeployment.create({
+            data: {
+                branchId,
+                organizationId,
+                webDeployment: {
+                    create: { url: "https://test.example.com", file: "", organizationId },
+                },
+            },
+        });
+
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId,
+                source: "MANUAL",
+                status: "active",
+                deploymentId: deployment.id,
+            },
+        });
+
+        await this.db.branch.update({
+            where: { id: branchId },
+            data: { activeSnapshotId: snapshot.id, deploymentId: deployment.id },
+        });
+
+        const draft = await SnapshotDraft.start({ db: this.db, branchId });
+        const manager = draft.generationManager({ jobProvider: options?.jobProvider });
+
+        return { draft, manager };
+    }
+
+    /** Creates a fresh branch with a deployment and active snapshot, then starts a TestSuiteUpdater on it. */
     async startUpdater(
         organizationId: string,
         applicationId: string,
@@ -138,6 +176,31 @@ export class TestUpdatesHarness implements IntegrationHarness {
         },
     ): Promise<TestSuiteUpdater> {
         const branchId = await this.createBranch(organizationId, applicationId);
+
+        const deployment = await this.db.branchDeployment.create({
+            data: {
+                branchId,
+                organizationId,
+                webDeployment: {
+                    create: { url: "https://test.example.com", file: "", organizationId },
+                },
+            },
+        });
+
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId,
+                source: "MANUAL",
+                status: "active",
+                deploymentId: deployment.id,
+            },
+        });
+
+        await this.db.branch.update({
+            where: { id: branchId },
+            data: { activeSnapshotId: snapshot.id, deploymentId: deployment.id },
+        });
+
         return TestSuiteUpdater.startUpdate({
             db: this.db,
             branchId,

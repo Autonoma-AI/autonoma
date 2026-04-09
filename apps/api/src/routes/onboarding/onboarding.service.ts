@@ -26,8 +26,12 @@ export class OnboardingService extends Service {
         return this.manager.startScenarioDryRun(applicationId);
     }
 
-    async setUrl(applicationId: string, organizationId: string, productionUrl: string) {
-        return this.manager.setUrl(applicationId, organizationId, productionUrl);
+    async setUrl(applicationId: string, productionUrl: string) {
+        return this.manager.setUrl(applicationId, productionUrl);
+    }
+
+    async completeGithub(applicationId: string, organizationId: string) {
+        return this.manager.completeGithub(applicationId, organizationId);
     }
 
     async configureAndDiscoverScenarios(
@@ -35,8 +39,15 @@ export class OnboardingService extends Service {
         organizationId: string,
         webhookUrl: string,
         signingSecret: string,
+        webhookHeaders?: Record<string, string>,
     ) {
-        return this.manager.configureAndDiscoverScenarios(applicationId, organizationId, webhookUrl, signingSecret);
+        return this.manager.configureAndDiscoverScenarios(
+            applicationId,
+            organizationId,
+            webhookUrl,
+            signingSecret,
+            webhookHeaders,
+        );
     }
 
     async runScenarioDryRun(applicationId: string, scenarioId: string) {

@@ -31,12 +31,14 @@ import {
 } from "@autonoma/blacklight";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { FingerprintIcon } from "@phosphor-icons/react/Fingerprint";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WebhooksLogoIcon } from "@phosphor-icons/react/WebhooksLogo";
@@ -129,17 +131,19 @@ function ConfigureWebhookDialog({
   open,
   onOpenChange,
   applicationId,
+  deploymentId,
   initialUrl,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   applicationId: string;
+  deploymentId?: string;
   initialUrl?: string;
 }) {
   const queryClient = useQueryClient();
   const [webhookUrl, setWebhookUrl] = useState(initialUrl ?? "");
-  const [signingSecret, setSigningSecret] = useState("");
-
+  const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const configureWebhook = useAPIMutation({
     ...trpc.scenarios.configureWebhook.mutationOptions({
       onSettled: () => {
@@ -161,12 +165,19 @@ function ConfigureWebhookDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (deploymentId == null) return;
+
+    const headersRecord: Record<string, string> = {};
+    for (const h of customHeaders) {
+      if (h.key.length > 0) headersRecord[h.key] = h.value;
+    }
+    const webhookHeaders = Object.keys(headersRecord).length > 0 ? headersRecord : undefined;
+
     configureWebhook.mutate(
-      { applicationId, webhookUrl, signingSecret },
+      { applicationId, deploymentId, webhookUrl, webhookHeaders },
       {
         onSuccess: () => {
           onOpenChange(false);
-          setSigningSecret("");
         },
       },
     );
@@ -178,7 +189,7 @@ function ConfigureWebhookDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Configure webhook</DialogTitle>
-          <DialogDescription>Enter the URL and signing secret for your scenario webhook endpoint.</DialogDescription>
+          <DialogDescription>Enter the webhook URL for your scenario endpoint.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <DialogBody className="flex flex-col gap-4">
@@ -193,17 +204,69 @@ function ConfigureWebhookDialog({
                 required
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="signing-secret">Signing secret</Label>
-              <Input
-                id="signing-secret"
-                type="password"
-                placeholder="Minimum 16 characters"
-                value={signingSecret}
-                onChange={(e) => setSigningSecret(e.target.value)}
-                minLength={16}
-                required
-              />
+
+            {/* Advanced: Custom Headers */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((prev) => !prev)}
+                className="flex items-center gap-1.5 font-mono text-2xs text-text-tertiary transition-colors hover:text-text-secondary"
+              >
+                <CaretDownIcon
+                  size={12}
+                  className={cn("transition-transform", showAdvanced ? "rotate-0" : "-rotate-90")}
+                />
+                Advanced
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 space-y-3">
+                  <label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
+                    Custom Headers
+                  </label>
+                  {customHeaders.map((header, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        value={header.key}
+                        onChange={(e) => {
+                          const next = [...customHeaders];
+                          next[index] = { ...header, key: e.target.value };
+                          setCustomHeaders(next);
+                        }}
+                        placeholder="Header name"
+                        className="flex-1"
+                      />
+                      <Input
+                        type="text"
+                        value={header.value}
+                        onChange={(e) => {
+                          const next = [...customHeaders];
+                          next[index] = { ...header, value: e.target.value };
+                          setCustomHeaders(next);
+                        }}
+                        placeholder="Value"
+                        className="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCustomHeaders(customHeaders.filter((_, i) => i !== index))}
+                        className="flex size-9 shrink-0 items-center justify-center text-text-tertiary transition-colors hover:text-status-critical"
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setCustomHeaders([...customHeaders, { key: "", value: "" }])}
+                    className="flex items-center gap-1.5 font-mono text-2xs text-text-tertiary transition-colors hover:text-primary-ink"
+                  >
+                    <PlusIcon size={12} />
+                    Add header
+                  </button>
+                </div>
+              )}
             </div>
           </DialogBody>
           <DialogFooter>
@@ -226,10 +289,12 @@ function RemoveWebhookDialog({
   open,
   onOpenChange,
   applicationId,
+  deploymentId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   applicationId: string;
+  deploymentId: string;
 }) {
   const queryClient = useQueryClient();
 
@@ -254,7 +319,7 @@ function RemoveWebhookDialog({
 
   function handleConfirm() {
     removeWebhook.mutate(
-      { applicationId },
+      { applicationId, deploymentId },
       {
         onSuccess: () => {
           onOpenChange(false);
@@ -292,11 +357,13 @@ function RemoveWebhookDialog({
 function WebhookStatusBar({
   webhookUrl,
   applicationId,
+  deploymentId,
   onConfigure,
   onRemove,
 }: {
   webhookUrl: string;
   applicationId: string;
+  deploymentId: string;
   onConfigure: () => void;
   onRemove: () => void;
 }) {
@@ -319,7 +386,7 @@ function WebhookStatusBar({
   });
 
   function handleDiscover() {
-    discover.mutate({ applicationId });
+    discover.mutate({ applicationId, deploymentId });
   }
 
   return (
@@ -766,7 +833,15 @@ function ContentSkeleton() {
 // Webhook Configured Content
 // ---------------------------------------------------------------------------
 
-function WebhookConfiguredContent({ webhookUrl, applicationId }: { webhookUrl: string; applicationId: string }) {
+function WebhookConfiguredContent({
+  webhookUrl,
+  applicationId,
+  deploymentId,
+}: {
+  webhookUrl: string;
+  applicationId: string;
+  deploymentId: string;
+}) {
   const [configureOpen, setConfigureOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
 
@@ -775,6 +850,7 @@ function WebhookConfiguredContent({ webhookUrl, applicationId }: { webhookUrl: s
       <WebhookStatusBar
         webhookUrl={webhookUrl}
         applicationId={applicationId}
+        deploymentId={deploymentId}
         onConfigure={() => setConfigureOpen(true)}
         onRemove={() => setRemoveOpen(true)}
       />
@@ -824,9 +900,15 @@ function WebhookConfiguredContent({ webhookUrl, applicationId }: { webhookUrl: s
         open={configureOpen}
         onOpenChange={setConfigureOpen}
         applicationId={applicationId}
+        deploymentId={deploymentId}
         initialUrl={webhookUrl}
       />
-      <RemoveWebhookDialog open={removeOpen} onOpenChange={setRemoveOpen} applicationId={applicationId} />
+      <RemoveWebhookDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        applicationId={applicationId}
+        deploymentId={deploymentId}
+      />
     </>
   );
 }
@@ -835,7 +917,7 @@ function WebhookConfiguredContent({ webhookUrl, applicationId }: { webhookUrl: s
 // Empty State (no webhook configured)
 // ---------------------------------------------------------------------------
 
-function EmptyState({ applicationId }: { applicationId: string }) {
+function EmptyState({ applicationId, deploymentId }: { applicationId: string; deploymentId?: string }) {
   const [configureOpen, setConfigureOpen] = useState(false);
 
   return (
@@ -859,7 +941,12 @@ function EmptyState({ applicationId }: { applicationId: string }) {
         </PanelBody>
       </Panel>
 
-      <ConfigureWebhookDialog open={configureOpen} onOpenChange={setConfigureOpen} applicationId={applicationId} />
+      <ConfigureWebhookDialog
+        open={configureOpen}
+        onOpenChange={setConfigureOpen}
+        applicationId={applicationId}
+        deploymentId={deploymentId}
+      />
     </>
   );
 }
@@ -871,17 +958,20 @@ function EmptyState({ applicationId }: { applicationId: string }) {
 function ScenariosPage() {
   const { appSlug } = Route.useParams();
   const app = useCurrentApplication();
-  const webhookUrl = (app as { webhookUrl?: string | null }).webhookUrl;
-  const hasWebhook = webhookUrl != null && webhookUrl !== "";
+  const deployment = (app as { mainBranch?: { deployment?: { id: string; webhookUrl?: string | null } | null } | null })
+    .mainBranch?.deployment;
+  const webhookUrl = deployment?.webhookUrl;
+  const deploymentId = deployment?.id;
+  const hasWebhook = webhookUrl != null && webhookUrl !== "" && deploymentId != null;
 
   return (
     <div className="flex flex-col gap-6">
       <SettingsTabNav activeTab="scenarios" appSlug={appSlug} />
 
       {hasWebhook ? (
-        <WebhookConfiguredContent webhookUrl={webhookUrl} applicationId={app.id} />
+        <WebhookConfiguredContent webhookUrl={webhookUrl} applicationId={app.id} deploymentId={deploymentId} />
       ) : (
-        <EmptyState applicationId={app.id} />
+        <EmptyState applicationId={app.id} deploymentId={deploymentId} />
       )}
     </div>
   );

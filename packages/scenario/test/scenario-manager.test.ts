@@ -11,12 +11,12 @@ integrationTestSuite({
     createHarness: () => ScenarioTestHarness.create(),
     seed: async (harness) => {
         const orgId = await harness.createOrg();
-        const appId = await harness.createApp(orgId, {
+        const { appId, deploymentId } = await harness.createApp(orgId, {
             webhookUrl: harness.webhookServer.url,
             signingSecret: SIGNING_SECRET,
         });
         const manager = new ScenarioManager(harness.db, harness.encryption);
-        return { orgId, appId, manager };
+        return { orgId, appId, deploymentId, manager };
     },
     cases: (test) => {
         // discover tests need their own app because they assert on scenario counts
@@ -34,11 +34,11 @@ integrationTestSuite({
                 },
             }));
 
-            const appId = await harness.createApp(orgId, {
+            const { appId, deploymentId } = await harness.createApp(orgId, {
                 webhookUrl: harness.webhookServer.url,
                 signingSecret: SIGNING_SECRET,
             });
-            await manager.discover(appId);
+            await manager.discover(appId, deploymentId);
 
             const scenarios = await harness.db.scenario.findMany({
                 where: { applicationId: appId },
@@ -62,7 +62,7 @@ integrationTestSuite({
                 },
             }));
 
-            const appId = await harness.createApp(orgId, {
+            const { appId, deploymentId } = await harness.createApp(orgId, {
                 webhookUrl: harness.webhookServer.url,
                 signingSecret: SIGNING_SECRET,
             });
@@ -77,7 +77,7 @@ integrationTestSuite({
                 },
             });
 
-            await manager.discover(appId);
+            await manager.discover(appId, deploymentId);
 
             const scenario = await harness.db.scenario.findUnique({
                 where: { applicationId_name: { applicationId: appId, name: "checkout" } },
@@ -87,7 +87,10 @@ integrationTestSuite({
             expect(scenario?.fingerprintChangedAt).not.toBeNull();
         });
 
-        test("up: creates instance and calls webhook", async ({ harness, seedResult: { orgId, appId, manager } }) => {
+        test("up: creates instance and calls webhook", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
             harness.webhookServer.onRequest(() => ({
                 status: 200,
                 body: {
@@ -99,7 +102,7 @@ integrationTestSuite({
             }));
 
             const scenarioId = await harness.createScenario(orgId, appId, "checkout");
-            const generationId = await harness.createGeneration(orgId, appId);
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
 
             const instance = await manager.up(subject, scenarioId);
@@ -126,7 +129,7 @@ integrationTestSuite({
 
         test("up: marks instance as UP_FAILED when webhook fails", async ({
             harness,
-            seedResult: { orgId, appId, manager },
+            seedResult: { orgId, appId, deploymentId, manager },
         }) => {
             harness.webhookServer.onRequest(() => ({
                 status: 500,
@@ -134,7 +137,7 @@ integrationTestSuite({
             }));
 
             const scenarioId = await harness.createScenario(orgId, appId, "checkout-fail");
-            const generationId = await harness.createGeneration(orgId, appId);
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
 
             const instance = await manager.up(subject, scenarioId);
@@ -144,15 +147,18 @@ integrationTestSuite({
             expect(instance.completedAt).not.toBeNull();
         });
 
-        test("up: throws when scenario does not exist", async ({ harness, seedResult: { orgId, appId, manager } }) => {
-            const generationId = await harness.createGeneration(orgId, appId);
+        test("up: throws when scenario does not exist", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
             await expect(manager.up(subject, "nonexistent-scenario")).rejects.toThrow("not found");
         });
 
         test("down: tears down instance and calls webhook", async ({
             harness,
-            seedResult: { orgId, appId, manager },
+            seedResult: { orgId, appId, deploymentId, manager },
         }) => {
             harness.webhookServer.onRequest(() => ({
                 status: 200,
@@ -160,7 +166,7 @@ integrationTestSuite({
             }));
 
             const scenarioId = await harness.createScenario(orgId, appId, "checkout-down");
-            const generationId = await harness.createGeneration(orgId, appId);
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
             const upInstance = await manager.up(subject, scenarioId);
 
@@ -209,7 +215,7 @@ integrationTestSuite({
 
         test("down: marks instance as DOWN_FAILED when webhook fails", async ({
             harness,
-            seedResult: { orgId, appId, manager },
+            seedResult: { orgId, appId, deploymentId, manager },
         }) => {
             harness.webhookServer.onRequest(() => ({
                 status: 200,
@@ -217,7 +223,7 @@ integrationTestSuite({
             }));
 
             const scenarioId = await harness.createScenario(orgId, appId, "checkout-fail-down");
-            const generationId = await harness.createGeneration(orgId, appId);
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
             const upInstance = await manager.up(subject, scenarioId);
 

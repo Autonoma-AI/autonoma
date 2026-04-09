@@ -155,6 +155,21 @@ export class K8sClient {
 
         return response.items ?? [];
     }
+
+    public async deleteWorkflow(name: string): Promise<void> {
+        this.logger.info("Deleting Argo workflow", { name });
+
+        try {
+            await this.customObjectsApi.deleteNamespacedCustomObject({
+                ...this.workflowGroupParams(),
+                name,
+            });
+            this.logger.info("Argo workflow deleted", { name });
+        } catch (error) {
+            this.logger.error("Failed to delete Argo workflow", error, { name });
+            throw error;
+        }
+    }
 }
 
 let k8sClient: K8sClient | undefined;

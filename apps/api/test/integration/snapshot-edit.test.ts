@@ -193,11 +193,11 @@ apiTestSuite({
             seedResult: { branchId },
         }) => {
             const otherOrg = await harness.db.organization.create({
-                data: { name: "Other Org", slug: "other-org-snapshot" },
+                data: { name: "Other Org", slug: `other-org-${crypto.randomUUID()}` },
             });
             const otherSession = await harness.db.session.create({
                 data: {
-                    token: "other-session-snapshot-edit",
+                    token: `other-session-${crypto.randomUUID()}`,
                     expiresAt: new Date(Date.now() + 86400000),
                     userId: harness.userId,
                     activeOrganizationId: otherOrg.id,

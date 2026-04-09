@@ -1,28 +1,37 @@
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { handleGenerationExit } from "./handlers/generation-exit";
+import { handleMarkGenerationFailed } from "./handlers/mark-generation-failed";
 import { initializeSentry } from "./instrumentation";
 
 initializeSentry();
 
-const args = process.argv.slice(2);
-const command = args[0];
+const VALID_COMMANDS = ["generation-exit", "mark-failed"] as const;
+type Command = (typeof VALID_COMMANDS)[number];
 
-if (command !== "generation-exit") {
-    console.error("Usage: run-completion-notification generation-exit <generationId>");
+const args = process.argv.slice(2);
+const command = args[0] as Command | undefined;
+
+if (command == null || !VALID_COMMANDS.includes(command)) {
+    console.error("Usage: run-completion-notification <generation-exit|mark-failed> <generationId>");
     process.exit(1);
 }
 
 const generationIdArg = args[1];
 if (generationIdArg == null) {
-    console.error("Usage: run-completion-notification generation-exit <generationId>");
+    console.error("Usage: run-completion-notification <generation-exit|mark-failed> <generationId>");
     process.exit(1);
 }
 const generationId: string = generationIdArg;
 
 async function main() {
     logger.info("Starting run completion notification job", { command, generationId });
-    await handleGenerationExit(generationId);
+
+    if (command === "mark-failed") {
+        await handleMarkGenerationFailed(generationId);
+    } else {
+        await handleGenerationExit(generationId);
+    }
 }
 
 try {

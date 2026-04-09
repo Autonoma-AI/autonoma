@@ -126,7 +126,7 @@ Post-run tools (`modify_test`, `quarantine_test`, `bug_found`) enforce that `run
 
 The `DiffsAgentCallbacks` interface decouples agent decisions from side effects. The `createCallbacks` factory wires them to real implementations:
 
-- `triggerTestAndWait` - Spawns test execution (stub - will use Argo workflows)
+- `triggerTestsAndWait` - Triggers parallel test execution via Argo workflows, polls for completion, returns results
 - `quarantineTest` - Quarantines obsolete tests (stub)
 - `modifyTest` - Updates test instruction in the database via `TestSuiteUpdater`
 - `updateSkill` - Updates skill content in the database via `TestSuiteUpdater`

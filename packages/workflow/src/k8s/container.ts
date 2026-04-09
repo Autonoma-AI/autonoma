@@ -13,6 +13,7 @@ export interface BuildDockerfileContainerParams extends Omit<V1Container, "image
 
 /** Envs shared by dockerfile containers */
 const SHARED_ENVS: V1EnvVar[] = [
+    { name: "NAMESPACE", value: env.NAMESPACE },
     { name: "SENTRY_ENV", value: env.SENTRY_ENV },
     { name: "DATABASE_URL", value: env.DATABASE_URL },
 ];

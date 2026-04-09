@@ -74,6 +74,9 @@ class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, WebCont
         if (webDeployment == null) {
             throw new Error(`Application "${application.name}" has no web deployment`);
         }
+        if (webDeployment.url === "") {
+            throw new Error(`Application "${application.name}" has no deployment URL configured`);
+        }
         if (webDeployment.file == null) {
             throw new Error(`Application "${application.name}" has no default upload file configured`);
         }
@@ -206,7 +209,8 @@ async function main(testGenerationId: string) {
         logger.error("Generation job failed", error);
 
         try {
-            await generationPersister.markFailed();
+            const reason = error instanceof Error ? error.message : "Unknown error";
+            await generationPersister.markFailed(reason);
         } catch (markFailedError) {
             logger.error("Failed to mark generation as failed", markFailedError);
         }

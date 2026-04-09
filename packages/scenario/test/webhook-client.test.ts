@@ -10,7 +10,7 @@ integrationTestSuite({
     createHarness: () => ScenarioTestHarness.create(),
     seed: async (harness) => {
         const orgId = await harness.createOrg();
-        const appId = await harness.createApp(orgId, {
+        const { appId } = await harness.createApp(orgId, {
             webhookUrl: harness.webhookServer.url,
             signingSecret: SIGNING_SECRET,
         });
@@ -160,7 +160,7 @@ integrationTestSuite({
                 body: { error: "down" },
             }));
 
-            await expect(client.discover()).rejects.toThrow("Webhook returned status 500");
+            await expect(client.discover()).rejects.toThrow("Webhook returned HTTP 500");
         });
 
         test("throws on invalid response shape", async ({ harness, seedResult: { client } }) => {

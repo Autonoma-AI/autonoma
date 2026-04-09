@@ -27,6 +27,13 @@ export class GitHubApp {
         return new GitHubInstallationClient(octokit);
     }
 
+    async deleteInstallation(installationId: number): Promise<void> {
+        const octokit = await this.app.getInstallationOctokit(installationId);
+        await octokit.request("DELETE /app/installations/{installation_id}", {
+            installation_id: installationId,
+        });
+    }
+
     async verifyWebhook(body: string, signature: string): Promise<boolean> {
         return this.app.webhooks.verify(body, signature);
     }

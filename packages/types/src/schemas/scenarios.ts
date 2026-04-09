@@ -59,16 +59,19 @@ export type DownResponse = z.infer<typeof DownResponseSchema>;
 
 export const ConfigureWebhookInputSchema = z.object({
     applicationId: z.string(),
+    deploymentId: z.string(),
     webhookUrl: z.url(),
-    signingSecret: z.string().min(16),
+    webhookHeaders: z.record(z.string(), z.string()).optional(),
 });
 
 export const RemoveWebhookInputSchema = z.object({
     applicationId: z.string(),
+    deploymentId: z.string(),
 });
 
 export const DiscoverInputSchema = z.object({
     applicationId: z.string(),
+    deploymentId: z.string(),
 });
 
 export const ListScenariosInputSchema = z.object({

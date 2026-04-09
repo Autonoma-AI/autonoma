@@ -6,6 +6,11 @@ import type { DiscoverResponse, DownResponse, UpResponse } from "@autonoma/types
 import { DiscoverResponseSchema, DownResponseSchema, UpResponseSchema } from "@autonoma/types";
 import type { z } from "zod";
 
+export interface WebhookCallOptions {
+    timeoutMs?: number;
+    maxRetries?: number;
+}
+
 interface WebhookCallParams<T> {
     instanceId?: string;
     action: WebhookAction;
@@ -44,39 +49,40 @@ export class WebhookClient {
         private readonly applicationId: string,
         private readonly webhookUrl: string,
         private readonly signingSecret: string,
+        private readonly customHeaders: Record<string, string> = {},
     ) {
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async discover(): Promise<DiscoverResponse> {
+    async discover(options?: WebhookCallOptions): Promise<DiscoverResponse> {
         return this.call({
             action: "DISCOVER",
             body: { action: "discover" },
             responseSchema: DiscoverResponseSchema,
-            maxRetries: 2,
-            timeoutMs: 30_000,
+            maxRetries: options?.maxRetries ?? 2,
+            timeoutMs: options?.timeoutMs ?? 30_000,
         });
     }
 
-    async up({ instanceId, scenarioName }: UpParams): Promise<UpResponse> {
+    async up({ instanceId, scenarioName }: UpParams, options?: WebhookCallOptions): Promise<UpResponse> {
         return this.call({
             instanceId,
             action: "UP",
             body: { action: "up", environment: scenarioName, testRunId: instanceId },
             responseSchema: UpResponseSchema,
-            maxRetries: 2,
-            timeoutMs: 30_000,
+            maxRetries: options?.maxRetries ?? 2,
+            timeoutMs: options?.timeoutMs ?? 30_000,
         });
     }
 
-    async down({ instanceId, refs, refsToken }: DownParams): Promise<DownResponse> {
+    async down({ instanceId, refs, refsToken }: DownParams, options?: WebhookCallOptions): Promise<DownResponse> {
         return this.call({
             instanceId,
             action: "DOWN",
             body: { action: "down", refs, refsToken, testRunId: instanceId },
             responseSchema: DownResponseSchema,
-            maxRetries: 5,
-            timeoutMs: 60_000,
+            maxRetries: options?.maxRetries ?? 5,
+            timeoutMs: options?.timeoutMs ?? 60_000,
         });
     }
 
@@ -96,10 +102,14 @@ export class WebhookClient {
             const durationMs = Date.now() - startTime;
 
             if (error != null) {
-                lastError = error;
-                await this.logWebhookCall({ instanceId, action, requestBody: body, durationMs, error: error.message });
+                const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
+                const message = isTimeout
+                    ? `Webhook timed out after ${timeoutMs / 1000}s - ensure your endpoint is reachable and responds quickly`
+                    : error.message;
+                lastError = new Error(message);
+                await this.logWebhookCall({ instanceId, action, requestBody: body, durationMs, error: message });
                 this.logger.warn(`Webhook ${action} attempt ${attempt + 1} failed`, {
-                    error: error.message,
+                    error: message,
                     applicationId: this.applicationId,
                 });
                 continue;
@@ -116,10 +126,16 @@ export class WebhookClient {
             });
 
             if (status < 200 || status >= 300) {
-                lastError = new Error(`Webhook returned status ${status}`);
+                const responseDetail = this.extractResponseDetail(responseBody);
+                const message =
+                    responseDetail != null
+                        ? `Webhook returned HTTP ${status}: ${responseDetail}`
+                        : `Webhook returned HTTP ${status}`;
+                lastError = new Error(message);
                 this.logger.warn(`Webhook ${action} returned ${status}`, {
                     applicationId: this.applicationId,
                     status,
+                    responseBody,
                 });
                 continue;
             }
@@ -144,6 +160,7 @@ export class WebhookClient {
             headers: {
                 "Content-Type": "application/json",
                 "x-signature": signature,
+                ...this.customHeaders,
             },
             body: bodyString,
             signal: AbortSignal.timeout(timeoutMs),
@@ -151,6 +168,14 @@ export class WebhookClient {
 
         const responseBody = await response.json();
         return { status: response.status, responseBody };
+    }
+
+    private extractResponseDetail(responseBody: unknown): string | undefined {
+        if (responseBody == null || typeof responseBody !== "object") return undefined;
+        const body = responseBody as Record<string, unknown>;
+        const detail = body.message ?? body.error ?? body.detail;
+        if (detail == null) return undefined;
+        return typeof detail === "string" ? detail : JSON.stringify(detail);
     }
 
     private sign(body: string): string {

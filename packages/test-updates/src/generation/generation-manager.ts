@@ -1,11 +1,20 @@
 import type { GenerationStatus, PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
+import type { GenerationJobOptions, GenerationProvider, PendingGeneration } from "./generation-job-provider";
+
+export class MissingJobProviderError extends Error {
+    constructor() {
+        super("Cannot queue generations without a job provider");
+        this.name = "MissingJobProviderError";
+    }
+}
 
 export interface GenerationManagerParams {
     snapshotId: string;
     organizationId: string;
     db: PrismaClient;
+    jobProvider?: GenerationProvider;
 }
 
 interface SnapshotGeneration {
@@ -23,6 +32,37 @@ interface SnapshotGeneration {
 
 const INCOMPLETE_STATUSES: GenerationStatus[] = ["pending", "queued", "running"];
 
+abstract class DeploymentConfigurationError extends Error {
+    abstract readonly userMessage: string;
+}
+
+export class NoDeploymentConfiguredError extends DeploymentConfigurationError {
+    readonly userMessage =
+        "No deployment configured for this snapshot. Please configure a deployment in your application settings.";
+
+    constructor() {
+        super("No deployment configured for this snapshot");
+    }
+}
+
+export class NoWebDeploymentError extends DeploymentConfigurationError {
+    readonly userMessage =
+        "Can't run web tests: no web deployment configured for this snapshot. Please configure a web deployment in your application settings.";
+
+    constructor() {
+        super("Can't run web tests: no web deployment configured for this snapshot");
+    }
+}
+
+export class NoMobileDeploymentError extends DeploymentConfigurationError {
+    readonly userMessage =
+        "Can't run mobile tests: no mobile deployment configured for this snapshot. Please configure a mobile deployment in your application settings.";
+
+    constructor() {
+        super("Can't run mobile tests: no mobile deployment configured for this snapshot");
+    }
+}
+
 /**
  * Manages the state of generations for a snapshot.
  *
@@ -36,11 +76,13 @@ export class GenerationManager {
     private readonly snapshotId: string;
     private readonly organizationId: string;
     private readonly db: PrismaClient;
+    private readonly jobProvider?: GenerationProvider;
 
-    constructor({ snapshotId, organizationId, db }: GenerationManagerParams) {
+    constructor({ snapshotId, organizationId, db, jobProvider }: GenerationManagerParams) {
         this.snapshotId = snapshotId;
         this.organizationId = organizationId;
         this.db = db;
+        this.jobProvider = jobProvider;
         this.logger = logger.child({ name: this.constructor.name, snapshotId });
     }
 
@@ -112,16 +154,6 @@ export class GenerationManager {
         return generations.filter((gen) => idSet.has(gen.id));
     }
 
-    /** Marks the given generations as queued. */
-    async markAsQueued(generationIds: string[]) {
-        this.logger.info("Marking generations as queued", { generationIds });
-
-        await this.db.testGeneration.updateMany({
-            where: { id: { in: generationIds }, snapshotId: this.snapshotId },
-            data: { status: "queued" },
-        });
-    }
-
     /** Deletes a pending generation. Throws if the generation is not pending. */
     async discardGeneration(generationId: string) {
         this.logger.info("Discarding generation", { generationId });
@@ -168,6 +200,116 @@ export class GenerationManager {
             generationId: gen.id,
             status: gen.status,
         }));
+    }
+
+    /**
+     * Fires generation jobs for all pending generations and marks them as queued.
+     *
+     * Validates deployment configuration before firing. If validation fails,
+     * marks all pending generations as failed.
+     *
+     * @returns Whether any generations were queued. This is used to trigger the auto-activation logic.
+     * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
+     */
+    async queuePendingGenerations(options?: GenerationJobOptions): Promise<{ generationsQueued: boolean }> {
+        if (this.jobProvider == null) throw new MissingJobProviderError();
+
+        const pending = await this.getPendingGenerations();
+
+        if (pending.length === 0) {
+            this.logger.info("No pending generations to queue");
+            return { generationsQueued: false };
+        }
+        this.logger.info("Queueing pending generations", {
+            count: pending.length,
+            autoActivate: options?.autoActivate,
+        });
+
+        try {
+            await this.validateDeploymentForGenerations(pending);
+
+            await this.jobProvider.fireJobs(pending, options);
+        } catch (error) {
+            this.logger.fatal("Failed to queue pending generations", error, {
+                count: pending.length,
+                generationIds: pending.map((g) => g.testGenerationId),
+                autoActivate: options?.autoActivate,
+            });
+
+            await this.markAsFailed(
+                pending.map((g) => g.testGenerationId),
+                error instanceof DeploymentConfigurationError
+                    ? error.userMessage
+                    : "Unknown error. Contact the Autonoma team for help.",
+            );
+
+            return { generationsQueued: false };
+        }
+
+        await this.markAsQueued(pending.map((g) => g.testGenerationId));
+
+        this.logger.info("Pending generations queued", { count: pending.length });
+
+        return { generationsQueued: true };
+    }
+
+    /** Marks the given generations as failed with the given reasoning. */
+    private async markAsFailed(generationIds: string[], reasoning: string) {
+        this.logger.info("Marking generations as failed", { generationIds, reasoning });
+
+        await this.db.testGeneration.updateMany({
+            where: { id: { in: generationIds }, snapshotId: this.snapshotId },
+            data: { status: "failed", reasoning },
+        });
+    }
+
+    /** Marks the given generations as queued. */
+    private async markAsQueued(generationIds: string[]) {
+        this.logger.info("Marking generations as queued", { generationIds });
+
+        await this.db.testGeneration.updateMany({
+            where: { id: { in: generationIds }, snapshotId: this.snapshotId },
+            data: { status: "queued" },
+        });
+    }
+
+    /**
+     * Validates that the snapshot's deployment is properly configured for the
+     * given generations. Returns an error message if validation fails, or
+     * `undefined` if the deployment is valid.
+     */
+    private async validateDeploymentForGenerations(pending: readonly PendingGeneration[]): Promise<string | undefined> {
+        this.logger.info("Validating deployment for generations", { snapshotId: this.snapshotId });
+
+        const snapshot = await this.db.branchSnapshot.findUnique({
+            where: { id: this.snapshotId },
+            select: {
+                deployment: {
+                    select: {
+                        webDeployment: { select: { url: true } },
+                        mobileDeployment: { select: { deploymentId: true } },
+                    },
+                },
+            },
+        });
+
+        if (snapshot?.deployment == null) {
+            throw new NoDeploymentConfiguredError();
+        }
+
+        const architectures = new Set(pending.map((g) => g.architecture));
+
+        if (architectures.has("WEB")) {
+            const webUrl = snapshot.deployment.webDeployment?.url;
+            if (webUrl == null || webUrl === "") throw new NoWebDeploymentError();
+        }
+
+        if (architectures.has("IOS") || architectures.has("ANDROID")) {
+            if (snapshot.deployment.mobileDeployment == null) throw new NoMobileDeploymentError();
+        }
+
+        this.logger.info("Deployment validation passed", { snapshotId: this.snapshotId });
+        return undefined;
     }
 
     /**

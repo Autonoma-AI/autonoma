@@ -1,11 +1,13 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
+import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { createCallbacks, DiffsAgent } from "@autonoma/diffs";
 import { GitHubApp } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
 import { ArgoGenerationProvider } from "@autonoma/test-updates/argo";
-import { triggerDiffsJob } from "@autonoma/workflow";
+import type { Architecture } from "@autonoma/types";
+import { triggerDiffsJob, triggerRunWorkflow } from "@autonoma/workflow";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
 import { loadBranchData, loadDiffsContext } from "./load-context";
@@ -71,14 +73,21 @@ async function main(): Promise<void> {
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-job" });
 
+    const billingService = createBillingService(db);
+
     const callbacks = createCallbacks({
         db,
         updater,
         applicationId: branchData.applicationId,
+        organizationId: branchData.organizationId,
         repoFullName: branchData.fullName,
         headSha,
         testDirectory,
         githubClient,
+        agentVersion: env.AGENT_VERSION,
+        billingService,
+        triggerRunWorkflow: (params) =>
+            triggerRunWorkflow({ ...params, architecture: params.architecture as Architecture }),
     });
 
     const agent = new DiffsAgent({

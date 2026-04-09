@@ -1,21 +1,10 @@
 import { randomBytes } from "node:crypto";
-import {
-    type Organization,
-    type PrismaClient,
-    type Session,
-    type User,
-    applyMigrations,
-    createClient,
-} from "@autonoma/db";
+import { type Organization, type PrismaClient, type Session, type User, createClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
-import { S3Storage } from "@autonoma/storage";
-import { FakeGenerationProvider } from "@autonoma/test-updates";
-import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
-import { LocalstackContainer, type StartedLocalStackContainer } from "@testcontainers/localstack";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { RedisContainer, type StartedRedisContainer } from "@testcontainers/redis";
+import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
+import { CommitDiffHandler, FakeGenerationProvider } from "@autonoma/test-updates";
 import Redis from "ioredis";
 import { vi } from "vitest";
 import { buildAuth } from "../src/auth";
@@ -23,52 +12,43 @@ import { type Services, buildServices } from "../src/routes/build-services";
 import { appRouter } from "../src/routes/router";
 import { t } from "../src/trpc";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
-const LOCALSTACK_IMAGE = "localstack/localstack:latest";
-const REDIS_IMAGE = "redis:7-alpine";
-const TEST_BUCKET = "test-bucket";
-const TEST_REGION = "us-east-1";
-
 export class APITestHarness implements IntegrationHarness {
-    public readonly triggerWorkflow = vi.fn().mockResolvedValue(undefined);
+    public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
     public readonly generationProvider: FakeGenerationProvider;
     public readonly services: Services;
     public organization?: Organization;
     public user?: User;
     public session?: Session;
 
-    private pgContainer?: StartedPostgreSqlContainer;
-    private lsContainer?: StartedLocalStackContainer;
-    private redisContainer?: StartedRedisContainer;
-    private redisClient?: Redis;
+    private redisClient: Redis;
 
     constructor(
         public readonly db: PrismaClient,
         services: Services,
         generationProvider: FakeGenerationProvider,
-        pgContainer: StartedPostgreSqlContainer,
-        lsContainer: StartedLocalStackContainer,
-        redisContainer: StartedRedisContainer,
         redisClient: Redis,
     ) {
-        this.pgContainer = pgContainer;
-        this.lsContainer = lsContainer;
-        this.redisContainer = redisContainer;
         this.redisClient = redisClient;
         this.services = services;
         this.generationProvider = generationProvider;
     }
 
     static async create(): Promise<APITestHarness> {
-        const [pgResult, lsResult, redisContainer] = await Promise.all([
-            startPostgresContainer(),
-            startLocalStackContainer(),
-            new RedisContainer(REDIS_IMAGE).start(),
-        ]);
-        applyMigrations(pgResult.connectionUrl);
-        const db = createClient(pgResult.connectionUrl);
+        const dbUrl = process.env.TEST_DATABASE_URL;
+        const redisUrl = process.env.TEST_REDIS_URL;
+        const s3Endpoint = process.env.TEST_S3_ENDPOINT;
+        const s3Bucket = process.env.TEST_S3_BUCKET!;
+        const s3Region = process.env.TEST_S3_REGION!;
 
-        const redisClient = new Redis(redisContainer.getConnectionUrl());
+        if (dbUrl == null || redisUrl == null) {
+            throw new Error(
+                "TEST_DATABASE_URL and TEST_REDIS_URL must be set. " +
+                    "Run via vitest.integration.config.ts which uses globalSetup to start containers.",
+            );
+        }
+
+        const db = createClient(dbUrl);
+        const redisClient = new Redis(redisUrl);
         const auth = buildAuth({ redisClient, conn: db });
 
         const encryptionKey = randomBytes(32).toString("hex");
@@ -78,27 +58,35 @@ export class APITestHarness implements IntegrationHarness {
         const triggerWorkflow = vi.fn().mockResolvedValue(undefined);
         const generationProvider = new FakeGenerationProvider();
 
+        vi.spyOn(CommitDiffHandler.prototype, "checkForChanges").mockResolvedValue(undefined);
+
+        const storageDir = process.env.TEST_STORAGE_DIR;
+        const storage: StorageProvider =
+            storageDir != null
+                ? new LocalStorageProvider(storageDir)
+                : new S3Storage({
+                      bucket: s3Bucket,
+                      region: s3Region,
+                      accessKeyId: "test",
+                      secretAccessKey: "test",
+                      endpoint: s3Endpoint!,
+                  });
+
         const services = buildServices({
             conn: db,
             auth,
-            storageProvider: lsResult.storage,
-            triggerPlanWorkflow: triggerWorkflow,
+            storageProvider: storage,
             triggerRunWorkflow: triggerWorkflow,
+            triggerGenerationReview: triggerWorkflow,
+            triggerRunReview: triggerWorkflow,
+            triggerDiffPlanner: triggerWorkflow,
             scenarioManager,
             encryptionHelper,
             generationProvider,
             githubApp: {} as unknown as GitHubApp,
         });
 
-        const harness = new APITestHarness(
-            db,
-            services,
-            generationProvider,
-            pgResult.container,
-            lsResult.container,
-            redisContainer,
-            redisClient,
-        );
+        const harness = new APITestHarness(db, services, generationProvider, redisClient);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         return harness;
     }
@@ -107,21 +95,21 @@ export class APITestHarness implements IntegrationHarness {
         this.organization = await this.db.organization.create({
             data: {
                 name: "Test Organization",
-                slug: "test-org",
+                slug: `test-org-${randomBytes(4).toString("hex")}`,
             },
         });
 
         this.user = await this.db.user.create({
             data: {
                 name: "Test User",
-                email: "test@example.com",
+                email: `test-${randomBytes(4).toString("hex")}@example.com`,
                 emailVerified: true,
             },
         });
 
         this.session = await this.db.session.create({
             data: {
-                token: "test-session-token",
+                token: `test-session-${randomBytes(8).toString("hex")}`,
                 expiresAt: new Date(Date.now() + 86400000),
                 userId: this.user.id,
                 activeOrganizationId: this.organization.id,
@@ -131,9 +119,6 @@ export class APITestHarness implements IntegrationHarness {
 
     async afterAll() {
         await this.redisClient?.quit();
-        await this.redisContainer?.stop();
-        await this.pgContainer?.stop();
-        await this.lsContainer?.stop();
     }
 
     async beforeEach() {}
@@ -159,33 +144,4 @@ export class APITestHarness implements IntegrationHarness {
             services: this.services,
         });
     }
-}
-
-async function startPostgresContainer() {
-    const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-    const connectionUrl = container.getConnectionUri();
-    return { container, connectionUrl };
-}
-
-async function startLocalStackContainer() {
-    const container = await new LocalstackContainer(LOCALSTACK_IMAGE).withEnvironment({ SERVICES: "s3" }).start();
-    const endpoint = container.getConnectionUri();
-
-    const s3Client = new S3Client({
-        region: TEST_REGION,
-        endpoint,
-        forcePathStyle: true,
-        credentials: { accessKeyId: "test", secretAccessKey: "test" },
-    });
-    await s3Client.send(new CreateBucketCommand({ Bucket: TEST_BUCKET }));
-
-    const storage = new S3Storage({
-        bucket: TEST_BUCKET,
-        region: TEST_REGION,
-        accessKeyId: "test",
-        secretAccessKey: "test",
-        endpoint,
-    });
-
-    return { container, storage };
 }

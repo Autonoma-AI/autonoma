@@ -22,18 +22,24 @@ export const onboardingRouter = router({
 
     setUrl: protectedProcedure
         .input(z.object({ applicationId: z.string(), productionUrl: z.string().url() }))
-        .mutation(({ ctx, input }) =>
-            ctx.services.onboarding.setUrl(input.applicationId, ctx.organizationId, input.productionUrl),
-        ),
+        .mutation(({ ctx, input }) => ctx.services.onboarding.setUrl(input.applicationId, input.productionUrl)),
 
     configureAndDiscoverScenarios: protectedProcedure
-        .input(z.object({ applicationId: z.string(), webhookUrl: z.string().url(), signingSecret: z.string() }))
+        .input(
+            z.object({
+                applicationId: z.string(),
+                webhookUrl: z.string().url(),
+                signingSecret: z.string(),
+                webhookHeaders: z.record(z.string(), z.string()).optional(),
+            }),
+        )
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.configureAndDiscoverScenarios(
                 input.applicationId,
                 ctx.organizationId,
                 input.webhookUrl,
                 input.signingSecret,
+                input.webhookHeaders,
             ),
         ),
 
@@ -44,6 +50,10 @@ export const onboardingRouter = router({
     complete: protectedProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) => ctx.services.onboarding.complete(input.applicationId)),
+
+    completeGithub: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) => ctx.services.onboarding.completeGithub(input.applicationId, ctx.organizationId)),
 
     reset: protectedProcedure
         .input(applicationIdInput)

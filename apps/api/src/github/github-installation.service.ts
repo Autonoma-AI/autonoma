@@ -1,8 +1,51 @@
-import type { GitHubDeploymentTrigger, GitHubRepository, PrismaClient } from "@autonoma/db";
+import type {
+    GitHubDeploymentTrigger,
+    GitHubInstallation,
+    GitHubRepository,
+    PrismaClient,
+    SnapshotStatus,
+    TriggerSource,
+} from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { GitHubApp } from "@autonoma/github";
 import { triggerTestCaseGenerationJob } from "@autonoma/workflow";
 import { Service } from "../routes/service";
+
+export interface DeploymentsDebugResult {
+    repository: string | null;
+    pullRequests: Array<{
+        number: number;
+        title: string;
+        headRef: string;
+        headSha: string;
+        url: string;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    branches: Array<{
+        id: string;
+        name: string;
+        githubRef: string | null;
+        lastHandledSha: string | null;
+        deployment: {
+            id: string;
+            active: boolean;
+            webhookUrl: string | null;
+            createdAt: Date;
+            webDeployment: { url: string } | null;
+            mobileDeployment: { packageName: string } | null;
+        } | null;
+        snapshots: Array<{
+            id: string;
+            status: SnapshotStatus;
+            source: TriggerSource;
+            headSha: string | null;
+            baseSha: string | null;
+            createdAt: Date;
+            _count: { testGenerations: number; testCaseAssignments: number };
+        }>;
+    }>;
+}
 
 export class GitHubInstallationService extends Service {
     constructor(
@@ -243,6 +286,169 @@ export class GitHubInstallationService extends Service {
         }
     }
 
+    async handleBranchDeployment(
+        orgId: string,
+        repoFullName: string,
+        branch: string,
+        sha: string,
+        url: string,
+        environment: string | undefined,
+    ): Promise<{ branchId: string; deploymentId: string }> {
+        this.logger.info("Handling branch deployment", { orgId, repoFullName, branch, sha, url, environment });
+
+        const normalizedBranch = branch.replace(/^refs\/heads\//, "");
+
+        return this.db.$transaction(async (tx) => {
+            const installation = await tx.gitHubInstallation.findUnique({
+                where: { organizationId: orgId },
+                include: { repositories: { where: { fullName: repoFullName } } },
+            });
+
+            if (installation == null) throw new NotFoundError();
+
+            const repo = installation.repositories[0];
+            if (repo == null) throw new NotFoundError();
+
+            if (repo.applicationId == null) {
+                throw new Error(`Repository ${repoFullName} is not linked to an application`);
+            }
+
+            let branchRecord = await tx.branch.findFirst({
+                where: {
+                    applicationId: repo.applicationId,
+                    githubRef: normalizedBranch,
+                },
+            });
+
+            if (branchRecord == null) {
+                this.logger.info("Auto-creating branch for deployment", {
+                    applicationId: repo.applicationId,
+                    branch: normalizedBranch,
+                });
+
+                branchRecord = await tx.branch.create({
+                    data: {
+                        name: normalizedBranch,
+                        githubRef: normalizedBranch,
+                        applicationId: repo.applicationId,
+                        organizationId: orgId,
+                    },
+                });
+            }
+
+            const deployment = await tx.branchDeployment.create({
+                data: {
+                    branchId: branchRecord.id,
+                    organizationId: orgId,
+                    webDeployment: {
+                        create: {
+                            url,
+                            file: "",
+                            organizationId: orgId,
+                        },
+                    },
+                },
+            });
+
+            await tx.branch.update({
+                where: { id: branchRecord.id },
+                data: { deploymentId: deployment.id },
+            });
+
+            if (branchRecord.pendingSnapshotId != null) {
+                await tx.branchSnapshot.update({
+                    where: { id: branchRecord.pendingSnapshotId },
+                    data: { deploymentId: deployment.id },
+                });
+            }
+
+            this.logger.info("Branch deployment created", {
+                branchId: branchRecord.id,
+                deploymentId: deployment.id,
+                url,
+            });
+
+            return { branchId: branchRecord.id, deploymentId: deployment.id };
+        });
+    }
+
+    async listDeploymentsDebug(organizationId: string, applicationId: string): Promise<DeploymentsDebugResult> {
+        this.logger.info("Listing deployments debug", { organizationId, applicationId });
+
+        const repoSelect = { fullName: true, installation: { select: { installationId: true } } } as const;
+        // Try exact match first, then fall back to any unlinked repo in the same org
+        const repo =
+            (await this.db.gitHubRepository.findFirst({
+                where: { applicationId, installation: { organizationId } },
+                select: repoSelect,
+            })) ??
+            (await this.db.gitHubRepository.findFirst({
+                where: { applicationId: null, installation: { organizationId } },
+                select: repoSelect,
+            }));
+
+        const [pullRequests, branches] = await Promise.all([
+            this.getPullRequests(repo),
+            this.getBranches(applicationId, organizationId),
+        ]);
+
+        this.logger.info("Listed deployments debug", {
+            pullRequests: pullRequests.length,
+            branches: branches.length,
+        });
+
+        return { repository: repo?.fullName ?? null, pullRequests, branches };
+    }
+
+    private getBranches(applicationId: string, organizationId: string) {
+        return this.db.branch.findMany({
+            where: { applicationId, application: { organizationId } },
+            select: {
+                id: true,
+                name: true,
+                githubRef: true,
+                lastHandledSha: true,
+                deployment: {
+                    select: {
+                        id: true,
+                        active: true,
+                        webhookUrl: true,
+                        createdAt: true,
+                        webDeployment: { select: { url: true } },
+                        mobileDeployment: { select: { packageName: true } },
+                    },
+                },
+                snapshots: {
+                    select: {
+                        id: true,
+                        status: true,
+                        source: true,
+                        headSha: true,
+                        baseSha: true,
+                        createdAt: true,
+                        _count: { select: { testGenerations: true, testCaseAssignments: true } },
+                    },
+                    orderBy: { createdAt: "desc" },
+                    take: 10,
+                },
+            },
+        });
+    }
+
+    private async getPullRequests(
+        repo:
+            | (Pick<GitHubRepository, "fullName"> & { installation: Pick<GitHubInstallation, "installationId"> })
+            | null,
+    ) {
+        if (repo == null) return [];
+        const [owner, name] = repo.fullName.split("/");
+
+        if (owner == null || name == null) return [];
+
+        const client = await this.githubApp.getInstallationClient(repo.installation.installationId);
+        return client.listPullRequests(owner, name);
+    }
+
     async disconnect(orgId: string): Promise<void> {
         this.logger.info("Disconnecting GitHub installation", { orgId });
 
@@ -251,6 +457,18 @@ export class GitHubInstallationService extends Service {
         });
 
         if (installation == null) throw new NotFoundError();
+
+        try {
+            await this.githubApp.deleteInstallation(installation.installationId);
+            this.logger.info("GitHub installation deleted from GitHub", {
+                installationId: installation.installationId,
+            });
+        } catch (err) {
+            this.logger.warn("Failed to delete installation from GitHub - removing locally anyway", {
+                installationId: installation.installationId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
 
         await this.db.gitHubInstallation.delete({
             where: { organizationId: orgId },

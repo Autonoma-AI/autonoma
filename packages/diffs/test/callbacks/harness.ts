@@ -87,6 +87,53 @@ export class DiffsCallbackHarness implements IntegrationHarness {
     }
 
     /**
+     * Creates a runnable test case with an assignment that has stepsId set.
+     * This is required for triggerTestsAndWait to find a runnable assignment.
+     */
+    async setupRunnableTest(
+        organizationId: string,
+        applicationId: string,
+        testSlug: string,
+        testName: string,
+    ): Promise<{ branchId: string; testCaseId: string; assignmentId: string }> {
+        const { branchId, testCaseId } = await this.setupBranchWithTest(
+            organizationId,
+            applicationId,
+            testSlug,
+            testName,
+        );
+
+        // Create a StepInputList and link it to the assignment so findAssignmentWithSteps finds it
+        const plan = await this.db.testPlan.findFirstOrThrow({ where: { testCaseId } });
+        const stepInputList = await this.db.stepInputList.create({
+            data: {
+                planId: plan.id,
+                organizationId,
+                list: {
+                    create: {
+                        order: 0,
+                        interaction: "click",
+                        params: { target: "button" },
+                        organizationId,
+                    },
+                },
+            },
+        });
+
+        const assignment = await this.db.testCaseAssignment.findFirstOrThrow({
+            where: { testCaseId },
+            orderBy: { createdAt: "desc" },
+        });
+
+        await this.db.testCaseAssignment.update({
+            where: { id: assignment.id },
+            data: { stepsId: stepInputList.id },
+        });
+
+        return { branchId, testCaseId, assignmentId: assignment.id };
+    }
+
+    /**
      * Creates a branch with an active snapshot that has a skill assigned.
      * Returns the branchId and skillId for use in tests.
      */

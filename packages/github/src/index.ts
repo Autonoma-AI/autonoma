@@ -10,4 +10,5 @@ export {
     type Repository,
     type TreeEntry,
     type FileContent,
+    type PullRequest,
 } from "./github-installation-client";

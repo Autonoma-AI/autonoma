@@ -88,7 +88,8 @@ export abstract class GenerationAPIRunner<
                 await this.persister.saveCostRecords(this.costCollector.getRecords());
             }
         } catch (error) {
-            await this.persister.markFailed();
+            const reason = error instanceof Error ? error.message : "Unknown error";
+            await this.persister.markFailed(reason);
             throw error;
         }
     }

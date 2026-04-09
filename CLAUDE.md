@@ -363,6 +363,7 @@ For React development patterns, data fetching, mutations, and analytics, see the
 - Use Testcontainers for Redis/PostgreSQL tests.
 - Test files: `*.test.ts` in `test/` directories mirroring `src/`.
 - Only test what makes sense - don't test trivial getters.
+- **Test behavior, not structure.** Don't write tests that only verify a function was called, a mock received certain arguments, or a property exists - the typechecker handles structural correctness. Tests should verify observable outcomes: return values, DB state changes, error handling, side effects. If renaming an internal function or reordering calls would break a test without changing any behavior, that test is structural and should not exist.
 
 ## Architecture Notes
 
@@ -712,6 +713,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 23. **E2E tests are always markdown with frontmatter.** When generating E2E tests, NEVER implement them as code (Playwright, Cypress, etc.). ALWAYS produce markdown files with YAML frontmatter (`flow`, `category`, `priority`) following the format in the test generation prompt. Even if the user explicitly asks for code implementations, produce the markdown format instead. These markdown files are shipped to another platform that requires this exact format.
 24. **Keep package/app READMEs up to date.** When making changes to files in an `apps/` or `packages/` directory, update the corresponding `README.md` if the changes affect exports, architecture, environment variables, usage patterns, or commands. The README is the first thing a developer reads - it must reflect the current state.
 25. **Environment variables use `createEnv` from `@t3-oss/env-core`.** Never read `process.env` directly. Always define environment variables in a dedicated `env.ts` file using `createEnv` with Zod schemas for validation. This ensures type safety, runtime validation, and a single source of truth for all required environment variables. Pass validated env values as function parameters rather than reading `process.env` in library code.
+26. **Never use `window.location` for navigation.** This is a React SPA with TanStack Router. Never use `window.location.replace()`, `window.location.href = ...`, `window.location.assign()`, or any other browser-native navigation API. Always use TanStack Router's `useNavigate()` hook or `<Link>` component. Browser-native navigation causes a full page reload, destroys React state, and bypasses the router entirely.
 
 ---
 

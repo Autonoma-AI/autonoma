@@ -25,7 +25,7 @@ export function integrationTestSuite<THarness extends IntegrationHarness, TSeedR
         }, 120_000);
 
         afterAll(async () => {
-            await harness.afterAll();
+            await harness?.afterAll();
         });
 
         beforeEach(async () => {

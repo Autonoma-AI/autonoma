@@ -1,3 +1,4 @@
+import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { DiffsAgentCallbacks } from "./callbacks";
 import { buildActionTools, buildCodebaseTools } from "./tools/codebase-tools";
@@ -60,10 +61,10 @@ export class NoAgentOutputError extends Error {
 }
 
 export class DiffsAgent {
-    private readonly config: DiffsAgentConfig;
+    private readonly logger: Logger;
 
-    constructor(config: DiffsAgentConfig) {
-        this.config = config;
+    constructor(private readonly config: DiffsAgentConfig) {
+        this.logger = logger.child({ name: this.constructor.name });
     }
 
     async analyze(input: DiffsAgentInput): Promise<DiffsAgentResult> {
@@ -114,6 +115,35 @@ export class DiffsAgent {
                 }, collector),
             },
             stopWhen: [stepCountIs(maxSteps), hasToolCall("finish")],
+            onStepFinish: ({ content }) => {
+                this.logger.info("Agent step finished", {
+                    text: content
+                        .filter((c) => c.type === "text")
+                        .map((c) => c.text)
+                        .join("\n"),
+                    toolCalls: content
+                        .filter((c) => c.type === "tool-call")
+                        .map((c) => ({
+                            name: c.toolName,
+                            id: c.toolCallId,
+                            input: c.input,
+                        })),
+                    toolResults: content
+                        .filter((c) => c.type === "tool-result")
+                        .map((c) => ({
+                            name: c.toolName,
+                            id: c.toolCallId,
+                            output: c.output,
+                        })),
+                    toolErrors: content
+                        .filter((c) => c.type === "tool-error")
+                        .map((c) => ({
+                            name: c.toolName,
+                            id: c.toolCallId,
+                            error: c.error,
+                        })),
+                });
+            },
         });
 
         await agent.generate({ messages: [{ role: "user", content: prompt }] });
@@ -160,7 +190,7 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
     if (existingTests.length > 0) {
         prompt += "\n\n## Existing Tests\n";
         prompt +=
-            "IMPORTANT: Use the `slug` field when calling tools like `run_test`, `modify_test`, `quarantine_test`, or `bug_found`.\n";
+            "IMPORTANT: Use the `slug` field when calling tools like `run_test` (pass as array), `modify_test`, `quarantine_test`, or `bug_found`.\n";
         for (const test of existingTests) {
             prompt += `\n### ${test.name}\n`;
             prompt += `- **slug**: \`${test.slug}\` (use this as the slug in tools)\n`;
@@ -202,7 +232,7 @@ Identify new functionality that has no test coverage. Use \`add_test\` for each 
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Actions
-- \`run_test\`: trigger test execution and get results (unlocks post-run tools for that test)
+- \`run_test\`: trigger one or more tests in parallel by passing an array of slugs (unlocks post-run tools for those tests)
 - \`quarantine_test\`: quarantine a test whose flow was deleted (requires run_test first)
 - \`bug_found\`: report a bug with detailed explanation and fix prompt (requires run_test first)
 - \`modify_test\`: update a test instruction to match new behavior (requires run_test first)
@@ -214,7 +244,7 @@ Identify new functionality that has no test coverage. Use \`add_test\` for each 
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
 2. Read relevant source files to understand the changes in context
 3. Check if any skills need updating (use subagents to parallelize)
-4. Identify and run potentially affected tests
+4. Identify potentially affected tests and batch them into a single \`run_test\` call for parallel execution
 5. Take appropriate post-run actions based on results
 6. Identify test gaps and add new test suggestions
 7. Call \`finish\` with your overall reasoning`;

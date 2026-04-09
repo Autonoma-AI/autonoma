@@ -7,6 +7,7 @@ const STEPS = [
   { num: "03", label: "Generation", to: "/onboarding/working" },
   { num: "04", label: "Scenario Dry Run", to: "/onboarding/scenario-dry-run" },
   { num: "05", label: "App URL", to: "/onboarding/url" },
+  { num: "06", label: "Connect GitHub", to: "/onboarding/github" },
 ] as const;
 
 interface StepProgressProps {

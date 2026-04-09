@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import type { ScenarioManager } from "@autonoma/scenario";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
 
@@ -8,63 +8,62 @@ export class ScenariosService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly scenarioManager: ScenarioManager,
-        private readonly encryption: EncryptionHelper,
     ) {
         super();
     }
 
-    async configureWebhook(applicationId: string, organizationId: string, webhookUrl: string, signingSecret: string) {
-        this.logger.info("Configuring webhook", { applicationId });
+    async configureWebhook(
+        applicationId: string,
+        deploymentId: string,
+        organizationId: string,
+        webhookUrl: string,
+        webhookHeaders?: Record<string, string>,
+    ) {
+        this.logger.info("Configuring webhook", { applicationId, deploymentId });
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        const signingSecretEnc = this.encryption.encrypt(signingSecret);
-
-        const result = await this.db.application.update({
-            where: { id: applicationId },
-            data: { webhookUrl, signingSecretEnc },
+        await this.db.branchDeployment.update({
+            where: { id: deploymentId },
+            data: { webhookUrl, webhookHeaders: webhookHeaders ?? undefined },
         });
 
-        this.logger.info("Webhook configured", { applicationId });
-
-        return result;
+        this.logger.info("Webhook configured", { applicationId, deploymentId });
     }
 
-    async removeWebhook(applicationId: string, organizationId: string) {
-        this.logger.info("Removing webhook and associated scenarios", { applicationId });
+    async removeWebhook(applicationId: string, deploymentId: string, organizationId: string) {
+        this.logger.info("Removing webhook and associated scenarios", { applicationId, deploymentId });
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        const [updatedApp] = await this.db.$transaction([
-            this.db.application.update({
-                where: { id: applicationId },
-                data: { webhookUrl: null, signingSecretEnc: null },
+        await this.db.$transaction([
+            this.db.branchDeployment.update({
+                where: { id: deploymentId },
+                data: { webhookUrl: null },
             }),
             this.db.scenario.deleteMany({
                 where: { applicationId },
             }),
         ]);
 
-        this.logger.info("Webhook removed", { applicationId });
-
-        return updatedApp;
+        this.logger.info("Webhook removed", { applicationId, deploymentId });
     }
 
-    async discover(applicationId: string, organizationId: string) {
-        this.logger.info("Discovering scenarios", { applicationId });
+    async discover(applicationId: string, deploymentId: string, organizationId: string) {
+        this.logger.info("Discovering scenarios", { applicationId, deploymentId });
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        await this.scenarioManager.discover(applicationId);
+        await this.scenarioManager.discover(applicationId, deploymentId);
 
         const scenarios = await this.db.scenario.findMany({
             where: { applicationId },

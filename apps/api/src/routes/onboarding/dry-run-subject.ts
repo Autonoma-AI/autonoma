@@ -15,18 +15,32 @@ export class DryRunSubject implements ScenarioSubject {
     async getApplicationData(): Promise<ScenarioApplicationData> {
         const app = await this.db.application.findUniqueOrThrow({
             where: { id: this.applicationId },
-            select: { id: true, organizationId: true, webhookUrl: true, signingSecretEnc: true },
+            select: {
+                id: true,
+                organizationId: true,
+                signingSecretEnc: true,
+                mainBranch: {
+                    select: {
+                        deployment: {
+                            select: { id: true, webhookUrl: true, webhookHeaders: true },
+                        },
+                    },
+                },
+            },
         });
 
-        if (app.webhookUrl == null || app.signingSecretEnc == null) {
+        const deployment = app.mainBranch?.deployment;
+        if (deployment?.webhookUrl == null || app.signingSecretEnc == null) {
             throw new OnboardingWebhookNotConfiguredError(this.applicationId);
         }
 
         return {
             applicationId: app.id,
+            deploymentId: deployment.id,
             organizationId: app.organizationId,
-            webhookUrl: app.webhookUrl,
+            webhookUrl: deployment.webhookUrl,
             signingSecretEnc: app.signingSecretEnc,
+            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
         };
     }
 

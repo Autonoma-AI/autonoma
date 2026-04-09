@@ -1,7 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import type { CommitDiffHandler } from "@autonoma/test-updates";
-import * as Sentry from "@sentry/node";
 import type { GitHubInstallationService } from "./github-installation.service";
 
 export class GitHubWebhookHandler {
@@ -35,18 +34,84 @@ export class GitHubWebhookHandler {
         await this.service.handleSuspend(installationId);
     }
 
-    handlePullRequest(action: string, prNumber: number, repoFullName: string): void {
-        logger.info("GitHub webhook: pull_request event (future feature)", {
-            action,
-            prNumber,
-            repo: repoFullName,
+    async handlePullRequest(action: string, prNumber: number, repoFullName: string, headRef: string): Promise<void> {
+        logger.info("GitHub webhook: pull_request event", { action, prNumber, repo: repoFullName, headRef });
+
+        const isRelevantAction = action === "opened" || action === "synchronize";
+        if (!isRelevantAction) {
+            logger.info("GitHub webhook: pull_request action ignored", { action, prNumber });
+            return;
+        }
+
+        const branchName = headRef.replace("refs/heads/", "");
+
+        const repo = await this.db.gitHubRepository.findFirst({
+            where: {
+                fullName: repoFullName,
+                applicationId: { not: null },
+            },
+            select: { applicationId: true },
         });
 
-        Sentry.addBreadcrumb({
-            category: "github.webhook",
-            message: `pull_request.${action}`,
-            data: { prNumber, repo: repoFullName },
+        if (repo?.applicationId == null) {
+            logger.info("GitHub webhook: pull_request ignored - no matching repo with app", {
+                repo: repoFullName,
+                prNumber,
+            });
+            return;
+        }
+
+        let branch = await this.db.branch.findFirst({
+            where: {
+                applicationId: repo.applicationId,
+                githubRef: branchName,
+            },
+            select: { id: true },
         });
+
+        if (branch == null) {
+            logger.info("GitHub webhook: auto-creating branch for pull request", {
+                applicationId: repo.applicationId,
+                branchName,
+                prNumber,
+            });
+
+            const organization = await this.db.application.findFirst({
+                where: { id: repo.applicationId },
+                select: { organizationId: true },
+            });
+
+            if (organization == null) return;
+
+            branch = await this.db.branch.create({
+                data: {
+                    name: branchName,
+                    githubRef: branchName,
+                    applicationId: repo.applicationId,
+                    organizationId: organization.organizationId,
+                },
+                select: { id: true },
+            });
+        }
+
+        const snapshotId = await this.commitDiffHandler.checkForChanges(branch.id);
+
+        if (snapshotId != null) {
+            logger.info("GitHub webhook: snapshot created for pull_request", {
+                repo: repoFullName,
+                prNumber,
+                branchName,
+                branchId: branch.id,
+                snapshotId,
+            });
+        } else {
+            logger.info("GitHub webhook: pull_request handled, no snapshot created", {
+                repo: repoFullName,
+                prNumber,
+                branchName,
+                branchId: branch.id,
+            });
+        }
     }
 
     async handlePush(repoFullName: string, ref: string, installationId: number): Promise<void> {

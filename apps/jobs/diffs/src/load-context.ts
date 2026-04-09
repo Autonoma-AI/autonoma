@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 
 export interface BranchData {
     applicationId: string;
+    organizationId: string;
     fullName: string;
     installationId: string;
 }
@@ -21,10 +22,11 @@ export async function loadBranchData(branchId: string): Promise<BranchData> {
             applicationId: true,
             application: {
                 select: {
+                    organizationId: true,
                     githubRepositories: {
                         select: {
                             fullName: true,
-                            installationId: true,
+                            installation: { select: { installationId: true } },
                         },
                         take: 1,
                     },
@@ -40,8 +42,9 @@ export async function loadBranchData(branchId: string): Promise<BranchData> {
 
     return {
         applicationId: branch.applicationId,
+        organizationId: branch.application.organizationId,
         fullName: repo.fullName,
-        installationId: repo.installationId,
+        installationId: String(repo.installation.installationId),
     };
 }
 

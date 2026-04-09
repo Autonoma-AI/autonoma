@@ -4,10 +4,12 @@ import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
+import { KeyIcon } from "@phosphor-icons/react/Key";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { Link } from "@tanstack/react-router";
 
-type SettingsTab = "general" | "billing" | "scenarios" | "skills" | "history";
+type SettingsTab = "general" | "billing" | "scenarios" | "skills" | "history" | "github" | "api-keys";
 
 interface SettingsTabNavProps {
   activeTab: SettingsTab;
@@ -19,7 +21,9 @@ const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string 
   { value: "billing", label: "Billing", icon: CreditCardIcon, path: "billing" },
   { value: "scenarios", label: "Scenarios", icon: BroadcastIcon, path: "scenarios" },
   { value: "skills", label: "Skills", icon: BookOpenIcon, path: "skills" },
+  { value: "api-keys", label: "API Keys", icon: KeyIcon, path: "api-keys" },
   { value: "history", label: "History", icon: ClockCounterClockwiseIcon, path: "history" },
+  { value: "github", label: "GitHub", icon: GithubLogoIcon, path: "github" },
 ];
 
 export function SettingsTabNav({ activeTab, appSlug }: SettingsTabNavProps) {

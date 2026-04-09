@@ -144,6 +144,7 @@ enum OnboardingStep {
   working
   scenario_dry_run
   url
+  github
   completed
 
   @@map("onboarding_step")
@@ -320,10 +321,14 @@ model BranchDeployment {
   branchId String @map("branch_id")
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  activeOnBranch   Branch?           @relation("ActiveDeployment")
-  snapshots        BranchSnapshot[]  @relation("SnapshotDeployment")
-  webDeployment    WebDeployment?
-  mobileDeployment MobileDeployment?
+  webhookUrl     String? @map("webhook_url")
+  webhookHeaders Json?   @map("webhook_headers")
+
+  activeOnBranch    Branch?            @relation("ActiveDeployment")
+  snapshots         BranchSnapshot[]   @relation("SnapshotDeployment")
+  scenarioInstances ScenarioInstance[]
+  webDeployment     WebDeployment?
+  mobileDeployment  MobileDeployment?
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1096,6 +1101,9 @@ model ScenarioInstance {
   metadata  Json?
   /// [ScenarioLastError]
   lastError Json?   @map("last_error")
+
+  deploymentId String?           @map("deployment_id")
+  deployment   BranchDeployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
 
   application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   scenario        Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)

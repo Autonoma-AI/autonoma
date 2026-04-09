@@ -1,1 +1,1 @@
-export { triggerDiffsJob, type TriggerDiffsJobParams } from "./trigger-diffs";
+export { cancelDiffsJob, triggerDiffsJob, type TriggerDiffsJobParams } from "./trigger-diffs";
