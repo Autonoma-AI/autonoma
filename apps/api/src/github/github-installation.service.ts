@@ -1,51 +1,8 @@
-import type {
-    GitHubDeploymentTrigger,
-    GitHubInstallation,
-    GitHubRepository,
-    PrismaClient,
-    SnapshotStatus,
-    TriggerSource,
-} from "@autonoma/db";
+import type { GitHubDeploymentTrigger, GitHubInstallation, GitHubRepository, PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { GitHubApp } from "@autonoma/github";
 import { triggerTestCaseGenerationJob } from "@autonoma/workflow";
 import { Service } from "../routes/service";
-
-export interface DeploymentsDebugResult {
-    repository: string | null;
-    pullRequests: Array<{
-        number: number;
-        title: string;
-        headRef: string;
-        headSha: string;
-        url: string;
-        createdAt: string;
-        updatedAt: string;
-    }>;
-    branches: Array<{
-        id: string;
-        name: string;
-        githubRef: string | null;
-        lastHandledSha: string | null;
-        deployment: {
-            id: string;
-            active: boolean;
-            webhookUrl: string | null;
-            createdAt: Date;
-            webDeployment: { url: string } | null;
-            mobileDeployment: { packageName: string } | null;
-        } | null;
-        snapshots: Array<{
-            id: string;
-            status: SnapshotStatus;
-            source: TriggerSource;
-            headSha: string | null;
-            baseSha: string | null;
-            createdAt: Date;
-            _count: { testGenerations: number; testCaseAssignments: number };
-        }>;
-    }>;
-}
 
 export class GitHubInstallationService extends Service {
     constructor(
@@ -301,8 +258,17 @@ export class GitHubInstallationService extends Service {
         sha: string,
         url: string,
         environment: string | undefined,
+        prNumber?: number,
     ): Promise<{ branchId: string; deploymentId: string }> {
-        this.logger.info("Handling branch deployment", { orgId, repoFullName, branch, sha, url, environment });
+        this.logger.info("Handling branch deployment", {
+            orgId,
+            repoFullName,
+            branch,
+            sha,
+            url,
+            environment,
+            prNumber,
+        });
 
         const normalizedBranch = branch.replace(/^refs\/heads\//, "");
 
@@ -338,6 +304,7 @@ export class GitHubInstallationService extends Service {
                     data: {
                         name: normalizedBranch,
                         githubRef: normalizedBranch,
+                        prNumber,
                         applicationId: repo.applicationId,
                         organizationId: orgId,
                     },
@@ -380,7 +347,7 @@ export class GitHubInstallationService extends Service {
         });
     }
 
-    async listDeploymentsDebug(organizationId: string, applicationId: string): Promise<DeploymentsDebugResult> {
+    async listDeploymentsDebug(organizationId: string, applicationId: string) {
         this.logger.info("Listing deployments debug", { organizationId, applicationId });
 
         const repoSelect = { fullName: true, installation: { select: { installationId: true } } } as const;

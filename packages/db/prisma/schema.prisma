@@ -474,6 +474,7 @@ model Branch {
   id   String @id @default(cuid())
   name String
 
+  prNumber       Int?    @map("pr_number")
   githubRef      String? @map("github_ref")
   lastHandledSha String? @map("last_handled_sha")
 
@@ -499,6 +500,7 @@ model Branch {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, name])
+  @@unique([applicationId, prNumber])
   @@map("branch")
 }
 

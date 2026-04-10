@@ -250,6 +250,30 @@ export class GitHubInstallationClient {
         return new OctokitGithubHistory(this, owner, repo, branchRef);
     }
 
+    async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
+        this.logger.info("Fetching pull request", { owner, repo, prNumber });
+
+        const { data: pr } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+            owner,
+            repo,
+            pull_number: prNumber,
+        });
+
+        const pullRequest = {
+            number: pr.number,
+            title: pr.title,
+            headRef: pr.head.ref,
+            headSha: pr.head.sha,
+            url: pr.html_url,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+        };
+
+        this.logger.info("Fetched pull request", { owner, repo, prNumber, headRef: pullRequest.headRef });
+
+        return pullRequest;
+    }
+
     async listPullRequests(owner: string, repo: string): Promise<PullRequest[]> {
         this.logger.info("Listing open pull requests", { owner, repo });
 

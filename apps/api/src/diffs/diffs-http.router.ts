@@ -12,10 +12,9 @@ import { GitHubInstallationService } from "../github/github-installation.service
 
 const triggerDiffsBodySchema = z.object({
     repo_full_name: z.string(),
-    branch: z.string(),
-    sha: z.string(),
+    pr_number: z.number().int().positive(),
     base_sha: z.string().optional(),
-    url: z.string().url(),
+    url: z.url(),
     environment: z.string().optional(),
 });
 
@@ -40,8 +39,7 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
 
     logger.info("Parsed request body", {
         repoFullName: body.repo_full_name,
-        branch: body.branch,
-        sha: body.sha,
+        prNumber: body.pr_number,
         baseSha: body.base_sha,
     });
 
@@ -54,16 +52,13 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
         return ctx.json({ error: "No organization for this API key" }, 403);
     }
 
-    const normalizedBranch = body.branch.replace(/^refs\/heads\//, "");
-    const headSha = body.sha;
-
     const repo = await db.gitHubRepository.findFirst({
         where: {
             fullName: body.repo_full_name,
             applicationId: { not: null },
             installation: { organizationId: member.organizationId },
         },
-        select: { applicationId: true },
+        select: { applicationId: true, installation: { select: { installationId: true } } },
     });
 
     if (repo?.applicationId == null) {
@@ -74,39 +69,68 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
         return ctx.json({ error: `Repository ${body.repo_full_name} is not linked to an application` }, 400);
     }
 
-    // Find or auto-create the branch so it exists before the snapshot is created.
-    let branch = await db.branch.findFirst({
-        where: {
-            applicationId: repo.applicationId,
-            githubRef: normalizedBranch,
-        },
-        select: { id: true, lastHandledSha: true },
-    });
-
-    if (branch == null) {
-        logger.info("Auto-creating branch", { applicationId: repo.applicationId, branch: normalizedBranch });
-        const created = await db.branch.create({
-            data: {
-                name: normalizedBranch,
-                githubRef: normalizedBranch,
-                applicationId: repo.applicationId,
-                organizationId: member.organizationId,
-            },
-            select: { id: true, lastHandledSha: true },
-        });
-        branch = created;
-    }
-
-    const baseSha = body.base_sha ?? branch.lastHandledSha ?? undefined;
-
-    logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
-
     const githubApp = new GitHubApp({
         appId: env.GITHUB_APP_ID,
         privateKey: env.GITHUB_APP_PRIVATE_KEY,
         webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
         appSlug: env.GITHUB_APP_SLUG,
     });
+
+    const [owner, repoName] = body.repo_full_name.split("/");
+    if (owner == null || repoName == null) {
+        return ctx.json({ error: "Invalid repo_full_name format" }, 400);
+    }
+
+    const installationClient = await githubApp.getInstallationClient(repo.installation.installationId);
+
+    let pullRequest;
+    try {
+        pullRequest = await installationClient.getPullRequest(owner, repoName, body.pr_number);
+    } catch (error) {
+        logger.warn("Failed to fetch pull request from GitHub", { prNumber: body.pr_number, error });
+        return ctx.json({ error: `Pull request #${body.pr_number} not found` }, 404);
+    }
+
+    const normalizedBranch = pullRequest.headRef;
+    const headSha = pullRequest.headSha;
+
+    // Find or auto-create the branch so it exists before the snapshot is created.
+    let branch = await db.branch.findFirst({
+        where: {
+            applicationId: repo.applicationId,
+            githubRef: normalizedBranch,
+        },
+        select: { id: true, lastHandledSha: true, prNumber: true },
+    });
+
+    if (branch == null) {
+        logger.info("Auto-creating branch", {
+            applicationId: repo.applicationId,
+            branch: normalizedBranch,
+            prNumber: body.pr_number,
+        });
+        const created = await db.branch.create({
+            data: {
+                name: normalizedBranch,
+                githubRef: normalizedBranch,
+                prNumber: body.pr_number,
+                applicationId: repo.applicationId,
+                organizationId: member.organizationId,
+            },
+            select: { id: true, lastHandledSha: true, prNumber: true },
+        });
+        branch = created;
+    } else if (branch.prNumber == null) {
+        await db.branch.update({
+            where: { id: branch.id },
+            data: { prNumber: body.pr_number },
+        });
+    }
+
+    const baseSha = body.base_sha ?? branch.lastHandledSha ?? undefined;
+
+    logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
+
     const githubService = new GitHubInstallationService(db, githubApp);
 
     try {
@@ -155,6 +179,7 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
             headSha,
             body.url,
             body.environment,
+            body.pr_number,
         );
 
         await db.branch.update({

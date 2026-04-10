@@ -87,11 +87,24 @@ export class GitHubWebhookHandler {
                 data: {
                     name: branchName,
                     githubRef: branchName,
+                    prNumber,
                     applicationId: repo.applicationId,
                     organizationId: organization.organizationId,
                 },
                 select: { id: true },
             });
+        } else {
+            const existing = await this.db.branch.findFirst({
+                where: { id: branch.id },
+                select: { prNumber: true },
+            });
+
+            if (existing?.prNumber == null) {
+                await this.db.branch.update({
+                    where: { id: branch.id },
+                    data: { prNumber },
+                });
+            }
         }
 
         const snapshotId = await this.commitDiffHandler.checkForChanges(branch.id);
