@@ -60,52 +60,27 @@ export class SignupHooks {
     }): Promise<void> {
         this.logger.info("Running signup hooks", {
             userId: params.userId,
-            email: params.email,
             organizationId: params.organizationId,
         });
 
         const hookState = await this.getOrCreateHookState(params.db, params.userId, params.organizationId);
+
+        const allHooksComplete =
+            hookState.newsletterAddedAt != null &&
+            hookState.defaultWelcomeEmailSentAt != null &&
+            hookState.premiumWelcomeEmailSentAt != null;
+        if (allHooksComplete) {
+            this.logger.debug("All signup hooks already complete", { userId: params.userId });
+            return;
+        }
+
+        const isPremium = await this.isOrgPremium(params.db, params.organizationId);
         const normalizedName = this.normalizeUserName(params.name, params.email);
         const nameParts = normalizedName.split(/\s+/);
         const firstName = nameParts[0];
         const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
-        const isPremium = await this.isOrgPremium(params.db, params.organizationId);
-        const jobs: Array<Promise<void>> = [];
-        const jobNames: string[] = [];
 
-        if (hookState.newsletterAddedAt == null) {
-            jobs.push(this.addToNewsletter(params.email, firstName, lastName));
-            jobNames.push("newsletter");
-        }
-
-        if (!isPremium && hookState.defaultWelcomeEmailSentAt == null) {
-            const channelResult = await this.setupCommunicationChannel(params, false);
-            jobs.push(this.sendWelcomeEmail(params.email, normalizedName, channelResult));
-            jobNames.push("default-welcome-email");
-        }
-
-        if (isPremium && hookState.premiumWelcomeEmailSentAt == null) {
-            const channelResult = await this.setupCommunicationChannel(params, true);
-            if (channelResult?.type === "slack") {
-                jobs.push(this.sendWelcomeEmail(params.email, normalizedName, channelResult));
-                jobNames.push("premium-welcome-email");
-            }
-        }
-
-        const results = await Promise.allSettled(jobs);
-
-        for (const [index, result] of results.entries()) {
-            if (result.status === "rejected") {
-                this.logger.error(`Signup hook failed: ${jobNames[index]}`, {
-                    error: result.reason,
-                    userId: params.userId,
-                });
-            }
-        }
-
-        await this.markSuccessfulHooks(params.db, params.userId, params.organizationId, jobNames, results);
-
-        this.logger.info("Signup hooks completed", { userId: params.userId });
+        await this.runHooks(params, hookState, isPremium, normalizedName, firstName, lastName, "signup");
     }
 
     async onUserAuthenticated(params: {
@@ -118,28 +93,122 @@ export class SignupHooks {
         orgSlug: string;
     }): Promise<void> {
         const hookState = await this.getOrCreateHookState(params.db, params.userId, params.organizationId);
-        if (hookState.premiumWelcomeEmailSentAt != null) return;
+
+        const allHooksComplete =
+            hookState.newsletterAddedAt != null &&
+            hookState.defaultWelcomeEmailSentAt != null &&
+            hookState.premiumWelcomeEmailSentAt != null;
+        if (allHooksComplete) return;
+
+        this.logger.info("Running authentication catch-up hooks", {
+            userId: params.userId,
+            organizationId: params.organizationId,
+        });
 
         const isPremium = await this.isOrgPremium(params.db, params.organizationId);
-        if (!isPremium) return;
-
-        const channelResult = await this.setupCommunicationChannel(params, true);
-        if (channelResult?.type !== "slack") return;
-
         const normalizedName = this.normalizeUserName(params.name, params.email);
-        await this.sendWelcomeEmail(params.email, normalizedName, channelResult);
+        const nameParts = normalizedName.split(/\s+/);
+        const firstName = nameParts[0];
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
 
-        await params.db.signupHookState.update({
-            where: {
-                userId_organizationId: {
-                    userId: params.userId,
-                    organizationId: params.organizationId,
-                },
-            },
-            data: {
-                premiumWelcomeEmailSentAt: new Date(),
-            },
+        await this.runHooks(params, hookState, isPremium, normalizedName, firstName, lastName, "catch-up");
+    }
+
+    private async runHooks(
+        params: {
+            db: PrismaClient;
+            userId: string;
+            email: string;
+            organizationId: string;
+            orgName: string;
+            orgSlug: string;
+        },
+        hookState: {
+            newsletterAddedAt: Date | null;
+            defaultWelcomeEmailSentAt: Date | null;
+            premiumWelcomeEmailSentAt: Date | null;
+        },
+        isPremium: boolean,
+        normalizedName: string,
+        firstName: string | undefined,
+        lastName: string | undefined,
+        source: string,
+    ): Promise<void> {
+        const claimedJobs: Array<{ label: HookLabel; field: HookField; run: () => Promise<void> }> = [];
+
+        if (hookState.newsletterAddedAt == null) {
+            const claimed = await this.claimHookField(
+                params.db,
+                params.userId,
+                params.organizationId,
+                "newsletterAddedAt",
+            );
+            if (claimed) {
+                claimedJobs.push({
+                    label: "newsletter",
+                    field: "newsletterAddedAt",
+                    run: () => this.addToNewsletter(params.email, firstName, lastName),
+                });
+            }
+        }
+
+        if (!isPremium && hookState.defaultWelcomeEmailSentAt == null) {
+            const claimed = await this.claimHookField(
+                params.db,
+                params.userId,
+                params.organizationId,
+                "defaultWelcomeEmailSentAt",
+            );
+            if (claimed) {
+                const channelResult = await this.setupCommunicationChannel(params, false);
+                claimedJobs.push({
+                    label: "default-welcome-email",
+                    field: "defaultWelcomeEmailSentAt",
+                    run: () => this.sendWelcomeEmail(params.email, normalizedName, channelResult),
+                });
+            }
+        }
+
+        if (isPremium && hookState.premiumWelcomeEmailSentAt == null) {
+            const claimed = await this.claimHookField(
+                params.db,
+                params.userId,
+                params.organizationId,
+                "premiumWelcomeEmailSentAt",
+            );
+            if (claimed) {
+                const channelResult = await this.setupCommunicationChannel(params, true);
+                if (channelResult?.type === "slack") {
+                    claimedJobs.push({
+                        label: "premium-welcome-email",
+                        field: "premiumWelcomeEmailSentAt",
+                        run: () => this.sendWelcomeEmail(params.email, normalizedName, channelResult),
+                    });
+                }
+            }
+        }
+
+        if (claimedJobs.length === 0) {
+            this.logger.debug("No hooks to run", { userId: params.userId, source });
+            return;
+        }
+
+        this.logger.info(`Running ${claimedJobs.length} ${source} hook(s)`, {
+            userId: params.userId,
+            hooks: claimedJobs.map((j) => j.label),
         });
+
+        const results = await Promise.allSettled(claimedJobs.map((j) => j.run()));
+
+        for (const [index, result] of results.entries()) {
+            if (result.status === "rejected") {
+                const job = claimedJobs[index]!;
+                this.logger.error(`Hook failed: ${job.label}`, { error: result.reason, userId: params.userId, source });
+                await this.unclaimHookField(params.db, params.userId, params.organizationId, job.field);
+            }
+        }
+
+        this.logger.info(`${source} hooks completed`, { userId: params.userId });
     }
 
     private async addToNewsletter(email: string, firstName?: string, lastName?: string): Promise<void> {
@@ -203,38 +272,45 @@ export class SignupHooks {
         });
     }
 
-    private async markSuccessfulHooks(
+    /**
+     * Uses a single conditional UPDATE so only one concurrent caller can flip a null timestamp to a value.
+     */
+    private async claimHookField(
         db: PrismaClient,
         userId: string,
         organizationId: string,
-        jobNames: string[],
-        results: PromiseSettledResult<void>[],
+        field: HookField,
+    ): Promise<boolean> {
+        const result = await db.signupHookState.updateMany({
+            where: {
+                userId,
+                organizationId,
+                [field]: null,
+            },
+            data: {
+                [field]: new Date(),
+            },
+        });
+        return result.count > 0;
+    }
+
+    /**
+     * Releases a previously claimed hook field so it can be retried on the next login.
+     * Called when the external side-effect (email, newsletter) fails after claiming.
+     */
+    private async unclaimHookField(
+        db: PrismaClient,
+        userId: string,
+        organizationId: string,
+        field: HookField,
     ): Promise<void> {
-        const data: {
-            newsletterAddedAt?: Date;
-            defaultWelcomeEmailSentAt?: Date;
-            premiumWelcomeEmailSentAt?: Date;
-        } = {};
-
-        for (const [index, result] of results.entries()) {
-            if (result.status !== "fulfilled") continue;
-
-            const jobName = jobNames[index];
-            if (jobName === "newsletter") data.newsletterAddedAt = new Date();
-            if (jobName === "default-welcome-email") data.defaultWelcomeEmailSentAt = new Date();
-            if (jobName === "premium-welcome-email") data.premiumWelcomeEmailSentAt = new Date();
-        }
-
-        if (Object.keys(data).length === 0) return;
-
         await db.signupHookState.update({
             where: {
-                userId_organizationId: {
-                    userId,
-                    organizationId,
-                },
+                userId_organizationId: { userId, organizationId },
             },
-            data,
+            data: {
+                [field]: null,
+            },
         });
     }
 
@@ -267,3 +343,6 @@ export interface ChannelResult {
     type: "slack" | "discord";
     inviteUrl?: string;
 }
+
+type HookLabel = "newsletter" | "default-welcome-email" | "premium-welcome-email";
+type HookField = "newsletterAddedAt" | "defaultWelcomeEmailSentAt" | "premiumWelcomeEmailSentAt";

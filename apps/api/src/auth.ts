@@ -234,22 +234,20 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
                     after: async (user) => {
                         const result = await ensureOrgMembership(conn, user.id, user.email, user.name);
 
-                        if (result.isNewUser) {
-                            // Fire-and-forget: signup hooks run async and never block auth
-                            void signupHooks
-                                .onUserCreated({
-                                    db: conn,
-                                    userId: user.id,
-                                    email: user.email,
-                                    name: user.name,
-                                    organizationId: result.organizationId,
-                                    orgName: result.orgName,
-                                    orgSlug: result.orgSlug,
-                                })
-                                .catch((error) => {
-                                    logger.error("Failed to run signupHooks.onUserCreated", { error, userId: user.id });
-                                });
-                        }
+                        // This runs only on user creation; the hook itself skips work that's already claimed/completed.
+                        void signupHooks
+                            .onUserCreated({
+                                db: conn,
+                                userId: user.id,
+                                email: user.email,
+                                name: user.name,
+                                organizationId: result.organizationId,
+                                orgName: result.orgName,
+                                orgSlug: result.orgSlug,
+                            })
+                            .catch((error) => {
+                                logger.error("Failed to run signupHooks.onUserCreated", { error, userId: user.id });
+                            });
                     },
                 },
             },
@@ -265,24 +263,23 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
 
                         const result = await ensureOrgMembership(conn, session.userId, user.email, user.name);
 
-                        if (!result.isNewUser) {
-                            void signupHooks
-                                .onUserAuthenticated({
-                                    db: conn,
+                        // This runs on every session creation so it can catch up any signup side-effects that were missed.
+                        void signupHooks
+                            .onUserAuthenticated({
+                                db: conn,
+                                userId: session.userId,
+                                email: user.email,
+                                name: user.name,
+                                organizationId: result.organizationId,
+                                orgName: result.orgName,
+                                orgSlug: result.orgSlug,
+                            })
+                            .catch((error) => {
+                                logger.error("Failed to run signupHooks.onUserAuthenticated", {
+                                    error,
                                     userId: session.userId,
-                                    email: user.email,
-                                    name: user.name,
-                                    organizationId: result.organizationId,
-                                    orgName: result.orgName,
-                                    orgSlug: result.orgSlug,
-                                })
-                                .catch((error) => {
-                                    logger.error("Failed to run signupHooks.onUserAuthenticated", {
-                                        error,
-                                        userId: session.userId,
-                                    });
                                 });
-                        }
+                            });
 
                         return {
                             data: {
