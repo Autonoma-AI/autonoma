@@ -73,7 +73,13 @@ export async function triggerTestsAndWait(slugs: string[], params: TriggerTestsP
         const testCase = testCaseBySlug.get(slug);
         if (testCase == null) {
             logger.warn("Test case not found for slug", { slug, applicationId });
-            earlyFailures.push(buildErrorResult(slug, slug, `Test case not found for slug: ${slug}`));
+            earlyFailures.push(
+                buildErrorResult(
+                    slug,
+                    slug,
+                    `Test case not found for slug "${slug}". This slug does not exist in the database for this application.`,
+                ),
+            );
             continue;
         }
 

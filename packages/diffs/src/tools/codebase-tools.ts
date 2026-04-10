@@ -27,9 +27,10 @@ export function buildActionTools(
     callbacks: DiffsAgentCallbacks,
     completedRuns: Set<string>,
     collector: ResultCollector,
+    validSlugs: Set<string>,
 ) {
     return {
-        run_test: buildRunTestTool(callbacks, completedRuns),
+        run_test: buildRunTestTool(callbacks, completedRuns, validSlugs),
         quarantine_test: buildQuarantineTestTool(callbacks, completedRuns, collector),
         bug_found: buildBugFoundTool(callbacks, completedRuns, collector),
         modify_test: buildModifyTestTool(callbacks, completedRuns, collector),

@@ -4,6 +4,8 @@ import type { TestRunResult } from "../src/diffs-agent";
 import { buildRunTestTool } from "../src/tools/run-test-tool";
 import { executeTool } from "./execute-tool";
 
+const VALID_SLUGS = new Set(["login-flow", "checkout-flow", "settings-page", "user-profile"]);
+
 function createMockCallbacks(results?: Partial<TestRunResult>[]): DiffsAgentCallbacks {
     const defaultResults: TestRunResult[] = [
         {
@@ -44,7 +46,7 @@ describe("run_test tool", () => {
     it("triggers batch test execution and returns results", async () => {
         const callbacks = createMockCallbacks();
         const completedRuns = new Set<string>();
-        const tool = buildRunTestTool(callbacks, completedRuns);
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
 
         const result = await executeTool<TestRunResult[]>(tool, { slugs: ["login-flow"] });
 
@@ -60,7 +62,7 @@ describe("run_test tool", () => {
             { slug: "checkout-flow", success: false },
         ]);
         const completedRuns = new Set<string>();
-        const tool = buildRunTestTool(callbacks, completedRuns);
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
 
         await executeTool(tool, { slugs: ["login-flow", "checkout-flow"] });
 
@@ -78,12 +80,55 @@ describe("run_test tool", () => {
             },
         ]);
         const completedRuns = new Set<string>();
-        const tool = buildRunTestTool(callbacks, completedRuns);
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
 
         const result = await executeTool<TestRunResult[]>(tool, { slugs: ["checkout-flow"] });
 
         expect(result[0]!.success).toBe(false);
         expect(result[0]!.finishReason).toBe("error");
         expect(completedRuns.has("checkout-flow")).toBe(true);
+    });
+
+    it("returns error with suggestions when all slugs are invalid", async () => {
+        const callbacks = createMockCallbacks();
+        const completedRuns = new Set<string>();
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
+
+        const result = await executeTool<{ error: string }>(tool, { slugs: ["logn-flow", "chekout-flow"] });
+
+        expect(result.error).toContain("logn-flow");
+        expect(result.error).toContain("chekout-flow");
+        expect(result.error).toContain("login-flow");
+        expect(result.error).toContain("checkout-flow");
+        expect(callbacks.triggerTestsAndWait).not.toHaveBeenCalled();
+        expect(completedRuns.size).toBe(0);
+    });
+
+    it("returns error without running any tests when mix of valid and invalid slugs", async () => {
+        const callbacks = createMockCallbacks([{ slug: "login-flow", success: true }]);
+        const completedRuns = new Set<string>();
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
+
+        const result = await executeTool<{ error: string }>(tool, {
+            slugs: ["login-flow", "made-up-slug"],
+        });
+
+        expect(result.error).toContain("made-up-slug");
+        expect(callbacks.triggerTestsAndWait).not.toHaveBeenCalled();
+        expect(completedRuns.size).toBe(0);
+    });
+
+    it("rejects file paths as slugs", async () => {
+        const callbacks = createMockCallbacks();
+        const completedRuns = new Set<string>();
+        const tool = buildRunTestTool(callbacks, completedRuns, VALID_SLUGS);
+
+        const result = await executeTool<{ error: string }>(tool, {
+            slugs: ["autonoma/qa-tests/login-flow.md"],
+        });
+
+        expect(result.error).toContain("autonoma/qa-tests/login-flow.md");
+        expect(result.error).toContain("Do NOT use file paths");
+        expect(callbacks.triggerTestsAndWait).not.toHaveBeenCalled();
     });
 });

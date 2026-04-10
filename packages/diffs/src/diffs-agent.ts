@@ -69,9 +69,10 @@ export class DiffsAgent {
 
     async analyze(input: DiffsAgentInput): Promise<DiffsAgentResult> {
         const prompt = buildPrompt(input);
+        const validSlugs = new Set(input.existingTests.map((t) => t.slug));
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(prompt);
+            const attemptResult = await this.runAgent(prompt, validSlugs);
 
             const hasActions =
                 attemptResult.testActions.length > 0 ||
@@ -91,7 +92,7 @@ export class DiffsAgent {
         };
     }
 
-    private async runAgent(prompt: string): Promise<DiffsAgentResult> {
+    private async runAgent(prompt: string, validSlugs: Set<string>): Promise<DiffsAgentResult> {
         const completedRuns = new Set<string>();
 
         const { model, workingDirectory, maxSteps = 50 } = this.config;
@@ -109,7 +110,7 @@ export class DiffsAgent {
             instructions: SYSTEM_PROMPT,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
-                ...buildActionTools(this.config.callbacks, completedRuns, collector),
+                ...buildActionTools(this.config.callbacks, completedRuns, collector, validSlugs),
                 finish: buildFinishTool((output) => {
                     result = output;
                 }, collector),
@@ -190,7 +191,10 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
     if (existingTests.length > 0) {
         prompt += "\n\n## Existing Tests\n";
         prompt +=
-            "IMPORTANT: Use the `slug` field when calling tools like `run_test` (pass as array), `modify_test`, `quarantine_test`, or `bug_found`.\n";
+            "IMPORTANT: When calling tools that require a slug (`run_test`, `modify_test`, `quarantine_test`, `bug_found`), " +
+            "you MUST use the EXACT `slug` values listed below. Slugs are plain identifiers like `login-flow` or " +
+            "`checkout-page-validation` - NOT file paths and NOT filenames. Do NOT derive slugs from the filesystem. " +
+            "Do NOT append `.md` or any file extension. Only use slugs that appear in this list.\n";
         for (const test of existingTests) {
             prompt += `\n### ${test.name}\n`;
             prompt += `- **slug**: \`${test.slug}\` (use this as the slug in tools)\n`;
@@ -239,6 +243,9 @@ Identify new functionality that has no test coverage. Use \`add_test\` for each 
 - \`update_skill\`: update a skill's content
 - \`add_test\`: suggest a new test for uncovered functionality
 - \`finish\`: call when done with your analysis
+
+## File System Layout
+Test files exist on disk at \`autonoma/qa-tests/{slug}.md\` and skills at \`autonoma/skills/{slug}.md\`. These files are for reference only - you can read them to understand test content. When calling tools, always use the plain slug identifiers from the Existing Tests section (e.g. \`login-flow\`), never file paths or filenames with extensions.
 
 ## Workflow
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
