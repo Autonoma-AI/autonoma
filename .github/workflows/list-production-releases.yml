@@ -1,0 +1,61 @@
+name: List Production Releases
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list:
+    name: List Available Production Releases
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List production releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "# Available Production Releases"
+          echo ""
+          echo "To rollback to a specific release, run:"
+          echo "  gh workflow run production-rollback.yml -f version=<VERSION>"
+          echo ""
+          echo "Or leave version empty to rollback to the previous release."
+          echo ""
+          echo "---"
+          echo ""
+
+          # List all releases and check for deployment manifests
+          gh release list --limit 30 | while read -r line; do
+            TAG=$(echo "$line" | awk '{print $1}')
+            TITLE=$(echo "$line" | awk '{$1=$2=$3=""; print $0}' | xargs)
+            PUBLISHED=$(echo "$line" | awk '{print $3}')
+
+            # Check if this release has a deployment manifest (meaning it was deployed)
+            if gh release view "$TAG" --json assets -q '.assets[].name' | grep -q 'deployment-manifest.json'; then
+              echo "## $TAG"
+              echo "**Published:** $PUBLISHED"
+              echo "**Title:** $TITLE"
+
+              # Download and display deployment info
+              if gh release download "$TAG" --pattern "deployment-manifest.json" --dir /tmp --clobber 2>/dev/null; then
+                DEPLOYED_AT=$(jq -r '.timestamp' /tmp/deployment-manifest.json)
+                echo "**Deployed:** $DEPLOYED_AT"
+                echo ""
+                echo "**Core Services:**"
+                jq -r '.deployments | to_entries[] | "- \(.key): `\(.value)`"' "/tmp/deployment-manifest.json"
+                echo ""
+                echo "**Job Images:**"
+                jq -r '.jobs | to_entries[] | "- \(.key): `\(.value)`"' "/tmp/deployment-manifest.json"
+                echo ""
+              fi
+
+              echo "**Rollback command:**"
+              echo "\`\`\`bash"
+              echo "gh workflow run production-rollback.yml -f version=$TAG"
+              echo "\`\`\`"
+              echo ""
+              echo "---"
+              echo ""
+            fi
+          done

@@ -1,0 +1,236 @@
+name: Rollback Production to Previous Revision
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to rollback to (e.g., v1.2.3). Leave empty for previous release.'
+        required: false
+        type: string
+
+concurrency:
+  group: rollback-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 140023360995.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  rollback:
+    name: Rollback
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.determine-release.outputs.version }}
+      rollback-status: ${{ steps.rollback.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine target release
+        id: determine-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            # Use specified version
+            VERSION="${{ inputs.version }}"
+            echo "Using specified version: $VERSION"
+          else
+            # Get the second latest release (skip current) with deployment manifest
+            VERSION=""
+            for release_tag in $(gh release list --limit 20 | awk '{print $1}'); do
+              # Check if this release has a deployment manifest
+              if gh release view "$release_tag" --json assets -q '.assets[].name' | grep -q 'deployment-manifest.json'; then
+                if [ -z "$VERSION" ]; then
+                  # Skip the first one (current)
+                  VERSION="pending"
+                else
+                  # This is the second one (previous)
+                  VERSION="$release_tag"
+                  break
+                fi
+              fi
+            done
+
+            if [ -z "$VERSION" ] || [ "$VERSION" = "pending" ]; then
+              echo "::error::No previous release with deployment manifest found"
+              exit 1
+            fi
+
+            echo "Using previous release: $VERSION"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download deployment manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.determine-release.outputs.version }}"
+
+          # Download the deployment manifest from the release
+          gh release download "$VERSION" \
+            --pattern "deployment-manifest.json" \
+            --dir /tmp
+
+          if [ ! -f /tmp/deployment-manifest.json ]; then
+            echo "::error::deployment-manifest.json not found in release $VERSION"
+            exit 1
+          fi
+
+          echo "Downloaded deployment manifest for $VERSION:"
+          cat /tmp/deployment-manifest.json | jq .
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_SERVICE_ACCOUNT_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SERVICE_ACCOUNT_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Parse manifest and verify images
+        run: |
+          # Extract images from manifest
+          API_IMAGE=$(jq -r '.deployments.api' /tmp/deployment-manifest.json)
+          UI_IMAGE=$(jq -r '.deployments.ui' /tmp/deployment-manifest.json)
+
+          echo "Target images:"
+          echo "  API: $API_IMAGE"
+          echo "  UI: $UI_IMAGE"
+
+          # Extract job images
+          jq -r '.jobs | to_entries[] | "\(.key): \(.value)"' /tmp/deployment-manifest.json
+
+          # Extract repository and tag for verification
+          API_REPO=$(echo "$API_IMAGE" | cut -d'/' -f2- | cut -d':' -f1)
+          API_TAG=$(echo "$API_IMAGE" | cut -d':' -f2)
+          UI_REPO=$(echo "$UI_IMAGE" | cut -d'/' -f2- | cut -d':' -f1)
+          UI_TAG=$(echo "$UI_IMAGE" | cut -d':' -f2)
+
+          # Verify API image exists
+          if ! aws ecr describe-images \
+            --repository-name "$API_REPO" \
+            --image-ids imageTag="$API_TAG" \
+            --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "::error::API image not found: $API_IMAGE"
+            exit 1
+          fi
+
+          # Verify UI image exists
+          if ! aws ecr describe-images \
+            --repository-name "$UI_REPO" \
+            --image-ids imageTag="$UI_TAG" \
+            --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+            echo "::error::UI image not found: $UI_IMAGE"
+            exit 1
+          fi
+
+          echo "Deployment images verified in ECR"
+
+      - name: Rollback API
+        id: rollback
+        run: |
+          API_IMAGE=$(jq -r '.deployments.api' /tmp/deployment-manifest.json)
+
+          echo "Rolling back API to $API_IMAGE"
+          kubectl set image deployment/api \
+            api="$API_IMAGE" \
+            -n production
+
+          kubectl rollout status deployment/api -n production --timeout=300s
+
+      - name: Rollback UI
+        run: |
+          UI_IMAGE=$(jq -r '.deployments.ui' /tmp/deployment-manifest.json)
+
+          echo "Rolling back UI to $UI_IMAGE"
+          kubectl set image deployment/ui \
+            ui="$UI_IMAGE" \
+            -n production
+
+          kubectl set env deployment/ui \
+            API_UPSTREAM=api.production.svc.cluster.local:4000 \
+            -n production
+
+      - name: Rollback job image versions
+        run: |
+          # Extract job images object from manifest
+          jq -r '.jobs' /tmp/deployment-manifest.json > /tmp/job-images.json
+
+          # Build kubectl create configmap command from JSON
+          CMD="kubectl create configmap image-version -n production"
+
+          # Add each job image as a literal
+          while IFS= read -r line; do
+            KEY=$(echo "$line" | jq -r '.key')
+            VALUE=$(echo "$line" | jq -r '.value')
+            CMD="$CMD --from-literal=$KEY=$VALUE"
+          done < <(jq -c 'to_entries[]' /tmp/job-images.json)
+
+          # Apply the ConfigMap
+          eval "$CMD --dry-run=client -o yaml | kubectl apply -f -"
+
+          echo "Rolled back job image versions:"
+          jq -r 'to_entries[] | "  \(.key): \(.value)"' /tmp/job-images.json
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E1G7RSBII0C4YM \
+            --paths "/*"
+
+  notify:
+    name: Slack Notification
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    needs: rollback
+    if: always()
+    steps:
+      - name: Send Slack notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BETA_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ needs.rollback.outputs.rollback-status }}"
+          VERSION="${{ needs.rollback.outputs.version }}"
+
+          if [ "$STATUS" = "success" ]; then
+            COLOR="good"
+            TEXT="✅ Production rolled back successfully to $VERSION"
+          else
+            COLOR="danger"
+            TEXT="❌ Production rollback failed"
+          fi
+
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"text\": \"$TEXT\",
+                \"fields\": [
+                  {
+                    \"title\": \"Version\",
+                    \"value\": \"<${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION|$VERSION>\",
+                    \"short\": true
+                  },
+                  {
+                    \"title\": \"Workflow\",
+                    \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\",
+                    \"short\": true
+                  }
+                ]
+              }]
+            }"
