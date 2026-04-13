@@ -41,7 +41,7 @@ packages/
 
 ```bash
 git clone https://github.com/autonoma-ai/autonoma.git
-cd agent
+cd autonoma
 ```
 
 ### 2. Install dependencies
@@ -171,3 +171,23 @@ click Sign In, and assert the dashboard is visible.
 - **Observability** - Sentry
 - **Analytics** - PostHog
 - **Deployment** - Kubernetes + Argo Workflows
+## Troubleshooting
+
+### Docker issues
+- **PostgreSQL or Redis won't start** — make sure Docker Desktop is running before you run `docker compose up -d`
+- **Port already in use** — if port 5432 or 6379 is occupied, stop any local PostgreSQL or Redis instances first
+- **Container exits immediately** — run `docker compose logs` to see what went wrong
+
+### Database issues
+- **Prisma migration fails** — make sure `DATABASE_URL` in your `.env` is correct and PostgreSQL is running
+- **`pnpm db:generate` fails** — delete the `node_modules/.prisma` folder and run it again
+
+### Environment variables
+- **App won't start** — double check your `.env` file exists. Run `cp .env.example .env` if you haven't already
+- **Google OAuth not working** — make sure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set and your OAuth redirect URI is `http://localhost:3000`
+- **AI features not working** — ensure `GEMINI_API_KEY` is valid and has the necessary permissions
+
+### Node / pnpm issues
+- **Wrong Node version** — run `node -v` and make sure you're on Node.js >= 24. Use `nvm install 24 && nvm use 24` to switch
+- **pnpm not found** — run `corepack enable` then try again
+- **Dependencies won't install** — delete `node_modules` and run `pnpm install` again
