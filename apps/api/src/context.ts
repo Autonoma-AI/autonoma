@@ -2,13 +2,12 @@ import { db } from "@autonoma/db";
 import { GitHubApp } from "@autonoma/github";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
-import { type GenerationProvider, LocalGenerationProvider } from "@autonoma/test-updates";
-import { ArgoGenerationProvider } from "@autonoma/test-updates/argo";
+import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import {
-    triggerDiffsJob as prodDiffPlannerWorkflow,
-    triggerGenerationReviewWorkflow as prodGenerationReviewWorkflow,
-    triggerReplayReviewWorkflow as prodReplayReviewWorkflow,
-    triggerRunWorkflow as prodRunWorkflow,
+    triggerDiffsJob,
+    triggerGenerationReviewWorkflow,
+    triggerReplayReviewWorkflow,
+    triggerRunWorkflow,
 } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
@@ -16,18 +15,8 @@ import { buildAuth } from "./auth";
 import { env } from "./env";
 import { connectRedis } from "./redis";
 import { buildServices } from "./routes/build-services";
-import { triggerLocalReplayReview } from "./scripts/local-replay-review";
-import { triggerLocalReview } from "./scripts/local-review";
-import { triggerLocalRun } from "./scripts/local-run";
 
 if (env.TESTING) throw new Error("Do not import context.ts in a test environment - You may need to refactor the code.");
-
-export const triggerRunWorkflow = env.NODE_ENV === "production" ? prodRunWorkflow : triggerLocalRun;
-export const triggerGenerationReview =
-    env.NODE_ENV === "production" ? prodGenerationReviewWorkflow : triggerLocalReview;
-export const triggerRunReview = env.NODE_ENV === "production" ? prodReplayReviewWorkflow : triggerLocalReplayReview;
-export const triggerDiffPlanner =
-    env.NODE_ENV === "production" ? prodDiffPlannerWorkflow : async ({ branchId: _ }: { branchId: string }) => {};
 
 export const storageProvider = S3Storage.createFromEnv();
 export const redisClient = await connectRedis({ url: env.REDIS_URL });
@@ -36,19 +25,7 @@ export const auth = buildAuth({ redisClient, conn: db });
 export const encryptionHelper = new EncryptionHelper(env.SCENARIO_ENCRYPTION_KEY);
 export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
-function createGenerationProvider(): GenerationProvider {
-    if (env.LOCAL_GENERATION) {
-        return new LocalGenerationProvider({
-            db,
-            scenarioManager,
-            concurrency: env.LOCAL_GENERATION_CONCURRENCY,
-        });
-    }
-
-    return new ArgoGenerationProvider({ agentVersion: env.AGENT_VERSION });
-}
-
-export const generationProvider = createGenerationProvider();
+export const generationProvider = new TemporalGenerationProvider();
 
 const githubApp = new GitHubApp({
     appSlug: env.GITHUB_APP_SLUG,
@@ -71,9 +48,9 @@ export async function createContext(c: HonoContext) {
             auth,
             storageProvider,
             triggerRunWorkflow,
-            triggerGenerationReview,
-            triggerRunReview,
-            triggerDiffPlanner,
+            triggerGenerationReview: triggerGenerationReviewWorkflow,
+            triggerRunReview: triggerReplayReviewWorkflow,
+            triggerDiffPlanner: triggerDiffsJob,
             scenarioManager,
             encryptionHelper,
             generationProvider,

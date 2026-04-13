@@ -274,7 +274,7 @@ packages/
   analytics/        PostHog analytics
   device-lock/      Redis device locking
   k8s/              Kubernetes helpers
-  workflow/         Argo workflow builders
+  workflow/         Temporal workflow definitions
   utils/            Shared utilities
 ```
 

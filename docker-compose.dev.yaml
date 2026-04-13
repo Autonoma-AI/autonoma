@@ -32,6 +32,40 @@ services:
       retries: 5
 
   # ──────────────────────────────────────────────
+  # Temporal
+  # ──────────────────────────────────────────────
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: postgres
+      POSTGRES_SEEDS: postgresql
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8233:8080"
+    depends_on:
+      - temporal
+
+  # ──────────────────────────────────────────────
   # API Server
   # ──────────────────────────────────────────────
 
@@ -45,6 +79,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgresql:5432/autonoma
       REDIS_URL: redis://redis:6379
+      TEMPORAL_ADDRESS: temporal:7233
       API_PORT: "4000"
       NODE_ENV: development
     volumes:

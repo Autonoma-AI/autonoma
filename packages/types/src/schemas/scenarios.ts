@@ -164,7 +164,7 @@ export const UpResponseSchema = z.object({
 export type UpResponse = z.infer<typeof UpResponseSchema>;
 
 export const DownResponseSchema = z.object({
-    ok: z.boolean(),
+    ok: z.boolean().optional(),
 });
 export type DownResponse = z.infer<typeof DownResponseSchema>;
 

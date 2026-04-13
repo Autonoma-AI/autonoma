@@ -1,115 +1,20 @@
 import "dotenv/config";
 import { writeFileSync } from "node:fs";
-import { unlink } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
-import {
-    GenerationAPIRunner,
-    GenerationPersister,
-    type PlanData,
-    type TestCase,
-    buildExecutionPrompt,
-    buildSkillsConfigFromPlanData,
-    createEngineModelRegistry,
-} from "@autonoma/engine";
+import { GenerationPersister, createEngineModelRegistry } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger, runWithSentry } from "@autonoma/logger";
-import { S3Storage, type StorageProvider } from "@autonoma/storage";
-import { AuthPayloadSchema } from "@autonoma/types";
-import { type MobileApplicationData, type MobileContext, MobileInstaller } from "../../platform";
+import { S3Storage } from "@autonoma/storage";
+import { MobileInstaller } from "../../platform";
 import { type MobileCommandSpec, createMobileAgentFactory } from "../mobile-agent";
+import { MobileGenerationAPIRunner } from "./mobile-generation-api-runner";
 
 const DEFAULT_RESOLUTION = { width: 1440, height: 2560 };
 const VIDEO_EXTENSION = "mp4";
 
-type GenerationAPIRunnerConfig = ConstructorParameters<
-    typeof GenerationAPIRunner<MobileCommandSpec, MobileContext, MobileApplicationData>
->[0] & {
-    storageProvider: StorageProvider;
-};
-
-class MobileGenerationAPIRunner extends GenerationAPIRunner<MobileCommandSpec, MobileContext, MobileApplicationData> {
-    private readonly tmpPhotoFiles = new Set<string>();
-    private readonly photoLogger = rootLogger.child({ name: "mobile-generation-photo" });
-    private readonly storageProvider: StorageProvider;
-
-    constructor(config: GenerationAPIRunnerConfig) {
-        const { storageProvider, ...runnerConfig } = config;
-        super(runnerConfig);
-        this.storageProvider = storageProvider;
-    }
-
-    public async parsePlanData(planData: PlanData): Promise<TestCase & MobileApplicationData> {
-        const { testPlan, snapshot } = planData;
-        const application = testPlan.testCase.application;
-        const mobileDeployment = snapshot?.deployment?.mobileDeployment;
-        if (mobileDeployment == null) {
-            throw new Error(`Application "${application.name}" has no mobile deployment`);
-        }
-        if (mobileDeployment.photo == null) {
-            throw new Error(`Application "${application.name}" has no default photo configured`);
-        }
-
-        const photo = await this.resolvePhotoFilePath(mobileDeployment.photo);
-
-        const skillsConfig = buildSkillsConfigFromPlanData(planData);
-
-        const authParsed = AuthPayloadSchema.safeParse(planData.scenarioInstance?.auth);
-        const auth = authParsed.success ? authParsed.data : undefined;
-        const credentials = auth?.credentials;
-        const recipeVariables = MobileGenerationAPIRunner.parseResolvedVariables(
-            planData.scenarioInstance?.resolvedVariables,
-        );
-
-        if (application.architecture === "WEB") {
-            this.logger.fatal("Web architecture is not supported for mobile generation", { testPlanId: testPlan.id });
-            throw new Error("Web architecture is not supported for mobile generation");
-        }
-
-        return {
-            name: testPlan.testCase.name,
-            prompt: buildExecutionPrompt(testPlan.prompt, application.customInstructions, credentials, recipeVariables),
-            platform: application.architecture,
-            packageUrl: mobileDeployment.packageUrl,
-            packageName: mobileDeployment.packageName,
-            photo,
-            skillsConfig,
-            credentials,
-            recipeVariables,
-        };
-    }
-
-    private async resolvePhotoFilePath(fileKey: string): Promise<string> {
-        this.photoLogger.info("Downloading photo from S3", { fileKey });
-        const buffer = await this.storageProvider.download(fileKey);
-        const filename = `${Date.now()}-${path.basename(fileKey)}`;
-        const tmpPath = path.join(os.tmpdir(), filename);
-        writeFileSync(tmpPath, buffer);
-        this.tmpPhotoFiles.add(tmpPath);
-        this.photoLogger.info("Photo written to tmp path", { tmpPath });
-        return tmpPath;
-    }
-
-    public async cleanupPhotoFiles() {
-        for (const tmpFile of this.tmpPhotoFiles) {
-            try {
-                await unlink(tmpFile);
-                this.photoLogger.info("Deleted tmp photo file", { tmpFile });
-            } catch (error) {
-                this.photoLogger.warn("Failed to delete tmp photo file", { tmpFile, error });
-            }
-        }
-        this.tmpPhotoFiles.clear();
-    }
-}
-
-async function main(testGenerationId: string) {
-    const logger = rootLogger.child({
-        name: "run-generation-job",
-        testGenerationId,
-    });
+export async function runMobileGenerationJob(testGenerationId: string) {
+    const logger = rootLogger.child({ name: "run-generation-job", testGenerationId });
 
     setScreenshotConfig({
         screenResolution: DEFAULT_RESOLUTION,
@@ -186,15 +91,17 @@ async function main(testGenerationId: string) {
     }
 }
 
-const args = process.argv.slice(2);
-if (args.length !== 1) {
-    console.error("Usage: tsx src/execution-agent/generation-api/run-generation-job.ts <testGenerationId>");
-    process.exit(1);
+if (process.argv[1]?.includes("run-generation-job")) {
+    const args = process.argv.slice(2);
+    if (args.length !== 1) {
+        console.error("Usage: tsx src/generation-api/run-generation-job.ts <testGenerationId>");
+        process.exit(1);
+    }
+
+    // biome-ignore lint/style/noNonNullAssertion: Length === 1
+    const testGenerationId = args[0]!;
+
+    await runWithSentry({ name: "execution-agent-mobile", tags: { generation_id: testGenerationId } }, () =>
+        runMobileGenerationJob(testGenerationId),
+    );
 }
-
-// biome-ignore lint/style/noNonNullAssertion: Length === 1
-const testGenerationId = args[0]!;
-
-await runWithSentry({ name: "execution-agent-mobile", tags: { generation_id: testGenerationId } }, () =>
-    main(testGenerationId),
-);

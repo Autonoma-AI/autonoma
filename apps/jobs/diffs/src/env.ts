@@ -5,7 +5,6 @@ import { z } from "zod";
 export const env = createEnv({
     extends: [loggerEnv],
     server: {
-        BRANCH_ID: z.string().min(1),
         GEMINI_API_KEY: z.string().min(1),
         GROQ_KEY: z.string().min(1),
         OPENROUTER_API_KEY: z.string().min(1),

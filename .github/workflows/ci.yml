@@ -146,6 +146,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
+      temporal:
+        image: temporalio/auto-setup:1.25.2
+        env:
+          DB: postgres12
+          DB_PORT: "5432"
+          POSTGRES_USER: test
+          POSTGRES_PWD: test
+          POSTGRES_SEEDS: postgres
+        ports:
+          - 7233:7233
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -179,7 +189,16 @@ jobs:
         env:
           CI_DATABASE_URL: postgresql://test:test@localhost:5432/test
           CI_REDIS_URL: redis://localhost:6379
-        run: pnpm --filter @autonoma/api test:integration
+          TEMPORAL_ADDRESS: localhost:7233
+        run: |
+          for i in {1..30}; do
+            if (echo > /dev/tcp/127.0.0.1/7233) >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for Temporal on localhost:7233... ($i/30)"
+            sleep 2
+          done
+          pnpm --filter @autonoma/api test:integration
 
   check-ui:
     name: Check UI

@@ -1,7 +1,7 @@
 export { TestSuiteUpdater, MissingJobProviderError, IncompleteGenerationsError } from "./test-update-manager";
 export type { GenerationProvider, PendingGeneration, GenerationJobOptions } from "./generation/generation-job-provider";
 export { FakeGenerationProvider } from "./generation/fake-generation-provider";
-export { LocalGenerationProvider } from "./generation/local-generation-provider";
+export { TemporalGenerationProvider } from "./generation/temporal-generation-provider";
 export {
     SnapshotDraft,
     SnapshotNotPendingError,

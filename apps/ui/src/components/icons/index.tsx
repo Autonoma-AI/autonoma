@@ -1,4 +1,4 @@
-export { Argo } from "./argo";
+export { Temporal } from "./temporal";
 export { Claude } from "./claude";
 export { Cursor } from "./cursor";
 export { Google } from "./google";

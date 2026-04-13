@@ -1,0 +1,28 @@
+{
+    "name": "@autonoma/worker-mobile",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix src/",
+        "fmt": "oxfmt --write src/",
+        "start": "tsx --import ./src/preload.ts src/index.ts",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "@autonoma/engine-mobile": "workspace:*",
+        "@autonoma/logger": "workspace:*",
+        "@autonoma/workflow": "workspace:*",
+        "@temporalio/activity": "^1.11.7",
+        "@temporalio/worker": "^1.11.7"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "dotenv": "catalog:",
+        "tsx": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

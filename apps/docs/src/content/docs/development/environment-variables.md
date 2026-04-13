@@ -80,8 +80,6 @@ The API server extends the database, storage, logger, and billing environments, 
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion endpoint. Override for self-hosted PostHog instances. |
 | `GEMINI_API_KEY` | Yes | - | Google Gemini API key. Used by the API for AI features like test generation. |
 | `REDIS_URL` | Yes | - | Redis connection string (e.g., `redis://localhost:6379`). Used for device locking, caching, and pub/sub. |
-| `LOCAL_GENERATION` | No | `false` | When `true`, runs test generation locally instead of dispatching to Kubernetes jobs. Useful for development. |
-| `LOCAL_GENERATION_CONCURRENCY` | No | `2` | Maximum number of concurrent local generation workers when `LOCAL_GENERATION` is enabled. |
 | `TESTING` | No | `false` | Set to `true` in test environments. Prevents importing certain modules. Not for general use. |
 | `ENGINE_BILLING_SECRET` | No | - | Shared secret for authenticating billing calls from the engine. |
 
@@ -97,7 +95,7 @@ The frontend uses Vite's `import.meta.env` and requires the `VITE_` prefix for a
 | --- | --- | --- | --- |
 | `VITE_API_URL` | No | `http://localhost:4000` | URL of the API server. The frontend makes all tRPC calls to this address. |
 | `VITE_INTERNAL_DOMAIN` | No | `autonoma.app` | Internal domain, used for UI routing logic. |
-| `VITE_ARGO_URL` | No | - | URL of the Argo Workflows UI. When set, enables links to workflow runs in the dashboard. |
+| `VITE_TEMPORAL_URL` | No | - | URL of the Temporal UI. When set, enables links to workflow runs in the dashboard. |
 | `VITE_SENTRY_DSN` | No | - | Sentry DSN for frontend error tracking. Omit to disable Sentry in the browser. |
 | `VITE_SENTRY_URL` | No | - | Sentry organization URL. Used for linking to Sentry issues from the UI. |
 | `VITE_POSTHOG_KEY` | No | - | PostHog project API key for frontend analytics. Omit to disable analytics. PostHog events are proxied through the API server at `/ingest` to bypass ad blockers. |
@@ -195,7 +193,7 @@ These variables are only needed in production or when running engine jobs on Kub
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `NAMESPACE` | Yes (in K8s) | - | Kubernetes namespace where jobs and workflows are deployed. Used by both `@autonoma/k8s` and `@autonoma/workflow`. |
+| `NAMESPACE` | Yes (in K8s) | - | Kubernetes namespace where jobs are deployed. Used by `@autonoma/k8s`. |
 
 The workflow package also reads:
 
@@ -261,18 +259,6 @@ The mobile engine extends the AI, database, logger, and storage environments. Al
 | `ENGINE_BILLING_SECRET` | No | - | Shared secret for authenticating billing-related calls. |
 | `STRIPE_ENABLED` | No | `false` | Whether to process billing events on run completion. |
 
-### Test Case Generator
-
-**Source:** `apps/jobs/test-case-generator/src/env.ts`
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `REPOSITORY_ID` | Yes | - | Identifier for the test case repository being generated. |
-| `AGENT_VERSION` | No | `latest` | Version tag for the generation agent. |
-| `SENTRY_DSN` | No | - | Sentry DSN for error tracking in the generator job. |
-| `SENTRY_ENV` | No | - | Sentry environment tag. |
-| `APP_URL` | No | - | Application URL. Used for generating links in notifications. |
-
 ### Diffs
 
 **Source:** `apps/jobs/diffs/src/env.ts`
@@ -335,7 +321,7 @@ These variables are referenced in `.env.example` for the Better Auth integration
 - **Sentry** - Omit `SENTRY_DSN` and `VITE_SENTRY_DSN`. Error tracking is disabled gracefully.
 - **Kubernetes** - Omit `NAMESPACE`. Only needed when deploying to K8s.
 - **GitHub App** - Omit all `GITHUB_APP_*` variables unless you are working on GitHub integration.
-- **Argo Workflows** - Omit `VITE_ARGO_URL`. The UI hides workflow links when this is unset.
+- **Temporal** - Omit `VITE_TEMPORAL_URL`. The UI hides workflow links when this is unset.
 
 **What uses defaults that just work:**
 
@@ -344,7 +330,6 @@ These variables are referenced in `.env.example` for the Better Auth integration
 - `APP_URL` defaults to `http://localhost:3000` - correct for local dev.
 - `NODE_ENV` defaults to `development`.
 - `AGENT_VERSION` defaults to `latest`.
-- `LOCAL_GENERATION` defaults to `false`. Set to `true` if you want to run test generation without K8s.
 
 **What you must provide:**
 

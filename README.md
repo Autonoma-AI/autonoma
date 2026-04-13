@@ -11,7 +11,7 @@ apps/
   engine-web/       Playwright-based web test execution
   engine-mobile/    Appium-based mobile test execution (iOS + Android)
   docs/             Astro Starlight documentation site
-  jobs/             Background jobs (reviewer, notifier, test-case-generator)
+     jobs/             Background jobs (reviewer, notifier)
 
 packages/
   ai/               AI primitives - model registry, vision, point/object detection
@@ -25,7 +25,7 @@ packages/
   logger/           Sentry-based logging
   analytics/        PostHog server-side analytics
   k8s/              Kubernetes helpers
-  workflow/         Argo workflow builders
+  workflow/         Temporal workflow definitions
   utils/            Shared utilities
 ```
 
@@ -170,4 +170,4 @@ click Sign In, and assert the dashboard is visible.
 - **Styling** - Tailwind CSS v4 + Radix UI
 - **Observability** - Sentry
 - **Analytics** - PostHog
-- **Deployment** - Kubernetes + Argo Workflows
+- **Deployment** - Kubernetes + Temporal

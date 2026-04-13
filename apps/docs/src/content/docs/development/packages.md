@@ -163,7 +163,7 @@ Shared utilities that don't fit into a more specific package.
 
 ### workflow
 
-Argo workflow builders. Constructs Argo Workflow manifests for orchestrating test execution pipelines on Kubernetes.
+Temporal workflow definitions and client. Orchestrates test execution pipelines using Temporal workflows and activities.
 
 **Key exports:** Workflow builder classes
 
@@ -210,7 +210,6 @@ Background job services, each deployed as a separate Docker image:
 | **generation-reviewer** | AI review of generated test cases |
 | **replay-reviewer** | Post-test AI validation using video recordings |
 | **run-completion-notification** | Slack/email notifications when test runs complete |
-| **test-case-generator** | AI-powered test case generation from app descriptions |
 | **generation-assigner** | Assigns generated tests to appropriate scenarios |
 | **scenario** | Environment Factory scenario execution |
 | **diffs** | Computes test suite diffs |
@@ -232,8 +231,7 @@ apps (api, ui, engines, jobs)
  +-- packages/storage      (S3 - used by api, engines, jobs)
  +-- packages/blacklight   (UI components - used by ui only)
  +-- packages/analytics    (PostHog - used by api)
- +-- packages/k8s          (K8s helpers - used by api, workflow)
- +-- packages/workflow     (Argo workflows - used by api)
+ +-- packages/workflow     (Temporal workflows - used by api, workers)
 ```
 
 Key relationships:

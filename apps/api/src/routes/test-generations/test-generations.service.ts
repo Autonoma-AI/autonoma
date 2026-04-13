@@ -5,7 +5,6 @@ import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import { type WorkflowArchitecture, findLatestWorkflowByGenerationId } from "@autonoma/workflow";
-import { env } from "../../env";
 import { Service } from "../service";
 
 export class TestGenerationsService extends Service {
@@ -93,7 +92,7 @@ export class TestGenerationsService extends Service {
         });
 
         console.time(`generation-detail:post-query:${generationId}`);
-        const [steps, videoUrl, finalScreenshotUrl, argoWorkflow] = await Promise.all([
+        const [steps, videoUrl, finalScreenshotUrl, temporalWorkflow] = await Promise.all([
             Promise.all(
                 outputSteps.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
                     id: rest.id,
@@ -113,17 +112,17 @@ export class TestGenerationsService extends Service {
             generation.finalScreenshot != null
                 ? this.storageProvider.getSignedUrl(generation.finalScreenshot, 3600)
                 : Promise.resolve(undefined),
-            env.NODE_ENV === "production"
-                ? findLatestWorkflowByGenerationId(generation.id)
-                      .then((workflow) => (workflow != null ? { name: workflow.name, uid: workflow.uid } : undefined))
-                      .catch((error) => {
-                          this.logger.warn("Could not resolve Argo workflow for generation", {
-                              generationId: generation.id,
-                              error,
-                          });
-                          return undefined;
-                      })
-                : Promise.resolve(undefined),
+            findLatestWorkflowByGenerationId(generation.id)
+                .then((workflow) =>
+                    workflow != null ? { workflowId: workflow.workflowId, runId: workflow.runId } : undefined,
+                )
+                .catch((error) => {
+                    this.logger.warn("Could not resolve Temporal workflow for generation", {
+                        generationId: generation.id,
+                        error,
+                    });
+                    return undefined;
+                }),
         ]);
 
         console.timeEnd(`generation-detail:post-query:${generationId}`);
@@ -137,7 +136,7 @@ export class TestGenerationsService extends Service {
             reasoning: generation.reasoning ?? undefined,
             finalScreenshot: finalScreenshotUrl,
             videoUrl,
-            argoWorkflow,
+            temporalWorkflow,
             testPlan: {
                 id: generation.testPlan.id,
                 plan: generation.testPlan.prompt,

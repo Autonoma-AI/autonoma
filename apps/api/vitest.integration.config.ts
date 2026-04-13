@@ -7,6 +7,7 @@ export default defineConfig({
         include: ["test/**/*.test.ts"],
         fileParallelism: false,
         globalSetup: ["./test/global-setup.ts"],
+        testTimeout: 15000,
         env: {
             // Defaults for required env vars - overridden by .env locally and by test harness at runtime
             API_PORT: "4000",

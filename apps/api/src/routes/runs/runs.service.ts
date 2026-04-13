@@ -3,8 +3,7 @@ import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { Architecture } from "@autonoma/types";
-import { type TriggerRunWorkflowParams, findLatestWorkflowByRunId } from "@autonoma/workflow";
-import { env } from "../../env";
+import { type TriggerRunWorkflowParams, type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
 import { Service } from "../service";
 
 function computeDuration(startedAt: Date | null, completedAt: Date | null): string | null {
@@ -93,7 +92,6 @@ export class RunsService extends Service {
             await this.triggerRunWorkflow({
                 runId: run.id,
                 architecture,
-                agentVersion: env.AGENT_VERSION,
                 scenarioId,
             });
         } catch (error) {
@@ -155,15 +153,14 @@ export class RunsService extends Service {
 
         this.logger.info("Run detail retrieved", { runId, stepCount: outputSteps.length });
 
-        const argoWorkflowPromise: Promise<{ name: string; uid: string } | undefined> =
-            env.NODE_ENV === "production"
-                ? findLatestWorkflowByRunId(run.id).catch((error) => {
-                      this.logger.warn("Could not resolve Argo workflow for run", { runId: run.id, error });
-                      return undefined;
-                  })
-                : Promise.resolve(undefined);
+        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = findLatestWorkflowByRunId(run.id).catch(
+            (error) => {
+                this.logger.warn("Could not resolve Temporal workflow for run", { runId: run.id, error });
+                return undefined;
+            },
+        );
 
-        const [steps, argoWorkflow] = await Promise.all([
+        const [steps, temporalWorkflow] = await Promise.all([
             Promise.all(
                 outputSteps.map(async (step) => ({
                     id: step.id,
@@ -177,7 +174,7 @@ export class RunsService extends Service {
                         this.storageProvider.getSignedUrl(step.screenshotAfter, 3600)),
                 })),
             ),
-            argoWorkflowPromise,
+            temporalWorkflowPromise,
         ]);
 
         return {
@@ -191,7 +188,7 @@ export class RunsService extends Service {
             startedAt: run.startedAt?.toISOString() ?? null,
             duration: computeDuration(run.startedAt, run.completedAt),
             reasoning: run.reasoning ?? null,
-            argoWorkflow,
+            temporalWorkflow,
             steps,
             review:
                 run.runReview != null
@@ -312,7 +309,6 @@ export class RunsService extends Service {
             await this.triggerRunWorkflow({
                 runId,
                 architecture,
-                agentVersion: env.AGENT_VERSION,
                 scenarioId,
             });
         } catch (error) {

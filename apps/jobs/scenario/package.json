@@ -3,6 +3,10 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
+    "exports": {
+        "./up": "./src/scenario-up.ts",
+        "./down": "./src/scenario-down.ts"
+    },
     "scripts": {
         "build": "tsup",
         "typecheck": "tsc --noEmit",

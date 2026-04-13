@@ -22,9 +22,6 @@ export const env = createEnv({
         OPENROUTER_API_KEY: z.string().min(1).optional(),
         REDIS_URL: z.string().min(1),
 
-        LOCAL_GENERATION: z.stringbool().default(false),
-        LOCAL_GENERATION_CONCURRENCY: z.coerce.number().int().positive().default(2),
-
         // Secrets for GitHub HTTP app authentication.
         GITHUB_APP_ID: z.string().min(1),
         GITHUB_APP_PRIVATE_KEY: z.string().min(1),

@@ -3,6 +3,10 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./generation-exit": "./src/handlers/generation-exit.ts"
+    },
     "scripts": {
         "build": "tsup",
         "typecheck": "tsc --noEmit",

@@ -4,7 +4,10 @@
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./workflows": "./src/workflows/index.ts",
+        "./activities": "./src/activities/index.ts",
+        "./worker": "./src/worker/index.ts"
     },
     "scripts": {
         "build": "tsc",
@@ -14,15 +17,16 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
-        "@autonoma/k8s": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
-        "@kubernetes-models/argo-workflows": "^0.1.4",
-        "@kubernetes/client-node": "catalog:",
         "@t3-oss/env-core": "catalog:",
+        "@temporalio/client": "^1.11.7",
+        "@temporalio/worker": "^1.11.7",
+        "@temporalio/workflow": "^1.11.7",
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@temporalio/testing": "^1.11.7",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "typescript": "catalog:",

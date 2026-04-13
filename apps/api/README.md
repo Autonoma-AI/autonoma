@@ -42,11 +42,9 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `APP_URL` | No | `http://localhost:3000` | Frontend URL for redirects |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated CORS origins |
 | `INTERNAL_DOMAIN` | No | `autonoma.app` | Domain for internal users and cross-subdomain cookies |
-| `AGENT_VERSION` | No | `latest` | Version tag for Argo workflow agent images |
+| `AGENT_VERSION` | No | `latest` | Version tag for Temporal worker agent images |
 | `POSTHOG_KEY` | No | - | PostHog API key (analytics disabled if absent) |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingest host |
-| `LOCAL_GENERATION` | No | `false` | Run test generation locally instead of via Argo |
-| `LOCAL_GENERATION_CONCURRENCY` | No | `2` | Concurrency limit for local generation |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.

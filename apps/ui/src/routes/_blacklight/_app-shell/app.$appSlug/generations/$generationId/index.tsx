@@ -21,7 +21,7 @@ import { StackIcon } from "@phosphor-icons/react/Stack";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { createFileRoute } from "@tanstack/react-router";
-import { Argo } from "components/icons";
+import { Temporal } from "components/icons";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
 import { env } from "env";
 import { useAuth } from "lib/auth";
@@ -72,9 +72,10 @@ function GenerationDetailPage() {
 
   const status = generation.status as GenerationStatus;
   const isActive = status === "queued" || status === "running";
-  const argoUrl =
-    generation.argoWorkflow != null
-      ? `${env.VITE_ARGO_URL}/workflows/argo/${generation.argoWorkflow.name}?tab=workflow&uid=${generation.argoWorkflow.uid}`
+  const temporalBaseUrl = env.VITE_TEMPORAL_URL?.replace(/\/$/, "");
+  const temporalUrl =
+    temporalBaseUrl != null && generation.temporalWorkflow != null
+      ? `${temporalBaseUrl}/namespaces/${env.VITE_TEMPORAL_NAMESPACE}/workflows/${generation.temporalWorkflow.workflowId}/${generation.temporalWorkflow.runId}`
       : undefined;
 
   const review = generation.review;
@@ -158,10 +159,10 @@ function GenerationDetailPage() {
                 Re-run
               </Button>
             )}
-            {isAdmin && argoUrl != null && (
-              <a href={argoUrl} target="_blank" rel="noopener noreferrer">
+            {isAdmin && temporalUrl != null && (
+              <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="size-7 p-0">
-                  <Argo className="size-4" />
+                  <Temporal className="size-4" />
                 </Button>
               </a>
             )}

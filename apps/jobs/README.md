@@ -1,6 +1,6 @@
 # Jobs
 
-Background jobs that run as standalone processes, typically orchestrated as Kubernetes Jobs or Argo Workflows. Each subdirectory is a separate job with its own Dockerfile and entry point.
+Background jobs that run as standalone processes, orchestrated as Temporal activities executed by workers. Each subdirectory is a separate job with its own Dockerfile and entry point.
 
 ## Job Index
 

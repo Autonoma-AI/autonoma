@@ -48,7 +48,7 @@ packages/
   test-updates/     Test suite update logic
   types/            Shared Zod schemas and TypeScript types
   utils/            Shared utilities
-  workflow/         Argo workflow builders
+  workflow/         Temporal workflow definitions
 ```
 
 ### Why apps vs packages?
@@ -109,7 +109,7 @@ Browser
 | UI components | Radix UI + Tailwind CSS v4 + CVA | Accessible primitives (Radix), utility-first styling (Tailwind), type-safe variants (CVA) |
 | Observability | Sentry | Error tracking, performance monitoring, and structured logging in one tool |
 | Analytics | PostHog | Product analytics with server-side event tracking |
-| Deployment | Kubernetes + Argo Workflows | K8s for orchestration. Argo for workflow-based test execution pipelines |
+| Deployment | Kubernetes + Temporal | K8s for orchestration. Temporal for workflow-based test execution pipelines |
 
 ## The execution flow
 
@@ -186,6 +186,6 @@ The platform runs on Kubernetes:
 
 - **API** and **UI** are standard deployments with horizontal scaling
 - **Engines** run on device-hosting machines (physical or virtual). Web engines need browsers, mobile engines need connected devices or emulators
-- **Jobs** run as Argo Workflows - triggered on demand, scaled to zero when idle
+- **Jobs** run as Temporal workflows - triggered on demand via Temporal workers
 - **Redis** handles distributed device locking across engine instances
 - **PostgreSQL** is the single source of truth for all state

@@ -5,11 +5,12 @@ import { createCallbacks, DiffsAgent } from "@autonoma/diffs";
 import { GitHubApp } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
-import { ArgoGenerationProvider } from "@autonoma/test-updates/argo";
+import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import type { Architecture } from "@autonoma/types";
 import { triggerDiffsJob, triggerRunWorkflow } from "@autonoma/workflow";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
+import { jobEnv } from "./job-env";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 
 const githubApp = new GitHubApp({
@@ -20,15 +21,13 @@ const githubApp = new GitHubApp({
 });
 
 async function main(): Promise<void> {
-    const { BRANCH_ID } = env;
+    const { BRANCH_ID } = jobEnv;
 
     Sentry.setTag("branchId", BRANCH_ID);
 
     logger.info("Starting diffs analysis job", { branchId: BRANCH_ID });
 
-    const jobProvider = new ArgoGenerationProvider({
-        agentVersion: env.AGENT_VERSION,
-    });
+    const jobProvider = new TemporalGenerationProvider();
     const commitDiffHandler = new CommitDiffHandler(db, githubApp, triggerDiffsJob);
     const updater = await TestSuiteUpdater.continueUpdate({ db, branchId: BRANCH_ID, jobProvider, commitDiffHandler });
 
@@ -114,4 +113,4 @@ async function main(): Promise<void> {
     await updater.queuePendingGenerations({ autoActivate: true });
 }
 
-await runWithSentry({ name: "diffs-job", tags: { branch_id: env.BRANCH_ID }, dsn: env.SENTRY_DSN }, main);
+await runWithSentry({ name: "diffs-job", tags: { branch_id: jobEnv.BRANCH_ID }, dsn: env.SENTRY_DSN }, main);

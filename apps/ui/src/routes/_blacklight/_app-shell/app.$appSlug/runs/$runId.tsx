@@ -19,8 +19,8 @@ import { Stack } from "@phosphor-icons/react/Stack";
 import { Trash } from "@phosphor-icons/react/Trash";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { createFileRoute } from "@tanstack/react-router";
-import { Argo } from "components/icons/argo";
 import { Sentry } from "components/icons/sentry";
+import { Temporal } from "components/icons/temporal";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { env } from "env";
 import { useAuth } from "lib/auth";
@@ -107,10 +107,11 @@ function RunDetailPage() {
   const steps = run.steps as unknown as RunStep[];
   const review = run.review;
   const reviewStatus = review?.status;
+  const temporalBaseUrl = env.VITE_TEMPORAL_URL?.replace(/\/$/, "");
 
-  const argoUrl =
-    run.argoWorkflow != null
-      ? `${env.VITE_ARGO_URL}/workflows/argo/${run.argoWorkflow.name}?tab=workflow&uid=${run.argoWorkflow.uid}`
+  const temporalUrl =
+    temporalBaseUrl != null && run.temporalWorkflow != null
+      ? `${temporalBaseUrl}/namespaces/${env.VITE_TEMPORAL_NAMESPACE}/workflows/${run.temporalWorkflow.workflowId}/${run.temporalWorkflow.runId}`
       : undefined;
 
   const sentryUrl = env.VITE_SENTRY_URL
@@ -216,10 +217,10 @@ function RunDetailPage() {
             )}
             {isAdmin && (
               <>
-                {argoUrl != null && (
-                  <a href={argoUrl} target="_blank" rel="noopener noreferrer">
+                {temporalUrl != null && (
+                  <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
                     <Button variant="outline" size="sm" className="size-7 p-0">
-                      <Argo className="size-4" />
+                      <Temporal className="size-4" />
                     </Button>
                   </a>
                 )}

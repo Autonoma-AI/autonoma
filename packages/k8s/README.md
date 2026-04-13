@@ -2,7 +2,7 @@
 
 Lightweight Kubernetes helpers for the Autonoma platform. Provides a `KubeConfig` factory, image resolution from a cluster ConfigMap, and shared type definitions for K8s job orchestration.
 
-> For higher-level K8s operations (Argo workflows, DAG builders, job templates), see `packages/workflow`.
+> For workflow orchestration, see `packages/workflow` (Temporal-based).
 
 ## Exports
 
@@ -48,5 +48,5 @@ Defined in `src/env.ts` via `@t3-oss/env-core`:
 
 - The `image-version` ConfigMap is the single source of truth for which container images are deployed per namespace. Each key maps an `ImageKey` to a fully qualified image URI.
 - `makeKubeConfig` uses `loadFromDefault()`, which auto-detects in-cluster service account tokens or falls back to `~/.kube/config` for local development.
-- The `K8sClient` interface and `K8sJobOptions` are exported as contracts. The primary implementation lives in `packages/workflow/src/k8s/k8s-client.ts`, which extends these concepts with Argo workflow support and structured logging.
+- The `K8sClient` interface and `K8sJobOptions` are exported as contracts for Kubernetes operations.
 - This package is ESM-only (`"type": "module"`).

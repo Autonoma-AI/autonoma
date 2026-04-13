@@ -12,7 +12,7 @@ import { MobileRunAPIRunner } from "./run-api-runner";
 
 const VIDEO_EXTENSION = "mp4";
 
-async function main(runId: string) {
+export async function runMobileReplayJob(runId: string) {
     const logger = rootLogger.child({ name: "run-replay-job", runId });
 
     const storageProvider = S3Storage.createFromEnv();
@@ -99,13 +99,15 @@ async function main(runId: string) {
     }
 }
 
-const args = process.argv.slice(2);
-if (args.length !== 1) {
-    console.error("Usage: tsx src/replay/run-replay-job.ts <runId>");
-    process.exit(1);
+if (process.argv[1]?.includes("run-replay-job")) {
+    const args = process.argv.slice(2);
+    if (args.length !== 1) {
+        console.error("Usage: tsx src/replay/run-replay-job.ts <runId>");
+        process.exit(1);
+    }
+
+    // biome-ignore lint/style/noNonNullAssertion: Length === 1
+    const runId = args[0]!;
+
+    await runWithSentry({ name: "execution-agent-mobile", tags: { run_id: runId } }, () => runMobileReplayJob(runId));
 }
-
-// biome-ignore lint/style/noNonNullAssertion: Length === 1
-const runId = args[0]!;
-
-await runWithSentry({ name: "execution-agent-mobile", tags: { run_id: runId } }, () => main(runId));

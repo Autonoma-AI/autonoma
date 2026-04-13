@@ -11,6 +11,12 @@ export interface GenerationJobOptions {
     autoActivate?: boolean;
 }
 
+export interface FiredBatch {
+    /** Batch workflow ID - usable as a fallback link before child workflows are created. */
+    batchWorkflowId: string;
+    batchWorkflowRunId: string;
+}
+
 export interface GenerationProvider {
-    fireJobs(generations: PendingGeneration[], options?: GenerationJobOptions): Promise<void>;
+    fireJobs(generations: PendingGeneration[], options?: GenerationJobOptions): Promise<FiredBatch>;
 }

@@ -5,7 +5,9 @@
     "description": "Playwright-based web engine for the Autonoma testing platform",
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./generation": "./src/execution-agent/generation-api/run-generation-job.ts",
+        "./replay": "./src/replay/run-replay-job.ts"
     },
     "scripts": {
         "build": "tsc",

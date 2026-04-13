@@ -172,13 +172,13 @@ apiTestSuite({
         });
 
         test("trigger marks run as failed when workflow throws", async ({ harness, seedResult: { testCase } }) => {
-            harness.triggerWorkflow.mockRejectedValueOnce(new Error("K8s unavailable"));
+            harness.triggerWorkflow.mockRejectedValueOnce(new Error("Temporal unavailable"));
 
             await expect(
                 harness.request().runs.trigger({
                     testCaseId: testCase.id,
                 }),
-            ).rejects.toThrowError("K8s unavailable");
+            ).rejects.toThrowError("Temporal unavailable");
 
             const runs = await harness.db.run.findMany({
                 where: { assignment: { testCaseId: testCase.id } },

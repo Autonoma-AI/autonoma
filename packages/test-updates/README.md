@@ -12,7 +12,6 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `MissingJobProviderError` | Error | Thrown when `queuePendingGenerations` is called without a job provider |
 | `IncompleteGenerationsError` | Error | Thrown when finalizing a snapshot that still has pending/queued/running generations |
 | `FakeGenerationProvider` | Class | In-memory stub for tests - records fired batches |
-| `LocalGenerationProvider` | Class | Forks engine processes locally with configurable concurrency |
 | `SnapshotNotPendingError` | Error | Snapshot is not in "processing" state |
 | `BranchAlreadyHasPendingSnapshotError` | Error | Branch already has an open draft |
 | `ApplicationNotFoundError` | Error | Branch not found or does not belong to the specified organization |
@@ -33,11 +32,11 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `UpdateSkill` | Updates the plan for an existing skill |
 | `RemoveSkill` | Removes a skill from the snapshot |
 
-### Argo entry point (`@autonoma/test-updates/argo`)
+### Temporal entry point (`@autonoma/test-updates/temporal`)
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `ArgoGenerationProvider` | Class | Fires generation jobs via Argo Workflows |
+| `TemporalGenerationProvider` | Class | Fires generation jobs via Temporal Workflows |
 
 ## Usage
 
@@ -124,15 +123,13 @@ All mutations implement the `TestSuiteChange` abstract class with a single `appl
 
 The `GenerationProvider` interface decouples job scheduling from execution:
 
-- **`ArgoGenerationProvider`** - production provider, submits batch Argo Workflows
-- **`LocalGenerationProvider`** - development provider, forks engine processes locally with concurrency control and optional scenario management
+- **`TemporalGenerationProvider`** - production provider, submits batch Temporal Workflows
 - **`FakeGenerationProvider`** - test double, records fired batches in memory
 
 ### Key dependencies
 
 - `@autonoma/db` - Prisma client for all database operations
-- `@autonoma/workflow` - Argo workflow triggering (used by `ArgoGenerationProvider`)
-- `@autonoma/scenario` - Scenario lifecycle management (used by `LocalGenerationProvider`)
+- `@autonoma/workflow` - Temporal workflow triggering (used by `TemporalGenerationProvider`)
 - `@autonoma/logger` - Structured logging via Sentry
 - `@autonoma/try` - Go-style error handling
 
