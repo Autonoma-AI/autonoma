@@ -15,8 +15,8 @@
         "@autonoma/engine-web": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/workflow": "workspace:*",
-        "@temporalio/activity": "^1.11.7",
-        "@temporalio/worker": "^1.11.7"
+        "@temporalio/activity": "catalog:",
+        "@temporalio/worker": "catalog:"
     },
     "devDependencies": {
         "@types/node": "catalog:",

@@ -20,13 +20,13 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@t3-oss/env-core": "catalog:",
-        "@temporalio/client": "^1.11.7",
-        "@temporalio/worker": "^1.11.7",
-        "@temporalio/workflow": "^1.11.7",
+        "@temporalio/client": "catalog:",
+        "@temporalio/worker": "catalog:",
+        "@temporalio/workflow": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {
-        "@temporalio/testing": "^1.11.7",
+        "@temporalio/testing": "catalog:",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "typescript": "catalog:",
