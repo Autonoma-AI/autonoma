@@ -13,9 +13,30 @@ import { routeTree } from "./routeTree.gen";
 const posthogKey = env.VITE_POSTHOG_KEY;
 const isPostHogEnabled = !import.meta.env.DEV && posthogKey != null;
 
+const ATTRIBUTION_COOKIE_MAX_AGE_SECONDS = 86_400;
+
+function writeAttributionCookie(name: string, value: string) {
+  const domain = env.VITE_INTERNAL_DOMAIN;
+  const isProduction = !import.meta.env.DEV;
+  const attributes = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Domain=.${domain}`,
+    "Path=/",
+    `Max-Age=${ATTRIBUTION_COOKIE_MAX_AGE_SECONDS}`,
+    "SameSite=Lax",
+  ];
+  if (isProduction) attributes.push("Secure");
+  document.cookie = attributes.join("; ");
+}
+
 if (isPostHogEnabled) {
   const params = new URLSearchParams(window.location.search);
   const crossDomainId = params.get("ph_id");
+  const referringBlog = params.get("referring_blog");
+  const hypothesis = params.get("hypothesis");
+
+  if (referringBlog != null) writeAttributionCookie("autonoma_referring_blog", referringBlog);
+  if (hypothesis != null) writeAttributionCookie("autonoma_hypothesis", hypothesis);
 
   posthog.init(posthogKey, {
     api_host: "/ingest",
@@ -26,9 +47,12 @@ if (isPostHogEnabled) {
     bootstrap: crossDomainId != null ? { distinctID: crossDomainId } : undefined,
   });
 
-  if (crossDomainId != null) {
+  const hasAttributionParams = crossDomainId != null || referringBlog != null || hypothesis != null;
+  if (hasAttributionParams) {
     const cleanUrl = new URL(window.location.href);
     cleanUrl.searchParams.delete("ph_id");
+    cleanUrl.searchParams.delete("referring_blog");
+    cleanUrl.searchParams.delete("hypothesis");
     window.history.replaceState({}, "", cleanUrl.toString());
   }
 }

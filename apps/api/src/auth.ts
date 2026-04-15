@@ -8,7 +8,10 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { apiKey, organization } from "better-auth/plugins";
 import type Redis from "ioredis";
 import { env } from "./env";
+import { PlatformEventEmitter } from "./posthog/emit-platform-events";
 import { SignupHooks } from "./signup-hooks/signup-hooks";
+
+const GOOGLE_PROVIDER = "google";
 
 const INTERNAL_DOMAIN = `@${env.INTERNAL_DOMAIN}`;
 
@@ -54,6 +57,7 @@ const STATIC_ORIGINS = env.ALLOWED_ORIGINS.split(",").map((o) => o.trim());
 export interface BuildAuthParams {
     redisClient: Redis;
     conn: PrismaClient;
+    platformEvents?: PlatformEventEmitter;
 }
 
 export type Auth = ReturnType<typeof buildAuth>;
@@ -159,7 +163,7 @@ async function ensureOrgMembership(
     return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
 }
 
-export function buildAuth({ redisClient, conn }: BuildAuthParams) {
+export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformEvents }: BuildAuthParams) {
     const signupHooks = new SignupHooks({
         resendApiKey: env.RESEND_API_KEY,
         resendAudienceId: env.RESEND_AUDIENCE_ID,
@@ -168,6 +172,8 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
         slackBotToken: env.SLACK_BOT_TOKEN,
         discordInviteUrl: env.DISCORD_INVITE_URL,
     });
+
+    const platformEvents = injectedPlatformEvents ?? new PlatformEventEmitter(conn);
 
     return betterAuth({
         basePath: "/v1/auth",
@@ -231,8 +237,21 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
         databaseHooks: {
             user: {
                 create: {
-                    after: async (user) => {
+                    after: async (user, context) => {
                         const result = await ensureOrgMembership(conn, user.id, user.email, user.name);
+
+                        try {
+                            platformEvents.onUserCreated({
+                                userId: user.id,
+                                email: user.email,
+                                name: user.name,
+                                organizationId: result.organizationId,
+                                provider: GOOGLE_PROVIDER,
+                                cookieHeader: context?.headers?.get("cookie") ?? undefined,
+                            });
+                        } catch (error) {
+                            logger.error("Failed to emit platform_signup", { error, userId: user.id });
+                        }
 
                         // This runs only on user creation; the hook itself skips work that's already claimed/completed.
                         void signupHooks
@@ -262,6 +281,18 @@ export function buildAuth({ redisClient, conn }: BuildAuthParams) {
                         if (user == null) throw new Error("User not found");
 
                         const result = await ensureOrgMembership(conn, session.userId, user.email, user.name);
+
+                        try {
+                            await platformEvents.onSessionCreated({
+                                userId: session.userId,
+                                email: user.email,
+                                name: user.name,
+                                organizationId: result.organizationId,
+                                provider: GOOGLE_PROVIDER,
+                            });
+                        } catch (error) {
+                            logger.error("Failed to emit platform_login", { error, userId: session.userId });
+                        }
 
                         // This runs on every session creation so it can catch up any signup side-effects that were missed.
                         void signupHooks

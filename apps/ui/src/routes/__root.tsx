@@ -22,13 +22,13 @@ function usePosthogIdentify() {
   const { user, isAuthenticated, activeOrganizationId } = useAuth();
 
   useEffect(() => {
-    if (isAuthenticated) {
-      posthog.identify(user.id, {
-        email: user.email,
-        name: user.name,
-        organizationId: activeOrganizationId,
-      });
-    }
+    if (!isAuthenticated) return;
+
+    posthog.identify(user.id, {
+      email: user.email,
+      name: user.name,
+      organizationId: activeOrganizationId,
+    });
   }, [isAuthenticated, user, activeOrganizationId]);
 }
 
