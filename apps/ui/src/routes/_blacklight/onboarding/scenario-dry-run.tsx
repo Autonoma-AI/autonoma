@@ -70,7 +70,7 @@ function getWebhookErrorDetails(errorMessage: string): WebhookErrorDetails {
           title: "Authentication failed (401)",
           field: "secret",
           hints: [
-            "The signing secret doesn't match. Verify that AUTONOMA_SIGNING_SECRET on your deployment matches the value you entered above.",
+            "The shared secret doesn't match. Verify that AUTONOMA_SHARED_SECRET on your deployment matches the value you entered above.",
           ],
         };
       case 403:
@@ -79,7 +79,7 @@ function getWebhookErrorDetails(errorMessage: string): WebhookErrorDetails {
           field: "both",
           hints: [
             "The request was rejected by your endpoint.",
-            "Check that AUTONOMA_SIGNING_SECRET matches exactly - no extra spaces or line breaks.",
+            "Check that AUTONOMA_SHARED_SECRET matches exactly - no extra spaces or line breaks.",
             'Verify AUTONOMA_ENABLED is set to "true" on your deployment.',
           ],
         };
@@ -97,7 +97,7 @@ function getWebhookErrorDetails(errorMessage: string): WebhookErrorDetails {
           title: "Server error (500)",
           hints: [
             "Your endpoint returned an internal error. Check your deployment logs for details.",
-            "Verify that AUTONOMA_SIGNING_SECRET is set.",
+            "Verify that AUTONOMA_SHARED_SECRET is set.",
           ],
         };
       case 502:
@@ -466,9 +466,9 @@ export function DeployPage({ appId }: { appId?: string }) {
                       <div className="flex items-center gap-2 font-mono text-2xs">
                         <CircleIcon size={6} weight="fill" className="shrink-0 text-text-tertiary" />
                         <code className="rounded bg-surface-raised px-1.5 py-0.5 text-primary-ink">
-                          AUTONOMA_SIGNING_SECRET
+                          AUTONOMA_SHARED_SECRET
                         </code>
-                        <span className="font-sans text-text-tertiary">- shared secret for webhook verification</span>
+                        <span className="font-sans text-text-tertiary">- HMAC secret for webhook verification</span>
                       </div>
                       <div className="ml-3.5 flex items-center gap-2">
                         <code className="truncate rounded bg-surface-raised px-1.5 py-0.5 font-mono text-2xs text-text-secondary">
@@ -479,12 +479,12 @@ export function DeployPage({ appId }: { appId?: string }) {
                           title="Copy secret and auto-fill below"
                           className="flex shrink-0 items-center justify-center text-text-tertiary transition-colors hover:text-primary-ink"
                           onClick={() => {
-                            void navigator.clipboard.writeText(generatedSecret).then(() => {
+                            void navigator.clipboard.writeText(`AUTONOMA_SHARED_SECRET=${generatedSecret}`).then(() => {
                               setSigningSecret(generatedSecret);
                               toastManager.add({
                                 type: "success",
                                 title: "Secret copied",
-                                description: "Signing secret copied and auto-filled below.",
+                                description: "AUTONOMA_SHARED_SECRET copied and auto-filled below.",
                               });
                             });
                           }}
@@ -590,13 +590,13 @@ export function DeployPage({ appId }: { appId?: string }) {
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="signing-secret">Signing Secret</Label>
+                  <Label htmlFor="signing-secret">Shared Secret</Label>
                   <p className="text-2xs text-text-tertiary">
                     Copy the{" "}
                     <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">
-                      AUTONOMA_SIGNING_SECRET
+                      AUTONOMA_SHARED_SECRET
                     </code>{" "}
-                    value from your project's{" "}
+                    from your project's{" "}
                     <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env.local</code> or{" "}
                     <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env</code> file. This is
                     the same secret your deployed endpoint uses to verify requests.
@@ -611,12 +611,12 @@ export function DeployPage({ appId }: { appId?: string }) {
                     }}
                     onBlur={() => setSigningSecretTouched(true)}
                     aria-invalid={(signingSecretTouched && signingSecret.length === 0) || isSecretErrorField}
-                    placeholder="your-signing-secret"
+                    placeholder="your-shared-secret"
                     disabled={isWebhookConfigured}
                     className="max-w-lg"
                   />
                   {signingSecretTouched && signingSecret.length === 0 && (
-                    <p className="text-2xs text-status-critical">Signing secret is required</p>
+                    <p className="text-2xs text-status-critical">Shared secret is required</p>
                   )}
                 </div>
 
