@@ -4,6 +4,7 @@ export type PageId =
     | "architecture"
     | "theming"
     | "agent-cube"
+    | "braille-spinner"
     | "button"
     | "badge"
     | "card"
@@ -50,6 +51,7 @@ export const NAV_SECTIONS: { label: string; items: { id: PageId; label: string }
         items: [
             { id: "agent-cube", label: "Agent Cube" },
             { id: "alert", label: "Alert" },
+            { id: "braille-spinner", label: "Braille Spinner" },
             { id: "badge", label: "Badge" },
             { id: "button", label: "Button" },
             { id: "card", label: "Card" },

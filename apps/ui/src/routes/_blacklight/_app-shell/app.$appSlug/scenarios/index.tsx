@@ -1,5 +1,6 @@
 import {
   Badge,
+  BrailleSpinner,
   Button,
   Dialog,
   DialogBackdrop,
@@ -32,7 +33,6 @@ import {
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
-import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { FingerprintIcon } from "@phosphor-icons/react/Fingerprint";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
@@ -395,11 +395,7 @@ function WebhookStatusBar({
       <span className="min-w-0 flex-1 truncate font-mono text-sm text-text-secondary">{webhookUrl}</span>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleDiscover} disabled={discover.isPending}>
-          {discover.isPending ? (
-            <CircleNotchIcon size={14} className="animate-spin" />
-          ) : (
-            <MagnifyingGlassIcon size={14} />
-          )}
+          {discover.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <MagnifyingGlassIcon size={14} />}
           Discover
         </Button>
         <Button variant="outline" size="sm" onClick={onConfigure}>
@@ -659,7 +655,7 @@ function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; appl
         </td>
         <td className="px-4 py-3">
           <Button variant="outline" size="sm" onClick={handleDryRun} disabled={dryRun.isPending}>
-            {dryRun.isPending ? <CircleNotchIcon size={14} className="animate-spin" /> : <FlaskIcon size={14} />}
+            {dryRun.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <FlaskIcon size={14} />}
             Try it
           </Button>
         </td>

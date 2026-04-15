@@ -1,6 +1,5 @@
-import { Skeleton, cn } from "@autonoma/blacklight";
+import { BrailleSpinner, Skeleton, cn } from "@autonoma/blacklight";
 import { Check } from "@phosphor-icons/react/Check";
-import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { File } from "@phosphor-icons/react/File";
 import { FileArrowUp } from "@phosphor-icons/react/FileArrowUp";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
@@ -78,7 +77,7 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
         {isCompleted ? (
           <Check size={14} weight="bold" className="text-surface-void" />
         ) : isActive ? (
-          <CircleNotch size={14} className="animate-spin text-primary-ink" />
+          <BrailleSpinner animation="orbit" size="sm" className="text-primary-ink" />
         ) : isFailed ? (
           <WarningCircle size={14} className="text-status-critical" />
         ) : (

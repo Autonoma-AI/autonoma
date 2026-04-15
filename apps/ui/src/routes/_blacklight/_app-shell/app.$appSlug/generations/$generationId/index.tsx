@@ -1,5 +1,6 @@
 import {
   Badge,
+  BrailleSpinner,
   Button,
   Panel,
   PanelBody,
@@ -13,7 +14,6 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
-import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
@@ -132,7 +132,7 @@ function GenerationDetailPage() {
             )}
             {isAdmin && reviewStatus === "pending" && (
               <Badge variant="status-running" className="h-7 gap-1.5 px-3 text-xs">
-                <CircleNotchIcon size={14} className="animate-spin" />
+                <BrailleSpinner animation="scan" size="sm" />
                 Review in progress
               </Badge>
             )}

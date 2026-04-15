@@ -1,11 +1,11 @@
 import type * as React from "react";
 import type { PageId } from "../nav";
-
 import { AgentCubeSection } from "./agent-cube";
 import { AlertSection } from "./alert";
 import { ArchitectureSection } from "./architecture";
 import { BadgeSection } from "./badge";
 import { BordersSection } from "./borders";
+import { BrailleSpinnerSection } from "./braille-spinner";
 import { ButtonSection } from "./button";
 import { CardSection } from "./card";
 import { ChartsSection } from "./charts";
@@ -44,6 +44,7 @@ export const PAGE_COMPONENTS: Record<PageId, () => React.JSX.Element> = {
     theming: ThemingSection,
     "agent-cube": AgentCubeSection,
     alert: AlertSection,
+    "braille-spinner": BrailleSpinnerSection,
     badge: BadgeSection,
     button: ButtonSection,
     card: CardSection,

@@ -1,5 +1,6 @@
 import {
   Badge,
+  BrailleSpinner,
   Button,
   Dialog,
   DialogBackdrop,
@@ -21,7 +22,6 @@ import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
-import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { UsersIcon } from "@phosphor-icons/react/Users";
 import { XIcon } from "@phosphor-icons/react/X";
 import { Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
@@ -122,7 +122,7 @@ function OrgRow({ org, activeOrgId, onActivate, isActivating }: OrgRowProps) {
           <span className="text-2xs font-medium text-primary-ink">Current</span>
         ) : (
           <Button variant="outline" size="sm" disabled={isActivating} onClick={() => onActivate(org.id)}>
-            {isActivating ? <SpinnerGapIcon size={12} className="animate-spin" /> : "Switch"}
+            {isActivating ? <BrailleSpinner animation="braille" size="sm" /> : "Switch"}
           </Button>
         )}
       </div>

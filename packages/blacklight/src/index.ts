@@ -13,6 +13,13 @@ export {
 } from "./components/ui/agent-indicator";
 export { Alert, AlertTitle, AlertDescription, alertVariants } from "./components/ui/alert";
 export { Badge, badgeVariants } from "./components/ui/badge";
+export {
+    BrailleSpinner,
+    brailleSpinnerVariants,
+    BRAILLE_SPINNER_ANIMATIONS,
+    type BrailleSpinnerAnimation,
+    type BrailleSpinnerProps,
+} from "./components/ui/braille-spinner";
 export { Button, buttonVariants } from "./components/ui/button";
 export {
     Card,

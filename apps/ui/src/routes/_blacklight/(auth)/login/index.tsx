@@ -1,9 +1,8 @@
-import { Badge, Button } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Button } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
 import { useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
-import { LoaderCircle } from "lucide-react";
 import * as React from "react";
 
 export const Route = createFileRoute("/_blacklight/(auth)/login/")({
@@ -133,7 +132,7 @@ function LoginPage() {
         </p>
 
         <Button variant="outline" size="lg" className="mt-8 w-full gap-3" onClick={signIn} disabled={isPending}>
-          {isPending ? <LoaderCircle className="animate-spin" /> : <Google />}
+          {isPending ? <BrailleSpinner animation="braille" size="sm" /> : <Google />}
           <span>{isPending ? "Signing in..." : "Continue with Google"}</span>
         </Button>
 

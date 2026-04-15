@@ -1,4 +1,4 @@
-import { AgentIndicator } from "@autonoma/blacklight";
+import { BrailleSpinner } from "@autonoma/blacklight";
 import type { ActivityLine } from "../../-layout/use-branch-activity";
 
 interface AgentGeneratingViewProps {
@@ -11,7 +11,7 @@ export function AgentGeneratingView({ activities }: AgentGeneratingViewProps) {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
-      <AgentIndicator state="working" size={48} />
+      <BrailleSpinner animation="helix" size="xl" className="text-primary-ink" />
 
       <div className="flex flex-col items-center gap-2 text-center">
         <h2 className="text-lg font-medium text-text-primary">Generating your tests</h2>

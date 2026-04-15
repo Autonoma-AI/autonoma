@@ -1,13 +1,24 @@
 import {
   AGENT_INDICATOR_STATE_LABEL,
-  AgentIndicator,
+  BrailleSpinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  type AgentIndicatorState,
 } from "@autonoma/blacklight";
+import type { BrailleSpinnerAnimation } from "@autonoma/blacklight";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
 import { Link } from "@tanstack/react-router";
 import { type ActivityLine, useBranchActivity } from "./use-branch-activity";
+
+const STATE_ANIMATION: Record<AgentIndicatorState, BrailleSpinnerAnimation> = {
+  idle: "breathe",
+  processing: "braillewave",
+  analyzing: "scan",
+  working: "helix",
+  success: "orbit",
+  failed: "braille",
+};
 
 // ─── Components ──────────────────────────────────────────────────────────────
 
@@ -40,7 +51,7 @@ export function SidebarAgentStatus({ collapsed }: { collapsed: boolean }) {
       }`}
     >
       <div className={`flex items-center ${collapsed ? "justify-center" : "gap-3.5"}`}>
-        <AgentIndicator state={state} size={18} />
+        <BrailleSpinner animation={STATE_ANIMATION[state]} size="sm" className="text-primary-ink" />
         {!collapsed && (
           <div className="min-w-0 flex-1">
             <p className="text-2xs font-medium text-text-secondary">Autonoma Agent</p>
