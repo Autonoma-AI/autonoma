@@ -18,9 +18,14 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.ACTIONS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ACTIONS_APP_PRIVATE_KEY }}
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v4
         with:
           release-type: node
-          token: ${{ secrets.DEPLOY_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
