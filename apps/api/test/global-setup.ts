@@ -7,7 +7,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { RedisContainer } from "@testcontainers/redis";
 
 const POSTGRES_IMAGE = "postgres:17-alpine";
-const LOCALSTACK_IMAGE = "localstack/localstack:latest";
+const LOCALSTACK_IMAGE = "localstack/localstack:community-archive";
 const REDIS_IMAGE = "redis:7-alpine";
 const TEST_BUCKET = "test-bucket";
 const TEST_REGION = "us-east-1";
