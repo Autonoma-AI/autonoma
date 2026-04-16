@@ -23,6 +23,7 @@ import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
 import { useEffect, useState } from "react";
 import { SidebarAgentStatus } from "./sidebar-agent-status";
+import { SidebarMilestones } from "./sidebar-milestones";
 
 const SIDEBAR_STORAGE_KEY = "autonoma:sidebar-collapsed";
 
@@ -261,6 +262,13 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
           <TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand" : "Collapse"}</TooltipContent>
         </Tooltip>
       </div>
+
+      {/* Milestones */}
+      {hasAppNav && (
+        <div className="border-b border-border-dim">
+          <SidebarMilestones collapsed={collapsed} />
+        </div>
+      )}
 
       {/* Nav items */}
       <div className={`flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-1 py-3" : "py-3"}`}>

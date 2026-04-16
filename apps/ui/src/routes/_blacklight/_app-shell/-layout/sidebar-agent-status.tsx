@@ -54,8 +54,8 @@ export function SidebarAgentStatus({ collapsed }: { collapsed: boolean }) {
         <BrailleSpinner animation={STATE_ANIMATION[state]} size="sm" className="text-primary-ink" />
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="text-2xs font-medium text-text-secondary">Autonoma Agent</p>
-            <p className="font-mono text-3xs text-text-tertiary">{AGENT_INDICATOR_STATE_LABEL[state]}</p>
+            <p className="text-2xs font-medium text-text-primary">Autonoma Agent</p>
+            <p className="font-mono text-3xs text-text-secondary">{AGENT_INDICATOR_STATE_LABEL[state]}</p>
           </div>
         )}
       </div>

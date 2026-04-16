@@ -24,21 +24,21 @@ const STATE_DURATION: Record<AgentIndicatorState, number> = {
 };
 
 const STATE_COLOR: Record<AgentIndicatorState, string> = {
-  idle: "#a3b818",
-  processing: "#38bdf8",
-  analyzing: "#fbbf24",
-  working: "#a3e635",
-  success: "#4ade80",
-  failed: "#f87171",
+  idle: "var(--primary-ink)",
+  processing: "var(--status-pending)",
+  analyzing: "var(--status-warn)",
+  working: "var(--primary-ink)",
+  success: "var(--status-success)",
+  failed: "var(--status-critical)",
 };
 
 const STATE_OPACITY: Record<AgentIndicatorState, number> = {
-  idle: 0.3,
-  processing: 0.6,
-  analyzing: 0.75,
+  idle: 0.5,
+  processing: 0.7,
+  analyzing: 0.8,
   working: 0.9,
-  success: 0.7,
-  failed: 0.7,
+  success: 0.75,
+  failed: 0.75,
 };
 
 /** Human-readable label for each state */
@@ -82,9 +82,8 @@ export function AgentIndicator({ state = "idle", size = 20, className }: AgentIn
         width={outerHalf * 2}
         height={outerHalf * 2}
         fill="none"
-        stroke={color}
         strokeWidth={1}
-        opacity={opacity}
+        style={{ stroke: color, opacity }}
       >
         <animateTransform
           attributeName="transform"
@@ -103,9 +102,8 @@ export function AgentIndicator({ state = "idle", size = 20, className }: AgentIn
         width={innerHalf * 2}
         height={innerHalf * 2}
         fill="none"
-        stroke={color}
         strokeWidth={1}
-        opacity={opacity * 0.45}
+        style={{ stroke: color, opacity: opacity * 0.45 }}
       >
         <animateTransform
           attributeName="transform"
