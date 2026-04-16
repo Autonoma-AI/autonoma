@@ -24,6 +24,7 @@ import {
 } from "@autonoma/blacklight";
 import { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";
 import { XIcon } from "@phosphor-icons/react/X";
+import { useFolders } from "lib/query/folders.queries";
 import { useScenariosForApp } from "lib/query/scenarios.queries";
 import { useAddTestToEdit, useAddTestsToEdit } from "lib/query/snapshot-edit.queries";
 import { Suspense, useRef, useState } from "react";
@@ -60,11 +61,13 @@ type AddTab = "text" | "upload";
 function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: () => void }) {
   const currentApp = useCurrentApplication();
   const { data: scenarios } = useScenariosForApp(currentApp.id);
+  const { data: folders } = useFolders();
 
   const [activeTab, setActiveTab] = useState<AddTab>("text");
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [scenarioId, setScenarioId] = useState("");
+  const [folderId, setFolderId] = useState(folders[0]?.id ?? "");
   const [files, setFiles] = useState<File[]>([]);
 
   const addTest = useAddTestToEdit();
@@ -83,7 +86,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
 
     if (activeTab === "text") {
       addTest.mutate(
-        { branchId, name, plan: text, scenarioId: selectedScenarioId },
+        { branchId, name, plan: text, folderId, scenarioId: selectedScenarioId },
         {
           onSuccess: () => {
             resetForm();
@@ -96,6 +99,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
         files.map(async (file) => ({
           name: file.name.replace(/\.(md|markdown)$/i, ""),
           plan: await file.text(),
+          folderId,
         })),
       );
       addTests.mutate(
@@ -110,13 +114,32 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
     }
   }
 
-  const isTextValid = name.trim() !== "" && text.trim() !== "";
-  const isUploadValid = files.length > 0;
+  const hasFolderId = folderId !== "";
+  const isTextValid = name.trim() !== "" && text.trim() !== "" && hasFolderId;
+  const isUploadValid = files.length > 0 && hasFolderId;
   const isValid = activeTab === "text" ? isTextValid : isUploadValid;
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)}>
       <DialogBody className="flex flex-col gap-4">
+        {folders.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <Label>Folder</Label>
+            <Select<string> value={folderId} onValueChange={(value) => setFolderId(value ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue>{folders.find((f) => f.id === folderId)?.name}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {folders.map((folder) => (
+                  <SelectItem key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {scenarios != null && scenarios.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <Label>Scenario</Label>

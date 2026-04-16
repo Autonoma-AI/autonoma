@@ -1,5 +1,4 @@
 import { expect } from "vitest";
-
 import { AddTest } from "../src/changes/add-test";
 import { FakeGenerationProvider } from "../src/generation/fake-generation-provider";
 import { testUpdateSuite } from "./harness";
@@ -9,13 +8,14 @@ testUpdateSuite({
     cases: (test) => {
         test("apply: adds a test case and schedules generation", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Apply test",
                     description: "Tests apply",
                     plan: "Some plan",
@@ -30,13 +30,14 @@ testUpdateSuite({
 
         test("assignGenerationResults: assigns steps from successful generations", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Assign test",
                     description: "Tests assignment",
                     plan: "Some plan",
@@ -64,13 +65,14 @@ testUpdateSuite({
 
         test("assignGenerationResults: skips failed generations", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Fail test",
                     description: "Tests failure",
                     plan: "Some plan",
@@ -94,13 +96,14 @@ testUpdateSuite({
 
         test("assignGenerationResults: handles mixed success and failure", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Success test",
                     description: "Will succeed",
                     plan: "Plan A",
@@ -108,6 +111,7 @@ testUpdateSuite({
             );
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Failure test",
                     description: "Will fail",
                     plan: "Plan B",
@@ -149,7 +153,7 @@ testUpdateSuite({
 
         test("finalize: activates the snapshot when all generations are complete", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, {
@@ -158,6 +162,7 @@ testUpdateSuite({
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Finalize test",
                     description: "Tests finalize",
                     plan: "Some plan",
@@ -178,7 +183,7 @@ testUpdateSuite({
 
         test("finalize: throws when there are incomplete generations", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, {
@@ -187,6 +192,7 @@ testUpdateSuite({
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Incomplete test",
                     description: "Tests incomplete check",
                     plan: "Some plan",
@@ -201,13 +207,14 @@ testUpdateSuite({
 
         test("queuePendingGenerations: fires jobs and marks generations as queued", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Queue test A",
                     description: "First test to queue",
                     plan: "Plan A",
@@ -215,6 +222,7 @@ testUpdateSuite({
             );
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "Queue test B",
                     description: "Second test to queue",
                     plan: "Plan B",
@@ -246,13 +254,14 @@ testUpdateSuite({
 
         test("getChanges: reflects applied AddTest changes", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
 
             await updater.apply(
                 new AddTest({
+                    folderId,
                     name: "New test",
                     description: "Tests getChanges",
                     plan: "New plan",

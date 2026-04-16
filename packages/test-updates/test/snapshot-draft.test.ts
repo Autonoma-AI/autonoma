@@ -22,12 +22,13 @@ testUpdateSuite({
 
         test("start: copies test case assignments from active snapshot", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Login test",
                 slug: "login-test",
                 description: "Tests login",
@@ -183,11 +184,12 @@ testUpdateSuite({
 
         test("addTestCase: creates test case with plan and assignment", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
 
             await draft.addTestCase({
+                folderId,
                 name: "Checkout test",
                 slug: "checkout-test",
                 description: "Tests checkout flow",
@@ -205,11 +207,12 @@ testUpdateSuite({
 
         test("updatePlan: creates new plan and clears steps", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
 
             const { testCaseId, planId: originalPlanId } = await draft.addTestCase({
+                folderId,
                 name: "Update plan test",
                 slug: "update-plan-test",
                 description: "Tests plan update",
@@ -231,11 +234,12 @@ testUpdateSuite({
 
         test("removeTestCase: deletes the assignment", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
 
             const { testCaseId } = await draft.addTestCase({
+                folderId,
                 name: "Remove me",
                 slug: "remove-me",
                 description: "Will be removed",
@@ -318,17 +322,19 @@ testUpdateSuite({
 
         test("updateManySteps: updates steps for multiple test cases", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
 
             const { planId: planA } = await draft.addTestCase({
+                folderId,
                 name: "Batch A",
                 slug: "batch-a",
                 description: "First",
                 plan: "Plan A",
             });
             const { planId: planB } = await draft.addTestCase({
+                folderId,
                 name: "Batch B",
                 slug: "batch-b",
                 description: "Second",
@@ -356,12 +362,13 @@ testUpdateSuite({
 
         test("discard: removes snapshot and clears branch pointer", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
             const draft = await SnapshotDraft.start({ db: harness.db, branchId });
 
             await draft.addTestCase({
+                folderId,
                 name: "Discard test",
                 slug: "discard-test",
                 description: "Will be discarded",
@@ -411,12 +418,13 @@ testUpdateSuite({
 
         test("getChanges: returns added for new test cases on first snapshot", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
             const draft = await SnapshotDraft.start({ db: harness.db, branchId });
 
             await draft.addTestCase({
+                folderId,
                 name: "New test",
                 slug: "new-test",
                 description: "A new test",
@@ -435,12 +443,13 @@ testUpdateSuite({
 
         test("getChanges: detects added tests after start from active snapshot", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Existing test",
                 slug: "existing-test",
                 description: "Already exists",
@@ -451,6 +460,7 @@ testUpdateSuite({
 
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
             await second.addTestCase({
+                folderId,
                 name: "Brand new test",
                 slug: "brand-new-test",
                 description: "Just added",
@@ -466,12 +476,13 @@ testUpdateSuite({
 
         test("getChanges: detects removed tests", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Will be removed",
                 slug: "will-be-removed",
                 description: "To remove",
@@ -494,12 +505,13 @@ testUpdateSuite({
 
         test("getChanges: detects updated tests with both plans", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Update me",
                 slug: "update-me",
                 description: "Will be updated",
@@ -526,12 +538,13 @@ testUpdateSuite({
 
         test("getChanges: ignores unchanged tests", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Unchanged test",
                 slug: "unchanged-test",
                 description: "Stays the same",
@@ -548,12 +561,13 @@ testUpdateSuite({
 
         test("getChanges: returns mix of added, removed, and updated", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Stays unchanged",
                 slug: "stays-unchanged",
                 description: "",
@@ -561,6 +575,7 @@ testUpdateSuite({
                 scenarioId: undefined as unknown as string,
             });
             const { testCaseId: updateId } = await first.addTestCase({
+                folderId,
                 name: "Gets updated",
                 slug: "gets-updated",
                 description: "",
@@ -568,6 +583,7 @@ testUpdateSuite({
                 scenarioId: undefined as unknown as string,
             });
             const { testCaseId: removeId } = await first.addTestCase({
+                folderId,
                 name: "Gets removed",
                 slug: "gets-removed",
                 description: "",
@@ -578,6 +594,7 @@ testUpdateSuite({
 
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
             await second.addTestCase({
+                folderId,
                 name: "Newly added",
                 slug: "newly-added",
                 description: "",
@@ -611,12 +628,13 @@ testUpdateSuite({
 
         test("revertTestCase: deletes newly added test on first snapshot (no prevSnapshot)", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
             const draft = await SnapshotDraft.start({ db: harness.db, branchId });
 
             const { testCaseId } = await draft.addTestCase({
+                folderId,
                 name: "Brand new",
                 slug: "brand-new",
                 description: "Will be reverted",
@@ -635,12 +653,13 @@ testUpdateSuite({
 
         test("revertTestCase: deletes newly added test on second snapshot (no previous assignment)", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Revert existing base",
                 slug: "revert-existing-base",
                 description: "Already here",
@@ -650,6 +669,7 @@ testUpdateSuite({
 
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await second.addTestCase({
+                folderId,
                 name: "Revert new in second",
                 slug: "revert-new-in-second",
                 description: "Added in second snapshot",
@@ -668,12 +688,13 @@ testUpdateSuite({
 
         test("revertTestCase: restores previous assignment for updated test", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Revert update target",
                 slug: "revert-update-target",
                 description: "Will be updated then reverted",
@@ -699,12 +720,13 @@ testUpdateSuite({
 
         test("revertTestCase: restores assignment for removed test", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Revert removal target",
                 slug: "revert-removal-target",
                 description: "Will be removed then reverted",
@@ -728,12 +750,13 @@ testUpdateSuite({
 
         test("revertTestCase: clears changes after revert", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Revert changes check",
                 slug: "revert-changes-check",
                 description: "Check getChanges after revert",
@@ -756,12 +779,13 @@ testUpdateSuite({
 
         test("revertTestCase: deletes pending generations for the test case", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId, planId } = await first.addTestCase({
+                folderId,
                 name: "Revert gen test",
                 slug: "revert-gen-test",
                 description: "Has a pending generation",
@@ -788,12 +812,13 @@ testUpdateSuite({
 
         test("revertTestCase: deletes pending generations when discarding an added test on second snapshot", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             await first.addTestCase({
+                folderId,
                 name: "Revert gen base",
                 slug: "revert-gen-base",
                 description: "Existing test",
@@ -803,6 +828,7 @@ testUpdateSuite({
 
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId, planId } = await second.addTestCase({
+                folderId,
                 name: "Revert gen added",
                 slug: "revert-gen-added",
                 description: "Newly added with generation",
@@ -831,12 +857,13 @@ testUpdateSuite({
 
         test("revertTestCase: deletes pending generations when discarding an updated test", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
             const { testCaseId } = await first.addTestCase({
+                folderId,
                 name: "Revert gen updated",
                 slug: "revert-gen-updated",
                 description: "Will be updated",

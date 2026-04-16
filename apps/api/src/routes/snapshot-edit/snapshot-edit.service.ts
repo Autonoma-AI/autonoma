@@ -16,12 +16,13 @@ import { Service } from "../service";
 interface AddTestInput {
     name: string;
     plan: string;
+    folderId: string;
     description?: string;
     scenarioId?: string;
 }
 
 interface AddTestsInput {
-    tests: Array<{ name: string; plan: string; description?: string }>;
+    tests: Array<{ name: string; plan: string; folderId: string; description?: string }>;
     scenarioId?: string;
 }
 
@@ -82,6 +83,7 @@ export class SnapshotEditService extends Service {
                 name: input.name,
                 description: input.description,
                 plan: input.plan,
+                folderId: input.folderId,
                 scenarioId: input.scenarioId,
             }),
         );
@@ -100,6 +102,7 @@ export class SnapshotEditService extends Service {
                     name: test.name,
                     description: test.description,
                     plan: test.plan,
+                    folderId: test.folderId,
                     scenarioId: input.scenarioId,
                 }),
             );

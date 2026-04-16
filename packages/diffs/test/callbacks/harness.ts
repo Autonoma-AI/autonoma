@@ -63,6 +63,13 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         return branch.id;
     }
 
+    async createFolder(organizationId: string, applicationId: string): Promise<string> {
+        const folder = await this.db.folder.create({
+            data: { name: "default", applicationId, organizationId },
+        });
+        return folder.id;
+    }
+
     /**
      * Creates a branch with an active snapshot that has a test case assigned.
      * Returns the branchId and testCaseId for use in tests.
@@ -74,9 +81,12 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         testName: string,
     ): Promise<{ branchId: string; testCaseId: string }> {
         const branchId = await this.createBranch(organizationId, applicationId);
+        const folderId = await this.createFolder(organizationId, applicationId);
 
         const updater = await TestSuiteUpdater.startUpdate({ db: this.db, branchId });
-        await updater.apply(new AddTest({ name: testName, description: `Test: ${testName}`, plan: "initial plan" }));
+        await updater.apply(
+            new AddTest({ name: testName, description: `Test: ${testName}`, plan: "initial plan", folderId }),
+        );
 
         // Mark all pending generations as complete so we can finalize
         await this.db.testGeneration.updateMany({ where: { status: "pending" }, data: { status: "success" } });

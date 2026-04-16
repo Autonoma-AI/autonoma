@@ -66,6 +66,13 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return app.id;
     }
 
+    async createFolder(organizationId: string, applicationId: string, name = "default"): Promise<string> {
+        const folder = await this.db.folder.create({
+            data: { name, applicationId, organizationId },
+        });
+        return folder.id;
+    }
+
     async createBranch(
         organizationId: string,
         applicationId: string,
@@ -219,6 +226,7 @@ interface SeedResult {
     organizationId: string;
     applicationId: string;
     branchId: string;
+    folderId: string;
 }
 
 type TestUpdateSuiteContext = { harness: TestUpdatesHarness; seedResult: SeedResult };
@@ -236,7 +244,8 @@ export function testUpdateSuite({ name, cases }: TestUpdateSuiteParams) {
             const organizationId = await harness.createOrg();
             const applicationId = await harness.createApp(organizationId);
             const branchId = await harness.createBranch(organizationId, applicationId);
-            return { organizationId, applicationId, branchId };
+            const folderId = await harness.createFolder(organizationId, applicationId);
+            return { organizationId, applicationId, branchId, folderId };
         },
         cases,
     });

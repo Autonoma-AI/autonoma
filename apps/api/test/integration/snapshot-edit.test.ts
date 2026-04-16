@@ -5,7 +5,7 @@ import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
-async function createBranch(harness: APITestHarness): Promise<string> {
+async function createBranch(harness: APITestHarness): Promise<{ branchId: string; folderId: string }> {
     const application = await harness.services.applications.createApplication({
         name: `App ${crypto.randomUUID()}`,
         organizationId: harness.organizationId,
@@ -14,14 +14,19 @@ async function createBranch(harness: APITestHarness): Promise<string> {
         file: "s3://bucket/file.png",
     });
     // biome-ignore lint/style/noNonNullAssertion: guaranteed by createApplication
-    return application.mainBranchId!;
+    const branchId = application.mainBranchId!;
+    const folder = await harness.db.folder.create({
+        data: { name: "default", applicationId: application.id, organizationId: harness.organizationId },
+        select: { id: true },
+    });
+    return { branchId, folderId: folder.id };
 }
 
 apiTestSuite({
     name: "snapshotEdit",
     seed: async ({ harness }) => {
-        const branchId = await createBranch(harness);
-        return { branchId };
+        const { branchId, folderId } = await createBranch(harness);
+        return { branchId, folderId };
     },
     cases: (test) => {
         test("start creates a pending snapshot and returns test suite", async ({
@@ -53,13 +58,14 @@ apiTestSuite({
         });
 
         test("addTest adds a test case to the snapshot", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId, folderId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Login test",
                 plan: "Navigate to login and verify form",
+                folderId,
             });
 
             const session = await harness.request().snapshotEdit.get({ branchId });
@@ -71,15 +77,15 @@ apiTestSuite({
         });
 
         test("addTests adds multiple tests in bulk", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId, folderId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.addTests({
                 branchId,
                 tests: [
-                    { name: "Test A", plan: "Plan A" },
-                    { name: "Test B", plan: "Plan B" },
-                    { name: "Test C", plan: "Plan C" },
+                    { name: "Test A", plan: "Plan A", folderId },
+                    { name: "Test B", plan: "Plan B", folderId },
+                    { name: "Test C", plan: "Plan C", folderId },
                 ],
             });
 
@@ -93,12 +99,13 @@ apiTestSuite({
         });
 
         test("updateTest updates a test plan", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId, folderId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Updatable test",
                 plan: "Original plan",
+                folderId,
             });
 
             const beforeUpdate = await harness.request().snapshotEdit.get({ branchId });
@@ -117,12 +124,13 @@ apiTestSuite({
         });
 
         test("removeTest removes a test from the snapshot", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId, folderId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Test to remove",
                 plan: "Will be removed",
+                folderId,
             });
 
             const before = await harness.request().snapshotEdit.get({ branchId });
@@ -137,12 +145,13 @@ apiTestSuite({
         });
 
         test("queueGenerations fires generation jobs via the provider", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId, folderId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Generate me",
                 plan: "Run generation",
+                folderId,
             });
 
             const batchesBefore = harness.generationProvider.firedBatches.length;
@@ -156,7 +165,7 @@ apiTestSuite({
         });
 
         test("finalize activates the snapshot", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId } = await createBranch(harness);
             const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.finalize({ branchId });
@@ -170,7 +179,7 @@ apiTestSuite({
         });
 
         test("discard removes the pending snapshot", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.discard({ branchId });
@@ -210,7 +219,7 @@ apiTestSuite({
         });
 
         test("start throws when branch already has a pending snapshot", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
 
             const error = await harness
@@ -222,7 +231,7 @@ apiTestSuite({
         });
 
         test("get throws when no pending snapshot exists", async ({ harness }) => {
-            const branchId = await createBranch(harness);
+            const { branchId } = await createBranch(harness);
 
             const error = await harness
                 .request()

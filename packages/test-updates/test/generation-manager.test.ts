@@ -8,12 +8,13 @@ testUpdateSuite({
     cases: (test) => {
         test("addJob: creates a pending generation record", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { planId } = await draft.addTestCase({
+                folderId,
                 name: "Gen test",
                 description: "Tests generation",
                 plan: "Some plan",
@@ -28,12 +29,13 @@ testUpdateSuite({
 
         test("addJob: replaces existing pending generation for same test case", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
+                folderId,
                 name: "Replace test",
                 description: "Tests replacement",
                 plan: "First plan",
@@ -55,18 +57,20 @@ testUpdateSuite({
 
         test("addJob: handles multiple test cases independently", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { planId: planA } = await draft.addTestCase({
+                folderId,
                 name: "Test A",
                 description: "First test",
                 plan: "Plan A",
             });
 
             const { planId: planB } = await draft.addTestCase({
+                folderId,
                 name: "Test B",
                 description: "Second test",
                 plan: "Plan B",
@@ -109,18 +113,20 @@ testUpdateSuite({
 
         test("getGenerationSummary: returns generation status per test case", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { planId: planA } = await draft.addTestCase({
+                folderId,
                 name: "Summary A",
                 description: "First",
                 plan: "Plan A",
             });
 
             const { planId: planB } = await draft.addTestCase({
+                folderId,
                 name: "Summary B",
                 description: "Second",
                 plan: "Plan B",
@@ -136,12 +142,13 @@ testUpdateSuite({
 
         test("getGenerationSummary: returns latest generation per test case", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
+                folderId,
                 name: "Latest gen",
                 description: "Tests latest",
                 plan: "First plan",
@@ -189,7 +196,7 @@ testUpdateSuite({
 
         test("queuePendingGenerations: fires jobs and marks generations as queued", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             const { draft, manager } = await harness.startDraftWithDeployment(organizationId, applicationId, {
@@ -197,11 +204,13 @@ testUpdateSuite({
             });
 
             const { planId: planA } = await draft.addTestCase({
+                folderId,
                 name: "Queue A",
                 description: "First",
                 plan: "Plan A",
             });
             const { planId: planB } = await draft.addTestCase({
+                folderId,
                 name: "Queue B",
                 description: "Second",
                 plan: "Plan B",
@@ -224,7 +233,7 @@ testUpdateSuite({
 
         test("queuePendingGenerations: marks generations as failed when fireJobs throws", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             jobProvider.fireJobs = async () => {
@@ -235,6 +244,7 @@ testUpdateSuite({
             });
 
             const { planId } = await draft.addTestCase({
+                folderId,
                 name: "Exploding test",
                 description: "Should fail on fire",
                 plan: "Some plan",
@@ -256,7 +266,7 @@ testUpdateSuite({
 
         test("queuePendingGenerations: marks generations as failed when no deployment is configured", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const jobProvider = new FakeGenerationProvider();
             // startDraft creates a branch without a deployment
@@ -264,6 +274,7 @@ testUpdateSuite({
             const manager = draft.generationManager({ jobProvider });
 
             const { planId } = await draft.addTestCase({
+                folderId,
                 name: "No deploy test",
                 description: "Should fail validation",
                 plan: "Some plan",
@@ -287,12 +298,13 @@ testUpdateSuite({
 
         test("getGenerationSummary: picks the most recent generation when multiple coexist", async ({
             harness,
-            seedResult: { organizationId, applicationId },
+            seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
             const manager = draft.generationManager();
 
             const { testCaseId, planId } = await draft.addTestCase({
+                folderId,
                 name: "Multi gen",
                 description: "Tests multiple generations",
                 plan: "The plan",

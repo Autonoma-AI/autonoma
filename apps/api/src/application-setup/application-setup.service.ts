@@ -225,7 +225,7 @@ export class ApplicationSetupService {
 
         const updater = await this.getUpdater(branchId, organizationId);
         await this.applySkills(updater, body.skills ?? []);
-        await this.applyTests(updater, body.testCases ?? [], setup.applicationId);
+        await this.applyTests(updater, body.testCases ?? [], setup.applicationId, organizationId);
         await this.persistArtifacts(setup, organizationId, body.artifacts ?? []);
         await this.createFileEvents(setupId, body);
 
@@ -326,12 +326,15 @@ export class ApplicationSetupService {
         updater: TestSuiteUpdater,
         testCases: NonNullable<UploadArtifactsBody["testCases"]>,
         applicationId: string,
+        organizationId: string,
     ): Promise<void> {
         const scenarios = await this.db.scenario.findMany({
             where: { applicationId },
             select: { id: true, name: true, activeRecipeVersionId: true },
         });
         const scenarioByName = new Map(scenarios.map((s) => [s.name, s]));
+
+        const folderCache = new Map<string, string>();
 
         for (const testCase of testCases) {
             const { data: frontmatter, content: plan } = matter(testCase.content);
@@ -358,8 +361,40 @@ export class ApplicationSetupService {
                 }
             }
 
-            await updater.apply(new AddTest({ name: testCase.name, plan: plan.trim(), scenarioId }));
+            const folderName = testCase.folder ?? "default";
+            const folderId = await this.findOrCreateFolder(applicationId, organizationId, folderName, folderCache);
+
+            await updater.apply(new AddTest({ name: testCase.name, plan: plan.trim(), folderId, scenarioId }));
         }
+    }
+
+    private async findOrCreateFolder(
+        applicationId: string,
+        organizationId: string,
+        folderName: string,
+        cache: Map<string, string>,
+    ): Promise<string> {
+        const cached = cache.get(folderName);
+        if (cached != null) return cached;
+
+        const folderId = await this.db.$transaction(async (tx) => {
+            const existing = await tx.folder.findFirst({
+                where: { applicationId, name: folderName, parentId: null },
+                select: { id: true },
+            });
+
+            if (existing != null) return existing.id;
+
+            const created = await tx.folder.create({
+                data: { name: folderName, applicationId, organizationId },
+                select: { id: true },
+            });
+            log.info("Created folder for test case upload", { folderName, folderId: created.id, applicationId });
+            return created.id;
+        });
+
+        cache.set(folderName, folderId);
+        return folderId;
     }
 
     private async persistArtifacts(

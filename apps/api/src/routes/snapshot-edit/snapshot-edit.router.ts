@@ -20,6 +20,7 @@ export const snapshotEditRouter = router({
                 branchId: z.string(),
                 name: z.string().min(1),
                 plan: z.string().min(1),
+                folderId: z.string(),
                 description: z.string().optional(),
                 scenarioId: z.string().optional(),
             }),
@@ -37,6 +38,7 @@ export const snapshotEditRouter = router({
                         z.object({
                             name: z.string().min(1),
                             plan: z.string().min(1),
+                            folderId: z.string(),
                             description: z.string().optional(),
                         }),
                     )

@@ -4,6 +4,7 @@ export interface AddTestParams {
     name: string;
     description?: string;
     plan: string;
+    folderId: string;
     scenarioId?: string;
 }
 
