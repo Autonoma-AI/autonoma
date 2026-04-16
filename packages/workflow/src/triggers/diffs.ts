@@ -1,6 +1,7 @@
 import { logger } from "@autonoma/logger";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
+import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
@@ -20,6 +21,7 @@ export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<vo
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
         taskQueue: TaskQueue.GENERAL,
+        searchAttributes: getWorkflowSearchAttributes(),
         args: [{ branchId }],
     });
 

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { logger } from "@autonoma/logger";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
+import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
 import type { TestPlanItem, WorkflowArchitecture, WorkflowRef } from "../types";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
@@ -22,18 +23,33 @@ export async function triggerBatchGeneration(params: TriggerBatchGenerationParam
     const batchKey = createHash("sha256").update(testGenerationIds.join(":"), "utf8").digest("hex").slice(0, 16);
     const workflowId = `batch-generation-${batchKey}`;
 
-    const handle = await client.workflow.start(WORKFLOW_TYPE.BATCH_GENERATION, {
-        workflowId,
-        workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.GENERAL,
-        args: [
-            {
-                testPlans,
-                architecture,
-                autoActivate: autoActivate ?? false,
-            },
-        ],
-    });
+    let handle;
+    try {
+        handle = await client.workflow.start(WORKFLOW_TYPE.BATCH_GENERATION, {
+            workflowId,
+            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
+            taskQueue: TaskQueue.GENERAL,
+            searchAttributes: getWorkflowSearchAttributes(),
+            args: [
+                {
+                    testPlans,
+                    architecture,
+                    autoActivate: autoActivate ?? false,
+                },
+            ],
+        });
+    } catch (error) {
+        const grpcCause =
+            error instanceof Error ? (error.cause as { code?: number; details?: string } | undefined) : undefined;
+        logger.error("Failed to start batch generation workflow", error, {
+            workflowId,
+            testGenerationIds,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            grpcCode: grpcCause?.code,
+            grpcDetails: grpcCause?.details,
+        });
+        throw error;
+    }
 
     logger.info("Batch generation workflow started", { workflowId, testGenerationIds });
 
