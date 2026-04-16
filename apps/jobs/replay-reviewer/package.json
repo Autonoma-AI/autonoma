@@ -5,7 +5,9 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
-        "./run": "./src/run.ts"
+        "./run": "./src/run.ts",
+        "./reviewer": "./src/replay-reviewer.ts",
+        "./data-loader": "./src/data-loader.ts"
     },
     "scripts": {
         "build": "tsup",

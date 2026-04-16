@@ -1,0 +1,21 @@
+import { tool } from "ai";
+import { z } from "zod";
+import type { TestDirectory } from "../test-directory";
+
+const readTestSchema = z.object({
+    slug: z.string().describe("The slug of the test to read."),
+});
+
+export function buildReadTestTool(testDirectory: TestDirectory) {
+    return tool({
+        description: "Read the full instruction (prompt) of a specific test by its slug.",
+        inputSchema: readTestSchema,
+        execute: async ({ slug }) => {
+            const test = await testDirectory.readTest(slug);
+            if (test == null) {
+                return { error: `Test "${slug}" not found.` };
+            }
+            return { slug, name: test.name, instruction: test.prompt };
+        },
+    });
+}

@@ -66,6 +66,33 @@ export class TestDirectory {
         await writeFile(join(this.skillsDir, `${slug}.md`), formatSkillContent(name, description, content), "utf-8");
     }
 
+    async readTest(slug: string): Promise<{ name: string; prompt: string } | undefined> {
+        const filePath = join(this.testsDir, `${slug}.md`);
+        try {
+            const raw = await readFile(filePath, "utf-8");
+            const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
+            const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
+            const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
+            return { name, prompt: body };
+        } catch {
+            return undefined;
+        }
+    }
+
+    async readSkill(slug: string): Promise<{ name: string; description: string; content: string } | undefined> {
+        const filePath = join(this.skillsDir, `${slug}.md`);
+        try {
+            const raw = await readFile(filePath, "utf-8");
+            const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
+            const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
+            const description = frontmatter?.[1]?.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
+            const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
+            return { name, description, content: body };
+        } catch {
+            return undefined;
+        }
+    }
+
     async readTests(): Promise<ExistingTestInfo[]> {
         this.logger.info("Reading test files");
 

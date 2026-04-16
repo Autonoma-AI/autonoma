@@ -12,6 +12,7 @@ interface PersistReplayReviewParams {
     verdict: ReviewVerdict;
     costCollector: CostCollector;
     bugLinker: BugLinker;
+    skipIssueBugCreation?: boolean;
 }
 
 export async function persistReplayReview(params: PersistReplayReviewParams): Promise<void> {
@@ -41,48 +42,50 @@ export async function persistReplayReview(params: PersistReplayReviewParams): Pr
             },
         });
 
-        const issue = await tx.issue.upsert({
-            where: { runReviewId: review.id },
-            create: {
-                runReviewId: review.id,
-                category: verdict.verdict,
-                confidence: verdict.confidence,
-                severity: verdict.severity,
-                title: verdict.title,
-                description: verdict.reasoning,
-                organizationId,
-            },
-            update: {
-                category: verdict.verdict,
-                confidence: verdict.confidence,
-                severity: verdict.severity,
-                title: verdict.title,
-                description: verdict.reasoning,
-            },
-        });
-
-        if (verdict.verdict === "application_bug" && verdict.confidence >= BUG_CONFIDENCE_THRESHOLD) {
-            const run = await tx.run.findUniqueOrThrow({
-                where: { id: runId },
-                select: {
-                    assignment: {
-                        select: {
-                            testCaseId: true,
-                            snapshot: { select: { branchId: true } },
-                        },
-                    },
+        if (!params.skipIssueBugCreation) {
+            const issue = await tx.issue.upsert({
+                where: { runReviewId: review.id },
+                create: {
+                    runReviewId: review.id,
+                    category: verdict.verdict,
+                    confidence: verdict.confidence,
+                    severity: verdict.severity,
+                    title: verdict.title,
+                    description: verdict.reasoning,
+                    organizationId,
+                },
+                update: {
+                    category: verdict.verdict,
+                    confidence: verdict.confidence,
+                    severity: verdict.severity,
+                    title: verdict.title,
+                    description: verdict.reasoning,
                 },
             });
 
-            await bugLinker.linkIssueToBug(tx, {
-                issueId: issue.id,
-                issueTitle: verdict.title,
-                issueDescription: verdict.reasoning,
-                branchId: run.assignment.snapshot.branchId,
-                testCaseId: run.assignment.testCaseId,
-                severity: verdict.severity,
-                organizationId,
-            });
+            if (verdict.verdict === "application_bug" && verdict.confidence >= BUG_CONFIDENCE_THRESHOLD) {
+                const run = await tx.run.findUniqueOrThrow({
+                    where: { id: runId },
+                    select: {
+                        assignment: {
+                            select: {
+                                testCaseId: true,
+                                snapshot: { select: { branchId: true } },
+                            },
+                        },
+                    },
+                });
+
+                await bugLinker.linkIssueToBug(tx, {
+                    issueId: issue.id,
+                    issueTitle: verdict.title,
+                    issueDescription: verdict.reasoning,
+                    branchId: run.assignment.snapshot.branchId,
+                    testCaseId: run.assignment.testCaseId,
+                    severity: verdict.severity,
+                    organizationId,
+                });
+            }
         }
 
         const costRecords = costCollector.getRecords();

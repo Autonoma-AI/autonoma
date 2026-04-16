@@ -5,12 +5,16 @@ export { reviewGeneration, reviewReplay } from "./review";
 export { assignGenerationResults } from "./assign-generation-results";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { analyzeDiffs } from "./analyze-diffs";
+export { resolveDiffs } from "./resolve-diffs";
+export { finalizeDiffs } from "./finalize-diffs";
 export { markGenerationFailed } from "./mark-generation-failed";
 
 import { analyzeDiffs } from "./analyze-diffs";
 import { assignGenerationResults } from "./assign-generation-results";
+import { finalizeDiffs } from "./finalize-diffs";
 import { markGenerationFailed } from "./mark-generation-failed";
 import { notifyGenerationExit } from "./notify-generation-exit";
+import { resolveDiffs } from "./resolve-diffs";
 import { reviewGeneration } from "./review";
 import { reviewReplay } from "./review";
 // Compile-time check: ensure exported activities match the GeneralActivities contract.
@@ -25,5 +29,7 @@ import { scenarioDown } from "./scenario";
     assignGenerationResults,
     notifyGenerationExit,
     analyzeDiffs,
+    resolveDiffs,
+    finalizeDiffs,
     markGenerationFailed,
 }) satisfies GeneralActivities;

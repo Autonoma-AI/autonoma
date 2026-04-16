@@ -12,7 +12,10 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/ai": "workspace:*",
+        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
+        "@autonoma/diffs": "workspace:*",
         "@autonoma/generation-assigner": "workspace:*",
         "@autonoma/generation-reviewer": "workspace:*",
         "@autonoma/job-diffs": "workspace:*",
@@ -21,6 +24,7 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/replay-reviewer": "workspace:*",
         "@autonoma/scenario": "workspace:*",
+        "@autonoma/test-updates": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",

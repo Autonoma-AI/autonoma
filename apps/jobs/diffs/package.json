@@ -5,29 +5,40 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
-        "./run": "./src/run.ts"
+        "./run": "./src/run.ts",
+        "./run-resolution": "./src/run-resolution.ts",
+        "./load-context": "./src/load-context.ts"
     },
     "scripts": {
         "build": "tsup",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
-        "test": "vitest run --passWithNoTests"
+        "test": "vitest run --passWithNoTests",
+        "diffs-agent": "tsx src/run-diffs-isolated.ts",
+        "resolution-agent": "tsx src/run-resolution-isolated.ts",
+        "full-pipeline": "tsx src/run-full-pipeline-isolated.ts",
+        "generate-fixtures": "tsx src/run-generate-fixtures.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
-        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/diffs": "workspace:*",
+        "@autonoma/engine": "workspace:*",
+        "@autonoma/engine-web": "workspace:*",
         "@autonoma/github": "workspace:*",
+        "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/replay-reviewer": "workspace:*",
+        "@autonoma/review": "workspace:*",
+        "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
-        "@autonoma/try": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
+        "playwright": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {

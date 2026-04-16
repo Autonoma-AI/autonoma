@@ -12,6 +12,7 @@ interface PersistGenerationReviewParams {
     verdict: ReviewVerdict;
     costCollector: CostCollector;
     bugLinker: BugLinker;
+    skipIssueBugCreation?: boolean;
 }
 
 export async function persistGenerationReview(params: PersistGenerationReviewParams): Promise<void> {
@@ -41,44 +42,46 @@ export async function persistGenerationReview(params: PersistGenerationReviewPar
             },
         });
 
-        const issue = await tx.issue.upsert({
-            where: { generationReviewId: review.id },
-            create: {
-                generationReviewId: review.id,
-                category: verdict.verdict,
-                confidence: verdict.confidence,
-                severity: verdict.severity,
-                title: verdict.title,
-                description: verdict.reasoning,
-                organizationId,
-            },
-            update: {
-                category: verdict.verdict,
-                confidence: verdict.confidence,
-                severity: verdict.severity,
-                title: verdict.title,
-                description: verdict.reasoning,
-            },
-        });
-
-        if (verdict.verdict === "application_bug" && verdict.confidence >= BUG_CONFIDENCE_THRESHOLD) {
-            const generation = await tx.testGeneration.findUniqueOrThrow({
-                where: { id: generationId },
-                select: {
-                    snapshot: { select: { branchId: true } },
-                    testPlan: { select: { testCaseId: true } },
+        if (!params.skipIssueBugCreation) {
+            const issue = await tx.issue.upsert({
+                where: { generationReviewId: review.id },
+                create: {
+                    generationReviewId: review.id,
+                    category: verdict.verdict,
+                    confidence: verdict.confidence,
+                    severity: verdict.severity,
+                    title: verdict.title,
+                    description: verdict.reasoning,
+                    organizationId,
+                },
+                update: {
+                    category: verdict.verdict,
+                    confidence: verdict.confidence,
+                    severity: verdict.severity,
+                    title: verdict.title,
+                    description: verdict.reasoning,
                 },
             });
 
-            await bugLinker.linkIssueToBug(tx, {
-                issueId: issue.id,
-                issueTitle: verdict.title,
-                issueDescription: verdict.reasoning,
-                branchId: generation.snapshot.branchId,
-                testCaseId: generation.testPlan.testCaseId,
-                severity: verdict.severity,
-                organizationId,
-            });
+            if (verdict.verdict === "application_bug" && verdict.confidence >= BUG_CONFIDENCE_THRESHOLD) {
+                const generation = await tx.testGeneration.findUniqueOrThrow({
+                    where: { id: generationId },
+                    select: {
+                        snapshot: { select: { branchId: true } },
+                        testPlan: { select: { testCaseId: true } },
+                    },
+                });
+
+                await bugLinker.linkIssueToBug(tx, {
+                    issueId: issue.id,
+                    issueTitle: verdict.title,
+                    issueDescription: verdict.reasoning,
+                    branchId: generation.snapshot.branchId,
+                    testCaseId: generation.testPlan.testCaseId,
+                    severity: verdict.severity,
+                    organizationId,
+                });
+            }
         }
 
         const costRecords = costCollector.getRecords();

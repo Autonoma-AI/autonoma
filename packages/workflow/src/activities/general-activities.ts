@@ -3,6 +3,8 @@
  * Workers must export an object that `satisfies GeneralActivities` to ensure type safety.
  */
 
+import type { WorkflowArchitecture } from "../types";
+
 export interface ScenarioUpInput {
     scenarioJobType: string;
     entityId: string;
@@ -19,10 +21,12 @@ export interface ScenarioDownInput {
 
 export interface ReviewGenerationInput {
     generationId: string;
+    skipIssueBugCreation?: boolean;
 }
 
 export interface ReviewReplayInput {
     runId: string;
+    skipIssueBugCreation?: boolean;
 }
 
 export interface AssignGenerationResultsInput {
@@ -38,6 +42,51 @@ export interface AnalyzeDiffsInput {
     branchId: string;
 }
 
+export interface TestCandidateInfo {
+    name: string;
+    instruction: string;
+    url?: string;
+    reasoning: string;
+}
+
+export interface AnalyzeDiffsOutput {
+    preparedRuns: PreparedRunInfo[];
+    testCandidates: TestCandidateInfo[];
+    reasoning: string;
+}
+
+export interface PreparedRunInfo {
+    runId: string;
+    slug: string;
+    architecture: WorkflowArchitecture;
+    scenarioId?: string;
+}
+
+export interface ResolveDiffsInput {
+    branchId: string;
+    runIds: string[];
+    step1Reasoning: string;
+    testCandidates: TestCandidateInfo[];
+}
+
+export interface ResolveDiffsOutput {
+    generations: GenerationInfo[];
+    modifiedTests: number;
+    quarantinedTests: number;
+    bugsTracked: number;
+}
+
+export interface GenerationInfo {
+    testGenerationId: string;
+    scenarioId?: string;
+    architecture: WorkflowArchitecture;
+}
+
+export interface FinalizeDiffsInput {
+    branchId: string;
+    generationIds: string[];
+}
+
 export interface MarkGenerationFailedInput {
     testGenerationId: string;
     reason?: string;
@@ -51,5 +100,7 @@ export interface GeneralActivities {
     assignGenerationResults(input: AssignGenerationResultsInput): Promise<void>;
     markGenerationFailed(input: MarkGenerationFailedInput): Promise<void>;
     notifyGenerationExit(input: NotifyGenerationExitInput): Promise<void>;
-    analyzeDiffs(input: AnalyzeDiffsInput): Promise<void>;
+    analyzeDiffs(input: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput>;
+    resolveDiffs(input: ResolveDiffsInput): Promise<ResolveDiffsOutput>;
+    finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
 }

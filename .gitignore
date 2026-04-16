@@ -22,6 +22,10 @@ pnpm-debug.log*
 # AI
 .claude/settings.local.json
 
+# Isolated runner output
+step1-result.json
+step2-result.json
+
 # IDEs
 .idea/
 .vscode/

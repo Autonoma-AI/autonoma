@@ -98,7 +98,7 @@ export class DiffsCallbackHarness implements IntegrationHarness {
 
     /**
      * Creates a runnable test case with an assignment that has stepsId set.
-     * This is required for triggerTestsAndWait to find a runnable assignment.
+     * This is required for prepareRuns to find a runnable assignment.
      */
     async setupRunnableTest(
         organizationId: string,

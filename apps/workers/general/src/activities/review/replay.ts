@@ -11,7 +11,9 @@ export async function reviewReplay(input: ReviewReplayInput): Promise<void> {
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runReplayReview(input.runId);
+        await runReplayReview(input.runId, {
+            skipIssueBugCreation: input.skipIssueBugCreation,
+        });
         logger.info("Replay review completed");
     } catch (error) {
         logger.error("Replay review failed", error);

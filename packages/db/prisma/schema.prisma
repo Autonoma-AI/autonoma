@@ -453,7 +453,7 @@ enum ConversationMessageRole {
 
 model Folder {
   id            String      @id @default(cuid())
-  name          String
+  name          String     
   description   String?
   applicationId String      @map("application_id")
   parentId      String?     @map("parent_id")
@@ -466,6 +466,8 @@ model Folder {
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, parentId, name])
 
   @@map("folder")
 }

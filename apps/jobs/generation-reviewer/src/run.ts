@@ -6,7 +6,11 @@ import { GenerationDataLoader } from "./data-loader";
 import { GenerationReviewer } from "./generation-reviewer";
 import { persistGenerationReview } from "./persist-review-result";
 
-export async function runGenerationReview(generationId: string): Promise<void> {
+export interface GenerationReviewOptions {
+    skipIssueBugCreation?: boolean;
+}
+
+export async function runGenerationReview(generationId: string, options?: GenerationReviewOptions): Promise<void> {
     logger.info("Starting generation reviewer", { generationId });
 
     const generation = await db.testGeneration.findUniqueOrThrow({
@@ -66,6 +70,7 @@ export async function runGenerationReview(generationId: string): Promise<void> {
         verdict,
         costCollector,
         bugLinker,
+        skipIssueBugCreation: options?.skipIssueBugCreation,
     });
 
     logger.info("Generation review completed successfully", {

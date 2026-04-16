@@ -14,6 +14,7 @@ export interface SingleGenerationInput {
     testGenerationId: string;
     scenarioId?: string;
     architecture: WorkflowArchitecture;
+    skipIssueBugCreation?: boolean;
 }
 
 export async function singleGenerationWorkflow(input: SingleGenerationInput): Promise<void> {
@@ -45,7 +46,10 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     } finally {
         const postSteps: Promise<void>[] = [
             general.notifyGenerationExit({ testGenerationId }),
-            general.reviewGeneration({ generationId: testGenerationId }),
+            general.reviewGeneration({
+                generationId: testGenerationId,
+                skipIssueBugCreation: input.skipIssueBugCreation,
+            }),
         ];
 
         if (scenarioInstanceId != null) {

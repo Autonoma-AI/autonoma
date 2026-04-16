@@ -195,7 +195,7 @@ function useAutoSetup(appId: string | undefined) {
     setup().catch((err: Error) => {
       setError(err.message);
     });
-  }, []);
+  }, [navigate, appId]);
 
   return { result, error };
 }

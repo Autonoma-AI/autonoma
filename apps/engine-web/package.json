@@ -7,7 +7,9 @@
     "exports": {
         ".": "./src/index.ts",
         "./generation": "./src/execution-agent/generation-api/run-generation-job.ts",
-        "./replay": "./src/replay/run-replay-job.ts"
+        "./replay": "./src/replay/run-replay-job.ts",
+        "./web-installer": "./src/platform/web-installer.ts",
+        "./web-agent-factory": "./src/execution-agent/web-agent/web-agent-factory.ts"
     },
     "scripts": {
         "build": "tsc",

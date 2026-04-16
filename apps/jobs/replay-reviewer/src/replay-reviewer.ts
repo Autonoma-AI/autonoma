@@ -2,11 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModel, UploadedVideo, VideoProcessor } from "@autonoma/ai";
 import { logger } from "@autonoma/logger";
-import { buildReviewTools, runReviewAgent, tryUploadVideo } from "@autonoma/review";
+import {
+    type ScreenshotLoader,
+    type VideoDownloader,
+    buildReviewTools,
+    runReviewAgent,
+    tryUploadVideo,
+} from "@autonoma/review";
 import type { ReviewVerdict } from "@autonoma/types";
-
 import type { FilePart, ModelMessage, TextPart } from "ai";
-import type { RunDataLoader, RunReviewData } from "./data-loader";
+import type { RunReviewData } from "./data-loader";
 
 const systemPrompt = readFileSync(join(import.meta.dirname, "review-prompt.md"), "utf-8");
 
@@ -18,7 +23,7 @@ export interface RunReviewResult {
 export class ReplayReviewer {
     constructor(
         private readonly model: LanguageModel,
-        private readonly dataLoader: RunDataLoader,
+        private readonly dataLoader: ScreenshotLoader & VideoDownloader,
         private readonly videoProcessor?: VideoProcessor,
     ) {}
 

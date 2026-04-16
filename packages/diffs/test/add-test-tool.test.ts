@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildAddTestTool } from "../src/tools";
-import type { GeneratedTestCollector } from "../src/tools/add-test-tool";
+import type { GeneratedTest } from "../src/tools/add-test-tool";
 import { executeTool } from "./execute-tool";
 
 describe("add_test tool", () => {
     it("records a new test suggestion", async () => {
-        const collectedTests: Array<{ name: string; instruction: string; url?: string; reasoning: string }> = [];
-        const testCollector: GeneratedTestCollector = {
-            add: (test) => collectedTests.push(test),
-        };
-        const tool = buildAddTestTool(testCollector);
+        const collector: { newTests: GeneratedTest[] } = { newTests: [] };
+        const tool = buildAddTestTool(collector);
 
         const result = await executeTool<{ success: boolean; testName: string }>(tool, {
             name: "New user registration",
@@ -21,16 +18,13 @@ describe("add_test tool", () => {
 
         expect(result.success).toBe(true);
         expect(result.testName).toBe("New user registration");
-        expect(collectedTests).toHaveLength(1);
-        expect(collectedTests[0]?.instruction).toContain("/signup");
+        expect(collector.newTests).toHaveLength(1);
+        expect(collector.newTests[0]?.instruction).toContain("/signup");
     });
 
     it("records multiple tests", async () => {
-        const collectedTests: Array<{ name: string; instruction: string; url?: string; reasoning: string }> = [];
-        const testCollector: GeneratedTestCollector = {
-            add: (test) => collectedTests.push(test),
-        };
-        const tool = buildAddTestTool(testCollector);
+        const collector: { newTests: GeneratedTest[] } = { newTests: [] };
+        const tool = buildAddTestTool(collector);
 
         await executeTool(tool, {
             name: "Test A",
@@ -43,6 +37,6 @@ describe("add_test tool", () => {
             reasoning: "Reason B",
         });
 
-        expect(collectedTests).toHaveLength(2);
+        expect(collector.newTests).toHaveLength(2);
     });
 });

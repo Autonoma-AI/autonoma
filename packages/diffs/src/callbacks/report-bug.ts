@@ -1,6 +1,6 @@
 import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
-import type { BugReport } from "../tools/bug-found-tool";
+import type { ReportedBug } from "../tools/report-bug-tool";
 
 interface ReportBugDeps {
     repoId: number;
@@ -8,7 +8,7 @@ interface ReportBugDeps {
     githubClient: GitHubInstallationClient;
 }
 
-export async function reportBug(report: BugReport, { repoId, headSha, githubClient }: ReportBugDeps): Promise<void> {
+export async function reportBug(report: ReportedBug, { repoId, headSha, githubClient }: ReportBugDeps): Promise<void> {
     logger.info("Reporting bug", { summary: report.summary, repoId });
 
     const body = formatBugIssueBody(report, headSha);
@@ -18,29 +18,34 @@ export async function reportBug(report: BugReport, { repoId, headSha, githubClie
     logger.info("GitHub issue created", { issueNumber: issue.number, issueUrl: issue.url });
 }
 
-function formatBugIssueBody(report: BugReport, headSha: string): string {
-    return `## Bug Report (Automated)
+function formatBugIssueBody(report: ReportedBug, headSha: string): string {
+    const affectedFilesList = report.affectedFiles.map((f) => `- \`${f}\``).join("\n");
 
-**Detected by Autonoma's diff analysis agent on commit \`${headSha.slice(0, 8)}\`.**
+    const lines = [
+        "## Bug Report (Automated)",
+        "",
+        `**Detected by Autonoma's diff analysis agent on commit \`${headSha.slice(0, 8)}\`.**`,
+        "",
+        "### Summary",
+        report.summary,
+        "",
+        "### Details",
+        report.details,
+        "",
+        "### Test Case",
+        `- **Slug:** \`${report.slug}\``,
+        "",
+        "### Affected Files",
+        affectedFilesList,
+        "",
+        "### Suggested Fix",
+        "```",
+        report.fixPrompt,
+        "```",
+        "",
+        "---",
+        "*This issue was automatically created by [Autonoma](https://autonoma.app).*",
+    ];
 
-### Summary
-${report.summary}
-
-### Detailed Explanation
-${report.detailedExplanation}
-
-### Test Case
-- **Slug:** \`${report.slug}\`
-- **Test Name:** ${report.testName}
-
-### Affected Files
-${report.affectedFiles.map((f) => `- \`${f}\``).join("\n")}
-
-### Suggested Fix
-\`\`\`
-${report.fixPrompt}
-\`\`\`
-
----
-*This issue was automatically created by [Autonoma](https://autonoma.app).*`;
+    return lines.join("\n");
 }

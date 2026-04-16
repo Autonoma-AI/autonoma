@@ -9,6 +9,13 @@ export type {
     MarkGenerationFailedInput,
     NotifyGenerationExitInput,
     AnalyzeDiffsInput,
+    AnalyzeDiffsOutput,
+    PreparedRunInfo,
+    TestCandidateInfo,
+    ResolveDiffsInput,
+    ResolveDiffsOutput,
+    GenerationInfo,
+    FinalizeDiffsInput,
 } from "./general-activities";
 
 export type { WebActivities, RunWebGenerationInput, RunWebReplayInput } from "./web-activities";

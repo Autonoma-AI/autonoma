@@ -11,7 +11,9 @@ export async function reviewGeneration(input: ReviewGenerationInput): Promise<vo
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runGenerationReview(input.generationId);
+        await runGenerationReview(input.generationId, {
+            skipIssueBugCreation: input.skipIssueBugCreation,
+        });
         logger.info("Generation review completed");
     } catch (error) {
         logger.error("Generation review failed", error);

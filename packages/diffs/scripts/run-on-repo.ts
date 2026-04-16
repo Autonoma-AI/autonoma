@@ -13,9 +13,9 @@
 
 import { execSync } from "node:child_process";
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
-import type { DiffsAgentCallbacks } from "../src/callbacks";
 import type { DiffsAgentInput } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
+import { FlowIndex } from "../src/flow-index";
 import { TestDirectory } from "../src/test-directory";
 
 // --- Model setup ---
@@ -57,60 +57,6 @@ function git(cwd: string, command: string): string {
     return execSync(`git ${command}`, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }).trim();
 }
 
-// --- Mock callbacks (log-only for real repo testing) ---
-
-function createLoggingCallbacks(): DiffsAgentCallbacks & { calls: Record<string, unknown[]> } {
-    const calls: Record<string, unknown[]> = {
-        triggerTestsAndWait: [],
-        quarantineTest: [],
-        modifyTest: [],
-        updateSkill: [],
-        reportBug: [],
-    };
-
-    return {
-        calls,
-        triggerTestsAndWait: async (slugs) => {
-            calls.triggerTestsAndWait.push(...slugs);
-            console.log(`  [RUN TESTS] ${slugs.join(", ")}`);
-            return slugs.map((slug) => ({
-                slug,
-                testName: slug,
-                success: false,
-                finishReason: "success" as const,
-                reasoning:
-                    "Test failed because the UI element or navigation path described in the test instructions " +
-                    "could not be found. The page structure appears to have changed.",
-                stepDescriptions: [
-                    "Attempted to follow test instructions",
-                    "Could not find expected UI element or navigation path",
-                    "Test failed due to UI changes",
-                ],
-                screenshotUrls: [],
-            }));
-        },
-        quarantineTest: async (slug) => {
-            calls.quarantineTest.push(slug);
-            console.log(`  [QUARANTINE] ${slug}`);
-        },
-        modifyTest: async (slug, newInstruction) => {
-            calls.modifyTest.push({ slug, newInstruction });
-            console.log(`  [MODIFY] ${slug}`);
-            console.log(`    New instruction: ${newInstruction.slice(0, 200)}...`);
-        },
-        updateSkill: async (skillId, newContent) => {
-            calls.updateSkill.push({ skillId, newContent });
-            console.log(`  [UPDATE SKILL] ${skillId}`);
-            console.log(`    New content: ${newContent.slice(0, 200)}...`);
-        },
-        reportBug: async (report) => {
-            calls.reportBug.push(report);
-            console.log(`  [BUG FOUND] ${report.summary}`);
-            console.log(`    Files: ${report.affectedFiles.join(", ")}`);
-        },
-    };
-}
-
 // --- Main ---
 
 async function main() {
@@ -150,17 +96,18 @@ async function main() {
     const registry = new ModelRegistry({ models: MODEL_OPTIONS });
     const model = registry.getModel({ model: modelKey, tag: "diffs-script" });
 
-    // Create callbacks
-    const callbacks = createLoggingCallbacks();
-
     // Run agent
     console.log("--- Starting agent ---\n");
     const startTime = Date.now();
 
+    // Build flow index from test directory (no DB in scripts, so empty flows)
+    const flowIndex = new FlowIndex([]);
+
     const agent = new DiffsAgent({
         model,
         workingDirectory: repoPath,
-        callbacks,
+        flowIndex,
+        testDirectory,
         maxSteps: 60,
     });
 
@@ -173,43 +120,19 @@ async function main() {
 
     console.log(`Reasoning: ${result.reasoning}\n`);
 
-    if (result.testActions.length > 0) {
-        console.log(`--- Test Actions (${result.testActions.length}) ---`);
-        for (const action of result.testActions) {
-            if (action.type === "quarantine") {
-                console.log(`  QUARANTINE: ${action.slug} - ${action.reasoning}`);
-            } else {
-                console.log(`  MODIFY: ${action.slug} - ${action.reasoning}`);
-                console.log(`    New instruction: ${action.newInstruction.slice(0, 200)}...`);
-            }
+    if (result.affectedTests.length > 0) {
+        console.log(`--- Affected Tests (${result.affectedTests.length}) ---`);
+        for (const test of result.affectedTests) {
+            console.log(`  AFFECTED: ${test.slug} (${test.testName})`);
+            console.log(`    Reason: ${test.reasoning}`);
         }
         console.log();
     }
 
-    if (result.bugReports.length > 0) {
-        console.log(`--- Bug Reports (${result.bugReports.length}) ---`);
-        for (const bug of result.bugReports) {
-            console.log(`  BUG: ${bug.summary}`);
-            console.log(`    Test: ${bug.slug}`);
-            console.log(`    Files: ${bug.affectedFiles.join(", ")}`);
-            console.log(`    Fix: ${bug.fixPrompt.slice(0, 300)}...`);
-        }
-        console.log();
-    }
-
-    if (result.skillUpdates.length > 0) {
-        console.log(`--- Skill Updates (${result.skillUpdates.length}) ---`);
-        for (const update of result.skillUpdates) {
-            console.log(`  UPDATE: ${update.skillId} (${update.skillName})`);
-            console.log(`    Reason: ${update.reasoning}`);
-        }
-        console.log();
-    }
-
-    if (result.newTests.length > 0) {
-        console.log(`--- New Tests (${result.newTests.length}) ---`);
-        for (const test of result.newTests) {
-            console.log(`  NEW: ${test.name}`);
+    if (result.testCandidates.length > 0) {
+        console.log(`--- Test Candidates (${result.testCandidates.length}) ---`);
+        for (const test of result.testCandidates) {
+            console.log(`  CANDIDATE: ${test.name}`);
             console.log(`    Reason: ${test.reasoning}`);
             console.log(`    Instruction: ${test.instruction.slice(0, 200)}...`);
         }
@@ -218,12 +141,8 @@ async function main() {
 
     // Summary
     console.log("--- Summary ---");
-    console.log(`  Tests run: ${callbacks.calls.triggerTestsAndWait.length}`);
-    console.log(`  Tests quarantined: ${result.testActions.filter((a) => a.type === "quarantine").length}`);
-    console.log(`  Tests modified: ${result.testActions.filter((a) => a.type === "modify").length}`);
-    console.log(`  Bugs found: ${result.bugReports.length}`);
-    console.log(`  Skills updated: ${result.skillUpdates.length}`);
-    console.log(`  New tests suggested: ${result.newTests.length}`);
+    console.log(`  Affected tests: ${result.affectedTests.length}`);
+    console.log(`  Test candidates: ${result.testCandidates.length}`);
     console.log(`  Time: ${elapsed}s`);
     console.log("  Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 }

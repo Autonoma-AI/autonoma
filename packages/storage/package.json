@@ -9,7 +9,8 @@
     "types": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts",
-        "./env": "./src/env.ts"
+        "./env": "./src/env.ts",
+        "./local": "./src/providers/local-storage-provider.ts"
     },
     "scripts": {
         "test": "vitest run --passWithNoTests",

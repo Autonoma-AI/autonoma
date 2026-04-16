@@ -1,13 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { db } from "@autonoma/db";
 import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
-import { TestDirectory } from "@autonoma/diffs";
+import { FlowIndex, type FlowInfo, TestDirectory } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
-
-const execFileAsync = promisify(execFile);
 
 export interface BranchData {
     applicationId: string;
@@ -85,51 +81,56 @@ function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
     return { existingTests, existingSkills };
 }
 
-async function buildDiffAnalysis(
-    repoDir: string,
-    headSha: string,
-    baseSha: string,
-): Promise<{ affectedFiles: string[]; summary: string }> {
-    const { stdout: nameOnly } = await execFileAsync("git", ["diff", `${baseSha}..${headSha}`, "--name-only"], {
-        cwd: repoDir,
-        maxBuffer: 10 * 1024 * 1024,
+export async function loadFlows(applicationId: string, suiteInfo: TestSuiteInfo): Promise<FlowInfo[]> {
+    const folders = await db.folder.findMany({
+        where: { applicationId },
+        select: { id: true, name: true, description: true },
     });
 
-    const affectedFiles = nameOnly
-        .trim()
-        .split("\n")
-        .filter((f) => f.length > 0);
+    const testSlugsByFolderId = new Map<string, string[]>();
+    for (const testCase of suiteInfo.testCases) {
+        if (testCase.plan == null || testCase.folderId == null) continue;
+        const slugs = testSlugsByFolderId.get(testCase.folderId);
+        if (slugs != null) {
+            slugs.push(testCase.slug);
+        } else {
+            testSlugsByFolderId.set(testCase.folderId, [testCase.slug]);
+        }
+    }
 
-    const { stdout: logOutput } = await execFileAsync("git", ["log", `${baseSha}..${headSha}`, "--format=%s"], {
-        cwd: repoDir,
-    });
-
-    const summary = logOutput.trim();
-
-    logger.info("Built diff analysis", { affectedFiles: affectedFiles.length, summary: summary.slice(0, 200) });
-    return { affectedFiles, summary };
+    return folders.map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        description: folder.description ?? undefined,
+        testSlugs: testSlugsByFolderId.get(folder.id) ?? [],
+    }));
 }
 
 export async function loadDiffsContext(
+    applicationId: string,
     suiteInfo: TestSuiteInfo,
     repoDir: string,
     headSha: string,
     baseSha: string,
-): Promise<{ input: DiffsAgentInput; testDirectory: TestDirectory }> {
+): Promise<{ input: DiffsAgentInput; testDirectory: TestDirectory; flowIndex: FlowIndex }> {
     const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-    const [analysis, testDirectory] = await Promise.all([
-        buildDiffAnalysis(repoDir, headSha, baseSha),
+    const [testDirectory, flows] = await Promise.all([
         TestDirectory.create({ workingDirectory: repoDir, tests: existingTests, skills: existingSkills }),
+        loadFlows(applicationId, suiteInfo),
     ]);
+
+    const flowIndex = new FlowIndex(flows);
 
     logger.info("Loaded diffs context", {
         existingTests: existingTests.length,
         existingSkills: existingSkills.length,
+        flows: flows.length,
     });
 
     return {
-        input: { analysis, existingTests, existingSkills },
+        input: { headSha, baseSha, existingTests, existingSkills },
         testDirectory,
+        flowIndex,
     };
 }

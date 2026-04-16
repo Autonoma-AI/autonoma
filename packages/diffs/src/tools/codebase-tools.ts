@@ -1,17 +1,23 @@
 import type { LanguageModel } from "ai";
-import type { DiffsAgentCallbacks } from "../callbacks";
+import type { FlowIndex } from "../flow-index";
+import type { TestDirectory } from "../test-directory";
 import { buildAddTestTool } from "./add-test-tool";
 import { buildBashTool } from "./bash-tool";
-import { buildBugFoundTool } from "./bug-found-tool";
 import type { ResultCollector } from "./finish-tool";
 import { buildGlobTool } from "./glob-tool";
 import { buildGrepTool } from "./grep-tool";
+import { buildListFlowsTool } from "./list-flows-tool";
+import { buildListTestsTool } from "./list-tests-tool";
+import { buildMarkAffectedTestTool } from "./mark-affected-test-tool";
 import { buildModifyTestTool } from "./modify-test-tool";
 import { buildQuarantineTestTool } from "./quarantine-test-tool";
 import { buildReadFileTool } from "./read-file-tool";
-import { buildRunTestTool } from "./run-test-tool";
+import { buildReadSkillTool } from "./read-skill-tool";
+import { buildReadTestTool } from "./read-test-tool";
+import { buildReportBugTool } from "./report-bug-tool";
+import type { ResolutionResultCollector } from "./resolution-finish-tool";
 import { buildSubagentTool } from "./subagent-tool";
-import { buildUpdateSkillTool } from "./update-skill-tool";
+import { buildSuggestTestTool } from "./suggest-test-tool";
 
 export function buildCodebaseTools(model: LanguageModel, workingDirectory: string) {
     return {
@@ -23,20 +29,31 @@ export function buildCodebaseTools(model: LanguageModel, workingDirectory: strin
     };
 }
 
-export function buildActionTools(
-    callbacks: DiffsAgentCallbacks,
-    completedRuns: Set<string>,
-    collector: ResultCollector,
+export function buildActionTools(collector: ResultCollector, validSlugs: Set<string>) {
+    return {
+        mark_affected_test: buildMarkAffectedTestTool(collector, validSlugs),
+        suggest_test: buildSuggestTestTool(collector),
+    };
+}
+
+export function buildTestInteractionTools(flowIndex: FlowIndex, testDirectory: TestDirectory) {
+    return {
+        list_flows: buildListFlowsTool(flowIndex),
+        list_tests: buildListTestsTool(flowIndex, testDirectory),
+        read_test: buildReadTestTool(testDirectory),
+        read_skill: buildReadSkillTool(testDirectory),
+    };
+}
+
+export function buildResolutionActionTools(
+    collector: ResolutionResultCollector,
     validSlugs: Set<string>,
+    flowIndex: FlowIndex,
 ) {
     return {
-        run_test: buildRunTestTool(callbacks, completedRuns, validSlugs),
-        quarantine_test: buildQuarantineTestTool(callbacks, completedRuns, collector),
-        bug_found: buildBugFoundTool(callbacks, completedRuns, collector),
-        modify_test: buildModifyTestTool(callbacks, completedRuns, collector),
-        update_skill: buildUpdateSkillTool(callbacks, collector),
-        add_test: buildAddTestTool({
-            add: (test) => collector.newTests.push(test),
-        }),
+        modify_test: buildModifyTestTool(collector, validSlugs),
+        quarantine_test: buildQuarantineTestTool(collector, validSlugs),
+        report_bug: buildReportBugTool(collector),
+        add_test: buildAddTestTool(collector, flowIndex),
     };
 }

@@ -499,27 +499,39 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../../../packages/ai
-      '@autonoma/billing':
-        specifier: workspace:*
-        version: link:../../../packages/billing
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db
       '@autonoma/diffs':
         specifier: workspace:*
-        version: file:packages/diffs(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+        version: file:packages/diffs(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/engine':
+        specifier: workspace:*
+        version: link:../../../packages/engine
+      '@autonoma/engine-web':
+        specifier: workspace:*
+        version: link:../../engine-web
       '@autonoma/github':
         specifier: workspace:*
         version: link:../../../packages/github
+      '@autonoma/image':
+        specifier: workspace:*
+        version: link:../../../packages/image
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
+      '@autonoma/replay-reviewer':
+        specifier: workspace:*
+        version: link:../replay-reviewer
+      '@autonoma/review':
+        specifier: workspace:*
+        version: link:../../../packages/review
+      '@autonoma/storage':
+        specifier: workspace:*
+        version: link:../../../packages/storage
       '@autonoma/test-updates':
         specifier: workspace:*
         version: file:packages/test-updates(@swc/helpers@0.5.18)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
-      '@autonoma/try':
-        specifier: workspace:*
-        version: link:../../../packages/try
       '@autonoma/types':
         specifier: workspace:*
         version: link:../../../packages/types
@@ -535,6 +547,9 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 6.0.94(zod@4.3.6)
+      playwright:
+        specifier: 'catalog:'
+        version: 1.56.1
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -899,9 +914,18 @@ importers:
 
   apps/workers/general:
     dependencies:
+      '@autonoma/ai':
+        specifier: workspace:*
+        version: link:../../../packages/ai
+      '@autonoma/billing':
+        specifier: workspace:*
+        version: link:../../../packages/billing
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db
+      '@autonoma/diffs':
+        specifier: workspace:*
+        version: file:packages/diffs(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/generation-assigner':
         specifier: workspace:*
         version: file:apps/jobs/generation-assigner(@swc/helpers@0.5.18)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -926,6 +950,9 @@ importers:
       '@autonoma/scenario':
         specifier: workspace:*
         version: link:../../../packages/scenario
+      '@autonoma/test-updates':
+        specifier: workspace:*
+        version: file:packages/test-updates(@swc/helpers@0.5.18)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
@@ -993,7 +1020,7 @@ importers:
     dependencies:
       '@autonoma/engine-web':
         specifier: workspace:*
-        version: file:apps/engine-web(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+        version: file:apps/engine-web(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
@@ -1249,9 +1276,6 @@ importers:
 
   packages/diffs:
     dependencies:
-      '@autonoma/ai':
-        specifier: workspace:*
-        version: link:../ai
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../billing
@@ -1836,6 +1860,9 @@ packages:
 
   '@autonoma/logger@file:packages/logger':
     resolution: {directory: packages/logger, type: directory}
+
+  '@autonoma/replay-reviewer@file:apps/jobs/replay-reviewer':
+    resolution: {directory: apps/jobs/replay-reviewer, type: directory}
 
   '@autonoma/review@file:packages/review':
     resolution: {directory: packages/review, type: directory}
@@ -11598,9 +11625,8 @@ snapshots:
       - typescript
       - valibot
 
-  '@autonoma/diffs@file:packages/diffs(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
+  '@autonoma/diffs@file:packages/diffs(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
     dependencies:
-      '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/billing': file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/github': file:packages/github(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -11610,11 +11636,9 @@ snapshots:
       glob: 11.1.0
       zod: 4.3.6
     transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
       - '@swc/helpers'
       - '@types/node'
       - arktype
-      - bufferutil
       - debug
       - esbuild
       - pg-native
@@ -11623,13 +11647,11 @@ snapshots:
       - tslib
       - typescript
       - uglify-js
-      - utf-8-validate
       - valibot
       - webpack-cli
 
-  '@autonoma/diffs@file:packages/diffs(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
+  '@autonoma/diffs@file:packages/diffs(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
     dependencies:
-      '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/billing': file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/github': file:packages/github(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -11639,11 +11661,9 @@ snapshots:
       glob: 11.1.0
       zod: 4.3.6
     transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
       - '@swc/helpers'
       - '@types/node'
       - arktype
-      - bufferutil
       - debug
       - esbuild
       - pg-native
@@ -11652,7 +11672,6 @@ snapshots:
       - tslib
       - typescript
       - uglify-js
-      - utf-8-validate
       - valibot
       - webpack-cli
 
@@ -11698,7 +11717,7 @@ snapshots:
       - utf-8-validate
       - valibot
 
-  '@autonoma/engine-web@file:apps/engine-web(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
+  '@autonoma/engine-web@file:apps/engine-web(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
     dependencies:
       '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
@@ -11806,24 +11825,30 @@ snapshots:
   '@autonoma/job-diffs@file:apps/jobs/diffs(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
     dependencies:
       '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
-      '@autonoma/billing': file:packages/billing(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
-      '@autonoma/diffs': file:packages/diffs(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/diffs': file:packages/diffs(@swc/helpers@0.5.18)(@types/node@25.2.3)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/engine': file:packages/engine(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/engine-web': file:apps/engine-web(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/github': file:packages/github(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/image': file:packages/image(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/logger': file:packages/logger(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/replay-reviewer': file:apps/jobs/replay-reviewer(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/review': file:packages/review(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/storage': file:packages/storage(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@autonoma/test-updates': file:packages/test-updates(@swc/helpers@0.5.18)(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
-      '@autonoma/try': file:packages/try
       '@autonoma/types': file:packages/types
       '@autonoma/workflow': file:packages/workflow(@swc/helpers@0.5.18)(tslib@2.8.1)(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
       '@sentry/node': 10.39.0
       '@t3-oss/env-core': 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
       ai: 6.0.94(zod@4.3.6)
+      playwright: 1.56.1
       zod: 4.3.6
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - '@swc/helpers'
       - '@types/node'
       - arktype
+      - aws-crt
       - bufferutil
       - debug
       - esbuild
@@ -11846,6 +11871,31 @@ snapshots:
       - arktype
       - supports-color
       - typescript
+      - valibot
+
+  '@autonoma/replay-reviewer@file:apps/jobs/replay-reviewer(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':
+    dependencies:
+      '@autonoma/ai': file:packages/ai(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/db': file:packages/db(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/logger': file:packages/logger(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/review': file:packages/review(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/storage': file:packages/storage(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))
+      '@autonoma/types': file:packages/types
+      '@google/genai': 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
+      '@sentry/node': 10.39.0
+      '@t3-oss/env-core': 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
+      ai: 6.0.94(zod@4.3.6)
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - '@modelcontextprotocol/sdk'
+      - arktype
+      - aws-crt
+      - bufferutil
+      - pg-native
+      - prisma
+      - supports-color
+      - typescript
+      - utf-8-validate
       - valibot
 
   '@autonoma/review@file:packages/review(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))(prisma@7.5.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))':

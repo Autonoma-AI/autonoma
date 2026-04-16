@@ -264,7 +264,7 @@ export class GenerationManager {
     }
 
     /** Marks the given generations as queued. */
-    private async markAsQueued(generationIds: string[]) {
+    async markAsQueued(generationIds: string[]) {
         this.logger.info("Marking generations as queued", { generationIds });
 
         await this.db.testGeneration.updateMany({

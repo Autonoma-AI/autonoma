@@ -1,46 +1,29 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { DiffsAgentCallbacks } from "../callbacks";
-import type { ResultCollector } from "./finish-tool";
 
-export const quarantineTestSchema = z.object({
-    slug: z.string().describe("The slug of the test case to quarantine"),
-    testName: z.string().describe("The name of the test being quarantined"),
-    reasoning: z
-        .string()
-        .describe("Why this test should be quarantined (e.g. the tested flow was deleted from the code)"),
+export const quarantinedTestSchema = z.object({
+    slug: z.string().describe("The exact slug of the test to quarantine"),
+    reasoning: z.string().describe("Why this test should be quarantined (e.g. the flow it tests no longer exists)"),
 });
 
-export type QuarantineTestInput = z.infer<typeof quarantineTestSchema>;
+export type QuarantinedTest = z.infer<typeof quarantinedTestSchema>;
 
-export function buildQuarantineTestTool(
-    callbacks: DiffsAgentCallbacks,
-    completedRuns: Set<string>,
-    collector: ResultCollector,
-) {
+export function buildQuarantineTestTool(collector: { quarantinedTests: QuarantinedTest[] }, validSlugs: Set<string>) {
     return tool({
         description:
-            "Quarantine a test whose ENTIRE flow has been permanently deleted from the codebase, " +
-            "making the test obsolete with no equivalent flow to rewrite it for. " +
-            "This is rare - only use when the feature is completely gone. " +
-            "If the feature was replaced or restructured (e.g. pagination replaced with infinite scroll), " +
-            "use modify_test instead to adapt the test to the new flow. " +
-            "You MUST run the test first using run_test before calling this tool.",
-        inputSchema: quarantineTestSchema,
+            "Quarantine (remove) a test whose flow no longer exists or has been completely removed. " +
+            "Use this when a failed test covers functionality that was deleted from the application. " +
+            "This is different from report_bug (application bug) and modify_test (stale instruction).",
+        inputSchema: quarantinedTestSchema,
         execute: async (input) => {
-            if (!completedRuns.has(input.slug)) {
+            if (!validSlugs.has(input.slug)) {
                 return {
-                    error: `Test "${input.slug}" has not been run yet. You must call run_test first before quarantining.`,
+                    success: false,
+                    error: `Invalid slug "${input.slug}". Use one of the exact slugs from the failed tests.`,
                 };
             }
 
-            collector.testActions.push({
-                type: "quarantine",
-                slug: input.slug,
-                testName: input.testName,
-                reasoning: input.reasoning,
-            });
-            await callbacks.quarantineTest(input.slug);
+            collector.quarantinedTests.push(input);
             return { success: true, slug: input.slug };
         },
     });

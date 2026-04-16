@@ -1,11 +1,11 @@
+import type { DiffsAgentResult } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { createDiffsServices } from "./create-services";
-import { env } from "./env";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runDiffsAgent } from "./run-diffs-agent";
 
-export async function runDiffsAnalysis(branchId: string): Promise<void> {
+export async function runDiffsAnalysis(branchId: string): Promise<DiffsAgentResult> {
     Sentry.setTag("branchId", branchId);
     logger.info("Starting diffs analysis job", { branchId });
 
@@ -36,25 +36,22 @@ export async function runDiffsAnalysis(branchId: string): Promise<void> {
     });
 
     const suiteInfo = await updater.currentTestSuiteInfo();
-    const { input, testDirectory } = await loadDiffsContext(suiteInfo, repoDir, headSha, baseSha);
+    const { input, testDirectory, flowIndex } = await loadDiffsContext(
+        branchData.applicationId,
+        suiteInfo,
+        repoDir,
+        headSha,
+        baseSha,
+    );
     logger.info("Loaded diffs context", {
-        affectedFiles: input.analysis.affectedFiles.length,
         existingTests: input.existingTests.length,
         existingSkills: input.existingSkills.length,
     });
 
-    await runDiffsAgent({
+    return await runDiffsAgent({
         input,
-        updater,
-        applicationId: branchData.applicationId,
-        organizationId: branchData.organizationId,
-        agentVersion: env.AGENT_VERSION,
-        repoId: branchData.repoId,
-        headSha,
         repoDir,
         testDirectory,
-        githubClient,
+        flowIndex,
     });
-
-    await updater.queuePendingGenerations({ autoActivate: true });
 }

@@ -195,6 +195,16 @@ export class TestSuiteUpdater {
         return { assigned: successfulUpdates.length, failed };
     }
 
+    /** Returns all pending generation records for this snapshot. */
+    public async getPendingGenerations() {
+        return this.generationManager.getPendingGenerations();
+    }
+
+    /** Marks the given generations as queued. */
+    public async markGenerationsQueued(generationIds: string[]) {
+        await this.generationManager.markAsQueued(generationIds);
+    }
+
     /** Discards a single pending generation by ID. */
     public async discardGeneration(generationId: string) {
         this.logger.info("Discarding generation", { generationId });

@@ -6,7 +6,11 @@ import { RunDataLoader } from "./data-loader";
 import { persistReplayReview } from "./persist-review-result";
 import { ReplayReviewer } from "./replay-reviewer";
 
-export async function runReplayReview(runId: string): Promise<void> {
+export interface ReplayReviewOptions {
+    skipIssueBugCreation?: boolean;
+}
+
+export async function runReplayReview(runId: string, options?: ReplayReviewOptions): Promise<void> {
     logger.info("Starting replay reviewer", { runId });
 
     const run = await db.run.findUniqueOrThrow({
@@ -75,6 +79,7 @@ export async function runReplayReview(runId: string): Promise<void> {
         verdict,
         costCollector,
         bugLinker,
+        skipIssueBugCreation: options?.skipIssueBugCreation,
     });
 
     logger.info("Replay review completed successfully", {

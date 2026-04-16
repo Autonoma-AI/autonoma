@@ -1,67 +1,33 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import { createBillingService } from "@autonoma/billing";
-import { db } from "@autonoma/db";
-import { createCallbacks, DiffsAgent } from "@autonoma/diffs";
-import type { TestDirectory } from "@autonoma/diffs";
+import { DiffsAgent } from "@autonoma/diffs";
+import type { DiffsAgentResult, TestDirectory } from "@autonoma/diffs";
 import type { DiffsAgentInput } from "@autonoma/diffs";
-import type { GitHubInstallationClient } from "@autonoma/github";
+import type { FlowIndex } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
-import type { TestSuiteUpdater } from "@autonoma/test-updates";
-import type { Architecture } from "@autonoma/types";
-import { triggerRunWorkflow } from "@autonoma/workflow";
 
 interface RunDiffsAgentParams {
     input: DiffsAgentInput;
-    updater: TestSuiteUpdater;
-    applicationId: string;
-    organizationId: string;
-    agentVersion: string;
-    repoId: number;
-    headSha: string;
     repoDir: string;
     testDirectory: TestDirectory;
-    githubClient: GitHubInstallationClient;
+    flowIndex: FlowIndex;
 }
 
-export async function runDiffsAgent(params: RunDiffsAgentParams): Promise<void> {
-    const {
-        input,
-        updater,
-        applicationId,
-        organizationId,
-        agentVersion,
-        repoId,
-        headSha,
-        repoDir,
-        testDirectory,
-        githubClient,
-    } = params;
-
+export async function runDiffsAgent({
+    input,
+    repoDir,
+    testDirectory,
+    flowIndex,
+}: RunDiffsAgentParams): Promise<DiffsAgentResult> {
     const registry = new ModelRegistry({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-job" });
-    const billingService = createBillingService(db);
-
-    const callbacks = createCallbacks({
-        db,
-        updater,
-        applicationId,
-        organizationId,
-        repoId,
-        headSha,
-        testDirectory,
-        githubClient,
-        agentVersion,
-        billingService,
-        triggerRunWorkflow: (params) =>
-            triggerRunWorkflow({ ...params, architecture: params.architecture as Architecture }),
-    });
 
     const agent = new DiffsAgent({
         model,
         workingDirectory: repoDir,
-        callbacks,
+        flowIndex,
+        testDirectory,
         maxSteps: 50,
     });
 
@@ -71,11 +37,11 @@ export async function runDiffsAgent(params: RunDiffsAgentParams): Promise<void> 
 
     logger.info("Diffs analysis complete", {
         elapsed: `${elapsed}s`,
-        testActions: result.testActions.length,
-        bugReports: result.bugReports.length,
-        skillUpdates: result.skillUpdates.length,
-        newTests: result.newTests.length,
+        affectedTests: result.affectedTests.length,
+        testCandidates: result.testCandidates.length,
         reasoning: result.reasoning.slice(0, 500),
         modelUsage: registry.modelUsage,
     });
+
+    return result;
 }

@@ -44,7 +44,7 @@ describe("diffs agent evals", () => {
                 console.log("=== Todo App Results ===");
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
@@ -64,7 +64,7 @@ describe("diffs agent evals", () => {
                 expect(hasDeleteQuarantine).toBe(true);
 
                 // Should suggest at least one new test for the filter feature
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
 
                 // Should NOT report any bugs (these are expected UI changes, not bugs)
                 expect(result.bugReports).toHaveLength(0);
@@ -95,7 +95,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should run the signup test (it fails due to validation bug)
@@ -142,7 +142,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests (at minimum the ones affected by changes)
@@ -174,7 +174,7 @@ describe("diffs agent evals", () => {
                 expect(fillFormSkill).toBeDefined();
 
                 // Should suggest new tests for social media section and/or step validation
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
 
                 // Should NOT quarantine any tests (all flows still exist, just restructured)
                 const quarantineActions = result.testActions.filter((a) => a.type === "quarantine");
@@ -214,7 +214,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests
@@ -236,7 +236,7 @@ describe("diffs agent evals", () => {
                 expect(browseSkillUpdate).toBeDefined();
 
                 // Should suggest at least one new test for Buy Now feature
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
         );
     });
@@ -264,7 +264,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run the failing tests
@@ -289,7 +289,7 @@ describe("diffs agent evals", () => {
                 expect(moveSkillUpdate).toBeDefined();
 
                 // Should suggest at least one new test for delete column
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
         );
     });
@@ -317,7 +317,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Read receipt tests should be quarantined (feature removed entirely)
@@ -342,7 +342,7 @@ describe("diffs agent evals", () => {
                 expect(sendSkillUpdate).toBeDefined();
 
                 // Should suggest at least one new test for reactions
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
         );
     });
@@ -370,7 +370,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Both pagination tests should be MODIFIED (the underlying flows still exist in infinite scroll)
@@ -399,7 +399,7 @@ describe("diffs agent evals", () => {
                 expect(navSkillUpdate).toBeDefined();
 
                 // Should suggest new tests for column visibility and/or infinite scroll
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
         );
     });
@@ -427,7 +427,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Happy path and payment validation tests should be modified (payment form has tabs now)
@@ -448,7 +448,7 @@ describe("diffs agent evals", () => {
                 expect(paymentSkillUpdate).toBeDefined();
 
                 // Should suggest new tests for coupon and/or PayPal features
-                expect(result.newTests.length).toBeGreaterThanOrEqual(1);
+                expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
 
                 // Should NOT quarantine any tests (all flows still exist)
                 const quarantineActions = result.testActions.filter((a) => a.type === "quarantine");
@@ -479,7 +479,7 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("New tests:", JSON.stringify(result.newTests, null, 2));
+                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run both tests
