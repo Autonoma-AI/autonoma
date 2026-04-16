@@ -53,7 +53,7 @@ export function useMilestones(applicationId: string, appSlug: string): Milestone
 
   const { data: runs } = useQuery(trpc.runs.list.queryOptions({ applicationId }));
   const { data: bugs } = useQuery(trpc.bugs.list.queryOptions({ applicationId }));
-  const { data: installation } = useQuery(trpc.github.getInstallations.queryOptions());
+  const { data: installation } = useQuery(trpc.github.getInstallation.queryOptions());
 
   if (runs == null || bugs == null) return undefined;
 
