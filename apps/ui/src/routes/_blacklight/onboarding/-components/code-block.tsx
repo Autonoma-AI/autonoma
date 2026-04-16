@@ -30,7 +30,7 @@ export function CodeBlock({ children, copyValue, collapsible, collapsedLabel, is
       toastManager.add({ type: "success", title: "Copied", description: "Command copied to clipboard." });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      onCopied?.();
+      if (isActive === true) onCopied?.();
     } catch {
       toastManager.add({
         type: "critical",
