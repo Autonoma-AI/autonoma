@@ -7,4 +7,5 @@ RUN npm install sharp
 ENV NODE_ENV=production
 USER node
 RUN git config --global --add safe.directory /tmp/repo
+RUN git config --global --add safe.directory /tmp/repo-resolution
 CMD ["node", "dist/index.js"]

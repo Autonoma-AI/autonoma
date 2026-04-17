@@ -1,3 +1,4 @@
+import fs from "fs/promises";
 import type { DiffsAgentResult } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
@@ -28,30 +29,38 @@ export async function runDiffsAnalysis(branchId: string): Promise<DiffsAgentResu
 
     const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
-    const repoDir = await githubClient.cloneRepository({
-        fullName: branchData.fullName,
-        headSha,
-        baseSha,
-        targetDir: "/tmp/repo",
-    });
+    // Clean up any existing repo directory before cloning
+    await fs.rm("/tmp/repo", { recursive: true, force: true });
 
-    const suiteInfo = await updater.currentTestSuiteInfo();
-    const { input, testDirectory, flowIndex } = await loadDiffsContext(
-        branchData.applicationId,
-        suiteInfo,
-        repoDir,
-        headSha,
-        baseSha,
-    );
-    logger.info("Loaded diffs context", {
-        existingTests: input.existingTests.length,
-        existingSkills: input.existingSkills.length,
-    });
+    try {
+        const repoDir = await githubClient.cloneRepository({
+            fullName: branchData.fullName,
+            headSha,
+            baseSha,
+            targetDir: "/tmp/repo",
+        });
 
-    return await runDiffsAgent({
-        input,
-        repoDir,
-        testDirectory,
-        flowIndex,
-    });
+        const suiteInfo = await updater.currentTestSuiteInfo();
+        const { input, testDirectory, flowIndex } = await loadDiffsContext(
+            branchData.applicationId,
+            suiteInfo,
+            repoDir,
+            headSha,
+            baseSha,
+        );
+        logger.info("Loaded diffs context", {
+            existingTests: input.existingTests.length,
+            existingSkills: input.existingSkills.length,
+        });
+
+        return await runDiffsAgent({
+            input,
+            repoDir,
+            testDirectory,
+            flowIndex,
+        });
+    } finally {
+        // Clean up the repo directory after analysis
+        await fs.rm("/tmp/repo", { recursive: true, force: true });
+    }
 }

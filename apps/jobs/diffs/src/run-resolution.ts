@@ -1,3 +1,4 @@
+import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { RunReviewVerdict } from "@autonoma/diffs";
 import { FlowIndex, TestDirectory } from "@autonoma/diffs";
@@ -54,49 +55,55 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
             const branchData = await loadBranchData(branchId, githubApp);
             const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
-            const repoDir = await githubClient.cloneRepository({
-                fullName: branchData.fullName,
-                headSha,
-                baseSha,
-                targetDir: "/tmp/repo-resolution",
-            });
+            await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
 
-            const suiteInfo = await updater.currentTestSuiteInfo();
+            try {
+                const repoDir = await githubClient.cloneRepository({
+                    fullName: branchData.fullName,
+                    headSha,
+                    baseSha,
+                    targetDir: "/tmp/repo-resolution",
+                });
 
-            const tests = suiteInfo.testCases
-                .filter((tc) => tc.plan != null)
-                .map((tc) => ({ id: tc.id, name: tc.name, slug: tc.slug, prompt: tc.plan!.prompt }));
-            const skills = suiteInfo.skills
-                .filter((s) => s.plan != null)
-                .map((s) => ({
-                    id: s.id,
-                    name: s.name,
-                    slug: s.slug,
-                    description: s.description,
-                    content: s.plan!.content,
-                }));
+                const suiteInfo = await updater.currentTestSuiteInfo();
 
-            const [testDirectory, flowIndex] = await Promise.all([
-                TestDirectory.create({ workingDirectory: repoDir, tests, skills }),
-                loadFlows(branchData.applicationId, suiteInfo).then((flows) => new FlowIndex(flows)),
-            ]);
+                const tests = suiteInfo.testCases
+                    .filter((tc) => tc.plan != null)
+                    .map((tc) => ({ id: tc.id, name: tc.name, slug: tc.slug, prompt: tc.plan!.prompt }));
+                const skills = suiteInfo.skills
+                    .filter((s) => s.plan != null)
+                    .map((s) => ({
+                        id: s.id,
+                        name: s.name,
+                        slug: s.slug,
+                        description: s.description,
+                        content: s.plan!.content,
+                    }));
 
-            const agentResult = await runResolutionAgent({
-                input: { verdicts, step1Reasoning, testCandidates },
-                db,
-                updater,
-                applicationId: branchData.applicationId,
-                repoDir,
-                testDirectory,
-                flowIndex,
-                githubClient,
-                repoId: branchData.repoId,
-                headSha,
-            });
+                const [testDirectory, flowIndex] = await Promise.all([
+                    TestDirectory.create({ workingDirectory: repoDir, tests, skills }),
+                    loadFlows(branchData.applicationId, suiteInfo).then((flows) => new FlowIndex(flows)),
+                ]);
 
-            modifiedTests = agentResult.modifiedTests.length;
-            quarantinedTests = agentResult.quarantinedTests.length;
-            bugsTracked = agentResult.reportedBugs.length;
+                const agentResult = await runResolutionAgent({
+                    input: { verdicts, step1Reasoning, testCandidates },
+                    db,
+                    updater,
+                    applicationId: branchData.applicationId,
+                    repoDir,
+                    testDirectory,
+                    flowIndex,
+                    githubClient,
+                    repoId: branchData.repoId,
+                    headSha,
+                });
+
+                modifiedTests = agentResult.modifiedTests.length;
+                quarantinedTests = agentResult.quarantinedTests.length;
+                bugsTracked = agentResult.reportedBugs.length;
+            } finally {
+                await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
+            }
         }
     }
 
