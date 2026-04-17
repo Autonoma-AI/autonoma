@@ -187,10 +187,14 @@ export class TestGenerationsService extends Service {
                 },
                 snapshot: {
                     select: {
-                        deployment: {
+                        branch: {
                             select: {
-                                webDeployment: { select: { url: true } },
-                                mobileDeployment: { select: { deploymentId: true } },
+                                deployment: {
+                                    select: {
+                                        webDeployment: { select: { url: true } },
+                                        mobileDeployment: { select: { deploymentId: true } },
+                                    },
+                                },
                             },
                         },
                     },
@@ -239,7 +243,7 @@ export class TestGenerationsService extends Service {
         const architecture = existing.testPlan.testCase.application.architecture as WorkflowArchitecture;
 
         // Validate deployment is properly configured before triggering
-        const deployment = existing.snapshot.deployment;
+        const deployment = existing.snapshot.branch.deployment;
         if (deployment == null) {
             throw new BadRequestError("Cannot rerun generation: no deployment is configured for this application");
         }

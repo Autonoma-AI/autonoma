@@ -349,6 +349,7 @@ model BranchDeployment {
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   webhookUrl     String? @map("webhook_url")
+  /// ![Record<string, string>]
   webhookHeaders Json?   @map("webhook_headers")
 
   activeOnBranch    Branch?            @relation("ActiveDeployment")

@@ -85,10 +85,14 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                 },
                 snapshot: {
                     select: {
-                        deployment: {
-                            include: {
-                                webDeployment: true,
-                                mobileDeployment: true,
+                        branch: {
+                            select: {
+                                deployment: {
+                                    include: {
+                                        webDeployment: true,
+                                        mobileDeployment: true,
+                                    },
+                                },
                             },
                         },
                         skillAssignments: {

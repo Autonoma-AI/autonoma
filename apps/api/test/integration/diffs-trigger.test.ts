@@ -57,6 +57,8 @@ apiTestSuite({
                 repoId: 1001,
                 prNumber: 10,
                 url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+                webhookHeaders: { "X-Auth": "secret" },
             });
 
             expect(result.branchId).toBeDefined();
@@ -69,8 +71,17 @@ apiTestSuite({
             expect(branch!.githubRef).toBe("feature/branch-10");
             expect(branch!.prNumber).toBe(10);
             expect(branch!.applicationId).toBe(app.id);
+            expect(branch!.deploymentId).toBe(result.deploymentId);
             // lastHandledSha is only updated on successful snapshot activation, not at trigger time
             expect(branch!.lastHandledSha).toBeNull();
+
+            const deployment = await harness.db.branchDeployment.findUniqueOrThrow({
+                where: { id: result.deploymentId },
+                include: { webDeployment: true },
+            });
+            expect(deployment.webhookUrl).toBe("https://webhook.example.com/hook");
+            expect(deployment.webhookHeaders).toEqual({ "X-Auth": "secret" });
+            expect(deployment.webDeployment!.url).toBe("https://preview.example.com");
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({ branchId: result.branchId });
         });
@@ -91,6 +102,7 @@ apiTestSuite({
                 repoId: 1001,
                 prNumber: 20,
                 url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
             });
 
             expect(result.branchId).toBe(existingBranch.id);
@@ -117,6 +129,7 @@ apiTestSuite({
                 repoId: 1001,
                 prNumber: 30,
                 url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
             });
 
             const snapshot = await harness.db.branchSnapshot.findUnique({ where: { id: result.snapshotId } });
@@ -129,6 +142,7 @@ apiTestSuite({
                 repoId: 1001,
                 prNumber: 40,
                 url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
             });
 
             const second = await service.triggerDiffs({
@@ -136,6 +150,7 @@ apiTestSuite({
                 repoId: 1001,
                 prNumber: 40,
                 url: "https://preview-v2.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
             });
 
             expect(second.branchId).toBe(first.branchId);
@@ -161,6 +176,7 @@ apiTestSuite({
                     repoId: 9999,
                     prNumber: 50,
                     url: "https://preview.example.com",
+                    webhookUrl: "https://webhook.example.com/hook",
                 }),
             ).rejects.toThrow(NotFoundError);
         });
@@ -176,6 +192,7 @@ apiTestSuite({
                     repoId: 1001,
                     prNumber: 60,
                     url: "https://preview.example.com",
+                    webhookUrl: "https://webhook.example.com/hook",
                 }),
             ).rejects.toThrow(NotFoundError);
         });
@@ -187,6 +204,7 @@ apiTestSuite({
                     repoId: 1001,
                     prNumber: 999,
                     url: "https://preview.example.com",
+                    webhookUrl: "https://webhook.example.com/hook",
                 }),
             ).rejects.toThrow();
         });

@@ -34,7 +34,7 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
     public async parsePlanData(planData: PlanData): Promise<TestCase & WebApplicationData> {
         const { testPlan, snapshot, scenarioInstance } = planData;
         const application = testPlan.testCase.application;
-        const webDeployment = snapshot?.deployment?.webDeployment;
+        const webDeployment = snapshot?.branch?.deployment?.webDeployment;
         if (webDeployment == null) {
             throw new Error(`Application "${application.name}" has no web deployment`);
         }

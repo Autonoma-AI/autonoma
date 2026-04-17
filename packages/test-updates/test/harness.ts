@@ -151,7 +151,6 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 branchId,
                 source: "MANUAL",
                 status: "active",
-                deploymentId: deployment.id,
             },
         });
 
@@ -191,7 +190,6 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 branchId,
                 source: "MANUAL",
                 status: "active",
-                deploymentId: deployment.id,
             },
         });
 

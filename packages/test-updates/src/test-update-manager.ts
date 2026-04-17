@@ -29,7 +29,6 @@ interface StartUpdateArgs {
     headSha?: string;
     /** The SHA of the base (previous) commit to update the test suite for. */
     baseSha?: string;
-    deploymentId?: string;
 }
 
 interface ContinueUpdateArgs {
@@ -85,7 +84,6 @@ export class TestSuiteUpdater {
         source,
         headSha,
         baseSha,
-        deploymentId,
     }: StartUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.start({
             db,
@@ -94,7 +92,6 @@ export class TestSuiteUpdater {
             source,
             headSha,
             baseSha,
-            deploymentId,
         });
         const generationManager = snapshotDraft.generationManager({ jobProvider });
 

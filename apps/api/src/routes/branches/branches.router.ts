@@ -26,18 +26,6 @@ export const branchesRouter = router({
             services.branches.listSnapshots(input.branchId, organizationId),
         ),
 
-    create: protectedProcedure
-        .input(
-            z.object({
-                applicationId: z.string(),
-                name: z.string().min(1),
-                githubRef: z.string().optional(),
-            }),
-        )
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.branches.createBranch(input.applicationId, input.name, organizationId, input.githubRef),
-        ),
-
     delete: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>

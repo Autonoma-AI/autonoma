@@ -26,8 +26,12 @@ export class GenerationSubject implements ScenarioSubject {
             select: {
                 snapshot: {
                     select: {
-                        deployment: {
-                            select: { id: true, webhookUrl: true, webhookHeaders: true },
+                        branch: {
+                            select: {
+                                deployment: {
+                                    select: { id: true, webhookUrl: true, webhookHeaders: true },
+                                },
+                            },
                         },
                     },
                 },
@@ -50,7 +54,7 @@ export class GenerationSubject implements ScenarioSubject {
         });
 
         const { application } = generation.testPlan.testCase;
-        const deployment = generation.snapshot.deployment;
+        const deployment = generation.snapshot.branch.deployment;
         if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
             throw new Error(`Application ${application.id} does not have a webhook configured`);
         }
@@ -87,8 +91,12 @@ export class RunSubject implements ScenarioSubject {
                     select: {
                         snapshot: {
                             select: {
-                                deployment: {
-                                    select: { id: true, webhookUrl: true, webhookHeaders: true },
+                                branch: {
+                                    select: {
+                                        deployment: {
+                                            select: { id: true, webhookUrl: true, webhookHeaders: true },
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -109,7 +117,7 @@ export class RunSubject implements ScenarioSubject {
         });
 
         const { application } = run.assignment.testCase;
-        const deployment = run.assignment.snapshot.deployment;
+        const deployment = run.assignment.snapshot.branch.deployment;
         if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
             throw new Error(`Application ${application.id} does not have a webhook configured`);
         }

@@ -80,7 +80,6 @@ interface StartSnapshotDraftParams extends LoadSnapshotDraftParams {
     source?: TriggerSource;
     headSha?: string;
     baseSha?: string;
-    deploymentId?: string;
 }
 
 /**
@@ -175,7 +174,6 @@ export class SnapshotDraft {
         source,
         headSha,
         baseSha,
-        deploymentId: explicitDeploymentId,
     }: StartSnapshotDraftParams): Promise<SnapshotDraft> {
         const logger = rootLogger.child({ name: "SnapshotDraft", branchId });
 
@@ -193,7 +191,6 @@ export class SnapshotDraft {
                     activeSnapshotId: true,
                     organizationId: true,
                     applicationId: true,
-                    activeSnapshot: { select: { deploymentId: true } },
                 },
             });
 
@@ -214,7 +211,6 @@ export class SnapshotDraft {
                     source: source ?? TriggerSource.MANUAL,
                     headSha,
                     baseSha,
-                    deploymentId: explicitDeploymentId ?? branch.activeSnapshot?.deploymentId ?? undefined,
                     prevSnapshotId: branch.activeSnapshotId ?? undefined,
                 },
                 select: { id: true },

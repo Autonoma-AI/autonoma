@@ -43,7 +43,7 @@ export class OnboardingTestHarness implements IntegrationHarness {
         await this.db.$transaction(async (tx) => {
             const app = await tx.application.findUniqueOrThrow({
                 where: { id: applicationId },
-                select: { mainBranch: { select: { id: true, deploymentId: true } } },
+                select: { mainBranch: { select: { id: true } } },
             });
             const mainBranch = app.mainBranch;
             if (mainBranch == null) throw new Error("Application has no main branch");
@@ -53,7 +53,6 @@ export class OnboardingTestHarness implements IntegrationHarness {
                     branchId: mainBranch.id,
                     source: "MANUAL",
                     status: SnapshotStatus.active,
-                    deploymentId: mainBranch.deploymentId,
                 },
             });
 

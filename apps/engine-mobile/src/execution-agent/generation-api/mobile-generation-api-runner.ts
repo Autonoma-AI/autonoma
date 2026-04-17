@@ -39,7 +39,7 @@ export class MobileGenerationAPIRunner extends GenerationAPIRunner<
     public async parsePlanData(planData: PlanData): Promise<TestCase & MobileApplicationData> {
         const { testPlan, snapshot } = planData;
         const application = testPlan.testCase.application;
-        const mobileDeployment = snapshot?.deployment?.mobileDeployment;
+        const mobileDeployment = snapshot?.branch?.deployment?.mobileDeployment;
         if (mobileDeployment == null) {
             throw new Error(`Application "${application.name}" has no mobile deployment`);
         }

@@ -69,32 +69,6 @@ testUpdateSuite({
             expect(sk.plan?.content).toBe("Login with credentials");
         });
 
-        test("start: inherits deploymentId from active snapshot", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const branchId = await harness.createBranch(organizationId, applicationId);
-
-            const deployment = await harness.db.branchDeployment.create({
-                data: { branchId, organizationId },
-            });
-
-            const first = await SnapshotDraft.start({ db: harness.db, branchId });
-            await harness.db.branchSnapshot.update({
-                where: { id: first.snapshotId },
-                data: { deploymentId: deployment.id },
-            });
-            await first.activate();
-
-            const second = await SnapshotDraft.start({ db: harness.db, branchId });
-
-            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
-                where: { id: second.snapshotId },
-                select: { deploymentId: true },
-            });
-            expect(snapshot.deploymentId).toBe(deployment.id);
-        });
-
         test("start: throws BranchAlreadyHasPendingSnapshotError when branch has pending snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },

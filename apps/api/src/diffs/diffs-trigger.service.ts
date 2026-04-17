@@ -11,6 +11,8 @@ export interface TriggerDiffsParams {
     repoId: number;
     prNumber: number;
     url: string;
+    webhookUrl: string;
+    webhookHeaders?: Record<string, string>;
     environment?: string;
 }
 
@@ -30,9 +32,14 @@ export class DiffsTriggerService extends Service {
         super();
     }
 
-    async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
-        const { organizationId, repoId, prNumber, url, environment } = params;
-
+    async triggerDiffs({
+        organizationId,
+        repoId,
+        prNumber,
+        url,
+        webhookUrl,
+        webhookHeaders,
+    }: TriggerDiffsParams): Promise<TriggerDiffsResult> {
         this.logger.info("Triggering diffs analysis", { organizationId, repoId, prNumber });
 
         const app = await this.db.application.findFirst({
@@ -51,22 +58,20 @@ export class DiffsTriggerService extends Service {
         const normalizedBranch = pullRequest.headRef;
         const headSha = pullRequest.headSha;
 
-        const branch = await this.findOrCreateBranch(app.id, organizationId, normalizedBranch, prNumber);
+        const branch = await this.upsertBranch(app.id, organizationId, normalizedBranch, prNumber);
         const baseSha = branch.lastHandledSha ?? pullRequest.baseSha;
 
         this.logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
 
-        const { deploymentId } = await this.githubInstallationService.handleBranchDeployment(
+        const deploymentId = await this.createDeployment({
+            branchId: branch.id,
             organizationId,
-            repoId,
-            normalizedBranch,
-            headSha,
             url,
-            environment,
-            prNumber,
-        );
+            webhookUrl,
+            webhookHeaders,
+        });
 
-        const snapshotId = await this.createSnapshot(branch.id, organizationId, headSha, baseSha, deploymentId);
+        const snapshotId = await this.createSnapshot(branch.id, organizationId, headSha, baseSha);
 
         await this.triggerDiffsJob({ branchId: branch.id });
 
@@ -81,35 +86,72 @@ export class DiffsTriggerService extends Service {
         return { branchId: branch.id, snapshotId, deploymentId };
     }
 
-    private async findOrCreateBranch(
+    private async upsertBranch(
         applicationId: string,
         organizationId: string,
         normalizedBranch: string,
         prNumber: number,
     ) {
+        this.logger.info("Upserting branch", { applicationId, branch: normalizedBranch, prNumber });
+        return this.db.branch.upsert({
+            where: {
+                applicationId_prNumber: { applicationId, prNumber },
+            },
+            create: {
+                name: normalizedBranch,
+                githubRef: normalizedBranch,
+                prNumber,
+                applicationId,
+                organizationId,
+            },
+            update: {
+                name: normalizedBranch,
+                githubRef: normalizedBranch,
+            },
+            select: { id: true, lastHandledSha: true, prNumber: true },
+        });
+    }
+
+    private async createDeployment({
+        branchId,
+        organizationId,
+        url,
+        webhookUrl,
+        webhookHeaders,
+    }: {
+        branchId: string;
+        organizationId: string;
+        url: string;
+        webhookUrl: string;
+        webhookHeaders?: Record<string, string>;
+    }): Promise<string> {
+        this.logger.info("Creating branch deployment", { branchId, url });
+
         return this.db.$transaction(async (tx) => {
-            let branch = await tx.branch.findUnique({
-                where: {
-                    applicationId_prNumber: { applicationId, prNumber },
+            const deployment = await tx.branchDeployment.create({
+                data: {
+                    branchId,
+                    organizationId,
+                    webhookUrl,
+                    webhookHeaders,
+                    webDeployment: {
+                        create: {
+                            url,
+                            file: "",
+                            organizationId,
+                        },
+                    },
                 },
-                select: { id: true, lastHandledSha: true, prNumber: true },
             });
 
-            if (branch == null) {
-                this.logger.info("Auto-creating branch", { applicationId, branch: normalizedBranch, prNumber });
-                branch = await tx.branch.create({
-                    data: {
-                        name: normalizedBranch,
-                        githubRef: normalizedBranch,
-                        prNumber,
-                        applicationId,
-                        organizationId,
-                    },
-                    select: { id: true, lastHandledSha: true, prNumber: true },
-                });
-            }
+            await tx.branch.update({
+                where: { id: branchId },
+                data: { deploymentId: deployment.id },
+            });
 
-            return branch;
+            this.logger.info("Branch deployment created", { branchId, deploymentId: deployment.id, url });
+
+            return deployment.id;
         });
     }
 
@@ -118,7 +160,6 @@ export class DiffsTriggerService extends Service {
         organizationId: string,
         headSha: string,
         baseSha: string,
-        deploymentId: string,
     ): Promise<string> {
         try {
             const updater = await TestSuiteUpdater.startUpdate({
@@ -128,7 +169,6 @@ export class DiffsTriggerService extends Service {
                 source: TriggerSource.WEBHOOK,
                 headSha,
                 baseSha,
-                deploymentId,
             });
             return updater.snapshotId;
         } catch (error) {
@@ -150,7 +190,6 @@ export class DiffsTriggerService extends Service {
                 source: TriggerSource.WEBHOOK,
                 headSha,
                 baseSha,
-                deploymentId,
             });
             return updater.snapshotId;
         }

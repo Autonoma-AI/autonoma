@@ -178,7 +178,6 @@ export class ScenarioTestHarness implements IntegrationHarness {
                 branchId: branch.id,
                 source: "MANUAL",
                 status: SnapshotStatus.active,
-                deploymentId: deployment.id,
             },
         });
 
@@ -309,7 +308,7 @@ export class ScenarioTestHarness implements IntegrationHarness {
 
         const branchId = app.mainBranchId!;
         const snapshot = await this.db.branchSnapshot.create({
-            data: { branchId, source: "MANUAL", status: SnapshotStatus.processing, deploymentId },
+            data: { branchId, source: "MANUAL", status: SnapshotStatus.processing },
         });
         const testCase = await this.db.testCase.create({
             data: {

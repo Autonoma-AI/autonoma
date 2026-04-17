@@ -208,7 +208,6 @@ export class ApplicationsService extends Service {
                         branchId: branch.id,
                         source: TriggerSource.MANUAL,
                         status: SnapshotStatus.active,
-                        deploymentId: deployment.id,
                     },
                     select: { id: true },
                 });
@@ -283,7 +282,6 @@ export class ApplicationsService extends Service {
                         branchId: branch.id,
                         source: TriggerSource.MANUAL,
                         status: SnapshotStatus.active,
-                        deploymentId: deployment.id,
                     },
                     select: { id: true },
                 });

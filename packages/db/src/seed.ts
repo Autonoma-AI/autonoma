@@ -119,7 +119,6 @@ async function ensureMainWebBranch(params: {
                     branchId: branch.id,
                     source: TriggerSource.MANUAL,
                     status: SnapshotStatus.active,
-                    deploymentId,
                 },
             })
         ).id;
@@ -924,7 +923,6 @@ async function seed() {
             branchId: mainBranch.id,
             source: TriggerSource.MANUAL,
             status: SnapshotStatus.active,
-            deploymentId: mainDeployment.id,
         },
     });
 

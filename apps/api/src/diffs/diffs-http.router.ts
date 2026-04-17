@@ -15,6 +15,8 @@ const triggerDiffsBodySchema = z.object({
     repo_id: z.number(),
     pr_number: z.number().int().positive(),
     url: z.url(),
+    webhook_url: z.url(),
+    webhook_headers: z.record(z.string(), z.string()).optional(),
     environment: z.string().optional(),
 });
 
@@ -53,6 +55,8 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
             repoId: body.repo_id,
             prNumber: body.pr_number,
             url: body.url,
+            webhookUrl: body.webhook_url,
+            webhookHeaders: body.webhook_headers,
             environment: body.environment,
         });
 

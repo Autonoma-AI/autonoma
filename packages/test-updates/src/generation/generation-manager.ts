@@ -38,28 +38,28 @@ abstract class DeploymentConfigurationError extends Error {
 
 export class NoDeploymentConfiguredError extends DeploymentConfigurationError {
     readonly userMessage =
-        "No deployment configured for this snapshot. Please configure a deployment in your application settings.";
+        "No deployment configured for this branch. Please configure a deployment in your application settings.";
 
     constructor() {
-        super("No deployment configured for this snapshot");
+        super("No deployment configured for this branch");
     }
 }
 
 export class NoWebDeploymentError extends DeploymentConfigurationError {
     readonly userMessage =
-        "Can't run web tests: no web deployment configured for this snapshot. Please configure a web deployment in your application settings.";
+        "Can't run web tests: no web deployment configured for this branch. Please configure a web deployment in your application settings.";
 
     constructor() {
-        super("Can't run web tests: no web deployment configured for this snapshot");
+        super("Can't run web tests: no web deployment configured for this branch");
     }
 }
 
 export class NoMobileDeploymentError extends DeploymentConfigurationError {
     readonly userMessage =
-        "Can't run mobile tests: no mobile deployment configured for this snapshot. Please configure a mobile deployment in your application settings.";
+        "Can't run mobile tests: no mobile deployment configured for this branch. Please configure a mobile deployment in your application settings.";
 
     constructor() {
-        super("Can't run mobile tests: no mobile deployment configured for this snapshot");
+        super("Can't run mobile tests: no mobile deployment configured for this branch");
     }
 }
 
@@ -284,28 +284,33 @@ export class GenerationManager {
         const snapshot = await this.db.branchSnapshot.findUnique({
             where: { id: this.snapshotId },
             select: {
-                deployment: {
+                branch: {
                     select: {
-                        webDeployment: { select: { url: true } },
-                        mobileDeployment: { select: { deploymentId: true } },
+                        deployment: {
+                            select: {
+                                webDeployment: { select: { url: true } },
+                                mobileDeployment: { select: { deploymentId: true } },
+                            },
+                        },
                     },
                 },
             },
         });
 
-        if (snapshot?.deployment == null) {
+        const deployment = snapshot?.branch.deployment;
+        if (deployment == null) {
             throw new NoDeploymentConfiguredError();
         }
 
         const architectures = new Set(pending.map((g) => g.architecture));
 
         if (architectures.has("WEB")) {
-            const webUrl = snapshot.deployment.webDeployment?.url;
+            const webUrl = deployment.webDeployment?.url;
             if (webUrl == null || webUrl === "") throw new NoWebDeploymentError();
         }
 
         if (architectures.has("IOS") || architectures.has("ANDROID")) {
-            if (snapshot.deployment.mobileDeployment == null) throw new NoMobileDeploymentError();
+            if (deployment.mobileDeployment == null) throw new NoMobileDeploymentError();
         }
 
         this.logger.info("Deployment validation passed", { snapshotId: this.snapshotId });
