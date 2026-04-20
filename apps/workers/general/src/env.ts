@@ -1,19 +1,17 @@
-let scenarioEncryptionKey: string | undefined;
+import { env as loggerEnv } from "@autonoma/logger/env";
+import { createEnv } from "@t3-oss/env-core";
+import { z } from "zod";
 
-export function validateWorkerEnv(): void {
-    const key = process.env["SCENARIO_ENCRYPTION_KEY"];
-
-    if (key == null || key === "") {
-        throw new Error("SCENARIO_ENCRYPTION_KEY is required for scenario activities");
-    }
-
-    scenarioEncryptionKey = key;
-}
+export const env = createEnv({
+    extends: [loggerEnv],
+    server: {
+        SENTRY_DSN_WORKER_GENERAL: z.string().optional(),
+        SCENARIO_ENCRYPTION_KEY: z.string().min(1),
+    },
+    runtimeEnv: process.env,
+    emptyStringAsUndefined: true,
+});
 
 export function getScenarioEncryptionKey(): string {
-    if (scenarioEncryptionKey == null) {
-        throw new Error("Worker env not initialized. Call validateWorkerEnv() at startup.");
-    }
-
-    return scenarioEncryptionKey;
+    return env.SCENARIO_ENCRYPTION_KEY;
 }

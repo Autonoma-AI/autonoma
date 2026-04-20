@@ -3,8 +3,9 @@ import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker } from "@autonoma/workflow/worker";
 import * as activities from "./activities";
+import { env } from "./env";
 
-runWithSentry({ name: "worker-mobile" }, async () => {
+runWithSentry({ name: "worker-mobile", dsn: env.SENTRY_DSN_WORKER_MOBILE }, async () => {
     logger.info("Starting mobile worker");
 
     const worker = await createTemporalWorker({

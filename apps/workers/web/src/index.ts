@@ -3,8 +3,9 @@ import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker } from "@autonoma/workflow/worker";
 import * as activities from "./activities";
+import { env } from "./env";
 
-runWithSentry({ name: "worker-web" }, async () => {
+runWithSentry({ name: "worker-web", dsn: env.SENTRY_DSN_WORKER_WEB }, async () => {
     logger.info("Starting web worker");
 
     const worker = await createTemporalWorker({

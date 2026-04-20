@@ -15,4 +15,4 @@ async function main(): Promise<void> {
     });
 }
 
-await runWithSentry({ name: "diffs-job", tags: { branch_id: jobEnv.BRANCH_ID }, dsn: env.SENTRY_DSN }, main);
+await runWithSentry({ name: "diffs-job", tags: { branch_id: jobEnv.BRANCH_ID }, dsn: env.SENTRY_DSN_DIFFS }, main);

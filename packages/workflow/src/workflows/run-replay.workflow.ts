@@ -1,4 +1,4 @@
-import { proxyActivities } from "@temporalio/workflow";
+import { log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -27,12 +27,16 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
     try {
         // Step 1: Scenario up (if needed)
         if (scenarioId != null) {
+            log.info("Starting scenario setup", { runId, scenarioId });
             const result = await general.scenarioUp({
                 scenarioJobType: "run",
                 entityId: runId,
                 scenarioId,
             });
             scenarioInstanceId = result.scenarioInstanceId;
+            log.info("Scenario setup complete", { runId, scenarioInstanceId });
+        } else {
+            log.warn("Scenario setup skipped: run has no linked scenario", { runId });
         }
 
         // Step 2: Run the replay execution agent

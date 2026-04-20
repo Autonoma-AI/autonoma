@@ -5,6 +5,7 @@ import { z } from "zod";
 export const env = createEnv({
     extends: [loggerEnv],
     server: {
+        SENTRY_DSN_GENERATION_ASSIGNER: z.string().optional(),
         AUTO_ACTIVATE: z.string().optional(),
         GITHUB_APP_ID: z.string().min(1),
         GITHUB_APP_PRIVATE_KEY: z.string().min(1),

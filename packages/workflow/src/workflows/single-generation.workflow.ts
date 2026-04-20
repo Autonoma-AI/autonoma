@@ -1,4 +1,4 @@
-import { proxyActivities } from "@temporalio/workflow";
+import { log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -23,6 +23,7 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     let scenarioInstanceId: string | undefined;
 
     if (scenarioId != null) {
+        log.info("Starting scenario setup", { testGenerationId, scenarioId });
         try {
             const scenarioUpResult = await general.scenarioUp({
                 scenarioJobType: "generation",
@@ -30,15 +31,18 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
                 scenarioId,
             });
             scenarioInstanceId = scenarioUpResult.scenarioInstanceId;
+            log.info("Scenario setup complete", { testGenerationId, scenarioInstanceId });
         } catch (error) {
-            // Scenario setup failed - mark generation as failed to avoid it staying stuck
             const reason = error instanceof Error ? error.message : "Scenario setup failed";
+            log.error("Scenario setup failed", { testGenerationId, scenarioId, reason });
             await general.markGenerationFailed({
                 testGenerationId,
                 reason: `Scenario setup failed: ${reason}`,
             });
             throw error;
         }
+    } else {
+        log.warn("Scenario setup skipped: test plan has no linked scenario", { testGenerationId });
     }
 
     try {

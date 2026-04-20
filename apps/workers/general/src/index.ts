@@ -3,11 +3,10 @@ import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker, workflowsPath } from "@autonoma/workflow/worker";
 import * as activities from "./activities/index";
-import { validateWorkerEnv } from "./env";
+import { env } from "./env";
 
-runWithSentry({ name: "worker-general" }, async () => {
+runWithSentry({ name: "worker-general", dsn: env.SENTRY_DSN_WORKER_GENERAL }, async () => {
     logger.info("Starting general worker");
-    validateWorkerEnv();
 
     const worker = await createTemporalWorker({
         taskQueue: TaskQueue.GENERAL,

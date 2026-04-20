@@ -11,6 +11,6 @@ logger.info("Starting scenario up", { type, entityId });
 const encryption = new EncryptionHelper(upEnv.SCENARIO_ENCRYPTION_KEY);
 const manager = new ScenarioManager(db, encryption);
 
-await runWithSentry({ name: "scenario-manager", tags: { type, entityId } }, () =>
+await runWithSentry({ name: "scenario-manager", tags: { type, entityId }, dsn: upEnv.SENTRY_DSN_SCENARIO }, () =>
     scenarioUp({ type, entityId }, { db, manager }),
 );

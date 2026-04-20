@@ -11,6 +11,6 @@ logger.info("Starting scenario down", { scenarioInstanceId });
 const encryption = new EncryptionHelper(downEnv.SCENARIO_ENCRYPTION_KEY);
 const manager = new ScenarioManager(db, encryption);
 
-await runWithSentry({ name: "scenario-manager", tags: { scenarioInstanceId } }, () =>
+await runWithSentry({ name: "scenario-manager", tags: { scenarioInstanceId }, dsn: downEnv.SENTRY_DSN_SCENARIO }, () =>
     scenarioDown({ scenarioInstanceId }, { manager }),
 );

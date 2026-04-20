@@ -10,6 +10,11 @@ if (generationIds.length === 0) {
 
 const autoActivate = env.AUTO_ACTIVATE === "true";
 
-await runWithSentry({ name: "generation-assigner", tags: { generationCount: String(generationIds.length) } }, () =>
-    runGenerationAssignment(generationIds, autoActivate),
+await runWithSentry(
+    {
+        name: "generation-assigner",
+        tags: { generationCount: String(generationIds.length) },
+        dsn: env.SENTRY_DSN_GENERATION_ASSIGNER,
+    },
+    () => runGenerationAssignment(generationIds, autoActivate),
 );

@@ -1,5 +1,6 @@
 import { db } from "@autonoma/db";
 import { logger, runWithSentry } from "@autonoma/logger";
+import { env } from "./env";
 import { runReplayReview } from "./run";
 
 const runIdArg = process.argv[2];
@@ -9,7 +10,7 @@ if (runIdArg == null) {
 }
 const runId: string = runIdArg;
 
-await runWithSentry({ name: "replay-reviewer", tags: { runId } }, async () => {
+await runWithSentry({ name: "replay-reviewer", tags: { runId }, dsn: env.SENTRY_DSN_REPLAY_REVIEWER }, async () => {
     try {
         await runReplayReview(runId);
     } catch (error) {

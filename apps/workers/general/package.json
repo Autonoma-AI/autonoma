@@ -26,6 +26,7 @@
         "@autonoma/scenario": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/workflow": "workspace:*",
+        "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
         "zod": "catalog:"

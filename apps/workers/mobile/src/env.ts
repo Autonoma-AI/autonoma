@@ -2,11 +2,10 @@ import { env as loggerEnv } from "@autonoma/logger/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
-export const baseEnv = createEnv({
+export const env = createEnv({
     extends: [loggerEnv],
     server: {
-        SENTRY_DSN_SCENARIO: z.string().optional(),
-        SCENARIO_ENCRYPTION_KEY: z.string().min(1),
+        SENTRY_DSN_WORKER_MOBILE: z.string().optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
