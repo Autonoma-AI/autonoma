@@ -1,5 +1,6 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import { SnapshotDraft } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 
@@ -179,6 +180,67 @@ apiTestSuite({
                     webhookUrl: "https://webhook.example.com/hook",
                 }),
             ).rejects.toThrow(NotFoundError);
+        });
+
+        test("inherits test case and skill assignments from main branch on a new PR branch", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 80,
+                title: "Test PR #80",
+                headRef: "feature/branch-80",
+                baseSha: "initial-sha",
+                commits: ["head-sha-80"],
+            });
+
+            const mainBranch = await harness.db.branch.findFirstOrThrow({
+                where: { id: app.mainBranchId! },
+                select: { id: true, applicationId: true },
+            });
+            const folder = await harness.db.folder.create({
+                data: {
+                    name: "inherited",
+                    applicationId: mainBranch.applicationId,
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            const mainDraft = await SnapshotDraft.start({ db: harness.db, branchId: mainBranch.id });
+            const { testCaseId: inheritedTestCaseId } = await mainDraft.addTestCase({
+                folderId: folder.id,
+                name: "Diffs inherited test",
+                description: "Inherited by PR branches",
+                plan: "Open homepage",
+            });
+            const { skillId: inheritedSkillId } = await mainDraft.addSkill({
+                name: "Diffs inherited skill",
+                description: "Inherited by PR branches",
+                plan: "Log in",
+            });
+            await mainDraft.activate();
+
+            const result = await service.triggerDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 80,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            const testAssignments = await harness.db.testCaseAssignment.findMany({
+                where: { snapshotId: result.snapshotId },
+                select: { testCaseId: true },
+            });
+            expect(testAssignments).toHaveLength(1);
+            expect(testAssignments[0]!.testCaseId).toBe(inheritedTestCaseId);
+
+            const skillAssignments = await harness.db.skillAssignment.findMany({
+                where: { snapshotId: result.snapshotId },
+                select: { skillId: true },
+            });
+            expect(skillAssignments).toHaveLength(1);
+            expect(skillAssignments[0]!.skillId).toBe(inheritedSkillId);
         });
 
         test("throws NotFoundError when no GitHub installation", async ({ harness, seedResult: { service } }) => {

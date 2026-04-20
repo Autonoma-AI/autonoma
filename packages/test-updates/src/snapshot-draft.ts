@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
+import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams } from "./changes";
+import { createBranchSnapshot } from "./create-branch-snapshot";
 import type { GenerationProvider } from "./generation/generation-job-provider";
 import { GenerationManager } from "./generation/generation-manager";
 
@@ -162,8 +163,10 @@ export class SnapshotDraft {
     }
 
     /**
-     * Creates a new pending snapshot for a branch and copies test case
-     * assignments from the current active snapshot (if one exists).
+     * Creates a new pending snapshot for a branch and copies test case and
+     * skill assignments from the branch's current active snapshot. For a brand
+     * new branch with no active snapshot, falls back to the application's main
+     * branch active snapshot so that new PR branches inherit the live suite.
      *
      * @throws {BranchAlreadyHasPendingSnapshotError} If the branch already has a pending snapshot.
      */
@@ -191,6 +194,14 @@ export class SnapshotDraft {
                     activeSnapshotId: true,
                     organizationId: true,
                     applicationId: true,
+                    application: {
+                        select: {
+                            mainBranchId: true,
+                            mainBranch: {
+                                select: { activeSnapshotId: true },
+                            },
+                        },
+                    },
                 },
             });
 
@@ -204,82 +215,19 @@ export class SnapshotDraft {
                 throw new BranchAlreadyHasPendingSnapshotError(branchId);
             }
 
-            logger.info("Creating new snapshot", { branchId });
-            const created = await tx.branchSnapshot.create({
-                data: {
-                    branchId,
-                    source: source ?? TriggerSource.MANUAL,
-                    headSha,
-                    baseSha,
-                    prevSnapshotId: branch.activeSnapshotId ?? undefined,
-                },
-                select: { id: true },
+            const { snapshotId: createdId } = await createBranchSnapshot({
+                tx,
+                branchId,
+                branch,
+                source,
+                headSha,
+                baseSha,
+                logger,
             });
-
-            logger.info("Setting as pending snapshot", { branchId, pendingSnapshotId: created.id });
-            await tx.branch.update({
-                where: { id: branchId },
-                data: { pendingSnapshotId: created.id },
-            });
-
-            if (branch.activeSnapshotId != null) {
-                logger.info("Retrieving active test case assignments", { snapshotId: branch.activeSnapshotId });
-                const assignments = await tx.testCaseAssignment.findMany({
-                    where: { snapshotId: branch.activeSnapshotId },
-                    select: {
-                        testCaseId: true,
-                        planId: true,
-                        stepsId: true,
-                        mainAssignmentId: true,
-                    },
-                });
-
-                if (assignments.length > 0) {
-                    logger.info("Copying active snapshot assignments", {
-                        snapshotId: branch.activeSnapshotId,
-                        assignmentCount: assignments.length,
-                    });
-                    await tx.testCaseAssignment.createMany({
-                        data: assignments.map((a) => ({
-                            snapshotId: created.id,
-                            testCaseId: a.testCaseId,
-                            planId: a.planId ?? undefined,
-                            stepsId: a.stepsId ?? undefined,
-                            mainAssignmentId: a.mainAssignmentId ?? undefined,
-                        })),
-                    });
-                }
-
-                logger.info("Retrieving active skill assignments", { snapshotId: branch.activeSnapshotId });
-                const skillAssignments = await tx.skillAssignment.findMany({
-                    where: { snapshotId: branch.activeSnapshotId },
-                    select: {
-                        skillId: true,
-                        planId: true,
-                        mainAssignmentId: true,
-                    },
-                });
-
-                if (skillAssignments.length > 0) {
-                    logger.info("Copying active skill assignments", {
-                        snapshotId: branch.activeSnapshotId,
-                        assignmentCount: skillAssignments.length,
-                    });
-
-                    await tx.skillAssignment.createMany({
-                        data: skillAssignments.map((a) => ({
-                            snapshotId: created.id,
-                            skillId: a.skillId,
-                            planId: a.planId ?? undefined,
-                            mainAssignmentId: a.mainAssignmentId ?? undefined,
-                        })),
-                    });
-                }
-            }
 
             const { organizationId, applicationId } = branch;
 
-            return { snapshotId: created.id, applicationId, organizationId };
+            return { snapshotId: createdId, applicationId, organizationId };
         });
 
         return new SnapshotDraft({ db, snapshotId, branchId, applicationId, organizationId });

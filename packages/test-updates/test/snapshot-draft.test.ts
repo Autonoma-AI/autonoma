@@ -69,6 +69,78 @@ testUpdateSuite({
             expect(sk.plan?.content).toBe("Login with credentials");
         });
 
+        test("start: copies test case and skill assignments from main branch active snapshot on brand new branch", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const mainBranchId = await harness.createBranch(organizationId, applicationId);
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { mainBranchId },
+            });
+
+            const mainDraft = await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+            await mainDraft.addTestCase({
+                folderId,
+                name: "Main inherited test",
+                slug: "main-inherited-test",
+                description: "Tests main inheritance",
+                plan: "Go to main inherited page",
+            });
+            await mainDraft.addSkill({
+                name: "Main inherited skill",
+                slug: "main-inherited-skill",
+                description: "Handles inherited auth",
+                plan: "Inherited login",
+            });
+            await mainDraft.activate();
+
+            const mainBranch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: mainBranchId },
+                select: { activeSnapshotId: true },
+            });
+
+            const prBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 42 });
+
+            const prDraft = await SnapshotDraft.start({ db: harness.db, branchId: prBranchId });
+            const info = await prDraft.currentTestSuiteInfo();
+
+            expect(info.testCases).toHaveLength(1);
+            const tc = findTestCase(info, "main-inherited-test");
+            expect(tc.name).toBe("Main inherited test");
+            expect(tc.plan?.prompt).toBe("Go to main inherited page");
+
+            expect(info.skills).toHaveLength(1);
+            const sk = findSkill(info, "main-inherited-skill");
+            expect(sk.name).toBe("Main inherited skill");
+            expect(sk.plan?.content).toBe("Inherited login");
+
+            const prSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: prDraft.snapshotId },
+                select: { prevSnapshotId: true },
+            });
+            expect(prSnapshot.prevSnapshotId).toBe(mainBranch.activeSnapshotId);
+        });
+
+        test("start: produces an empty snapshot when main branch has no active snapshot", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const mainBranchId = await harness.createBranch(organizationId, applicationId);
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { mainBranchId },
+            });
+
+            const prBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 7 });
+
+            const prDraft = await SnapshotDraft.start({ db: harness.db, branchId: prBranchId });
+            const info = await prDraft.currentTestSuiteInfo();
+
+            expect(info.testCases).toHaveLength(0);
+            expect(info.skills).toHaveLength(0);
+        });
+
         test("start: throws BranchAlreadyHasPendingSnapshotError when branch has pending snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },
