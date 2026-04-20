@@ -7,15 +7,16 @@ import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
 export interface TriggerDiffsJobParams {
     branchId: string;
+    snapshotId: string;
 }
 
 export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<void> {
-    const { branchId } = params;
+    const { branchId, snapshotId } = params;
 
-    logger.info("Triggering diffs analysis workflow", { branchId });
+    logger.info("Triggering diffs analysis workflow", { branchId, snapshotId });
 
     const client = await getTemporalClient();
-    const workflowId = `diffs-analysis-${branchId}`;
+    const workflowId = `diffs-analysis-${snapshotId}`;
 
     await client.workflow.start(WORKFLOW_TYPE.DIFFS_ANALYSIS, {
         workflowId,
@@ -25,32 +26,30 @@ export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<vo
         args: [{ branchId }],
     });
 
-    logger.info("Diffs analysis workflow started", { workflowId, branchId });
+    logger.info("Diffs analysis workflow started", { workflowId, branchId, snapshotId });
 }
 
 /**
- * Cancel any running diffs analysis workflow for the given branch.
- * This is called when a new PR is received while a previous one is still analyzing.
+ * Cancel the running diffs analysis workflow for the given snapshot.
+ * Called when a new trigger arrives while an older snapshot is still being analyzed.
  */
-export async function cancelDiffsJob(branchId: string): Promise<void> {
-    const workflowId = `diffs-analysis-${branchId}`;
-    logger.info("Cancelling diffs workflow for branch", { branchId, workflowId });
+export async function cancelDiffsJob(snapshotId: string): Promise<void> {
+    const workflowId = `diffs-analysis-${snapshotId}`;
+    logger.info("Cancelling diffs workflow for snapshot", { snapshotId, workflowId });
 
     try {
         const client = await getTemporalClient();
         const handle = client.workflow.getHandle(workflowId);
 
-        // Check if the workflow exists before attempting to cancel
         try {
             await handle.describe();
             await handle.cancel();
-            logger.info("Diffs workflow cancelled successfully", { branchId, workflowId });
+            logger.info("Diffs workflow cancelled successfully", { snapshotId, workflowId });
         } catch {
-            // Workflow doesn't exist or is already completed - this is fine
-            logger.info("Diffs workflow not found or already completed", { branchId, workflowId });
+            logger.info("Diffs workflow not found or already completed", { snapshotId, workflowId });
         }
     } catch (error) {
-        logger.error("Failed to cancel diffs workflow", { branchId, workflowId, error });
+        logger.error("Failed to cancel diffs workflow", { snapshotId, workflowId, error });
         throw error;
     }
 }

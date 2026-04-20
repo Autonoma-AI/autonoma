@@ -65,7 +65,7 @@ export interface ServicesParams {
     generationProvider: GenerationProvider;
     githubApp: GitHubApp;
     triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
-    cancelDiffsJob: (branchId: string) => Promise<void>;
+    cancelDiffsJob: (snapshotId: string) => Promise<void>;
 }
 
 export function buildServices({

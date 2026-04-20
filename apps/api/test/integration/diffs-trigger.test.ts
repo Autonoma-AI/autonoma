@@ -84,7 +84,10 @@ apiTestSuite({
             expect(deployment.webhookHeaders).toEqual({ "X-Auth": "secret" });
             expect(deployment.webDeployment!.url).toBe("https://preview.example.com");
 
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({ branchId: result.branchId });
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                branchId: result.branchId,
+                snapshotId: result.snapshotId,
+            });
         });
 
         test("triggers diffs for an existing branch", async ({ harness, seedResult: { app, service } }) => {
@@ -165,6 +168,14 @@ apiTestSuite({
             const newSnapshot = await harness.db.branchSnapshot.findUnique({ where: { id: second.snapshotId } });
             expect(newSnapshot).not.toBeNull();
             expect(newSnapshot!.status).toBe("processing");
+
+            // cancelDiffsJob was called with the stale snapshot's id, and the second
+            // triggerDiffsJob call carries the new snapshot id.
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith(first.snapshotId);
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                branchId: second.branchId,
+                snapshotId: second.snapshotId,
+            });
         });
 
         test("throws NotFoundError when no application linked to repo", async ({

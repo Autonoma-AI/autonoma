@@ -85,13 +85,14 @@ describe("trigger functions", () => {
         const { triggerDiffsJob } = await import("../src/triggers/diffs");
         const { getTemporalClient } = await import("../src/client");
 
-        await triggerDiffsJob({ branchId: "branch-1" });
+        await triggerDiffsJob({ branchId: "branch-1", snapshotId: "snap-1" });
 
         const client = await getTemporalClient();
         expect(client.workflow.start).toHaveBeenCalledOnce();
 
         const call = vi.mocked(client.workflow.start).mock.calls[0];
         const options = call?.[1];
+        expect(options?.workflowId).toBe("diffs-analysis-snap-1");
         expect(options?.taskQueue).toBe("general");
         expect(options?.args?.[0]).toEqual({ branchId: "branch-1" });
     });

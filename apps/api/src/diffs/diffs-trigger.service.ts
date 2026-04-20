@@ -27,7 +27,7 @@ export class DiffsTriggerService extends Service {
         private readonly db: PrismaClient,
         private readonly githubInstallationService: GitHubInstallationService,
         private readonly triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>,
-        private readonly cancelDiffsJob: (branchId: string) => Promise<void>,
+        private readonly cancelDiffsJob: (snapshotId: string) => Promise<void>,
     ) {
         super();
     }
@@ -73,7 +73,7 @@ export class DiffsTriggerService extends Service {
 
         const snapshotId = await this.createSnapshot(branch.id, organizationId, headSha, baseSha);
 
-        await this.triggerDiffsJob({ branchId: branch.id });
+        await this.triggerDiffsJob({ branchId: branch.id, snapshotId });
 
         this.logger.info("Diffs analysis triggered successfully", {
             branchId: branch.id,
@@ -176,12 +176,14 @@ export class DiffsTriggerService extends Service {
 
             this.logger.info("Cancelling existing diffs job and discarding pending snapshot", { branchId });
 
-            await this.cancelDiffsJob(branchId);
-
             const staleSnapshot = await SnapshotDraft.loadPending({ db: this.db, branchId });
+            await this.cancelDiffsJob(staleSnapshot.snapshotId);
             await staleSnapshot.discard();
 
-            this.logger.info("Stale snapshot discarded, starting fresh update", { branchId });
+            this.logger.info("Stale snapshot discarded, starting fresh update", {
+                branchId,
+                staleSnapshotId: staleSnapshot.snapshotId,
+            });
 
             const updater = await TestSuiteUpdater.startUpdate({
                 db: this.db,
