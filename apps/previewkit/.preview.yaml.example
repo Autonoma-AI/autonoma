@@ -1,0 +1,30 @@
+apps:
+  - name: web
+    path: ./apps/web
+    port: 3000
+    env:
+      API_URL: "http://{{api.host}}:{{api.port}}"
+      DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview"
+    health_check: /health
+
+  - name: api
+    path: ./apps/api
+    port: 4000
+    dockerfile: ./apps/api/Dockerfile
+    env:
+      DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview"
+      REDIS_URL: "redis://{{cache.host}}:6379"
+    health_check: /health
+
+services:
+  - name: db
+    recipe: postgres
+    version: "16"
+
+  - name: cache
+    recipe: redis
+
+hooks:
+  post_deploy:
+    - app: api
+      command: "npx prisma migrate deploy"

@@ -1,0 +1,33 @@
+{
+    "name": "@autonoma/previewkit",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Preview environments for pull requests - deploy any stack to Kubernetes",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc -p tsconfig.build.json",
+        "start": "node dist/index.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@autonoma/logger": "workspace:*",
+        "@hono/node-server": "^1.19.14",
+        "@hono/swagger-ui": "^0.6.1",
+        "@kubernetes/client-node": "catalog:",
+        "@octokit/app": "catalog:",
+        "@t3-oss/env-core": "catalog:",
+        "hono": "^4.12.14",
+        "js-yaml": "^4.1.1",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "catalog:",
+        "tsx": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}
