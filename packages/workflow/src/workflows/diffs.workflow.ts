@@ -2,8 +2,7 @@ import { executeChild, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
-import { runReplayWorkflow } from "./run-replay.workflow";
-import { singleGenerationWorkflow } from "./single-generation.workflow";
+import { WORKFLOW_TYPE } from "./workflow-types";
 
 const longRunning = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "30m",
@@ -37,17 +36,10 @@ interface RunReplayArgs {
 }
 
 function dispatchReplay({ runId, architecture, scenarioId }: RunReplayArgs): Promise<void> {
-    return executeChild(runReplayWorkflow, {
+    return executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
         workflowId: `run-replay-${runId}`,
-        taskQueue: architecture === "WEB" ? TaskQueue.WEB : TaskQueue.MOBILE,
-        args: [
-            {
-                runId,
-                architecture,
-                scenarioId,
-                skipIssueBugCreation: true,
-            },
-        ],
+        taskQueue: TaskQueue.GENERAL,
+        args: [{ runId, architecture, scenarioId, skipIssueBugCreation: true }],
     });
 }
 
@@ -58,17 +50,10 @@ interface GenerationArgs {
 }
 
 function dispatchGeneration({ testGenerationId, scenarioId, architecture }: GenerationArgs): Promise<void> {
-    return executeChild(singleGenerationWorkflow, {
+    return executeChild(WORKFLOW_TYPE.SINGLE_GENERATION, {
         workflowId: `generation-${testGenerationId}`,
-        taskQueue: architecture === "WEB" ? TaskQueue.WEB : TaskQueue.MOBILE,
-        args: [
-            {
-                testGenerationId,
-                scenarioId,
-                architecture,
-                skipIssueBugCreation: true,
-            },
-        ],
+        taskQueue: TaskQueue.GENERAL,
+        args: [{ testGenerationId, scenarioId, architecture, skipIssueBugCreation: true }],
     });
 }
 
