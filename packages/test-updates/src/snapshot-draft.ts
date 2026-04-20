@@ -275,6 +275,12 @@ export class SnapshotDraft {
                 logger,
             });
 
+            logger.info("Setting as pending snapshot", { branchId, pendingSnapshotId: createdId });
+            await tx.branch.update({
+                where: { id: branchId },
+                data: { pendingSnapshotId: createdId },
+            });
+
             const { organizationId, applicationId } = branch;
 
             return { snapshotId: createdId, applicationId, organizationId };

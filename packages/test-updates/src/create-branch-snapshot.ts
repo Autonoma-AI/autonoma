@@ -20,8 +20,8 @@ interface CreateBranchSnapshotParams {
 }
 
 /**
- * Creates a new (pending) branch snapshot, sets it as the branch's pending snapshot,
- * and copies test case + skill assignments from the appropriate source snapshot:
+ * Creates a new branch snapshot and copies test case + skill assignments from the
+ * appropriate source snapshot:
  * - the branch's own active snapshot if it has one, or
  * - the application's main branch active snapshot (so a brand new PR branch inherits
  *   the live suite from main).
@@ -29,8 +29,9 @@ interface CreateBranchSnapshotParams {
  * `prevSnapshotId` on the new snapshot is set to whichever source was used, so the
  * diff machinery in `getChanges()` can report adds/removes/updates relative to it.
  *
- * Must be called inside a Prisma transaction — the caller is responsible for locking
- * the branch row before calling to serialize concurrent creations.
+ * The caller is responsible for (a) running inside a Prisma transaction with the
+ * branch row already locked, and (b) wiring the returned snapshot as the branch's
+ * pending snapshot.
  */
 export async function createBranchSnapshot({
     tx,
@@ -59,12 +60,6 @@ export async function createBranchSnapshot({
             prevSnapshotId: sourceSnapshotId,
         },
         select: { id: true },
-    });
-
-    logger.info("Setting as pending snapshot", { branchId, pendingSnapshotId: created.id });
-    await tx.branch.update({
-        where: { id: branchId },
-        data: { pendingSnapshotId: created.id },
     });
 
     if (sourceSnapshotId != null) {
