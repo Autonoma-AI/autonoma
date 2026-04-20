@@ -51,13 +51,16 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
     };
 }
 
-function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
+export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
 } {
     const existingTests: ExistingTestInfo[] = [];
     for (const testCase of suiteInfo.testCases) {
-        if (testCase.plan == null) continue;
+        if (testCase.plan == null) {
+            logger.warn("Test case has no plan, skipping", { testCaseId: testCase.id, slug: testCase.slug });
+            continue;
+        }
         existingTests.push({
             id: testCase.id,
             name: testCase.name,
@@ -68,7 +71,10 @@ function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
 
     const existingSkills: ExistingSkillInfo[] = [];
     for (const skill of suiteInfo.skills) {
-        if (skill.plan == null) continue;
+        if (skill.plan == null) {
+            logger.warn("Skill has no plan, skipping", { skillId: skill.id, slug: skill.slug });
+            continue;
+        }
         existingSkills.push({
             id: skill.id,
             name: skill.name,
@@ -89,7 +95,21 @@ export async function loadFlows(applicationId: string, suiteInfo: TestSuiteInfo)
 
     const testSlugsByFolderId = new Map<string, string[]>();
     for (const testCase of suiteInfo.testCases) {
-        if (testCase.plan == null || testCase.folderId == null) continue;
+        if (testCase.plan == null) {
+            logger.warn("Test case has no plan, skipping from flow index", {
+                testCaseId: testCase.id,
+                slug: testCase.slug,
+            });
+            continue;
+        }
+        // folderId is mandatory for newly created test cases; null is unexpected.
+        if (testCase.folderId == null) {
+            logger.warn("Test case has no folderId, skipping from flow index", {
+                testCaseId: testCase.id,
+                slug: testCase.slug,
+            });
+            continue;
+        }
         const slugs = testSlugsByFolderId.get(testCase.folderId);
         if (slugs != null) {
             slugs.push(testCase.slug);

@@ -49,9 +49,16 @@ export interface TestCandidateInfo {
     reasoning: string;
 }
 
+export interface AffectedTestInfo {
+    slug: string;
+    testName: string;
+    reasoning: string;
+}
+
 export interface AnalyzeDiffsOutput {
     preparedRuns: PreparedRunInfo[];
     testCandidates: TestCandidateInfo[];
+    affectedTests: AffectedTestInfo[];
     reasoning: string;
 }
 
@@ -67,6 +74,7 @@ export interface ResolveDiffsInput {
     runIds: string[];
     step1Reasoning: string;
     testCandidates: TestCandidateInfo[];
+    affectedTests: AffectedTestInfo[];
 }
 
 export interface ResolveDiffsOutput {

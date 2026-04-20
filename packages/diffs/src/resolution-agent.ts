@@ -171,11 +171,15 @@ The analysis agent (Step 1) reviewed the code changes and provided this reasonin
 
 ${step1Reasoning}
 
-## Test Replay Verdicts
+`;
+
+    if (verdicts.length > 0) {
+        prompt += `## Test Replay Verdicts
 
 The following tests were replayed after Step 1's analysis. Each test has been reviewed and given a verdict. Your job is to resolve each failure by taking the appropriate action.
 
 `;
+    }
 
     for (const verdict of verdicts) {
         prompt += `### ${verdict.testName} (\`${verdict.testSlug}\`)
@@ -214,7 +218,8 @@ Step 1 suggested the following new tests. Review each candidate and decide wheth
         }
     }
 
-    prompt += `## Instructions
+    if (verdicts.length > 0) {
+        prompt += `## Instructions
 
 You MUST handle every failed test before calling \`finish\`. For each failed test, take one of these actions:
 
@@ -231,6 +236,16 @@ Additionally:
 Look for cross-cutting patterns - if multiple tests failed for the same underlying reason, explore the codebase once and apply that understanding across all affected tests.
 
 When done, call \`finish\` with your overall reasoning.`;
+    } else {
+        prompt += `## Instructions
+
+There are no test replay failures to resolve. Your job is to review the test candidates suggested by Step 1 and create the ones you agree with using \`add_test\`.
+
+- Use \`list_tests\`, \`read_test\`, and \`read_skill\` to explore existing tests and skills and avoid duplicating coverage.
+- Do not invent failures or call \`modify_test\`, \`quarantine_test\`, or \`report_bug\` - there are no failed tests in this run.
+
+When done, call \`finish\` with your overall reasoning.`;
+    }
 
     return prompt;
 }

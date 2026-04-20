@@ -48,6 +48,11 @@ export async function analyzeDiffs({ branchId }: AnalyzeDiffsInput): Promise<Ana
         return {
             preparedRuns,
             testCandidates: agentResult.testCandidates,
+            affectedTests: agentResult.affectedTests.map((t) => ({
+                slug: t.slug,
+                testName: t.testName,
+                reasoning: t.reasoning,
+            })),
             reasoning: agentResult.reasoning,
         };
     } finally {

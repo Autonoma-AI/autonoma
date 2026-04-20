@@ -63,6 +63,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
         runIds,
         step1Reasoning: step1.reasoning,
         testCandidates: step1.testCandidates,
+        affectedTests: step1.affectedTests,
     });
 
     // Step 4: Execute generations in parallel.
