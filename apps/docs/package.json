@@ -10,13 +10,13 @@
         "fmt": "oxfmt --write src/"
     },
     "dependencies": {
-        "@astrojs/mdx": "^4.3.13",
-        "@astrojs/react": "^4.2.1",
+        "@astrojs/mdx": "^5.0.3",
+        "@astrojs/react": "^5.0.3",
         "@autonoma/blacklight": "workspace:*",
         "@fontsource-variable/dm-sans": "^5.2.8",
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@tailwindcss/vite": "^4.2.2",
-        "astro": "^5.18.1",
+        "astro": "^6.1.8",
         "astro-expressive-code": "^0.41.7",
         "hast-util-select": "^6.0.4",
         "rehype-parse": "^9.0.1",
