@@ -8,7 +8,7 @@ import { FakeApplicationDriver } from "./fake-application.driver";
 import { FakeScreenDriver } from "./fake-screen.driver";
 
 export type CommandTestFunction<TContext extends BaseCommandContext, TArgs extends unknown[]> = ReturnType<
-    typeof test.extend<{ makeContext: (...parameters: TArgs) => TContext }>
+    typeof test.extend<"makeContext", (...parameters: TArgs) => TContext>
 >;
 
 /**
@@ -20,12 +20,9 @@ export type CommandTestFunction<TContext extends BaseCommandContext, TArgs exten
 export function commandTestFunction<TContext extends BaseCommandContext, TArgs extends unknown[]>(
     contextFn: (...parameters: TArgs) => TContext,
 ): CommandTestFunction<TContext, TArgs> {
-    return test.extend<{ makeContext: (...parameters: TArgs) => TContext }>({
-        // biome-ignore lint/correctness/noEmptyPattern: This throws an error if not destructured
-        makeContext: async ({}, use) => {
-            use((...parameters: TArgs) => contextFn(...parameters));
-        },
-    });
+    return test.extend("makeContext", async () =>
+        (...parameters: TArgs) =>
+            contextFn(...parameters));
 }
 
 /**
