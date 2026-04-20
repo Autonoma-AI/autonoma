@@ -10,7 +10,6 @@ import {
 } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
 import type { TestDirectory } from "@autonoma/diffs";
-import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 
@@ -22,9 +21,6 @@ export interface RunResolutionAgentParams {
     repoDir: string;
     testDirectory: TestDirectory;
     flowIndex: FlowIndex;
-    githubClient: GitHubInstallationClient;
-    repoId: number;
-    headSha: string;
 }
 
 export async function runResolutionAgent({
@@ -35,9 +31,6 @@ export async function runResolutionAgent({
     repoDir,
     testDirectory,
     flowIndex,
-    githubClient,
-    repoId,
-    headSha,
 }: RunResolutionAgentParams): Promise<ResolutionAgentResult> {
     const registry = new ModelRegistry({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -64,9 +57,6 @@ export async function runResolutionAgent({
         updater,
         applicationId,
         testDirectory,
-        githubClient,
-        repoId,
-        headSha,
     });
 
     await Promise.all([

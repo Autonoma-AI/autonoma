@@ -115,9 +115,6 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
                 repoDir,
                 testDirectory,
                 flowIndex,
-                githubClient,
-                repoId: branchData.repoId,
-                headSha,
             });
 
             modifiedTests = agentResult.modifiedTests.length;

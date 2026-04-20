@@ -40,12 +40,6 @@ export interface GitHubInstallationClient {
     cloneRepository(params: CloneRepositoryParams): Promise<string>;
     getRepository(repoId: number): Promise<Repository>;
     listInstallationRepos(): Promise<Repository[]>;
-    createIssue(
-        repoId: number,
-        title: string,
-        body: string,
-        labels?: string[],
-    ): Promise<{ number: number; url: string }>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
     listPullRequests(repoId: number): Promise<PullRequest[]>;
 }
@@ -159,28 +153,6 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger.info("Listed installation repositories", { count: repos.length });
 
         return repos;
-    }
-
-    async createIssue(
-        repoId: number,
-        title: string,
-        body: string,
-        labels?: string[],
-    ): Promise<{ number: number; url: string }> {
-        const { owner, repo } = await this.resolveOwnerRepo(repoId);
-        this.logger.info("Creating issue", { repoId, owner, repo, title, labels });
-
-        const { data: issue } = await this.octokit.request("POST /repos/{owner}/{repo}/issues", {
-            owner,
-            repo,
-            title,
-            body,
-            labels,
-        });
-
-        this.logger.info("Created issue", { repoId, issueNumber: issue.number, issueUrl: issue.html_url });
-
-        return { number: issue.number, url: issue.html_url };
     }
 
     async getPullRequest(repoId: number, prNumber: number): Promise<PullRequest> {

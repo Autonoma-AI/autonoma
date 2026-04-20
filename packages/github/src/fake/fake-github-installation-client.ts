@@ -150,18 +150,6 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         );
     }
 
-    async createIssue(
-        repoId: number,
-        title: string,
-        body: string,
-        labels?: string[],
-    ): Promise<{ number: number; url: string }> {
-        this.createdIssues.push({ repoId, title, body, labels });
-        const repoData = this.requireRepoById(repoId);
-        const issueNumber = this.createdIssues.length;
-        return { number: issueNumber, url: `https://github.com/${repoData.metadata.fullName}/issues/${issueNumber}` };
-    }
-
     async getInstallation(_installationId: number): Promise<{ account: unknown }> {
         throw new Error("FakeGitHubInstallationClient.getInstallation is not implemented");
     }
