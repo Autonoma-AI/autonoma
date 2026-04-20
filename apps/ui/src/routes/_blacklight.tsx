@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_blacklight")({
 function BlacklightLayout() {
   return (
     <ThemeProvider defaultTheme="blacklight-dark">
-      <ToastProvider toastManager={toastManager} timeout={5000}>
+      <ToastProvider toastManager={toastManager} timeout={2500} limit={3}>
         <ThemedShell />
         <GlobalToasts />
       </ToastProvider>

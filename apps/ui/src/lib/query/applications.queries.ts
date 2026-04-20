@@ -58,16 +58,14 @@ export function useCreateMinimalApplication() {
 export function useDeleteApplication() {
     const queryClient = useQueryClient();
     const router = useRouter();
-    return useAPIMutation({
-        ...trpc.applications.delete.mutationOptions({
+    return useAPIMutation(
+        trpc.applications.delete.mutationOptions({
             onSettled: async () => {
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
                 await router.invalidate();
             },
         }),
-        successToast: { title: "Application deleted" },
-        errorToast: { title: "Failed to delete application" },
-    });
+    );
 }
 
 export function useUpdateApplicationSettings() {
