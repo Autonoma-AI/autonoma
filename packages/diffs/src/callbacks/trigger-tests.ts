@@ -1,16 +1,11 @@
 import type { BillingService } from "@autonoma/billing";
-import type { PrismaClient } from "@autonoma/db";
+import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
 import { logger as rootLogger } from "@autonoma/logger";
 
-const architectureMap: Record<string, string> = {
-    WEB: "web",
-    IOS: "ios",
-    ANDROID: "android",
-};
-
 export interface PrepareRunsParams {
     db: PrismaClient;
+    snapshotId: string;
     applicationId: string;
     organizationId: string;
     billingService: BillingService;
@@ -19,15 +14,15 @@ export interface PrepareRunsParams {
 export interface PreparedRunResult {
     runId: string;
     slug: string;
-    architecture: string;
+    architecture: ApplicationArchitecture;
     scenarioId?: string;
 }
 
 export async function prepareRuns(slugs: string[], params: PrepareRunsParams): Promise<PreparedRunResult[]> {
-    const logger = rootLogger.child({ name: "prepareRuns" });
+    const logger = rootLogger.child({ name: "prepareRuns", snapshotId: params.snapshotId });
     logger.info("Preparing runs for affected tests", { slugs, count: slugs.length });
 
-    const { db, applicationId, organizationId, billingService } = params;
+    const { db, snapshotId, applicationId, organizationId, billingService } = params;
 
     // 1. Look up test cases by slug
     const testCases = await db.testCase.findMany({
@@ -42,13 +37,12 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
 
     const testCaseBySlug = new Map(testCases.map((tc) => [tc.slug, tc]));
 
-    // 2. Find assignments with steps for each test
+    // 2. Find the assignment (scoped to this snapshot) for each test
     interface InternalPreparedRun {
         slug: string;
         testCaseName: string;
         assignmentId: string;
-        dbArchitecture: string;
-        architecture: string;
+        architecture: ApplicationArchitecture;
         scenarioId?: string;
     }
 
@@ -61,19 +55,14 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
             continue;
         }
 
-        const assignment = await findAssignmentWithSteps(db, testCase.id, organizationId, logger);
-        if (assignment == null) {
-            logger.warn("No runnable assignment found for test", { slug, testCaseId: testCase.id });
-            continue;
-        }
+        const assignment = await findAssignmentWithSteps(db, snapshotId, testCase.id, slug, logger);
+        if (assignment == null) continue;
 
-        const architecture = architectureMap[testCase.application.architecture] ?? "web";
         preparedRuns.push({
             slug,
             testCaseName: testCase.name,
             assignmentId: assignment.id,
-            dbArchitecture: testCase.application.architecture,
-            architecture,
+            architecture: testCase.application.architecture,
             scenarioId: assignment.scenarioId,
         });
     }
@@ -84,14 +73,9 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
     }
 
     // 3. Check billing for all runs at once
-    const sampleDbArchitecture = preparedRuns[0]!.dbArchitecture;
+    const sampleArchitecture = preparedRuns[0]!.architecture;
     try {
-        await billingService.checkCreditsGate(
-            organizationId,
-            preparedRuns.length,
-            sampleDbArchitecture as "WEB" | "IOS" | "ANDROID",
-            "run",
-        );
+        await billingService.checkCreditsGate(organizationId, preparedRuns.length, sampleArchitecture, "run");
     } catch (error) {
         logger.error("Billing credits check failed for batch", error, {
             organizationId,
@@ -137,63 +121,37 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
 
 async function findAssignmentWithSteps(
     db: PrismaClient,
+    snapshotId: string,
     testCaseId: string,
-    organizationId: string,
+    slug: string,
     logger: Logger,
 ): Promise<{ id: string; scenarioId?: string } | undefined> {
-    // Prefer assignment that already has stepsId set
-    const assignmentWithSteps = await db.testCaseAssignment.findFirst({
-        where: {
-            testCaseId,
-            testCase: { organizationId },
-            stepsId: { not: null },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, plan: { select: { scenarioId: true } } },
-    });
-
-    if (assignmentWithSteps != null) {
-        return {
-            id: assignmentWithSteps.id,
-            scenarioId: assignmentWithSteps.plan?.scenarioId ?? undefined,
-        };
-    }
-
-    // Fall back: find a successful generation with steps and link it to the assignment
-    const latestGeneration = await db.testGeneration.findFirst({
-        where: {
-            organizationId,
-            status: "success",
-            stepsId: { not: null },
-            testPlan: { testCaseId },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { stepsId: true, testPlan: { select: { testCaseId: true, scenarioId: true } } },
-    });
-
-    if (latestGeneration?.stepsId == null) {
-        logger.info("No generation with steps found for test case", { testCaseId });
-        return;
-    }
-
-    const assignment = await db.testCaseAssignment.findFirst({
-        where: { testCaseId, testCase: { organizationId } },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, plan: { select: { scenarioId: true } } },
+    const assignment = await db.testCaseAssignment.findUnique({
+        where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
+        select: { id: true, stepsId: true, plan: { select: { scenarioId: true } } },
     });
 
     if (assignment == null) {
-        logger.info("No assignment found for test case", { testCaseId });
+        logger.warn("Test case has no assignment in this snapshot; skipping run", {
+            snapshotId,
+            testCaseId,
+            slug,
+        });
         return;
     }
 
-    await db.testCaseAssignment.update({
-        where: { id: assignment.id },
-        data: { stepsId: latestGeneration.stepsId },
-    });
+    if (assignment.stepsId == null) {
+        logger.warn("Test case assignment has no steps; skipping run", {
+            snapshotId,
+            testCaseId,
+            slug,
+            assignmentId: assignment.id,
+        });
+        return;
+    }
 
     return {
         id: assignment.id,
-        scenarioId: assignment.plan?.scenarioId ?? latestGeneration.testPlan.scenarioId ?? undefined,
+        scenarioId: assignment.plan?.scenarioId ?? undefined,
     };
 }

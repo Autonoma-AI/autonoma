@@ -26,10 +26,12 @@ function buildParams(
     harness: DiffsCallbackHarness,
     organizationId: string,
     applicationId: string,
+    snapshotId: string,
     overrides?: Partial<PrepareRunsParams>,
 ): PrepareRunsParams {
     return {
         db: harness.db,
+        snapshotId,
         applicationId,
         organizationId,
         billingService: createMockBillingService(),
@@ -44,9 +46,16 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
+            const { snapshotId } = await harness.setupBranchWithTest(
+                organizationId,
+                applicationId,
+                "placeholder",
+                "Placeholder",
+            );
+
             const results = await prepareRuns(
                 ["nonexistent-slug"],
-                buildParams(harness, organizationId, applicationId),
+                buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
             expect(results).toHaveLength(0);
@@ -56,9 +65,17 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            await harness.setupBranchWithTest(organizationId, applicationId, "no-steps-test", "No Steps Test");
+            const { snapshotId } = await harness.setupBranchWithTest(
+                organizationId,
+                applicationId,
+                "no-steps-test",
+                "No Steps Test",
+            );
 
-            const results = await prepareRuns(["no-steps-test"], buildParams(harness, organizationId, applicationId));
+            const results = await prepareRuns(
+                ["no-steps-test"],
+                buildParams(harness, organizationId, applicationId, snapshotId),
+            );
 
             expect(results).toHaveLength(0);
         });
@@ -67,11 +84,16 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            await harness.setupRunnableTest(organizationId, applicationId, "billing-test", "Billing Test");
+            const { snapshotId } = await harness.setupRunnableTest(
+                organizationId,
+                applicationId,
+                "billing-test",
+                "Billing Test",
+            );
 
             const results = await prepareRuns(
                 ["billing-test"],
-                buildParams(harness, organizationId, applicationId, {
+                buildParams(harness, organizationId, applicationId, snapshotId, {
                     billingService: createMockBillingService({
                         checkCreditsGate: vi.fn().mockRejectedValue(new Error("Insufficient credits")),
                     }),
@@ -85,14 +107,22 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            await harness.setupRunnableTest(organizationId, applicationId, "success-test", "Success Test");
+            const { snapshotId } = await harness.setupRunnableTest(
+                organizationId,
+                applicationId,
+                "success-test",
+                "Success Test",
+            );
 
-            const results = await prepareRuns(["success-test"], buildParams(harness, organizationId, applicationId));
+            const results = await prepareRuns(
+                ["success-test"],
+                buildParams(harness, organizationId, applicationId, snapshotId),
+            );
 
             expect(results).toHaveLength(1);
             expect(results[0]!.slug).toBe("success-test");
             expect(results[0]!.runId).toBeDefined();
-            expect(results[0]!.architecture).toBe("web");
+            expect(results[0]!.architecture).toBe("WEB");
 
             // Verify run record exists in DB with pending status
             const run = await harness.db.run.findUniqueOrThrow({
@@ -106,11 +136,16 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            await harness.setupRunnableTest(organizationId, applicationId, "exists-test", "Exists Test");
+            const { snapshotId } = await harness.setupRunnableTest(
+                organizationId,
+                applicationId,
+                "exists-test",
+                "Exists Test",
+            );
 
             const results = await prepareRuns(
                 ["nonexistent-slug", "exists-test"],
-                buildParams(harness, organizationId, applicationId),
+                buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
             // Only the known slug with a runnable assignment gets a run
@@ -122,7 +157,12 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            await harness.setupRunnableTest(organizationId, applicationId, "deduct-fail", "Deduct Fail");
+            const { snapshotId } = await harness.setupRunnableTest(
+                organizationId,
+                applicationId,
+                "deduct-fail",
+                "Deduct Fail",
+            );
 
             const billingService = createMockBillingService({
                 deductCreditsForRun: vi.fn().mockRejectedValue(new Error("Payment failed")),
@@ -130,7 +170,7 @@ diffsCallbackSuite({
 
             const results = await prepareRuns(
                 ["deduct-fail"],
-                buildParams(harness, organizationId, applicationId, { billingService }),
+                buildParams(harness, organizationId, applicationId, snapshotId, { billingService }),
             );
 
             // Run was created but deduction failed, so it's not in results
@@ -144,6 +184,42 @@ diffsCallbackSuite({
                 select: { status: true },
             });
             expect(run.status).toBe("failed");
+        });
+
+        test("skips test case with assignment from a different snapshot", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            // Set up a runnable test in snapshot A
+            const { snapshotId: snapshotA } = await harness.setupRunnableTest(
+                organizationId,
+                applicationId,
+                "cross-snapshot-test",
+                "Cross Snapshot Test",
+            );
+
+            // Create a fresh branch with a different snapshot (no assignment for cross-snapshot-test)
+            const { snapshotId: snapshotB } = await harness.setupBranchWithTest(
+                organizationId,
+                applicationId,
+                "other-placeholder",
+                "Other Placeholder",
+            );
+
+            // Request the test from snapshot A against snapshot B: no assignment exists in B
+            const results = await prepareRuns(
+                ["cross-snapshot-test"],
+                buildParams(harness, organizationId, applicationId, snapshotB),
+            );
+
+            expect(results).toHaveLength(0);
+
+            // Sanity check: using snapshot A, the test is runnable
+            const resultsA = await prepareRuns(
+                ["cross-snapshot-test"],
+                buildParams(harness, organizationId, applicationId, snapshotA),
+            );
+            expect(resultsA).toHaveLength(1);
         });
     },
 });

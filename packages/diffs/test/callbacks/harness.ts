@@ -79,7 +79,7 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         applicationId: string,
         testSlug: string,
         testName: string,
-    ): Promise<{ branchId: string; testCaseId: string }> {
+    ): Promise<{ branchId: string; snapshotId: string; testCaseId: string }> {
         const branchId = await this.createBranch(organizationId, applicationId);
         const folderId = await this.createFolder(organizationId, applicationId);
 
@@ -90,10 +90,11 @@ export class DiffsCallbackHarness implements IntegrationHarness {
 
         // Mark all pending generations as complete so we can finalize
         await this.db.testGeneration.updateMany({ where: { status: "pending" }, data: { status: "success" } });
+        const snapshotId = updater.snapshotId;
         await updater.finalize();
 
         const testCase = await this.db.testCase.findFirstOrThrow({ where: { slug: testSlug, applicationId } });
-        return { branchId, testCaseId: testCase.id };
+        return { branchId, snapshotId, testCaseId: testCase.id };
     }
 
     /**
@@ -105,8 +106,8 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         applicationId: string,
         testSlug: string,
         testName: string,
-    ): Promise<{ branchId: string; testCaseId: string; assignmentId: string }> {
-        const { branchId, testCaseId } = await this.setupBranchWithTest(
+    ): Promise<{ branchId: string; snapshotId: string; testCaseId: string; assignmentId: string }> {
+        const { branchId, snapshotId, testCaseId } = await this.setupBranchWithTest(
             organizationId,
             applicationId,
             testSlug,
@@ -140,7 +141,7 @@ export class DiffsCallbackHarness implements IntegrationHarness {
             data: { stepsId: stepInputList.id },
         });
 
-        return { branchId, testCaseId, assignmentId: assignment.id };
+        return { branchId, snapshotId, testCaseId, assignmentId: assignment.id };
     }
 
     /**

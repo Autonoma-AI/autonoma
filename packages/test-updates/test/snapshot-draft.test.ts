@@ -182,6 +182,69 @@ testUpdateSuite({
             );
         });
 
+        // -- loadById() --
+
+        test("loadById: loads a pending snapshot by its id", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const branchId = await harness.createBranch(organizationId, applicationId);
+            const draft = await SnapshotDraft.start({ db: harness.db, branchId });
+
+            const loaded = await SnapshotDraft.loadById({ db: harness.db, snapshotId: draft.snapshotId });
+
+            expect(loaded.snapshotId).toBe(draft.snapshotId);
+            expect(loaded.branchId).toBe(branchId);
+            expect(loaded.applicationId).toBe(applicationId);
+            expect(loaded.organizationId).toBe(organizationId);
+        });
+
+        test("loadById: throws SnapshotNotPendingError when snapshot is not processing", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const branchId = await harness.createBranch(organizationId, applicationId);
+            const draft = await SnapshotDraft.start({ db: harness.db, branchId });
+            await draft.activate();
+
+            await expect(SnapshotDraft.loadById({ db: harness.db, snapshotId: draft.snapshotId })).rejects.toThrow(
+                SnapshotNotPendingError,
+            );
+        });
+
+        test("loadById: throws SnapshotNotPendingError when snapshot does not exist", async ({ harness }) => {
+            await expect(SnapshotDraft.loadById({ db: harness.db, snapshotId: "nonexistent-id" })).rejects.toThrow(
+                SnapshotNotPendingError,
+            );
+        });
+
+        test("loadById: loads the requested snapshot even after a newer pending snapshot has replaced it", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const branchId = await harness.createBranch(organizationId, applicationId);
+            const first = await SnapshotDraft.start({ db: harness.db, branchId });
+            await first.addTestCase({
+                folderId,
+                name: "First",
+                slug: "first",
+                description: "first",
+                plan: "first",
+            });
+            await first.discard();
+
+            // Branch now has no pending snapshot; start a fresh one
+            const second = await SnapshotDraft.start({ db: harness.db, branchId });
+
+            // loadById for first (which was discarded) should throw - but loadById for second works
+            await expect(SnapshotDraft.loadById({ db: harness.db, snapshotId: first.snapshotId })).rejects.toThrow(
+                SnapshotNotPendingError,
+            );
+
+            const loadedSecond = await SnapshotDraft.loadById({ db: harness.db, snapshotId: second.snapshotId });
+            expect(loadedSecond.snapshotId).toBe(second.snapshotId);
+        });
+
         // -- activate() --
 
         test("activate: transitions snapshot to active and supersedes previous", async ({

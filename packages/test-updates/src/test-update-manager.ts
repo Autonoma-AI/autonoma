@@ -38,6 +38,13 @@ interface ContinueUpdateArgs {
     organizationId?: string;
 }
 
+interface ContinueUpdateBySnapshotArgs {
+    db: PrismaClient;
+    snapshotId: string;
+    jobProvider?: GenerationProvider;
+    organizationId?: string;
+}
+
 /**
  * The test update manager handles the flow of updating the test suite based on changes
  * that were made to the application.
@@ -109,6 +116,30 @@ export class TestSuiteUpdater {
      */
     public static async continueUpdate({ db, branchId, jobProvider, organizationId }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
+        const generationManager = snapshotDraft.generationManager({ jobProvider });
+
+        return new TestSuiteUpdater({
+            snapshotDraft,
+            generationManager,
+        });
+    }
+
+    /**
+     * Loads a specific pending snapshot by ID and returns an updater for it.
+     *
+     * Use this when you need to operate on a known snapshot (e.g. inside a
+     * workflow activity that was dispatched for a specific snapshot) rather than
+     * "whatever is currently pending on the branch."
+     *
+     * @throws {SnapshotNotPendingError} If the snapshot is not in "processing" status.
+     */
+    public static async continueUpdateBySnapshot({
+        db,
+        snapshotId,
+        jobProvider,
+        organizationId,
+    }: ContinueUpdateBySnapshotArgs) {
+        const snapshotDraft = await SnapshotDraft.loadById({ db, snapshotId, organizationId });
         const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({

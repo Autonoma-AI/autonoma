@@ -27,7 +27,7 @@ const shortLived = proxyActivities<GeneralActivities>({
 });
 
 export interface DiffsAnalysisInput {
-    branchId: string;
+    snapshotId: string;
 }
 
 interface RunReplayArgs {
@@ -73,10 +73,10 @@ function dispatchGeneration({ testGenerationId, scenarioId, architecture }: Gene
 }
 
 export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<void> {
-    const { branchId } = input;
+    const { snapshotId } = input;
 
     // Step 1: Analyze diffs - explores code, updates skills, identifies affected tests, suggests new tests
-    const step1 = await longRunning.analyzeDiffs({ branchId });
+    const step1 = await longRunning.analyzeDiffs({ snapshotId });
 
     // Step 2: Execute affected test replays in parallel.
     // The replay-reviewer fires automatically in each replay workflow's finally block,
@@ -88,7 +88,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
     // Step 3: Resolve - reads reviewer verdicts, modifies stale tests, gathers pending generations
     const runIds = step1.preparedRuns.map((r) => r.runId);
     const step2 = await standard.resolveDiffs({
-        branchId,
+        snapshotId,
         runIds,
         step1Reasoning: step1.reasoning,
         testCandidates: step1.testCandidates,
@@ -104,5 +104,5 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
 
     // Step 5: Finalize - assigns generation results, activates snapshot
     const generationIds = step2.generations.map((g) => g.testGenerationId);
-    await shortLived.finalizeDiffs({ branchId, generationIds });
+    await shortLived.finalizeDiffs({ snapshotId, generationIds });
 }

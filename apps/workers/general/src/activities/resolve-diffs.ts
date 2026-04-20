@@ -4,7 +4,7 @@ import type { ResolveDiffsInput, ResolveDiffsOutput } from "@autonoma/workflow/a
 import { Context } from "@temporalio/activity";
 
 export async function resolveDiffs(input: ResolveDiffsInput): Promise<ResolveDiffsOutput> {
-    const logger = rootLogger.child({ name: "resolveDiffs", branchId: input.branchId });
+    const logger = rootLogger.child({ name: "resolveDiffs", snapshotId: input.snapshotId });
     logger.info("Starting diffs resolution", { runIds: input.runIds });
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);

@@ -23,7 +23,7 @@ export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<vo
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
         taskQueue: TaskQueue.GENERAL,
         searchAttributes: getWorkflowSearchAttributes(),
-        args: [{ branchId }],
+        args: [{ snapshotId }],
     });
 
     logger.info("Diffs analysis workflow started", { workflowId, branchId, snapshotId });

@@ -5,14 +5,14 @@ import type { FinalizeDiffsInput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 
 export async function finalizeDiffs(input: FinalizeDiffsInput): Promise<void> {
-    const logger = rootLogger.child({ name: "finalizeDiffs", branchId: input.branchId });
+    const logger = rootLogger.child({ name: "finalizeDiffs", snapshotId: input.snapshotId });
     logger.info("Starting diffs finalization", { generationIds: input.generationIds });
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        const { branchId, generationIds } = input;
-        const updater = await TestSuiteUpdater.continueUpdate({ db, branchId });
+        const { snapshotId, generationIds } = input;
+        const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
 
         if (generationIds.length > 0) {
             const { assigned, failed } = await updater.assignGenerationResults(generationIds);

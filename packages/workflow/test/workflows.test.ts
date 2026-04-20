@@ -94,7 +94,7 @@ describe("trigger functions", () => {
         const options = call?.[1];
         expect(options?.workflowId).toBe("diffs-analysis-snap-1");
         expect(options?.taskQueue).toBe("general");
-        expect(options?.args?.[0]).toEqual({ branchId: "branch-1" });
+        expect(options?.args?.[0]).toEqual({ snapshotId: "snap-1" });
     });
 
     it("triggerGenerationReviewWorkflow starts workflow", async () => {

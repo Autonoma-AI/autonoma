@@ -6,23 +6,26 @@ import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runDiffsAgent } from "./run-diffs-agent";
 
-export async function runDiffsAnalysis(branchId: string): Promise<DiffsAgentResult> {
-    Sentry.setTag("branchId", branchId);
-    logger.info("Starting diffs analysis job", { branchId });
+export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAgentResult> {
+    Sentry.setTag("snapshotId", snapshotId);
+    logger.info("Starting diffs analysis job", { snapshotId });
 
-    const { githubApp, updater } = await createDiffsServices(branchId);
+    const { githubApp, updater } = await createDiffsServices(snapshotId);
+    const branchId = updater.branchId;
+
+    Sentry.setTag("branchId", branchId);
 
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
 
     if (headSha == null || baseSha == null) {
         throw new Error(
-            `Pending snapshot for branch ${branchId} is missing required SHAs (headSha: ${headSha ?? "null"}, baseSha: ${baseSha ?? "null"})`,
+            `Snapshot ${snapshotId} (branch ${branchId}) is missing required SHAs (headSha: ${headSha ?? "null"}, baseSha: ${baseSha ?? "null"})`,
         );
     }
 
     Sentry.setTag("headSha", headSha);
-    logger.info("Loaded pending snapshot", { headSha, baseSha });
+    logger.info("Loaded pending snapshot", { snapshotId, branchId, headSha, baseSha });
 
     const branchData = await loadBranchData(branchId, githubApp);
     logger.info("Loaded branch data", { applicationId: branchData.applicationId, fullName: branchData.fullName });

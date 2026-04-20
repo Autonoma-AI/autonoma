@@ -79,6 +79,12 @@ const updater = await TestSuiteUpdater.continueUpdate({ db, branchId });
 const { assigned, failed } = await updater.assignGenerationResults(["gen-1", "gen-2"]);
 ```
 
+`continueUpdate` loads whichever snapshot is currently pending on the branch. Inside a workflow activity that was dispatched for a specific snapshot, use `continueUpdateBySnapshot` instead so later activities keep operating on the exact snapshot the workflow started on, even if a newer trigger has since replaced the branch's pending pointer:
+
+```ts
+const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
+```
+
 ### Finalizing or discarding
 
 ```ts

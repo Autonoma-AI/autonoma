@@ -23,7 +23,7 @@ export interface AffectedTestInfo {
 }
 
 export interface RunDiffsResolutionInput {
-    branchId: string;
+    snapshotId: string;
     runIds: string[];
     step1Reasoning: string;
     testCandidates: TestCandidateInfo[];
@@ -31,24 +31,27 @@ export interface RunDiffsResolutionInput {
 }
 
 export async function runDiffsResolution(input: RunDiffsResolutionInput): Promise<ResolveDiffsOutput> {
-    const { branchId, runIds, step1Reasoning, testCandidates, affectedTests } = input;
-    const logger = rootLogger.child({ name: "runDiffsResolution", branchId });
+    const { snapshotId, runIds, step1Reasoning, testCandidates, affectedTests } = input;
+    const logger = rootLogger.child({ name: "runDiffsResolution", snapshotId });
 
-    Sentry.setTag("branchId", branchId);
+    Sentry.setTag("snapshotId", snapshotId);
     logger.info("Starting diffs resolution", {
         runIdsCount: runIds.length,
         testCandidatesCount: testCandidates.length,
         affectedTestsCount: affectedTests.length,
     });
 
-    const { githubApp, updater } = await createDiffsServices(branchId);
+    const { githubApp, updater } = await createDiffsServices(snapshotId);
+    const branchId = updater.branchId;
+
+    Sentry.setTag("branchId", branchId);
 
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
 
     if (headSha == null || baseSha == null) {
         throw new Error(
-            `Pending snapshot for branch ${branchId} is missing required SHAs (headSha: ${headSha ?? "null"}, baseSha: ${baseSha ?? "null"})`,
+            `Snapshot ${snapshotId} (branch ${branchId}) is missing required SHAs (headSha: ${headSha ?? "null"}, baseSha: ${baseSha ?? "null"})`,
         );
     }
 

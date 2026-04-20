@@ -39,7 +39,7 @@ export interface NotifyGenerationExitInput {
 }
 
 export interface AnalyzeDiffsInput {
-    branchId: string;
+    snapshotId: string;
 }
 
 export interface TestCandidateInfo {
@@ -70,7 +70,7 @@ export interface PreparedRunInfo {
 }
 
 export interface ResolveDiffsInput {
-    branchId: string;
+    snapshotId: string;
     runIds: string[];
     step1Reasoning: string;
     testCandidates: TestCandidateInfo[];
@@ -91,7 +91,7 @@ export interface GenerationInfo {
 }
 
 export interface FinalizeDiffsInput {
-    branchId: string;
+    snapshotId: string;
     generationIds: string[];
 }
 

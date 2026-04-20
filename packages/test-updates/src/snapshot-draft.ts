@@ -77,6 +77,12 @@ interface LoadSnapshotDraftParams {
     organizationId?: string;
 }
 
+interface LoadSnapshotDraftByIdParams {
+    db: PrismaClient;
+    snapshotId: string;
+    organizationId?: string;
+}
+
 interface StartSnapshotDraftParams extends LoadSnapshotDraftParams {
     source?: TriggerSource;
     headSha?: string;
@@ -159,6 +165,50 @@ export class SnapshotDraft {
             organizationId,
             headSha: headSha ?? undefined,
             baseSha: baseSha ?? undefined,
+        });
+    }
+
+    /**
+     * Loads a specific pending snapshot by its ID, verifying it is still pending.
+     *
+     * Unlike `loadPending`, this does not depend on the branch's current pending
+     * snapshot pointer - it loads whichever snapshot is requested, as long as it
+     * is still in "processing" status. Used by the diffs workflow so that each
+     * activity operates on the exact snapshot the workflow was started for, even
+     * if a newer trigger has since replaced the branch's pending snapshot.
+     *
+     * @throws {SnapshotNotPendingError} If the snapshot does not exist or is not in
+     *   "processing" status.
+     */
+    static async loadById({ db, snapshotId, organizationId: filterOrgId }: LoadSnapshotDraftByIdParams) {
+        const snapshot = await db.branchSnapshot.findUnique({
+            where: { id: snapshotId, branch: { organizationId: filterOrgId } },
+            select: {
+                id: true,
+                status: true,
+                headSha: true,
+                baseSha: true,
+                branchId: true,
+                branch: { select: { applicationId: true, organizationId: true } },
+            },
+        });
+
+        if (snapshot == null) {
+            throw new SnapshotNotPendingError(snapshotId, "not found");
+        }
+
+        if (snapshot.status !== "processing") {
+            throw new SnapshotNotPendingError(snapshotId, snapshot.status);
+        }
+
+        return new SnapshotDraft({
+            db,
+            snapshotId: snapshot.id,
+            branchId: snapshot.branchId,
+            applicationId: snapshot.branch.applicationId,
+            organizationId: snapshot.branch.organizationId,
+            headSha: snapshot.headSha ?? undefined,
+            baseSha: snapshot.baseSha ?? undefined,
         });
     }
 

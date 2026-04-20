@@ -6,14 +6,14 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { AnalyzeDiffsInput, AnalyzeDiffsOutput, PreparedRunInfo } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 
-export async function analyzeDiffs({ branchId }: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput> {
-    const logger = rootLogger.child({ name: "analyzeDiffs", branchId });
+export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput> {
+    const logger = rootLogger.child({ name: "analyzeDiffs", snapshotId });
     logger.info("Starting diffs analysis");
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        const agentResult = await runDiffsAnalysis(branchId);
+        const agentResult = await runDiffsAnalysis(snapshotId);
         logger.info("Agent analysis complete, preparing runs", {
             affectedTests: agentResult.affectedTests.length,
         });
@@ -21,21 +21,27 @@ export async function analyzeDiffs({ branchId }: AnalyzeDiffsInput): Promise<Ana
         let preparedRuns: PreparedRunInfo[] = [];
 
         if (agentResult.affectedTests.length > 0) {
-            const { applicationId, organizationId } = await db.branch.findUniqueOrThrow({
-                where: { id: branchId },
-                select: { applicationId: true, organizationId: true },
+            const { branch } = await db.branchSnapshot.findUniqueOrThrow({
+                where: { id: snapshotId },
+                select: { branch: { select: { applicationId: true, organizationId: true } } },
             });
             const billingService = createBillingService(db);
 
             const runs = await prepareRuns(
                 agentResult.affectedTests.map((t) => t.slug),
-                { db, applicationId, organizationId, billingService },
+                {
+                    db,
+                    snapshotId,
+                    applicationId: branch.applicationId,
+                    organizationId: branch.organizationId,
+                    billingService,
+                },
             );
 
             preparedRuns = runs.map((r) => ({
                 runId: r.runId,
                 slug: r.slug,
-                architecture: r.architecture as "WEB" | "IOS" | "ANDROID",
+                architecture: r.architecture,
                 scenarioId: r.scenarioId,
             }));
         }
