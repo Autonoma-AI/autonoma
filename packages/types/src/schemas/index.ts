@@ -11,3 +11,4 @@ export * from "./onboarding";
 export * from "./review-verdict";
 export * from "./generation";
 export * from "./api-key";
+export * from "./secrets";

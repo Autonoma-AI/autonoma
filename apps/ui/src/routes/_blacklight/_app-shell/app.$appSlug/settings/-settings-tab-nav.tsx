@@ -7,9 +7,10 @@ import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { KeyIcon } from "@phosphor-icons/react/Key";
 import type { Icon } from "@phosphor-icons/react/lib";
+import { LockKeyIcon } from "@phosphor-icons/react/LockKey";
 import { Link } from "@tanstack/react-router";
 
-type SettingsTab = "general" | "billing" | "scenarios" | "skills" | "history" | "github" | "api-keys";
+type SettingsTab = "general" | "billing" | "scenarios" | "skills" | "history" | "github" | "api-keys" | "secrets";
 
 interface SettingsTabNavProps {
   activeTab: SettingsTab;
@@ -22,6 +23,7 @@ const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string 
   { value: "scenarios", label: "Scenarios", icon: BroadcastIcon, path: "scenarios" },
   { value: "skills", label: "Skills", icon: BookOpenIcon, path: "skills" },
   { value: "api-keys", label: "API Keys", icon: KeyIcon, path: "api-keys" },
+  { value: "secrets", label: "Secrets", icon: LockKeyIcon, path: "secrets" },
   { value: "history", label: "History", icon: ClockCounterClockwiseIcon, path: "history" },
   { value: "github", label: "GitHub", icon: GithubLogoIcon, path: "github" },
 ];

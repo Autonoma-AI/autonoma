@@ -23,6 +23,7 @@ import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
+import { SecretsService } from "./secrets/secrets.service";
 import { SkillsService } from "./skills/skills.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
@@ -40,6 +41,7 @@ export interface Services {
     tests: TestsService;
     folders: FoldersService;
     scenarios: ScenariosService;
+    secrets: SecretsService;
     skills: SkillsService;
     github: GitHubInstallationService;
     issues: IssuesService;
@@ -103,6 +105,7 @@ export function buildServices({
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
+        secrets: new SecretsService(),
         skills: new SkillsService(conn),
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
