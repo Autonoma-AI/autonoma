@@ -3,6 +3,7 @@ import { BrowserIcon } from "@phosphor-icons/react/Browser";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { TreeStructureIcon } from "@phosphor-icons/react/TreeStructure";
 import { Navigate, createFileRoute } from "@tanstack/react-router";
 import { IntroNavButtons } from "./-components/intro-nav-buttons";
@@ -136,6 +137,28 @@ export function IntroWelcomePage() {
                   contact our team
                 </a>{" "}
                 and we'll get you set up.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-status-warn/30 bg-status-warn/5">
+          <CardContent className="flex items-start gap-4">
+            <GlobeIcon size={20} weight="duotone" className="mt-0.5 shrink-0 text-status-warn" />
+            <div>
+              <p className="text-sm font-medium text-text-primary">Preview environments required</p>
+              <p className="mt-1 text-sm leading-relaxed text-text-secondary">
+                Autonoma runs tests against a deployed URL - typically a staging or preview environment. If you don't
+                have one set up yet,{" "}
+                <a
+                  href="https://cal.com/eugenio-scafati/preview-environments-chat"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary"
+                >
+                  book a call
+                </a>{" "}
+                and we'll help you get one running before onboarding.
               </p>
             </div>
           </CardContent>
