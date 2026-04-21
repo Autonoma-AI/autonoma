@@ -682,9 +682,10 @@ model TestPlan {
   testCaseId String   @map("test_case_id")
   testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
 
-  prompt     String
-  scenarioId String?   @map("scenario_id")
-  scenario   Scenario? @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+  prompt       String
+  scenarioId   String?   @map("scenario_id")
+  scenario     Scenario? @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+  scenarioName String?   @map("scenario_name")
 
   generations TestGeneration[]
   stepLists   StepInputList[]

@@ -48,16 +48,23 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
         const authParsed = AuthPayloadSchema.safeParse(scenarioInstance?.auth);
         const auth = authParsed.success ? authParsed.data : undefined;
         const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, webDeployment.url) : undefined;
+        const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
 
         return {
             name: testPlan.testCase.name,
-            prompt: buildExecutionPrompt(testPlan.prompt, application.customInstructions, auth?.credentials),
+            prompt: buildExecutionPrompt(
+                testPlan.prompt,
+                application.customInstructions,
+                auth?.credentials,
+                recipeVariables,
+            ),
             file,
             url: webDeployment.url,
             skillsConfig,
             cookies,
             headers: auth?.headers,
             credentials: auth?.credentials,
+            recipeVariables,
         };
     }
 

@@ -6,6 +6,7 @@ export interface AddTestParams {
     plan: string;
     folderId: string;
     scenarioId?: string;
+    scenarioName?: string;
 }
 
 export class AddTest extends TestSuiteChange<AddTestParams> {

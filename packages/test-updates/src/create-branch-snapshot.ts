@@ -65,6 +65,7 @@ export async function createBranchSnapshot({
     if (sourceSnapshotId != null) {
         await copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
         await copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
+        await copyScenarioRecipeVersions({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
     }
 
     return { snapshotId: created.id };
@@ -134,4 +135,82 @@ async function copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSn
             mainAssignmentId: a.mainAssignmentId ?? undefined,
         })),
     });
+}
+
+async function copyScenarioRecipeVersions({ tx, sourceSnapshotId, sourceKind, targetSnapshotId, logger }: CopyParams) {
+    const schemaSnapshots = await tx.scenarioSchemaSnapshot.findMany({
+        where: { snapshotId: sourceSnapshotId },
+        select: { id: true, applicationId: true, structureJson: true, fingerprint: true },
+    });
+
+    if (schemaSnapshots.length === 0) return;
+
+    const schemaIdMap = new Map<string, string>();
+    for (const ss of schemaSnapshots) {
+        const created = await tx.scenarioSchemaSnapshot.create({
+            data: {
+                applicationId: ss.applicationId,
+                snapshotId: targetSnapshotId,
+                structureJson: ss.structureJson ?? undefined,
+                fingerprint: ss.fingerprint,
+            },
+            select: { id: true },
+        });
+        schemaIdMap.set(ss.id, created.id);
+    }
+
+    const recipeVersions = await tx.scenarioRecipeVersion.findMany({
+        where: { snapshotId: sourceSnapshotId },
+        select: {
+            scenarioId: true,
+            schemaSnapshotId: true,
+            applicationId: true,
+            organizationId: true,
+            scenarioNameSnapshot: true,
+            description: true,
+            fingerprint: true,
+            validationStatus: true,
+            validationMethod: true,
+            validationPhase: true,
+            validationUpMs: true,
+            validationDownMs: true,
+            fixtureJson: true,
+        },
+    });
+
+    if (recipeVersions.length === 0) return;
+
+    logger.info("Copying scenario recipe versions from source snapshot", {
+        sourceSnapshotId,
+        sourceKind,
+        schemaSnapshotCount: schemaSnapshots.length,
+        recipeVersionCount: recipeVersions.length,
+    });
+
+    await tx.scenarioRecipeVersion.createMany({
+        data: recipeVersions.map((rv) => ({
+            scenarioId: rv.scenarioId,
+            snapshotId: targetSnapshotId,
+            schemaSnapshotId: getOrThrow(schemaIdMap, rv.schemaSnapshotId),
+            applicationId: rv.applicationId,
+            organizationId: rv.organizationId,
+            scenarioNameSnapshot: rv.scenarioNameSnapshot,
+            description: rv.description ?? undefined,
+            fingerprint: rv.fingerprint,
+            validationStatus: rv.validationStatus,
+            validationMethod: rv.validationMethod,
+            validationPhase: rv.validationPhase,
+            validationUpMs: rv.validationUpMs ?? undefined,
+            validationDownMs: rv.validationDownMs ?? undefined,
+            fixtureJson: rv.fixtureJson ?? undefined,
+        })),
+    });
+}
+
+function getOrThrow(map: Map<string, string>, key: string): string {
+    const value = map.get(key);
+    if (value == null) {
+        throw new Error(`Missing schema snapshot mapping for ${key}`);
+    }
+    return value;
 }

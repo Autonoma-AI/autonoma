@@ -54,6 +54,9 @@ export class MobileGenerationAPIRunner extends GenerationAPIRunner<
         const authParsed = AuthPayloadSchema.safeParse(planData.scenarioInstance?.auth);
         const auth = authParsed.success ? authParsed.data : undefined;
         const credentials = auth?.credentials;
+        const recipeVariables = GenerationAPIRunner.parseResolvedVariables(
+            planData.scenarioInstance?.resolvedVariables,
+        );
 
         if (application.architecture === "WEB") {
             this.logger.fatal("Web architecture is not supported for mobile generation", { testPlanId: testPlan.id });
@@ -62,13 +65,14 @@ export class MobileGenerationAPIRunner extends GenerationAPIRunner<
 
         return {
             name: testPlan.testCase.name,
-            prompt: buildExecutionPrompt(testPlan.prompt, application.customInstructions, credentials),
+            prompt: buildExecutionPrompt(testPlan.prompt, application.customInstructions, credentials, recipeVariables),
             platform: application.architecture,
             packageUrl: mobileDeployment.packageUrl,
             packageName: mobileDeployment.packageName,
             photo,
             skillsConfig,
             credentials,
+            recipeVariables,
         };
     }
 

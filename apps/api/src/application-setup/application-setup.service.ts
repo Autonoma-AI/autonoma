@@ -36,9 +36,8 @@ type SetupWithBranch = {
     application: {
         mainBranch: {
             id: string;
-            activeSnapshot: {
-                id: string;
-            } | null;
+            activeSnapshot: { id: string } | null;
+            pendingSnapshot: { id: string } | null;
         } | null;
     };
 };
@@ -269,7 +268,11 @@ export class ApplicationSetupService {
         organizationId: string,
         body: UploadScenarioRecipeVersionsBody,
     ) {
-        const result = await this.ingestScenarioRecipesForSetup(setupId, organizationId, body, "setup API");
+        const setup = await this.getSetupWithBranch(setupId, organizationId);
+        const result = await this.ingestScenarioRecipesForSetup(setup, body);
+
+        await this.relateTestPlansToScenarios(setup.applicationId, result.scenarios);
+
         return {
             ok: true as const,
             scenarioCount: result.scenarioCount,
@@ -284,7 +287,15 @@ export class ApplicationSetupService {
                 id: true,
                 applicationId: true,
                 application: {
-                    select: { mainBranch: { select: { id: true, activeSnapshot: { select: { id: true } } } } },
+                    select: {
+                        mainBranch: {
+                            select: {
+                                id: true,
+                                activeSnapshot: { select: { id: true } },
+                                pendingSnapshot: { select: { id: true } },
+                            },
+                        },
+                    },
                 },
             },
         });
@@ -369,7 +380,9 @@ export class ApplicationSetupService {
             const folderName = testCase.folder ?? "default";
             const folderId = await this.findOrCreateFolder(applicationId, organizationId, folderName, folderCache);
 
-            await updater.apply(new AddTest({ name: testCase.name, plan: plan.trim(), folderId, scenarioId }));
+            await updater.apply(
+                new AddTest({ name: testCase.name, plan: plan.trim(), folderId, scenarioId, scenarioName }),
+            );
         }
     }
 
@@ -437,25 +450,81 @@ export class ApplicationSetupService {
     }
 
     private async ingestScenarioRecipesForSetup(
-        setupId: string,
-        organizationId: string,
+        setup: SetupWithBranch,
         body: UploadScenarioRecipeVersionsBody,
-        source: "setup API",
     ): Promise<{ scenarioCount: number; scenarios: Array<{ id: string; name: string; recipeVersionId: string }> }> {
-        const setup = await this.getSetupWithBranch(setupId, organizationId);
         const snapshotId = setup.application.mainBranch?.activeSnapshot?.id;
         if (snapshotId == null) {
             throw new BadRequestError("Application main branch has no active snapshot");
         }
 
         const result = await this.scenarioManager.ingestScenarioRecipes(snapshotId, setup.applicationId, body);
-        log.info(`Ingested scenario recipes via ${source}`, {
-            setupId,
+        log.info("Ingested scenario recipes", {
+            setupId: setup.id,
             snapshotId,
             applicationId: setup.applicationId,
             scenarioCount: result.scenarioCount,
         });
+
+        const pendingSnapshotId = setup.application.mainBranch?.pendingSnapshot?.id;
+        if (pendingSnapshotId != null && pendingSnapshotId !== snapshotId) {
+            log.info("Replicating scenario recipes to pending snapshot", {
+                setupId: setup.id,
+                activeSnapshotId: snapshotId,
+                pendingSnapshotId,
+            });
+            await this.scenarioManager.ingestScenarioRecipes(pendingSnapshotId, setup.applicationId, body);
+
+            await this.db.$transaction(
+                result.scenarios.map((s) =>
+                    this.db.scenario.update({
+                        where: { id: s.id },
+                        data: { activeRecipeVersionId: s.recipeVersionId },
+                    }),
+                ),
+            );
+        }
+
         return result;
+    }
+
+    /**
+     * After scenario recipes are ingested, test plans that were uploaded before
+     * scenarios existed will have `scenarioId = NULL` but `scenarioName` set.
+     * Resolve the deferred reference by matching `scenarioName` against the
+     * just-created scenario records.
+     */
+    private async relateTestPlansToScenarios(applicationId: string, scenarios: Array<{ id: string; name: string }>) {
+        if (scenarios.length === 0) return;
+
+        const scenarioIdByName = new Map(scenarios.map((s) => [s.name, s.id]));
+
+        const unlinkedPlans = await this.db.testPlan.findMany({
+            where: {
+                scenarioId: null,
+                scenarioName: { not: null },
+                testCase: { applicationId },
+            },
+            select: { id: true, scenarioName: true },
+        });
+
+        if (unlinkedPlans.length === 0) return;
+
+        let linked = 0;
+        for (const plan of unlinkedPlans) {
+            const scenarioId = scenarioIdByName.get(plan.scenarioName!);
+            if (scenarioId == null) continue;
+
+            await this.db.testPlan.update({
+                where: { id: plan.id },
+                data: { scenarioId },
+            });
+            linked++;
+        }
+
+        if (linked > 0) {
+            log.info("Related test plans to scenarios", { applicationId, linked, total: unlinkedPlans.length });
+        }
     }
 
     private assertNoScenarioRecipesInArtifacts(artifacts: NonNullable<UploadArtifactsBody["artifacts"]>) {

@@ -69,6 +69,69 @@ testUpdateSuite({
             expect(sk.plan?.content).toBe("Login with credentials");
         });
 
+        test("start: copies scenario recipe versions from active snapshot", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const branchId = await harness.createBranch(organizationId, applicationId);
+
+            const first = await SnapshotDraft.start({ db: harness.db, branchId });
+
+            const scenario = await harness.db.scenario.create({
+                data: { name: "standard", applicationId, organizationId },
+                select: { id: true },
+            });
+            const schemaSnapshot = await harness.db.scenarioSchemaSnapshot.create({
+                data: {
+                    applicationId,
+                    snapshotId: first.snapshotId,
+                    structureJson: { models: {} },
+                    fingerprint: "abc123",
+                },
+                select: { id: true },
+            });
+            const recipeVersion = await harness.db.scenarioRecipeVersion.create({
+                data: {
+                    scenarioId: scenario.id,
+                    snapshotId: first.snapshotId,
+                    schemaSnapshotId: schemaSnapshot.id,
+                    applicationId,
+                    organizationId,
+                    scenarioNameSnapshot: "standard",
+                    fingerprint: "recipe-fp",
+                    validationStatus: "validated",
+                    validationMethod: "endpoint-up-down",
+                    validationPhase: "ok",
+                    fixtureJson: { name: "standard", create: { User: [{ name: "alice" }] } },
+                },
+                select: { id: true },
+            });
+            await harness.db.scenario.update({
+                where: { id: scenario.id },
+                data: { activeRecipeVersionId: recipeVersion.id },
+            });
+
+            await first.activate();
+
+            const second = await SnapshotDraft.start({ db: harness.db, branchId });
+
+            const copiedSchemas = await harness.db.scenarioSchemaSnapshot.findMany({
+                where: { snapshotId: second.snapshotId },
+            });
+            expect(copiedSchemas).toHaveLength(1);
+            expect(copiedSchemas[0]?.fingerprint).toBe("abc123");
+            expect(copiedSchemas[0]?.id).not.toBe(schemaSnapshot.id);
+
+            const copiedRecipes = await harness.db.scenarioRecipeVersion.findMany({
+                where: { snapshotId: second.snapshotId },
+            });
+            expect(copiedRecipes).toHaveLength(1);
+            expect(copiedRecipes[0]?.scenarioId).toBe(scenario.id);
+            expect(copiedRecipes[0]?.fingerprint).toBe("recipe-fp");
+            expect(copiedRecipes[0]?.schemaSnapshotId).toBe(copiedSchemas[0]?.id);
+            expect(copiedRecipes[0]?.id).not.toBe(recipeVersion.id);
+        });
+
         test("start: copies test case and skill assignments from main branch active snapshot on brand new branch", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },

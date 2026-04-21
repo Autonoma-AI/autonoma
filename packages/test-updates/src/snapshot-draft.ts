@@ -620,7 +620,7 @@ export class SnapshotDraft {
     }
 
     /** Adds a new test case to this snapshot with an empty assignment (no plan or steps). */
-    public async addTestCase({ name, description, plan, folderId, scenarioId }: AddTestParams) {
+    public async addTestCase({ name, description, plan, folderId, scenarioId, scenarioName }: AddTestParams) {
         const slug = await this.generateTestCaseSlug(name);
         this.logger.info("Adding new test case", { name, slug });
 
@@ -634,7 +634,7 @@ export class SnapshotDraft {
                 organizationId: this.organizationId,
                 applicationId: this.applicationId,
                 plans: {
-                    create: { prompt: plan, organizationId: this.organizationId, scenarioId },
+                    create: { prompt: plan, organizationId: this.organizationId, scenarioId, scenarioName },
                 },
             },
             select: { id: true, plans: true },

@@ -285,5 +285,53 @@ apiTestSuite({
             expect(recipe.create).toEqual({ Organization: [{ _alias: "org1", name: "Acme Corp" }] });
             expect(recipe.validation).toEqual({ status: "validated", method: "checkScenario", phase: "ok" });
         });
+
+        test("uploading tests before recipes links scenarioId after recipe ingestion", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Upload Order Test");
+
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [
+                    {
+                        name: "login-test.md",
+                        folder: "auth",
+                        content: "---\nscenario: standard\n---\n\nNavigate to /login and sign in",
+                    },
+                ],
+            });
+
+            const planBefore = await harness.db.testPlan.findFirstOrThrow({
+                where: { testCase: { applicationId: app.id } },
+                select: { scenarioId: true, scenarioName: true },
+            });
+            expect(planBefore.scenarioId).toBeNull();
+            expect(planBefore.scenarioName).toBe("standard");
+
+            await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, {
+                version: 1,
+                source: { discoverPath: "autonoma/discover.json", scenariosPath: "autonoma/scenarios.md" },
+                validationMode: "sdk-check",
+                recipes: [
+                    {
+                        name: "standard",
+                        description: "standard scenario",
+                        create: { User: [{ name: "alice" }] },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                ],
+            });
+
+            const planAfter = await harness.db.testPlan.findFirstOrThrow({
+                where: { testCase: { applicationId: app.id } },
+                select: { scenarioId: true, scenarioName: true },
+            });
+            expect(planAfter.scenarioName).toBe("standard");
+            expect(planAfter.scenarioId).not.toBeNull();
+
+            const scenario = await harness.db.scenario.findFirstOrThrow({
+                where: { applicationId: app.id, name: "standard" },
+                select: { id: true },
+            });
+            expect(planAfter.scenarioId).toBe(scenario.id);
+        });
     },
 });
