@@ -172,8 +172,8 @@ export class WebhookClient {
             signal: AbortSignal.timeout(timeoutMs),
         });
 
-        const responseBody = await response.json().catch(async () => ({
-            error: `Non-JSON response: ${(await response.text()).slice(0, 500)}`,
+        const responseBody = await response.json().catch(async (error) => ({
+            error: `Error parsing response: ${error instanceof Error ? error.message : String(error)}`,
         }));
         return { status: response.status, responseBody };
     }
