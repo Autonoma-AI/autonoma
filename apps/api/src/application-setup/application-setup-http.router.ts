@@ -112,6 +112,40 @@ applicationSetupHttpRouter.get("/setups/:id/scenarios", async (c) => {
     }
 });
 
+applicationSetupHttpRouter.get("/applications/:id/scenarios", async (c) => {
+    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
+    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+
+    try {
+        const result = await service.listScenariosForApplication(c.req.param("id"), apiKeyCtx.organizationId);
+        return c.json(result);
+    } catch (err) {
+        if (err instanceof NotFoundError) {
+            return c.json({ error: err.message }, 404);
+        }
+        Sentry.captureException(err);
+        logger.error("Failed to list scenarios for application", { err });
+        return c.json({ error: "Failed to list scenarios" }, 500);
+    }
+});
+
+applicationSetupHttpRouter.get("/applications/:id/test-suite", async (c) => {
+    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
+    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+
+    try {
+        const result = await service.getTestSuiteForApplication(c.req.param("id"), apiKeyCtx.organizationId);
+        return c.json(result);
+    } catch (err) {
+        if (err instanceof NotFoundError) {
+            return c.json({ error: err.message }, 404);
+        }
+        Sentry.captureException(err);
+        logger.error("Failed to get test suite for application", { err });
+        return c.json({ error: "Failed to get test suite" }, 500);
+    }
+});
+
 applicationSetupHttpRouter.post("/setups/:id/artifacts", async (c) => {
     const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
     if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);

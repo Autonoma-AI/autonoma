@@ -11,3 +11,4 @@ export {
 } from "./snapshot-draft";
 export type { TestSuiteInfo, SnapshotChange } from "./snapshot-draft";
 export * from "./changes";
+export { fetchTestSuiteInfo } from "./queries/snapshot-queries";

@@ -9,6 +9,7 @@ import {
     BranchAlreadyHasPendingSnapshotError,
     type GenerationProvider,
     TestSuiteUpdater,
+    fetchTestSuiteInfo,
 } from "@autonoma/test-updates";
 import {
     type SetupEventBody,
@@ -76,7 +77,7 @@ export class ApplicationSetupService {
         await this.advanceOnboardingForAgentConnection(applicationId);
 
         log.info("Created application setup", { setupId: setup.id, applicationId });
-        return { id: setup.id };
+        return { id: setup.id, applicationId };
     }
 
     private async advanceOnboardingForAgentConnection(applicationId: string) {
@@ -260,6 +261,60 @@ export class ApplicationSetupService {
                 isDisabled: s.isDisabled,
                 hasActiveRecipe: s.activeRecipeVersionId != null,
             })),
+        };
+    }
+
+    async listScenariosForApplication(applicationId: string, organizationId: string) {
+        const application = await this.db.application.findFirst({
+            where: { OR: [{ id: applicationId }, { slug: applicationId }], organizationId },
+            select: { id: true },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        const scenarios = await this.db.scenario.findMany({
+            where: { applicationId: application.id },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true, isDisabled: true, activeRecipeVersionId: true },
+        });
+        return {
+            scenarios: scenarios.map((s) => ({
+                id: s.id,
+                name: s.name,
+                isDisabled: s.isDisabled,
+                hasActiveRecipe: s.activeRecipeVersionId != null,
+            })),
+        };
+    }
+
+    async getTestSuiteForApplication(applicationId: string, organizationId: string) {
+        const application = await this.db.application.findFirst({
+            where: { OR: [{ id: applicationId }, { slug: applicationId }], organizationId },
+            select: {
+                mainBranch: {
+                    select: {
+                        pendingSnapshot: { select: { id: true } },
+                        activeSnapshot: { select: { id: true } },
+                    },
+                },
+            },
+        });
+        const branch = application?.mainBranch;
+        const snapshotId = branch?.pendingSnapshot?.id ?? branch?.activeSnapshot?.id;
+        if (snapshotId == null) return { tests: [], skills: [] };
+
+        const suiteInfo = await fetchTestSuiteInfo(this.db, snapshotId);
+        return {
+            tests: suiteInfo.testCases
+                .filter((tc) => tc.plan != null)
+                .map((tc) => ({ id: tc.id, name: tc.name, slug: tc.slug, prompt: tc.plan!.prompt })),
+            skills: suiteInfo.skills
+                .filter((s) => s.plan != null)
+                .map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    slug: s.slug,
+                    description: s.description,
+                    content: s.plan!.content,
+                })),
         };
     }
 
