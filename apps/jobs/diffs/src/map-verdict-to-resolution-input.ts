@@ -1,4 +1,4 @@
-import type { RunReviewVerdict } from "@autonoma/diffs";
+import type { AffectedReason, RunReviewVerdict } from "@autonoma/diffs";
 import type { ReviewVerdict } from "@autonoma/types";
 
 export interface VerdictMappingInput {
@@ -6,6 +6,7 @@ export interface VerdictMappingInput {
     testName: string;
     originalPrompt: string;
     runStatus?: string;
+    affectedReason?: AffectedReason;
 }
 
 export function mapVerdictToResolutionInput(test: VerdictMappingInput, verdict: ReviewVerdict): RunReviewVerdict {
@@ -20,5 +21,6 @@ export function mapVerdictToResolutionInput(test: VerdictMappingInput, verdict: 
         issueTitle: verdict.title,
         issueConfidence: verdict.confidence,
         issueDescription: verdict.reasoning,
+        affectedReason: test.affectedReason,
     };
 }

@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
-import type { RunReviewVerdict } from "@autonoma/diffs";
+import type { AffectedReason, RunReviewVerdict } from "@autonoma/diffs";
 import { FlowIndex, TestDirectory } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ResolveDiffsOutput } from "@autonoma/workflow/activities";
@@ -20,6 +20,7 @@ export interface AffectedTestInfo {
     slug: string;
     testName: string;
     reasoning: string;
+    affectedReason?: AffectedReason;
 }
 
 export interface RunDiffsResolutionInput {
@@ -64,7 +65,8 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
     if (!shouldRunAgent) {
         logger.info("Resolution skipped - no runs and no candidates");
     } else {
-        const { verdicts, runSlugs } = runIds.length > 0 ? await buildVerdicts(runIds) : { verdicts: [], runSlugs: [] };
+        const { verdicts, runSlugs } =
+            runIds.length > 0 ? await buildVerdicts(runIds, affectedTests) : { verdicts: [], runSlugs: [] };
 
         const affectedSlugs = affectedTests.map((t) => t.slug);
         const runSlugSet = new Set(runSlugs);
@@ -149,8 +151,15 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
     return { generations, modifiedTests, quarantinedTests, bugsTracked };
 }
 
-async function buildVerdicts(runIds: string[]): Promise<{ verdicts: RunReviewVerdict[]; runSlugs: string[] }> {
+async function buildVerdicts(
+    runIds: string[],
+    affectedTests: AffectedTestInfo[],
+): Promise<{ verdicts: RunReviewVerdict[]; runSlugs: string[] }> {
     const logger = rootLogger.child({ name: "buildVerdicts" });
+    const affectedReasonBySlug = new Map<string, AffectedReason>();
+    for (const t of affectedTests) {
+        if (t.affectedReason != null) affectedReasonBySlug.set(t.slug, t.affectedReason);
+    }
 
     const runs = await db.run.findMany({
         where: { id: { in: runIds } },
@@ -213,6 +222,7 @@ async function buildVerdicts(runIds: string[]): Promise<{ verdicts: RunReviewVer
             issueTitle: review.issue?.title ?? undefined,
             issueConfidence: review.issue?.confidence ?? undefined,
             issueDescription: review.issue?.description ?? undefined,
+            affectedReason: affectedReasonBySlug.get(slug),
         });
         runsActionable.push(slug);
     }

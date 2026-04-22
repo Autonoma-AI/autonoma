@@ -211,12 +211,14 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             });
 
             if (reviewResult.verdict != null) {
+                const affected = step1Result.affectedTests.find((a) => a.slug === slug);
                 verdicts.push(
                     mapVerdictToResolutionInput(
                         {
                             testSlug: slug,
                             testName: test.name,
                             originalPrompt: test.prompt,
+                            affectedReason: affected?.affectedReason,
                         },
                         reviewResult.verdict,
                     ),

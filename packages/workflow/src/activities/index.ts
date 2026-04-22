@@ -12,6 +12,7 @@ export type {
     AnalyzeDiffsOutput,
     PreparedRunInfo,
     TestCandidateInfo,
+    AffectedReason,
     AffectedTestInfo,
     ResolveDiffsInput,
     ResolveDiffsOutput,

@@ -58,6 +58,7 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
                 slug: t.slug,
                 testName: t.testName,
                 reasoning: t.reasoning,
+                affectedReason: t.affectedReason,
             })),
             reasoning: agentResult.reasoning,
         };

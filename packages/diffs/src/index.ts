@@ -7,7 +7,13 @@ export {
     type ExistingTestInfo,
 } from "./diffs-agent";
 export type { DiffsAgentResult, ResultCollector } from "./tools/finish-tool";
-export type { AffectedTest } from "./tools/mark-affected-test-tool";
+export {
+    affectedReasonSchema,
+    affectedTestSchema,
+    AFFECTED_REASONS,
+    type AffectedReason,
+    type AffectedTest,
+} from "./tools/mark-affected-test-tool";
 export type { TestCandidate } from "./tools/suggest-test-tool";
 export { TestDirectory } from "./test-directory";
 export { FlowIndex, type FlowInfo } from "./flow-index";

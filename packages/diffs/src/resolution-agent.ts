@@ -9,6 +9,7 @@ import {
     buildScenarioTools,
     buildTestInteractionTools,
 } from "./tools/codebase-tools";
+import type { AffectedReason } from "./tools/mark-affected-test-tool";
 import {
     type ResolutionAgentResult,
     type ResolutionResultCollector,
@@ -28,6 +29,7 @@ export interface RunReviewVerdict {
     issueTitle?: string;
     issueConfidence?: number;
     issueDescription?: string;
+    affectedReason?: AffectedReason;
 }
 
 export interface TestCandidateInput {

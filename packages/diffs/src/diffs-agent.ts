@@ -193,6 +193,8 @@ const SYSTEM_PROMPT = `You are a QA engineer that analyzes code diffs on pull re
 ## 1. Test Impact Analysis
 Identify which existing tests MIGHT be affected by the code changes. Use \`list_tests\` to browse tests by flow and \`read_test\` to inspect test instructions. Use \`mark_affected_test\` for each test that could be impacted. Be thorough but not overly broad - only mark tests whose flows directly touch the changed code.
 
+When calling \`mark_affected_test\`, you MUST provide \`affectedReason\`. In this phase the only allowed value is \`code_change\` (existing code the test exercises was modified and may regress).
+
 Consider a test affected if the diff:
 - Changes UI elements or flows the test exercises
 - Modifies routes, URLs, or navigation the test relies on

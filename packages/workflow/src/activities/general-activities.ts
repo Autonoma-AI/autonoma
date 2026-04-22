@@ -49,10 +49,13 @@ export interface TestCandidateInfo {
     reasoning: string;
 }
 
+export type AffectedReason = "code_change";
+
 export interface AffectedTestInfo {
     slug: string;
     testName: string;
     reasoning: string;
+    affectedReason?: AffectedReason;
 }
 
 export interface AnalyzeDiffsOutput {
