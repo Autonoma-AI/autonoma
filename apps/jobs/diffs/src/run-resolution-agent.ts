@@ -11,6 +11,7 @@ import {
 import type { FlowIndex } from "@autonoma/diffs";
 import type { TestDirectory } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
+import { BugLinker, BugMatcher } from "@autonoma/review";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 
 export interface RunResolutionAgentParams {
@@ -18,6 +19,7 @@ export interface RunResolutionAgentParams {
     db: PrismaClient;
     updater: TestSuiteUpdater;
     applicationId: string;
+    organizationId: string;
     repoDir: string;
     testDirectory: TestDirectory;
     flowIndex: FlowIndex;
@@ -28,6 +30,7 @@ export async function runResolutionAgent({
     db,
     updater,
     applicationId,
+    organizationId,
     repoDir,
     testDirectory,
     flowIndex,
@@ -36,6 +39,7 @@ export async function runResolutionAgent({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
+    const bugLinker = new BugLinker(new BugMatcher(model));
 
     const scenarioIndex = await loadScenarioIndex(db, applicationId);
 
@@ -56,7 +60,9 @@ export async function runResolutionAgent({
         db,
         updater,
         applicationId,
+        organizationId,
         testDirectory,
+        bugLinker,
     });
 
     await Promise.all([

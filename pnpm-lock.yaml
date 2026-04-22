@@ -1351,6 +1351,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/review':
+        specifier: workspace:*
+        version: link:../review
       '@autonoma/test-updates':
         specifier: workspace:*
         version: link:../test-updates

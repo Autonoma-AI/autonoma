@@ -8,4 +8,9 @@ export {
 } from "./review-tools";
 export { runReviewAgent, type ReviewAgentResult } from "./review-agent";
 export { BugMatcher } from "./bug-matcher";
-export { BugLinker, BUG_CONFIDENCE_THRESHOLD, type LinkIssueToBugParams } from "./bug-linker";
+export {
+    BugLinker,
+    BUG_CONFIDENCE_THRESHOLD,
+    type LinkIssueToBugParams,
+    type RecordBugFromRunReviewParams,
+} from "./bug-linker";

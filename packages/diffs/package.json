@@ -24,6 +24,7 @@
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/review": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "ai": "catalog:",
         "glob": "^11.0.0",

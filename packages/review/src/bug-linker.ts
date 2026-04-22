@@ -1,5 +1,5 @@
 import type { Prisma } from "@autonoma/db";
-import type { BugStatus, IssueSeverity } from "@autonoma/db";
+import type { BugStatus, IssueCategory, IssueSeverity } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import type { BugMatcher } from "./bug-matcher";
 
@@ -26,6 +26,18 @@ export interface LinkIssueToBugParams {
     organizationId: string;
 }
 
+export interface RecordBugFromRunReviewParams {
+    runReviewId: string;
+    title: string;
+    description: string;
+    severity: IssueSeverity;
+    confidence: number;
+    category: IssueCategory;
+    branchId: string;
+    testCaseId: string;
+    organizationId: string;
+}
+
 interface LockedBugRow {
     id: string;
     title: string;
@@ -36,6 +48,30 @@ interface LockedBugRow {
 
 export class BugLinker {
     constructor(private readonly bugMatcher: BugMatcher) {}
+
+    async recordBugFromRunReview(tx: Prisma.TransactionClient, params: RecordBugFromRunReviewParams): Promise<void> {
+        const issue = await tx.issue.create({
+            data: {
+                runReviewId: params.runReviewId,
+                category: params.category,
+                confidence: params.confidence,
+                severity: params.severity,
+                title: params.title,
+                description: params.description,
+                organizationId: params.organizationId,
+            },
+        });
+
+        await this.linkIssueToBug(tx, {
+            issueId: issue.id,
+            issueTitle: params.title,
+            issueDescription: params.description,
+            branchId: params.branchId,
+            testCaseId: params.testCaseId,
+            severity: params.severity,
+            organizationId: params.organizationId,
+        });
+    }
 
     async linkIssueToBug(tx: Prisma.TransactionClient, params: LinkIssueToBugParams): Promise<void> {
         const { issueId, issueTitle, issueDescription, branchId, testCaseId, severity } = params;

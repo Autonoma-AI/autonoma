@@ -112,6 +112,7 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
                 db,
                 updater,
                 applicationId: branchData.applicationId,
+                organizationId: branchData.organizationId,
                 repoDir,
                 testDirectory,
                 flowIndex,

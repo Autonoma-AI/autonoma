@@ -183,6 +183,7 @@ The following tests were replayed after Step 1's analysis. Each test has been re
 
     for (const verdict of verdicts) {
         prompt += `### ${verdict.testName} (\`${verdict.testSlug}\`)
+- **Run ID**: ${verdict.runId}
 - **Run status**: ${verdict.runStatus}
 - **Verdict**: ${verdict.verdict}
 - **Reviewer reasoning**: ${verdict.reviewReasoning}
