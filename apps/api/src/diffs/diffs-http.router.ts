@@ -1,6 +1,5 @@
 import { db } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { OctokitGitHubApp } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
 import { cancelDiffsJob, triggerDiffsJob } from "@autonoma/workflow";
 import { Hono } from "hono";
@@ -8,6 +7,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import { verifyApiKeyAndGetContext } from "../application-setup/verify-api-key";
 import { env } from "../env";
+import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { DiffsTriggerService } from "./diffs-trigger.service";
 
@@ -20,13 +20,7 @@ const triggerDiffsBodySchema = z.object({
     environment: z.string().optional(),
 });
 
-const githubApp = new OctokitGitHubApp({
-    appId: env.GITHUB_APP_ID,
-    privateKey: env.GITHUB_APP_PRIVATE_KEY,
-    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
-    appSlug: env.GITHUB_APP_SLUG,
-});
-
+const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
 const service = new DiffsTriggerService(db, githubService, triggerDiffsJob, cancelDiffsJob);
 

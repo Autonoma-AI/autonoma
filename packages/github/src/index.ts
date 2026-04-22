@@ -9,3 +9,5 @@ export {
 } from "./github-installation-client";
 export { FakeGitHubApp } from "./fake/fake-github-app";
 export { FakeGitHubInstallationClient } from "./fake/fake-github-installation-client";
+export { LocalDevGitHubApp } from "./local-dev/local-dev-github-app";
+export { LocalDevGitHubInstallationClient } from "./local-dev/local-dev-github-installation-client";

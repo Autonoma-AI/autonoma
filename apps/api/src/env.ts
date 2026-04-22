@@ -23,14 +23,18 @@ export const env = createEnv({
         REDIS_URL: z.string().min(1),
 
         // Secrets for GitHub HTTP app authentication.
-        GITHUB_APP_ID: z.string().min(1),
-        GITHUB_APP_PRIVATE_KEY: z.string().min(1),
-        GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
-        GITHUB_APP_SLUG: z.string().min(1),
+        // Optional when LOCAL_DEV=true (the fake app is used instead); required otherwise.
+        GITHUB_APP_ID: z.string().min(1).optional(),
+        GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
+        GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
+        GITHUB_APP_SLUG: z.string().min(1).optional(),
 
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),
+        // When true, swaps third-party integrations (currently just the GitHub app) for local-dev fakes
+        // so the API can boot and serve requests without real credentials.
+        LOCAL_DEV: z.stringbool().default(false),
         ENGINE_BILLING_SECRET: z.string().min(1).optional(),
         RESEND_API_KEY: z.string().min(1).optional(),
         RESEND_AUDIENCE_ID: z.string().min(1).optional(),

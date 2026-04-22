@@ -1,9 +1,10 @@
 import { db } from "@autonoma/db";
-import { OctokitGitHubApp, type GitHubApp } from "@autonoma/github";
+import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
+import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
 
@@ -14,20 +15,16 @@ type GitHubEnv = {
     };
 };
 
+const githubApp = buildGitHubApp(env);
+const githubService = new GitHubInstallationService(db, githubApp);
+
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
 githubHttpRouter.use("*", cors({ origin: "*" }));
 
 githubHttpRouter.use("*", async (ctx, next) => {
-    const githubApp = new OctokitGitHubApp({
-        appId: env.GITHUB_APP_ID,
-        privateKey: env.GITHUB_APP_PRIVATE_KEY,
-        webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
-        appSlug: env.GITHUB_APP_SLUG,
-    });
-
     ctx.set("githubApp", githubApp);
-    ctx.set("githubService", new GitHubInstallationService(db, githubApp));
+    ctx.set("githubService", githubService);
     await next();
 });
 

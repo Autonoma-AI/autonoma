@@ -1,5 +1,4 @@
 import { db } from "@autonoma/db";
-import { OctokitGitHubApp } from "@autonoma/github";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
@@ -14,6 +13,7 @@ import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
 import { env } from "./env";
+import { buildGitHubApp } from "./github/github-app";
 import { connectRedis } from "./redis";
 import { buildServices } from "./routes/build-services";
 
@@ -28,12 +28,7 @@ export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
 export const generationProvider = new TemporalGenerationProvider();
 
-const githubApp = new OctokitGitHubApp({
-    appSlug: env.GITHUB_APP_SLUG,
-    appId: env.GITHUB_APP_ID,
-    privateKey: env.GITHUB_APP_PRIVATE_KEY,
-    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
-});
+const githubApp = buildGitHubApp(env);
 
 export async function createContext(c: HonoContext) {
     const rawSession = await auth.api.getSession({

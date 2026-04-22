@@ -1,43 +1,7 @@
-import type { PrismaClient, SnapshotStatus, TriggerSource } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { Commit, GitHubApp, PullRequest, Repository } from "@autonoma/github";
 import { Service } from "../routes/service";
-
-export interface DeploymentsDebugResult {
-    repository: string | null;
-    pullRequests: Array<{
-        number: number;
-        title: string;
-        headRef: string;
-        headSha: string;
-        url: string;
-        createdAt: string;
-        updatedAt: string;
-    }>;
-    branches: Array<{
-        id: string;
-        name: string;
-        githubRef: string | null;
-        lastHandledSha: string | null;
-        deployment: {
-            id: string;
-            active: boolean;
-            webhookUrl: string | null;
-            createdAt: Date;
-            webDeployment: { url: string } | null;
-            mobileDeployment: { packageName: string } | null;
-        } | null;
-        snapshots: Array<{
-            id: string;
-            status: SnapshotStatus;
-            source: TriggerSource;
-            headSha: string | null;
-            baseSha: string | null;
-            createdAt: Date;
-            _count: { testGenerations: number; testCaseAssignments: number };
-        }>;
-    }>;
-}
 
 export interface ListedRepository extends Repository {
     applicationId: string | undefined;
@@ -216,88 +180,6 @@ export class GitHubInstallationService extends Service {
         });
 
         this.logger.info("Repository linked to application", { applicationId, githubRepoId });
-    }
-
-    async listDeploymentsDebug(organizationId: string, applicationId: string) {
-        this.logger.info("Listing deployments debug", { organizationId, applicationId });
-
-        const app = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-
-        const repoInfo = await this.resolveRepoInfo(organizationId, app?.githubRepositoryId ?? undefined);
-
-        const [pullRequests, branches] = await Promise.all([
-            this.getPullRequests(organizationId, repoInfo),
-            this.getBranches(applicationId, organizationId),
-        ]);
-
-        this.logger.info("Listed deployments debug", {
-            pullRequests: pullRequests.length,
-            branches: branches.length,
-        });
-
-        return { repository: repoInfo?.fullName ?? null, pullRequests, branches };
-    }
-
-    private async resolveRepoInfo(
-        organizationId: string,
-        githubRepositoryId: number | undefined,
-    ): Promise<{ repoId: number; fullName: string } | undefined> {
-        if (githubRepositoryId == null) return undefined;
-
-        let client;
-        try {
-            client = await this.getOrgInstallationClient(organizationId);
-        } catch {
-            return undefined;
-        }
-
-        const repo = await client.getRepository(githubRepositoryId);
-        return { repoId: githubRepositoryId, fullName: repo.fullName };
-    }
-
-    private getBranches(applicationId: string, organizationId: string) {
-        return this.db.branch.findMany({
-            where: { applicationId, application: { organizationId } },
-            select: {
-                id: true,
-                name: true,
-                githubRef: true,
-                lastHandledSha: true,
-                deployment: {
-                    select: {
-                        id: true,
-                        active: true,
-                        webhookUrl: true,
-                        createdAt: true,
-                        webDeployment: { select: { url: true } },
-                        mobileDeployment: { select: { packageName: true } },
-                    },
-                },
-                snapshots: {
-                    select: {
-                        id: true,
-                        status: true,
-                        source: true,
-                        headSha: true,
-                        baseSha: true,
-                        createdAt: true,
-                        _count: { select: { testGenerations: true, testCaseAssignments: true } },
-                    },
-                    orderBy: { createdAt: "desc" },
-                    take: 10,
-                },
-            },
-        });
-    }
-
-    private async getPullRequests(orgId: string, repoInfo: { repoId: number } | undefined) {
-        if (repoInfo == null) return [];
-
-        const client = await this.getOrgInstallationClient(orgId);
-        return client.listPullRequests(repoInfo.repoId);
     }
 
     async disconnect(orgId: string): Promise<void> {

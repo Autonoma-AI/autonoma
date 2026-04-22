@@ -11,7 +11,6 @@ import { GridFourIcon } from "@phosphor-icons/react/GridFour";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PlayIcon } from "@phosphor-icons/react/Play";
-import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
@@ -73,7 +72,6 @@ function useAppNav() {
     { icon: PlayIcon, label: "Runs", href: `${base}/runs` },
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
     { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
-    { icon: RocketLaunchIcon, label: "Deployments", href: `${base}/deployments` },
   ];
 
   const tools: NavItem[] = [{ icon: GearSixIcon, label: "Settings", href: `${base}/settings` }];
