@@ -497,6 +497,8 @@ model Branch {
   activeSnapshot    BranchSnapshot? @relation("ActiveSnapshot", fields: [activeSnapshotId], references: [id])
   pendingSnapshotId String?         @unique @map("pending_snapshot_id")
   pendingSnapshot   BranchSnapshot? @relation("PendingSnapshot", fields: [pendingSnapshotId], references: [id])
+  baseSnapshotId    String?         @map("base_snapshot_id")
+  baseSnapshot      BranchSnapshot? @relation("BaseSnapshot", fields: [baseSnapshotId], references: [id])
 
   mainOfApplication Application?       @relation("MainBranch")
   snapshots         BranchSnapshot[]
@@ -557,6 +559,7 @@ model BranchSnapshot {
 
   activeOnBranch  Branch?          @relation("ActiveSnapshot")
   pendingOnBranch Branch?          @relation("PendingSnapshot")
+  baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
   @@index([branchId])

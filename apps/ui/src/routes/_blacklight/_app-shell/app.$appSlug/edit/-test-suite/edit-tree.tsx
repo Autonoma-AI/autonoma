@@ -35,7 +35,7 @@ interface EditTreePanelProps {
   testCases: TestCaseRecord[];
   selectedTestId?: string;
   onSelectTest: (testCaseId: string) => void;
-  onOpenAddDialog: () => void;
+  onOpenAddDialog?: () => void;
   changesByTestCaseId: Map<string, "added" | "removed" | "updated">;
 }
 
@@ -76,9 +76,11 @@ export function EditTreePanel({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-text-tertiary">
           <FolderDashedIcon size={32} />
           <p className="text-center text-sm">No tests yet</p>
-          <Button variant="default" size="sm" onClick={onOpenAddDialog}>
-            Add test
-          </Button>
+          {onOpenAddDialog != null && (
+            <Button variant="default" size="sm" onClick={onOpenAddDialog}>
+              Add test
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -102,9 +104,11 @@ export function EditTreePanel({
             placeholder="Search tests..."
             className="h-8 flex-1 text-sm"
           />
-          <Button variant="outline" size="sm" className="h-8 shrink-0 px-2" onClick={onOpenAddDialog}>
-            <PlusIcon size={16} />
-          </Button>
+          {onOpenAddDialog != null && (
+            <Button variant="outline" size="sm" className="h-8 shrink-0 px-2" onClick={onOpenAddDialog}>
+              <PlusIcon size={16} />
+            </Button>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filteredTree.length === 0 && (
@@ -177,6 +181,7 @@ function EditTestRow({ node, level }: { node: TestCaseRecord; level: number }) {
   const { selectedTestId, onSelectTest, changesByTestCaseId } = useEditTreeContext();
   const isSelected = selectedTestId === node.id;
   const changeType = changesByTestCaseId.get(node.id);
+  const isRemoved = changeType === "removed";
 
   return (
     <button
@@ -189,8 +194,14 @@ function EditTestRow({ node, level }: { node: TestCaseRecord; level: number }) {
       style={{ paddingLeft: `${level * 16 + 12}px` }}
     >
       <span className="w-4 shrink-0" />
-      <FileTextIcon size={14} className="shrink-0 text-text-tertiary" />
-      <span className={cn("truncate", isSelected ? "font-medium text-text-primary" : "text-text-secondary")}>
+      <FileTextIcon size={14} className={cn("shrink-0 text-text-tertiary", isRemoved && "opacity-50")} />
+      <span
+        className={cn(
+          "truncate",
+          isSelected ? "font-medium text-text-primary" : "text-text-secondary",
+          isRemoved && "text-text-tertiary line-through opacity-60",
+        )}
+      >
         {node.name}
       </span>
       {changeType != null && (

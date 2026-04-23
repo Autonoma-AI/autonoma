@@ -93,6 +93,13 @@ export class DiffsTriggerService extends Service {
         prNumber: number,
     ) {
         this.logger.info("Upserting branch", { applicationId, branch: normalizedBranch, prNumber });
+
+        const application = await this.db.application.findUnique({
+            where: { id: applicationId },
+            select: { mainBranch: { select: { activeSnapshotId: true } } },
+        });
+        const baseSnapshotId = application?.mainBranch?.activeSnapshotId ?? undefined;
+
         return this.db.branch.upsert({
             where: {
                 applicationId_prNumber: { applicationId, prNumber },
@@ -103,6 +110,7 @@ export class DiffsTriggerService extends Service {
                 prNumber,
                 applicationId,
                 organizationId,
+                baseSnapshotId,
             },
             update: {
                 name: normalizedBranch,

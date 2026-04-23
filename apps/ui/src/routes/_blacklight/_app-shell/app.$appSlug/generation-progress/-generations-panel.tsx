@@ -1,14 +1,6 @@
-import { Badge, Card, CardContent } from "@autonoma/blacklight";
+import { Badge } from "@autonoma/blacklight";
+import { GenerationCard } from "components/generation/generation-card";
 import type { EnrichedGeneration } from "lib/query/snapshot-edit.queries";
-import { AppLink } from "../../-app-link";
-
-const STATUS_BADGE_VARIANT = {
-  pending: "status-pending",
-  queued: "status-pending",
-  running: "status-running",
-  success: "status-passed",
-  failed: "status-failed",
-} as const;
 
 export function GenerationsPanel({ generations }: { generations: EnrichedGeneration[] }) {
   return (
@@ -28,26 +20,16 @@ export function GenerationsPanel({ generations }: { generations: EnrichedGenerat
         ) : (
           <div className="flex flex-col gap-2">
             {generations.map((g) => (
-              <GenerationCard key={g.generationId} generation={g} />
+              <GenerationCard
+                key={g.generationId}
+                generationId={g.generationId}
+                testCaseName={g.testCaseName}
+                status={g.status}
+              />
             ))}
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function GenerationCard({ generation }: { generation: EnrichedGeneration }) {
-  return (
-    <AppLink to="/app/$appSlug/generations/$generationId" params={{ generationId: generation.generationId }}>
-      <Card variant="raised" size="default" className="transition-colors hover:bg-surface-base">
-        <CardContent className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-sm text-text-primary">{generation.testCaseName}</span>
-          <Badge variant={STATUS_BADGE_VARIANT[generation.status]} className="shrink-0">
-            {generation.status}
-          </Badge>
-        </CardContent>
-      </Card>
-    </AppLink>
   );
 }

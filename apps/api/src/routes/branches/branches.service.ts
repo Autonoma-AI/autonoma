@@ -1,6 +1,11 @@
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
-import { summarizeSnapshotChanges, type SnapshotChangeSummary } from "@autonoma/test-updates";
+import {
+    getChangesForSnapshot,
+    summarizeChangesForSnapshot,
+    fetchTestSuiteInfo,
+    type SnapshotChangeSummary,
+} from "@autonoma/test-updates";
 import { Service } from "../service";
 
 export class BranchesService extends Service {
@@ -114,13 +119,14 @@ export class BranchesService extends Service {
                 headSha: true,
                 baseSha: true,
                 createdAt: true,
+                prevSnapshotId: true,
                 _count: { select: { testCaseAssignments: true } },
             },
             orderBy: { createdAt: "desc" },
         });
 
         const changeSummaries = await Promise.all(
-            snapshots.map((s) => summarizeSnapshotChanges(this.db, s.id, this.logger)),
+            snapshots.map((s) => summarizeChangesForSnapshot(this.db, s.id, s.prevSnapshotId, this.logger)),
         );
 
         return snapshots.map((snapshot, index) => ({
@@ -152,6 +158,106 @@ export class BranchesService extends Service {
         if (branch.prNumber == null) throw new InternalError("Branch has no PR number");
 
         return { ...branch, prNumber: branch.prNumber };
+    }
+
+    async getSnapshotDetail(snapshotId: string, organizationId: string) {
+        this.logger.info("Getting snapshot detail", { snapshotId });
+
+        const snapshot = await this.db.branchSnapshot.findUnique({
+            where: { id: snapshotId, branch: { organizationId } },
+            select: {
+                id: true,
+                status: true,
+                source: true,
+                headSha: true,
+                baseSha: true,
+                createdAt: true,
+                prevSnapshotId: true,
+                branch: { select: { id: true, name: true, prNumber: true, applicationId: true } },
+            },
+        });
+
+        if (snapshot == null) throw new NotFoundError("Snapshot not found");
+
+        const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
+
+        const generations = await this.db.testGeneration.findMany({
+            where: { snapshotId },
+            select: {
+                id: true,
+                status: true,
+                createdAt: true,
+                testPlan: {
+                    select: {
+                        testCaseId: true,
+                        testCase: { select: { name: true, slug: true } },
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+
+        const latestByTestCaseId = new Map<string, (typeof generations)[number]>();
+        for (const gen of generations) {
+            const testCaseId = gen.testPlan.testCaseId;
+            if (!latestByTestCaseId.has(testCaseId)) {
+                latestByTestCaseId.set(testCaseId, gen);
+            }
+        }
+
+        const latestGenerations = [...latestByTestCaseId.values()].map((gen) => ({
+            generationId: gen.id,
+            status: gen.status,
+            createdAt: gen.createdAt,
+            testCaseId: gen.testPlan.testCaseId,
+            testCaseName: gen.testPlan.testCase.name,
+            testCaseSlug: gen.testPlan.testCase.slug,
+        }));
+
+        return { snapshot, changes, generations: latestGenerations };
+    }
+
+    async getActiveSnapshot(branchId: string, organizationId: string) {
+        this.logger.info("Getting active snapshot", { branchId });
+
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId, organizationId },
+            select: {
+                id: true,
+                name: true,
+                prNumber: true,
+                activeSnapshotId: true,
+                baseSnapshotId: true,
+                activeSnapshot: { select: { prevSnapshotId: true } },
+            },
+        });
+
+        if (branch == null) throw new NotFoundError("Branch not found");
+        if (branch.activeSnapshotId == null) throw new NotFoundError("Branch has no active snapshot");
+
+        let comparisonSnapshotId = branch.baseSnapshotId;
+        if (comparisonSnapshotId == null) {
+            this.logger.warn("Branch has no baseSnapshotId, falling back to activeSnapshot.prevSnapshotId", {
+                branchId,
+                activeSnapshotId: branch.activeSnapshotId,
+            });
+            comparisonSnapshotId = branch.activeSnapshot?.prevSnapshotId ?? null;
+        }
+
+        const testSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
+        const changes = await getChangesForSnapshot(
+            this.db,
+            branch.activeSnapshotId,
+            comparisonSnapshotId,
+            this.logger,
+        );
+
+        return {
+            snapshotId: branch.activeSnapshotId,
+            testSuite,
+            changes,
+            branch: { id: branch.id, name: branch.name, prNumber: branch.prNumber },
+        };
     }
 
     async deleteBranch(branchId: string, organizationId: string) {

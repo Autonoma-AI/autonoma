@@ -103,11 +103,11 @@ export function EditTestDetail({ branchId, testCase, generation }: EditTestDetai
         </TabsList>
 
         <TabsContent value="plan" className="mt-4 min-h-0 flex-1 overflow-y-auto">
-          <PlanTab plan={testCase.plan} />
+          <TestPlanView plan={testCase.plan} />
         </TabsContent>
 
         <TabsContent value="steps" className="mt-4 min-h-0 flex-1 flex flex-col overflow-y-auto">
-          <StepsTab steps={testCase.steps} />
+          <TestStepsView steps={testCase.steps} />
         </TabsContent>
       </Tabs>
     </div>
@@ -150,7 +150,7 @@ function GenerationBadge({ status }: { status: string }) {
 
 // ─── Plan Tab ────────────────────────────────────────────────────────────────
 
-function PlanTab({ plan }: { plan: { prompt: string } | null }) {
+export function TestPlanView({ plan }: { plan: { prompt: string } | null }) {
   if (plan == null) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-tertiary">
@@ -177,7 +177,7 @@ interface StepData {
   screenshotAfter: string | null | undefined;
 }
 
-function StepsTab({ steps }: { steps: { list: unknown } | null }) {
+export function TestStepsView({ steps }: { steps: { list: unknown } | null }) {
   const stepList = steps?.list as StepData[] | undefined;
 
   if (stepList == null || stepList.length === 0) {

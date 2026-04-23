@@ -13,6 +13,8 @@ export type { TestSuiteInfo, SnapshotChange } from "./snapshot-draft";
 export {
     computeSnapshotChanges,
     summarizeSnapshotChanges,
+    getChangesForSnapshot,
+    summarizeChangesForSnapshot,
     type SnapshotChangeSummary,
 } from "./queries/snapshot-changes";
 export * from "./changes";

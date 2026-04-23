@@ -43,3 +43,29 @@ export function useSnapshotHistory(branchId: string) {
 export async function ensureSnapshotHistoryData(queryClient: QueryClient, branchId: string) {
     await ensureAPIQueryData(queryClient, trpc.branches.snapshotHistory.queryOptions({ branchId }));
 }
+
+export function useSnapshotDetail(snapshotId: string) {
+    return useSuspenseQuery({
+        ...trpc.branches.snapshotDetail.queryOptions({ snapshotId }),
+        refetchInterval: (query) => {
+            const data = query.state.data;
+            if (data == null) return false;
+            const hasIncomplete = data.generations.some(
+                (g) => g.status === "pending" || g.status === "queued" || g.status === "running",
+            );
+            return hasIncomplete ? 5000 : false;
+        },
+    });
+}
+
+export async function ensureSnapshotDetailData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.snapshotDetail.queryOptions({ snapshotId }));
+}
+
+export function useActiveSnapshot(branchId: string) {
+    return useSuspenseQuery(trpc.branches.activeSnapshot.queryOptions({ branchId }));
+}
+
+export async function ensureActiveSnapshotData(queryClient: QueryClient, branchId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.activeSnapshot.queryOptions({ branchId }));
+}

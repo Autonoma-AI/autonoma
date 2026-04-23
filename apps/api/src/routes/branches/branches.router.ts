@@ -32,6 +32,18 @@ export const branchesRouter = router({
             services.branches.listSnapshots(input.branchId, organizationId),
         ),
 
+    snapshotDetail: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getSnapshotDetail(input.snapshotId, organizationId),
+        ),
+
+    activeSnapshot: protectedProcedure
+        .input(z.object({ branchId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getActiveSnapshot(input.branchId, organizationId),
+        ),
+
     delete: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>

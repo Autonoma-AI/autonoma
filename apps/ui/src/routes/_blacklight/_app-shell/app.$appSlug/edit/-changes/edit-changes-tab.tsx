@@ -1,17 +1,12 @@
 import { Badge, Button } from "@autonoma/blacklight";
 import { XIcon } from "@phosphor-icons/react/X";
+import { CHANGE_BADGE_VARIANTS } from "components/snapshot/snapshot-change-row";
 import { useDiscardChange, useEditSession } from "lib/query/snapshot-edit.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { EditTab } from "../-edit-tab-content";
 
 type EditSession = RouterOutputs["snapshotEdit"]["get"];
 type SnapshotChange = EditSession["changes"][number];
-
-const CHANGE_BADGE_VARIANTS = {
-  added: "success",
-  removed: "critical",
-  updated: "warn",
-} as const;
 
 export function EditChangesTab({ branchId }: { branchId: string }) {
   const { data: session } = useEditSession(branchId);

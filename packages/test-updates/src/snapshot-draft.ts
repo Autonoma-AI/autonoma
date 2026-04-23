@@ -6,7 +6,7 @@ import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams
 import type { GenerationProvider } from "./generation/generation-job-provider";
 import { GenerationManager } from "./generation/generation-manager";
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
-import { computeSnapshotChanges, type SnapshotChange } from "./queries/snapshot-changes";
+import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 
 export type { SnapshotChange } from "./queries/snapshot-changes";
 import { fetchTestSuiteInfo } from "./queries/fetch-info";
@@ -288,7 +288,11 @@ export class SnapshotDraft {
      * - Same `planId` in both -> unchanged (omitted)
      */
     public async getChanges(): Promise<SnapshotChange[]> {
-        return computeSnapshotChanges(this.db, this.snapshotId, this.logger);
+        const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
+            where: { id: this.snapshotId },
+            select: { prevSnapshotId: true },
+        });
+        return getChangesForSnapshot(this.db, this.snapshotId, snapshot.prevSnapshotId, this.logger);
     }
 
     /** Clears the steps for a test case, keeping the current plan. Returns the current planId. */

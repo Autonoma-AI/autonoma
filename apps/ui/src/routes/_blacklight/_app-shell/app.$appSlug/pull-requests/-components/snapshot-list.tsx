@@ -1,12 +1,19 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
-import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
+import { ShaRange } from "components/snapshot/sha-range";
 import { formatDate } from "lib/format";
 import { useSnapshotHistory } from "lib/query/branches.queries";
 import { useCommitFromGitHub } from "lib/query/github.queries";
 import { Suspense } from "react";
+import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
-export function SnapshotList({ branchId, applicationId }: { branchId: string; applicationId: string }) {
+interface SnapshotListProps {
+  branchId: string;
+  applicationId: string;
+  prNumber: number;
+}
+
+export function SnapshotList({ branchId, applicationId, prNumber }: SnapshotListProps) {
   return (
     <Panel>
       <PanelHeader className="flex items-center gap-2">
@@ -15,7 +22,7 @@ export function SnapshotList({ branchId, applicationId }: { branchId: string; ap
       </PanelHeader>
       <PanelBody className="p-0">
         <Suspense fallback={<SnapshotListSkeleton />}>
-          <SnapshotListContent branchId={branchId} applicationId={applicationId} />
+          <SnapshotListContent branchId={branchId} applicationId={applicationId} prNumber={prNumber} />
         </Suspense>
       </PanelBody>
     </Panel>
@@ -32,7 +39,15 @@ export function SnapshotListSkeleton() {
   );
 }
 
-function SnapshotListContent({ branchId, applicationId }: { branchId: string; applicationId: string }) {
+function SnapshotListContent({
+  branchId,
+  applicationId,
+  prNumber,
+}: {
+  branchId: string;
+  applicationId: string;
+  prNumber: number;
+}) {
   const { data: snapshots } = useSnapshotHistory(branchId);
 
   if (snapshots.length === 0) {
@@ -47,7 +62,7 @@ function SnapshotListContent({ branchId, applicationId }: { branchId: string; ap
   return (
     <ul>
       {snapshots.map((snapshot) => (
-        <SnapshotCard key={snapshot.id} snapshot={snapshot} applicationId={applicationId} />
+        <SnapshotCard key={snapshot.id} snapshot={snapshot} applicationId={applicationId} prNumber={prNumber} />
       ))}
     </ul>
   );
@@ -64,31 +79,28 @@ interface SnapshotCardProps {
     changeSummary: { added: number; removed: number; updated: number };
   };
   applicationId: string;
+  prNumber: number;
 }
 
-function SnapshotCard({ snapshot, applicationId }: SnapshotCardProps) {
+function SnapshotCard({ snapshot, applicationId, prNumber }: SnapshotCardProps) {
   return (
-    <li className="flex flex-col gap-3 border-b border-border-dim px-4 py-3 last:border-b-0">
-      <div className="flex items-center gap-3">
-        <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
-        <Badge variant={statusBadgeVariant(snapshot.status)}>{snapshot.status}</Badge>
-        <span className="ml-auto text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
-      </div>
+    <li className="border-b border-border-dim last:border-b-0">
+      <AppLink
+        to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
+        params={{ prNumber, snapshotId: snapshot.id }}
+        className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-surface-base"
+      >
+        <div className="flex items-center gap-3">
+          <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
+          <Badge variant={statusBadgeVariant(snapshot.status)}>{snapshot.status}</Badge>
+          <span className="ml-auto text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
+        </div>
 
-      <CommitMessageLine applicationId={applicationId} sha={snapshot.headSha ?? undefined} />
+        <CommitMessageLine applicationId={applicationId} sha={snapshot.headSha ?? undefined} />
 
-      <ChangeSummaryChips summary={snapshot.changeSummary} />
+        <ChangeSummaryChips summary={snapshot.changeSummary} />
+      </AppLink>
     </li>
-  );
-}
-
-function ShaRange({ baseSha, headSha }: { baseSha: string | null; headSha: string | null }) {
-  return (
-    <div className="flex items-center gap-1.5 font-mono text-xs text-text-secondary">
-      <code className="rounded bg-surface-subtle px-1.5 py-0.5">{baseSha != null ? baseSha.slice(0, 7) : "-"}</code>
-      <ArrowRightIcon size={10} className="text-text-tertiary" />
-      <code className="rounded bg-surface-subtle px-1.5 py-0.5">{headSha != null ? headSha.slice(0, 7) : "-"}</code>
-    </div>
   );
 }
 

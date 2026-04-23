@@ -1,23 +1,21 @@
-import { Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
+import { Button, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
+import { ListChecksIcon } from "@phosphor-icons/react/ListChecks";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { ensureBranchByPrData, useBranchByPr } from "lib/query/branches.queries";
 import { usePullRequestFromGitHub } from "lib/query/github.queries";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { PRStatusPanel } from "./-components/pr-status-panel";
-import { SnapshotList, SnapshotListSkeleton } from "./-components/snapshot-list";
+import { PRStatusPanel } from "../-components/pr-status-panel";
+import { SnapshotList, SnapshotListSkeleton } from "../-components/snapshot-list";
 
-export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber")({
-  parseParams: ({ prNumber, ...rest }) => ({ ...rest, prNumber: Number(prNumber) }),
-  stringifyParams: ({ prNumber, ...rest }) => ({ ...rest, prNumber: String(prNumber) }),
+export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/")({
   loader: async ({ context, params: { appSlug, prNumber } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    if (!Number.isFinite(prNumber) || prNumber <= 0) throw notFound();
     await ensureBranchByPrData(context.queryClient, app.id, prNumber);
   },
   component: PullRequestDetailPage,
@@ -47,11 +45,19 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
   return (
     <>
       <PageHeader prNumber={prNumber}>
-        {pr.isPending ? (
-          <Skeleton className="h-7 w-96" />
-        ) : (
-          <h1 className="text-2xl font-medium tracking-tight text-text-primary">{title}</h1>
-        )}
+        <div className="flex items-start justify-between gap-4">
+          {pr.isPending ? (
+            <Skeleton className="h-7 w-96" />
+          ) : (
+            <h1 className="text-2xl font-medium tracking-tight text-text-primary">{title}</h1>
+          )}
+          <AppLink to="/app/$appSlug/pull-requests/$prNumber/suite" params={{ prNumber }}>
+            <Button variant="outline" size="sm">
+              <ListChecksIcon size={14} />
+              View active suite
+            </Button>
+          </AppLink>
+        </div>
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
@@ -61,7 +67,7 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
           githubUrl={githubUrl}
           prPending={pr.isPending}
         />
-        <SnapshotList branchId={branch.id} applicationId={app.id} />
+        <SnapshotList branchId={branch.id} applicationId={app.id} prNumber={prNumber} />
       </div>
     </>
   );
