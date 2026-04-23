@@ -145,7 +145,10 @@ enum OnboardingStep {
   install
   configure
   working
-  scenario_dry_run
+  webhook_configuring
+  discovering
+  discovered
+  dry_run_passed
   url
   github
   completed
@@ -163,6 +166,11 @@ model OnboardingState {
   productionUrl         String?        @map("production_url")
   productionTestsPassed Boolean        @default(false) @map("production_tests_passed")
   completedAt           DateTime?      @map("completed_at")
+  lastDiscoveryError    String?        @map("last_discovery_error")
+  lastDiscoveredAt      DateTime?      @map("last_discovered_at")
+  lastDiscoveredModels  Int?           @map("last_discovered_models")
+  discoveryAttempts     Int            @default(0) @map("discovery_attempts")
+  discoveringStartedAt  DateTime?      @map("discovering_started_at")
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
 

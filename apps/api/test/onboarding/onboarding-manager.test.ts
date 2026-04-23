@@ -36,7 +36,7 @@ integrationTestSuite({
             expect(state.completedAt).toBeNull();
         });
 
-        test("full onboarding flow: install -> configure -> working -> scenario_dry_run -> github -> completed", async ({
+        test("full onboarding flow: install -> configure -> working -> webhook_configuring -> github -> completed", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -51,8 +51,12 @@ integrationTestSuite({
 
             await harness.seedScenarioWithRecipe(appId, orgId);
             const afterDryRun = await manager.startScenarioDryRun(appId);
-            expect(afterDryRun.step).toBe("scenario_dry_run");
+            expect(afterDryRun.step).toBe("webhook_configuring");
 
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { step: "dry_run_passed" },
+            });
             const afterComplete = await manager.complete(appId, "https://example.com");
             expect(afterComplete.step).toBe("github");
             expect(afterComplete.productionUrl).toBe("https://example.com");
@@ -88,7 +92,7 @@ integrationTestSuite({
             await expect(manager.startScenarioDryRun(appId)).rejects.toThrow(InvalidOnboardingStepError);
         });
 
-        test("cannot set url from scenario dry run step - must go through complete first", async ({
+        test("cannot set url from webhook_configuring step - must go through complete first", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -106,6 +110,10 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await harness.seedScenarioWithRecipe(appId, orgId);
             await manager.startScenarioDryRun(appId);
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { step: "dry_run_passed" },
+            });
             await manager.complete(appId);
             await manager.completeGithub(appId, orgId);
 
@@ -137,6 +145,10 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await harness.seedScenarioWithRecipe(appId, orgId);
             await manager.startScenarioDryRun(appId);
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { step: "dry_run_passed" },
+            });
             await manager.complete(appId, "https://example.com");
             await manager.completeGithub(appId, orgId);
 
@@ -167,6 +179,10 @@ integrationTestSuite({
             await manager.markAgentConnected(appId);
             await harness.seedScenarioWithRecipe(appId, orgId);
             await manager.startScenarioDryRun(appId);
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { step: "dry_run_passed" },
+            });
             await manager.complete(appId, "https://example.com");
             const final = await manager.completeGithub(appId, orgId);
             expect(final.step).toBe("completed");

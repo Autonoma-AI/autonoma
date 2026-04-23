@@ -105,7 +105,7 @@ apiTestSuite({
             expect(setup.currentStep).toBe(TOTAL_SETUP_STEPS - 1);
             expect(setup.status).toBe("completed");
             expect(setup.completedAt).not.toBeNull();
-            expect(onboarding.step).toBe("scenario_dry_run");
+            expect(onboarding.step).toBe("webhook_configuring");
         });
 
         test("partial_failure update keeps setup on working without completion timestamp", async ({ harness }) => {

@@ -74,12 +74,16 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "mark agent connected");
     }
 
-    /** Transition from `working` to `scenario_dry_run`. */
+    /** Transition from `working` to `webhook_configuring`. */
     startScenarioDryRun(): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "start scenario dry run");
     }
 
-    /** Save webhook config and trigger scenario discovery. Only valid during `scenario_dry_run`. */
+    /**
+     * Validate the supplied webhook config by calling discover, then persist it
+     * atomically on success. On failure, state is left at `webhook_configuring`
+     * with `lastDiscoveryError` populated — the URL/secret are never persisted.
+     */
     configureAndDiscoverScenarios(
         _organizationId: string,
         _webhookUrl: string,
@@ -89,12 +93,17 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "configure scenarios");
     }
 
-    /** Execute a scenario up + down cycle. Only valid during `scenario_dry_run`. */
+    /** Move from `discovered` / `dry_run_passed` back to `webhook_configuring` so the user can edit URL/secret. */
+    reconfigureWebhook(): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "reconfigure webhook");
+    }
+
+    /** Execute a scenario up + down cycle. Valid during `discovered` and `dry_run_passed`. */
     runScenarioDryRun(_scenarioId: string): Promise<ScenarioDryRunResult> {
         throw new InvalidOnboardingStepError(this.step, "run scenario dry run");
     }
 
-    /** Transition from `scenario_dry_run` to `completed`. */
+    /** Transition from `dry_run_passed` to `github` (optionally setting a production URL). */
     complete(_productionUrl?: string): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "complete onboarding");
     }
@@ -121,6 +130,11 @@ export abstract class OnboardingState {
                 productionUrl: null,
                 productionTestsPassed: false,
                 completedAt: null,
+                lastDiscoveryError: null,
+                lastDiscoveredAt: null,
+                lastDiscoveredModels: null,
+                discoveryAttempts: 0,
+                discoveringStartedAt: null,
             },
         });
     }

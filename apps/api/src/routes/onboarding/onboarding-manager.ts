@@ -4,12 +4,23 @@ import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { type GenerationProvider, SnapshotNotPendingError, TestSuiteUpdater } from "@autonoma/test-updates";
 import { CompletedState } from "./states/completed-state";
 import { ConfigureState } from "./states/configure-state";
+import { DiscoveredState } from "./states/discovered-state";
+import { DiscoveringState } from "./states/discovering-state";
+import { DryRunPassedState } from "./states/dry-run-passed-state";
 import { GitHubState } from "./states/github-state";
 import { InstallState } from "./states/install-state";
 import type { OnboardingState, OnboardingStateDeps } from "./states/onboarding-state";
-import { ScenarioDryRunState } from "./states/scenario-dry-run-state";
 import { UrlState } from "./states/url-state";
+import { WebhookConfiguringState } from "./states/webhook-configuring-state";
 import { WorkingState } from "./states/working-state";
+
+/**
+ * If a row has been stuck at `discovering` for longer than this, assume the
+ * API died mid-call and auto-recover to `webhook_configuring` with an error.
+ * Longer than the webhook's own timeout+retry budget, short enough that the
+ * user isn't locked out for long after a real crash.
+ */
+const DISCOVERING_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * Ordered list of onboarding steps. Used to determine whether an operation
@@ -19,7 +30,10 @@ const STEP_ORDER: OnboardingState["step"][] = [
     "install",
     "configure",
     "working",
-    "scenario_dry_run",
+    "webhook_configuring",
+    "discovering",
+    "discovered",
+    "dry_run_passed",
     "url",
     "github",
     "completed",
@@ -50,7 +64,10 @@ export class OnboardingManager {
         install: InstallState,
         configure: ConfigureState,
         working: WorkingState,
-        scenario_dry_run: ScenarioDryRunState,
+        webhook_configuring: WebhookConfiguringState,
+        discovering: DiscoveringState,
+        discovered: DiscoveredState,
+        dry_run_passed: DryRunPassedState,
         url: UrlState,
         github: GitHubState,
         completed: CompletedState,
@@ -69,23 +86,41 @@ export class OnboardingManager {
     async getState(applicationId: string) {
         this.logger.info("Getting onboarding state", { applicationId });
 
-        const row = await this.db.onboardingState.upsert({
+        let row = await this.db.onboardingState.upsert({
             where: { applicationId },
             create: { applicationId },
             update: {},
         });
 
-        const app = await this.db.application.findUnique({
-            where: { id: applicationId },
-            select: {
-                signingSecretEnc: true,
-                mainBranch: { select: { deployment: { select: { webhookUrl: true } } } },
-            },
-        });
-        const webhookConfigured =
-            app?.signingSecretEnc != null && app.mainBranch?.deployment?.webhookUrl != null;
+        // Crash recovery: if a prior discover call died mid-flight, the row is
+        // stuck at `discovering` with `discoveringStartedAt` set. Roll back to
+        // `webhook_configuring` so the user can retry.
+        if (row.step === "discovering" && this.isDiscoveryStuck(row.discoveringStartedAt)) {
+            this.logger.warn("Recovering stuck `discovering` state", {
+                applicationId,
+                discoveringStartedAt: row.discoveringStartedAt,
+            });
+            row = await this.db.onboardingState.update({
+                where: { applicationId },
+                data: {
+                    step: "webhook_configuring",
+                    discoveringStartedAt: null,
+                    lastDiscoveryError: "Discovery timed out or crashed. Please retry.",
+                },
+            });
+        }
 
-        return { ...row, webhookConfigured };
+        const stepIndex = STEP_ORDER.indexOf(row.step);
+        const discoveredIndex = STEP_ORDER.indexOf("discovered");
+        const webhookConfigured = stepIndex >= discoveredIndex;
+        const discoveryInProgress = row.step === "discovering";
+
+        return { ...row, webhookConfigured, discoveryInProgress };
+    }
+
+    private isDiscoveryStuck(startedAt: Date | null): boolean {
+        if (startedAt == null) return false;
+        return Date.now() - startedAt.getTime() > DISCOVERING_TIMEOUT_MS;
     }
 
     /** Return the agent log entries for the application. */
@@ -139,7 +174,7 @@ export class OnboardingManager {
         return this.getState(applicationId);
     }
 
-    /** Save webhook config and trigger scenario discovery. Works from working, scenario_dry_run, or any later step. */
+    /** Validate + persist webhook config. Works from working or any later step; auto-enters webhook_configuring. */
     async configureAndDiscoverScenarios(
         applicationId: string,
         organizationId: string,
@@ -148,22 +183,32 @@ export class OnboardingManager {
         webhookHeaders?: Record<string, string>,
     ) {
         this.logger.info("Configuring webhook for dry run", { applicationId });
-        await this.transitionIfNeeded(applicationId, "working", "scenario_dry_run");
-        const state = await this.loadStateOrEarlier(applicationId, "scenario_dry_run");
+        await this.transitionIfNeeded(applicationId, "working", "webhook_configuring");
+        // Later steps (discovered, dry_run_passed) route to `webhook_configuring`'s
+        // validate-then-persist logic so re-discovery goes through the same gate.
+        const state = await this.loadStateOrEarlier(applicationId, "webhook_configuring");
         return state.configureAndDiscoverScenarios(organizationId, webhookUrl, signingSecret, webhookHeaders);
     }
 
-    /** Execute a scenario up + down cycle to verify the webhook integration. Works from scenario_dry_run or any later step. */
+    /** Execute a scenario up + down cycle. Works from discovered or any later step. */
     async runScenarioDryRun(applicationId: string, scenarioId: string) {
         this.logger.info("Running scenario dry run", { applicationId, scenarioId });
-        const state = await this.loadStateOrEarlier(applicationId, "scenario_dry_run");
+        const state = await this.loadStateOrEarlier(applicationId, "discovered");
         return state.runScenarioDryRun(scenarioId);
     }
 
-    /** Advance from `scenario_dry_run` to `github`, optionally storing a production URL. */
+    /** Return to `webhook_configuring` so the user can edit URL/secret. */
+    async reconfigureWebhook(applicationId: string) {
+        this.logger.info("Reconfiguring webhook", { applicationId });
+        const state = await this.loadState(applicationId);
+        await state.reconfigureWebhook();
+        return this.getState(applicationId);
+    }
+
+    /** Advance from `dry_run_passed` to `github`, optionally storing a production URL. */
     async complete(applicationId: string, productionUrl?: string) {
         this.logger.info("Advancing to github step", { applicationId, hasProductionUrl: productionUrl != null });
-        const state = await this.loadState(applicationId);
+        const state = await this.loadStateOrEarlier(applicationId, "dry_run_passed");
         await state.complete(productionUrl);
         return this.getState(applicationId);
     }

@@ -57,6 +57,10 @@ export const onboardingRouter = router({
         .input(z.object({ applicationId: z.string(), scenarioId: z.string() }))
         .mutation(({ ctx, input }) => ctx.services.onboarding.runScenarioDryRun(input.applicationId, input.scenarioId)),
 
+    reconfigureWebhook: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) => ctx.services.onboarding.reconfigureWebhook(input.applicationId)),
+
     complete: protectedProcedure
         .input(z.object({ applicationId: z.string(), productionUrl: z.string().url().optional() }))
         .mutation(({ ctx, input }) => ctx.services.onboarding.complete(input.applicationId, input.productionUrl)),

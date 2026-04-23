@@ -79,6 +79,7 @@ export function useConfigureAndDiscoverScenarios() {
         ...trpc.onboarding.configureAndDiscoverScenarios.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
             },
             onError: (error) => reloadOnStepMismatch(error),
@@ -87,8 +88,21 @@ export function useConfigureAndDiscoverScenarios() {
     });
 }
 
+export function useReconfigureWebhook() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.reconfigureWebhook.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+            },
+            onError: (error) => reloadOnStepMismatch(error),
+        }),
+        errorToast: { title: "Failed to reconfigure webhook" },
+    });
+}
+
 export function useOnboardingScenarios(applicationId: string) {
-    return useQuery(trpc.scenarios.list.queryOptions({ applicationId }));
+    return useQuery(trpc.scenarios.list.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
 }
 
 export function useRunScenarioDryRun() {

@@ -94,8 +94,12 @@ export class ApplicationSetupService {
                 const latest = await this.onboardingManager.getState(applicationId);
                 if (
                     latest.step === "working" ||
-                    latest.step === "scenario_dry_run" ||
+                    latest.step === "webhook_configuring" ||
+                    latest.step === "discovering" ||
+                    latest.step === "discovered" ||
+                    latest.step === "dry_run_passed" ||
                     latest.step === "url" ||
+                    latest.step === "github" ||
                     latest.step === "completed"
                 ) {
                     log.info("Agent connected - onboarding already at or past working step", {

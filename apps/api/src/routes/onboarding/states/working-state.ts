@@ -22,7 +22,7 @@ export class WorkingState extends OnboardingState {
 
         await this.db.onboardingState.update({
             where: { applicationId: this.applicationId },
-            data: { step: "scenario_dry_run" },
+            data: { step: "webhook_configuring" },
         });
     }
 }

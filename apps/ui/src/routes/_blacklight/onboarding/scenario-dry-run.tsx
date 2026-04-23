@@ -21,6 +21,7 @@ import {
   useConfigureAndDiscoverScenarios,
   useOnboardingScenarios,
   useOnboardingStateOptional,
+  useReconfigureWebhook,
   useRunScenarioDryRun,
 } from "lib/onboarding/onboarding-api";
 import { toastManager } from "lib/toast-manager";
@@ -287,7 +288,6 @@ export function DeployPage({ appId }: { appId?: string }) {
   const [appUrlTouched, setAppUrlTouched] = useState(false);
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [forceReconfigure, setForceReconfigure] = useState(false);
 
   // Per-scenario dry run results, keyed by scenario id
   const [scenarioResults, setScenarioResults] = useState<
@@ -297,6 +297,7 @@ export function DeployPage({ appId }: { appId?: string }) {
 
   const navigate = useNavigate();
   const discoverScenarios = useConfigureAndDiscoverScenarios();
+  const reconfigureWebhook = useReconfigureWebhook();
   const scenariosQuery = useOnboardingScenarios(applicationId ?? "");
   const onboardingStateQuery = useOnboardingStateOptional(applicationId ?? "");
   const runDryRun = useRunScenarioDryRun();
@@ -305,14 +306,22 @@ export function DeployPage({ appId }: { appId?: string }) {
 
   const webhookUrl = webhookUrlDraft ?? "";
   const scenarios = scenariosQuery.data ?? [];
-  const webhookConfirmed = !forceReconfigure && (onboardingStateQuery.data?.webhookConfigured ?? false);
-  const isWebhookConfigured = webhookConfirmed && scenarios.length > 0;
+  const serverStep = onboardingStateQuery.data?.step;
+  const webhookConfirmed = onboardingStateQuery.data?.webhookConfigured ?? false;
+  const isDiscovering = serverStep === "discovering" || discoverScenarios.isPending;
+  const hasScenarios = scenarios.length > 0;
+  const isWebhookConfigured = webhookConfirmed;
+  const canRunDryRun = webhookConfirmed && hasScenarios;
+  const webhookReachableButNoScenarios = webhookConfirmed && !hasScenarios && !scenariosQuery.isPending;
+  const persistedDiscoveryError = onboardingStateQuery.data?.lastDiscoveryError ?? undefined;
+  const lastDiscoveredModels = onboardingStateQuery.data?.lastDiscoveredModels ?? undefined;
   const isAppUrlValid = appUrl.length > 0 && isValidUrl(appUrl);
 
   const allDryRunsPassed = scenarios.length > 0 && scenarios.every((s) => scenarioResults[s.id]?.success === true);
   const anyDryRunFailed = scenarios.some((s) => scenarioResults[s.id]?.success === false);
 
-  const discoverError = discoverScenarios.error;
+  const discoverError =
+    discoverScenarios.error ?? (persistedDiscoveryError != null ? { message: persistedDiscoveryError } : undefined);
   const discoverErrorDetails = discoverError != null ? getWebhookErrorDetails(discoverError.message) : undefined;
   const isUrlErrorField = discoverErrorDetails?.field === "url" || discoverErrorDetails?.field === "both";
   const isSecretErrorField = discoverErrorDetails?.field === "secret" || discoverErrorDetails?.field === "both";
@@ -339,9 +348,8 @@ export function DeployPage({ appId }: { appId?: string }) {
       },
       {
         onSuccess: () => {
-          log.addEntry("success", "Scenarios discovered successfully");
+          log.addEntry("success", "Webhook reachable - schema discovered");
           setScenarioResults({});
-          setForceReconfigure(false);
         },
         onError: (error) => {
           log.addEntry("error", formatError(error));
@@ -351,9 +359,10 @@ export function DeployPage({ appId }: { appId?: string }) {
   }
 
   function handleReconfigure() {
-    setForceReconfigure(true);
+    if (applicationId == null) return;
     setScenarioResults({});
     log.clear();
+    reconfigureWebhook.mutate({ applicationId });
   }
 
   const handleRunAllDryRuns = useCallback(async () => {
@@ -697,12 +706,12 @@ export function DeployPage({ appId }: { appId?: string }) {
                         webhookUrl.length === 0 ||
                         !isValidUrl(webhookUrl) ||
                         signingSecret.length === 0 ||
-                        discoverScenarios.isPending ||
+                        isDiscovering ||
                         applicationId == null
                       }
                     >
                       <GlobeIcon size={16} weight="bold" />
-                      {discoverScenarios.isPending ? "Discovering..." : "Discover Scenarios"}
+                      {isDiscovering ? "Discovering..." : "Discover Scenarios"}
                     </Button>
 
                     {discoverError != null && <DiscoverErrorAlert error={discoverError} />}
@@ -714,8 +723,44 @@ export function DeployPage({ appId }: { appId?: string }) {
         </section>
       )}
 
+      {/* Webhook reachable but no scenarios were uploaded during setup */}
+      {webhookReachableButNoScenarios && (
+        <section className="mt-10 space-y-4 border-t border-border-dim pt-10">
+          <Alert variant="critical">
+            <AlertTitle>Webhook works, but no scenarios were uploaded</AlertTitle>
+            <AlertDescription>
+              <p className="mb-2">
+                Your webhook is reachable and the schema was discovered
+                {lastDiscoveredModels != null ? ` (${lastDiscoveredModels} models detected)` : ""}, but the setup agent
+                never uploaded any scenario recipes for this application. There is nothing to dry-run yet.
+              </p>
+              <p className="mb-2">Typical causes:</p>
+              <ul className="mt-1 space-y-1">
+                <li className="flex items-start gap-2 leading-relaxed">
+                  <span className="mt-1 shrink-0 text-text-tertiary">-</span>
+                  <span>The setup agent finished before completing the Scenarios / Implement steps.</span>
+                </li>
+                <li className="flex items-start gap-2 leading-relaxed">
+                  <span className="mt-1 shrink-0 text-text-tertiary">-</span>
+                  <span>
+                    The SDK never posted to{" "}
+                    <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">
+                      /setups/:id/scenario-recipe-versions
+                    </code>
+                    .
+                  </span>
+                </li>
+              </ul>
+              <p className="mt-3">
+                Re-run the setup for this application (or reset onboarding) so the agent can upload scenario recipes.
+              </p>
+            </AlertDescription>
+          </Alert>
+        </section>
+      )}
+
       {/* Step 3: Dry run all scenarios */}
-      {isWebhookConfigured && (
+      {canRunDryRun && (
         <section className="mt-10 space-y-4 border-t border-border-dim pt-10">
           <div className="flex items-start gap-4">
             <StepNumber step={3} done={allDryRunsPassed} />

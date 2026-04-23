@@ -2,12 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient, ScenarioInstance } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import { fx } from "@autonoma/try";
-import type { ScenarioRecipesFile } from "@autonoma/types";
+import type { DiscoverResponse, ScenarioRecipesFile } from "@autonoma/types";
 import type { EncryptionHelper } from "./encryption";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioApplicationData, ScenarioSubject } from "./scenario-subject";
 import { WebhookClient } from "./webhook-client";
 import type { WebhookCallOptions } from "./webhook-client";
+
+export interface DiscoverWithConfigParams {
+    applicationId: string;
+    webhookUrl: string;
+    signingSecret: string;
+    webhookHeaders?: Record<string, string>;
+    options?: WebhookCallOptions;
+}
 
 const DEFAULT_EXPIRES_IN_SECONDS = 2 * 60 * 60; // 2 hours
 
@@ -23,7 +31,11 @@ export class ScenarioManager {
         this.recipeStore = new ScenarioRecipeStore(db);
     }
 
-    async discover(applicationId: string, deploymentId: string, options?: WebhookCallOptions): Promise<void> {
+    async discover(
+        applicationId: string,
+        deploymentId: string,
+        options?: WebhookCallOptions,
+    ): Promise<DiscoverResponse> {
         const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId);
         const webhookClient = this.createWebhookClient(applicationData);
 
@@ -34,6 +46,32 @@ export class ScenarioManager {
             applicationId,
             modelCount: response.schema.models.length,
         });
+        return response;
+    }
+
+    /**
+     * Call the discover webhook using caller-supplied config, without reading
+     * or writing any application/deployment state. Used during onboarding to
+     * validate a webhook URL + secret *before* persisting them, so a failed
+     * discover can't leave the DB half-configured.
+     */
+    async discoverWithConfig(params: DiscoverWithConfigParams): Promise<DiscoverResponse> {
+        const { applicationId, webhookUrl, signingSecret, webhookHeaders, options } = params;
+        const webhookClient = new WebhookClient(
+            this.db,
+            applicationId,
+            webhookUrl,
+            signingSecret,
+            webhookHeaders ?? {},
+        );
+
+        this.logger.info("Calling discover webhook with caller-supplied config", { applicationId });
+        const response = await webhookClient.discover(options);
+        this.logger.info("Discover (with config) completed", {
+            applicationId,
+            modelCount: response.schema.models.length,
+        });
+        return response;
     }
 
     /**

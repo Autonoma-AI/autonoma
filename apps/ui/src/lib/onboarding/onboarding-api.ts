@@ -10,6 +10,7 @@ export {
     useStartScenarioDryRun,
     useSetUrl,
     useConfigureAndDiscoverScenarios,
+    useReconfigureWebhook,
     useOnboardingScenarios,
     useOnboardingStateOptional,
     useRunScenarioDryRun,
