@@ -85,6 +85,8 @@ The agent runs the full `discover` → `up` → `down` lifecycle against every s
 **Consumes:** Endpoint from Step 4 + scenarios from Step 3.
 **Produces:** `autonoma/scenario-recipes.json` + `autonoma/.scenario-validation.json` + `autonoma/.endpoint-validated` + uploaded recipes on the dashboard.
 
+The upload contract for `scenario-recipes.json` is documented in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/).
+
 ### Step 6 — Generate E2E tests
 
 The agent produces an exhaustive set of test cases as natural language markdown files, using the **validated, reconciled scenarios** from Step 5. Tests are distributed across tiers: core flows get 50-60% of coverage, supporting flows get the rest. The suite includes happy paths, input validation, state persistence, navigation, and cross-flow journey tests. Variable-field tokens are referenced symbolically so the test runner can substitute real values at execution time. An adversarial review agent runs after to find gaps.

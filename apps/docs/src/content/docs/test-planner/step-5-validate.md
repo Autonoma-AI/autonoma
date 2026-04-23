@@ -43,7 +43,7 @@ The loop runs up to **5 iterations**. If it still hasn't converged, the agent st
 
 ### Scenario recipes
 
-Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact nested tree** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The file is validated against `ScenarioRecipesFileSchema` (in `@autonoma/types`) by both the local preflight and the dashboard upload endpoint. The shape is:
+Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact nested tree** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The file is validated against `ScenarioRecipesFileSchema` (in `@autonoma/types`) by both the local preflight and the dashboard upload endpoint. Full field-by-field contract (including the `variables` tagged union and all rejection reasons) lives in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/). The shape is:
 
 ```json
 {

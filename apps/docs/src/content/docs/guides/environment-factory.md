@@ -7,6 +7,10 @@ description: How to set up the Autonoma Environment Factory in your application 
 This guide covers the SDK-based setup for the Environment Factory. For framework-specific examples, see [Examples](/examples/) — covering TypeScript, Python, Elixir, Java, Ruby, Rust, Go, and PHP.
 :::
 
+:::tip
+For the exact JSON contract of the recipe file that drives this endpoint at runtime, see the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/).
+:::
+
 ## The Big Picture
 
 Before Autonoma runs an E2E test, it needs two things:

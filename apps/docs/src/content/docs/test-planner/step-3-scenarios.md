@@ -7,6 +7,8 @@ The scenario generator takes your knowledge base and entity audit and produces `
 
 Each scenario is a nested tree of records rooted at your **scope entity** (e.g., `Organization`, `Tenant`, `Workspace`). The tree mirrors the foreign-key structure of your schema and becomes the `create` payload the SDK sends to your Environment Factory in Step 5.
 
+> The JSON file this eventually produces is uploaded to Autonoma's `/v1/setup/setups/:id/scenario-recipe-versions` endpoint. The exact upload contract - `version`, `source.discoverPath`, `validationMode`, `recipes[]`, and the `variables` tagged union - is documented in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/). Read that before writing a recipe generator or debugging an upload rejection.
+
 ## Prerequisites
 
 - `autonoma/AUTONOMA.md` and `autonoma/skills/` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))

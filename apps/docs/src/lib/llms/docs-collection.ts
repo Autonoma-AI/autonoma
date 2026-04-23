@@ -15,6 +15,7 @@ const SIDEBAR_ORDER: string[] = [
     "test-planner/step-5-validate",
     "test-planner/step-6-e2e-tests",
     "guides/environment-factory",
+    "reference/scenario-recipe-schema",
     "examples/index",
     "examples/typescript",
     "examples/python",
