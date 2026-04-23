@@ -105,6 +105,7 @@ model Organization {
 
   members            Member[]
   invitations        Invitation[]
+  apiKeys            ApiKey[]
   applications       Application[]
   branchDeployments  BranchDeployment[]
   webDeployments     WebDeployment[]
@@ -409,6 +410,7 @@ model ApiKey {
   prefix              String?
   key                 String
   userId              String    @map("user_id")
+  organizationId      String    @map("organization_id")
   refillInterval      Int?      @map("refill_interval")
   refillAmount        Int?      @map("refill_amount")
   lastRefillAt        DateTime? @map("last_refill_at")
@@ -425,9 +427,11 @@ model ApiKey {
   permissions         String?
   metadata            String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([organizationId])
   @@map("api_key")
 }
 

@@ -1,6 +1,14 @@
-import { Badge, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@autonoma/blacklight";
+import {
+  Badge,
+  Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@autonoma/blacklight";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Claude } from "components/icons";
+import { env } from "env";
 import { sounds } from "lib/onboarding/sounds";
 import { usePollApplicationSetup } from "lib/query/app-generations.queries";
 import { toastManager } from "lib/toast-manager";
@@ -12,7 +20,9 @@ import { InfoCallout } from "./-components/info-callout";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
 export const Route = createFileRoute("/_blacklight/onboarding/install")({
-  component: () => <Navigate to="/onboarding" search={{ step: "install", appId: undefined }} />,
+  component: () => (
+    <Navigate to="/onboarding" search={{ step: "install", appId: undefined }} />
+  ),
 });
 
 function obfuscateKey(key: string) {
@@ -41,7 +51,15 @@ function ClaudeIcon({ className }: { className?: string }) {
 
 function OpenAIIcon({ className }: { className?: string }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className={className} role="img" aria-label="OpenAI">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      role="img"
+      aria-label="OpenAI"
+    >
       <path
         d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.998 5.998 0 0 0-3.998 2.9 6.05 6.05 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.05 6.05 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073M13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494M3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.77.77 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646M2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.677l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667m2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"
         fill="currentColor"
@@ -52,7 +70,15 @@ function OpenAIIcon({ className }: { className?: string }) {
 
 function OpenCodeIcon({ className }: { className?: string }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className={className} role="img" aria-label="OpenCode">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      role="img"
+      aria-label="OpenCode"
+    >
       <path
         d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"
         fill="currentColor"
@@ -86,18 +112,26 @@ interface EnvSetupSectionProps {
   onCopied?: () => void;
 }
 
-function EnvSetupSection({ apiKey, applicationId, isActive, onCopied }: EnvSetupSectionProps) {
-  const apiUrl = window.location.origin;
-  const displayCommand = `export AUTONOMA_API_KEY=${obfuscateKey(apiKey)}\nexport AUTONOMA_PROJECT_ID=${applicationId}\nexport AUTONOMA_API_URL=${apiUrl}\nclaude --dangerously-skip-permissions`;
-  const rawCommand = `export AUTONOMA_API_KEY=${apiKey} && export AUTONOMA_PROJECT_ID=${applicationId} && export AUTONOMA_API_URL=${apiUrl} && claude --dangerously-skip-permissions`;
+function EnvSetupSection({
+  apiKey,
+  applicationId,
+  isActive,
+  onCopied,
+}: EnvSetupSectionProps) {
+  const apiUrl = env.VITE_API_URL;
+  const displayCommand = `export AUTONOMA_API_KEY=${obfuscateKey(apiKey)}\nexport AUTONOMA_PROJECT_ID=${applicationId}\nexport AUTONOMA_API_URL=${apiUrl}\nexport AUTONOMA_DOCS_URL=https://docs.agent.autonoma.app\nexport AUTONOMA_SDK_ENDPOINT=https://your-app.com/api/autonoma\nexport AUTONOMA_SHARED_SECRET=your-shared-secret\nclaude --dangerously-skip-permissions`;
+  const rawCommand = `export AUTONOMA_API_KEY=${apiKey} && export AUTONOMA_PROJECT_ID=${applicationId} && export AUTONOMA_API_URL=${apiUrl} && export AUTONOMA_DOCS_URL=https://docs.agent.autonoma.app && export AUTONOMA_SDK_ENDPOINT=https://your-app.com/api/autonoma && export AUTONOMA_SHARED_SECRET=your-shared-secret && claude --dangerously-skip-permissions`;
 
   return (
     <div className="space-y-2">
-      <p className="text-sm text-text-secondary">Set your environment variables and start Claude Code:</p>
+      <p className="text-sm text-text-secondary">
+        Set your environment variables and start Claude Code:
+      </p>
 
       <p className="pt-2 text-sm text-text-secondary">
-        The plugin now handles the SDK setup for you. It creates a branch, installs the Autonoma SDK, starts a local dev
-        server, verifies the endpoint, and opens a PR when possible.
+        If your project does not already have the Autonoma SDK integrated,
+        integrate the Autonoma SDK in your project first. The plugin needs that
+        SDK endpoint.
       </p>
       <CodeBlock
         copyValue={rawCommand}
@@ -109,11 +143,8 @@ function EnvSetupSection({ apiKey, applicationId, isActive, onCopied }: EnvSetup
         {displayCommand}
       </CodeBlock>
       <p className="font-mono text-2xs text-text-tertiary">
-        If your stack is unsupported, the plugin will stop early and tell you how to contact Autonoma.
-      </p>
-      <p className="font-mono text-2xs text-text-tertiary">
-        By default, the plugin continues automatically when AUTONOMA_AUTO_ADVANCE=true. For older plugin builds,
-        AUTONOMA_REQUIRE_CONFIRMATION=false remains a temporary compatibility alias for the same behavior.
+        Use the endpoint URL and shared secret from your project&apos;s SDK
+        integration, not from the Autonoma dashboard.
       </p>
     </div>
   );
@@ -125,7 +156,11 @@ interface ClaudeCodeTabProps {
   onStepCopied: () => void;
 }
 
-function ClaudeCodeTab({ result, activeStep, onStepCopied }: ClaudeCodeTabProps) {
+function ClaudeCodeTab({
+  result,
+  activeStep,
+  onStepCopied,
+}: ClaudeCodeTabProps) {
   return (
     <div className="space-y-8">
       {result != null ? (
@@ -157,7 +192,9 @@ function ClaudeCodeTab({ result, activeStep, onStepCopied }: ClaudeCodeTabProps)
 function ComingSoonTab({ name }: { name: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
-      <p className="font-mono text-sm text-text-tertiary">{name} support coming soon.</p>
+      <p className="font-mono text-sm text-text-tertiary">
+        {name} support coming soon.
+      </p>
     </div>
   );
 }
@@ -180,7 +217,9 @@ function useAutoSetup(appId: string | undefined) {
     async function setup() {
       // If we already have an appId from the URL, create a fresh API key for it
       if (appId != null) {
-        const apiKey = await trpcClient.apiKeys.create.mutate({ name: "Generation Agent" });
+        const apiKey = await trpcClient.apiKeys.create.mutate({
+          name: "Generation Agent",
+        });
         setResult({ apiKey: apiKey.key, applicationId: appId });
         return;
       }
@@ -190,15 +229,21 @@ function useAutoSetup(appId: string | undefined) {
         name: `app-${crypto.randomUUID().slice(0, 8)}`,
       });
 
-      const apiKey = await trpcClient.apiKeys.create.mutate({ name: "Generation Agent" });
+      const apiKey = await trpcClient.apiKeys.create.mutate({
+        name: "Generation Agent",
+      });
       setResult({ apiKey: apiKey.key, applicationId: app.id });
-      void navigate({ to: "/onboarding", search: { step: "install", appId: app.id }, replace: true });
+      void navigate({
+        to: "/onboarding",
+        search: { step: "install", appId: app.id },
+        replace: true,
+      });
     }
 
     setup().catch((err: Error) => {
       setError(err.message);
     });
-  }, [navigate, appId]);
+  }, []);
 
   return { result, error };
 }
@@ -213,13 +258,23 @@ function WaitingForAgent({ applicationId }: { applicationId: string }) {
     if (setup != null && !navigatedRef.current) {
       navigatedRef.current = true;
       sounds.agentConnected();
-      toastManager.add({ title: "Agent connected", type: "success", timeout: 3000 });
+      toastManager.add({
+        title: "Agent connected",
+        type: "success",
+        timeout: 3000,
+      });
       // Fetch fresh onboarding state (bypassing 30s staleTime) so the route loader
       // picks up step="working" instead of the cached "install" value.
       void queryClient
-        .fetchQuery({ ...trpc.onboarding.getState.queryOptions({ applicationId }), staleTime: 0 })
+        .fetchQuery({
+          ...trpc.onboarding.getState.queryOptions({ applicationId }),
+          staleTime: 0,
+        })
         .then(() => {
-          void navigate({ to: "/onboarding", search: { step: "working", appId: applicationId } });
+          void navigate({
+            to: "/onboarding",
+            search: { step: "working", appId: applicationId },
+          });
         });
     }
   }, [setup, navigate, applicationId]);
@@ -235,8 +290,12 @@ function AgentConnectionStatus() {
         <span className="relative inline-flex size-3 rounded-full bg-primary-ink" />
       </div>
       <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-text-primary">Waiting for agent to connect...</span>
-        <span className="text-xs text-text-secondary">Keep this tab open - it will advance automatically</span>
+        <span className="text-sm font-medium text-text-primary">
+          Waiting for agent to connect...
+        </span>
+        <span className="text-xs text-text-secondary">
+          Keep this tab open - it will advance automatically
+        </span>
       </div>
     </div>
   );
@@ -255,7 +314,8 @@ function RunPluginSection({ activeStep, onStepCopied }: RunPluginSectionProps) {
         Run the plugin
       </h2>
       <p className="text-sm leading-relaxed text-text-secondary">
-        Now run these commands inside Claude Code. Make sure you're in your project's root directory.
+        Now run these commands inside Claude Code. Make sure you're in your
+        project's root directory.
       </p>
 
       <div className="space-y-6">
@@ -286,7 +346,12 @@ interface InitializeLocalSkillCardProps {
   onStepCopied: () => void;
 }
 
-function InitializeLocalSkillCard({ result, error, activeStep, onStepCopied }: InitializeLocalSkillCardProps) {
+function InitializeLocalSkillCard({
+  result,
+  error,
+  activeStep,
+  onStepCopied,
+}: InitializeLocalSkillCardProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-6 border border-border-dim bg-surface-base p-8 sm:p-10">
       <div className="flex items-center gap-2">
@@ -330,7 +395,11 @@ function InitializeLocalSkillCard({ result, error, activeStep, onStepCopied }: I
           </TabsList>
 
           <TabsContent value="claude-code" className="pt-6">
-            <ClaudeCodeTab result={result} activeStep={activeStep} onStepCopied={onStepCopied} />
+            <ClaudeCodeTab
+              result={result}
+              activeStep={activeStep}
+              onStepCopied={onStepCopied}
+            />
           </TabsContent>
           <TabsContent value="openai-codex" className="pt-6">
             <ComingSoonTab name="OpenAI Codex" />
@@ -361,8 +430,9 @@ export function InstallPage({ appId }: { appId?: string }) {
         title="Install the Plugin"
         description={
           <>
-            The Autonoma plugin connects Claude Code to our platform. Once installed, the agent will analyze your
-            codebase and generate tests automatically.
+            The Autonoma plugin connects Claude Code to our platform. Once
+            installed, the agent will analyze your codebase and generate tests
+            automatically.
           </>
         }
         trailing={
@@ -378,9 +448,12 @@ export function InstallPage({ appId }: { appId?: string }) {
       />
 
       <InfoCallout title="What to expect">
-        Copy the commands below into your terminal. Once the plugin runs, the agent will connect to Autonoma and start
-        analyzing your project. This page will automatically advance when the connection is established.{" "}
-        <DocLink href="https://docs.agent.autonoma.app/test-planner/">Read the full guide</DocLink>
+        Copy the commands below into your terminal. Once the plugin runs, the
+        agent will connect to Autonoma and start analyzing your project. This
+        page will automatically advance when the connection is established.{" "}
+        <DocLink href="https://docs.agent.autonoma.app/test-planner/">
+          Read the full guide
+        </DocLink>
       </InfoCallout>
 
       <div className="mt-8" />
@@ -393,7 +466,10 @@ export function InstallPage({ appId }: { appId?: string }) {
             activeStep={activeStep}
             onStepCopied={handleStepCopied}
           />
-          <RunPluginSection activeStep={activeStep} onStepCopied={handleStepCopied} />
+          <RunPluginSection
+            activeStep={activeStep}
+            onStepCopied={handleStepCopied}
+          />
         </div>
       ) : (
         <InitializeLocalSkillCard

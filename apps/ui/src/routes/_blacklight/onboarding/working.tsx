@@ -1,5 +1,5 @@
 import { Skeleton, cn } from "@autonoma/blacklight";
-import { SetupStepNames } from "@autonoma/types";
+import { Bell } from "@phosphor-icons/react/Bell";
 import { Check } from "@phosphor-icons/react/Check";
 import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { File } from "@phosphor-icons/react/File";
@@ -14,6 +14,8 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { DocLink } from "./-components/doc-link";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
+const SETUP_STEP_NAMES = ["Knowledge Base", "Entity Audit", "Scenarios", "Implement", "Validate", "E2E Tests"] as const;
+
 export const Route = createFileRoute("/_blacklight/onboarding/working")({
   component: () => <Navigate to="/onboarding" search={{ step: "working", appId: undefined }} />,
 });
@@ -25,7 +27,7 @@ interface SetupEvent {
   createdAt: Date;
 }
 
-function getSetupEventIcon(type: string) {
+function getSetupEventIcon(type: string, data?: Record<string, unknown>) {
   switch (type) {
     case "file.read":
       return <File size={12} className="text-text-tertiary" />;
@@ -33,8 +35,16 @@ function getSetupEventIcon(type: string) {
       return <FileArrowUp size={12} className="text-primary-ink" />;
     case "error":
       return <WarningCircle size={12} className="text-status-critical" />;
-    default:
+    case "activity":
+    case "transcript":
+      return <TerminalWindowIcon size={12} className="text-text-tertiary opacity-60" />;
+    default: {
+      if (type === "transcript" && (data?.role as string) === "tool_result") {
+        const first = Array.isArray(data?.results) ? (data?.results as Array<Record<string, unknown>>)[0] : undefined;
+        if (first?.is_error === true) return <WarningCircle size={12} className="text-status-critical" />;
+      }
       return null;
+    }
   }
 }
 
@@ -53,17 +63,40 @@ function getSetupEventMessage(event: SetupEvent) {
       return data.message as string;
     case "error":
       return data.message as string;
+    case "activity": {
+      const tool = (data.tool as string) ?? "tool";
+      const preview = (data.preview as string) ?? "";
+      return preview ? `${tool}  ${preview}` : tool;
+    }
+    case "transcript": {
+      const role = data.role as string;
+      if (role === "assistant") {
+        const text = (data.text as string) ?? "";
+        if (text) return text;
+        const toolUses = (data.tool_uses as Array<{ name: string; input_preview?: string }>) ?? [];
+        if (toolUses.length > 0) {
+          return toolUses.map((t) => (t.input_preview != null ? `${t.name}(${t.input_preview})` : t.name)).join("  ");
+        }
+        return "";
+      }
+      if (role === "tool_result") {
+        const results = (data.results as Array<{ is_error?: boolean; preview?: string }>) ?? [];
+        const first = results[0];
+        if (first == null) return "";
+        const prefix = first.is_error === true ? "✗" : "✓";
+        return first.preview != null ? `${prefix} ${first.preview}` : prefix;
+      }
+      return event.type;
+    }
     default:
       return event.type;
   }
 }
 
 function StepIndicator({ step, currentStep, status }: { step: number; currentStep: number; status: string }) {
-  const isCompleted =
-    status === "completed" || ((status === "running" || status === "partial_failure") && step < currentStep);
+  const isCompleted = status === "completed" || (status === "running" && step < currentStep);
   const isActive = status === "running" && step === currentStep;
   const isFailed = status === "failed" && step === currentStep;
-  const isPartialFailure = status === "partial_failure" && step === currentStep;
 
   return (
     <div className="flex items-center gap-3">
@@ -73,8 +106,7 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           isCompleted && "border-primary-ink bg-primary-ink",
           isActive && "border-primary-ink",
           isFailed && "border-status-critical",
-          isPartialFailure && "border-status-warn",
-          !isCompleted && !isActive && !isFailed && !isPartialFailure && "border-border-dim",
+          !isCompleted && !isActive && !isFailed && "border-border-dim",
         )}
       >
         {isCompleted ? (
@@ -83,8 +115,6 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           <CircleNotch size={14} className="animate-spin text-primary-ink" />
         ) : isFailed ? (
           <WarningCircle size={14} className="text-status-critical" />
-        ) : isPartialFailure ? (
-          <WarningCircle size={14} className="text-status-warn" />
         ) : (
           <span className="font-mono text-3xs text-text-tertiary">{step + 1}</span>
         )}
@@ -95,15 +125,72 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           isCompleted && "text-text-primary",
           isActive && "text-primary-ink",
           isFailed && "text-status-critical",
-          isPartialFailure && "text-status-warn",
-          !isCompleted && !isActive && !isFailed && !isPartialFailure && "text-text-tertiary",
+          !isCompleted && !isActive && !isFailed && "text-text-tertiary",
         )}
       >
-        {SetupStepNames[step]}
+        {SETUP_STEP_NAMES[step]}
       </span>
     </div>
   );
 }
+
+const NOTIFICATION_TAG = "autonoma-setup";
+const NOTIFICATION_DISMISSED_KEY = "autonoma.notifications.dismissed";
+
+function notificationsUnsupported(): boolean {
+  return typeof window === "undefined" || typeof Notification === "undefined";
+}
+
+function fireNotification(title: string, body: string) {
+  if (notificationsUnsupported() || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, { body, tag: NOTIFICATION_TAG, renotify: true } as NotificationOptions & {
+      renotify?: boolean;
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  } catch {
+    // Some browsers throw if the page is not visible + no service worker; ignore.
+  }
+}
+
+function useSetupNotifications(events: SetupEvent[], isCompleted: boolean, isFailed: boolean) {
+  const lastCompletedStepRef = useRef(-1);
+  const finalFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (notificationsUnsupported()) return;
+    if (Notification.permission !== "granted") return;
+    if (typeof document !== "undefined" && document.visibilityState === "visible") return;
+
+    if ((isCompleted || isFailed) && !finalFiredRef.current) {
+      finalFiredRef.current = true;
+      fireNotification(
+        isFailed ? "Test generation failed" : "Your test suite is ready",
+        isFailed ? "Check the terminal for details." : "Click to return to Autonoma and continue onboarding.",
+      );
+      return;
+    }
+
+    const latestCompleted = [...events].reverse().find((e) => e.type === "step.completed");
+    if (latestCompleted == null) return;
+    const step = (latestCompleted.data as { step?: number }).step ?? -1;
+    if (step <= lastCompletedStepRef.current) return;
+    lastCompletedStepRef.current = step;
+
+    const nextStepName = SETUP_STEP_NAMES[step + 1];
+    if (nextStepName != null) {
+      fireNotification(
+        `${SETUP_STEP_NAMES[step]} complete`,
+        `Claude is asking for confirmation to start ${nextStepName}.`,
+      );
+    }
+  }, [events, isCompleted, isFailed]);
+}
+
+const EVENT_PAGE_SIZE = 200;
 
 function SetupProgress({ applicationId }: { applicationId: string }) {
   const navigate = useNavigate();
@@ -112,30 +199,48 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
   const completedFiredRef = useRef(false);
   const lastNotifiedStepRef = useRef(-1);
   const [waitingForConfirmation, setWaitingForConfirmation] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(EVENT_PAGE_SIZE);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
 
   const events = useMemo(() => (setup?.events ?? []) as SetupEvent[], [setup?.events]);
   const currentStep = setup?.currentStep ?? 0;
   const status = setup?.status ?? "running";
   const isCompleted = status === "completed";
   const isFailed = status === "failed";
-  const isPartialFailure = status === "partial_failure";
 
-  // Filter to display events (file.read, file.created, log, error)
-  const displayEvents = events.filter(
-    (e) => e.type === "file.read" || e.type === "file.created" || e.type === "log" || e.type === "error",
-  );
+  // Filter to display events. `activity` (per-tool heartbeat) and `transcript`
+  // (live streamed assistant text + tool results) produce the "agent log" that
+  // shows the dashboard something is happening between file writes.
+  const DISPLAY_TYPES = new Set(["file.read", "file.created", "log", "error", "activity", "transcript"]);
+  const displayEvents = events.filter((e) => DISPLAY_TYPES.has(e.type));
+  const visibleEvents = displayEvents.slice(-visibleCount);
+  const hiddenCount = Math.max(0, displayEvents.length - visibleEvents.length);
 
-  // Auto-scroll when new events arrive
+  // Track whether the user has scrolled up to browse history. Default on; flips off
+  // when the user actively scrolls away from the bottom, back on when they return.
+  const autoScrollRef = useRef(true);
+  useEffect(() => {
+    const el = consoleRef.current;
+    if (el == null) return;
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      autoScrollRef.current = distance < 40;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll when new events arrive, unless the user has scrolled up.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll triggered by event count change
   useEffect(() => {
-    if (consoleRef.current != null) {
-      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-    }
+    const el = consoleRef.current;
+    if (el == null || !autoScrollRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [displayEvents.length]);
 
   // Detect when a step completes and the plugin is waiting for user confirmation
   useEffect(() => {
-    if (isCompleted || isFailed || isPartialFailure) {
+    if (isCompleted || isFailed) {
       setWaitingForConfirmation(false);
       return;
     }
@@ -153,19 +258,52 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
       latestStepStarted != null ? ((latestStepStarted.data as { step?: number }).step ?? -1) : -1;
     const isWaiting = completedStepIndex >= startedStepIndex;
 
-    if (isWaiting && completedStepIndex < SetupStepNames.length - 1) {
+    if (isWaiting && completedStepIndex < SETUP_STEP_NAMES.length - 1) {
       lastNotifiedStepRef.current = completedStepIndex;
       setWaitingForConfirmation(true);
       sounds.attention();
       toastManager.add({
-        title: `${SetupStepNames[completedStepIndex]} completed`,
+        title: `${SETUP_STEP_NAMES[completedStepIndex]} completed`,
         description: "Switch to your terminal and confirm to continue to the next step.",
         type: "info",
       });
     } else {
       setWaitingForConfirmation(false);
     }
-  }, [events, isCompleted, isFailed, isPartialFailure]);
+  }, [events, isCompleted, isFailed]);
+
+  useSetupNotifications(events, isCompleted, isFailed);
+
+  // Show the notification permission prompt after the page has been visible for
+  // a few seconds — only if the user hasn't already granted, denied, or dismissed it.
+  useEffect(() => {
+    if (notificationsUnsupported()) return;
+    if (Notification.permission !== "default") return;
+    if (typeof window !== "undefined" && window.localStorage.getItem(NOTIFICATION_DISMISSED_KEY) === "1") return;
+    const t = setTimeout(() => setShowNotifPrompt(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    if (notificationsUnsupported()) {
+      setShowNotifPrompt(false);
+      return;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      setShowNotifPrompt(false);
+      if (result === "denied" && typeof window !== "undefined") {
+        window.localStorage.setItem(NOTIFICATION_DISMISSED_KEY, "1");
+      }
+    } catch {
+      setShowNotifPrompt(false);
+    }
+  };
+
+  const handleDismissNotifications = () => {
+    setShowNotifPrompt(false);
+    if (typeof window !== "undefined") window.localStorage.setItem(NOTIFICATION_DISMISSED_KEY, "1");
+  };
 
   // Clear waiting state when a new step starts
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear waiting on step change
@@ -194,10 +332,10 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
     <>
       {/* Step indicators */}
       <div className="mb-8 flex items-center gap-6">
-        {SetupStepNames.map((name, index) => (
+        {SETUP_STEP_NAMES.map((name, index) => (
           <div key={name} className="flex items-center gap-6">
             <StepIndicator step={index} currentStep={currentStep} status={status} />
-            {index < SetupStepNames.length - 1 && (
+            {index < SETUP_STEP_NAMES.length - 1 && (
               <div
                 className={cn("h-px w-8 transition-colors", index < currentStep ? "bg-primary-ink" : "bg-border-dim")}
               />
@@ -206,12 +344,40 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
         ))}
       </div>
 
+      {/* Notification permission prompt */}
+      {showNotifPrompt && (
+        <div className="mb-4 flex items-center justify-between gap-3 border border-border-dim bg-surface-raised px-5 py-3">
+          <div className="flex items-center gap-3">
+            <Bell size={18} className="shrink-0 text-text-tertiary" />
+            <p className="font-mono text-sm text-text-secondary">
+              Want a notification when your tests are ready? Works even if you change tabs.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDismissNotifications}
+              className="font-mono text-xs text-text-tertiary hover:text-text-secondary"
+            >
+              No thanks
+            </button>
+            <button
+              type="button"
+              onClick={handleEnableNotifications}
+              className="border border-primary-ink bg-primary-ink/10 px-3 py-1 font-mono text-xs text-primary-ink hover:bg-primary-ink/20"
+            >
+              Turn on
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Waiting for confirmation banner */}
       {waitingForConfirmation && (
         <div className="mb-4 flex items-center gap-3 border border-status-warn/30 bg-status-warn/5 px-5 py-3 animate-pulse">
           <TerminalWindowIcon size={20} weight="fill" className="shrink-0 text-status-warn" />
           <p className="font-mono text-sm text-status-warn">
-            Action required in your terminal - confirm in Claude Code to continue to the next step.
+            Finishing up this step — Claude will ask you to confirm in your terminal shortly.
           </p>
         </div>
       )}
@@ -219,7 +385,10 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
       {/* Event console */}
       <div className="overflow-hidden border border-border-dim bg-surface-base">
         <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-4 py-2">
-          <span className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">Agent Log</span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">Claude Code Output</span>
+            <span className="font-mono text-3xs text-text-tertiary/70">— not stored, just your terminal output</span>
+          </div>
           <div className="flex items-center gap-1.5">
             {!isCompleted && !isFailed && (
               <span className="relative flex size-2">
@@ -230,16 +399,10 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
             <span
               className={cn(
                 "font-mono text-3xs",
-                isFailed
-                  ? "text-status-critical"
-                  : isPartialFailure
-                    ? "text-status-warn"
-                    : isCompleted
-                      ? "text-status-success"
-                      : "text-text-tertiary",
+                isFailed ? "text-status-critical" : isCompleted ? "text-status-success" : "text-text-tertiary",
               )}
             >
-              {isFailed ? "failed" : isPartialFailure ? "needs attention" : isCompleted ? "done" : "live"}
+              {isFailed ? "failed" : isCompleted ? "done" : "live"}
             </span>
           </div>
         </div>
@@ -253,7 +416,18 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
             <span className="text-text-tertiary opacity-50">waiting for agent output...</span>
           ) : (
             <>
-              {displayEvents.map((event) => (
+              {hiddenCount > 0 && (
+                <div className="mb-3 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((n) => n + EVENT_PAGE_SIZE)}
+                    className="font-mono text-3xs uppercase tracking-widest text-text-tertiary underline decoration-dotted underline-offset-4 transition-colors hover:text-text-secondary"
+                  >
+                    load {Math.min(EVENT_PAGE_SIZE, hiddenCount)} more ({hiddenCount} hidden)
+                  </button>
+                </div>
+              )}
+              {visibleEvents.map((event) => (
                 <div key={event.id} className="mb-1.5 flex items-start gap-3">
                   <span className="mt-0.5 w-20 shrink-0 text-3xs text-text-tertiary opacity-50">
                     {new Date(event.createdAt).toLocaleTimeString([], {
@@ -263,7 +437,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
                     })}
                   </span>
                   <span className="mt-0.5 flex size-3 shrink-0 items-center justify-center">
-                    {getSetupEventIcon(event.type)}
+                    {getSetupEventIcon(event.type, event.data)}
                   </span>
                   <span
                     className={cn(
@@ -275,7 +449,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
                   </span>
                 </div>
               ))}
-              {!isCompleted && !isFailed && !isPartialFailure && (
+              {!isCompleted && !isFailed && (
                 <div className="mt-2 flex items-center gap-3">
                   <span className="w-20 shrink-0 text-3xs text-text-tertiary opacity-50" />
                   <span className="animate-pulse text-text-tertiary">_</span>
@@ -293,13 +467,6 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
         </div>
       )}
 
-      {isPartialFailure && setup?.errorMessage != null && (
-        <div className="mt-4 border border-status-warn/30 bg-status-warn/10 p-4 font-mono text-sm text-status-warn">
-          Scenario Validation produced useful artifacts, but the live integration still needs attention:{" "}
-          {setup.errorMessage}
-        </div>
-      )}
-
       {isCompleted && (
         <div className="mt-6 flex items-center gap-3">
           <span className="animate-pulse font-mono text-sm text-primary-ink">Continuing to next step...</span>
@@ -313,13 +480,13 @@ function WorkingPageSkeleton() {
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-6">
-        {Array.from({ length: SetupStepNames.length }, (_, i) => (
+        {Array.from({ length: 5 }, (_, i) => (
           <div key={`skeleton-${String(i)}`} className="flex items-center gap-6">
             <div className="flex items-center gap-3">
               <Skeleton className="size-7 rounded-full" />
               <Skeleton className="h-4 w-24" />
             </div>
-            {i < SetupStepNames.length - 1 && <Skeleton className="h-px w-8" />}
+            {i < 4 && <Skeleton className="h-px w-8" />}
           </div>
         ))}
       </div>
@@ -345,8 +512,10 @@ export function WorkingPage({ appId }: { appId?: string }) {
         title="Autonoma's Agent is working on your project"
         description={
           <p>
-            The agent is running through all five stages of the test planner pipeline. You can watch its progress in the
-            log below. <span className="font-bold text-primary-ink">Please don&apos;t close this tab.</span>
+            The agent is running through five stages — analyzing your codebase, auditing entity creation, planning
+            scenarios, implementing and validating the environment factory, and generating tests. You can watch its
+            progress in the log below.{" "}
+            <span className="font-bold text-primary-ink">Please don&apos;t close this tab.</span>
           </p>
         }
         descriptionClassName="text-sm"
@@ -356,31 +525,35 @@ export function WorkingPage({ appId }: { appId?: string }) {
         <h3 className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">What each stage does</h3>
         <div className="grid gap-2 text-sm text-text-secondary">
           <p>
-            <span className="font-medium text-text-primary">SDK Integration</span> - Detects your stack, installs the
-            SDK packages, wires the endpoint, and starts a dev server for the rest of the pipeline.{" "}
-            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-1-sdk-integration/">Learn more</DocLink>
-          </p>
-          <p>
-            <span className="font-medium text-text-primary">Knowledge Base</span> - Reads your source code, maps pages,
+            <span className="font-medium text-text-primary">Knowledge Base</span> – Reads your source code, maps pages,
             routes, forms, and interactive elements into a structured understanding of your app.{" "}
             <DocLink href="https://docs.agent.autonoma.app/test-planner/step-1-knowledge-base/">Learn more</DocLink>
           </p>
           <p>
-            <span className="font-medium text-text-primary">Scenarios</span> - Creates test data environments (e.g.,
-            "user with items in cart") so each test starts from a known state.{" "}
-            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-2-scenarios/">Learn more</DocLink>
+            <span className="font-medium text-text-primary">Entity Audit</span> – Examines how each database model is
+            created in your codebase and identifies side effects (password hashing, file uploads, external API calls)
+            that require factories.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-2-entity-audit/">Learn more</DocLink>
           </p>
           <p>
-            <span className="font-medium text-text-primary">E2E Tests</span> - Generates natural language test files
-            covering your app's key user flows, organized by category and priority.{" "}
-            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-3-e2e-tests/">Learn more</DocLink>
+            <span className="font-medium text-text-primary">Scenarios</span> – Designs test data environments (e.g.,
+            &ldquo;user with items in cart&rdquo;) so each test starts from a known state.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-3-scenarios/">Learn more</DocLink>
           </p>
           <p>
-            <span className="font-medium text-text-primary">Scenario Validation</span> - Validates the planned scenarios
-            against the live endpoint and uploads executable recipes for later runs.{" "}
-            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-4-implement-scenarios/">
-              Learn more
-            </DocLink>
+            <span className="font-medium text-text-primary">Implement</span> – Installs the Autonoma SDK and configures
+            the environment factory endpoint with factories for every model with dedicated creation code.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-4-implement/">Learn more</DocLink>
+          </p>
+          <p>
+            <span className="font-medium text-text-primary">Validate</span> – Runs the full discover/up/down lifecycle
+            against the endpoint, iteratively fixes any failures, and reconciles scenarios.md with what actually works.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-5-validate/">Learn more</DocLink>
+          </p>
+          <p>
+            <span className="font-medium text-text-primary">E2E Tests</span> – Generates natural language test files
+            covering your app&apos;s key user flows, organized by category and priority.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-6-e2e-tests/">Learn more</DocLink>
           </p>
         </div>
       </div>

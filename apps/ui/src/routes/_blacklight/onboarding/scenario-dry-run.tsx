@@ -20,6 +20,7 @@ import {
   useCompleteOnboarding,
   useConfigureAndDiscoverScenarios,
   useOnboardingScenarios,
+  useOnboardingStateOptional,
   useRunScenarioDryRun,
 } from "lib/onboarding/onboarding-api";
 import { toastManager } from "lib/toast-manager";
@@ -265,9 +266,18 @@ function WebhookLog({ entries }: { entries: LogEntry[] }) {
   );
 }
 
+function generateHexSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export function DeployPage({ appId }: { appId?: string }) {
   const applicationId = appId;
 
+  const [generatedSecret] = useState(generateHexSecret);
   const [webhookUrlDraft, setWebhookUrlDraft] = useState<string>();
   const [webhookUrlTouched, setWebhookUrlTouched] = useState(false);
   const [signingSecret, setSigningSecret] = useState("");
@@ -277,7 +287,7 @@ export function DeployPage({ appId }: { appId?: string }) {
   const [appUrlTouched, setAppUrlTouched] = useState(false);
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [webhookConfirmed, setWebhookConfirmed] = useState(false);
+  const [forceReconfigure, setForceReconfigure] = useState(false);
 
   // Per-scenario dry run results, keyed by scenario id
   const [scenarioResults, setScenarioResults] = useState<
@@ -288,12 +298,14 @@ export function DeployPage({ appId }: { appId?: string }) {
   const navigate = useNavigate();
   const discoverScenarios = useConfigureAndDiscoverScenarios();
   const scenariosQuery = useOnboardingScenarios(applicationId ?? "");
+  const onboardingStateQuery = useOnboardingStateOptional(applicationId ?? "");
   const runDryRun = useRunScenarioDryRun();
   const completeOnboarding = useCompleteOnboarding();
   const log = useLogEntries();
 
   const webhookUrl = webhookUrlDraft ?? "";
   const scenarios = scenariosQuery.data ?? [];
+  const webhookConfirmed = !forceReconfigure && (onboardingStateQuery.data?.webhookConfigured ?? false);
   const isWebhookConfigured = webhookConfirmed && scenarios.length > 0;
   const isAppUrlValid = appUrl.length > 0 && isValidUrl(appUrl);
 
@@ -329,7 +341,7 @@ export function DeployPage({ appId }: { appId?: string }) {
         onSuccess: () => {
           log.addEntry("success", "Scenarios discovered successfully");
           setScenarioResults({});
-          setWebhookConfirmed(true);
+          setForceReconfigure(false);
         },
         onError: (error) => {
           log.addEntry("error", formatError(error));
@@ -339,7 +351,7 @@ export function DeployPage({ appId }: { appId?: string }) {
   }
 
   function handleReconfigure() {
-    setWebhookConfirmed(false);
+    setForceReconfigure(true);
     setScenarioResults({});
     log.clear();
   }
@@ -423,11 +435,11 @@ export function DeployPage({ appId }: { appId?: string }) {
           <div className="flex-1 space-y-3">
             <h2 className="text-lg font-medium text-text-primary">Deploy the changes the agent made</h2>
             <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
-              The plugin created an environment factory endpoint in your codebase (typically at{" "}
+              The agent created an environment factory endpoint in your codebase (typically at{" "}
               <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-2xs text-primary-ink">
                 /api/autonoma
               </code>
-              ). Deploy those changes so the endpoint is reachable from Autonoma.{" "}
+              ). You need to commit, push, and deploy these changes so the endpoint is reachable.{" "}
               <DocLink href="https://docs.agent.autonoma.app/guides/environment-factory/">
                 See the Environment Factory guide
               </DocLink>
@@ -436,7 +448,7 @@ export function DeployPage({ appId }: { appId?: string }) {
             <div className="flex flex-col gap-3 border border-border-dim bg-surface-base p-4">
               <div className="flex items-center gap-2.5 text-sm text-text-secondary">
                 <GitBranchIcon size={16} weight="bold" className="shrink-0 text-text-tertiary" />
-                <span>Push and deploy the branch or PR the plugin created in your repository</span>
+                <span>Commit and push the agent's changes to your repository</span>
               </div>
               <div className="flex items-center gap-2.5 text-sm text-text-secondary">
                 <RocketLaunchIcon size={16} weight="bold" className="shrink-0 text-text-tertiary" />
@@ -453,14 +465,36 @@ export function DeployPage({ appId }: { appId?: string }) {
                 <div className="flex flex-col gap-1.5">
                   <span>Set these environment variables on your deployed environment:</span>
                   <div className="flex flex-col gap-1 pl-1">
-                    <div className="flex items-center gap-2 font-mono text-2xs">
-                      <CircleIcon size={6} weight="fill" className="shrink-0 text-text-tertiary" />
-                      <code className="rounded bg-surface-raised px-1.5 py-0.5 text-primary-ink">
-                        AUTONOMA_SHARED_SECRET
-                      </code>
-                      <span className="font-sans text-text-tertiary">
-                        - copy the value from the env file the plugin created in your repo
-                      </span>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2 font-mono text-2xs">
+                        <CircleIcon size={6} weight="fill" className="shrink-0 text-text-tertiary" />
+                        <code className="rounded bg-surface-raised px-1.5 py-0.5 text-primary-ink">
+                          AUTONOMA_SHARED_SECRET
+                        </code>
+                        <span className="font-sans text-text-tertiary">- HMAC secret for webhook verification</span>
+                      </div>
+                      <div className="ml-3.5 flex items-center gap-2">
+                        <code className="truncate rounded bg-surface-raised px-1.5 py-0.5 font-mono text-2xs text-text-secondary">
+                          {`${generatedSecret.slice(0, 8)}${"*".repeat(8)}${generatedSecret.slice(-4)}`}
+                        </code>
+                        <button
+                          type="button"
+                          title="Copy secret and auto-fill below"
+                          className="flex shrink-0 items-center justify-center text-text-tertiary transition-colors hover:text-primary-ink"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(`AUTONOMA_SHARED_SECRET=${generatedSecret}`).then(() => {
+                              setSigningSecret(generatedSecret);
+                              toastManager.add({
+                                type: "success",
+                                title: "Secret copied",
+                                description: "AUTONOMA_SHARED_SECRET copied and auto-filled below.",
+                              });
+                            });
+                          }}
+                        >
+                          <CopyIcon size={14} />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 font-mono text-2xs">
                       <CircleIcon size={6} weight="fill" className="shrink-0 text-text-tertiary" />
@@ -565,8 +599,10 @@ export function DeployPage({ appId }: { appId?: string }) {
                     <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">
                       AUTONOMA_SHARED_SECRET
                     </code>{" "}
-                    value from the env file the plugin created in your repo, then set the same value on your deployed
-                    environment. This is the secret your deployed endpoint uses to verify requests.
+                    from your project's{" "}
+                    <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env.local</code> or{" "}
+                    <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env</code> file. This is
+                    the same secret your deployed endpoint uses to verify requests.
                   </p>
                   <Input
                     id="signing-secret"

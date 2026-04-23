@@ -1,19 +1,11 @@
 ---
 title: E2E Test Planner
-description: A Claude Code plugin that analyzes your codebase, integrates the Autonoma SDK, and produces a complete E2E test suite.
+description: A Claude Code plugin that analyzes your codebase and produces a complete E2E test suite, plus the infrastructure to run it.
 ---
 
 import InstallTabs from "../../../components/InstallTabs.astro"
 
-The Test Planner is a **Claude Code plugin** that takes a web application codebase and runs a **five-step pipeline**:
-
-1. integrate the Autonoma SDK into your project
-2. generate a knowledge base
-3. design test data scenarios
-4. generate E2E tests
-5. validate the scenarios against the live endpoint
-
-The final output is a test suite plus validated scenario recipes that Autonoma can execute against your Environment Factory endpoint.
+The Test Planner is a **Claude Code plugin** that takes any web application codebase and produces a complete, production-ready E2E test suite in six steps. Install it once, run a single command, and the plugin handles orchestration, deterministic validation gates, and user confirmation checkpoints automatically. The final output is a set of test files ready to upload to Autonoma, backed by a live Environment Factory endpoint that creates isolated test data for every run.
 
 ## Installation
 
@@ -39,91 +31,99 @@ Then run the plugin:
 
 </InstallTabs>
 
+The plugin runs each step in an **isolated subagent** and validates every output with **deterministic shell-script validation** (Python + YAML parsing) — not LLM-based checks. If validation fails, the agent sees the exact error and must fix it before proceeding. PostToolUse hooks validate every file write automatically, and cross-file consistency checks ensure outputs like INDEX.md test counts match features.json feature counts. A hard validation gate prevents test files from being written until the scenario lifecycle has been proven end-to-end.
+
 ## Before you start
 
-The plugin still runs primarily against your **frontend codebase**, but it now starts by wiring the SDK integration itself instead of expecting you to provide a ready-made endpoint up front.
+The plugin runs against your **frontend codebase** to discover pages, flows, and UI patterns, and against your **backend codebase** to audit entity creation paths and set up the Environment Factory.
 
 Before you start, make sure you have:
 
 - access to the frontend codebase
-- access to the backend codebase if it lives separately from the frontend
+- access to the backend codebase (can be the same monorepo)
 - these environment variables in the Claude Code session:
   - `AUTONOMA_API_KEY`
   - `AUTONOMA_PROJECT_ID`
   - `AUTONOMA_API_URL`
 
-Optional:
+If your frontend and backend are in the same monorepo, you're all set. If they're in separate repositories, make sure the agent has access to both.
 
-- `AUTONOMA_AUTO_ADVANCE=true` to keep the plugin moving automatically after Steps 1-4
-- `AUTONOMA_REQUIRE_CONFIRMATION=false` as a temporary compatibility alias for older launcher flows
+## The six steps
 
-You do **not** need to pre-supply the SDK endpoint URL or the shared request-signing secret anymore. The plugin creates the branch, installs the SDK, starts a local dev server, verifies the endpoint, and writes the discovered endpoint URL into the pipeline artifacts.
+### Step 1 — Generate a knowledge base
 
-If your stack is unsupported, the plugin stops in Step 1 and tells you how to contact Autonoma.
+The agent analyzes your frontend codebase and produces `AUTONOMA.md`: a user-perspective guide to every page, flow, and interaction in your application. It also generates `skills/` files — step-by-step navigation guides the test runner uses to reach specific pages and perform setup actions.
 
-## The five steps
+**Consumes:** Your frontend codebase.
+**Produces:** `autonoma/AUTONOMA.md` + `autonoma/skills/*.md` + `autonoma/features.json`
 
-### Step 1 - SDK Integration
+### Step 2 — Entity creation audit
 
-The plugin detects your stack, installs the SDK from the appropriate package manager, wires the endpoint into your app, starts a dev server, and verifies `discover`, `up`, and `down`.
+The agent inspects your backend codebase to find the canonical creation function for every database model — typically a service, repository, or similar helper. Models with dedicated creation code get factories in the Environment Factory; models without fall back to raw SQL INSERT. The audit records observed side effects (password hashing, slug generation, external API calls) so you can see why each factory matters.
 
-**Consumes:** Your repo plus the synced plugin SDK matrix.
-**Produces:** working SDK integration + `autonoma/.sdk-endpoint`
+**Consumes:** Knowledge base + your backend codebase.
+**Produces:** `autonoma/entity-audit.md`
 
-### Step 2 - Generate a knowledge base
+### Step 3 — Generate test data scenarios
 
-The agent analyzes your codebase and produces `AUTONOMA.md`: a user-perspective guide to your pages, flows, and interactions. It also generates `skills/` files the test runner can use for navigation.
+The agent reads the database schema directly from your backend and designs three named test data environments: `standard` (realistic variety for most tests), `empty` (for zero-state testing), and `large` (for pagination and performance). `scenarios.md` records concrete values and relationships, plus schema metadata and generated-value placeholders (`{{token}}`) for fields that must vary across runs.
 
-**Consumes:** Your codebase.
-**Produces:** `autonoma/AUTONOMA.md` + `autonoma/skills/*.md`
+**Consumes:** Knowledge base + entity audit + your backend codebase.
+**Produces:** `autonoma/scenarios.md`
 
-### Step 3 - Generate test data scenarios
+### Step 4 — Implement the Environment Factory
 
-The agent uses the SDK `discover` artifact captured during Step 1, plus the knowledge base, to design the `standard`, `empty`, and `large` scenarios.
+The agent installs the Autonoma SDK in your backend, configures the handler, and registers a factory for every model marked `independently_created: true` in the audit — calling your real service/repository function so test data flows through the same business logic as production data. Models without dedicated creation code fall back to raw SQL INSERT automatically. A `discover` smoke test plus a factory-integrity check confirm the handler is wired correctly before handing off to Step 5.
 
-**Consumes:** Knowledge base + verified SDK endpoint/discover output.
-**Produces:** `autonoma/discover.json` + `autonoma/scenarios.md`
+**Consumes:** Entity audit + scenarios + your backend codebase.
+**Produces:** A working Environment Factory endpoint + `autonoma/.endpoint-implemented`
 
-### Step 4 - Generate E2E tests
+### Step 5 — Validate scenario lifecycle
 
-The agent generates an E2E test suite as natural-language markdown files organized by flow and priority.
+The agent runs the full `discover` → `up` → `down` lifecycle against every scenario, iterating up to five times to fix handler bugs or reconcile `scenarios.md` with reality. Once every scenario passes, it emits `autonoma/scenario-recipes.json`, runs a deterministic preflight check, and uploads the validated recipes to the Autonoma dashboard. The `.endpoint-validated` sentinel this step writes is what unlocks Step 6.
 
-**Consumes:** Knowledge base + scenarios.
-**Produces:** `autonoma/qa-tests/INDEX.md` + `autonoma/qa-tests/**/*`
+**Consumes:** Endpoint from Step 4 + scenarios from Step 3.
+**Produces:** `autonoma/scenario-recipes.json` + `autonoma/.scenario-validation.json` + `autonoma/.endpoint-validated` + uploaded recipes on the dashboard.
 
-### Step 5 - Scenario Validation
+### Step 6 — Generate E2E tests
 
-The plugin validates the planned scenarios against the live endpoint from Step 1, smoke-tests the lifecycle, and uploads executable recipe artifacts.
+The agent produces an exhaustive set of test cases as natural language markdown files, using the **validated, reconciled scenarios** from Step 5. Tests are distributed across tiers: core flows get 50-60% of coverage, supporting flows get the rest. The suite includes happy paths, input validation, state persistence, navigation, and cross-flow journey tests. Variable-field tokens are referenced symbolically so the test runner can substitute real values at execution time. An adversarial review agent runs after to find gaps.
 
-**Consumes:** `discover.json` + `scenarios.md` + live SDK endpoint.
-**Produces:** `autonoma/scenario-recipes.json`
+**Consumes:** Knowledge base + validated scenarios + scenario recipes.
+**Produces:** `autonoma/qa-tests/` directory with test files + `INDEX.md`
 
 ## How the steps connect
 
-- **Step 1** makes the rest of the pipeline possible by producing a verified SDK endpoint.
-- **Step 2** gives the planner the user-facing map of the product.
-- **Step 3** turns the verified schema and product context into concrete scenario plans.
-- **Step 4** turns those plans into executable E2E test coverage.
-- **Step 5** turns the scenario plan into validated runtime recipes.
+- **Step 1** output feeds every later step — the knowledge base tells subsequent agents what the app is and what the core flows are
+- **Step 2** output feeds Step 4 — the entity audit decides which models get factories and which fall back to SQL
+- **Step 3** output feeds Steps 5 and 6 — scenarios define what data to create and what tests assert against
+- **Step 4** produces the endpoint Step 5 validates against; it does NOT run `up`/`down` itself
+- **Step 5** is the critical gate — it proves the scenarios actually work against a real database. Its sentinel unlocks Step 6. If validation fails, Step 6 is blocked at the hook level.
+- **Step 6** consumes the (possibly reconciled) scenarios as the source of truth for test data
 
-## Validation model
+## How validation works
 
-The plugin uses **deterministic validators**, not LLM-only checks:
+Unlike prompt-based validation, the Test Planner uses **deterministic shell-script validators** at every step:
 
-- PostToolUse hooks validate file writes immediately.
-- Step-level validators verify required formats and cross-file consistency.
-- Recipe preflight checks verify that generated scenarios work against the live endpoint.
+- **PostToolUse hooks** run after every file write, catching structural issues (missing frontmatter, invalid YAML, wrong file locations) immediately
+- **Step-level validators** run Python and YAML parsing scripts to verify the complete output before the next step begins
+- **Cross-file consistency checks** ensure inter-file references are correct — for example, INDEX.md test counts must match the actual number of test files, and `features.json` feature counts must align with the knowledge base
+- **Preflight** on `scenario-recipes.json` verifies every scenario has a recipe, every token is declared, and the tree roots at the scope entity
+- **The validation gate** blocks test-file writes until `autonoma/.endpoint-validated` exists
 
-If validation fails, the pipeline stops and the agent must fix the issue before continuing.
+If any validation fails, the agent receives the exact error message and must fix the issue before the plugin allows it to proceed. You never end up with a broken intermediate output feeding into the next step.
 
 ## Review checkpoints
 
-The canonical launch mode is `AUTONOMA_AUTO_ADVANCE=true`, which keeps the plugin moving after Steps 1-4. If you are still using the older confirmation flag, `AUTONOMA_REQUIRE_CONFIRMATION=false` behaves the same way. When a review checkpoint appears, focus on:
+The plugin pauses after Steps 1–5 and asks for your review before the output is consumed by the next step. These are not optional — getting them right determines the quality of the final test suite.
 
 | After step | What to review | Why it matters |
 |------------|----------------|----------------|
-| Step 1 | Detected stack and SDK integration result | Confirms the plugin wired the correct framework/ORM path before planning builds on it. |
-| Step 2 | Core flows identified | Determines how the test budget is distributed. |
-| Step 3 | Scenario entities, relationships, and variable fields | These become the data contract for tests and validation. |
-| Step 4 | Journey and critical test samples | Confirms assertions and coverage quality before validation. |
-| Step 5 | Scenario validation results | Confirms the endpoint can execute the planned data lifecycle. |
+| Step 1 | Core flows identified | Determines 50-60% of test coverage weight. Wrong core flows = poorly prioritized tests. |
+| Step 2 | Entity audit — factory vs raw SQL classification and identified creation functions | Decides which models run your real business logic during tests. Wrong function = tests that bypass important side effects. |
+| Step 3 | Scenario entity data + variable fields | Fixed values become direct assertions; variable values become tokens. Wrong names, counts, relationships, or variable markings = brittle tests. |
+| Step 4 | SDK implementation plan (endpoint location, factories, auth callback) | Ensures the backend integration, secrets, and factory wiring are correct before code is written. |
+| Step 5 | Validation results + any edits made to `scenarios.md` + uploaded recipes | Confirms the scenarios are feasible against your real database. Any agent edits to scenarios mean the original design missed something — worth reviewing. |
+| Step 6 | Test distribution + journey/critical test samples | Confirms assertions reference real UI text, not vague descriptions. Validates coverage weight across tiers. |
+
+Each step page explains what to look for and why it matters in detail.

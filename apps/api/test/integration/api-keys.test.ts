@@ -21,6 +21,7 @@ apiTestSuite({
                 key: "hashed-key-value",
                 start: "at_live_sk_test",
                 userId: harness.userId,
+                organizationId: harness.organizationId,
             },
         });
 
@@ -67,6 +68,7 @@ apiTestSuite({
                     key: "hashed-other-key",
                     start: "at_live_sk_other",
                     userId: otherUser.id,
+                    organizationId: otherOrg.id,
                 },
             });
 
@@ -96,6 +98,7 @@ apiTestSuite({
                     key: "hashed-isolated-key",
                     start: "at_live_sk_iso",
                     userId: otherUser.id,
+                    organizationId: otherOrg.id,
                 },
             });
 

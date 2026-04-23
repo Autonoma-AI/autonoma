@@ -69,11 +69,23 @@ export class OnboardingManager {
     async getState(applicationId: string) {
         this.logger.info("Getting onboarding state", { applicationId });
 
-        return this.db.onboardingState.upsert({
+        const row = await this.db.onboardingState.upsert({
             where: { applicationId },
             create: { applicationId },
             update: {},
         });
+
+        const app = await this.db.application.findUnique({
+            where: { id: applicationId },
+            select: {
+                signingSecretEnc: true,
+                mainBranch: { select: { deployment: { select: { webhookUrl: true } } } },
+            },
+        });
+        const webhookConfigured =
+            app?.signingSecretEnc != null && app.mainBranch?.deployment?.webhookUrl != null;
+
+        return { ...row, webhookConfigured };
     }
 
     /** Return the agent log entries for the application. */

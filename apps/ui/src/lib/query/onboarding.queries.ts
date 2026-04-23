@@ -17,6 +17,10 @@ export function useOnboardingState(applicationId: string) {
     return useSuspenseQuery(trpc.onboarding.getState.queryOptions({ applicationId }));
 }
 
+export function useOnboardingStateOptional(applicationId: string) {
+    return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
+}
+
 export function usePollAgentLogs(applicationId: string) {
     return useSuspenseQuery(trpc.onboarding.getLogs.queryOptions({ applicationId }, { refetchInterval: 2000 }));
 }

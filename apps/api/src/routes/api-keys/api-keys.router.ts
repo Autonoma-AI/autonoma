@@ -6,7 +6,9 @@ export const apiKeysRouter = router({
 
     create: protectedProcedure
         .input(CreateApiKeyInputSchema)
-        .mutation(({ ctx: { services, user }, input }) => services.apiKeys.create(user.id, input.name)),
+        .mutation(({ ctx: { services, user, organizationId }, input }) =>
+            services.apiKeys.create(user.id, organizationId, input.name),
+        ),
 
     delete: protectedProcedure
         .input(DeleteApiKeyInputSchema)

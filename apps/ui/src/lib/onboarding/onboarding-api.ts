@@ -11,6 +11,7 @@ export {
     useSetUrl,
     useConfigureAndDiscoverScenarios,
     useOnboardingScenarios,
+    useOnboardingStateOptional,
     useRunScenarioDryRun,
     useCompleteOnboarding,
     useCompleteGithub,

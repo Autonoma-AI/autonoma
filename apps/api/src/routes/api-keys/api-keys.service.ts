@@ -10,14 +10,8 @@ export class ApiKeysService extends Service {
     }
 
     async list(organizationId: string) {
-        const members = await this.db.member.findMany({
-            where: { organizationId },
-            select: { userId: true },
-        });
-        const userIds = members.map((m) => m.userId);
-
         const keys = await this.db.apiKey.findMany({
-            where: { userId: { in: userIds } },
+            where: { organizationId },
             select: {
                 id: true,
                 name: true,
@@ -33,32 +27,25 @@ export class ApiKeysService extends Service {
         return keys;
     }
 
-    async create(userId: string, name: string) {
+    async create(userId: string, organizationId: string, name: string) {
         const rawKey = `ask_${randomBytes(32).toString("hex")}`;
         const hashedKey = hashApiKey(rawKey);
 
         const created = await this.db.apiKey.create({
-            data: { name, userId, key: hashedKey, start: rawKey.slice(0, 7), enabled: true },
+            data: { name, userId, organizationId, key: hashedKey, start: rawKey.slice(0, 7), enabled: true },
             select: { id: true },
         });
 
-        this.logger.info("Created API key", { userId, name, keyId: created.id });
+        this.logger.info("Created API key", { userId, organizationId, name, keyId: created.id });
         return { id: created.id, key: rawKey };
     }
 
     async delete(keyId: string, organizationId: string) {
         const key = await this.db.apiKey.findUnique({
             where: { id: keyId },
-            select: { userId: true },
+            select: { organizationId: true },
         });
-        if (key == null) {
-            throw new NotFoundError("API key not found");
-        }
-
-        const member = await this.db.member.findFirst({
-            where: { userId: key.userId, organizationId },
-        });
-        if (member == null) {
+        if (key == null || key.organizationId !== organizationId) {
             throw new NotFoundError("API key not found");
         }
 
