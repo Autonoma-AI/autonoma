@@ -44,7 +44,7 @@ Autonoma asks: "What does your database look like?"
 
 ```json
 {
-  "version": "1.0",
+  "version": "0.2.0",
   "sdk": { "language": "typescript", "orm": "prisma", "server": "web" },
   "schema": {
     "models": [
@@ -102,7 +102,7 @@ The `create` field is a nested JSON tree. The SDK reads your schema and automati
 
 ```json
 {
-  "version": "1.0",
+  "version": "0.2.0",
   "sdk": { "language": "typescript", "orm": "prisma", "server": "web" },
   "auth": {
     "cookies": [{
@@ -145,7 +145,7 @@ The `refsToken` is the exact token from the `up` response. The SDK verifies the 
 
 ```json
 {
-  "version": "1.0",
+  "version": "0.2.0",
   "sdk": { "language": "typescript", "orm": "prisma", "server": "web" },
   "ok": true
 }
@@ -254,7 +254,12 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-web
 pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-express
 ```
 
-**Hono / Bun / Deno + Drizzle**:
+**Hono + Drizzle**:
+```bash
+pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-drizzle @autonoma-ai/server-hono
+```
+
+**Bun / Deno + Drizzle** (Web standard `Request`/`Response`):
 ```bash
 pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-drizzle @autonoma-ai/server-web
 ```
@@ -266,16 +271,19 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-node
 
 #### Package reference
 
-| Your ORM | Package |
-|----------|---------|
-| Prisma | `@autonoma-ai/sdk-prisma` |
-| Drizzle | `@autonoma-ai/sdk-drizzle` |
+| Your ORM | Package | Executor export |
+|----------|---------|-----------------|
+| Prisma | `@autonoma-ai/sdk-prisma` | `prismaExecutor(prisma)` |
+| Drizzle | `@autonoma-ai/sdk-drizzle` | `drizzleExecutor(db)` |
+| `mysql2` | `@autonoma-ai/sdk-mysql2` | `mysql2Executor(pool)` |
+| `pg` (node-postgres) | `@autonoma-ai/sdk-pg` | `pgExecutor(pool)` |
 
-| Your Framework | Package |
-|----------------|---------|
-| Next.js App Router, Hono, Bun, Deno | `@autonoma-ai/server-web` |
-| Express, Fastify | `@autonoma-ai/server-express` |
-| Node.js http | `@autonoma-ai/server-node` |
+| Your Framework | Package | Handler export |
+|----------------|---------|----------------|
+| Next.js App Router, Bun, Deno (Web standard `Request`/`Response`) | `@autonoma-ai/server-web` | `createHandler` |
+| Hono | `@autonoma-ai/server-hono` | `createHonoHandler` |
+| Express, Fastify | `@autonoma-ai/server-express` | `createExpressHandler` |
+| Node.js `http` | `@autonoma-ai/server-node` | `createNodeHandler` |
 
 ### 2. Find your scope field
 
@@ -320,16 +328,17 @@ AUTONOMA_SIGNING_SECRET=def456...  # keep this private, never share
 ```typescript
 // app/api/autonoma/route.ts
 import { createHandler } from '@autonoma-ai/server-web'
-import { prismaAdapter } from '@autonoma-ai/sdk-prisma'
+import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
 import { prisma } from '@/lib/db'
 
 export const POST = createHandler({
-  adapter: prismaAdapter(prisma, { scopeField: 'organizationId' }),
+  executor: prismaExecutor(prisma),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   auth: async (user) => {
     // Create a real session for this user — see section 5
-    const session = await createSession(user.id as string)
+    const session = await createSession(user!.id as string)
     return {
       cookies: [{ name: 'session', value: session.token, httpOnly: true, sameSite: 'lax', path: '/' }],
     }
@@ -342,16 +351,17 @@ export const POST = createHandler({
 ```typescript
 // routes/autonoma.ts
 import { createExpressHandler } from '@autonoma-ai/server-express'
-import { prismaAdapter } from '@autonoma-ai/sdk-prisma'
+import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
 import { prisma } from '../db'
 
 app.post('/api/autonoma', createExpressHandler({
-  adapter: prismaAdapter(prisma, { scopeField: 'organizationId' }),
+  executor: prismaExecutor(prisma),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   auth: async (user) => {
-    const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!)
-    return { token }
+    const token = jwt.sign({ sub: user!.id }, process.env.JWT_SECRET!)
+    return { headers: { Authorization: `Bearer ${token}` } }
   },
 }))
 ```
@@ -360,38 +370,37 @@ app.post('/api/autonoma', createExpressHandler({
 
 ```typescript
 // src/routes/autonoma.ts
-import { createHandler } from '@autonoma-ai/server-web'
-import { prismaAdapter } from '@autonoma-ai/sdk-prisma'
+import { createHonoHandler } from '@autonoma-ai/server-hono'
+import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
 import { prisma } from '../db'
 
-const handler = createHandler({
-  adapter: prismaAdapter(prisma, { scopeField: 'organizationId' }),
+app.post('/api/autonoma', createHonoHandler({
+  executor: prismaExecutor(prisma),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   auth: async (user) => {
-    const token = await createToken(user.id as string)
-    return { token }
+    const token = await createToken(user!.id as string)
+    return { headers: { Authorization: `Bearer ${token}` } }
   },
-})
-
-app.post('/api/autonoma', (c) => handler(c.req.raw))
+}))
 ```
 
 #### Drizzle + Express
 
 ```typescript
 import { createExpressHandler } from '@autonoma-ai/server-express'
-import { drizzleAdapter } from '@autonoma-ai/sdk-drizzle'
+import { drizzleExecutor } from '@autonoma-ai/sdk-drizzle'
 import { db } from '../db'
-import * as schema from '../db/schema'
 
 app.post('/api/autonoma', createExpressHandler({
-  adapter: drizzleAdapter(db, schema, { scopeField: 'organizationId' }),
+  executor: drizzleExecutor(db),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   auth: async (user) => {
-    const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET!)
-    return { token }
+    const token = jwt.sign({ sub: user!.id }, process.env.JWT_SECRET!)
+    return { headers: { Authorization: `Bearer ${token}` } }
   },
 }))
 ```
@@ -405,9 +414,13 @@ The `auth` callback receives the first `User` record created during `up`. It mus
 #### What the callback receives
 
 ```typescript
-auth: async (user) => {
-  // user is the first User record from the scenario, e.g.:
-  // { id: 'clxyz...', name: 'Admin', email: 'admin-abc123@test.com', ... }
+auth: async (user, context) => {
+  // user: the first User record from refs, or `null` if no User model exists.
+  //   Always check for null — not every scenario creates a User.
+  //   Shape: { id: 'clxyz...', name: 'Admin', email: 'admin-abc123@test.com', ... }
+  // context:
+  //   - scopeValue: the detected scope value (e.g. organization id) or testRunId fallback
+  //   - refs: all created records keyed by model name, for looking up related data
 }
 ```
 
@@ -415,21 +428,22 @@ auth: async (user) => {
 
 ```typescript
 interface AuthResult {
-  token?: string                    // Bearer token
-  cookies?: Array<{                 // Session cookies
+  cookies?: Array<{                   // Session cookies
     name: string
     value: string
     httpOnly?: boolean
-    sameSite?: string
+    sameSite?: 'strict' | 'lax' | 'none'
     path?: string
+    domain?: string
+    secure?: boolean
+    maxAge?: number
   }>
-  headers?: Record<string, string>  // Custom auth headers
-  credentials?: {                   // Email/password for manual login
-    email: string
-    password: string
-  }
+  headers?: Record<string, string>    // Custom auth headers (use for bearer tokens: `Authorization: Bearer …`)
+  credentials?: Record<string, string>  // Arbitrary key/value pairs for manual login flows (e.g. { email, password })
 }
 ```
+
+There is no top-level `token` field. To return a bearer token, put it on `headers` as `Authorization: Bearer …`. To return email/password for a native login flow, put them on `credentials`.
 
 #### Pattern 1: Session cookies (most web apps)
 
@@ -454,11 +468,11 @@ auth: async (user) => {
 ```typescript
 auth: async (user) => {
   const token = jwt.sign(
-    { sub: user.id, email: user.email },
+    { sub: user!.id, email: user!.email },
     process.env.JWT_SECRET!,
     { expiresIn: '1h' }
   )
-  return { token }
+  return { headers: { Authorization: `Bearer ${token}` } }
 }
 ```
 
@@ -502,7 +516,8 @@ Models without a dedicated create function (only inline ORM calls scattered acro
 import { defineFactory } from '@autonoma-ai/sdk'
 
 const handler = createExpressHandler({
-  adapter: prismaAdapter(prisma, { scopeField: 'organizationId' }),
+  executor: prismaExecutor(prisma),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   factories: {
@@ -758,22 +773,26 @@ curl -s -X POST "$URL" \
 
 ```typescript
 import { checkScenario } from '@autonoma-ai/sdk'
-import { prismaAdapter } from '@autonoma-ai/sdk-prisma'
+import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
 
-const adapter = prismaAdapter(prisma, { scopeField: 'organizationId' })
+const executor = prismaExecutor(prisma)
 
-const result = await checkScenario(adapter, {
-  create: {
-    Organization: [{
-      name: 'Test Org',
-      slug: 'test-org',
-      members: [{
-        role: 'owner',
-        user: [{ name: 'Admin', email: 'admin@test.com' }],
+const result = await checkScenario(
+  executor,
+  {
+    create: {
+      Organization: [{
+        name: 'Test Org',
+        slug: 'test-org',
+        members: [{
+          role: 'owner',
+          user: [{ name: 'Admin', email: 'admin@test.com' }],
+        }],
       }],
-    }],
+    },
   },
-})
+  { scopeField: 'organizationId' },
+)
 
 // result.valid   — true if up + down both succeeded
 // result.phase   — 'ok' | 'up' | 'down' (where it failed)
@@ -795,7 +814,8 @@ The endpoint returns 404 in production by default. When you're ready:
 
 ```typescript
 export const POST = createHandler({
-  adapter: prismaAdapter(prisma, { scopeField: 'organizationId' }),
+  executor: prismaExecutor(prisma),
+  scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   allowProduction: true,

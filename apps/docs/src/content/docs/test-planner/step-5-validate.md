@@ -43,23 +43,39 @@ The loop runs up to **5 iterations**. If it still hasn't converged, the agent st
 
 ### Scenario recipes
 
-Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact nested tree** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The format is:
+Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact nested tree** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The file is validated against `ScenarioRecipesFileSchema` (in `@autonoma/types`) by both the local preflight and the dashboard upload endpoint. The shape is:
 
 ```json
 {
-  "version": "1.0",
-  "recipes": {
-    "standard": {
-      "variables": { "project_title": "Launch Campaign" },
+  "version": 1,
+  "source": {
+    "discoverPath": "autonoma/discover.json",
+    "scenariosPath": "autonoma/scenarios.md"
+  },
+  "validationMode": "endpoint-lifecycle",
+  "recipes": [
+    {
+      "name": "standard",
+      "description": "Realistic dataset for core flows",
       "create": {
-        "Organization": [ { "name": "Acme", "projects": [ { "title": "{{project_title}}" } ] } ]
-      }
-    },
-    "empty": { ... },
-    "large": { ... }
-  }
+        "Organization": [ { "_alias": "org1", "name": "Acme", "projects": [ { "title": "{{project_title}}" } ] } ]
+      },
+      "variables": {
+        "project_title": { "strategy": "literal", "value": "Launch Campaign" }
+      },
+      "validation": { "status": "validated", "method": "endpoint-up-down", "phase": "ok", "up_ms": 12, "down_ms": 8 }
+    }
+  ]
 }
 ```
+
+Required invariants (the upload endpoint rejects otherwise):
+
+- `version` is the integer `1` (not the string `"1.0"`).
+- `source` is an object with BOTH `discoverPath` and `scenariosPath` as non-empty strings.
+- `validationMode` is `"sdk-check"` or `"endpoint-lifecycle"`.
+- `recipes` is an array (not a map) with at least one entry; each entry has `name`, `description`, `create`, and `validation`.
+- `variables` values use `strategy: "literal" | "derived" | "faker"`. `derived` additionally requires `source: "testRunId"` and a `format` string. `faker` requires a `generator` id.
 
 ### Preflight
 
@@ -168,7 +184,10 @@ Repeat until all three actions succeed for every scenario OR you exhaust 5 itera
    ```json
    {
      "version": 1,
-     "source": { "scenariosPath": "autonoma/scenarios.md" },
+     "source": {
+       "discoverPath": "autonoma/discover.json",
+       "scenariosPath": "autonoma/scenarios.md"
+     },
      "validationMode": "endpoint-lifecycle",
      "recipes": [
        {
@@ -189,6 +208,7 @@ Repeat until all three actions succeed for every scenario OR you exhaust 5 itera
    Rules:
    - Top-level keys MUST be exactly `version`, `source`, `validationMode`, `recipes`
    - `version` must be integer `1`
+   - `source` MUST be an object with BOTH `discoverPath` (path to `autonoma/discover.json`) and `scenariosPath` (path to `autonoma/scenarios.md`) as non-empty strings. The dashboard `/v1/setup/setups/:id/scenario-recipe-versions` endpoint will reject the upload if either is missing.
    - `validationMode` must be `sdk-check` or `endpoint-lifecycle`
    - `recipes` MUST include `standard`, `empty`, and `large`
    - Every recipe MUST contain `name`, `description`, `create`, and `validation`

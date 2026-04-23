@@ -40,8 +40,8 @@ These must be **different values**. The SDK throws an error if they match. For m
 ## What this produces
 
 - The Autonoma SDK packages installed in your backend
-- A working endpoint handler using `createHandler()` / `createExpressHandler()` with:
-  - ORM adapter (Prisma or Drizzle) configured with your scope field
+- A working endpoint handler using `createHandler()` / `createExpressHandler()` / `createHonoHandler()` / `createNodeHandler()` with:
+  - An ORM executor (`prismaExecutor(prisma)`, `drizzleExecutor(db)`, `pgExecutor(pool)`, or `mysql2Executor(pool)`) passed as the top-level `executor` field, plus the `scopeField` string (e.g. `"organizationId"`) as a sibling field on the config
   - A factory registered for **every model with `independently_created: true`** in the entity audit (calls your real `create` function)
   - Auth callback that creates real, working credentials
 - Validated scenario lifecycle — proof that `up` creates the correct data and `down` cleans it up
@@ -115,7 +115,7 @@ Do not proceed without it.
 Fetch the Autonoma documentation to understand the current SDK setup:
 
 1. Fetch `https://docs.agent.autonoma.app/llms.txt` to get the documentation index
-2. Read the **Environment Factory Guide** — understand the SDK packages, adapter configuration, factory registration, auth callback patterns, and the create tree format
+2. Read the **Environment Factory Guide** — understand the SDK packages, executor configuration (`executor` + `scopeField` on `HandlerConfig`), factory registration, auth callback patterns, and the create tree format
 3. Read the **framework example** that matches this project's stack if one exists
 
 **Always read the live docs.** The SDK may have been updated since this prompt was written.
@@ -322,7 +322,7 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-[orm] @autonoma-ai/server-[framework]
 ### 3.2 — Create the endpoint handler
 
 Write a single handler file that:
-1. Imports and configures the ORM adapter with the scope field
+1. Imports the ORM executor helper (`prismaExecutor`, `drizzleExecutor`, `pgExecutor`, or `mysql2Executor`), wraps the app's existing DB client, and passes the result as the `executor` field on the handler config alongside `scopeField: "<your scope field>"`
 2. Registers a factory for every model with `independently_created: true` in `entity-audit.md` — import the function from the audit's `creation_file` and call it inside `defineFactory({ create })`. **Never reimplement the creation logic with an inline ORM call** (see WRONG/RIGHT example below). If the identified function is a method on a class, instantiate the class using `ctx.executor` from the factory context and call the method.
 3. Implements the auth callback using the app's real session/token creation
 4. Passes both secrets from environment variables
