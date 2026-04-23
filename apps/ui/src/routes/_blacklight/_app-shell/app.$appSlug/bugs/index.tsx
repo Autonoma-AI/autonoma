@@ -107,7 +107,7 @@ function BugsTable() {
                   <span className="block truncate text-sm font-medium text-text-primary">{bug.title}</span>
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className="truncate text-sm text-text-secondary">{bug.testCase.name}</span>
+                  <span className="block truncate text-sm text-text-secondary">{bug.testCase.name}</span>
                 </td>
                 <td className="px-4 py-2.5">
                   <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
@@ -177,7 +177,7 @@ function PendingReviewTable() {
                   <Badge variant={SEVERITY_BADGE[issue.severity] ?? "secondary"}>{issue.severity}</Badge>
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className="truncate text-sm text-text-secondary">{issue.testName}</span>
+                  <span className="block truncate text-sm text-text-secondary">{issue.testName}</span>
                 </td>
                 <td className="px-4 py-2.5">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(issue.createdAt)}</span>

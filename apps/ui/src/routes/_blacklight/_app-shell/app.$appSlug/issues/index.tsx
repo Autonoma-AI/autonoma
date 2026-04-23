@@ -104,7 +104,7 @@ function IssuesTable() {
                   <Badge variant={SEVERITY_BADGE[issue.severity] ?? "secondary"}>{issue.severity}</Badge>
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className="truncate text-sm text-text-secondary">{issue.testName}</span>
+                  <span className="block truncate text-sm text-text-secondary">{issue.testName}</span>
                 </td>
                 <td className="px-4 py-2.5">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(issue.createdAt)}</span>
