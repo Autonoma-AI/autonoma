@@ -128,7 +128,7 @@
                 },
                 "recipe": {
                     "type": "string",
-                    "enum": ["postgres", "redis"],
+                    "enum": ["postgres", "redis", "valkey", "temporal"],
                     "description": "Built-in recipe that provisions the service."
                 },
                 "version": {

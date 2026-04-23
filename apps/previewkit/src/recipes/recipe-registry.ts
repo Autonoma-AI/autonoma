@@ -2,6 +2,7 @@ import { PostgresRecipe } from "./postgres-recipe";
 import type { Recipe } from "./recipe";
 import { RedisRecipe } from "./redis-recipe";
 import { TemporalRecipe } from "./temporal-recipe";
+import { ValkeyRecipe } from "./valkey-recipe";
 
 export class RecipeRegistry {
     private recipes = new Map<string, Recipe>();
@@ -9,6 +10,7 @@ export class RecipeRegistry {
     constructor() {
         this.register(new PostgresRecipe());
         this.register(new RedisRecipe());
+        this.register(new ValkeyRecipe());
         this.register(new TemporalRecipe());
     }
 
