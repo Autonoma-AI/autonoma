@@ -157,7 +157,7 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         let requestCount = 0;
         let responseCount = 0;
 
-        page.on("request", (request) => {
+        page.on("request", async (request) => {
             if (requestCount >= maxLogs) return;
             const reqUrl = request.url();
             if (this.safeOrigin(reqUrl) !== targetOrigin) return;
@@ -165,21 +165,27 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
             if (resourceType !== "document" && resourceType !== "xhr" && resourceType !== "fetch") return;
             requestCount++;
 
-            const headers = request.headers();
-            const cookieHeader = headers.cookie ?? headers.Cookie;
-            this.logger.info("Outgoing request to target origin", {
-                url: reqUrl,
-                method: request.method(),
-                resourceType,
-                hasCookieHeader: cookieHeader != null,
-                cookieNames:
-                    cookieHeader == null
-                        ? []
-                        : cookieHeader
-                              .split(";")
-                              .map((p) => p.trim().split("=")[0])
-                              .filter((n) => n != null && n.length > 0),
-            });
+            try {
+                // `request.headers()` strips cookie/authorization headers.
+                // `request.allHeaders()` (async) includes them.
+                const headers = await request.allHeaders();
+                const cookieHeader = headers.cookie ?? headers.Cookie;
+                this.logger.info("Outgoing request to target origin", {
+                    url: reqUrl,
+                    method: request.method(),
+                    resourceType,
+                    hasCookieHeader: cookieHeader != null,
+                    cookieNames:
+                        cookieHeader == null
+                            ? []
+                            : cookieHeader
+                                  .split(";")
+                                  .map((p) => p.trim().split("=")[0])
+                                  .filter((n) => n != null && n.length > 0),
+                });
+            } catch (error) {
+                this.logger.warn("Failed to read request headers", { url: reqUrl, error });
+            }
         });
 
         page.on("response", async (response) => {
