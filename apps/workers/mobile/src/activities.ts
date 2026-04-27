@@ -2,9 +2,11 @@ import { runMobileGenerationJob } from "@autonoma/engine-mobile/generation";
 import { runMobileReplayJob } from "@autonoma/engine-mobile/replay";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { MobileActivities, RunMobileGenerationInput, RunMobileReplayInput } from "@autonoma/workflow/activities";
+import * as Sentry from "@sentry/node";
 import { Context } from "@temporalio/activity";
 
 export async function runMobileGeneration(input: RunMobileGenerationInput): Promise<void> {
+    Sentry.getCurrentScope().setTag("generation_id", input.testGenerationId);
     const logger = rootLogger.child({ name: "runMobileGeneration", testGenerationId: input.testGenerationId });
     logger.info("Starting mobile generation execution");
 
@@ -19,6 +21,7 @@ export async function runMobileGeneration(input: RunMobileGenerationInput): Prom
 }
 
 export async function runMobileReplay(input: RunMobileReplayInput): Promise<void> {
+    Sentry.getCurrentScope().setTag("run_id", input.runId);
     const logger = rootLogger.child({ name: "runMobileReplay", runId: input.runId });
     logger.info("Starting mobile replay execution");
 

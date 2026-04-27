@@ -13,7 +13,7 @@ export function createSentryServiceInterceptor(
             service,
             activity: activityType,
             workflow_id: ctx.info.workflowExecution.workflowId,
-            run_id: ctx.info.workflowExecution.runId,
+            workflow_run_id: ctx.info.workflowExecution.runId,
         };
 
         return {

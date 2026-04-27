@@ -1,9 +1,8 @@
-import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import { CostCollector, VisualConditionChecker } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { createEngineModelRegistry, RunPersister, WaitConditionChecker } from "@autonoma/engine";
-import { logger as rootLogger, runWithSentry } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { MobileInstaller } from "../platform";
 import type { ReplayMobileCommandSpec } from "./mobile-command-spec";
@@ -97,17 +96,4 @@ export async function runMobileReplayJob(runId: string) {
             logger.error("Failed to write flag file", error);
         }
     }
-}
-
-if (process.argv[1]?.includes("run-replay-job")) {
-    const args = process.argv.slice(2);
-    if (args.length !== 1) {
-        console.error("Usage: tsx src/replay/run-replay-job.ts <runId>");
-        process.exit(1);
-    }
-
-    // biome-ignore lint/style/noNonNullAssertion: Length === 1
-    const runId = args[0]!;
-
-    await runWithSentry({ name: "execution-agent-mobile", tags: { run_id: runId } }, () => runMobileReplayJob(runId));
 }

@@ -4,7 +4,7 @@ import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { GenerationPersister, createEngineModelRegistry } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
-import { logger as rootLogger, runWithSentry } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { WebInstaller } from "../../platform";
 import { DEFAULT_VIEWPORT, connectBrowser } from "../../platform/connect-browser";
@@ -87,19 +87,4 @@ export async function runWebGenerationJob(testGenerationId: string) {
             logger.error("Failed to write flag file", error);
         }
     }
-}
-
-if (process.argv[1]?.includes("run-generation-job")) {
-    const args = process.argv.slice(2);
-    if (args.length !== 1) {
-        console.error("Usage: tsx src/generation-api/run-generation-job.ts <testGenerationId>");
-        process.exit(1);
-    }
-
-    // biome-ignore lint/style/noNonNullAssertion: Length === 1
-    const testGenerationId = args[0]!;
-
-    await runWithSentry({ name: "execution-agent-web", tags: { generation_id: testGenerationId } }, () =>
-        runWebGenerationJob(testGenerationId),
-    );
 }

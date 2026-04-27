@@ -1,10 +1,9 @@
-import "dotenv/config";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { GenerationPersister, createEngineModelRegistry } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
-import { logger as rootLogger, runWithSentry } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { MobileInstaller } from "../../platform";
 import { type MobileCommandSpec, createMobileAgentFactory } from "../mobile-agent";
@@ -90,19 +89,4 @@ export async function runMobileGenerationJob(testGenerationId: string) {
             logger.error("Failed to write flag file", error);
         }
     }
-}
-
-if (process.argv[1]?.includes("run-generation-job")) {
-    const args = process.argv.slice(2);
-    if (args.length !== 1) {
-        console.error("Usage: tsx src/generation-api/run-generation-job.ts <testGenerationId>");
-        process.exit(1);
-    }
-
-    // biome-ignore lint/style/noNonNullAssertion: Length === 1
-    const testGenerationId = args[0]!;
-
-    await runWithSentry({ name: "execution-agent-mobile", tags: { generation_id: testGenerationId } }, () =>
-        runMobileGenerationJob(testGenerationId),
-    );
 }
