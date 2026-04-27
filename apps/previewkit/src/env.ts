@@ -21,6 +21,13 @@ export const env = createEnv({
 
         // Kubernetes — empty means use in-cluster config
         KUBECONFIG: z.string().optional(),
+
+        // EKS cross-cluster: if set, Previewkit authenticates to this EKS cluster
+        // via AWS SDK (STS-presigned GetCallerIdentity) instead of KUBECONFIG / in-cluster.
+        // Requires the pod's IRSA role to have eks:DescribeCluster on the target cluster
+        // and an EKS Access Entry mapping the role to K8s RBAC.
+        EKS_CLUSTER_NAME: z.string().optional(),
+        AWS_REGION: z.string().optional(),
     },
     runtimeEnv: process.env,
 });

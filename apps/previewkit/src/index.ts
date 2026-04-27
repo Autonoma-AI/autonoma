@@ -3,6 +3,7 @@ import * as k8s from "@kubernetes/client-node";
 import { createApp } from "./app";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { Deployer } from "./deployer/deployer";
+import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
@@ -11,11 +12,20 @@ import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { SecretStore } from "./secrets/secret-store";
 
 // Kubernetes client
-const kc = new k8s.KubeConfig();
-if (env.KUBECONFIG) {
-    kc.loadFromFile(env.KUBECONFIG);
+let kc: k8s.KubeConfig;
+if (env.EKS_CLUSTER_NAME != null) {
+    if (env.AWS_REGION == null) {
+        throw new Error("AWS_REGION is required when EKS_CLUSTER_NAME is set");
+    }
+    const loader = new EksKubeconfigLoader(env.EKS_CLUSTER_NAME, env.AWS_REGION);
+    kc = await loader.load();
 } else {
-    kc.loadFromDefault();
+    kc = new k8s.KubeConfig();
+    if (env.KUBECONFIG) {
+        kc.loadFromFile(env.KUBECONFIG);
+    } else {
+        kc.loadFromDefault();
+    }
 }
 
 // Git provider
