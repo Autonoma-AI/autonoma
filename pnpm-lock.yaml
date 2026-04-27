@@ -1099,6 +1099,9 @@ importers:
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.39.0
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
@@ -1139,6 +1142,9 @@ importers:
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.39.0
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
