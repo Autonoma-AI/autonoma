@@ -93,7 +93,7 @@ describe("trigger functions", () => {
         const call = vi.mocked(client.workflow.start).mock.calls[0];
         const options = call?.[1];
         expect(options?.workflowId).toBe("diffs-analysis-snap-1");
-        expect(options?.taskQueue).toBe("general");
+        expect(options?.taskQueue).toBe("diffs");
         expect(options?.args?.[0]).toEqual({ snapshotId: "snap-1" });
     });
 

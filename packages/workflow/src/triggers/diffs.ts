@@ -21,7 +21,7 @@ export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<vo
     await client.workflow.start(WORKFLOW_TYPE.DIFFS_ANALYSIS, {
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.GENERAL,
+        taskQueue: TaskQueue.DIFFS,
         searchAttributes: getWorkflowSearchAttributes(),
         args: [{ snapshotId }],
     });

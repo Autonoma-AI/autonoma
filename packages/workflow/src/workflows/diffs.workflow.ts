@@ -1,28 +1,28 @@
 import { executeChild, proxyActivities } from "@temporalio/workflow";
-import type { GeneralActivities } from "../activities";
+import type { DiffsActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 import { WORKFLOW_TYPE } from "./workflow-types";
 
-const longRunning = proxyActivities<GeneralActivities>({
+const longRunning = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 2 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
-const standard = proxyActivities<GeneralActivities>({
+const standard = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "15m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 2 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
-const shortLived = proxyActivities<GeneralActivities>({
+const shortLived = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 2 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface DiffsAnalysisInput {

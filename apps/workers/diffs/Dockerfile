@@ -11,8 +11,8 @@ RUN git config --global --add safe.directory /tmp/repo
 RUN git config --global --add safe.directory /tmp/repo-resolution
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @autonoma/worker-general run build
+RUN pnpm --filter @autonoma/worker-diffs run build
 
 ENV NODE_ENV=production
-WORKDIR /app/apps/workers/general
+WORKDIR /app/apps/workers/diffs
 CMD ["/app/node_modules/.bin/tsx", "--import", "./src/preload.ts", "src/index.ts"]

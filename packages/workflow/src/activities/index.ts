@@ -8,6 +8,10 @@ export type {
     AssignGenerationResultsInput,
     MarkGenerationFailedInput,
     NotifyGenerationExitInput,
+} from "./general-activities";
+
+export type {
+    DiffsActivities,
     AnalyzeDiffsInput,
     AnalyzeDiffsOutput,
     PreparedRunInfo,
@@ -18,7 +22,7 @@ export type {
     ResolveDiffsOutput,
     GenerationInfo,
     FinalizeDiffsInput,
-} from "./general-activities";
+} from "./diffs-activities";
 
 export type { WebActivities, RunWebGenerationInput, RunWebReplayInput } from "./web-activities";
 

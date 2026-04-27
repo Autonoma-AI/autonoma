@@ -4,9 +4,6 @@ export const sentryServiceInterceptor = createSentryServiceInterceptor(
     {
         scenarioUp: "scenario",
         scenarioDown: "scenario",
-        analyzeDiffs: "diffs",
-        resolveDiffs: "diffs",
-        finalizeDiffs: "diffs",
         reviewGeneration: "generation-reviewer",
         reviewReplay: "replay-reviewer",
         assignGenerationResults: "generation-assigner",

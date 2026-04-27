@@ -1,5 +1,5 @@
 {
-    "name": "@autonoma/worker-general",
+    "name": "@autonoma/worker-diffs",
     "version": "0.0.1",
     "private": true,
     "type": "module",
@@ -12,15 +12,12 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
-        "@autonoma/ai": "workspace:*",
+        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
-        "@autonoma/generation-assigner": "workspace:*",
-        "@autonoma/generation-reviewer": "workspace:*",
-        "@autonoma/job-run-completion-notification": "workspace:*",
-        "@autonoma/job-scenario": "workspace:*",
+        "@autonoma/diffs": "workspace:*",
+        "@autonoma/job-diffs": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@autonoma/replay-reviewer": "workspace:*",
-        "@autonoma/scenario": "workspace:*",
+        "@autonoma/test-updates": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
