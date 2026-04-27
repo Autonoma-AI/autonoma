@@ -101,4 +101,9 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             authorLogin: "local-dev-user",
         };
     }
+
+    async getBranchHead(repoId: number, branchName: string): Promise<string> {
+        this.logger.info("Returning local-dev branch head", { repoId, branchName });
+        return `head-${repoId}-${branchName}`;
+    }
 }

@@ -56,6 +56,7 @@ export interface GitHubInstallationClient {
     listPullRequests(repoId: number): Promise<PullRequest[]>;
     getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
+    getBranchHead(repoId: number, branchName: string): Promise<string>;
 }
 
 interface RawPullRequestLike {
@@ -278,6 +279,21 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger.info("Fetched commit", { repoId, sha: commit.sha });
 
         return commit;
+    }
+
+    async getBranchHead(repoId: number, branchName: string): Promise<string> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Fetching branch head", { repoId, branchName });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/branches/{branch}", {
+            owner,
+            repo,
+            branch: branchName,
+        });
+
+        const sha = data.commit.sha;
+        this.logger.info("Fetched branch head", { repoId, branchName, sha });
+        return sha;
     }
 
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {

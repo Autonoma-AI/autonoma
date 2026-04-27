@@ -16,14 +16,13 @@ export class BranchesService extends Service {
     async listBranches(applicationId: string, organizationId: string) {
         this.logger.info("Listing branches", { applicationId });
 
-        return this.db.branch.findMany({
-            where: { applicationId, prNumber: { not: null }, application: { organizationId } },
+        const branches = await this.db.branch.findMany({
+            where: { applicationId, prInfo: { isNot: null }, application: { organizationId } },
             select: {
                 id: true,
                 name: true,
-                prNumber: true,
-                githubRef: true,
                 createdAt: true,
+                prInfo: { select: { prNumber: true } },
                 activeSnapshot: {
                     select: {
                         id: true,
@@ -34,6 +33,11 @@ export class BranchesService extends Service {
             },
             orderBy: { createdAt: "desc" },
         });
+
+        return branches.map(({ prInfo, ...branch }) => ({
+            ...branch,
+            prNumber: prInfo!.prNumber,
+        }));
     }
 
     async getBranch(branchId: string, organizationId: string) {
@@ -77,7 +81,6 @@ export class BranchesService extends Service {
             select: {
                 id: true,
                 name: true,
-                githubRef: true,
                 pendingSnapshotId: true,
                 createdAt: true,
                 updatedAt: true,
@@ -141,23 +144,23 @@ export class BranchesService extends Service {
         const branch = await this.db.branch.findFirst({
             where: {
                 applicationId,
-                prNumber,
+                prInfo: { prNumber },
                 application: { organizationId },
             },
             select: {
                 id: true,
                 name: true,
-                prNumber: true,
-                githubRef: true,
                 createdAt: true,
                 updatedAt: true,
+                prInfo: { select: { prNumber: true } },
             },
         });
 
         if (branch == null) throw new NotFoundError("Pull request not found");
-        if (branch.prNumber == null) throw new InternalError("Branch has no PR number");
+        if (branch.prInfo == null) throw new InternalError("Branch has no PR info");
 
-        return { ...branch, prNumber: branch.prNumber };
+        const { prInfo, ...rest } = branch;
+        return { ...rest, prNumber: prInfo.prNumber };
     }
 
     async getSnapshotDetail(snapshotId: string, organizationId: string) {
@@ -173,11 +176,24 @@ export class BranchesService extends Service {
                 baseSha: true,
                 createdAt: true,
                 prevSnapshotId: true,
-                branch: { select: { id: true, name: true, prNumber: true, applicationId: true } },
+                branch: {
+                    select: {
+                        id: true,
+                        name: true,
+                        applicationId: true,
+                        prInfo: { select: { prNumber: true } },
+                    },
+                },
             },
         });
 
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
+
+        const { prInfo, ...branchRest } = snapshot.branch;
+        const flatSnapshot = {
+            ...snapshot,
+            branch: { ...branchRest, prNumber: prInfo?.prNumber },
+        };
 
         const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
 
@@ -214,7 +230,7 @@ export class BranchesService extends Service {
             testCaseSlug: gen.testPlan.testCase.slug,
         }));
 
-        return { snapshot, changes, generations: latestGenerations };
+        return { snapshot: flatSnapshot, changes, generations: latestGenerations };
     }
 
     async getActiveSnapshot(branchId: string, organizationId: string) {
@@ -225,10 +241,10 @@ export class BranchesService extends Service {
             select: {
                 id: true,
                 name: true,
-                prNumber: true,
                 activeSnapshotId: true,
                 baseSnapshotId: true,
                 activeSnapshot: { select: { prevSnapshotId: true } },
+                prInfo: { select: { prNumber: true } },
             },
         });
 
@@ -256,7 +272,7 @@ export class BranchesService extends Service {
             snapshotId: branch.activeSnapshotId,
             testSuite,
             changes,
-            branch: { id: branch.id, name: branch.name, prNumber: branch.prNumber },
+            branch: { id: branch.id, name: branch.name, prNumber: branch.prInfo?.prNumber },
         };
     }
 

@@ -84,9 +84,13 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 name: `branch-${date}`,
                 organizationId,
                 applicationId,
-                githubRef: options?.githubRef,
                 lastHandledSha: options?.lastHandledSha,
-                prNumber: options?.prNumber,
+                prInfo:
+                    options?.prNumber != null ? { create: { applicationId, prNumber: options.prNumber } } : undefined,
+                mainInfo:
+                    options?.githubRef != null
+                        ? { create: { applicationId, githubRef: options.githubRef } }
+                        : undefined,
             },
         });
         return branch.id;

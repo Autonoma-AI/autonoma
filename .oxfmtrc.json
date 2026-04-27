@@ -20,6 +20,12 @@
             "options": {
                 "tabWidth": 2
             }
+        },
+        {
+            "files": ["**/*.prisma"],
+            "options": {
+                "tabWidth": 2
+            }
         }
     ]
 }

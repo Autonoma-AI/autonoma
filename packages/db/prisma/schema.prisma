@@ -333,6 +333,8 @@ model Application {
   webhookCalls       WebhookCall[]
   setupArtifacts     ApplicationSetupArtifact[]
   branches           Branch[]
+  featureBranchInfos FeatureBranchInfo[]
+  mainBranchInfo     MainBranchInfo?
   githubRepositories GitHubRepository[]
   onboardingState    OnboardingState?
   applicationSetups  ApplicationSetup[]
@@ -466,7 +468,7 @@ enum ConversationMessageRole {
 
 model Folder {
   id            String      @id @default(cuid())
-  name          String     
+  name          String
   description   String?
   applicationId String      @map("application_id")
   parentId      String?     @map("parent_id")
@@ -518,8 +520,33 @@ model Branch {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([applicationId, prNumber])
+  prInfo FeatureBranchInfo?
+  mainInfo MainBranchInfo?
+
   @@map("branch")
+}
+
+model FeatureBranchInfo {
+  branchId      String @id @map("branch_id")
+  applicationId String @map("application_id")
+  prNumber      Int    @map("pr_number")
+
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, prNumber])
+  @@map("feature_branch_info")
+}
+
+model MainBranchInfo {
+  branchId      String @id @map("branch_id")
+  applicationId String @unique @map("application_id")
+  githubRef     String @map("github_ref")
+
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("main_branch_info")
 }
 
 enum TriggerSource {

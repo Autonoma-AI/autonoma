@@ -89,6 +89,13 @@ export class GitHubInstallationService extends Service {
         return client.getPullRequest(repoId, prNumber);
     }
 
+    async getBranchHead(orgId: string, repoId: number, branchName: string): Promise<string> {
+        this.logger.info("Fetching branch head", { orgId, repoId, branchName });
+
+        const client = await this.getOrgInstallationClient(orgId);
+        return client.getBranchHead(repoId, branchName);
+    }
+
     async getApplicationPullRequest(
         organizationId: string,
         applicationId: string,

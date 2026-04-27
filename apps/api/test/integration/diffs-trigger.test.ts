@@ -1,5 +1,5 @@
 import { ApplicationArchitecture } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { SnapshotDraft } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
@@ -53,7 +53,7 @@ apiTestSuite({
     },
     cases: (test) => {
         test("triggers diffs for a new branch", async ({ harness, seedResult: { app, service } }) => {
-            const result = await service.triggerDiffs({
+            const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 10,
@@ -66,11 +66,13 @@ apiTestSuite({
             expect(result.snapshotId).toBeDefined();
             expect(result.deploymentId).toBeDefined();
 
-            const branch = await harness.db.branch.findUnique({ where: { id: result.branchId } });
+            const branch = await harness.db.branch.findUnique({
+                where: { id: result.branchId },
+                include: { prInfo: true },
+            });
             expect(branch).not.toBeNull();
             expect(branch!.name).toBe("feature/branch-10");
-            expect(branch!.githubRef).toBe("feature/branch-10");
-            expect(branch!.prNumber).toBe(10);
+            expect(branch!.prInfo?.prNumber).toBe(10);
             expect(branch!.applicationId).toBe(app.id);
             expect(branch!.deploymentId).toBe(result.deploymentId);
             // lastHandledSha is only updated on successful snapshot activation, not at trigger time
@@ -94,14 +96,13 @@ apiTestSuite({
             const existingBranch = await harness.db.branch.create({
                 data: {
                     name: "feature/branch-20",
-                    githubRef: "feature/branch-20",
-                    prNumber: 20,
                     applicationId: app.id,
                     organizationId: harness.organizationId,
+                    prInfo: { create: { applicationId: app.id, prNumber: 20 } },
                 },
             });
 
-            const result = await service.triggerDiffs({
+            const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 20,
@@ -120,15 +121,14 @@ apiTestSuite({
             await harness.db.branch.create({
                 data: {
                     name: "feature/branch-30",
-                    githubRef: "feature/branch-30",
-                    prNumber: 30,
                     applicationId: app.id,
                     organizationId: harness.organizationId,
                     lastHandledSha: "previous-sha-999",
+                    prInfo: { create: { applicationId: app.id, prNumber: 30 } },
                 },
             });
 
-            const result = await service.triggerDiffs({
+            const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 30,
@@ -141,7 +141,7 @@ apiTestSuite({
         });
 
         test("handles pending snapshot conflict", async ({ harness, seedResult: { service } }) => {
-            const first = await service.triggerDiffs({
+            const first = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 40,
@@ -149,7 +149,7 @@ apiTestSuite({
                 webhookUrl: "https://webhook.example.com/hook",
             });
 
-            const second = await service.triggerDiffs({
+            const second = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 40,
@@ -183,7 +183,7 @@ apiTestSuite({
             seedResult: { service },
         }) => {
             await expect(
-                service.triggerDiffs({
+                service.triggerPrDiffs({
                     organizationId: harness.organizationId,
                     repoId: 9999,
                     prNumber: 50,
@@ -231,7 +231,7 @@ apiTestSuite({
             });
             await mainDraft.activate();
 
-            const result = await service.triggerDiffs({
+            const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 80,
@@ -254,13 +254,121 @@ apiTestSuite({
             expect(skillAssignments[0]!.skillId).toBe(inheritedSkillId);
         });
 
+        test("triggerDiffs dispatches to PR flow when prNumber is set", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            const result = await service.triggerDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 50,
+                githubRef: "ignored-when-pr",
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: result.branchId },
+                include: { prInfo: true },
+            });
+            expect(branch.prInfo?.prNumber).toBe(50);
+        });
+
+        test("triggers diffs for the main branch", async ({ harness, seedResult: { app, service } }) => {
+            harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "main-head-sha-1");
+            await harness.db.branch.update({
+                where: { id: app.mainBranchId! },
+                data: { lastHandledSha: "previous-main-sha" },
+            });
+
+            const result = await service.triggerMainDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            expect(result.branchId).toBe(app.mainBranchId);
+
+            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: result.snapshotId },
+            });
+            expect(snapshot.branchId).toBe(app.mainBranchId);
+            expect(snapshot.headSha).toBe("main-head-sha-1");
+            expect(snapshot.baseSha).toBe("previous-main-sha");
+
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: result.branchId },
+                include: { mainInfo: true, prInfo: true },
+            });
+            expect(branch.mainInfo).not.toBeNull();
+            expect(branch.prInfo).toBeNull();
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                branchId: result.branchId,
+                snapshotId: result.snapshotId,
+            });
+        });
+
+        test("triggerDiffs dispatches to main flow when ref matches main branch", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "dispatcher-main-sha");
+            await harness.db.branch.update({
+                where: { id: app.mainBranchId! },
+                data: { lastHandledSha: "dispatcher-base-sha" },
+            });
+
+            const result = await service.triggerDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                githubRef: "main",
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            expect(result.branchId).toBe(app.mainBranchId);
+            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: result.snapshotId },
+            });
+            expect(snapshot.headSha).toBe("dispatcher-main-sha");
+            expect(snapshot.baseSha).toBe("dispatcher-base-sha");
+        });
+
+        test("triggerDiffs throws BadRequestError for unknown ref", async ({ harness, seedResult: { service } }) => {
+            await expect(
+                service.triggerDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 1001,
+                    githubRef: "feature/random",
+                    url: "https://preview.example.com",
+                    webhookUrl: "https://webhook.example.com/hook",
+                }),
+            ).rejects.toThrow(BadRequestError);
+        });
+
+        test("main branch trigger throws when no application linked to repo", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await expect(
+                service.triggerMainDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 9999,
+                    url: "https://preview.example.com",
+                    webhookUrl: "https://webhook.example.com/hook",
+                }),
+            ).rejects.toThrow(NotFoundError);
+        });
+
         test("throws NotFoundError when no GitHub installation", async ({ harness, seedResult: { service } }) => {
             await harness.db.gitHubInstallation.deleteMany({
                 where: { organizationId: harness.organizationId },
             });
 
             await expect(
-                service.triggerDiffs({
+                service.triggerPrDiffs({
                     organizationId: harness.organizationId,
                     repoId: 1001,
                     prNumber: 60,
@@ -272,7 +380,7 @@ apiTestSuite({
 
         test("throws when PR not found on GitHub", async ({ harness, seedResult: { service } }) => {
             await expect(
-                service.triggerDiffs({
+                service.triggerPrDiffs({
                     organizationId: harness.organizationId,
                     repoId: 1001,
                     prNumber: 999,

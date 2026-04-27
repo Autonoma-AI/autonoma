@@ -196,6 +196,27 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         };
     }
 
+    async getBranchHead(repoId: number, branchName: string): Promise<string> {
+        const repoData = this.requireRepoById(repoId);
+        if (branchName === repoData.metadata.defaultBranch) {
+            const head = repoData.defaultBranchCommits.at(-1);
+            if (head == null) {
+                throw new Error(`No commits on default branch of ${repoData.metadata.fullName}`);
+            }
+            return head;
+        }
+
+        const branch = repoData.branches.get(branchName);
+        if (branch == null) {
+            throw new Error(`Branch "${branchName}" not found in ${repoData.metadata.fullName}`);
+        }
+        const head = this.latestCommitOnBranch(repoData, branch);
+        if (head == null) {
+            throw new Error(`No commits on branch "${branchName}"`);
+        }
+        return head;
+    }
+
     async getInstallation(_installationId: number): Promise<{ account: unknown }> {
         throw new Error("FakeGitHubInstallationClient.getInstallation is not implemented");
     }

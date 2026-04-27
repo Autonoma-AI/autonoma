@@ -168,6 +168,7 @@ export class ApplicationsService extends Service {
                         name: "main",
                         applicationId: app.id,
                         organizationId: data.organizationId,
+                        mainInfo: { create: { applicationId: app.id, githubRef: "main" } },
                     },
                     select: { id: true },
                 });
@@ -258,6 +259,7 @@ export class ApplicationsService extends Service {
                         name: "main",
                         applicationId: app.id,
                         organizationId,
+                        mainInfo: { create: { applicationId: app.id, githubRef: "main" } },
                     },
                     select: { id: true },
                 });

@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import { cancelDiffsJob, triggerDiffsJob } from "@autonoma/workflow";
 import { Hono } from "hono";
@@ -13,7 +13,8 @@ import { DiffsTriggerService } from "./diffs-trigger.service";
 
 const triggerDiffsBodySchema = z.object({
     repo_id: z.number(),
-    pr_number: z.number().int().positive(),
+    pr_number: z.number().int().positive().optional(),
+    github_ref: z.string().min(1),
     url: z.url(),
     webhook_url: z.url(),
     webhook_headers: z.record(z.string(), z.string()).optional(),
@@ -48,6 +49,7 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
             organizationId: apiKeyCtx.organizationId,
             repoId: body.repo_id,
             prNumber: body.pr_number,
+            githubRef: body.github_ref,
             url: body.url,
             webhookUrl: body.webhook_url,
             webhookHeaders: body.webhook_headers,
@@ -56,6 +58,9 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
 
         return ctx.json({ ok: true, ...result });
     } catch (error) {
+        if (error instanceof BadRequestError) {
+            return ctx.json({ error: error.message }, 400);
+        }
         if (error instanceof NotFoundError) {
             return ctx.json({ error: error.message }, 404);
         }
@@ -63,6 +68,7 @@ diffsHttpRouter.post("/trigger", async (ctx) => {
         logger.fatal("Failed to trigger diffs analysis", error, {
             repoId: body.repo_id,
             prNumber: body.pr_number,
+            githubRef: body.github_ref,
         });
         return ctx.json({ error: "Failed to trigger diffs analysis" }, 500);
     }
