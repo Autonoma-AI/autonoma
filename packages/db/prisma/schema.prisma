@@ -1138,7 +1138,7 @@ model ScenarioSchemaSnapshot {
   applicationId String   @map("application_id")
   snapshotId    String   @map("snapshot_id")
   /// [ScenarioStructureJson]
-  structureJson Json     @map("structure_json")
+  structureJson Json     @map("structure_json") @db.Json
   fingerprint   String
 
   application    Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
@@ -1169,7 +1169,7 @@ model ScenarioRecipeVersion {
   validationUpMs       Int?     @map("validation_up_ms")
   validationDownMs     Int?     @map("validation_down_ms")
   /// [ScenarioRecipeJson]
-  fixtureJson          Json     @map("fixture_json")
+  fixtureJson          Json     @map("fixture_json") @db.Json
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
