@@ -178,17 +178,26 @@ export class ApplicationSetupService {
 
         // Advance onboarding after the transaction commits so there's no deadlock
         if (setupCompleted && applicationId != null) {
-            try {
-                await this.onboardingManager.startScenarioDryRun(applicationId);
-                log.info("Advanced onboarding to scenario_dry_run after setup completion", {
+            const onboardingState = await this.onboardingManager.getState(applicationId);
+            if (onboardingState.step === "completed") {
+                await this.onboardingManager.enqueueGenerations(applicationId, organizationId);
+                log.info("Queued pending generations after setup completion (onboarding completed)", {
                     setupId,
                     applicationId,
                 });
-            } catch (err) {
-                if (err instanceof InvalidOnboardingStepError) {
-                    log.info("Onboarding already past working step", { applicationId });
-                } else {
-                    throw err;
+            } else {
+                try {
+                    await this.onboardingManager.startScenarioDryRun(applicationId);
+                    log.info("Advanced onboarding to scenario_dry_run after setup completion", {
+                        setupId,
+                        applicationId,
+                    });
+                } catch (err) {
+                    if (err instanceof InvalidOnboardingStepError) {
+                        log.info("Onboarding already past working step", { applicationId });
+                    } else {
+                        throw err;
+                    }
                 }
             }
         }

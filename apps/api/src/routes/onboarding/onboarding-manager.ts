@@ -298,7 +298,7 @@ export class OnboardingManager {
     }
 
     /** Queue test generations for the application's main branch after onboarding completes. */
-    private async enqueueGenerations(applicationId: string, organizationId: string) {
+    async enqueueGenerations(applicationId: string, organizationId: string) {
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: { mainBranch: { select: { id: true } } },
