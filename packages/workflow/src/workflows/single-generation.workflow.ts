@@ -70,6 +70,7 @@ async function runExecution(architecture: WorkflowArchitecture, testGenerationId
             startToCloseTimeout: "30m",
             taskQueue: TaskQueue.WEB,
             heartbeatTimeout: "2m",
+            retry: { maximumAttempts: 1 },
         });
         await runWebGeneration({ testGenerationId });
     } else {
@@ -77,6 +78,7 @@ async function runExecution(architecture: WorkflowArchitecture, testGenerationId
             startToCloseTimeout: "30m",
             taskQueue: TaskQueue.MOBILE,
             heartbeatTimeout: "2m",
+            retry: { maximumAttempts: 1 },
         });
         await runMobileGeneration({ testGenerationId });
     }

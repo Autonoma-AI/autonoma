@@ -63,6 +63,7 @@ async function runReplayExecution(architecture: WorkflowArchitecture, runId: str
             startToCloseTimeout: "30m",
             taskQueue: TaskQueue.WEB,
             heartbeatTimeout: "2m",
+            retry: { maximumAttempts: 1 },
         });
         await runWebReplay({ runId });
     } else {
@@ -70,6 +71,7 @@ async function runReplayExecution(architecture: WorkflowArchitecture, runId: str
             startToCloseTimeout: "30m",
             taskQueue: TaskQueue.MOBILE,
             heartbeatTimeout: "2m",
+            retry: { maximumAttempts: 1 },
         });
         await runMobileReplay({ runId });
     }
