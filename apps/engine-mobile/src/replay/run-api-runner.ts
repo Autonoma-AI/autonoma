@@ -27,7 +27,7 @@ export class MobileRunAPIRunner extends RunAPIRunner<ReplayMobileCommandSpec, Mo
     }
 
     public async parseRunData(data: RunData): Promise<MobileApplicationData> {
-        const mobileDeployment = data.application.mainBranch?.deployment?.mobileDeployment;
+        const mobileDeployment = data.snapshot.branch.deployment?.mobileDeployment;
         if (mobileDeployment == null) {
             throw new Error(`Application "${data.application.name}" has no mobile deployment`);
         }

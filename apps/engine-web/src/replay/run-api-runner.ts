@@ -28,7 +28,7 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
     private readonly storageProvider: StorageProvider;
 
     public async parseRunData(data: RunData): Promise<WebApplicationData> {
-        const webDeployment = data.application.mainBranch?.deployment?.webDeployment;
+        const webDeployment = data.snapshot.branch.deployment?.webDeployment;
         if (webDeployment == null) {
             throw new Error(`Application "${data.application.name}" has no web deployment`);
         }

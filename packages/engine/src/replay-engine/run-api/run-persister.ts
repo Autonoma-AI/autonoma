@@ -30,12 +30,14 @@ export interface RunData {
         name: string;
         architecture: string;
         organizationId: string;
-        mainBranch: {
+    };
+    snapshot: {
+        branch: {
             deployment: {
                 webDeployment: { url: string; file: string } | null;
                 mobileDeployment: { packageUrl: string; packageName: string; photo: string } | null;
             } | null;
-        } | null;
+        };
     };
     scenarioInstance: {
         auth: Record<string, unknown> | null;
@@ -100,14 +102,18 @@ export class RunPersister<TSpec extends CommandSpec> {
                                         name: true,
                                         architecture: true,
                                         organizationId: true,
-                                        mainBranch: {
-                                            select: {
-                                                deployment: {
-                                                    include: {
-                                                        webDeployment: true,
-                                                        mobileDeployment: true,
-                                                    },
-                                                },
+                                    },
+                                },
+                            },
+                        },
+                        snapshot: {
+                            select: {
+                                branch: {
+                                    select: {
+                                        deployment: {
+                                            include: {
+                                                webDeployment: true,
+                                                mobileDeployment: true,
                                             },
                                         },
                                     },
@@ -156,6 +162,7 @@ export class RunPersister<TSpec extends CommandSpec> {
                 testCase: { id: run.assignment.testCase.id, name: run.assignment.testCase.name },
             },
             application: run.assignment.testCase.application,
+            snapshot: run.assignment.snapshot,
             scenarioInstance: run.scenarioInstance ?? null,
             steps,
         };
