@@ -232,7 +232,7 @@ Pick the SDK in the **same language as your backend**:
 | Your backend language | Manifest file | SDK package |
 |----------------------|---------------|-------------|
 | TypeScript / JavaScript | `package.json` | `@autonoma-ai/sdk` |
-| Python | `pyproject.toml` / `requirements.txt` | `autonoma-sdk` |
+| Python | `pyproject.toml` / `requirements.txt` | [`autonoma-ai`](https://pypi.org/project/autonoma-ai/) |
 | Go | `go.mod` | `github.com/autonoma-ai/autonoma-sdk-go` |
 | Rust | `Cargo.toml` | `autonoma` crate |
 | Java | `pom.xml` / `build.gradle` | `ai.autonoma:autonoma-sdk` |
@@ -272,6 +272,13 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-drizzle @autonoma-ai/server-web
 ```bash
 pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-node
 ```
+
+**Python** ([PyPI](https://pypi.org/project/autonoma-ai/)):
+```bash
+pip install autonoma-ai
+```
+
+The `autonoma-ai` package includes the core SDK plus framework and ORM adapters (`autonoma_fastapi`, `autonoma_flask`, `autonoma_django`, `autonoma_sqlalchemy`).
 
 #### Package reference
 

@@ -149,7 +149,7 @@ Detect language per candidate from its manifest file — this determines which A
 | Manifest found | Language | SDK package |
 |----------------|----------|-------------|
 | `package.json` | TypeScript/JavaScript | `@autonoma-ai/sdk` |
-| `pyproject.toml` / `requirements.txt` / `Pipfile` | Python | `autonoma-sdk` |
+| `pyproject.toml` / `requirements.txt` / `Pipfile` | Python | [`autonoma-ai`](https://pypi.org/project/autonoma-ai/) |
 | `go.mod` | Go | `github.com/autonoma-ai/autonoma-sdk-go` |
 | `Cargo.toml` | Rust | `autonoma` crate |
 | `pom.xml` / `build.gradle` | Java | `ai.autonoma:autonoma-sdk` |
@@ -435,7 +435,7 @@ Tell the user:
 ## Important reminders
 
 - **Never create a standalone server or sidecar.** Always integrate into the backend you identified in Phase 1.1. If that's not possible, stop and ask the user — do not invent a workaround.
-- **SDK language must match backend language.** Do not install `autonoma-sdk` (Python) into a TypeScript/NestJS project, etc.
+- **SDK language must match backend language.** Do not install `autonoma-ai` (Python) into a TypeScript/NestJS project, etc.
 - **Do not scaffold at the repo root** when a backend directory exists, including non-standard names like `core-app-backend/`, `apps/api/`, `services/core/`.
 - **Always read the live docs** at `https://docs.agent.autonoma.app/llms.txt` before implementing. The SDK may have been updated.
 - **ALL database writes go through the SDK endpoint.** Never write directly via psql, raw SQL, or ORM methods.
