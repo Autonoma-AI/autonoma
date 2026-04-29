@@ -12,9 +12,8 @@ This step writes code and runs a `discover` smoke test plus a factory-integrity 
 - `autonoma/entity-audit.md` must exist (output from [Step 2](/test-planner/step-2-entity-audit/))
 - `autonoma/scenarios.md` must exist (output from [Step 3](/test-planner/step-3-scenarios/))
 - Your application's **backend codebase** must be open in the workspace. The agent will locate it by scanning for manifest files (`package.json`, `pyproject.toml`, `go.mod`, etc.) — it does NOT hardcode the directory name `backend/`, so non-standard names like `core-app-backend/`, `apps/api/`, or `services/core/` are fine. If the backend is in a separate repo, the agent will generate a portable prompt instead of scaffolding a sidecar.
-- A backend with **Prisma** or **Drizzle** and a generated client
-- **PostgreSQL**, **MySQL**, or **SQLite**
-- Node.js 18+
+- A backend with a working DB layer (Prisma, Drizzle, SQLAlchemy, Ecto, etc.). The SDK does not require a specific ORM — your factories call whatever services / repositories your app already has.
+- Node.js 18+ (TS) or Python 3.11+
 
 ## Generating the secrets
 
@@ -40,9 +39,9 @@ These must be **different values**. The SDK throws an error if they match. For m
 ## What this produces
 
 - The Autonoma SDK packages installed in your backend
-- A working endpoint handler using `createHandler()` / `createExpressHandler()` / `createHonoHandler()` / `createNodeHandler()` with:
-  - An ORM executor (`prismaExecutor(prisma)`, `drizzleExecutor(db)`, `pgExecutor(pool)`, or `mysql2Executor(pool)`) passed as the top-level `executor` field, plus the `scopeField` string (e.g. `"organizationId"`) as a sibling field on the config
-  - A factory registered for **every model with `independently_created: true`** in the entity audit (calls your real `create` function)
+- A working endpoint handler using `createHandler()` / `createExpressHandler()` / `createHonoHandler()` / `createNodeHandler()` (TypeScript) or `create_fastapi_handler()` / `create_flask_handler()` / `create_django_handler()` (Python) with:
+  - `scopeField` (e.g. `"organizationId"`) plus the two secrets (`sharedSecret`, `signingSecret`) on `HandlerConfig`
+  - A factory registered for **every model in `entity-audit.md`**. Each factory declares an `inputSchema` (Zod) / `input_model` (Pydantic) plus `create` / `teardown` functions that call your real services
   - Auth callback that creates real, working credentials
 - Validated scenario lifecycle — proof that `up` creates the correct data and `down` cleans it up
 
@@ -52,9 +51,9 @@ Before writing any code, the agent will present a full implementation plan. This
 
 **What to check:**
 
-- **SDK packages** — correct packages for your framework and ORM (e.g., `@autonoma-ai/sdk`, `@autonoma-ai/sdk-prisma`, `@autonoma-ai/server-express`)
+- **SDK packages** — correct packages for your framework (e.g., `@autonoma-ai/sdk` + `@autonoma-ai/server-express` + `zod`, or `autonoma-ai` + the matching `autonoma_*` server adapter)
 - **Endpoint location** — fits your existing route structure
-- **Factories** — every model with `independently_created: true` in `entity-audit.md` has a factory registered, pointing at the audit's identified `creation_file` / `creation_function`. Models with `independently_created: false` fall back to raw SQL automatically.
+- **Factories** — **every** model in `entity-audit.md` has a factory registered. Models marked `independently_created: true` call the audit's identified `creation_file` / `creation_function`; models marked `independently_created: false` still need a factory, but it can wrap a thin repository call. There is no SQL fallback anymore.
 - **Auth strategy** — correctly identifies how your app authenticates users. Session cookies, JWT, or credentials.
 - **Environment variables** — `AUTONOMA_SHARED_SECRET` and `AUTONOMA_SIGNING_SECRET` are both listed
 
@@ -115,7 +114,7 @@ Do not proceed without it.
 Fetch the Autonoma documentation to understand the current SDK setup:
 
 1. Fetch `https://docs.agent.autonoma.app/llms.txt` to get the documentation index
-2. Read the **Environment Factory Guide** — understand the SDK packages, executor configuration (`executor` + `scopeField` on `HandlerConfig`), factory registration, auth callback patterns, and the create tree format
+2. Read the **Environment Factory Guide** — understand the SDK packages, factory registration with `inputSchema` / `input_model`, the `scopeField` on `HandlerConfig`, auth callback patterns, and the create tree format
 3. Read the **framework example** that matches this project's stack if one exists
 
 **Always read the live docs.** The SDK may have been updated since this prompt was written.
@@ -173,9 +172,8 @@ Wait for confirmation.
 
 Identify:
 
-- **Framework**: Next.js, Express, Hono, Fastify, etc.
-- **ORM**: Prisma or Drizzle
-- **Database**: PostgreSQL, MySQL, or SQLite
+- **Framework**: Next.js, Express, Hono, FastAPI, Flask, Django, etc.
+- **DB layer**: Whatever ORM/repository pattern the app already uses — your factories will call those services directly. The SDK does not need a connection.
 - **Auth mechanism**: How users log in (session cookies, JWT, OAuth, Better Auth, Lucia, etc.)
 - **Existing route patterns**: How other endpoints are structured
 
@@ -183,10 +181,11 @@ Identify:
 
 Read `autonoma/entity-audit.md` and parse the frontmatter. The audit tells you exactly which models to wire up:
 
-- Every model with `independently_created: true` gets a factory that calls the identified `creation_file` / `creation_function`. This includes even thin wrappers — the audit deliberately defaults to factories so the user's tests keep working if they add business logic later.
-- Every model with `independently_created: false` falls back to raw SQL INSERT. Do not register factories for these.
+- Every model in the audit gets a factory. The SDK is factory-driven: there is no SQL fallback. Every factory must declare an `inputSchema` (Zod) / `input_model` (Pydantic) so the SDK can describe the model to the dashboard and validate the create payload before invoking your code.
+- Models with `independently_created: true` get a factory that calls the identified `creation_file` / `creation_function`.
+- Models with `independently_created: false` still need a factory, but it can be a thin repository call (`db.tag.create({...})` / `repo.tag.create(...)`) since there's no shared business logic to preserve.
 
-The audit's `side_effects` field is informational — it helps you understand what each factory will preserve, but it does NOT change whether you register a factory.
+The audit's `side_effects` field is informational — it helps you understand what each factory will preserve.
 
 ### 1.4 — Understand auth creation
 
@@ -202,7 +201,7 @@ Present a complete implementation plan:
 ## Implementation Plan
 
 ### SDK packages to install
-[Exact packages: @autonoma-ai/sdk, @autonoma-ai/sdk-prisma, @autonoma-ai/server-express, etc.]
+[Exact packages: `@autonoma-ai/sdk` + `@autonoma-ai/server-<framework>` + `zod` (TS), or `autonoma-ai` (Python). No ORM-specific package — factories use whatever client the app already has.]
 
 ### Endpoint location
 [Exact file path]
@@ -215,12 +214,12 @@ Present a complete implementation plan:
 - `AUTONOMA_SIGNING_SECRET` — private, for signing refs tokens
 
 ### Factories to register (from entity-audit.md)
-For every model with `independently_created: true`:
-- [Model name]: calls `[creation_file]#[creation_function]` (side effects observed: [list from audit, or "none — registered to future-proof against added logic"])
+For every model the audit lists, register a factory. Each one declares:
+- `inputSchema` (Zod) / `input_model` (Pydantic): every dashboard-supplied field, with the right type. Drives discover.
+- `create`: invokes the audit's `creation_file` / `creation_function` for `independently_created: true`, or a thin repository call for `independently_created: false`.
+- `teardown`: optional but recommended — invoked during `down` to remove what `up` created.
 
-### Raw SQL fallback (no creation code in audit)
-For every model with `independently_created: false`:
-- [Model name]: [why the audit classified it this way — e.g., "only inline prisma.tag.create() in route handlers"]
+For every `independently_created: true` row, name the function the factory calls and the side effects observed in the audit. For `independently_created: false`, name the table the factory writes to.
 
 ### Auth callback strategy
 [How sessions/tokens are created — specific code path in the app]
@@ -247,8 +246,8 @@ Column rules:
 
 - **File opened?** — "yes, lines X-Y" or "no, why". If "no", you MUST NOT proceed — you cannot pick Branch 1 vs Branch 2 without reading the source.
 - **Import path** — the exact `import ... from "..."` the handler will use. For Branch 1 rows, this is the *new* export you will create during extraction, not the current inline location.
-- **DI dependencies observed** — every constructor arg or closed-over variable the function uses. `ctx.executor` covers the trivial DB-only case; any logger, event bus, Temporal client, analytics client, etc. must be listed explicitly. This is where past agents silently gave up and fell back to raw ORM — we want the give-up moment to be visible.
-- **Decision** — Branch 1 (extract inline → export → call), Branch 2 (import existing export → call), or Branch 3 (audit is wrong, argue why). "Inline ORM" is NOT a valid value.
+- **DI dependencies observed** — every constructor arg or closed-over variable the function uses (DB client, logger, event bus, Temporal client, analytics client, etc.). The factory has no `ctx.executor` to lean on; it imports the same DB client / repository singletons the rest of the app uses. Listing every dependency makes any silent give-up visible.
+- **Decision** — Branch 1 (extract inline → export → call), Branch 2 (import existing export → call), or Branch 3 (`independently_created: false`, plain repository call is fine). "Inline ORM in production code path" is NOT a valid value for Branches 1 or 2.
 
 #### Cross-codebase DI discovery
 
@@ -288,17 +287,17 @@ Concrete example — Better Auth `databaseHooks`: if the audit flags `User` with
 
 **Branch 2 — `independently_created: true`, no `needs_extraction`.** Import and call the named export. See the DI playbook below for how to invoke it.
 
-**Branch 3 — `independently_created: false`.** Do not register a factory. The SDK's raw SQL fallback handles it.
+**Branch 3 — `independently_created: false`.** Register a factory whose `create` is a thin repository / ORM call. There is no SQL fallback.
 
 ### 3.0.1 — DI / constructor-injection playbook
 
-Factories receive `(data, ctx)` where `ctx.executor` is the DB client/transaction. Walk this list in order — first match wins:
+Factories receive `(data, ctx)` where `data` is the value parsed by `inputSchema` / `input_model`. The DB client/transaction is whatever singleton your app already exports — import it directly. Walk this list in order; first match wins:
 
 1. **Top-level exported function** — `import { createX } from "..."; return createX(data);`. Simplest case.
-2. **Static method** — `return XService.create(data, ctx.executor);`. Pass `ctx.executor` as the DB argument.
-3. **Instance method, needs only a DB client** — `const svc = new XService(ctx.executor); return svc.create(data);`.
-4. **Instance method, needs more dependencies (logger, event bus, config, clients)** — find the app's composition root (DI container, `container.ts`, `app.module.ts`, `services/index.ts`). Either import the already-constructed singleton (`import { userService } from "@/services"`) or rebuild the service the way the composition root does, substituting `ctx.executor` for the DB dependency and importing real singletons for everything else (logger, event bus, temporal client). Do not invent mocks.
-5. **Impossible** — STOP and ask the user. Do NOT fall back to raw ORM.
+2. **Static method** — `return XService.create(data, db);` where `db` is the app's exported DB client.
+3. **Instance method, needs only a DB client** — `const svc = new XService(db); return svc.create(data);`.
+4. **Instance method, needs more dependencies (logger, event bus, config, clients)** — find the app's composition root (DI container, `container.ts`, `app.module.ts`, `services/index.ts`). Either import the already-constructed singleton (`import { userService } from "@/services"`) or rebuild the service the way the composition root does, importing real singletons for everything (DB client, logger, event bus, temporal client). Do not invent mocks.
+5. **Impossible** — STOP and ask the user. Do NOT inline ORM writes that bypass production logic.
 
 Never mock, stub, or fake a dependency. The factory must exercise real code.
 
@@ -315,19 +314,29 @@ You are NOT allowed to skip: password hashing, slug generation, normalization (p
 
 ### 3.1 — Install SDK packages
 
+TypeScript:
+
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-[orm] @autonoma-ai/server-[framework]
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-[framework] zod
+```
+
+Python:
+
+```bash
+pip install autonoma-ai
 ```
 
 ### 3.2 — Create the endpoint handler
 
 Write a single handler file that:
-1. Imports the ORM executor helper (`prismaExecutor`, `drizzleExecutor`, `pgExecutor`, or `mysql2Executor`), wraps the app's existing DB client, and passes the result as the `executor` field on the handler config alongside `scopeField: "<your scope field>"`
-2. Registers a factory for every model with `independently_created: true` in `entity-audit.md` — import the function from the audit's `creation_file` and call it inside `defineFactory({ create })`. **Never reimplement the creation logic with an inline ORM call** (see WRONG/RIGHT example below). If the identified function is a method on a class, instantiate the class using `ctx.executor` from the factory context and call the method.
-3. Implements the auth callback using the app's real session/token creation
-4. Passes both secrets from environment variables
-
-**Do not register factories for models with `independently_created: false`.** The SDK falls back to raw SQL automatically for those — that's the intended path.
+1. Sets `scopeField: "<your scope field>"` plus the two secrets on the handler config. There is no `executor` field anymore.
+2. Registers a factory for **every** model in `entity-audit.md`. Each factory:
+   - Declares an `inputSchema` (Zod) / `input_model` (Pydantic) covering every field the dashboard sends. The SDK reads it for `discover` and validates payloads through it before invoking `create`.
+   - For `independently_created: true`: imports the function from the audit's `creation_file` and calls it inside `create`. **Never reimplement the creation logic with an inline ORM call** (see WRONG/RIGHT example below). For methods on a class, instantiate the class using the app's exported DB client.
+   - For `independently_created: false`: makes a thin repository / ORM call from inside `create`.
+   - Optionally declares a `teardown` to remove the record during `down`.
+3. Implements the auth callback using the app's real session/token creation.
+4. Passes both secrets from environment variables.
 
 Follow the project's existing code patterns — import style, file organization, error handling.
 
@@ -349,23 +358,29 @@ The most common mistake is writing `db.x.create({...})` inside a factory because
 // entity-audit.md: creation_function = OnboardingManager.getState
 // WRONG — inline ORM, bypasses OnboardingManager entirely
 OnboardingState: defineFactory({
+  inputSchema: z.object({ applicationId: z.string() }),
   create: async (data) => {
     return db.onboardingState.create({ data: { applicationId: data.applicationId, step: "welcome" } });
   },
 }),
 
-// RIGHT — instantiate the class with the shared executor and call the real method
+// RIGHT — import the real DB client, instantiate the class, call the real method.
+// `data` is inferred from `inputSchema` — no z.infer<...> annotation needed.
+import { db } from "@/db";
 import { OnboardingManager } from "@/lib/onboarding-manager";
 
 OnboardingState: defineFactory({
-  create: async (data, ctx) => {
-    const manager = new OnboardingManager(ctx.executor);
+  inputSchema: z.object({ applicationId: z.string() }),
+  create: async (data) => {
+    const manager = new OnboardingManager(db);
     return manager.getState(data.applicationId);
   },
 }),
 ```
 
-`ctx.executor` is the DB client/transaction the SDK is using for this `up` call. Pass it into constructors that take `db`/`tx`/`prisma`/`drizzle` — it keeps the factory write inside the same transaction as the rest of `up`.
+The factory imports the same `db` (or `prisma`/`drizzle`/`session`) singleton the rest of the app uses. The SDK does not own a connection — your factory writes through whatever path your app's services normally take.
+
+`defineFactory` is generic over its `inputSchema` and optional `refSchema`, so `data` and (when set) `record` are typed automatically. Add `refSchema: z.object({ id: z.string() })` whenever you also write a `teardown` and want a typed record.
 
 ---
 
@@ -388,7 +403,7 @@ curl -s -X POST http://localhost:PORT/api/autonoma \
   -d "$BODY" | python3 -m json.tool
 ```
 
-**Expected**: JSON with `schema` containing `models`, `edges`, `relations`, `scopeField`. Every model from `entity-audit.md` must appear under `schema.models`.
+**Expected**: JSON with `schema` containing `models`, `edges`, `relations`, `scopeField`. Every model from `entity-audit.md` must appear under `schema.models`. `edges` and `relations` are emitted as empty arrays — the dashboard accepts that, and the `_alias`/`_ref` graph in the create payload carries equivalent dependency information at request time.
 
 ### 4.3 — Factory-integrity check
 
@@ -415,8 +430,7 @@ Tell the user:
 > "Done! I've set up the Autonoma SDK at `[endpoint path]`.
 >
 > **Packages installed**: [list]
-> **Factories registered** (from entity-audit.md): [list each model + the `creation_file#creation_function` it calls + side effects observed, or "none — future-proofs"]
-> **Raw SQL fallback** (no creation code): [list models the audit marked `independently_created: false`]
+> **Factories registered** (from entity-audit.md): [list each model + the `creation_file#creation_function` it calls (or the repository call for `independently_created: false`) + side effects observed]
 > **Auth**: [how sessions/tokens are created]
 >
 > **Smoke test**: discover returns schema with [N] models; factory-integrity check passed for [N] factories.
@@ -439,7 +453,7 @@ Tell the user:
 - **Do not scaffold at the repo root** when a backend directory exists, including non-standard names like `core-app-backend/`, `apps/api/`, `services/core/`.
 - **Always read the live docs** at `https://docs.agent.autonoma.app/llms.txt` before implementing. The SDK may have been updated.
 - **ALL database writes go through the SDK endpoint.** Never write directly via psql, raw SQL, or ORM methods.
-- **Register a factory for every model with `independently_created: true`** in the entity audit — no exceptions, even for thin wrappers. Raw SQL is the fallback, not the default. Never reimplement the user's create logic in a factory; always call their function.
+- **Register a factory for every model in the entity audit** — there is no SQL fallback. For `independently_created: true` rows the factory must call the audit's identified function; for `independently_created: false` rows a thin repository call is fine. Never reimplement an identified creation function inline.
 - **Validate is Step 5's job.** This step only runs `discover` plus the factory-integrity check. Do not try to run `up`/`down` here.
 - **Match existing codebase patterns.** Don't introduce new conventions. Use the same import style, file organization, and error handling.
 - **Use `testRunId`** in all unique fields (emails, slugs, org names) to prevent parallel test collisions.

@@ -3,49 +3,63 @@ title: "Python"
 description: "Autonoma Environment Factory examples with FastAPI, Flask, and Django."
 ---
 
+The Python SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's Pydantic `input_model`. There is no database introspection, no ORM executor, and no SQL fallback — your factories own creation, the SDK owns the protocol.
+
 ## FastAPI + SQLAlchemy
 
-Uses `create_fastapi_handler` from `autonoma_fastapi` with `sqlalchemy_executor` from `autonoma_sqlalchemy`. Returns an `APIRouter` that you mount on your app.
+Uses `create_fastapi_handler` from `autonoma_fastapi`. The factories use whatever SQLAlchemy session your app already has — the SDK does not need a connection.
 
 ```python
 # app.py
+import os
+from pydantic import BaseModel, ConfigDict
 from autonoma.types import HandlerConfig
 from autonoma.factory import define_factory
 from autonoma_fastapi import create_fastapi_handler
-from autonoma_sqlalchemy import sqlalchemy_executor
 
-from database import engine
+from database import session
 from repositories.organization import OrganizationRepository
 from repositories.user import UserRepository
 
 organization_repo = OrganizationRepository(session)
 user_repo = UserRepository(session)
 
+
+class OrganizationInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+
+
+class UserInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    email: str
+    name: str
+    organization_id: str
+
+
 config = HandlerConfig(
-    # Connects the SDK to your database through SQLAlchemy
-    executor=sqlalchemy_executor(engine),
     # The column that scopes all models to a tenant — used to isolate test data
     scope_field="organization_id",
     # Shared with Autonoma — verifies incoming requests via HMAC-SHA256
-    shared_secret=os.environ.get("AUTONOMA_SHARED_SECRET", ""),
+    shared_secret=os.environ["AUTONOMA_SHARED_SECRET"],
     # Private to your server — signs the refs token so teardown only deletes what was created
-    signing_secret=os.environ.get("AUTONOMA_SIGNING_SECRET", ""),
+    signing_secret=os.environ["AUTONOMA_SIGNING_SECRET"],
 
-    # Factory per model with a dedicated create function in your codebase.
-    # Models without a factory (Project, Task) fall back to raw SQL.
+    # Every model the dashboard can create needs a factory.
+    # The factory's input_model drives both validation and discover.
     factories={
-        # Organization: slug generation, default settings, external services
         "Organization": define_factory(
-            create=lambda data, ctx: organization_repo.create({"name": data["name"]}),
+            create=lambda data, ctx: organization_repo.create({"name": data.name}),
             teardown=lambda record, ctx: organization_repo.delete(record["id"]),
+            input_model=OrganizationInput,
         ),
-        # User: password hashing, email normalization
         "User": define_factory(
             create=lambda data, ctx: user_repo.create({
-                "email": data["email"],
-                "name": data["name"],
-                "organization_id": data["organization_id"],
+                "email": data.email,
+                "name": data.name,
+                "organization_id": data.organization_id,
             }),
+            input_model=UserInput,
         ),
     },
 
@@ -63,15 +77,14 @@ app.include_router(router, prefix="/api/autonoma")
 
 ## Flask + SQLAlchemy
 
-Same ORM adapter (`sqlalchemy_executor`), different server adapter. `create_flask_handler` returns a Flask Blueprint.
+Same `HandlerConfig`, different server adapter. `create_flask_handler` returns a Flask Blueprint.
 
 ```python
 # app.py
 from autonoma_flask import create_flask_handler
-from autonoma_sqlalchemy import sqlalchemy_executor
 
-# Same HandlerConfig pattern as FastAPI — executor, scope_field,
-# secrets, factories, auth. The only difference is the server adapter:
+# Same HandlerConfig as FastAPI — scope_field, secrets, factories, auth.
+# The only difference is the server adapter.
 bp = create_flask_handler(config)
 app.register_blueprint(bp, url_prefix="/api/autonoma")
 ```
@@ -82,13 +95,15 @@ app.register_blueprint(bp, url_prefix="/api/autonoma")
 
 ## Django
 
-Uses Django's native ORM via `django_executor` from `autonoma_django`. The handler is a Django view function.
+`create_django_handler` returns a Django view function (already decorated with `@csrf_exempt` + `@require_POST`).
 
 ```python
 # core/autonoma_config.py
+import os
+from pydantic import BaseModel, ConfigDict
 from autonoma.types import HandlerConfig
 from autonoma.factory import define_factory
-from autonoma_django import django_executor, create_django_handler
+from autonoma_django import create_django_handler
 
 from core.repositories.organization import OrganizationRepository
 from core.repositories.user import UserRepository
@@ -96,38 +111,54 @@ from core.repositories.user import UserRepository
 organization_repo = OrganizationRepository()
 user_repo = UserRepository()
 
-config = HandlerConfig(
-    # Connects the SDK to your database through Django ORM
-    executor=django_executor(),
-    # The column that scopes all models to a tenant — used to isolate test data
-    scope_field="organization_id",
-    # Shared with Autonoma — verifies incoming requests via HMAC-SHA256
-    shared_secret=os.environ.get("AUTONOMA_SHARED_SECRET", ""),
-    # Private to your server — signs the refs token so teardown only deletes what was created
-    signing_secret=os.environ.get("AUTONOMA_SIGNING_SECRET", ""),
 
-    # Factory per model with a dedicated create function in your codebase.
-    # Models without a factory fall back to raw SQL.
+class OrganizationInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+
+
+class UserInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    email: str
+    name: str
+    organization_id: str
+
+
+config = HandlerConfig(
+    scope_field="organization_id",
+    shared_secret=os.environ["AUTONOMA_SHARED_SECRET"],
+    signing_secret=os.environ["AUTONOMA_SIGNING_SECRET"],
     factories={
         "Organization": define_factory(
-            create=lambda data, ctx: organization_repo.create({"name": data["name"]}),
+            create=lambda data, ctx: organization_repo.create({"name": data.name}),
             teardown=lambda record, ctx: organization_repo.delete(record["id"]),
+            input_model=OrganizationInput,
         ),
         "User": define_factory(
             create=lambda data, ctx: user_repo.create({
-                "email": data["email"],
-                "name": data["name"],
-                "organization_id": data["organization_id"],
+                "email": data.email,
+                "name": data.name,
+                "organization_id": data.organization_id,
             }),
+            input_model=UserInput,
         ),
     },
-
-    # Called after `up` — returns credentials so Autonoma can make authenticated requests
     auth=lambda user, context: {"headers": {"Authorization": "Bearer test-token"}},
 )
 
-# Returns a Django view function decorated with @csrf_exempt and @require_POST
 handler = create_django_handler(config)
 ```
 
 [Full source code on GitHub](https://github.com/Autonoma-AI/sdk/tree/main/examples/python/django)
+
+---
+
+## What `input_model` does
+
+The Pydantic class you pass as `input_model`:
+
+1. **Drives discover** — the SDK introspects `model_fields` to describe the model to the dashboard (field names, types, required/optional, defaults). No database introspection runs.
+2. **Validates the create payload** — before invoking your `create` function, the SDK calls `input_model.model_validate(payload)` and passes the typed instance in. Your factory body works on a real Python object, not a `dict`.
+3. **Lets you accept extras with `extra="ignore"`** — recipes can carry display-only metadata (e.g. `_alias`) without failing validation.
+
+If you also want validated teardown, declare a `ref_model` (a Pydantic class describing the record returned by `create`) and the SDK will call `ref_model.model_validate(record)` before each `teardown` call.

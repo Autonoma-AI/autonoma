@@ -24,11 +24,11 @@ You set up **one endpoint** that the Autonoma SDK handles for you. It responds t
 
 | Action       | When it's called               | What happens                                                           |
 | ------------ | ------------------------------ | ---------------------------------------------------------------------- |
-| **discover** | When Autonoma connects         | Returns your database schema (models, fields, relationships)           |
-| **up**       | Before each test run           | Creates data from a structured tree, generates auth credentials        |
-| **down**     | After each test run            | Verifies the signed token and deletes only the data that was created   |
+| **discover** | When Autonoma connects         | Returns the schema derived from your registered factories' input schemas |
+| **up**       | Before each test run           | Validates each entity, calls your factory, generates auth credentials  |
+| **down**     | After each test run            | Verifies the signed token and calls each factory's `teardown`          |
 
-The SDK reads your ORM schema, handles FK ordering, injects scope fields, creates entities, signs teardown tokens, and manages the full lifecycle. You configure the adapter, register factories for every model that has a dedicated create function in your codebase, and implement an auth callback.
+The SDK orders entities from the create payload's `_alias` / `_ref` graph, validates inputs through each factory's `inputSchema` / `input_model`, signs teardown tokens, and manages the full lifecycle. You configure the adapter, register one factory per model the dashboard can create, and implement an auth callback.
 
 ## How the Protocol Works
 
@@ -48,30 +48,24 @@ Autonoma asks: "What does your database look like?"
 
 ```json
 {
-  "version": "0.2.0",
-  "sdk": { "language": "typescript", "orm": "prisma", "server": "web" },
+  "version": "1.0",
+  "sdk": { "language": "typescript", "orm": "unknown", "server": "web" },
   "schema": {
     "models": [
-      { "name": "Organization", "fields": [{ "name": "id", "type": "String", "isId": true }, { "name": "name", "type": "String" }] },
-      { "name": "User", "fields": [{ "name": "id", "type": "String", "isId": true }, { "name": "email", "type": "String" }] }
+      { "name": "Organization", "tableName": "organization", "fields": [{ "name": "id", "type": "string", "isRequired": false, "isId": true, "hasDefault": true }, { "name": "name", "type": "string", "isRequired": true, "isId": false, "hasDefault": false }] },
+      { "name": "User", "tableName": "user", "fields": [{ "name": "id", "type": "string", "isRequired": false, "isId": true, "hasDefault": true }, { "name": "email", "type": "string", "isRequired": true, "isId": false, "hasDefault": false }] }
     ],
-    "edges": [
-      { "from": "Member", "to": "Organization", "localField": "organizationId", "foreignField": "id" },
-      { "from": "Member", "to": "User", "localField": "userId", "foreignField": "id" }
-    ],
-    "relations": [
-      { "parentModel": "Organization", "childModel": "Member", "parentField": "members", "childField": "organization" }
-    ],
+    "edges": [],
+    "relations": [],
     "scopeField": "organizationId"
   }
 }
 ```
 
 The schema contains:
-- **models**: every database model with their fields (name, type, required, id, hasDefault)
-- **edges**: every FK relationship (from model, to model, local field, foreign field, nullable)
-- **relations**: named relation mappings used for scenario nesting
-- **scopeField**: the field name used for test data isolation (e.g., `organizationId`)
+- **models**: every model the dashboard can create — derived directly from each factory's `inputSchema` / `input_model`. Field metadata (name, type, required, id, hasDefault) comes from the schema introspection.
+- **edges** / **relations**: emitted as empty arrays. The dashboard reads dependencies from each create payload's `_alias` / `_ref` graph at request time — there is no static FK schema in the discover response anymore.
+- **scopeField**: the field name used for test data isolation (e.g., `organizationId`).
 
 ### Up
 
@@ -96,11 +90,13 @@ Autonoma says: "Create this data for a test run."
 }
 ```
 
-The `create` field is a nested JSON tree. The SDK reads your schema and automatically:
-- Creates entities in FK-safe order (parents before children)
-- Injects the scope field value into all child records
-- Wires FK references from the nesting structure
-- Resolves cross-branch references (`_alias` / `_ref`)
+The `create` field is a flat or nested JSON tree of entities. The SDK:
+- Walks the payload to collect every `_alias` declaration and every `_ref` usage.
+- Topologically sorts the entities so dependency targets are created before dependents.
+- Validates each entity through its factory's `inputSchema` / `input_model` before invoking `create`.
+- Replaces every `{"_ref": "alias"}` placeholder with the real id once the aliased entity exists.
+
+The dashboard now sends a flat map keyed by model name with `_alias` / `_ref` describing the dependency graph; nested children are still supported but no longer required.
 
 **Response:**
 
@@ -205,9 +201,9 @@ This guarantees that `down` can only delete data that `up` actually created. Eve
 
 The SDK enforces hard safety constraints:
 
-- **UP can only CREATE** — it calls ORM create methods. It cannot UPDATE, DELETE, DROP, TRUNCATE, or run raw SQL. The worst it can do is INSERT rows.
-- **DOWN can only DELETE what UP created** — verified by the signed refs token. It deletes only the records listed in the token, in reverse FK order.
-- **No raw SQL** — all operations go through the ORM layer. Schema validation happens at the ORM level.
+- **UP can only CREATE** — it invokes the factories you registered, which call your existing services / repositories. It cannot UPDATE, DELETE, DROP, TRUNCATE, or run raw SQL outside whatever your factory body runs.
+- **DOWN can only DELETE what UP created** — verified by the signed refs token. It calls each factory's `teardown` for the records listed in the token, in reverse topological order.
+- **No raw SQL from the SDK** — the SDK never runs SQL itself. It calls your factories, which invoke whatever services / repositories your app already has.
 
 ### Error Codes
 
@@ -246,31 +242,31 @@ Backend directory detection: scan for the manifest file above. Real projects use
 
 ### 1. Install
 
-Pick the packages that match your stack:
+The SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's input schema (Zod in TypeScript, Pydantic in Python). There is no SQL introspection, no ORM executor, and no SQL fallback. Pick the packages that match your stack:
 
-**Next.js App Router + Prisma** (most common):
+**Next.js App Router**:
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-web
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-web zod
 ```
 
-**Express + Prisma**:
+**Express**:
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-express
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-express zod
 ```
 
-**Hono + Drizzle**:
+**Hono**:
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-drizzle @autonoma-ai/server-hono
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-hono zod
 ```
 
-**Bun / Deno + Drizzle** (Web standard `Request`/`Response`):
+**Bun / Deno** (Web standard `Request`/`Response`):
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-drizzle @autonoma-ai/server-web
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-web zod
 ```
 
-**Node.js http + Prisma**:
+**Node.js http**:
 ```bash
-pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-node
+pnpm add @autonoma-ai/sdk @autonoma-ai/server-node zod
 ```
 
 **Python** ([PyPI](https://pypi.org/project/autonoma-ai/)):
@@ -278,16 +274,9 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/sdk-prisma @autonoma-ai/server-node
 pip install autonoma-ai
 ```
 
-The `autonoma-ai` package includes the core SDK plus framework and ORM adapters (`autonoma_fastapi`, `autonoma_flask`, `autonoma_django`, `autonoma_sqlalchemy`).
+The `autonoma-ai` package includes the core SDK plus framework adapters (`autonoma_fastapi`, `autonoma_flask`, `autonoma_django`). Pydantic is a hard dependency.
 
 #### Package reference
-
-| Your ORM | Package | Executor export |
-|----------|---------|-----------------|
-| Prisma | `@autonoma-ai/sdk-prisma` | `prismaExecutor(prisma)` |
-| Drizzle | `@autonoma-ai/sdk-drizzle` | `drizzleExecutor(db)` |
-| `mysql2` | `@autonoma-ai/sdk-mysql2` | `mysql2Executor(pool)` |
-| `pg` (node-postgres) | `@autonoma-ai/sdk-pg` | `pgExecutor(pool)` |
 
 | Your Framework | Package | Handler export |
 |----------------|---------|----------------|
@@ -295,26 +284,13 @@ The `autonoma-ai` package includes the core SDK plus framework and ORM adapters 
 | Hono | `@autonoma-ai/server-hono` | `createHonoHandler` |
 | Express, Fastify | `@autonoma-ai/server-express` | `createExpressHandler` |
 | Node.js `http` | `@autonoma-ai/server-node` | `createNodeHandler` |
+| FastAPI (Python) | `autonoma_fastapi` | `create_fastapi_handler` |
+| Flask (Python) | `autonoma_flask` | `create_flask_handler` |
+| Django (Python) | `autonoma_django` | `create_django_handler` |
 
 ### 2. Find your scope field
 
-Open your Prisma schema (or Drizzle schema). Look for the FK that most models use to reference a root entity:
-
-```prisma
-model User {
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-}
-
-model Application {
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-}
-```
-
-If most models have `organizationId` (or `orgId`, `tenantId`, `workspaceId`), that's your scope field.
-
-**Important**: The scope root model (usually `Organization`) does NOT have this field on itself. The SDK knows this — it reads the FK graph and only injects the scope field into models that have it as a column.
+Pick the field most of your models use to reference the root tenant entity — usually `organizationId`, `orgId`, `tenantId`, or `workspaceId`. The SDK does not introspect FKs to find this; it just declares the field in the discover response so the dashboard knows how to scope test data. Your factories own the actual writes — including any tenant-scoped FK columns.
 
 ### 3. Generate secrets
 
@@ -339,14 +315,12 @@ AUTONOMA_SIGNING_SECRET=def456...  # keep this private, never share
 ```typescript
 // app/api/autonoma/route.ts
 import { createHandler } from '@autonoma-ai/server-web'
-import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
-import { prisma } from '@/lib/db'
 
 export const POST = createHandler({
-  executor: prismaExecutor(prisma),
   scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
+  factories: { /* see section 6 */ },
   auth: async (user) => {
     // Create a real session for this user — see section 5
     const session = await createSession(user!.id as string)
@@ -362,14 +336,12 @@ export const POST = createHandler({
 ```typescript
 // routes/autonoma.ts
 import { createExpressHandler } from '@autonoma-ai/server-express'
-import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
-import { prisma } from '../db'
 
 app.post('/api/autonoma', createExpressHandler({
-  executor: prismaExecutor(prisma),
   scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
+  factories: { /* see section 6 */ },
   auth: async (user) => {
     const token = jwt.sign({ sub: user!.id }, process.env.JWT_SECRET!)
     return { headers: { Authorization: `Bearer ${token}` } }
@@ -382,14 +354,12 @@ app.post('/api/autonoma', createExpressHandler({
 ```typescript
 // src/routes/autonoma.ts
 import { createHonoHandler } from '@autonoma-ai/server-hono'
-import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
-import { prisma } from '../db'
 
 app.post('/api/autonoma', createHonoHandler({
-  executor: prismaExecutor(prisma),
   scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
+  factories: { /* see section 6 */ },
   auth: async (user) => {
     const token = await createToken(user!.id as string)
     return { headers: { Authorization: `Bearer ${token}` } }
@@ -397,23 +367,24 @@ app.post('/api/autonoma', createHonoHandler({
 }))
 ```
 
-#### Drizzle + Express
+#### FastAPI (Python)
 
-```typescript
-import { createExpressHandler } from '@autonoma-ai/server-express'
-import { drizzleExecutor } from '@autonoma-ai/sdk-drizzle'
-import { db } from '../db'
+```python
+# autonoma_handler.py
+import os
+from autonoma.types import HandlerConfig
+from autonoma_fastapi import create_fastapi_handler
 
-app.post('/api/autonoma', createExpressHandler({
-  executor: drizzleExecutor(db),
-  scopeField: 'organizationId',
-  sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
-  signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
-  auth: async (user) => {
-    const token = jwt.sign({ sub: user!.id }, process.env.JWT_SECRET!)
-    return { headers: { Authorization: `Bearer ${token}` } }
-  },
-}))
+config = HandlerConfig(
+    scope_field='organization_id',
+    shared_secret=os.environ['AUTONOMA_SHARED_SECRET'],
+    signing_secret=os.environ['AUTONOMA_SIGNING_SECRET'],
+    factories={ ...  # see section 6 },
+    auth=lambda user, ctx: {'headers': {'Authorization': f'Bearer {issue_token(user)}'}},
+)
+
+router = create_fastapi_handler(config)
+app.include_router(router, prefix='/api/autonoma')
 ```
 
 ### 5. Implement the auth callback
@@ -517,115 +488,74 @@ For **iOS and Android** applications, cookies and headers are **not supported**.
 
 ### 6. Register factories
 
-Register a **factory** for every model in your codebase that has a dedicated create function (service, repository, or similar helper). This is the default — even for thin wrappers.
+Register a **factory** for every model the dashboard can create. There is no SQL fallback — every model the SDK writes goes through your factory. The factory's `inputSchema` (Zod) / `input_model` (Pydantic) drives both the discover schema and validation of the create payload.
 
-**Why factory-by-default?** If you already have `ProjectService.create()` that today just wraps `prisma.project.create()`, wire it up anyway. The day you add an audit log, a Stripe sync, or a cache write to that function, your tests keep working — zero rewiring. Raw SQL can never run that new logic.
+**Why factory-by-default?** If you already have `ProjectService.create()` that today just wraps `prisma.project.create()`, wire it up anyway. The day you add an audit log, a Stripe sync, or a cache write to that function, your tests keep working — zero rewiring. The factory always runs the same code path the rest of your app does.
 
-Models without a dedicated create function (only inline ORM calls scattered across route handlers, or no create path at all) fall back to raw SQL INSERT automatically. Use the [Step 2 Entity Audit](/test-planner/step-2-entity-audit/) to classify every model: roots (`independently_created: true`) get a factory, pure dependents (`independently_created: false`, non-empty `created_by`) come along with their owner's factory and don't need one of their own.
+For models without a dedicated create function, register a factory whose body is a thin repository call. The Step 2 audit classifies models with `independently_created: true` (call the audit's identified function) vs `independently_created: false` (a thin repository call is fine).
 
 ```typescript
+import { z } from 'zod'
 import { defineFactory } from '@autonoma-ai/sdk'
 
+const OrganizationInput = z.object({ name: z.string(), slug: z.string() })
+const OrganizationRef = z.object({ id: z.string(), name: z.string(), slug: z.string() })
+const UserInput = z.object({ email: z.string(), name: z.string() })
+
 const handler = createExpressHandler({
-  executor: prismaExecutor(prisma),
   scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
   factories: {
     Organization: defineFactory({
-      create: async (data, ctx) => {
-        // Use your real service/repository — business logic included
-        return organizationService.create({
-          name: data.name as string,
-          slug: data.slug as string,
-        })
-      },
-      teardown: async (record, ctx) => {
-        await organizationService.delete(record.id as string)
-      },
+      inputSchema: OrganizationInput,
+      // Optional: validates the record on teardown and types `record` for free.
+      refSchema: OrganizationRef,
+      // `data` is typed `{ name: string; slug: string }` — no z.infer<...> needed.
+      create: async (data) => organizationService.create({ name: data.name, slug: data.slug }),
+      // `record` is typed `{ id: string; name: string; slug: string }` from refSchema.
+      teardown: async (record) => organizationService.delete(record.id),
     }),
     User: defineFactory({
-      create: async (data, ctx) => {
-        // Password hashing, email normalization, etc.
-        return userService.create({
-          email: data.email as string,
-          name: data.name as string,
+      inputSchema: UserInput,
+      create: async (data) =>
+        userService.create({
+          email: data.email,
+          name: data.name,
           password: 'test-password-123', // known password for auth
-        })
-      },
-      // No teardown — SQL DELETE fallback handles it
+        }),
+      // No teardown: this model is left alone on `down`.
     }),
-    // Models without a dedicated create function fall back to raw SQL INSERT automatically
   },
   auth: async (user) => { /* ... */ },
 })
 ```
 
-#### Model name ↔ table name (populating `tableNameMap` sparsely)
-
-The SDK reads your SQL tables and derives a model name for each one by splitting on `_` and PascalCasing the parts. **There is no pluralization step.** `organization` becomes `Organization`; `organizations` stays `Organizations`; `api_key` becomes `ApiKey`; `api_keys` stays `ApiKeys`.
-
-Factories are keyed by model name. If every factory key matches its auto-derived name, you don't pass `tableNameMap` at all — the SDK's derivation is exact and complete.
-
-You only pass `tableNameMap` when a factory key disagrees with the auto-derived name. **The map is sparse: list only the entries that differ, not every model.** Auto-derivation covers the rest.
-
-Algorithm the agent should follow when wiring the handler:
-
-1. List every factory key you intend to register.
-2. For each key, compute `autoName = snakeToPascal(dbTable)` — split the table name on `_`, PascalCase each part, concat. No pluralization.
-3. If `autoName === factoryKey`: skip. Do not add to `tableNameMap`.
-4. If `autoName !== factoryKey`: add the entry to `tableNameMap`.
-5. If after step 4 the map is empty, **omit the `tableNameMap` field entirely**.
-
-```ts
-// DB has singular tables: organization, user, api_key, deal
-// Factory keys: Organization, User, ApiKey, Deal
-// Every auto-derived name matches → omit tableNameMap.
-createHandler({
-  // ...
-  factories: { Organization: ..., User: ..., ApiKey: ..., Deal: ... },
-})
-
-// DB has plural tables: organizations, users, api_keys
-// Factory keys singular → every entry disagrees.
-createHandler({
-  // ...
-  tableNameMap: {
-    Organization: 'organizations',
-    User: 'users',
-    ApiKey: 'api_keys',
-  },
-  factories: { Organization: ..., User: ..., ApiKey: ... },
-})
-```
-
-**Red flag — matching registries.** If `tableNameMap` has exactly one entry per factory and every entry is a plural↔singular rename, you've written the same information twice. Two options:
-
-- Keep the map (verbose but explicit).
-- Change your factory keys to the plural auto-derived names (`Organizations`, `Users`) and drop the map.
-
-Pick the second unless your scenario files already use the singular convention. A `tableNameMap` that is a 1:1 copy of your factory registry is a foot-gun: adding a new model requires editing two places or it breaks silently.
+The `defineFactory` generics are inferred from the schemas you pass:
+- `data` inside `create` is typed as `z.infer<typeof inputSchema>`.
+- When `refSchema` is set, `record` inside `teardown` is typed as `z.infer<typeof refSchema>`, and `create`'s return type is constrained to that shape too.
+- When `refSchema` is omitted, `record` widens to `Record<string, unknown> & { id: string | number }` so legacy factories keep compiling without it.
 
 #### How factories work
 
-1. The SDK resolves the create tree and topologically sorts entities
-2. For each model in order: if a factory is registered, the SDK calls `factory.create()` per record; otherwise it uses raw SQL INSERT
-3. **Factory receives pre-resolved fields** — FK references and temp IDs are already replaced with real IDs. The factory never sees `__temp_*` values.
+1. The SDK reads the create payload's `_alias` / `_ref` graph and topologically sorts entities — no FK introspection, no schema needed.
+2. For each model in order, the SDK validates the entity through `inputSchema.safeParse(...)` (Zod) / `input_model.model_validate(...)` (Pydantic) and calls your `create` with the typed value.
+3. **Factory receives pre-resolved fields** — `_ref` placeholders are already replaced with the real id of the referenced entity. The factory never sees `{"_ref": "..."}` or `__temp_*` values.
 4. **Factory must return at least the primary key** (e.g., `{ id: "..." }`). All returned fields are stored in refs and available to subsequent factories via `ctx.refs`.
-5. On teardown: if a factory defines `teardown`, it's called per record in reverse order; otherwise the SDK falls back to SQL DELETE.
+5. On teardown: if a factory defines `teardown`, it's called per record in reverse topological order; otherwise that model is left alone.
 
 #### When to register a factory
 
-The rule is structural, not behavioral: does your codebase have a dedicated create function for this model?
+Always. The SDK writes through factories only — every model the dashboard can create needs one. The Step 2 entity audit classifies how the factory body should look:
 
-| Situation | Use factory? |
+| Audit value | Factory body |
 | --- | --- |
-| A `create`/`insert`/`register` function exists in a service or repository | **Yes** — always, even if it's a thin wrapper |
-| A function exists and also hashes passwords, generates slugs, syncs to Stripe, etc. | **Yes** |
-| The only create path is inline `prisma.tag.create()` calls scattered across route handlers | No — raw SQL fallback |
-| The model is never created at all in application code (e.g., a seed-only lookup table) | No — raw SQL fallback |
+| `independently_created: true` (a `create`/`insert`/`register` function exists in a service or repository) | Call that function from `create`. |
+| `independently_created: true` and additionally hashes passwords, generates slugs, syncs to Stripe, etc. | Call the function — your factory inherits the logic for free. |
+| `independently_created: false` (only inline ORM calls scattered across route handlers, or no create path at all) | Make the same ORM call directly from `create`. |
+| Model is never created at all (seed-only lookup table) | Either omit it from your scenarios, or write a factory that re-creates the seed row. |
 
-The entity audit (Step 2) makes this decision for you and writes it to `autonoma/entity-audit.md`. The implement step reads that file and registers one factory per model marked `independently_created: true`. Pure dependents are never given their own factory — see [Dependents, cascades, and teardown](#dependents-cascades-and-teardown) below for how they come and go.
+See [Dependents, cascades, and teardown](#dependents-cascades-and-teardown) below for how transitively-created rows come and go.
 
 #### Dependents, cascades, and teardown
 
@@ -636,39 +566,42 @@ A root can mint dependent rows inline — e.g. `<Root>Service.create` may insert
 
    ```typescript
    <Root>: defineFactory({
-     create: async (data, ctx) => <Root>Service.create(data, { executor: ctx.executor }),
+     inputSchema: <Root>Input,
+     create: async (data) => <Root>Service.create(data),
      teardown: async (record) => <Root>Service.delete(record.id as string),
    }),
    ```
 
-3. **Forward dependent IDs that the production `create` already returns** — if the production `create` function returns the dependent IDs in its result (e.g. `{ root, child, grandchild }`), surface those IDs from the factory so they land in refs, and write a `teardown` that deletes them in reverse FK order:
+3. **Forward dependent IDs that the production `create` already returns** — if the production `create` function returns the dependent IDs in its result (e.g. `{ root, child, grandchild }`), surface those IDs from the factory so they land in refs, and write a `teardown` that deletes them in reverse FK order using your app's existing DB client:
 
    ```typescript
+   import { db } from '@/db'
+
    <Root>: defineFactory({
-     create: async (data, ctx) => {
-       const { root, child, grandchild } = await <Root>Service.create(data, { executor: ctx.executor });
-       return { id: root.id, childId: child.id, grandchildId: grandchild.id };
+     inputSchema: <Root>Input,
+     create: async (data) => {
+       const { root, child, grandchild } = await <Root>Service.create(data)
+       return { id: root.id, childId: child.id, grandchildId: grandchild.id }
      },
-     teardown: async (record, ctx) => {
-       await ctx.executor.<grandchild>.delete({ where: { id: record.grandchildId } });
-       await ctx.executor.<child>.delete({ where: { id: record.childId } });
-       await ctx.executor.<root>.delete({ where: { id: record.id } });
+     teardown: async (record) => {
+       await db.<grandchild>.delete({ where: { id: record.grandchildId } })
+       await db.<child>.delete({ where: { id: record.childId } })
+       await db.<root>.delete({ where: { id: record.id } })
      },
    }),
    ```
 
 4. **None of the above — STOP.** Do NOT modify your production service to return more IDs than it already does just to satisfy the test harness. Adding test-only return values to production code inverts the relationship we want (tests adapt to production, not the other way around). Instead, report the gap: add a cascade to the schema, add a delete function to the service, or accept orphans between runs (acceptable when the test database is reset periodically).
 
-Pure dependents (`independently_created: false`) never have their own factory or teardown — they always come and go with their owner.
+Pure dependents (`independently_created: false`) typically still get a factory — registered as a thin repository call — unless they are minted transitively by the parent's `create`. If they are, omit them from the create payload and let the parent's `teardown` clean them up.
 
 #### Factory context
 
-Both `create` and `teardown` receive a context object:
+Both `create` and `teardown` receive a context object. There is no SDK-managed DB client — your factory imports the same client/repository singletons your app's services use:
 
 ```typescript
 interface FactoryContext {
   refs: Record<string, Record<string, unknown>[]>  // all records created so far
-  executor: SQLExecutor                             // for direct DB access if needed
   scenarioName: string
   testRunId: string
 }
@@ -783,23 +716,29 @@ curl -s -X POST "$URL" \
 ### Integration test with checkScenario
 
 ```typescript
-import { checkScenario } from '@autonoma-ai/sdk'
-import { prismaExecutor } from '@autonoma-ai/sdk-prisma'
+import { checkScenario, defineFactory } from '@autonoma-ai/sdk'
+import { z } from 'zod'
 
-const executor = prismaExecutor(prisma)
+const factories = {
+  Organization: defineFactory({
+    inputSchema: z.object({ name: z.string(), slug: z.string() }),
+    refSchema: z.object({ id: z.string() }),
+    // `data` typed { name: string; slug: string }; `record` typed { id: string }
+    create: async (data) => organizationService.create(data),
+    teardown: async (record) => organizationService.delete(record.id),
+  }),
+  User: defineFactory({
+    inputSchema: z.object({ name: z.string(), email: z.string(), organizationId: z.string() }),
+    create: async (data) => userService.create(data),
+  }),
+}
 
 const result = await checkScenario(
-  executor,
+  factories,
   {
     create: {
-      Organization: [{
-        name: 'Test Org',
-        slug: 'test-org',
-        members: [{
-          role: 'owner',
-          user: [{ name: 'Admin', email: 'admin@test.com' }],
-        }],
-      }],
+      Organization: [{ _alias: 'org', name: 'Test Org', slug: 'test-org' }],
+      User: [{ name: 'Admin', email: 'admin@test.com', organizationId: { _ref: 'org' } }],
     },
   },
   { scopeField: 'organizationId' },
@@ -811,7 +750,7 @@ const result = await checkScenario(
 // result.errors  — [{ phase, message, fix? }]
 ```
 
-`checkScenario` runs the full `up` → `down` cycle against a real database. If it fails, `result.errors[0].fix` tells you exactly what to change.
+`checkScenario` runs the full `up` → `down` cycle through your factories — same code path the dashboard would hit.
 
 ### What to verify
 
@@ -825,10 +764,10 @@ The endpoint returns 404 in production by default. When you're ready:
 
 ```typescript
 export const POST = createHandler({
-  executor: prismaExecutor(prisma),
   scopeField: 'organizationId',
   sharedSecret: process.env.AUTONOMA_SHARED_SECRET!,
   signingSecret: process.env.AUTONOMA_SIGNING_SECRET!,
+  factories: { /* ... */ },
   allowProduction: true,
   auth: async (user) => { /* ... */ },
 })
