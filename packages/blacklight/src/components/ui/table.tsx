@@ -1,6 +1,6 @@
 import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
-import { ArrowUp } from "@phosphor-icons/react/ArrowUp";
 import { ArrowsDownUp } from "@phosphor-icons/react/ArrowsDownUp";
+import { ArrowUp } from "@phosphor-icons/react/ArrowUp";
 import {
   type ColumnDef,
   type SortingState,
@@ -9,14 +9,14 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useState } from "react";
-
+import { type ReactNode, useState } from "react";
 import { cn } from "../../lib/utils";
 
 interface SortableTableProps<TData> {
   data: TData[];
   columns: ColumnDef<TData, unknown>[];
   onRowClick?: (row: TData) => void;
+  renderRow?: (row: TData, props: { className: string; children: ReactNode }) => ReactNode;
   emptyMessage?: string;
   className?: string;
 }
@@ -25,6 +25,7 @@ function SortableTable<TData>({
   data,
   columns,
   onRowClick,
+  renderRow,
   emptyMessage = "No data",
   className,
 }: SortableTableProps<TData>) {
@@ -83,23 +84,32 @@ function SortableTable<TData>({
               </td>
             </tr>
           )}
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              data-slot="sortable-table-row"
-              className={cn(
-                "border-b border-border-dim last:border-0 transition-colors hover:bg-surface-raised",
-                onRowClick != null && "cursor-pointer",
-              )}
-              onClick={onRowClick != null ? () => onRowClick(row.original) : undefined}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} data-slot="sortable-table-cell" className="px-4 py-2.5">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {table.getRowModel().rows.map((row) => {
+            const rowClassName = cn(
+              "border-b border-border-dim last:border-0 transition-colors hover:bg-surface-raised",
+              (onRowClick != null || renderRow != null) && "cursor-pointer",
+            );
+            const cells = row.getVisibleCells().map((cell) => (
+              <td key={cell.id} data-slot="sortable-table-cell" className="px-4 py-2.5 align-middle">
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </td>
+            ));
+
+            if (renderRow != null) {
+              return renderRow(row.original, { className: rowClassName, children: cells });
+            }
+
+            return (
+              <tr
+                key={row.id}
+                data-slot="sortable-table-row"
+                className={rowClassName}
+                onClick={onRowClick != null ? () => onRowClick(row.original) : undefined}
+              >
+                {cells}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

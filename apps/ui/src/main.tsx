@@ -67,6 +67,7 @@ if (env.VITE_SENTRY_DSN != null) {
 const router = createRouter({
   routeTree,
   defaultPendingMs: 200,
+  scrollRestoration: true,
   context: { auth: authClient, queryClient, trpc },
 });
 

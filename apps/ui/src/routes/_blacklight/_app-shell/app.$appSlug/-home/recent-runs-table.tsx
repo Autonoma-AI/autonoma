@@ -73,7 +73,7 @@ export function RecentRunsTable() {
                 params={{ runId: run.id }}
                 className="table-row cursor-pointer border-b border-border-dim transition-colors last:border-0 hover:bg-surface-raised"
               >
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <div className="flex min-w-0 items-center gap-2">
                     {run.lastScreenshot != null ? (
                       <img
@@ -92,15 +92,15 @@ export function RecentRunsTable() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <Badge variant={toRunBadgeVariant(run.status as RunStatus)}>
                     {toRunStatusLabel(run.status as RunStatus)}
                   </Badge>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="font-mono text-sm text-text-secondary">{run.duration ?? "\u2014"}</span>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="whitespace-nowrap text-sm text-text-secondary">
                     {run.startedAt != null ? formatDate(new Date(run.startedAt)) : "\u2014"}
                   </span>

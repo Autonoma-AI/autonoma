@@ -9,7 +9,7 @@ import { ensureGenerationsListData } from "lib/query/generations.queries";
 import { trpc } from "lib/trpc";
 import { useState } from "react";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
-import { useAppNavigate } from "../../-use-app-navigate";
+import { AppLink } from "../../-app-link";
 import { useCurrentApplication } from "../../-use-current-application";
 import { DeleteGenerationDialog } from "./-delete-generation-dialog";
 
@@ -27,21 +27,14 @@ const TH = "px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase track
 
 function GenerationsTable() {
   const app = useCurrentApplication();
-  const appNavigate = useAppNavigate();
   const { isAdmin } = useAuth();
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | undefined>(undefined);
   const { data: generations } = useSuspenseQuery(
     trpc.generations.list.queryOptions({ applicationId: app.id }, { refetchInterval: 5000 }),
   );
 
-  function handleRowClick(id: string) {
-    void appNavigate({
-      to: "/app/$appSlug/generations/$generationId",
-      params: { generationId: id },
-    });
-  }
-
   function handleDeleteClick(e: React.MouseEvent, id: string, name: string) {
+    e.preventDefault();
     e.stopPropagation();
     setDeleteTarget({ id, name });
   }
@@ -76,12 +69,13 @@ function GenerationsTable() {
               </tr>
             )}
             {generations.map((gen) => (
-              <tr
+              <AppLink
                 key={gen.id}
-                className="cursor-pointer border-b border-border-dim last:border-0 transition-colors hover:bg-surface-raised"
-                onClick={() => handleRowClick(gen.id)}
+                to="/app/$appSlug/generations/$generationId"
+                params={{ generationId: gen.id }}
+                className="table-row cursor-pointer border-b border-border-dim last:border-0 transition-colors hover:bg-surface-raised"
               >
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-sm font-medium text-text-primary">{gen.testName}</span>
                     <div className="flex items-center gap-2">
@@ -95,23 +89,23 @@ function GenerationsTable() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <Badge variant={toGenerationBadgeVariant(gen.status)}>{toGenerationStatusLabel(gen.status)}</Badge>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-sm text-text-secondary">{gen.stepCount}</span>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(gen.createdAt)}</span>
                 </td>
                 {isAdmin && (
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-4 py-2.5 align-middle text-right">
                     <Button variant="ghost" size="icon-xs" onClick={(e) => handleDeleteClick(e, gen.id, gen.testName)}>
                       <TrashIcon size={14} className="text-text-tertiary" />
                     </Button>
                   </td>
                 )}
-              </tr>
+              </AppLink>
             ))}
           </tbody>
         </table>

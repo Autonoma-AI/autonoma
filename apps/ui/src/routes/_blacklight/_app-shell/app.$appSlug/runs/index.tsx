@@ -14,7 +14,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
 import { useRuns } from "lib/query/runs.queries";
 import { Suspense, useMemo } from "react";
-import { useAppNavigate } from "../../-use-app-navigate";
+import { AppLink } from "../../-app-link";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/runs/")({
   component: RunsPage,
@@ -57,7 +57,7 @@ function ScreenshotPlaceholder() {
   );
 }
 
-function RecentRunScreenshots({ runs, onRunClick }: { runs: RunItem[]; onRunClick: (id: string) => void }) {
+function RecentRunScreenshots({ runs }: { runs: RunItem[] }) {
   const recentRuns = runs.slice(0, 2);
 
   if (recentRuns.length === 0) return null;
@@ -65,10 +65,11 @@ function RecentRunScreenshots({ runs, onRunClick }: { runs: RunItem[]; onRunClic
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {recentRuns.map((run, index) => (
-        <div
+        <AppLink
           key={run.id}
-          className="group cursor-pointer border border-border-dim bg-surface-base transition-colors hover:border-border-mid"
-          onClick={() => onRunClick(run.id)}
+          to="/app/$appSlug/runs/$runId"
+          params={{ runId: run.id }}
+          className="group block cursor-pointer border border-border-dim bg-surface-base transition-colors hover:border-border-mid"
         >
           <div className="overflow-hidden">
             {run.lastScreenshot != null ? (
@@ -90,22 +91,14 @@ function RecentRunScreenshots({ runs, onRunClick }: { runs: RunItem[]; onRunClic
             </div>
             <span className="font-mono text-2xs text-text-tertiary">{run.shortId}</span>
           </div>
-        </div>
+        </AppLink>
       ))}
     </div>
   );
 }
 
 function RunsContent() {
-  const appNavigate = useAppNavigate();
   const { data: runs } = useRuns();
-
-  function handleRowClick(run: RunItem) {
-    void appNavigate({
-      to: "/app/$appSlug/runs/$runId",
-      params: { runId: run.id },
-    });
-  }
 
   const columns = useMemo<ColumnDef<RunItem, unknown>[]>(
     () => [
@@ -194,13 +187,7 @@ function RunsContent() {
 
   return (
     <div className="flex flex-col gap-6">
-      <RecentRunScreenshots
-        runs={runs}
-        onRunClick={(id) => {
-          const run = runs.find((r) => r.id === id);
-          if (run != null) handleRowClick(run);
-        }}
-      />
+      <RecentRunScreenshots runs={runs} />
 
       <Panel>
         <PanelHeader className="flex items-center gap-2">
@@ -213,7 +200,16 @@ function RunsContent() {
           <SortableTable
             data={runs}
             columns={columns}
-            onRowClick={handleRowClick}
+            renderRow={(run, { className, children }) => (
+              <AppLink
+                key={run.id}
+                to="/app/$appSlug/runs/$runId"
+                params={{ runId: run.id }}
+                className={`table-row cursor-pointer ${className}`}
+              >
+                {children}
+              </AppLink>
+            )}
             emptyMessage="No runs yet - trigger your first one from a test."
           />
         </PanelBody>

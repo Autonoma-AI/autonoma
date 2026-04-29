@@ -49,19 +49,19 @@ export function LastGenerationsTable() {
                 params={{ generationId: gen.id }}
                 className="table-row cursor-pointer border-b border-border-dim last:border-0 transition-colors hover:bg-surface-raised"
               >
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-sm font-medium text-text-primary">{gen.testName}</span>
                     <span className="font-mono text-2xs text-text-tertiary">{gen.shortId}</span>
                   </div>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-sm text-text-secondary">{gen.stepCount}</span>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <Badge variant={toGenerationBadgeVariant(gen.status)}>{toGenerationStatusLabel(gen.status)}</Badge>
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(gen.createdAt)}</span>
                 </td>
               </AppLink>
