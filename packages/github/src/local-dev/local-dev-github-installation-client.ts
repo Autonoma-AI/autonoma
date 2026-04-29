@@ -4,6 +4,7 @@ import type {
     Commit,
     GitHubInstallationClient,
     PullRequest,
+    PullRequestCommit,
     Repository,
 } from "../github-installation-client";
 
@@ -71,6 +72,7 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
         return {
             number: prNumber,
             title,
+            body: `Local dev description for PR #${prNumber}. Replace with real data once connected to GitHub.`,
             headRef,
             headSha: `head-${repoId}-${prNumber}`,
             baseRef: repo.defaultBranch,
@@ -79,6 +81,8 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             authorLogin,
             createdAt: FIXED_TIMESTAMP,
             updatedAt: FIXED_TIMESTAMP,
+            state: "open",
+            commitsCount: 3,
             merged: false,
         };
     }
@@ -91,6 +95,30 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
         this.logger.info("Returning local-dev associated pull requests", { owner, repo, sha });
         return [];
+    }
+
+    async listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]> {
+        this.logger.info("Returning local-dev pull request commits", { repoId, prNumber });
+        return [
+            {
+                sha: `head-${repoId}-${prNumber}`,
+                message: "Implement feature",
+                authorLogin: "local-dev-user",
+                authoredAt: FIXED_TIMESTAMP,
+            },
+            {
+                sha: `head-${repoId}-${prNumber}-b`,
+                message: "Address review feedback",
+                authorLogin: "local-dev-user",
+                authoredAt: FIXED_TIMESTAMP,
+            },
+            {
+                sha: `head-${repoId}-${prNumber}-c`,
+                message: "Fix tests",
+                authorLogin: "local-dev-user",
+                authoredAt: FIXED_TIMESTAMP,
+            },
+        ];
     }
 
     async getCommit(repoId: number, sha: string): Promise<Commit> {

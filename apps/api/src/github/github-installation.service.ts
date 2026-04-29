@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { Commit, GitHubApp, PullRequest, Repository } from "@autonoma/github";
+import type { Commit, GitHubApp, PullRequest, PullRequestCommit, Repository } from "@autonoma/github";
 import { Service } from "../routes/service";
 
 export interface ListedRepository extends Repository {
@@ -119,6 +119,31 @@ export class GitHubInstallationService extends Service {
         this.logger.info("Fetched application pull request", { applicationId, prNumber });
 
         return pullRequest;
+    }
+
+    async listApplicationPullRequestCommits(
+        organizationId: string,
+        applicationId: string,
+        prNumber: number,
+    ): Promise<PullRequestCommit[]> {
+        this.logger.info("Listing application pull request commits", { organizationId, applicationId, prNumber });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const commits = await client.listPullRequestCommits(app.githubRepositoryId, prNumber);
+
+        this.logger.info("Listed application pull request commits", { applicationId, prNumber, count: commits.length });
+
+        return commits;
     }
 
     async getApplicationCommit(organizationId: string, applicationId: string, sha: string): Promise<Commit> {

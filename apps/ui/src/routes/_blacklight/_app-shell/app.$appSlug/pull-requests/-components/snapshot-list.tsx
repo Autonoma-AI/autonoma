@@ -1,7 +1,7 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
-import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
+import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { ShaRange } from "components/snapshot/sha-range";
-import { formatDate } from "lib/format";
+import { formatRelativeTime } from "lib/format";
 import { useSnapshotHistory } from "lib/query/branches.queries";
 import { useCommitFromGitHub } from "lib/query/github.queries";
 import { Suspense } from "react";
@@ -17,8 +17,11 @@ export function SnapshotList({ branchId, applicationId, prNumber }: SnapshotList
   return (
     <Panel>
       <PanelHeader className="flex items-center gap-2">
-        <ClockCounterClockwiseIcon size={14} className="text-text-tertiary" />
+        <CameraIcon size={14} className="text-text-tertiary" />
         <PanelTitle>Snapshots</PanelTitle>
+        <Suspense fallback={null}>
+          <SnapshotCount branchId={branchId} />
+        </Suspense>
       </PanelHeader>
       <PanelBody className="p-0">
         <Suspense fallback={<SnapshotListSkeleton />}>
@@ -27,6 +30,11 @@ export function SnapshotList({ branchId, applicationId, prNumber }: SnapshotList
       </PanelBody>
     </Panel>
   );
+}
+
+function SnapshotCount({ branchId }: { branchId: string }) {
+  const { data: snapshots } = useSnapshotHistory(branchId);
+  return <span className="ml-auto font-mono text-2xs text-text-tertiary">{snapshots.length} total</span>;
 }
 
 export function SnapshotListSkeleton() {
@@ -53,7 +61,7 @@ function SnapshotListContent({
   if (snapshots.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-text-tertiary">
-        <ClockCounterClockwiseIcon size={32} />
+        <CameraIcon size={28} />
         <p className="text-sm">No snapshots yet</p>
       </div>
     );
@@ -83,22 +91,30 @@ interface SnapshotCardProps {
 }
 
 function SnapshotCard({ snapshot, applicationId, prNumber }: SnapshotCardProps) {
+  const isActive = snapshot.status === "active";
+
   return (
-    <li className="border-b border-border-dim last:border-b-0">
+    <li
+      className={`border-b border-border-dim last:border-b-0 ${
+        isActive ? "border-l-2 border-l-primary-ink bg-primary-ink/5" : "border-l-2 border-l-transparent opacity-70"
+      }`}
+    >
       <AppLink
         to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
         params={{ prNumber, snapshotId: snapshot.id }}
-        className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-surface-base"
+        className="flex flex-col gap-2.5 px-4 py-3 transition-colors hover:bg-surface-base"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
           <Badge variant={statusBadgeVariant(snapshot.status)}>{snapshot.status}</Badge>
-          <span className="ml-auto text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
         </div>
 
         <CommitMessageLine applicationId={applicationId} sha={snapshot.headSha ?? undefined} />
 
-        <ChangeSummaryChips summary={snapshot.changeSummary} />
+        <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-2xs text-text-tertiary">
+          <ChangeSummaryChips summary={snapshot.changeSummary} />
+          <span>{formatRelativeTime(snapshot.createdAt)}</span>
+        </div>
       </AppLink>
     </li>
   );
@@ -108,23 +124,23 @@ function CommitMessageLine({ applicationId, sha }: { applicationId: string; sha:
   const { data, isPending, isError } = useCommitFromGitHub(applicationId, sha);
 
   if (sha == null) return <span className="text-sm text-text-tertiary">-</span>;
-  if (isPending) return <Skeleton className="h-4 w-72" />;
+  if (isPending) return <Skeleton className="h-4 w-48" />;
   if (isError || data == null) return <span className="text-sm text-text-tertiary">-</span>;
 
   const firstLine = data.message.split("\n")[0] ?? "";
-  return <span className="truncate text-sm text-text-secondary">{firstLine}</span>;
+  return <span className="truncate text-xs text-text-secondary">{firstLine}</span>;
 }
 
 function ChangeSummaryChips({ summary }: { summary: { added: number; removed: number; updated: number } }) {
   const chips: Array<{ key: string; label: string; className: string }> = [];
   if (summary.added > 0) {
-    chips.push({ key: "added", label: `+${summary.added} added`, className: "text-status-success" });
+    chips.push({ key: "added", label: `+${summary.added}`, className: "text-status-success" });
   }
   if (summary.updated > 0) {
-    chips.push({ key: "updated", label: `~${summary.updated} updated`, className: "text-status-warn" });
+    chips.push({ key: "updated", label: `~${summary.updated}`, className: "text-status-warn" });
   }
   if (summary.removed > 0) {
-    chips.push({ key: "removed", label: `-${summary.removed} removed`, className: "text-status-critical" });
+    chips.push({ key: "removed", label: `-${summary.removed}`, className: "text-status-critical" });
   }
 
   if (chips.length === 0) {
@@ -132,7 +148,7 @@ function ChangeSummaryChips({ summary }: { summary: { added: number; removed: nu
   }
 
   return (
-    <div className="flex items-center gap-3 font-mono text-2xs">
+    <div className="flex items-center gap-2 font-mono text-2xs">
       {chips.map((chip) => (
         <span key={chip.key} className={chip.className}>
           {chip.label}

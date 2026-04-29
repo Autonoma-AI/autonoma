@@ -3,6 +3,7 @@ import type {
     Commit,
     GitHubInstallationClient,
     PullRequest,
+    PullRequestCommit,
     Repository,
 } from "../github-installation-client";
 
@@ -158,6 +159,8 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             url: `https://github.com/${repoData.metadata.fullName}/pull/${pr.number}`,
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z",
+            state: "open",
+            commitsCount: branch.commits.length,
             merged: false,
         };
     }
@@ -181,6 +184,25 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             }
         }
         return associated;
+    }
+
+    async listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]> {
+        const repo = this.requireRepoById(repoId);
+        const pr = repo.pullRequests.get(prNumber);
+        if (pr == null) throw new Error(`Pull request ${repo.metadata.fullName}#${prNumber} not found`);
+
+        const branch = repo.branches.get(pr.headRef);
+        if (branch == null) throw new Error(`Branch "${pr.headRef}" not found for PR #${prNumber}`);
+
+        return branch.commits.map((sha) => {
+            const details = repo.commitDetails.get(sha);
+            return {
+                sha,
+                message: details?.message ?? "",
+                authorLogin: details?.authorLogin,
+                authoredAt: "2026-01-01T00:00:00Z",
+            };
+        });
     }
 
     async getCommit(repoId: number, sha: string): Promise<Commit> {

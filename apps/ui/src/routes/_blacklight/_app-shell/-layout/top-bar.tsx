@@ -90,7 +90,7 @@ function AppSelector({ currentApp }: { currentApp: { slug: string; name: string 
           {currentApp.name}
           <CaretDownIcon size={10} className="text-text-tertiary" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent align="start" className="max-h-[70vh] overflow-y-auto">
           <DropdownMenuItem
             className="gap-1.5 border border-dashed border-border-mid text-primary"
             onClick={() => {

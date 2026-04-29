@@ -5,6 +5,8 @@ export {
     type CloneRepositoryParams,
     type Repository,
     type PullRequest,
+    type PullRequestState,
+    type PullRequestCommit,
     type Commit,
 } from "./github-installation-client";
 export { FakeGitHubApp } from "./fake/fake-github-app";

@@ -246,6 +246,7 @@
   --animate-orb-spin: orb-spin 20s linear infinite;
   --animate-core-pulse: core-pulse 4s ease-in-out infinite;
   --animate-scanline: scanline 10s linear infinite;
+  --animate-heartbeat: heartbeat 1s ease-in-out infinite;
 }
 
 /* ═══════════════════════════════════════════
@@ -264,6 +265,25 @@
 @keyframes scanline {
   0% { bottom: 100%; }
   100% { bottom: -100%; }
+}
+
+@keyframes heartbeat {
+  0%, 40%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  10% {
+    transform: scale(1.03);
+    filter: drop-shadow(0 0 1px currentColor);
+  }
+  22% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  32% {
+    transform: scale(1.015);
+    filter: drop-shadow(0 0 0.4px currentColor);
+  }
 }
 
 @keyframes bl-cube-spin {

@@ -21,9 +21,12 @@ export interface Commit {
     authorLogin?: string;
 }
 
+export type PullRequestState = "open" | "closed" | "merged";
+
 export interface PullRequest {
     number: number;
     title: string;
+    body?: string;
     headRef: string;
     headSha: string;
     baseRef: string;
@@ -32,10 +35,19 @@ export interface PullRequest {
     authorLogin?: string;
     createdAt: string;
     updatedAt: string;
+    state: PullRequestState;
+    commitsCount: number;
     merged: boolean;
     mergedAt?: string;
     mergeMethod?: "merge" | "squash" | "rebase";
     mergeCommitSha?: string;
+}
+
+export interface PullRequestCommit {
+    sha: string;
+    message: string;
+    authorLogin?: string;
+    authoredAt: string;
 }
 
 export interface CloneRepositoryParams {
@@ -55,6 +67,7 @@ export interface GitHubInstallationClient {
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
     listPullRequests(repoId: number): Promise<PullRequest[]>;
     getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
+    listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
     getBranchHead(repoId: number, branchName: string): Promise<string>;
 }
@@ -62,12 +75,15 @@ export interface GitHubInstallationClient {
 interface RawPullRequestLike {
     number: number;
     title: string;
+    body?: string | null;
     head: { ref: string; sha: string };
     base: { ref: string; sha: string };
     html_url: string;
     user: { login: string } | null;
     created_at: string;
     updated_at: string;
+    state?: string;
+    commits?: number;
     merged?: boolean;
     merged_at: string | null;
     merge_commit_sha: string | null;
@@ -75,9 +91,11 @@ interface RawPullRequestLike {
 
 function mapPullRequest(pr: RawPullRequestLike): PullRequest {
     const merged = pr.merged ?? pr.merged_at != null;
+    const state: PullRequestState = merged ? "merged" : pr.state === "closed" ? "closed" : "open";
     return {
         number: pr.number,
         title: pr.title,
+        body: pr.body ?? undefined,
         headRef: pr.head.ref,
         headSha: pr.head.sha,
         baseRef: pr.base.ref,
@@ -86,6 +104,8 @@ function mapPullRequest(pr: RawPullRequestLike): PullRequest {
         authorLogin: pr.user?.login,
         createdAt: pr.created_at,
         updatedAt: pr.updated_at,
+        state,
+        commitsCount: pr.commits ?? 0,
         merged,
         mergedAt: pr.merged_at ?? undefined,
         mergeCommitSha: pr.merge_commit_sha ?? undefined,
@@ -258,6 +278,32 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         });
 
         return pullRequests;
+    }
+
+    async listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Listing pull request commits", { repoId, prNumber });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}/commits", {
+            owner,
+            repo,
+            pull_number: prNumber,
+            per_page: 100,
+        });
+
+        const commits = data.map((entry): PullRequestCommit => {
+            const authoredAt = entry.commit.author?.date ?? entry.commit.committer?.date ?? "";
+            return {
+                sha: entry.sha,
+                message: entry.commit.message,
+                authorLogin: entry.author?.login ?? undefined,
+                authoredAt,
+            };
+        });
+
+        this.logger.info("Listed pull request commits", { repoId, prNumber, count: commits.length });
+
+        return commits;
     }
 
     async getCommit(repoId: number, sha: string): Promise<Commit> {

@@ -55,6 +55,12 @@ export const githubRouter = router({
             services.github.getApplicationPullRequest(organizationId, input.applicationId, input.prNumber),
         ),
 
+    listPullRequestCommits: protectedProcedure
+        .input(z.object({ applicationId: z.string(), prNumber: z.number().int().positive() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.github.listApplicationPullRequestCommits(organizationId, input.applicationId, input.prNumber),
+        ),
+
     getCommit: protectedProcedure
         .input(z.object({ applicationId: z.string(), sha: z.string().trim().min(1) }))
         .query(({ ctx: { services, organizationId }, input }) =>

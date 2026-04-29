@@ -1,5 +1,4 @@
 import {
-  Badge,
   type ColumnDef,
   Panel,
   PanelBody,
@@ -14,7 +13,8 @@ import { useBranches } from "lib/query/branches.queries";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { useAppNavigate } from "../../-use-app-navigate";
-import { PRAuthorCell, PRNameCell } from "./-components/pr-info-cells";
+import { PRHealthCell } from "./-components/pr-coverage-cell";
+import { PRAuthorCell, PRNameCell, PRStateCell, PRUpdatedCell } from "./-components/pr-info-cells";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/")({
   component: PullRequestsPage,
@@ -24,6 +24,10 @@ type PullRequestRow = {
   id: string;
   prNumber: number;
   branchName: string;
+  activeSnapshot: {
+    status: string;
+    _count: { testCaseAssignments: number };
+  } | null;
 };
 
 function PullRequestsContent() {
@@ -32,7 +36,16 @@ function PullRequestsContent() {
   const appNavigate = useAppNavigate();
 
   const rows: PullRequestRow[] = branches.flatMap((b) =>
-    b.prNumber != null ? [{ id: b.id, prNumber: b.prNumber, branchName: b.name }] : [],
+    b.prNumber != null
+      ? [
+          {
+            id: b.id,
+            prNumber: b.prNumber,
+            branchName: b.name,
+            activeSnapshot: b.activeSnapshot,
+          },
+        ]
+      : [],
   );
 
   function handleRowClick(row: PullRequestRow) {
@@ -47,7 +60,7 @@ function PullRequestsContent() {
       id: "prNumber",
       accessorKey: "prNumber",
       header: "PR",
-      size: 80,
+      size: 70,
       enableSorting: true,
       cell: ({ row }) => <span className="font-mono text-sm text-text-tertiary">#{row.original.prNumber}</span>,
     },
@@ -55,7 +68,7 @@ function PullRequestsContent() {
       id: "name",
       accessorKey: "branchName",
       header: "Name",
-      size: 500,
+      size: 420,
       enableSorting: false,
       cell: ({ row }) => (
         <PRNameCell applicationId={app.id} prNumber={row.original.prNumber} branchName={row.original.branchName} />
@@ -64,16 +77,30 @@ function PullRequestsContent() {
     {
       id: "author",
       header: "Author",
-      size: 160,
+      size: 140,
       enableSorting: false,
       cell: ({ row }) => <PRAuthorCell applicationId={app.id} prNumber={row.original.prNumber} />,
     },
     {
-      id: "status",
-      header: "Status",
+      id: "state",
+      header: "State",
+      size: 110,
+      enableSorting: false,
+      cell: ({ row }) => <PRStateCell applicationId={app.id} prNumber={row.original.prNumber} />,
+    },
+    {
+      id: "updated",
+      header: "Updated",
       size: 120,
       enableSorting: false,
-      cell: () => <Badge variant="success">Open</Badge>,
+      cell: ({ row }) => <PRUpdatedCell applicationId={app.id} prNumber={row.original.prNumber} />,
+    },
+    {
+      id: "health",
+      header: "Health",
+      size: 140,
+      enableSorting: false,
+      cell: ({ row }) => <PRHealthCell activeSnapshot={row.original.activeSnapshot} />,
     },
   ];
 

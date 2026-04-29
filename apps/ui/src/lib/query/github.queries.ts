@@ -40,6 +40,15 @@ export function usePullRequestFromGitHub(applicationId: string, prNumber: number
     });
 }
 
+export function usePullRequestCommits(applicationId: string, prNumber: number) {
+    return useQuery({
+        ...trpc.github.listPullRequestCommits.queryOptions({ applicationId, prNumber }),
+        staleTime: GITHUB_PR_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        retry: false,
+    });
+}
+
 export function useCommitFromGitHub(applicationId: string, sha: string | undefined) {
     return useQuery({
         ...trpc.github.getCommit.queryOptions({ applicationId, sha: sha ?? "" }),
