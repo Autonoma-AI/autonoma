@@ -32,7 +32,7 @@ export function createResolutionCallbacks({
     testDirectory,
     bugLinker,
 }: CreateResolutionCallbacksParams): ResolutionCallbacks {
-    const modifyDeps = { db, updater, applicationId, testDirectory };
+    const modifyDeps = { db, updater, testDirectory };
     const quarantineDeps = { db, updater, applicationId };
     const addTestDeps = { updater };
     const reportBugDeps = { db, bugLinker, branchId: updater.branchId, applicationId, organizationId };

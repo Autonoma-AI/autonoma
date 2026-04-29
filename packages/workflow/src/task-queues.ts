@@ -5,5 +5,4 @@ export const TaskQueue = {
     DIFFS: "diffs",
 } as const;
 
-
 export type TaskQueue = (typeof TaskQueue)[keyof typeof TaskQueue];

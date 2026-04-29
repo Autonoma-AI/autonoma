@@ -57,12 +57,10 @@ export class TestDirectory {
     }
 
     async writeTest({ slug, name, prompt }: WriteTestParams): Promise<void> {
-        this.logger.info("Writing test file", { slug });
         await writeFile(join(this.testsDir, `${slug}.md`), formatTestContent(name, prompt), "utf-8");
     }
 
     async writeSkill({ slug, name, description, content }: WriteSkillParams): Promise<void> {
-        this.logger.info("Writing skill file", { slug });
         await writeFile(join(this.skillsDir, `${slug}.md`), formatSkillContent(name, description, content), "utf-8");
     }
 

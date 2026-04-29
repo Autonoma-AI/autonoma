@@ -19,3 +19,21 @@ export {
 } from "./queries/snapshot-changes";
 export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
+export {
+    findMergeSourceSnapshot,
+    type FindMergeSourceSnapshotParams,
+    type PinnedSourceSnapshot,
+} from "./queries/find-merge-source-snapshot";
+export {
+    buildMergeClassifierInputs,
+    type BuildMergeClassifierInputsParams,
+    type ClassifierInputAssignment,
+    type ClassifierInputRow,
+    type PinnedSourceForClassifier,
+} from "./queries/build-merge-classifier-inputs";
+export {
+    applyMergePlanImports,
+    type ApplyMergePlanImportsParams,
+    type AppliedMergePlanImport,
+    type MergePlanImport,
+} from "./queries/apply-merge-plan-imports";

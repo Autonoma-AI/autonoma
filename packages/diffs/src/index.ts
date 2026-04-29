@@ -5,6 +5,9 @@ export {
     type DiffsAgentInput,
     type ExistingSkillInfo,
     type ExistingTestInfo,
+    type MergeContextInfo,
+    type PreClassifiedConflictInfo,
+    type PreClassifiedConflictVersion,
 } from "./diffs-agent";
 export type { DiffsAgentResult, ResultCollector } from "./tools/finish-tool";
 export {
@@ -35,5 +38,19 @@ export type { ModifiedTest } from "./tools/modify-test-tool";
 export type { QuarantinedTest } from "./tools/quarantine-test-tool";
 export type { ReportedBug } from "./tools/report-bug-tool";
 export type { GeneratedTest } from "./tools/add-test-tool";
+export {
+    classifyTestsForMerge,
+    type AssignmentRef,
+    type ClassifierSource,
+    type Classification,
+    type ClassifyTestInput,
+    type ConflictVersion,
+} from "./merge-classification";
+export {
+    detectRelevantMerges,
+    listCommitsInRange,
+    type DetectMergesParams,
+    type RelevantMerge,
+} from "./merge-detection";
 export { runDiffsAgentLocally, type LocalDiffsRunnerParams } from "./run-diffs-locally";
 export { runResolutionAgentLocally, type LocalResolutionRunnerParams } from "./run-resolution-locally";

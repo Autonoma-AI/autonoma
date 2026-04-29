@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-export const AFFECTED_REASONS = ["code_change"] as const;
+export const AFFECTED_REASONS = ["code_change", "merge_plan_imported", "merge_conflict"] as const;
 
 export const affectedReasonSchema = z.enum(AFFECTED_REASONS);
 
@@ -10,14 +10,17 @@ export type AffectedReason = z.infer<typeof affectedReasonSchema>;
 export const affectedTestSchema = z.object({
     slug: z.string().describe("The exact slug of the affected test from the Existing Tests list"),
     testName: z.string().describe("The name of the test"),
-    affectedReason: affectedReasonSchema.describe(
-        "Structured reason this test is affected. " +
-            "Currently the only value is `code_change`: existing code the test exercises was modified and may regress.",
-    ),
+    affectedReason: affectedReasonSchema.describe("Structured reason this test is affected"),
     reasoning: z.string().describe("Why this test might be affected by the code changes"),
 });
 
 export type AffectedTest = z.infer<typeof affectedTestSchema>;
+
+const markInputSchema = z.object({
+    slug: z.string().describe("The exact slug of the affected test from the Existing Tests list"),
+    testName: z.string().describe("The name of the test"),
+    reasoning: z.string().describe("Why this test might be affected by the code changes"),
+});
 
 export function buildMarkAffectedTestTool(collector: { affectedTests: AffectedTest[] }, validSlugs: Set<string>) {
     return tool({
@@ -27,8 +30,8 @@ export function buildMarkAffectedTestTool(collector: { affectedTests: AffectedTe
             "renamed routes, modified validation logic, or deleted features. " +
             "The test will be run automatically after analysis completes. " +
             "You MUST use the exact slug from the Existing Tests list. " +
-            "You MUST always provide `affectedReason` (currently: code_change).",
-        inputSchema: affectedTestSchema,
+            "Do NOT use this tool for pre-classified merge conflicts - use `explain_merge_conflict` for those.",
+        inputSchema: markInputSchema,
         execute: async (input) => {
             if (!validSlugs.has(input.slug)) {
                 return {
@@ -37,7 +40,7 @@ export function buildMarkAffectedTestTool(collector: { affectedTests: AffectedTe
                 };
             }
 
-            collector.affectedTests.push(input);
+            collector.affectedTests.push({ ...input, affectedReason: "code_change" });
             return { success: true, slug: input.slug };
         },
     });

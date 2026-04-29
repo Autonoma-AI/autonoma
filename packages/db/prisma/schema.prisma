@@ -1543,3 +1543,5 @@ model BillingPromoRedemption {
     @@unique([promoCodeId, organizationId])
     @@map("billing_promo_redemption")
 }
+
+// Trigger diffs

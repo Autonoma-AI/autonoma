@@ -13,14 +13,27 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        const agentResult = await runDiffsAnalysis(snapshotId);
+        const analysisResult = await runDiffsAnalysis(snapshotId);
+
+        const combinedAffectedTestsBySlug = new Map(
+            analysisResult.importedAffectedTests.map((t) => [t.slug, t] as const),
+        );
+        for (const t of analysisResult.affectedTests) {
+            if (!combinedAffectedTestsBySlug.has(t.slug)) {
+                combinedAffectedTestsBySlug.set(t.slug, t);
+            }
+        }
+        const combinedAffectedTests = Array.from(combinedAffectedTestsBySlug.values());
+
         logger.info("Agent analysis complete, preparing runs", {
-            affectedTests: agentResult.affectedTests.length,
+            agentAffectedTests: analysisResult.affectedTests.length,
+            importedAffectedTests: analysisResult.importedAffectedTests.length,
+            combined: combinedAffectedTests.length,
         });
 
         let preparedRuns: PreparedRunInfo[] = [];
 
-        if (agentResult.affectedTests.length > 0) {
+        if (combinedAffectedTests.length > 0) {
             const { branch } = await db.branchSnapshot.findUniqueOrThrow({
                 where: { id: snapshotId },
                 select: { branch: { select: { applicationId: true, organizationId: true } } },
@@ -28,7 +41,7 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
             const billingService = createBillingService(db);
 
             const runs = await prepareRuns(
-                agentResult.affectedTests.map((t) => t.slug),
+                combinedAffectedTests.map((t) => t.slug),
                 {
                     db,
                     snapshotId,
@@ -48,19 +61,19 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
 
         logger.info("Diffs analysis activity completed", {
             preparedRuns: preparedRuns.length,
-            reasoning: agentResult.reasoning.slice(0, 200),
+            reasoning: analysisResult.reasoning.slice(0, 200),
         });
 
         return {
             preparedRuns,
-            testCandidates: agentResult.testCandidates,
-            affectedTests: agentResult.affectedTests.map((t) => ({
+            testCandidates: analysisResult.testCandidates,
+            affectedTests: combinedAffectedTests.map((t) => ({
                 slug: t.slug,
                 testName: t.testName,
                 reasoning: t.reasoning,
                 affectedReason: t.affectedReason,
             })),
-            reasoning: agentResult.reasoning,
+            reasoning: analysisResult.reasoning,
         };
     } finally {
         clearInterval(heartbeat);

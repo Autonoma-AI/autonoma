@@ -4,6 +4,7 @@ import type { ScenarioIndex } from "../scenario-index";
 import type { TestDirectory } from "../test-directory";
 import { buildAddTestTool } from "./add-test-tool";
 import { buildBashTool } from "./bash-tool";
+import { buildExplainMergeConflictTool } from "./explain-merge-conflict-tool";
 import type { ResultCollector } from "./finish-tool";
 import { buildGlobTool } from "./glob-tool";
 import { buildGrepTool } from "./grep-tool";
@@ -32,9 +33,10 @@ export function buildCodebaseTools(model: LanguageModel, workingDirectory: strin
     };
 }
 
-export function buildActionTools(collector: ResultCollector, validSlugs: Set<string>) {
+export function buildActionTools(collector: ResultCollector, validSlugs: Set<string>, validConflictSlugs: Set<string>) {
     return {
         mark_affected_test: buildMarkAffectedTestTool(collector, validSlugs),
+        explain_merge_conflict: buildExplainMergeConflictTool(collector, validConflictSlugs),
         suggest_test: buildSuggestTestTool(collector),
     };
 }

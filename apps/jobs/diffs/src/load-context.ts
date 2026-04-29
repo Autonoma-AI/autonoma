@@ -11,6 +11,10 @@ export interface BranchData {
     repoId: number;
     fullName: string;
     installationId: string;
+    /** Repository's default branch (e.g. "main"), fetched from GitHub. Used to filter PRs in merge detection. */
+    defaultBranch: string;
+    /** True when the snapshot belongs to the application's main branch. Gates the feat/x -> main merge flow. */
+    isMainBranch: boolean;
 }
 
 export async function loadBranchData(branchId: string, githubApp: GitHubApp): Promise<BranchData> {
@@ -22,6 +26,7 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
                 select: {
                     organizationId: true,
                     githubRepositoryId: true,
+                    mainBranchId: true,
                 },
             },
         },
@@ -48,6 +53,8 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
         repoId: branch.application.githubRepositoryId,
         fullName: repo.fullName,
         installationId: String(installation.installationId),
+        defaultBranch: repo.defaultBranch,
+        isMainBranch: branch.application.mainBranchId === branchId,
     };
 }
 

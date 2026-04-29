@@ -1,12 +1,23 @@
 import fs from "fs/promises";
-import type { DiffsAgentResult } from "@autonoma/diffs";
+import { db } from "@autonoma/db";
+import type { AffectedTest, DiffsAgentResult } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
+import { runMergeFlow } from "./merge-flow";
 import { runDiffsAgent } from "./run-diffs-agent";
 
-export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAgentResult> {
+export interface DiffsAnalysisResult extends DiffsAgentResult {
+    /**
+     * Tests whose plan was deterministically imported from a merge source during
+     * Phase 1 merge handling. Callers merge these with `affectedTests` before
+     * dispatching replay runs.
+     */
+    importedAffectedTests: AffectedTest[];
+}
+
+export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysisResult> {
     Sentry.setTag("snapshotId", snapshotId);
     logger.info("Starting diffs analysis job", { snapshotId });
 
@@ -56,14 +67,83 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAgentRe
             existingSkills: input.existingSkills.length,
         });
 
-        return await runDiffsAgent({
-            input,
+        const mergeResult = await runOptionalMergeFlow({
+            branchData,
+            githubClient,
+            repoDir,
+            baseSha,
+            headSha,
+            snapshotId,
+        });
+
+        const importedSlugs = new Set(mergeResult.importedAffectedTests.map((t) => t.slug));
+
+        const agentInput = {
+            ...input,
+            existingTests: input.existingTests.filter((t) => !importedSlugs.has(t.slug)),
+            merges: mergeResult.merges,
+            preClassifiedConflicts: mergeResult.preClassifiedConflicts,
+        };
+
+        const agentResult = await runDiffsAgent({
+            input: agentInput,
             repoDir,
             testDirectory,
             flowIndex,
         });
+
+        return {
+            ...agentResult,
+            importedAffectedTests: mergeResult.importedAffectedTests,
+        };
     } finally {
         // Clean up the repo directory after analysis
         await fs.rm("/tmp/repo", { recursive: true, force: true });
     }
+}
+
+interface OptionalMergeFlowParams {
+    branchData: Awaited<ReturnType<typeof loadBranchData>>;
+    githubClient: Awaited<
+        ReturnType<Awaited<ReturnType<typeof createDiffsServices>>["githubApp"]["getInstallationClient"]>
+    >;
+    repoDir: string;
+    baseSha: string;
+    headSha: string;
+    snapshotId: string;
+}
+
+async function runOptionalMergeFlow({
+    branchData,
+    githubClient,
+    repoDir,
+    baseSha,
+    headSha,
+    snapshotId,
+}: OptionalMergeFlowParams) {
+    if (!branchData.isMainBranch) {
+        logger.info(
+            "Branch is not the application main branch; skipping merge flow (Phase 1 only handles feat/x -> main)",
+        );
+        return { merges: [], preClassifiedConflicts: [], importedAffectedTests: [] };
+    }
+
+    const [owner, repo] = branchData.fullName.split("/");
+    if (owner == null || repo == null) {
+        logger.warn("Unexpected fullName format; skipping merge flow", { fullName: branchData.fullName });
+        return { merges: [], preClassifiedConflicts: [], importedAffectedTests: [] };
+    }
+
+    return await runMergeFlow({
+        db,
+        githubClient,
+        owner,
+        repo,
+        targetBranchRef: branchData.defaultBranch,
+        baseSha,
+        headSha,
+        repoDir,
+        targetSnapshotId: snapshotId,
+        applicationId: branchData.applicationId,
+    });
 }

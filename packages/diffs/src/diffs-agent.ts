@@ -28,11 +28,47 @@ export interface ExistingSkillInfo {
     content: string;
 }
 
+export interface MergeContextInfo {
+    prNumber: number;
+    sourceBranchName: string;
+    sourceSnapshotId: string;
+    mergeCommitSha: string;
+}
+
+export interface PreClassifiedConflictVersion {
+    /** Where this leg came from: main's current state, main's state when the source last synced, or one of the source branches. */
+    role: "target-current" | "target-base" | "source";
+    sourceName?: string;
+    prNumber?: number;
+    assignmentId: string;
+    planId: string | null;
+}
+
+/**
+ * A test that was deterministically classified as a merge conflict before the
+ * agent ran. The agent receives these pre-marked as affected with
+ * `affectedReason: "merge_conflict"` and only fills in the reasoning via the
+ * `explain_merge_conflict` tool, using the provided legs for context. Tests
+ * handled outside the agent (unilateral_update / new_test) are dispatched to
+ * replay directly with `merge_plan_imported` and are intentionally not
+ * included in `existingTests` for the agent-visible list.
+ */
+export interface PreClassifiedConflictInfo {
+    slug: string;
+    testName: string;
+    versions: PreClassifiedConflictVersion[];
+    involvedPrNumbers: number[];
+}
+
 export interface DiffsAgentInput {
     headSha: string;
     baseSha: string;
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
+    /** Merges present in the range that were deterministically processed before the agent ran. Empty for non-merge runs. */
+    merges?: MergeContextInfo[];
+    /** Merge-conflict tests to enrich with reasoning. Empty for non-merge runs. */
+    preClassifiedConflicts?: PreClassifiedConflictInfo[];
 }
 
 // --- Agent ---
@@ -62,13 +98,20 @@ export class DiffsAgent {
             this.logger,
         );
         const prompt = buildPrompt(
-            { analysis, existingTests: input.existingTests, existingSkills: input.existingSkills },
+            {
+                analysis,
+                existingTests: input.existingTests,
+                existingSkills: input.existingSkills,
+                merges: input.merges ?? [],
+                preClassifiedConflicts: input.preClassifiedConflicts ?? [],
+            },
             this.config.flowIndex,
         );
         const validSlugs = new Set(input.existingTests.map((t) => t.slug));
+        const preClassifiedConflicts = input.preClassifiedConflicts ?? [];
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(prompt, validSlugs);
+            const attemptResult = await this.runAgent(prompt, validSlugs, preClassifiedConflicts);
 
             const hasReasoning = attemptResult.reasoning.trim().length > 0;
             if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
@@ -83,14 +126,24 @@ export class DiffsAgent {
         };
     }
 
-    private async runAgent(prompt: string, validSlugs: Set<string>): Promise<DiffsAgentResult> {
+    private async runAgent(
+        prompt: string,
+        validSlugs: Set<string>,
+        preClassifiedConflicts: PreClassifiedConflictInfo[],
+    ): Promise<DiffsAgentResult> {
         const { model, workingDirectory, flowIndex, testDirectory, maxSteps = 50 } = this.config;
 
         let result: DiffsAgentResult | undefined;
         const collector: ResultCollector = {
-            affectedTests: [],
+            affectedTests: preClassifiedConflicts.map((c) => ({
+                slug: c.slug,
+                testName: c.testName,
+                affectedReason: "merge_conflict" as const,
+                reasoning: "",
+            })),
             testCandidates: [],
         };
+        const validConflictSlugs = new Set(preClassifiedConflicts.map((c) => c.slug));
 
         const agent = new ToolLoopAgent({
             model,
@@ -98,7 +151,7 @@ export class DiffsAgent {
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, testDirectory),
-                ...buildActionTools(collector, validSlugs),
+                ...buildActionTools(collector, validSlugs, validConflictSlugs),
                 finish: buildFinishTool((output) => {
                     result = output;
                 }, collector),
@@ -153,10 +206,12 @@ interface PromptInput {
     analysis: DiffAnalysis;
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
+    merges: MergeContextInfo[];
+    preClassifiedConflicts: PreClassifiedConflictInfo[];
 }
 
 function buildPrompt(input: PromptInput, flowIndex: FlowIndex): string {
-    const { analysis } = input;
+    const { analysis, merges, preClassifiedConflicts } = input;
 
     let prompt = `Analyze the following code changes.
 
@@ -167,6 +222,36 @@ ${analysis.summary}
 ${analysis.affectedFiles.join("\n")}
 
 Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, etc.) to explore the actual patch and understand the changes in detail.`;
+
+    if (merges.length > 0) {
+        prompt += "\n\n## Merges in this range\n";
+        prompt +=
+            "These PRs were merged into the current branch in this commit range. Tests whose plans were adopted " +
+            "from a single winning side (unilateral_update or new_test) have already been handled outside this " +
+            "analysis and are deliberately NOT present in the Existing Tests list below. Do not attempt to " +
+            "rediscover them with git or file tools - their plans were reused deterministically and they will be " +
+            "replayed automatically.\n";
+        for (const m of merges) {
+            prompt += `\n- PR #${m.prNumber} from \`${m.sourceBranchName}\` (merge commit \`${m.mergeCommitSha}\`)`;
+        }
+    }
+
+    if (preClassifiedConflicts.length > 0) {
+        prompt += "\n\n## Pre-classified merge conflicts\n";
+        prompt +=
+            "Each of these tests was modified on multiple sides of the merge and requires re-planning. They are " +
+            "ALREADY marked as affected with `affectedReason: merge_conflict` - you do not need to (and must not) " +
+            "call `mark_affected_test` for them. Instead, for each one, call `explain_merge_conflict` with a " +
+            "`reasoning` that explains how the plans diverge. Use `read_test` to inspect the current plan before " +
+            "writing the reasoning. The Resolution step will re-plan them using all the legs listed below.\n";
+        for (const c of preClassifiedConflicts) {
+            prompt += `\n- **${c.slug}** (${c.testName}) - PRs involved: ${c.involvedPrNumbers.join(", ")}`;
+            for (const v of c.versions) {
+                const origin = v.role === "source" ? `source ${v.sourceName ?? ""} (PR #${v.prNumber ?? "?"})` : v.role;
+                prompt += `\n    - ${origin}: assignment \`${v.assignmentId}\`, plan \`${v.planId ?? "<quarantined>"}\``;
+            }
+        }
+    }
 
     // Show flows (folders) as navigable context
     const flows = flowIndex.listFlows();
@@ -193,7 +278,11 @@ const SYSTEM_PROMPT = `You are a QA engineer that analyzes code diffs on pull re
 ## 1. Test Impact Analysis
 Identify which existing tests MIGHT be affected by the code changes. Use \`list_tests\` to browse tests by flow and \`read_test\` to inspect test instructions. Use \`mark_affected_test\` for each test that could be impacted. Be thorough but not overly broad - only mark tests whose flows directly touch the changed code.
 
-When calling \`mark_affected_test\`, you MUST provide \`affectedReason\`. In this phase the only allowed value is \`code_change\` (existing code the test exercises was modified and may regress).
+\`mark_affected_test\` is ONLY for tests you identified yourself from the diff (they will be recorded with \`affectedReason: code_change\`).
+
+Tests listed under "Pre-classified merge conflicts" are already recorded with \`affectedReason: merge_conflict\`; for each of them call \`explain_merge_conflict\` with a reasoning that explains how the plans diverge. Do NOT call \`mark_affected_test\` for those slugs.
+
+Tests whose plans were imported from a merge source (\`merge_plan_imported\`) are handled deterministically outside the agent and are intentionally excluded from the Existing Tests list. Do not try to rediscover them.
 
 Consider a test affected if the diff:
 - Changes UI elements or flows the test exercises
@@ -222,7 +311,8 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`read_skill\`: read a skill's full content by slug
 
 ### Actions
-- \`mark_affected_test\`: flag a test as potentially affected by the changes (must use exact slug)
+- \`mark_affected_test\`: flag a test as potentially affected by the changes (must use exact slug, records as \`code_change\`)
+- \`explain_merge_conflict\`: attach reasoning to a pre-classified merge-conflict test (slug must be listed in "Pre-classified merge conflicts")
 - \`suggest_test\`: suggest a new test for uncovered functionality
 - \`finish\`: call when done with your analysis
 

@@ -11,7 +11,7 @@ export interface TestCandidateInfo {
     reasoning: string;
 }
 
-export type AffectedReason = "code_change";
+export type AffectedReason = "code_change" | "merge_plan_imported" | "merge_conflict";
 
 export interface AffectedTestInfo {
     slug: string;
