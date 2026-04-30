@@ -616,10 +616,6 @@ model TestCaseAssignment {
   stepsId String?        @map("steps_id")
   steps   StepInputList? @relation(fields: [stepsId], references: [id])
 
-  mainAssignmentId   String?              @map("main_assignment_id")
-  mainAssignment     TestCaseAssignment?  @relation("MainAssignmentRef", fields: [mainAssignmentId], references: [id])
-  derivedAssignments TestCaseAssignment[] @relation("MainAssignmentRef")
-
   runs Run[]
 
   @@unique([snapshotId, testCaseId])
@@ -638,10 +634,6 @@ model SkillAssignment {
 
   planId String?    @map("plan_id")
   plan   SkillPlan? @relation(fields: [planId], references: [id])
-
-  mainAssignmentId   String?           @map("main_assignment_id")
-  mainAssignment     SkillAssignment?  @relation("MainSkillAssignmentRef", fields: [mainAssignmentId], references: [id])
-  derivedAssignments SkillAssignment[] @relation("MainSkillAssignmentRef")
 
   @@unique([snapshotId, skillId])
   @@map("skill_assignment")

@@ -87,7 +87,6 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
             testCaseId: true,
             planId: true,
             stepsId: true,
-            mainAssignmentId: true,
         },
     });
 
@@ -104,7 +103,6 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
             testCaseId: a.testCaseId,
             planId: a.planId ?? undefined,
             stepsId: a.stepsId ?? undefined,
-            mainAssignmentId: a.mainAssignmentId ?? undefined,
         })),
     });
 }
@@ -116,7 +114,6 @@ async function copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSn
         select: {
             skillId: true,
             planId: true,
-            mainAssignmentId: true,
         },
     });
 
@@ -132,7 +129,6 @@ async function copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSn
             snapshotId: targetSnapshotId,
             skillId: a.skillId,
             planId: a.planId ?? undefined,
-            mainAssignmentId: a.mainAssignmentId ?? undefined,
         })),
     });
 }

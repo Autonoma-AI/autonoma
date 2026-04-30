@@ -424,7 +424,7 @@ export class SnapshotDraft {
 
             const previousAssignment = await tx.testCaseAssignment.findUnique({
                 where: { snapshotId_testCaseId: { snapshotId: snapshot.prevSnapshotId, testCaseId } },
-                select: { planId: true, stepsId: true, mainAssignmentId: true },
+                select: { planId: true, stepsId: true },
             });
 
             if (previousAssignment == null) {
@@ -442,7 +442,6 @@ export class SnapshotDraft {
                     testCaseId,
                     planId: previousAssignment.planId ?? undefined,
                     stepsId: previousAssignment.stepsId ?? undefined,
-                    mainAssignmentId: previousAssignment.mainAssignmentId ?? undefined,
                 },
             });
         });
