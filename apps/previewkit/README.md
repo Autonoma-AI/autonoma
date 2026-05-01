@@ -16,7 +16,7 @@ PR opened/updated
   Read .preview.yaml from repo
       |
       v
-  Clone repo, build images (Nixpacks or Dockerfile)
+  Clone repo, build images (Railpack or Dockerfile)
       |
       v
   Create K8s namespace: preview-{owner}-{repo}-pr-{N}

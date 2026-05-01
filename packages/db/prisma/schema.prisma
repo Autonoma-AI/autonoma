@@ -34,7 +34,7 @@ model User {
   sessions          Session[]
   accounts          Account[]
   members           Member[]
-  invitations       Invitation[] @relation("invitations")
+  invitations       Invitation[]       @relation("invitations")
   apiKeys           ApiKey[]
   applicationSetups ApplicationSetup[]
   signupHookStates  SignupHookState[]
@@ -103,40 +103,41 @@ model Organization {
   domain    String?            @unique
   status    OrganizationStatus @default(approved)
 
-  members            Member[]
-  invitations        Invitation[]
-  apiKeys            ApiKey[]
-  applications       Application[]
-  branchDeployments  BranchDeployment[]
-  webDeployments     WebDeployment[]
-  mobileDeployments  MobileDeployment[]
-  folders            Folder[]
-  branches           Branch[]
-  testCases          TestCase[]
-  testPlans          TestPlan[]
-  testGenerations    TestGeneration[]
-  stepInputLists     StepInputList[]
-  stepInputs         StepInput[]
-  stepOutputLists    StepOutputList[]
-  stepOutputs        StepOutput[]
-  tags               Tag[]
-  runs               Run[]
-  scenarios          Scenario[]
+  members                Member[]
+  invitations            Invitation[]
+  apiKeys                ApiKey[]
+  applications           Application[]
+  branchDeployments      BranchDeployment[]
+  webDeployments         WebDeployment[]
+  mobileDeployments      MobileDeployment[]
+  folders                Folder[]
+  branches               Branch[]
+  testCases              TestCase[]
+  testPlans              TestPlan[]
+  testGenerations        TestGeneration[]
+  stepInputLists         StepInputList[]
+  stepInputs             StepInput[]
+  stepOutputLists        StepOutputList[]
+  stepOutputs            StepOutput[]
+  tags                   Tag[]
+  runs                   Run[]
+  scenarios              Scenario[]
   scenarioRecipeVersions ScenarioRecipeVersion[]
-  scenarioInstances  ScenarioInstance[]
-  skills             Skill[]
-  skillPlans         SkillPlan[]
-  generationReviews  GenerationReview[]
-  runReviews         RunReview[]
-  issues             Issue[]
-  bugs               Bug[]
-  githubInstallation GitHubInstallation?
-  billingPricing     BillingPricing?
-  promoRedemptions   BillingPromoRedemption[]
-  billingCustomer    BillingCustomer?
-  applicationSetups  ApplicationSetup[]
-  setupArtifacts     ApplicationSetupArtifact[]
-  signupHookStates   SignupHookState[]
+  scenarioInstances      ScenarioInstance[]
+  skills                 Skill[]
+  skillPlans             SkillPlan[]
+  generationReviews      GenerationReview[]
+  runReviews             RunReview[]
+  issues                 Issue[]
+  bugs                   Bug[]
+  githubInstallation     GitHubInstallation?
+  billingPricing         BillingPricing?
+  promoRedemptions       BillingPromoRedemption[]
+  billingCustomer        BillingCustomer?
+  applicationSetups      ApplicationSetup[]
+  setupArtifacts         ApplicationSetupArtifact[]
+  signupHookStates       SignupHookState[]
+  previewkitEnvironments PreviewkitEnvironment[]
 
   @@map("organization")
 }
@@ -176,67 +177,67 @@ model OnboardingState {
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-    @@map("onboarding_state")
+  @@map("onboarding_state")
 }
 
 // ─── Application Setup ──────────────────────────────────────────────
 
 model ApplicationSetup {
-    id           String    @id @default(cuid())
-    name         String?
-    status       String    @default("running")
-    currentStep  Int       @default(0) @map("current_step")
-    totalSteps   Int       @default(5) @map("total_steps")
-    errorMessage String?   @map("error_message")
-    completedAt  DateTime? @map("completed_at")
+  id           String    @id @default(cuid())
+  name         String?
+  status       String    @default("running")
+  currentStep  Int       @default(0) @map("current_step")
+  totalSteps   Int       @default(5) @map("total_steps")
+  errorMessage String?   @map("error_message")
+  completedAt  DateTime? @map("completed_at")
 
-    applicationId  String       @map("application_id")
-    application    Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-    organizationId String       @map("organization_id")
-    organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    userId         String       @map("user_id")
-    user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId  String       @map("application_id")
+  application    Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    events ApplicationSetupEvent[]
-    artifacts ApplicationSetupArtifact[]
+  events    ApplicationSetupEvent[]
+  artifacts ApplicationSetupArtifact[]
 
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-    @@index([applicationId])
-    @@index([organizationId])
-    @@map("application_setup")
+  @@index([applicationId])
+  @@index([organizationId])
+  @@map("application_setup")
 }
 
 model ApplicationSetupEvent {
-    id        String           @id @default(cuid())
-    type      String
-    data      Json             @default("{}")
-    setupId   String           @map("setup_id")
-    setup     ApplicationSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
-    createdAt DateTime         @default(now()) @map("created_at")
+  id        String           @id @default(cuid())
+  type      String
+  data      Json             @default("{}")
+  setupId   String           @map("setup_id")
+  setup     ApplicationSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now()) @map("created_at")
 
-    @@index([setupId])
-    @@map("application_setup_event")
+  @@index([setupId])
+  @@map("application_setup_event")
 }
 
 model ApplicationSetupArtifact {
-    id             String           @id @default(cuid())
-    path           String
-    content        String           @db.Text
-    setupId        String           @map("setup_id")
-    setup          ApplicationSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
-    applicationId  String           @map("application_id")
-    application    Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-    organizationId String           @map("organization_id")
-    organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    createdAt      DateTime         @default(now()) @map("created_at")
-    updatedAt      DateTime         @updatedAt @map("updated_at")
+  id             String           @id @default(cuid())
+  path           String
+  content        String           @db.Text
+  setupId        String           @map("setup_id")
+  setup          ApplicationSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  applicationId  String           @map("application_id")
+  application    Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  organizationId String           @map("organization_id")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
 
-    @@unique([setupId, path])
-    @@index([setupId])
-    @@index([applicationId])
-    @@map("application_setup_artifact")
+  @@unique([setupId, path])
+  @@index([setupId])
+  @@index([applicationId])
+  @@map("application_setup_artifact")
 }
 
 model Member {
@@ -322,22 +323,22 @@ model Application {
   webhookUrl       String? @map("webhook_url")
   signingSecretEnc String? @map("signing_secret_enc")
 
-  folders            Folder[]
-  testCases          TestCase[]
-  skills             Skill[]
-  tags               Tag[]
-  scenarios          Scenario[]
+  folders                 Folder[]
+  testCases               TestCase[]
+  skills                  Skill[]
+  tags                    Tag[]
+  scenarios               Scenario[]
   scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
-  scenarioRecipeVersions ScenarioRecipeVersion[]
-  scenarioInstances  ScenarioInstance[]
-  webhookCalls       WebhookCall[]
-  setupArtifacts     ApplicationSetupArtifact[]
-  branches           Branch[]
-  featureBranchInfos FeatureBranchInfo[]
-  mainBranchInfo     MainBranchInfo?
-  githubRepositories GitHubRepository[]
-  onboardingState    OnboardingState?
-  applicationSetups  ApplicationSetup[]
+  scenarioRecipeVersions  ScenarioRecipeVersion[]
+  scenarioInstances       ScenarioInstance[]
+  webhookCalls            WebhookCall[]
+  setupArtifacts          ApplicationSetupArtifact[]
+  branches                Branch[]
+  featureBranchInfos      FeatureBranchInfo[]
+  mainBranchInfo          MainBranchInfo?
+  githubRepositories      GitHubRepository[]
+  onboardingState         OnboardingState?
+  applicationSetups       ApplicationSetup[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -382,8 +383,8 @@ model WebDeployment {
   deploymentId String           @map("deployment_id")
   deployment   BranchDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
 
-  url        String
-  file       String
+  url  String
+  file String
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -483,7 +484,6 @@ model Folder {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, parentId, name])
-
   @@map("folder")
 }
 
@@ -520,7 +520,7 @@ model Branch {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  prInfo FeatureBranchInfo?
+  prInfo   FeatureBranchInfo?
   mainInfo MainBranchInfo?
 
   @@map("branch")
@@ -587,8 +587,8 @@ model BranchSnapshot {
   prevSnapshot   BranchSnapshot?  @relation("SnapshotHistory", fields: [prevSnapshotId], references: [id])
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
-  testCaseAssignments TestCaseAssignment[]
-  skillAssignments    SkillAssignment[]
+  testCaseAssignments     TestCaseAssignment[]
+  skillAssignments        SkillAssignment[]
   scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
   scenarioRecipeVersions  ScenarioRecipeVersion[]
 
@@ -765,8 +765,8 @@ model TestGeneration {
   /// Extracted variables from the agent's memory system
   memory Json @default("{}") @map("memory")
 
-  testPlan    TestPlan          @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
-  costRecords AiCostRecord[]
+  testPlan         TestPlan          @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
+  costRecords      AiCostRecord[]
   generationReview GenerationReview?
 
   scenarioInstanceId String?           @map("scenario_instance_id")
@@ -860,11 +860,11 @@ enum IssueCategory {
 }
 
 model Issue {
-  id          String            @id @default(cuid())
+  id                 String            @id @default(cuid())
   generationReviewId String?           @unique @map("review_id")
   generationReview   GenerationReview? @relation(fields: [generationReviewId], references: [id], onDelete: Cascade)
-  runReviewId String?           @unique @map("run_review_id")
-  runReview   RunReview?        @relation(fields: [runReviewId], references: [id], onDelete: Cascade)
+  runReviewId        String?           @unique @map("run_review_id")
+  runReview          RunReview?        @relation(fields: [runReviewId], references: [id], onDelete: Cascade)
 
   category    IssueCategory
   confidence  Int
@@ -901,8 +901,8 @@ model Bug {
   description String        @db.Text
   severity    IssueSeverity
 
-  branchId   String @map("branch_id")
-  branch     Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branchId String @map("branch_id")
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   testCaseId String   @map("test_case_id")
   testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
@@ -1093,7 +1093,7 @@ model Run {
   runReview   RunReview?
   costRecords AiCostRecord[]
 
-  reasoning String? @db.Text @map("reasoning")
+  reasoning String? @map("reasoning") @db.Text
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1126,10 +1126,10 @@ enum WebhookAction {
 }
 
 model Scenario {
-  id                String    @id @default(cuid())
-  applicationId     String    @map("application_id")
-  name              String
-  description       String?
+  id                    String  @id @default(cuid())
+  applicationId         String  @map("application_id")
+  name                  String
+  description           String?
   activeRecipeVersionId String? @unique @map("active_recipe_version_id")
 
   lastSeenFingerprint  String?   @map("last_seen_fingerprint")
@@ -1137,11 +1137,11 @@ model Scenario {
   fingerprintChangedAt DateTime? @map("fingerprint_changed_at")
   isDisabled           Boolean   @default(false) @map("is_disabled")
 
-  application Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  activeRecipeVersion ScenarioRecipeVersion? @relation("ActiveScenarioRecipeVersion", fields: [activeRecipeVersionId], references: [id], onDelete: SetNull)
-  recipeVersions ScenarioRecipeVersion[] @relation("ScenarioRecipeVersionHistory")
-  instances   ScenarioInstance[]
-  testPlans   TestPlan[]
+  application         Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  activeRecipeVersion ScenarioRecipeVersion?  @relation("ActiveScenarioRecipeVersion", fields: [activeRecipeVersionId], references: [id], onDelete: SetNull)
+  recipeVersions      ScenarioRecipeVersion[] @relation("ScenarioRecipeVersionHistory")
+  instances           ScenarioInstance[]
+  testPlans           TestPlan[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1153,15 +1153,15 @@ model Scenario {
 }
 
 model ScenarioSchemaSnapshot {
-  id            String   @id @default(cuid())
-  applicationId String   @map("application_id")
-  snapshotId    String   @map("snapshot_id")
+  id            String @id @default(cuid())
+  applicationId String @map("application_id")
+  snapshotId    String @map("snapshot_id")
   /// [ScenarioStructureJson]
-  structureJson Json     @map("structure_json") @db.Json
+  structureJson Json   @map("structure_json") @db.Json
   fingerprint   String
 
-  application    Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  snapshot       BranchSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  application    Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  snapshot       BranchSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   recipeVersions ScenarioRecipeVersion[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -1192,12 +1192,12 @@ model ScenarioRecipeVersion {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  scenario        Scenario               @relation("ScenarioRecipeVersionHistory", fields: [scenarioId], references: [id], onDelete: Cascade)
-  activeForScenario Scenario?            @relation("ActiveScenarioRecipeVersion")
-  snapshot        BranchSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  schemaSnapshot  ScenarioSchemaSnapshot @relation(fields: [schemaSnapshotId], references: [id])
-  application     Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scenario          Scenario               @relation("ScenarioRecipeVersionHistory", fields: [scenarioId], references: [id], onDelete: Cascade)
+  activeForScenario Scenario?              @relation("ActiveScenarioRecipeVersion")
+  snapshot          BranchSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  schemaSnapshot    ScenarioSchemaSnapshot @relation(fields: [schemaSnapshotId], references: [id])
+  application       Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([scenarioId, snapshotId])
   @@index([scenarioId])
@@ -1221,16 +1221,16 @@ model ScenarioInstance {
   expiresAt   DateTime? @map("expires_at")
 
   /// [ScenarioAuth]
-  auth      Json?
+  auth              Json?
   /// [ScenarioRefs]
-  refs      Json?
-  refsToken String? @map("refs_token")
+  refs              Json?
+  refsToken         String? @map("refs_token")
   /// [ScenarioMetadata]
-  metadata  Json?
+  metadata          Json?
   /// [ScenarioLastError]
-  lastError Json?   @map("last_error")
+  lastError         Json?   @map("last_error")
   /// [ScenarioResolvedVariables]
-  resolvedVariables Json? @map("resolved_variables")
+  resolvedVariables Json?   @map("resolved_variables")
 
   deploymentId String?           @map("deployment_id")
   deployment   BranchDeployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
@@ -1397,143 +1397,232 @@ model GitHubRepositoryFile {
 // ─── Billing ─────────────────────────────────────────────────────
 
 enum SubscriptionStatus {
-    active
-    canceled
-    past_due
-    unpaid
-    trialing
-    paused
-    incomplete
-    incomplete_expired
+  active
+  canceled
+  past_due
+  unpaid
+  trialing
+  paused
+  incomplete
+  incomplete_expired
 
-    @@map("subscription_status")
+  @@map("subscription_status")
 }
 
 enum CreditTransactionType {
-    SUBSCRIPTION_GRANT
-    SUBSCRIPTION_RESET
-    FREE_START_GRANT
-    PROMO_GRANT
-    TOPUP_PURCHASE
-    TOPUP_REFUND
-    GENERATION_CONSUMPTION
-    GENERATION_REFUND
-    RUN_CONSUMPTION
+  SUBSCRIPTION_GRANT
+  SUBSCRIPTION_RESET
+  FREE_START_GRANT
+  PROMO_GRANT
+  TOPUP_PURCHASE
+  TOPUP_REFUND
+  GENERATION_CONSUMPTION
+  GENERATION_REFUND
+  RUN_CONSUMPTION
 
-    @@map("credit_transaction_type")
+  @@map("credit_transaction_type")
 }
 
 model BillingCustomer {
-    id               String  @id @default(cuid())
-    organizationId   String  @unique @map("organization_id")
-    stripeCustomerId String? @unique @map("stripe_customer_id")
+  id               String  @id @default(cuid())
+  organizationId   String  @unique @map("organization_id")
+  stripeCustomerId String? @unique @map("stripe_customer_id")
 
-    subscriptionId     String?             @map("subscription_id")
-    subscriptionStatus SubscriptionStatus? @map("subscription_status")
-    priceId            String?             @map("price_id")
-    currentPeriodStart DateTime?           @map("current_period_start")
-    currentPeriodEnd   DateTime?           @map("current_period_end")
-    cancelAtPeriodEnd  Boolean             @default(false) @map("cancel_at_period_end")
-    gracePeriodEndsAt  DateTime?           @map("grace_period_ends_at")
+  subscriptionId     String?             @map("subscription_id")
+  subscriptionStatus SubscriptionStatus? @map("subscription_status")
+  priceId            String?             @map("price_id")
+  currentPeriodStart DateTime?           @map("current_period_start")
+  currentPeriodEnd   DateTime?           @map("current_period_end")
+  cancelAtPeriodEnd  Boolean             @default(false) @map("cancel_at_period_end")
+  gracePeriodEndsAt  DateTime?           @map("grace_period_ends_at")
 
-    creditBalance      Int     @default(0) @map("credit_balance")
-    subscriptionCreditBalance Int @default(0) @map("subscription_credit_balance")
-    autoTopUpEnabled   Boolean @default(false) @map("auto_top_up_enabled")
-    autoTopUpThreshold Int     @default(0) @map("auto_top_up_threshold")
+  creditBalance             Int     @default(0) @map("credit_balance")
+  subscriptionCreditBalance Int     @default(0) @map("subscription_credit_balance")
+  autoTopUpEnabled          Boolean @default(false) @map("auto_top_up_enabled")
+  autoTopUpThreshold        Int     @default(0) @map("auto_top_up_threshold")
 
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-    organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    transactions CreditTransaction[]
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions CreditTransaction[]
 
-    @@map("billing_customer")
+  @@map("billing_customer")
 }
 
 model BillingPricing {
-    id             String @id @default(cuid())
-    organizationId String @unique @map("organization_id")
+  id             String @id @default(cuid())
+  organizationId String @unique @map("organization_id")
 
-    creditsPerSubscription      Int @default(1000000) @map("credits_per_subscription")
-    creditsPerTopup             Int @default(150000) @map("credits_per_topup")
-    creditsFreeStart            Int @default(100000) @map("credits_free_start")
-    creditsWebGenerationCost    Int @default(500) @map("credits_web_generation_cost")
-    creditsIosGenerationCost    Int @default(700) @map("credits_ios_generation_cost")
-    creditsAndroidGenerationCost Int @default(540) @map("credits_android_generation_cost")
-    creditsWebRunCost           Int @default(10) @map("credits_web_run_cost")
-    creditsIosRunCost           Int @default(200) @map("credits_ios_run_cost")
-    creditsAndroidRunCost       Int @default(40) @map("credits_android_run_cost")
-    stripeTopupAmountCents      Int @default(10000) @map("stripe_topup_amount_cents")
+  creditsPerSubscription       Int @default(1000000) @map("credits_per_subscription")
+  creditsPerTopup              Int @default(150000) @map("credits_per_topup")
+  creditsFreeStart             Int @default(100000) @map("credits_free_start")
+  creditsWebGenerationCost     Int @default(500) @map("credits_web_generation_cost")
+  creditsIosGenerationCost     Int @default(700) @map("credits_ios_generation_cost")
+  creditsAndroidGenerationCost Int @default(540) @map("credits_android_generation_cost")
+  creditsWebRunCost            Int @default(10) @map("credits_web_run_cost")
+  creditsIosRunCost            Int @default(200) @map("credits_ios_run_cost")
+  creditsAndroidRunCost        Int @default(40) @map("credits_android_run_cost")
+  stripeTopupAmountCents       Int @default(10000) @map("stripe_topup_amount_cents")
 
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-    organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-    @@map("billing_pricing")
+  @@map("billing_pricing")
 }
 
 model CreditTransaction {
-    id             String                @id @default(cuid())
-    organizationId String                @map("organization_id")
-    type           CreditTransactionType
-    amount         Int
-    balanceAfter   Int                   @map("balance_after")
+  id             String                @id @default(cuid())
+  organizationId String                @map("organization_id")
+  type           CreditTransactionType
+  amount         Int
+  balanceAfter   Int                   @map("balance_after")
 
-    generationId          String? @map("generation_id")
-    runId                 String? @unique @map("run_id")
-    stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
-    stripeInvoiceId       String? @unique @map("stripe_invoice_id")
-    stripeRefundId        String? @unique @map("stripe_refund_id")
-    promoRedemptionId     String? @unique @map("promo_redemption_id")
+  generationId          String? @map("generation_id")
+  runId                 String? @unique @map("run_id")
+  stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
+  stripeInvoiceId       String? @unique @map("stripe_invoice_id")
+  stripeRefundId        String? @unique @map("stripe_refund_id")
+  promoRedemptionId     String? @unique @map("promo_redemption_id")
 
-    createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-    billingCustomer BillingCustomer       @relation(fields: [organizationId], references: [organizationId], onDelete: Cascade)
-    promoRedemption BillingPromoRedemption? @relation(fields: [promoRedemptionId], references: [id], onDelete: SetNull)
+  billingCustomer BillingCustomer         @relation(fields: [organizationId], references: [organizationId], onDelete: Cascade)
+  promoRedemption BillingPromoRedemption? @relation(fields: [promoRedemptionId], references: [id], onDelete: SetNull)
 
-    @@index([organizationId])
-    @@map("credit_transaction")
+  @@index([organizationId])
+  @@map("credit_transaction")
 }
 
 model BillingPromoCode {
-    id String @id @default(cuid())
+  id String @id @default(cuid())
 
-    code         String  @unique
-    description  String?
-    grantCredits Int     @map("grant_credits")
+  code         String  @unique
+  description  String?
+  grantCredits Int     @map("grant_credits")
 
-    maxRedemptions Int? @map("max_redemptions")
-    redeemedCount  Int  @default(0) @map("redeemed_count")
+  maxRedemptions Int? @map("max_redemptions")
+  redeemedCount  Int  @default(0) @map("redeemed_count")
 
-    startsAt DateTime? @map("starts_at")
-    endsAt   DateTime? @map("ends_at")
-    isActive Boolean   @default(true) @map("is_active")
+  startsAt DateTime? @map("starts_at")
+  endsAt   DateTime? @map("ends_at")
+  isActive Boolean   @default(true) @map("is_active")
 
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-    redemptions BillingPromoRedemption[]
+  redemptions BillingPromoRedemption[]
 
-    @@map("billing_promo_code")
+  @@map("billing_promo_code")
 }
 
 model BillingPromoRedemption {
-    id String @id @default(cuid())
+  id String @id @default(cuid())
 
-    promoCodeId    String @map("promo_code_id")
-    organizationId String @map("organization_id")
+  promoCodeId    String @map("promo_code_id")
+  organizationId String @map("organization_id")
 
-    redeemedAt DateTime @default(now()) @map("redeemed_at")
+  redeemedAt DateTime @default(now()) @map("redeemed_at")
 
-    promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-    organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    creditTransaction CreditTransaction?
+  promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creditTransaction CreditTransaction?
 
-    @@index([promoCodeId])
-    @@index([organizationId])
-    @@unique([promoCodeId, organizationId])
-    @@map("billing_promo_redemption")
+  @@unique([promoCodeId, organizationId])
+  @@index([promoCodeId])
+  @@index([organizationId])
+  @@map("billing_promo_redemption")
+}
+
+// ─── Previewkit ─────────────────────────────────────────────────────
+
+enum PreviewkitStatus {
+  pending
+  building
+  deploying
+  ready
+  failed
+  torn_down
+
+  @@map("previewkit_status")
+}
+
+model PreviewkitEnvironment {
+  id String @id @default(cuid())
+
+  // Identity — matches the K8s namespace naming: preview-{owner}-{repo}-pr-{N}
+  namespace    String @unique
+  repoFullName String @map("repo_full_name")
+  prNumber     Int    @map("pr_number")
+  headSha      String @map("head_sha")
+  headRef      String @map("head_ref")
+
+  status PreviewkitStatus @default(pending)
+  phase  String?
+  error  String?
+
+  // GitHub PR comment Previewkit updates through the lifecycle
+  commentId String? @map("comment_id")
+
+  /// ![Record<string, string>]
+  urls Json @default("{}")
+
+  deployedAt DateTime? @map("deployed_at")
+  tornDownAt DateTime? @map("torn_down_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  builds       PreviewkitBuild[]
+  appInstances PreviewkitAppInstance[]
+
+  @@unique([repoFullName, prNumber])
+  @@index([organizationId, status])
+  @@map("previewkit_environment")
+}
+
+model PreviewkitBuild {
+  id String @id @default(cuid())
+
+  environmentId String                @map("environment_id")
+  environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  headSha    String           @map("head_sha")
+  status     PreviewkitStatus @default(pending)
+  error      String?
+  startedAt  DateTime         @default(now()) @map("started_at")
+  finishedAt DateTime?        @map("finished_at")
+  durationMs Int?             @map("duration_ms")
+
+  /// ![Record<string, { imageTag: string; durationMs: number }>]
+  appBuilds Json @default("{}") @map("app_builds")
+
+  @@index([environmentId, startedAt])
+  @@map("previewkit_build")
+}
+
+model PreviewkitAppInstance {
+  id String @id @default(cuid())
+
+  environmentId String                @map("environment_id")
+  environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  appName  String  @map("app_name")
+  imageTag String  @map("image_tag")
+  url      String?
+  port     Int
+  ready    Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([environmentId, appName])
+  @@map("previewkit_app_instance")
 }
 
 // Trigger diffs
