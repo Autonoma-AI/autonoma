@@ -7,7 +7,7 @@ import { singleGenerationWorkflow } from "./single-generation.workflow";
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 3 },
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
 });
 

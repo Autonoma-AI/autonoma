@@ -7,21 +7,21 @@ import { WORKFLOW_TYPE } from "./workflow-types";
 const longRunning = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 2 },
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.DIFFS,
 });
 
 const standard = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "15m",
     heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 2 },
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.DIFFS,
 });
 
 const shortLived = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 2 },
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.DIFFS,
 });
 

@@ -3,10 +3,17 @@ import type { GeneralActivities, MobileActivities, WebActivities } from "../acti
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 
-const general = proxyActivities<GeneralActivities>({
+const scenario = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 3 },
+    taskQueue: TaskQueue.GENERAL,
+});
+
+const general = proxyActivities<GeneralActivities>({
+    startToCloseTimeout: "10m",
+    heartbeatTimeout: "2m",
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
 });
 
@@ -25,7 +32,7 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     if (scenarioId != null) {
         log.info("Starting scenario setup", { testGenerationId, scenarioId });
         try {
-            const scenarioUpResult = await general.scenarioUp({
+            const scenarioUpResult = await scenario.scenarioUp({
                 scenarioJobType: "generation",
                 entityId: testGenerationId,
                 scenarioId,
@@ -57,7 +64,7 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
         ];
 
         if (scenarioInstanceId != null) {
-            postSteps.push(general.scenarioDown({ scenarioInstanceId }));
+            postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
         }
 
         await Promise.allSettled(postSteps);

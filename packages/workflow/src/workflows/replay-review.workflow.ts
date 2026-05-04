@@ -5,7 +5,7 @@ import { TaskQueue } from "../task-queues";
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "15m",
     heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 3 },
+    retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
 });
 
