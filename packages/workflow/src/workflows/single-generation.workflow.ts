@@ -54,6 +54,11 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
 
     try {
         await runExecution(architecture, testGenerationId);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : "Execution failed";
+        log.error("Generation execution failed, marking as failed", { testGenerationId, reason });
+        await general.markGenerationFailed({ testGenerationId, reason });
+        throw error;
     } finally {
         const postSteps: Promise<void>[] = [
             general.notifyGenerationExit({ testGenerationId }),

@@ -7,6 +7,7 @@ export type {
     ReviewReplayInput,
     AssignGenerationResultsInput,
     MarkGenerationFailedInput,
+    MarkRunFailedInput,
     NotifyGenerationExitInput,
 } from "./general-activities";
 

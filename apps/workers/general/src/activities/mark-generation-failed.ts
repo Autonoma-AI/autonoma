@@ -19,10 +19,10 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
         return;
     }
 
-    const STUCK_STATUSES = ["pending", "queued"] as const;
-    const isStuck = (STUCK_STATUSES as readonly string[]).includes(generation.status);
-    if (!isStuck) {
-        logger.info("Generation is not in a stuck state, skipping", { currentStatus: generation.status });
+    const UPDATABLE_STATUSES = ["pending", "queued", "running"] as const;
+    const canUpdate = (UPDATABLE_STATUSES as readonly string[]).includes(generation.status);
+    if (!canUpdate) {
+        logger.info("Generation already in terminal state, skipping", { currentStatus: generation.status });
         return;
     }
 

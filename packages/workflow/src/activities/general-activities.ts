@@ -41,6 +41,11 @@ export interface MarkGenerationFailedInput {
     reason?: string;
 }
 
+export interface MarkRunFailedInput {
+    runId: string;
+    reason?: string;
+}
+
 export interface GeneralActivities {
     scenarioUp(input: ScenarioUpInput): Promise<ScenarioUpOutput>;
     scenarioDown(input: ScenarioDownInput): Promise<void>;
@@ -48,5 +53,6 @@ export interface GeneralActivities {
     reviewReplay(input: ReviewReplayInput): Promise<void>;
     assignGenerationResults(input: AssignGenerationResultsInput): Promise<void>;
     markGenerationFailed(input: MarkGenerationFailedInput): Promise<void>;
+    markRunFailed(input: MarkRunFailedInput): Promise<void>;
     notifyGenerationExit(input: NotifyGenerationExitInput): Promise<void>;
 }

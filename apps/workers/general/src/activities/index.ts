@@ -5,9 +5,11 @@ export { reviewGeneration, reviewReplay } from "./review";
 export { assignGenerationResults } from "./assign-generation-results";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { markGenerationFailed } from "./mark-generation-failed";
+export { markRunFailed } from "./mark-run-failed";
 
 import { assignGenerationResults } from "./assign-generation-results";
 import { markGenerationFailed } from "./mark-generation-failed";
+import { markRunFailed } from "./mark-run-failed";
 import { notifyGenerationExit } from "./notify-generation-exit";
 import { reviewGeneration, reviewReplay } from "./review";
 import { scenarioDown, scenarioUp } from "./scenario";
@@ -21,4 +23,5 @@ import { scenarioDown, scenarioUp } from "./scenario";
     assignGenerationResults,
     notifyGenerationExit,
     markGenerationFailed,
+    markRunFailed,
 }) satisfies GeneralActivities;

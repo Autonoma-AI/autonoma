@@ -48,6 +48,11 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
 
         // Step 2: Run the replay execution agent
         await runReplayExecution(architecture, runId);
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : "Replay failed";
+        log.error("Run replay failed, marking as failed", { runId, reason });
+        await general.markRunFailed({ runId, reason });
+        throw error;
     } finally {
         // Step 3: After replay completes (or fails), run cleanup in parallel.
         // Use allSettled so that a failure in one step does not prevent the others
