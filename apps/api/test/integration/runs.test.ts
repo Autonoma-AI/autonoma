@@ -291,6 +291,56 @@ apiTestSuite({
             expect(detail).toBeNull();
         });
 
+        test("restart creates a new run, triggers workflow with new id, and leaves original run untouched", async ({
+            harness,
+            seedResult: { testCase, stepOutputList },
+        }) => {
+            const { runId: originalRunId } = await harness.request().runs.trigger({
+                testCaseId: testCase.id,
+            });
+
+            await harness.db.stepOutputList.update({
+                where: { id: stepOutputList.id },
+                data: { runId: originalRunId },
+            });
+            const completedAt = new Date();
+            await harness.db.run.update({
+                where: { id: originalRunId },
+                data: {
+                    status: "success",
+                    startedAt: new Date(Date.now() - 60000),
+                    completedAt,
+                    reasoning: "original reasoning",
+                },
+            });
+
+            harness.triggerWorkflow.mockClear();
+
+            const result = await harness.request().runs.restart({ runId: originalRunId });
+
+            expect(result.runId).toBeDefined();
+            expect(result.runId).not.toBe(originalRunId);
+            expect(harness.triggerWorkflow).toHaveBeenCalledOnce();
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith(expect.objectContaining({ runId: result.runId }));
+
+            const newRun = await harness.db.run.findUnique({ where: { id: result.runId } });
+            expect(newRun?.status).toBe("pending");
+            expect(newRun?.assignmentId).toBeDefined();
+
+            const originalRun = await harness.db.run.findUnique({
+                where: { id: originalRunId },
+                include: { outputs: true },
+            });
+            expect(originalRun?.status).toBe("success");
+            expect(originalRun?.reasoning).toBe("original reasoning");
+            expect(originalRun?.outputs?.id).toBe(stepOutputList.id);
+
+            const preservedOutputs = await harness.db.stepOutputList.findUnique({
+                where: { id: stepOutputList.id },
+            });
+            expect(preservedOutputs).not.toBeNull();
+        });
+
         test("trigger throws when test case belongs to another organization", async ({
             harness,
             seedResult: { testCase },

@@ -135,7 +135,14 @@ function RunDetailPage() {
     });
 
   function handleRerun() {
-    restartRun.mutate({ runId });
+    restartRun.mutate(
+      { runId },
+      {
+        onSuccess: ({ runId: newRunId }) => {
+          void navigate({ to: "/app/$appSlug/runs/$runId", params: { runId: newRunId } });
+        },
+      },
+    );
   }
 
   function handleDeleteSuccess() {

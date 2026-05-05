@@ -12,6 +12,7 @@ import {
 } from "@autonoma/blacklight";
 import { useRerunGeneration } from "lib/query/generations.queries";
 import { useState } from "react";
+import { useAppNavigate } from "../../../-use-app-navigate";
 
 interface RerunGenerationDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ type Mode = "same" | "update";
 
 export function RerunGenerationDialog({ open, onOpenChange, generationId, currentPlan }: RerunGenerationDialogProps) {
   const rerun = useRerunGeneration();
+  const navigate = useAppNavigate();
   const [mode, setMode] = useState<Mode>("same");
   const [plan, setPlan] = useState(currentPlan);
 
@@ -37,11 +39,21 @@ export function RerunGenerationDialog({ open, onOpenChange, generationId, curren
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onOpenChange(false);
-    rerun.mutate({
-      generationId,
-      planContent: mode === "update" ? plan : undefined,
-    });
+    rerun.mutate(
+      {
+        generationId,
+        planContent: mode === "update" ? plan : undefined,
+      },
+      {
+        onSuccess: ({ generationId: newGenerationId }) => {
+          onOpenChange(false);
+          void navigate({
+            to: "/app/$appSlug/generations/$generationId",
+            params: { generationId: newGenerationId },
+          });
+        },
+      },
+    );
   }
 
   return (

@@ -209,6 +209,96 @@ apiTestSuite({
             ).rejects.toThrowError();
         });
 
+        test("rerun creates a new generation with the same plan and leaves the original intact", async ({
+            harness,
+            seedResult: { generationWithSteps, testPlan },
+        }) => {
+            harness.user = await harness.db.user.update({
+                where: { id: harness.userId },
+                data: { role: "admin" },
+            });
+
+            await harness.db.testGeneration.update({
+                where: { id: generationWithSteps.id },
+                data: {
+                    status: "success",
+                    reasoning: "original reasoning",
+                    videoUrl: "s3://bucket/original-video.mp4",
+                    finalScreenshot: "s3://bucket/original-screenshot.png",
+                    conversationUrl: "s3://bucket/original-conversation.json",
+                },
+            });
+
+            harness.generationProvider.firedBatches.length = 0;
+
+            const result = await harness.request().generations.rerun({
+                generationId: generationWithSteps.id,
+            });
+
+            expect(result.generationId).toBeDefined();
+            expect(result.generationId).not.toBe(generationWithSteps.id);
+
+            const newGeneration = await harness.db.testGeneration.findUnique({
+                where: { id: result.generationId },
+            });
+            expect(newGeneration?.status).toBe("queued");
+            expect(newGeneration?.testPlanId).toBe(testPlan.id);
+            expect(newGeneration?.snapshotId).toBe(generationWithSteps.snapshotId);
+
+            const originalGeneration = await harness.db.testGeneration.findUnique({
+                where: { id: generationWithSteps.id },
+            });
+            expect(originalGeneration?.status).toBe("success");
+            expect(originalGeneration?.reasoning).toBe("original reasoning");
+            expect(originalGeneration?.videoUrl).toBe("s3://bucket/original-video.mp4");
+            expect(originalGeneration?.finalScreenshot).toBe("s3://bucket/original-screenshot.png");
+            expect(originalGeneration?.conversationUrl).toBe("s3://bucket/original-conversation.json");
+            expect(originalGeneration?.stepsId).toBe(generationWithSteps.stepsId);
+            expect(originalGeneration?.outputsId).toBe(generationWithSteps.outputsId);
+
+            expect(harness.generationProvider.firedBatches).toHaveLength(1);
+            const fired = harness.generationProvider.firedBatches[0];
+            expect(fired).toHaveLength(1);
+            expect(fired?.[0]?.testGenerationId).toBe(result.generationId);
+            expect(fired?.[0]?.planId).toBe(testPlan.id);
+        });
+
+        test("rerun with planContent creates a new TestPlan and leaves the original prompt intact", async ({
+            harness,
+            seedResult: { generationWithSteps, testPlan },
+        }) => {
+            harness.user = await harness.db.user.update({
+                where: { id: harness.userId },
+                data: { role: "admin" },
+            });
+
+            harness.generationProvider.firedBatches.length = 0;
+
+            const newPrompt = "Brand new prompt for rerun";
+            const result = await harness.request().generations.rerun({
+                generationId: generationWithSteps.id,
+                planContent: newPrompt,
+            });
+
+            const newGeneration = await harness.db.testGeneration.findUnique({
+                where: { id: result.generationId },
+            });
+            expect(newGeneration?.testPlanId).not.toBe(testPlan.id);
+
+            const newPlan = await harness.db.testPlan.findUniqueOrThrow({
+                where: { id: newGeneration!.testPlanId },
+            });
+            expect(newPlan.prompt).toBe(newPrompt);
+            expect(newPlan.testCaseId).toBe(testPlan.testCaseId);
+
+            const originalPlan = await harness.db.testPlan.findUniqueOrThrow({ where: { id: testPlan.id } });
+            expect(originalPlan.prompt).toBe(testPlan.prompt);
+
+            expect(harness.generationProvider.firedBatches).toHaveLength(1);
+            const fired = harness.generationProvider.firedBatches[0];
+            expect(fired?.[0]?.planId).toBe(newPlan.id);
+        });
+
         test("throws when generationId belongs to a different organization", async ({
             harness,
             seedResult: { generationWithSteps },

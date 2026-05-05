@@ -272,8 +272,7 @@ export class RunsService extends Service {
         const run = await this.db.run.findFirst({
             where: { id: runId, organizationId },
             select: {
-                id: true,
-                outputs: { select: { id: true } },
+                assignmentId: true,
                 assignment: {
                     select: {
                         plan: { select: { scenarioId: true } },
@@ -286,41 +285,42 @@ export class RunsService extends Service {
         });
         if (run == null) throw new NotFoundError("Run not found");
 
-        if (run.outputs != null) {
-            await this.db.stepOutputList.delete({ where: { id: run.outputs.id } });
-        }
-
-        await this.db.run.update({
-            where: { id: runId },
+        const newRun = await this.db.run.create({
             data: {
+                assignmentId: run.assignmentId,
+                organizationId,
                 status: "pending",
-                startedAt: null,
-                completedAt: null,
-                reasoning: null,
             },
+            select: { id: true },
         });
 
         const architecture = architectureToTypes[run.assignment.testCase.application.architecture] ?? Architecture.web;
         const scenarioId = run.assignment.plan?.scenarioId ?? undefined;
 
-        this.logger.info("Run reset, triggering workflow", { runId, architecture, scenarioId });
+        this.logger.info("New run created, triggering workflow", {
+            sourceRunId: runId,
+            newRunId: newRun.id,
+            architecture,
+            scenarioId,
+        });
 
         try {
             await this.triggerRunWorkflow({
-                runId,
+                runId: newRun.id,
                 architecture,
                 scenarioId,
             });
         } catch (error) {
-            this.logger.fatal("Failed to restart run workflow", error, { runId });
+            this.logger.fatal("Failed to restart run workflow", error, { newRunId: newRun.id });
             await this.db.run.update({
-                where: { id: runId },
+                where: { id: newRun.id },
                 data: { status: "failed" },
             });
             throw error;
         }
 
-        this.logger.info("Run restarted successfully", { runId });
+        this.logger.info("Run restarted successfully", { sourceRunId: runId, newRunId: newRun.id });
+        return { runId: newRun.id };
     }
 
     async deleteRun(runId: string, organizationId: string) {
