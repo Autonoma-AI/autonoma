@@ -6,6 +6,13 @@ import { promisify } from "node:util";
 import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { PreviewConfig } from "../config/schema";
+import {
+    recordBuildFinished,
+    recordEnvironmentCreated,
+    recordEnvironmentReady,
+    recordPhaseChanged,
+    toAppInstances,
+} from "../db";
 import type { Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
@@ -14,6 +21,11 @@ import { logger } from "../logger";
 import type { SecretStore } from "../secrets/secret-store";
 
 const execFileAsync = promisify(execFile);
+
+interface AppBuildResult {
+    imageTag: string;
+    durationMs: number;
+}
 
 interface PreviewPipelineOptions {
     provider: GitProvider;
@@ -51,28 +63,34 @@ export class PreviewPipeline {
         const commentId = await this.provider.postComment(repoFullName, prNumber, this.buildPendingComment(prNumber));
 
         // 3. Ensure namespace exists so status can be polled from the first moment
-        await this.deployer.ensureNamespace(repoFullName, prNumber, {
+        const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, {
             commentId,
             lastDeployedSha: headSha,
             status: "pending",
             phase: "initializing",
         });
 
+        // 3b. Record environment created in the DB (best-effort).
+        await recordSafe(() =>
+            recordEnvironmentCreated({
+                repoFullName,
+                prNumber,
+                headSha,
+                headRef: event.headRef,
+                namespace,
+                commentId,
+            }),
+        );
+
         let tmpDir: string | undefined;
 
         try {
             // 4. Load config from repo
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "pending",
-                phase: "loading-config",
-            });
+            await this.updatePhase(repoFullName, prNumber, "pending", "loading-config");
             const config = await loadPreviewConfig(this.provider, repoFullName, headSha);
 
             // 5. Clone repo
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "pending",
-                phase: "cloning",
-            });
+            await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
             tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             await this.cloneRepo(event, tmpDir);
 
@@ -84,17 +102,39 @@ export class PreviewPipeline {
             }
 
             // 7. Build all app images
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "building",
-                phase: "building-images",
-            });
-            const imageTags = await this.buildAllApps(config, tmpDir, repoFullName, prNumber, shortSha);
+            await this.updatePhase(repoFullName, prNumber, "building", "building-images");
+            const buildStart = Date.now();
+            let appBuilds: Record<string, AppBuildResult>;
+            try {
+                appBuilds = await this.buildAllApps(config, tmpDir, repoFullName, prNumber, shortSha);
+            } catch (buildErr) {
+                await recordSafe(() =>
+                    recordBuildFinished({
+                        namespace,
+                        headSha,
+                        status: "failed",
+                        durationMs: Date.now() - buildStart,
+                        appBuilds: {},
+                        error: buildErr instanceof Error ? buildErr.message : String(buildErr),
+                    }),
+                );
+                throw buildErr;
+            }
+            const buildDurationMs = Date.now() - buildStart;
+            const imageTags = Object.fromEntries(Object.entries(appBuilds).map(([name, b]) => [name, b.imageTag]));
+
+            await recordSafe(() =>
+                recordBuildFinished({
+                    namespace,
+                    headSha,
+                    status: "building",
+                    durationMs: buildDurationMs,
+                    appBuilds,
+                }),
+            );
 
             // 8. Deploy to Kubernetes
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "deploying",
-                phase: "deploying-k8s",
-            });
+            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-k8s");
             const result = await this.deployer.deploy({
                 repoFullName,
                 prNumber,
@@ -106,10 +146,7 @@ export class PreviewPipeline {
             });
 
             // 9. Run post-deploy hooks
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "deploying",
-                phase: "post-deploy-hooks",
-            });
+            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
             await this.runPostDeployHooks(config, result);
 
             // 10. Mark ready + record URLs
@@ -118,6 +155,13 @@ export class PreviewPipeline {
                 phase: "ready",
                 urls: result.urls,
             });
+            await recordSafe(() =>
+                recordEnvironmentReady({
+                    namespace,
+                    urls: result.urls,
+                    apps: toAppInstances(config.apps, imageTags),
+                }),
+            );
 
             // 11. Update comment with preview URLs
             await this.provider.updateComment(
@@ -148,6 +192,15 @@ export class PreviewPipeline {
                     error: message,
                 })
                 .catch((e) => logger.error("Failed to record failed status", e));
+
+            await recordSafe(() =>
+                recordPhaseChanged({
+                    namespace,
+                    status: "failed",
+                    phase: "failed",
+                    error: message,
+                }),
+            );
 
             await this.provider
                 .updateComment(repoFullName, commentId, this.buildFailureComment(prNumber, err))
@@ -180,9 +233,9 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         shortSha: string,
-    ): Promise<Record<string, string>> {
+    ): Promise<Record<string, AppBuildResult>> {
         const owner = repoFullName.split("/")[0]!;
-        const imageTags: Record<string, string> = {};
+        const appBuilds: Record<string, AppBuildResult> = {};
 
         for (const app of config.apps) {
             const registry = config.registry ?? this.registryUrl;
@@ -197,10 +250,21 @@ export class PreviewPipeline {
                 imageTag,
             });
 
-            imageTags[app.name] = result.imageTag;
+            appBuilds[app.name] = { imageTag: result.imageTag, durationMs: result.durationMs };
         }
 
-        return imageTags;
+        return appBuilds;
+    }
+
+    private async updatePhase(
+        repoFullName: string,
+        prNumber: number,
+        status: "pending" | "building" | "deploying",
+        phase: string,
+    ): Promise<void> {
+        await this.deployer.updateStatus(repoFullName, prNumber, { status, phase });
+        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
+        await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
     }
 
     private async runPostDeployHooks(config: PreviewConfig, result: DeployResult): Promise<void> {
@@ -272,5 +336,13 @@ export class PreviewPipeline {
             message,
             "```",
         ].join("\n");
+    }
+}
+
+async function recordSafe(fn: () => Promise<void>): Promise<void> {
+    try {
+        await fn();
+    } catch (err) {
+        logger.error("Failed to record Previewkit DB event", err);
     }
 }

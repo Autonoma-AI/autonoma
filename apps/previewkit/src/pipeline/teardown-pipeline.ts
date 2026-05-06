@@ -1,3 +1,4 @@
+import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -30,7 +31,13 @@ export class TeardownPipeline {
         const annotations = await this.deployer.getNamespaceAnnotations(repoFullName, prNumber);
 
         // 2. Delete the namespace (cascading delete of all resources)
+        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         await this.deployer.teardown(repoFullName, prNumber);
+
+        // 2b. Record teardown in the DB (best-effort; never blocks teardown).
+        await recordEnvironmentTornDown(namespace).catch((err) => {
+            logger.error("Failed to record Previewkit teardown", err, { namespace });
+        });
 
         // 3. Delete PR-scoped secrets across all apps for this owner
         const owner = repoFullName.split("/")[0]!;

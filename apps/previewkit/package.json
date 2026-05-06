@@ -8,11 +8,13 @@
         "dev": "tsx watch src/index.ts",
         "build": "rolldown -c",
         "start": "node dist/index.js",
-        "test": "vitest run",
-        "test:watch": "vitest",
+        "test": "vitest run --config vitest.config.ts",
+        "test:watch": "vitest --config vitest.config.ts",
+        "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",
         "@aws-sdk/client-eks": "^3.1037.0",
@@ -29,6 +31,8 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/js-yaml": "^4.0.9",
         "@types/node": "catalog:",
         "rolldown": "^1.0.0-rc.16",

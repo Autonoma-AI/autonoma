@@ -159,6 +159,10 @@ export class Deployer {
         await this.namespaceManager.delete(namespace);
     }
 
+    getNamespaceName(repoFullName: string, prNumber: number): string {
+        return this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
+    }
+
     async getNamespaceAnnotations(repoFullName: string, prNumber: number) {
         const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
         return this.namespaceManager.getAnnotations(namespace);
