@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { AppConfig } from "../../src/config/schema";
-import { buildAppDeployment, buildAppService, buildNginxResources } from "../../src/deployer/resource-factory";
+import {
+    buildAppDeployment,
+    buildAppHostname,
+    buildAppHttpRoute,
+    buildAppService,
+    buildAppTargetGroupConfig,
+    type GatewayRef,
+} from "../../src/deployer/resource-factory";
 
 const baseApp: AppConfig = {
     name: "web",
@@ -18,6 +25,21 @@ const baseOpts = {
     imageTag: "ghcr.io/my-org/web:pr-42-abc1234",
     resolvedEnv: { DATABASE_URL: "postgres://db:5432/preview" },
     prNumber: 42,
+};
+
+const gateway: GatewayRef = {
+    name: "preview-gateway",
+    namespace: "gateway-system",
+    listener: "https",
+};
+
+const baseRouteOpts = {
+    app: baseApp,
+    namespace: "preview-my-org-my-repo-pr-42",
+    prNumber: 42,
+    repoSlug: "my-org-my-repo",
+    domain: "preview.autonoma.app",
+    gateway,
 };
 
 describe("buildAppDeployment", () => {
@@ -68,75 +90,81 @@ describe("buildAppDeployment", () => {
 });
 
 describe("buildAppService", () => {
-    it("creates a service targeting the correct port", () => {
+    it("creates a ClusterIP service targeting the correct port", () => {
         const svc = buildAppService(baseOpts);
         expect(svc.metadata?.name).toBe("web");
+        expect(svc.spec!.type).toBe("ClusterIP");
         expect(svc.spec!.ports![0]!.port).toBe(3000);
         expect(svc.spec!.selector!["app"]).toBe("web");
     });
 });
 
-describe("buildNginxResources", () => {
-    const apiApp: AppConfig = {
-        name: "api",
-        path: "./apps/api",
-        port: 4000,
-        build_args: {},
-        env: {},
-        replicas: 1,
-        resources: { cpu: "250m", memory: "256Mi" },
-    };
+describe("buildAppHostname", () => {
+    it("flattens to a single leftmost label so a wildcard ACM cert matches", () => {
+        const host = buildAppHostname("web", 42, "my-org-my-repo", "preview.autonoma.app");
+        expect(host).toBe("web-pr-42-my-org-my-repo.preview.autonoma.app");
+        expect(host.split(".")[0]).not.toContain(".");
+    });
+});
 
-    const nginxOpts = {
-        apps: [baseApp, apiApp],
-        namespace: "preview-acme-corp-my-repo-pr-42",
-        owner: "acme-corp",
-        prNumber: 42,
-        domain: "preview.autonoma.app",
-    };
+describe("buildAppHttpRoute", () => {
+    it("attaches to the shared Gateway's HTTPS listener", () => {
+        const route = buildAppHttpRoute(baseRouteOpts);
+        expect(route.apiVersion).toBe("gateway.networking.k8s.io/v1");
+        expect(route.kind).toBe("HTTPRoute");
+        expect(route.metadata.name).toBe("web");
+        expect(route.metadata.namespace).toBe("preview-my-org-my-repo-pr-42");
 
-    it("creates an nginx config with a server block per app", () => {
-        const { configMap } = buildNginxResources(nginxOpts);
-        const conf = configMap.data!["nginx.conf"]!;
-        expect(conf).toContain("server_name web.pr-42.acme-corp.preview.autonoma.app;");
-        expect(conf).toContain("server_name api.pr-42.acme-corp.preview.autonoma.app;");
-        expect(conf).toContain("proxy_pass http://web:3000;");
-        expect(conf).toContain("proxy_pass http://api:4000;");
+        const parent = route.spec.parentRefs[0]!;
+        expect(parent.name).toBe("preview-gateway");
+        expect(parent.namespace).toBe("gateway-system");
+        expect(parent.sectionName).toBe("https");
+        expect(parent.kind).toBe("Gateway");
     });
 
-    it("creates a single ingress with a wildcard host", () => {
-        const { ingress } = buildNginxResources(nginxOpts);
-        expect(ingress.metadata?.name).toBe("nginx-router-ingress");
-        const rule = ingress.spec!.rules![0]!;
-        expect(rule.host).toBe("*.pr-42.acme-corp.preview.autonoma.app");
-        expect(rule.http!.paths[0]!.backend!.service!.name).toBe("nginx-router");
-        expect(rule.http!.paths[0]!.backend!.service!.port!.number).toBe(80);
+    it("uses the flattened single-label hostname", () => {
+        const route = buildAppHttpRoute(baseRouteOpts);
+        expect(route.spec.hostnames).toEqual(["web-pr-42-my-org-my-repo.preview.autonoma.app"]);
     });
 
-    it("creates an nginx deployment", () => {
-        const { deployment } = buildNginxResources(nginxOpts);
-        expect(deployment.metadata?.name).toBe("nginx-router");
-        const container = deployment.spec!.template.spec!.containers[0]!;
-        expect(container.image).toBe("nginx:1-alpine");
+    it("routes / to the app Service on its configured port", () => {
+        const route = buildAppHttpRoute(baseRouteOpts);
+        const rule = route.spec.rules[0]!;
+        expect(rule.matches[0]!.path).toEqual({ type: "PathPrefix", value: "/" });
+        const backend = rule.backendRefs[0]!;
+        expect(backend.kind).toBe("Service");
+        expect(backend.name).toBe("web");
+        expect(backend.port).toBe(3000);
+    });
+});
+
+describe("buildAppTargetGroupConfig", () => {
+    it("pins targetType to ip so the ALB hits pods directly", () => {
+        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
+        expect(tgc.apiVersion).toBe("gateway.k8s.aws/v1beta1");
+        expect(tgc.kind).toBe("TargetGroupConfiguration");
+        expect(tgc.spec.defaultConfiguration.targetType).toBe("ip");
     });
 
-    it("creates an nginx service on port 80", () => {
-        const { service } = buildNginxResources(nginxOpts);
-        expect(service.metadata?.name).toBe("nginx-router");
-        expect(service.spec!.ports![0]!.port).toBe(80);
+    it("references the app's Service by name", () => {
+        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
+        expect(tgc.spec.targetReference.kind).toBe("Service");
+        expect(tgc.spec.targetReference.name).toBe("web");
     });
 
-    it("includes websocket upgrade headers in nginx config", () => {
-        const { configMap } = buildNginxResources(nginxOpts);
-        const conf = configMap.data!["nginx.conf"]!;
-        expect(conf).toContain("proxy_set_header Upgrade $http_upgrade");
-        expect(conf).toContain('proxy_set_header Connection "upgrade"');
+    it("includes health check config when the app declares one", () => {
+        const tgc = buildAppTargetGroupConfig({
+            ...baseRouteOpts,
+            app: { ...baseApp, health_check: "/health" },
+        });
+        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toEqual({
+            healthCheckPath: "/health",
+            healthCheckProtocol: "HTTP",
+        });
     });
 
-    it("includes a default 404 server", () => {
-        const { configMap } = buildNginxResources(nginxOpts);
-        const conf = configMap.data!["nginx.conf"]!;
-        expect(conf).toContain("listen 80 default_server");
-        expect(conf).toContain("return 404");
+    it("omits health check config when the app declares none", () => {
+        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
+        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toBeUndefined();
     });
 });

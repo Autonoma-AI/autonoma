@@ -1,6 +1,12 @@
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
 
+export interface GatewayRef {
+    name: string;
+    namespace: string;
+    listener: string;
+}
+
 interface AppResourceOptions {
     app: AppConfig;
     namespace: string;
@@ -9,24 +15,33 @@ interface AppResourceOptions {
     prNumber: number;
 }
 
-interface NginxResourceOptions {
-    apps: AppConfig[];
+interface AppRouteOptions {
+    app: AppConfig;
     namespace: string;
-    owner: string;
     prNumber: number;
+    repoSlug: string;
     domain: string;
-}
-
-interface NginxResources {
-    configMap: k8s.V1ConfigMap;
-    deployment: k8s.V1Deployment;
-    service: k8s.V1Service;
-    ingress: k8s.V1Ingress;
+    gateway: GatewayRef;
 }
 
 const BASE_LABELS = {
     "previewkit.dev/managed-by": "previewkit",
 };
+
+export const HTTP_ROUTE_GROUP = "gateway.networking.k8s.io";
+export const HTTP_ROUTE_VERSION = "v1";
+export const HTTP_ROUTE_PLURAL = "httproutes";
+export const HTTP_ROUTE_API_VERSION = `${HTTP_ROUTE_GROUP}/${HTTP_ROUTE_VERSION}`;
+
+export const TARGET_GROUP_CONFIG_GROUP = "gateway.k8s.aws";
+export const TARGET_GROUP_CONFIG_VERSION = "v1beta1";
+export const TARGET_GROUP_CONFIG_PLURAL = "targetgroupconfigurations";
+export const TARGET_GROUP_CONFIG_API_VERSION = `${TARGET_GROUP_CONFIG_GROUP}/${TARGET_GROUP_CONFIG_VERSION}`;
+
+export function buildAppHostname(appName: string, prNumber: number, repoSlug: string, domain: string): string {
+    // Single leftmost label so a wildcard ACM cert (*.domain) matches.
+    return `${appName}-pr-${prNumber}-${repoSlug}.${domain}`;
+}
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
     const { app, namespace, imageTag, resolvedEnv } = opts;
@@ -108,164 +123,148 @@ export function buildAppService(opts: AppResourceOptions): k8s.V1Service {
         kind: "Service",
         metadata: { name: app.name, namespace, labels },
         spec: {
+            // ClusterIP is fine: the ALB targets pod IPs directly via
+            // TargetGroupConfiguration (targetType: ip), skipping the node hop.
+            type: "ClusterIP",
             selector: { app: app.name },
             ports: [{ port: app.port, targetPort: app.port }],
         },
     };
 }
 
-function buildNginxConfig(apps: AppConfig[], owner: string, prNumber: number, domain: string): string {
-    const serverBlocks = apps.map((app) => {
-        const host = `${app.name}.pr-${prNumber}.${owner}.${domain}`;
-        return `    server {
-        listen 80;
-        server_name ${host};
+export function buildAppHttpRoute(opts: AppRouteOptions): HttpRoute {
+    const { app, namespace, prNumber, repoSlug, domain, gateway } = opts;
+    const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
 
-        location / {
-            proxy_pass http://${app.name}:${app.port};
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-        }
-    }`;
-    });
-
-    return `events {
-    worker_connections 1024;
-}
-
-http {
-    resolver kube-dns.kube-system.svc.cluster.local valid=5s;
-
-${serverBlocks.join("\n\n")}
-
-    server {
-        listen 80 default_server;
-        return 404;
-    }
-}
-`;
-}
-
-export function buildNginxResources(opts: NginxResourceOptions): NginxResources {
-    const { apps, namespace, owner, prNumber, domain } = opts;
-    const labels = {
-        ...BASE_LABELS,
-        app: "nginx-router",
-        "previewkit.dev/pr-number": String(prNumber),
-    };
-    const wildcardHost = `*.pr-${prNumber}.${owner}.${domain}`;
-
-    const configMap: k8s.V1ConfigMap = {
-        apiVersion: "v1",
-        kind: "ConfigMap",
+    return {
+        apiVersion: HTTP_ROUTE_API_VERSION,
+        kind: "HTTPRoute",
         metadata: {
-            name: "nginx-router-config",
+            name: app.name,
             namespace,
-            labels,
-        },
-        data: {
-            "nginx.conf": buildNginxConfig(apps, owner, prNumber, domain),
-        },
-    };
-
-    const deployment: k8s.V1Deployment = {
-        apiVersion: "apps/v1",
-        kind: "Deployment",
-        metadata: {
-            name: "nginx-router",
-            namespace,
-            labels,
+            labels: routeLabels(app.name, prNumber),
         },
         spec: {
-            replicas: 1,
-            selector: { matchLabels: { app: "nginx-router" } },
-            template: {
-                metadata: { labels: { ...labels, app: "nginx-router" } },
-                spec: {
-                    containers: [
-                        {
-                            name: "nginx",
-                            image: "nginx:1-alpine",
-                            ports: [{ containerPort: 80 }],
-                            volumeMounts: [
-                                {
-                                    name: "config",
-                                    mountPath: "/etc/nginx/nginx.conf",
-                                    subPath: "nginx.conf",
-                                    readOnly: true,
-                                },
-                            ],
-                            resources: {
-                                requests: { cpu: "50m", memory: "32Mi" },
-                                limits: { memory: "64Mi" },
-                            },
-                            readinessProbe: {
-                                tcpSocket: { port: 80 },
-                                initialDelaySeconds: 2,
-                                periodSeconds: 5,
-                            },
-                        },
-                    ],
-                    volumes: [
-                        {
-                            name: "config",
-                            configMap: { name: "nginx-router-config" },
-                        },
-                    ],
+            parentRefs: [
+                {
+                    group: HTTP_ROUTE_GROUP,
+                    kind: "Gateway",
+                    name: gateway.name,
+                    namespace: gateway.namespace,
+                    sectionName: gateway.listener,
                 },
-            },
-        },
-    };
-
-    const service: k8s.V1Service = {
-        apiVersion: "v1",
-        kind: "Service",
-        metadata: {
-            name: "nginx-router",
-            namespace,
-            labels,
-        },
-        spec: {
-            selector: { app: "nginx-router" },
-            ports: [{ port: 80, targetPort: 80 }],
-        },
-    };
-
-    const ingress: k8s.V1Ingress = {
-        apiVersion: "networking.k8s.io/v1",
-        kind: "Ingress",
-        metadata: {
-            name: "nginx-router-ingress",
-            namespace,
-            labels,
-        },
-        spec: {
+            ],
+            hostnames: [host],
             rules: [
                 {
-                    host: wildcardHost,
-                    http: {
-                        paths: [
-                            {
-                                path: "/",
-                                pathType: "Prefix",
-                                backend: {
-                                    service: {
-                                        name: "nginx-router",
-                                        port: { number: 80 },
-                                    },
-                                },
-                            },
-                        ],
-                    },
+                    matches: [{ path: { type: "PathPrefix", value: "/" } }],
+                    backendRefs: [
+                        {
+                            group: "",
+                            kind: "Service",
+                            name: app.name,
+                            port: app.port,
+                            weight: 1,
+                        },
+                    ],
                 },
             ],
         },
     };
+}
 
-    return { configMap, deployment, service, ingress };
+export function buildAppTargetGroupConfig(opts: AppRouteOptions): TargetGroupConfiguration {
+    const { app, namespace, prNumber } = opts;
+
+    return {
+        apiVersion: TARGET_GROUP_CONFIG_API_VERSION,
+        kind: "TargetGroupConfiguration",
+        metadata: {
+            name: app.name,
+            namespace,
+            labels: routeLabels(app.name, prNumber),
+        },
+        spec: {
+            targetReference: {
+                group: "",
+                kind: "Service",
+                name: app.name,
+            },
+            defaultConfiguration: {
+                targetType: "ip",
+                protocol: "HTTP",
+                protocolVersion: "HTTP1",
+                ...(app.health_check && {
+                    healthCheckConfig: {
+                        healthCheckPath: app.health_check,
+                        healthCheckProtocol: "HTTP",
+                    },
+                }),
+            },
+        },
+    };
+}
+
+function routeLabels(appName: string, prNumber: number): Record<string, string> {
+    return {
+        ...BASE_LABELS,
+        app: appName,
+        "previewkit.dev/pr-number": String(prNumber),
+    };
+}
+
+export interface HttpRoute {
+    apiVersion: string;
+    kind: "HTTPRoute";
+    metadata: {
+        name: string;
+        namespace: string;
+        labels?: Record<string, string>;
+    };
+    spec: {
+        parentRefs: Array<{
+            group: string;
+            kind: "Gateway";
+            name: string;
+            namespace: string;
+            sectionName?: string;
+        }>;
+        hostnames: string[];
+        rules: Array<{
+            matches: Array<{ path: { type: "PathPrefix" | "Exact"; value: string } }>;
+            backendRefs: Array<{
+                group: string;
+                kind: "Service";
+                name: string;
+                port: number;
+                weight: number;
+            }>;
+        }>;
+    };
+}
+
+export interface TargetGroupConfiguration {
+    apiVersion: string;
+    kind: "TargetGroupConfiguration";
+    metadata: {
+        name: string;
+        namespace: string;
+        labels?: Record<string, string>;
+    };
+    spec: {
+        targetReference: {
+            group: string;
+            kind: "Service";
+            name: string;
+        };
+        defaultConfiguration: {
+            targetType: "ip" | "instance";
+            protocol?: "HTTP" | "HTTPS";
+            protocolVersion?: "HTTP1" | "HTTP2" | "GRPC";
+            healthCheckConfig?: {
+                healthCheckPath?: string;
+                healthCheckProtocol?: "HTTP" | "HTTPS";
+            };
+        };
+    };
 }

@@ -40,7 +40,11 @@ const builder = new BuildKitBuilder({
 });
 
 // Deployer
-const deployer = new Deployer(kc, env.PREVIEW_DOMAIN);
+const deployer = new Deployer(kc, env.PREVIEW_DOMAIN, {
+    name: env.GATEWAY_NAME,
+    namespace: env.GATEWAY_NAMESPACE,
+    listener: env.GATEWAY_LISTENER,
+});
 
 // Secret store (K8s Secrets in the previewkit namespace)
 const secretStore = new SecretStore(kc);

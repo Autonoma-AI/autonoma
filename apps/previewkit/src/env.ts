@@ -16,10 +16,18 @@ export const env = createEnv({
         // BuildKit
         BUILDKIT_HOST: z.string().default("tcp://buildkitd.previewkit.svc.cluster.local:1234"),
 
-        // Preview domain — wildcard DNS must point to ingress controller
-        PREVIEW_DOMAIN: z.string().default("preview.example.com"),
+        // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
+        // ACM wildcard certs only match a single leftmost label, so hostnames
+        // are flattened to `{app}-pr-{N}-{slug}.{PREVIEW_DOMAIN}`.
+        PREVIEW_DOMAIN: z.string().default("preview.autonoma.app"),
 
-        // Kubernetes — empty means use in-cluster config
+        // Shared Gateway that every HTTPRoute attaches to. One Gateway = one ALB
+        // for the whole cluster; routes come and go with per-PR namespaces.
+        GATEWAY_NAME: z.string().default("gateway"),
+        GATEWAY_NAMESPACE: z.string().default("system"),
+        GATEWAY_LISTENER: z.string().default("https"),
+
+        // Kubernetes. Empty means use in-cluster config.
         KUBECONFIG: z.string().optional(),
 
         // EKS cross-cluster: if set, Previewkit authenticates to this EKS cluster

@@ -5,7 +5,22 @@ import { RecipeRegistry } from "../recipes/recipe-registry";
 import { EnvInjector } from "./env-injector";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
-import { buildAppDeployment, buildAppService, buildNginxResources } from "./resource-factory";
+import {
+    buildAppDeployment,
+    buildAppHostname,
+    buildAppHttpRoute,
+    buildAppService,
+    buildAppTargetGroupConfig,
+    HTTP_ROUTE_GROUP,
+    HTTP_ROUTE_PLURAL,
+    HTTP_ROUTE_VERSION,
+    TARGET_GROUP_CONFIG_GROUP,
+    TARGET_GROUP_CONFIG_PLURAL,
+    TARGET_GROUP_CONFIG_VERSION,
+    type GatewayRef,
+    type HttpRoute,
+    type TargetGroupConfiguration,
+} from "./resource-factory";
 
 export interface DeployResult {
     namespace: string;
@@ -25,7 +40,7 @@ export interface DeployOptions {
 export class Deployer {
     private coreApi: k8s.CoreV1Api;
     private appsApi: k8s.AppsV1Api;
-    private networkingApi: k8s.NetworkingV1Api;
+    private customApi: k8s.CustomObjectsApi;
     private namespaceManager: NamespaceManager;
     private envInjector: EnvInjector;
     private recipeRegistry: RecipeRegistry;
@@ -33,10 +48,11 @@ export class Deployer {
     constructor(
         private kc: k8s.KubeConfig,
         private domain: string,
+        private gateway: GatewayRef,
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
-        this.networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
+        this.customApi = kc.makeApiClient(k8s.CustomObjectsApi);
         this.namespaceManager = new NamespaceManager(kc);
         this.recipeRegistry = new RecipeRegistry();
         this.envInjector = new EnvInjector(this.recipeRegistry);
@@ -81,13 +97,14 @@ export class Deployer {
         // 3. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 4. Deploy apps
+        // 4. Deploy apps + Gateway API routes
         const owner = repoFullName.split("/")[0]!;
+        const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
 
         for (const app of config.apps) {
             const imageTag = imageTags[app.name];
-            if (!imageTag) {
+            if (imageTag == null) {
                 throw new Error(`No image tag found for app "${app.name}"`);
             }
 
@@ -104,26 +121,37 @@ export class Deployer {
 
             const deployment = buildAppDeployment({ app, namespace, imageTag, resolvedEnv, prNumber });
             const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
+            const routeOpts = { app, namespace, prNumber, repoSlug, domain, gateway: this.gateway };
+            const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);
+            const httpRoute = buildAppHttpRoute(routeOpts);
 
             await this.applyDeployment(namespace, deployment);
             await this.applyService(namespace, service);
+            // TargetGroupConfig must exist before the HTTPRoute so the ALB
+            // controller picks up IP-target config on first reconcile.
+            await this.applyTargetGroupConfig(namespace, targetGroupConfig);
+            await this.applyHttpRoute(namespace, httpRoute);
 
-            const url = `https://${app.name}.pr-${prNumber}.${owner}.${domain}`;
+            const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
+            const url = `https://${host}`;
             urls[app.name] = url;
 
             logger.info("Deployed app", { app: app.name, url, namespace });
         }
 
-        // 5. Deploy Nginx router for subdomain-based routing
-        const nginx = buildNginxResources({ apps: config.apps, namespace, owner, prNumber, domain });
-        await this.applyCoreResource(namespace, nginx.configMap, "configmaps");
-        await this.applyDeployment(namespace, nginx.deployment);
-        await this.applyService(namespace, nginx.service);
-        await this.applyIngress(namespace, nginx.ingress);
-
-        logger.info("Deployed Nginx router", { namespace, host: `*.pr-${prNumber}.${owner}.${domain}` });
-
         return { namespace, urls };
+    }
+
+    private buildRepoSlug(repoFullName: string): string {
+        // `owner/repo` -> `owner-repo`, sanitized + truncated so the full
+        // hostname stays under the 63-char DNS label limit even with long
+        // app names and PR numbers.
+        return repoFullName
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 20);
     }
 
     async teardown(repoFullName: string, prNumber: number): Promise<void> {
@@ -239,23 +267,64 @@ export class Deployer {
         }
     }
 
-    private async applyIngress(namespace: string, ingress: k8s.V1Ingress): Promise<void> {
-        const name = ingress.metadata!.name!;
+    private async applyHttpRoute(namespace: string, route: HttpRoute): Promise<void> {
+        await this.applyCustomObject(namespace, HTTP_ROUTE_GROUP, HTTP_ROUTE_VERSION, HTTP_ROUTE_PLURAL, route);
+    }
+
+    private async applyTargetGroupConfig(namespace: string, config: TargetGroupConfiguration): Promise<void> {
+        await this.applyCustomObject(
+            namespace,
+            TARGET_GROUP_CONFIG_GROUP,
+            TARGET_GROUP_CONFIG_VERSION,
+            TARGET_GROUP_CONFIG_PLURAL,
+            config,
+        );
+    }
+
+    private async applyCustomObject(
+        namespace: string,
+        group: string,
+        version: string,
+        plural: string,
+        body: HttpRoute | TargetGroupConfiguration,
+    ): Promise<void> {
+        const name = body.metadata.name;
         try {
-            await this.networkingApi.createNamespacedIngress({
+            await this.customApi.createNamespacedCustomObject({
+                group,
+                version,
                 namespace,
-                body: ingress,
+                plural,
+                body,
             });
         } catch (err: unknown) {
-            if (isConflict(err)) {
-                await this.networkingApi.replaceNamespacedIngress({
-                    name,
-                    namespace,
-                    body: ingress,
-                });
-            } else {
+            if (!isConflict(err)) {
                 throw err;
             }
+            // CustomObjectsApi rejects replace without a fresh resourceVersion,
+            // so read the existing object first and merge it in.
+            const existing = (await this.customApi.getNamespacedCustomObject({
+                group,
+                version,
+                namespace,
+                plural,
+                name,
+            })) as { metadata?: { resourceVersion?: string } };
+            const merged = {
+                ...body,
+                metadata: {
+                    ...body.metadata,
+                    resourceVersion: existing.metadata?.resourceVersion,
+                },
+            };
+            await this.customApi.replaceNamespacedCustomObject({
+                group,
+                version,
+                namespace,
+                plural,
+                name,
+                body: merged,
+            });
         }
     }
 
