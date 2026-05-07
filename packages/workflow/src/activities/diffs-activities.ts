@@ -4,22 +4,6 @@ export interface AnalyzeDiffsInput {
     snapshotId: string;
 }
 
-export interface TestCandidateInfo {
-    name: string;
-    instruction: string;
-    url?: string;
-    reasoning: string;
-}
-
-export type AffectedReason = "code_change" | "merge_plan_imported" | "merge_conflict";
-
-export interface AffectedTestInfo {
-    slug: string;
-    testName: string;
-    reasoning: string;
-    affectedReason?: AffectedReason;
-}
-
 export interface PreparedRunInfo {
     runId: string;
     slug: string;
@@ -28,18 +12,11 @@ export interface PreparedRunInfo {
 }
 
 export interface AnalyzeDiffsOutput {
-    preparedRuns: PreparedRunInfo[];
-    testCandidates: TestCandidateInfo[];
-    affectedTests: AffectedTestInfo[];
-    reasoning: string;
+    replays: PreparedRunInfo[];
 }
 
 export interface ResolveDiffsInput {
     snapshotId: string;
-    runIds: string[];
-    step1Reasoning: string;
-    testCandidates: TestCandidateInfo[];
-    affectedTests: AffectedTestInfo[];
 }
 
 export interface GenerationInfo {
@@ -50,14 +27,10 @@ export interface GenerationInfo {
 
 export interface ResolveDiffsOutput {
     generations: GenerationInfo[];
-    modifiedTests: number;
-    quarantinedTests: number;
-    bugsTracked: number;
 }
 
 export interface FinalizeDiffsInput {
     snapshotId: string;
-    generationIds: string[];
 }
 
 export interface DiffsActivities {

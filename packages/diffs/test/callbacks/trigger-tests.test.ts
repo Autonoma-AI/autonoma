@@ -1,9 +1,13 @@
 import type { BillingService } from "@autonoma/billing";
 import { expect, vi } from "vitest";
-import type { PrepareRunsParams } from "../../src/callbacks/trigger-tests";
+import type { AffectedTestSpec, PrepareRunsParams } from "../../src/callbacks/trigger-tests";
 import { prepareRuns } from "../../src/callbacks/trigger-tests";
 import type { DiffsCallbackHarness } from "./harness";
 import { diffsCallbackSuite } from "./harness";
+
+function specs(...slugs: string[]): AffectedTestSpec[] {
+    return slugs.map((slug) => ({ slug, affectedReason: "code_change", reasoning: "test reasoning" }));
+}
 
 function createMockBillingService(overrides?: Partial<BillingService>): BillingService {
     return {
@@ -54,7 +58,7 @@ diffsCallbackSuite({
             );
 
             const results = await prepareRuns(
-                ["nonexistent-slug"],
+                specs("nonexistent-slug"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
@@ -73,7 +77,7 @@ diffsCallbackSuite({
             );
 
             const results = await prepareRuns(
-                ["no-steps-test"],
+                specs("no-steps-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
@@ -92,7 +96,7 @@ diffsCallbackSuite({
             );
 
             const results = await prepareRuns(
-                ["billing-test"],
+                specs("billing-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId, {
                     billingService: createMockBillingService({
                         checkCreditsGate: vi.fn().mockRejectedValue(new Error("Insufficient credits")),
@@ -115,7 +119,7 @@ diffsCallbackSuite({
             );
 
             const results = await prepareRuns(
-                ["success-test"],
+                specs("success-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
@@ -144,7 +148,7 @@ diffsCallbackSuite({
             );
 
             const results = await prepareRuns(
-                ["nonexistent-slug", "exists-test"],
+                specs("nonexistent-slug", "exists-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
@@ -169,7 +173,7 @@ diffsCallbackSuite({
             });
 
             const results = await prepareRuns(
-                ["deduct-fail"],
+                specs("deduct-fail"),
                 buildParams(harness, organizationId, applicationId, snapshotId, { billingService }),
             );
 
@@ -208,7 +212,7 @@ diffsCallbackSuite({
 
             // Request the test from snapshot A against snapshot B: no assignment exists in B
             const results = await prepareRuns(
-                ["cross-snapshot-test"],
+                specs("cross-snapshot-test"),
                 buildParams(harness, organizationId, applicationId, snapshotB),
             );
 
@@ -216,7 +220,7 @@ diffsCallbackSuite({
 
             // Sanity check: using snapshot A, the test is runnable
             const resultsA = await prepareRuns(
-                ["cross-snapshot-test"],
+                specs("cross-snapshot-test"),
                 buildParams(harness, organizationId, applicationId, snapshotA),
             );
             expect(resultsA).toHaveLength(1);

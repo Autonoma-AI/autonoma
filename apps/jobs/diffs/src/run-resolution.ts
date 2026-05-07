@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
-import type { AffectedReason, RunReviewVerdict } from "@autonoma/diffs";
+import type { GeneratedTest, RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, TestDirectory } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ResolveDiffsOutput } from "@autonoma/workflow/activities";
@@ -9,37 +9,53 @@ import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadFlows, mapTestSuiteToContext } from "./load-context";
 import { runResolutionAgent } from "./run-resolution-agent";
 
-export interface TestCandidateInfo {
-    name: string;
-    instruction: string;
-    url?: string;
-    reasoning: string;
-}
-
-export interface AffectedTestInfo {
-    slug: string;
-    testName: string;
-    reasoning: string;
-    affectedReason?: AffectedReason;
-}
-
-export interface RunDiffsResolutionInput {
-    snapshotId: string;
-    runIds: string[];
-    step1Reasoning: string;
-    testCandidates: TestCandidateInfo[];
-    affectedTests: AffectedTestInfo[];
-}
-
-export async function runDiffsResolution(input: RunDiffsResolutionInput): Promise<ResolveDiffsOutput> {
-    const { snapshotId, runIds, step1Reasoning, testCandidates, affectedTests } = input;
+export async function runDiffsResolution(snapshotId: string): Promise<ResolveDiffsOutput> {
     const logger = rootLogger.child({ name: "runDiffsResolution", snapshotId });
 
     Sentry.setTag("snapshotId", snapshotId);
-    logger.info("Starting diffs resolution", {
-        runIdsCount: runIds.length,
-        testCandidatesCount: testCandidates.length,
+
+    const diffsJob = await db.diffsJob.findUniqueOrThrow({
+        where: { snapshotId },
+        select: { analysisReasoning: true },
+    });
+
+    const [affectedTests, testCandidates] = await Promise.all([
+        db.affectedTest.findMany({
+            where: { snapshotId },
+            select: {
+                snapshotId: true,
+                testCaseId: true,
+                affectedReason: true,
+                runId: true,
+                testCase: { select: { id: true, name: true, slug: true } },
+                run: {
+                    select: {
+                        id: true,
+                        status: true,
+                        assignment: { select: { plan: { select: { prompt: true } } } },
+                        runReview: {
+                            select: {
+                                status: true,
+                                verdict: true,
+                                reasoning: true,
+                                issue: { select: { confidence: true, title: true, description: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        }),
+        db.testCandidate.findMany({
+            where: { snapshotId },
+            select: { id: true, name: true, instruction: true, reasoning: true },
+        }),
+    ]);
+
+    const runIdsCount = affectedTests.filter((t) => t.runId != null).length;
+    logger.info("Loaded resolution inputs", {
         affectedTestsCount: affectedTests.length,
+        runIdsCount,
+        testCandidatesCount: testCandidates.length,
     });
 
     const { githubApp, updater } = await createDiffsServices(snapshotId);
@@ -56,36 +72,26 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
         );
     }
 
-    let modifiedTests = 0;
-    let quarantinedTests = 0;
-    let bugsTracked = 0;
+    const candidateInputs: TestCandidateInput[] = testCandidates.map((c) => ({
+        name: c.name,
+        instruction: c.instruction,
+        reasoning: c.reasoning,
+    }));
 
-    const shouldRunAgent = runIds.length > 0 || testCandidates.length > 0;
+    const shouldRunAgent = runIdsCount > 0 || candidateInputs.length > 0;
+
+    let resolutionReasoning = "";
+    let modifiedSlugs: string[] = [];
+    let newTestNames: GeneratedTest[] = [];
 
     if (!shouldRunAgent) {
         logger.info("Resolution skipped - no runs and no candidates");
     } else {
-        const { verdicts, runSlugs } =
-            runIds.length > 0 ? await buildVerdicts(runIds, affectedTests) : { verdicts: [], runSlugs: [] };
-
-        const affectedSlugs = affectedTests.map((t) => t.slug);
-        const runSlugSet = new Set(runSlugs);
-        const affectedButNotRun = affectedSlugs.filter((s) => !runSlugSet.has(s));
-
-        if (affectedButNotRun.length > 0) {
-            logger.warn("Affected tests did not produce runs", {
-                affectedCount: affectedTests.length,
-                runsCount: runSlugs.length,
-                affectedButNotRun,
-            });
-        }
+        const verdicts = buildVerdicts(affectedTests, logger);
 
         logger.info("Running resolution agent", {
             verdictCount: verdicts.length,
-            candidateCount: testCandidates.length,
-            affectedCount: affectedTests.length,
-            runsCount: runIds.length,
-            affectedButNotRun,
+            candidateCount: candidateInputs.length,
         });
 
         const branchData = await loadBranchData(branchId, githubApp);
@@ -110,7 +116,11 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
             ]);
 
             const agentResult = await runResolutionAgent({
-                input: { verdicts, step1Reasoning, testCandidates },
+                input: {
+                    verdicts,
+                    step1Reasoning: diffsJob.analysisReasoning ?? "",
+                    testCandidates: candidateInputs,
+                },
                 db,
                 updater,
                 applicationId: branchData.applicationId,
@@ -120,9 +130,9 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
                 flowIndex,
             });
 
-            modifiedTests = agentResult.modifiedTests.length;
-            quarantinedTests = agentResult.quarantinedTests.length;
-            bugsTracked = agentResult.reportedBugs.length;
+            resolutionReasoning = agentResult.reasoning;
+            modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
+            newTestNames = agentResult.newTests;
         } finally {
             await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
         }
@@ -135,6 +145,18 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
         await updater.markGenerationsQueued(pendingGens.map((g) => g.testGenerationId));
     }
 
+    await linkResolutionOutcomes({
+        snapshotId,
+        modifiedSlugs,
+        newTestNames: newTestNames.map((t) => t.name),
+        logger,
+    });
+
+    await db.diffsJob.update({
+        where: { snapshotId },
+        data: { resolutionReasoning, status: "generating" },
+    });
+
     const generations = pendingGens.map((gen) => ({
         testGenerationId: gen.testGenerationId,
         scenarioId: gen.scenarioId,
@@ -142,71 +164,54 @@ export async function runDiffsResolution(input: RunDiffsResolutionInput): Promis
     }));
 
     logger.info("Diffs resolution complete", {
-        modifiedTests,
-        quarantinedTests,
-        bugsTracked,
+        modifiedTests: modifiedSlugs.length,
+        newTests: newTestNames.length,
         generations: generations.length,
     });
 
-    return { generations, modifiedTests, quarantinedTests, bugsTracked };
+    return { generations };
 }
 
-async function buildVerdicts(
-    runIds: string[],
-    affectedTests: AffectedTestInfo[],
-): Promise<{ verdicts: RunReviewVerdict[]; runSlugs: string[] }> {
-    const logger = rootLogger.child({ name: "buildVerdicts" });
-    const affectedReasonBySlug = new Map<string, AffectedReason>();
-    for (const t of affectedTests) {
-        if (t.affectedReason != null) affectedReasonBySlug.set(t.slug, t.affectedReason);
-    }
+type AffectedTestWithRun = {
+    testCaseId: string;
+    affectedReason: "code_change" | "merge_plan_imported" | "merge_conflict";
+    runId: string | null;
+    testCase: { id: string; name: string; slug: string };
+    run: {
+        id: string;
+        status: string;
+        assignment: { plan: { prompt: string } | null } | null;
+        runReview: {
+            status: string;
+            verdict: string | null;
+            reasoning: string | null;
+            issue: { confidence: number; title: string; description: string } | null;
+        } | null;
+    } | null;
+};
 
-    const runs = await db.run.findMany({
-        where: { id: { in: runIds } },
-        select: {
-            id: true,
-            status: true,
-            assignment: {
-                select: {
-                    testCase: { select: { name: true, slug: true } },
-                    plan: { select: { prompt: true } },
-                },
-            },
-            runReview: {
-                select: {
-                    status: true,
-                    verdict: true,
-                    reasoning: true,
-                    issue: {
-                        select: {
-                            confidence: true,
-                            title: true,
-                            description: true,
-                        },
-                    },
-                },
-            },
-        },
-    });
-
+function buildVerdicts(
+    affectedTests: AffectedTestWithRun[],
+    logger: ReturnType<typeof rootLogger.child>,
+): RunReviewVerdict[] {
     const verdicts: RunReviewVerdict[] = [];
     const runsPassed: string[] = [];
     const runsActionable: string[] = [];
     const runsWithoutReview: string[] = [];
 
-    for (const run of runs) {
-        const review = run.runReview;
-        const testCase = run.assignment?.testCase;
-        const slug = testCase?.slug ?? "unknown";
+    for (const affected of affectedTests) {
+        const run = affected.run;
+        if (run == null) continue;
+
+        const slug = affected.testCase.slug;
 
         if (run.status === "success") {
-            logger.info("Run passed, no action needed", { runId: run.id, slug });
             runsPassed.push(slug);
             continue;
         }
 
+        const review = run.runReview;
         if (review == null || review.status !== "completed") {
-            logger.warn("Run has no completed review, skipping", { runId: run.id, slug });
             runsWithoutReview.push(slug);
             continue;
         }
@@ -214,7 +219,7 @@ async function buildVerdicts(
         verdicts.push({
             runId: run.id,
             testSlug: slug,
-            testName: testCase?.name ?? "Unknown",
+            testName: affected.testCase.name,
             originalPrompt: run.assignment?.plan?.prompt ?? "",
             runStatus: run.status,
             verdict: review.verdict ?? "unknown",
@@ -222,20 +227,126 @@ async function buildVerdicts(
             issueTitle: review.issue?.title ?? undefined,
             issueConfidence: review.issue?.confidence ?? undefined,
             issueDescription: review.issue?.description ?? undefined,
-            affectedReason: affectedReasonBySlug.get(slug),
+            affectedReason: affected.affectedReason,
         });
         runsActionable.push(slug);
     }
 
     logger.info("Built verdicts", {
-        total: runs.length,
         actionable: verdicts.length,
         runsPassed,
         runsActionable,
         runsWithoutReview,
     });
 
-    const runSlugs = runs.map((r) => r.assignment?.testCase?.slug).filter((s): s is string => s != null);
+    return verdicts;
+}
 
-    return { verdicts, runSlugs };
+interface LinkResolutionOutcomesParams {
+    snapshotId: string;
+    modifiedSlugs: string[];
+    newTestNames: string[];
+    logger: ReturnType<typeof rootLogger.child>;
+}
+
+async function linkResolutionOutcomes({
+    snapshotId,
+    modifiedSlugs,
+    newTestNames,
+    logger,
+}: LinkResolutionOutcomesParams): Promise<void> {
+    if (modifiedSlugs.length > 0) {
+        await linkModifiedToGenerations(snapshotId, modifiedSlugs, logger);
+    }
+
+    await reconcileTestCandidates(snapshotId, newTestNames, logger);
+}
+
+async function linkModifiedToGenerations(
+    snapshotId: string,
+    slugs: string[],
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<void> {
+    const generations = await db.testGeneration.findMany({
+        where: {
+            snapshotId,
+            testPlan: { testCase: { slug: { in: slugs } } },
+        },
+        select: { id: true, testPlan: { select: { testCase: { select: { id: true, slug: true } } } } },
+    });
+
+    const latestByTestCase = new Map<string, string>();
+    for (const gen of generations) {
+        latestByTestCase.set(gen.testPlan.testCase.id, gen.id);
+    }
+
+    for (const [testCaseId, generationId] of latestByTestCase) {
+        await db.affectedTest
+            .update({
+                where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
+                data: { generationId },
+            })
+            .catch((error) => {
+                logger.warn("Failed to link AffectedTest to generation", { testCaseId, generationId, error });
+            });
+    }
+}
+
+export class CandidateNotFoundError extends Error {
+    constructor(public readonly missingNames: string[]) {
+        super(`Test candidates with names "${missingNames.join('", "')}" not found in database`);
+    }
+}
+
+async function reconcileTestCandidates(
+    snapshotId: string,
+    acceptedNames: string[],
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<void> {
+    if (acceptedNames.length === 0) {
+        logger.info("No new test candidates accepted");
+        return;
+    }
+
+    const candidates = await db.testCandidate.findMany({
+        where: { snapshotId, name: { in: acceptedNames } },
+        select: { id: true, name: true, snapshotId: true, organizationId: true },
+    });
+
+    if (candidates.length !== acceptedNames.length) {
+        logger.fatal("Mismatch between accepted candidate names and database entries", {
+            acceptedNames,
+            foundCandidates: candidates.map((c) => c.name),
+        });
+        throw new CandidateNotFoundError(acceptedNames.filter((name) => !candidates.some((c) => c.name === name)));
+    }
+
+    const orgId = candidates[0]!.organizationId;
+    const newTestCases = await db.testCase.findMany({
+        where: {
+            name: { in: acceptedNames },
+            organizationId: orgId,
+            assignments: { some: { snapshotId } },
+        },
+        select: { id: true, name: true },
+    });
+    const testCaseIdByName = new Map(newTestCases.map((tc) => [tc.name, tc.id]));
+
+    await Promise.all(
+        candidates.map(async (candidate) =>
+            db.testCandidate
+                .update({
+                    where: { id: candidate.id },
+                    data: { status: "accepted", acceptedTestCaseId: testCaseIdByName.get(candidate.name) },
+                })
+                .catch((error) => {
+                    logger.warn("Failed to mark candidate accepted", { candidateId: candidate.id, error });
+                }),
+        ),
+    );
+
+    await db.testCandidate.updateMany({
+        where: { snapshotId, status: "pending" },
+        data: { status: "rejected" },
+    });
 }

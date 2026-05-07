@@ -35,7 +35,6 @@ export interface RunReviewVerdict {
 export interface TestCandidateInput {
     name: string;
     instruction: string;
-    url?: string;
     reasoning: string;
 }
 
@@ -213,11 +212,8 @@ Step 1 suggested the following new tests. Review each candidate and decide wheth
             prompt += `### ${candidate.name}
 - **Reasoning**: ${candidate.reasoning}
 - **Instruction**: ${candidate.instruction}
+
 `;
-            if (candidate.url != null) {
-                prompt += `- **URL**: ${candidate.url}\n`;
-            }
-            prompt += "\n";
         }
     }
 

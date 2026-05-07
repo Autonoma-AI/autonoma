@@ -138,6 +138,9 @@ model Organization {
   setupArtifacts         ApplicationSetupArtifact[]
   signupHookStates       SignupHookState[]
   previewkitEnvironments PreviewkitEnvironment[]
+  diffsJobs              DiffsJob[]
+  affectedTests          AffectedTest[]
+  testCandidates         TestCandidate[]
 
   @@map("organization")
 }
@@ -597,6 +600,8 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
+  diffsJob DiffsJob?
+
   @@index([branchId])
   @@map("branch_snapshot")
 }
@@ -657,6 +662,9 @@ model TestCase {
   tags        TestTag[]
   assignments TestCaseAssignment[]
   bugs        Bug[]
+
+  affectedIn             AffectedTest[]
+  acceptedFromCandidate  TestCandidate?
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -768,6 +776,8 @@ model TestGeneration {
   testPlan         TestPlan          @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
   costRecords      AiCostRecord[]
   generationReview GenerationReview?
+
+  affectedTest AffectedTest?
 
   scenarioInstanceId String?           @map("scenario_instance_id")
   scenarioInstance   ScenarioInstance? @relation(fields: [scenarioInstanceId], references: [id], onDelete: SetNull)
@@ -1092,6 +1102,8 @@ model Run {
   outputs     StepOutputList?
   runReview   RunReview?
   costRecords AiCostRecord[]
+
+  affectedTest AffectedTest?
 
   reasoning String? @map("reasoning") @db.Text
 
@@ -1625,4 +1637,104 @@ model PreviewkitAppInstance {
   @@map("previewkit_app_instance")
 }
 
-// Trigger diffs
+// ─── Diffs Job ────────────────────────────────────────────────────────────────
+
+enum DiffsJobStatus {
+  pending
+  analyzing
+  replaying
+  resolving
+  generating
+  finalizing
+  completed
+  failed
+
+  @@map("diffs_job_status")
+}
+
+enum AffectedReason {
+  code_change
+  merge_plan_imported
+  merge_conflict
+
+  @@map("affected_reason")
+}
+
+enum TestCandidateStatus {
+  pending
+  accepted
+  rejected
+
+  @@map("test_candidate_status")
+}
+
+model DiffsJob {
+  snapshotId String         @id @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  status DiffsJobStatus @default(pending)
+
+  analysisReasoning   String? @map("analysis_reasoning") @db.Text
+  resolutionReasoning String? @map("resolution_reasoning") @db.Text
+  failureReason       String? @map("failure_reason") @db.Text
+
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  affectedTests  AffectedTest[]
+  testCandidates TestCandidate[]
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("diffs_job")
+}
+
+model AffectedTest {
+  snapshotId String   @map("snapshot_id")
+  testCaseId String   @map("test_case_id")
+  diffsJob   DiffsJob @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  affectedReason AffectedReason @map("affected_reason")
+  reasoning      String         @db.Text
+
+  runId String? @unique @map("run_id")
+  run   Run?    @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  generationId String?         @unique @map("generation_id")
+  generation   TestGeneration? @relation(fields: [generationId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([snapshotId, testCaseId])
+  @@map("affected_test")
+}
+
+model TestCandidate {
+  id String @id @default(cuid())
+
+  snapshotId String   @map("snapshot_id")
+  diffsJob   DiffsJob @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+
+  name        String
+  instruction String @db.Text
+  reasoning   String @db.Text
+
+  status             TestCandidateStatus @default(pending)
+  acceptedTestCaseId String?             @unique @map("accepted_test_case_id")
+  acceptedTestCase   TestCase?           @relation(fields: [acceptedTestCaseId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@map("test_candidate")
+}

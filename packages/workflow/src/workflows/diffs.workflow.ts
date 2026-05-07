@@ -60,25 +60,20 @@ function dispatchGeneration({ testGenerationId, scenarioId, architecture }: Gene
 export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<void> {
     const { snapshotId } = input;
 
-    // Step 1: Analyze diffs - explores code, updates skills, identifies affected tests, suggests new tests
+    // Step 1: Analyze diffs - explores code, updates skills, identifies affected tests, suggests new tests.
+    // Persists DiffsJob.analysisReasoning, AffectedTest, TestCandidate, and Run records.
     const step1 = await longRunning.analyzeDiffs({ snapshotId });
 
     // Step 2: Execute affected test replays in parallel.
     // The replay-reviewer fires automatically in each replay workflow's finally block,
     // populating RunReview records (but skipping Issue/Bug creation for diffs replays).
-    if (step1.preparedRuns.length > 0) {
-        await Promise.allSettled(step1.preparedRuns.map((run) => dispatchReplay(run)));
+    if (step1.replays.length > 0) {
+        await Promise.allSettled(step1.replays.map((run) => dispatchReplay(run)));
     }
 
-    // Step 3: Resolve - reads reviewer verdicts, modifies stale tests, gathers pending generations
-    const runIds = step1.preparedRuns.map((r) => r.runId);
-    const step2 = await standard.resolveDiffs({
-        snapshotId,
-        runIds,
-        step1Reasoning: step1.reasoning,
-        testCandidates: step1.testCandidates,
-        affectedTests: step1.affectedTests,
-    });
+    // Step 3: Resolve - reads reviewer verdicts from DB, modifies stale tests, gathers pending generations.
+    // Persists DiffsJob.resolutionReasoning and reconciles AffectedTest/TestCandidate links.
+    const step2 = await standard.resolveDiffs({ snapshotId });
 
     // Step 4: Execute generations in parallel.
     // The generation-reviewer fires automatically in each generation workflow's finally block
@@ -87,7 +82,6 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
         await Promise.allSettled(step2.generations.map((gen) => dispatchGeneration(gen)));
     }
 
-    // Step 5: Finalize - assigns generation results, activates snapshot
-    const generationIds = step2.generations.map((g) => g.testGenerationId);
-    await shortLived.finalizeDiffs({ snapshotId, generationIds });
+    // Step 5: Finalize - assigns generation results, activates snapshot.
+    await shortLived.finalizeDiffs({ snapshotId });
 }

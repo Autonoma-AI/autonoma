@@ -2,6 +2,7 @@ import type { BillingService } from "@autonoma/billing";
 import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
 import { logger as rootLogger } from "@autonoma/logger";
+import type { AffectedReason } from "../tools/mark-affected-test-tool";
 
 export interface PrepareRunsParams {
     db: PrismaClient;
@@ -11,6 +12,12 @@ export interface PrepareRunsParams {
     billingService: BillingService;
 }
 
+export interface AffectedTestSpec {
+    slug: string;
+    affectedReason: AffectedReason;
+    reasoning: string;
+}
+
 export interface PreparedRunResult {
     runId: string;
     slug: string;
@@ -18,11 +25,21 @@ export interface PreparedRunResult {
     scenarioId?: string;
 }
 
-export async function prepareRuns(slugs: string[], params: PrepareRunsParams): Promise<PreparedRunResult[]> {
+/**
+ * Creates a Run record (and matching AffectedTest row) for each affected test
+ * whose slug resolves to a runnable assignment in the snapshot. Slugs without
+ * a corresponding test case, without a runnable assignment, or whose billing
+ * check fails are skipped silently.
+ */
+export async function prepareRuns(
+    affectedTests: AffectedTestSpec[],
+    params: PrepareRunsParams,
+): Promise<PreparedRunResult[]> {
     const logger = rootLogger.child({ name: "prepareRuns", snapshotId: params.snapshotId });
-    logger.info("Preparing runs for affected tests", { slugs, count: slugs.length });
+    logger.info("Preparing runs for affected tests", { count: affectedTests.length });
 
     const { db, snapshotId, applicationId, organizationId, billingService } = params;
+    const slugs = affectedTests.map((t) => t.slug);
 
     // 1. Look up test cases by slug
     const testCases = await db.testCase.findMany({
@@ -37,33 +54,38 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
 
     const testCaseBySlug = new Map(testCases.map((tc) => [tc.slug, tc]));
 
-    // 2. Find the assignment (scoped to this snapshot) for each test
     interface InternalPreparedRun {
         slug: string;
+        testCaseId: string;
         testCaseName: string;
         assignmentId: string;
         architecture: ApplicationArchitecture;
         scenarioId?: string;
+        affectedReason: AffectedReason;
+        reasoning: string;
     }
 
     const preparedRuns: InternalPreparedRun[] = [];
 
-    for (const slug of slugs) {
-        const testCase = testCaseBySlug.get(slug);
+    for (const affected of affectedTests) {
+        const testCase = testCaseBySlug.get(affected.slug);
         if (testCase == null) {
-            logger.warn("Test case not found for slug", { slug, applicationId });
+            logger.warn("Test case not found for slug", { slug: affected.slug, applicationId });
             continue;
         }
 
-        const assignment = await findAssignmentWithSteps(db, snapshotId, testCase.id, slug, logger);
+        const assignment = await findAssignmentWithSteps(db, snapshotId, testCase.id, affected.slug, logger);
         if (assignment == null) continue;
 
         preparedRuns.push({
-            slug,
+            slug: affected.slug,
+            testCaseId: testCase.id,
             testCaseName: testCase.name,
             assignmentId: assignment.id,
             architecture: testCase.application.architecture,
             scenarioId: assignment.scenarioId,
+            affectedReason: affected.affectedReason,
+            reasoning: affected.reasoning,
         });
     }
 
@@ -72,7 +94,7 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
         return [];
     }
 
-    // 3. Check billing for all runs at once
+    // Check billing for all runs at once
     const sampleArchitecture = preparedRuns[0]!.architecture;
     try {
         await billingService.checkCreditsGate(organizationId, preparedRuns.length, sampleArchitecture, "run");
@@ -84,7 +106,7 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
         return [];
     }
 
-    // 4. Create Run records and deduct credits
+    // Create Run records, deduct credits, and persist AffectedTest rows
     const results: PreparedRunResult[] = [];
 
     for (const prepared of preparedRuns) {
@@ -107,6 +129,23 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
             continue;
         }
 
+        await db.affectedTest.upsert({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId: prepared.testCaseId } },
+            create: {
+                snapshotId,
+                testCaseId: prepared.testCaseId,
+                organizationId,
+                affectedReason: prepared.affectedReason,
+                reasoning: prepared.reasoning,
+                runId: run.id,
+            },
+            update: {
+                affectedReason: prepared.affectedReason,
+                reasoning: prepared.reasoning,
+                runId: run.id,
+            },
+        });
+
         results.push({
             runId: run.id,
             slug: prepared.slug,
@@ -115,7 +154,7 @@ export async function prepareRuns(slugs: string[], params: PrepareRunsParams): P
         });
     }
 
-    logger.info("Runs prepared", { total: slugs.length, prepared: results.length });
+    logger.info("Runs prepared", { total: affectedTests.length, prepared: results.length });
     return results;
 }
 

@@ -296,6 +296,7 @@ export class DiffsTriggerService extends Service {
                 headSha,
                 baseSha,
             });
+            await this.createDiffsJob(updater.snapshotId, organizationId);
             return updater.snapshotId;
         } catch (error) {
             if (!(error instanceof BranchAlreadyHasPendingSnapshotError)) throw error;
@@ -319,7 +320,15 @@ export class DiffsTriggerService extends Service {
                 headSha,
                 baseSha,
             });
+            await this.createDiffsJob(updater.snapshotId, organizationId);
             return updater.snapshotId;
         }
+    }
+
+    private async createDiffsJob(snapshotId: string, organizationId: string): Promise<void> {
+        await this.db.diffsJob.create({
+            data: { snapshotId, organizationId, status: "pending" },
+        });
+        this.logger.info("DiffsJob created", { snapshotId });
     }
 }

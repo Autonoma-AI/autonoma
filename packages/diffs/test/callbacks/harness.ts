@@ -88,9 +88,11 @@ export class DiffsCallbackHarness implements IntegrationHarness {
             new AddTest({ name: testName, description: `Test: ${testName}`, plan: "initial plan", folderId }),
         );
 
+        const snapshotId = updater.snapshotId;
+        await this.db.diffsJob.create({ data: { snapshotId, organizationId, status: "pending" } });
+
         // Mark all pending generations as complete so we can finalize
         await this.db.testGeneration.updateMany({ where: { status: "pending" }, data: { status: "success" } });
-        const snapshotId = updater.snapshotId;
         await updater.finalize();
 
         const testCase = await this.db.testCase.findFirstOrThrow({ where: { slug: testSlug, applicationId } });
