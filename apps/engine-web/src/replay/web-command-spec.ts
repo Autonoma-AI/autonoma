@@ -2,6 +2,7 @@ import type {
     AssertCommandSpec,
     ClickCommandSpec,
     HoverCommandSpec,
+    NavigateCommandSpec,
     RefreshCommandSpec,
     ScrollCommandSpec,
     TypeCommandSpec,
@@ -11,6 +12,7 @@ import type {
 export type ReplayWebCommandSpec =
     | ClickCommandSpec
     | HoverCommandSpec
+    | NavigateCommandSpec
     | TypeCommandSpec
     | AssertCommandSpec
     | ScrollCommandSpec

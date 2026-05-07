@@ -17,6 +17,10 @@ export * from "./hover/hover.command";
 export * from "./hover/hover.def";
 export * from "./hover/web-hover.command";
 
+// Navigate
+export * from "./navigate/navigate.command";
+export * from "./navigate/navigate.def";
+
 // Read
 export * from "./read/read.command";
 export * from "./read/read.def";

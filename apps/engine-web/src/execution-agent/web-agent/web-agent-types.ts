@@ -3,6 +3,7 @@ import type {
     ClickCommandSpec,
     DragCommandSpec,
     HoverCommandSpec,
+    NavigateCommandSpec,
     ReadCommandSpec,
     RefreshCommandSpec,
     SaveClipboardCommandSpec,
@@ -20,6 +21,7 @@ export type WebCommandSpec =
     | ClickCommandSpec<WebClickOptions>
     | DragCommandSpec
     | HoverCommandSpec
+    | NavigateCommandSpec
     | TypeCommandSpec
     | AssertCommandSpec
     | ScrollCommandSpec

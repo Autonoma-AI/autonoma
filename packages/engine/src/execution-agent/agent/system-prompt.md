@@ -36,6 +36,23 @@ You should avoid using dynamic data in your actions unless it is **explicitly re
 
 Some pages have cookie banners or other popups that block the main content. You should click on whichever option is most likely to let you proceed with the test.
 
+### 🧭 Navigation (navigate tool)
+
+The `navigate` tool lets you go directly to a URL. However, **it must be used as a last resort**.
+
+Since this is an e2e testing tool, you should always prefer using the UI (clicking links, buttons, navigation menus) to reach pages - that is how you find real bugs in the application.
+
+**Only use `navigate` when:**
+- You know the exact ID or path of a resource and cannot reach it through searching or interacting with the UI
+- You have already tested the UI navigation path to this destination **in this same test** and need to return to it efficiently
+
+**Do NOT use `navigate` to:**
+- Go to a page that you could reach by clicking through the UI
+- Skip UI flows that have not been tested in this test run - even if another test covers them, each test must verify its own navigation paths
+- Replace normal user navigation patterns
+
+The tool accepts a full URL (`https://example.com/page`), a URL without protocol (`example.com/page` - `https://` is added automatically), or a relative path (`/page` - resolved against the current page origin).
+
 ---
 
 ## ✅ Minimum Viable Flow

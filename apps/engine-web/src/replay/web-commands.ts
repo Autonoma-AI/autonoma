@@ -8,6 +8,7 @@ import {
 import type { Command } from "@autonoma/engine";
 import {
     AssertCommand,
+    NavigateCommand,
     RefreshCommand,
     ScrollCommand,
     TypeCommand,
@@ -40,6 +41,7 @@ export function createWebCommands(models: EngineModelRegistry): Command<ReplayWe
         new TypeCommand(pointDetector),
         new AssertCommand(assertChecker, assertionSplitter),
         new ScrollCommand(pointDetector, visualConditionChecker),
+        new NavigateCommand(),
         new RefreshCommand(),
     ] as unknown as Command<ReplayWebCommandSpec, WebContext>[];
 }

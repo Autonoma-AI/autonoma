@@ -2,6 +2,7 @@ export * from "./assert.tool";
 export * from "./click.tool";
 export * from "./drag.tool";
 export * from "./hover.tool";
+export * from "./navigate.tool";
 export * from "./read.tool";
 export * from "./refresh.tool";
 export * from "./save-clipboard.tool";

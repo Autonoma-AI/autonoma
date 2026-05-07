@@ -9,6 +9,7 @@ import {
 import {
     AssertCommand,
     DragCommand,
+    NavigateCommand,
     ReadCommand,
     RefreshCommand,
     SaveClipboardCommand,
@@ -25,6 +26,7 @@ import {
     type EngineModelRegistry,
     ExecutionAgentFactory,
     HoverTool,
+    NavigateTool,
     ReadTool,
     RefreshTool,
     SaveClipboardTool,
@@ -59,6 +61,7 @@ function createTools(models: EngineModelRegistry): CommandTool<WebCommandSpec, W
         new TypeTool(new TypeCommand(pointDetector)),
         new AssertTool(new AssertCommand(assertChecker, assertionSplitter)),
         new ScrollTool(new ScrollCommand(pointDetector, visualConditionChecker)),
+        new NavigateTool(new NavigateCommand()),
         new RefreshTool(new RefreshCommand()),
         new ReadTool(new ReadCommand(textExtractor)),
         new SaveClipboardTool(new SaveClipboardCommand()),
