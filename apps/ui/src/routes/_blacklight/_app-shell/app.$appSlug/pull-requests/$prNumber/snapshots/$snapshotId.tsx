@@ -1,12 +1,10 @@
-import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
+import { Badge, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
-import { LightningIcon } from "@phosphor-icons/react/Lightning";
-import { SwapIcon } from "@phosphor-icons/react/Swap";
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { GenerationCard, type GenerationCardStatus } from "components/generation/generation-card";
+import { DiffsTimeline } from "components/snapshot/diffs-timeline";
+import type { DiffsJobStatus } from "components/snapshot/diffs-timeline-types";
 import { ShaRange } from "components/snapshot/sha-range";
-import { SnapshotChangeRow, type SnapshotChangeType } from "components/snapshot/snapshot-change-row";
 import { formatDate } from "lib/format";
 import { ensureSnapshotDetailData, useSnapshotDetail } from "lib/query/branches.queries";
 import { Suspense } from "react";
@@ -37,97 +35,23 @@ function SnapshotDetailPage() {
 
 function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   const { data } = useSnapshotDetail(snapshotId);
-  const { snapshot, changes, generations } = data;
+  const { snapshot, changes, diffsJob } = data;
 
   return (
     <>
       <PageHeader prNumber={prNumber}>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
           <Badge variant={statusBadgeVariant(snapshot.status)}>{snapshot.status}</Badge>
+          <Badge variant={diffsJobBadgeVariant(diffsJob.status)} className="font-mono uppercase">
+            diffs: {diffsJob.status}
+          </Badge>
           <span className="text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
         </div>
       </PageHeader>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
-        <ChangesPanel changes={changes} />
-        <GenerationsPanel generations={generations} />
-      </div>
+      <DiffsTimeline diffsJob={diffsJob} changes={changes} />
     </>
-  );
-}
-
-function ChangesPanel({
-  changes,
-}: {
-  changes: Array<{ type: SnapshotChangeType; testCaseId: string; testCaseName: string }>;
-}) {
-  return (
-    <Panel>
-      <PanelHeader className="flex items-center gap-2">
-        <SwapIcon size={14} className="text-text-tertiary" />
-        <PanelTitle>Changes</PanelTitle>
-        <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-3xs">
-          {changes.length}
-        </Badge>
-      </PanelHeader>
-      <PanelBody className="p-0">
-        {changes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-text-tertiary">
-            <p className="text-sm">No changes in this snapshot</p>
-          </div>
-        ) : (
-          <ul>
-            {changes.map((change) => (
-              <li key={change.testCaseId}>
-                <SnapshotChangeRow type={change.type} testCaseName={change.testCaseName} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </PanelBody>
-    </Panel>
-  );
-}
-
-function GenerationsPanel({
-  generations,
-}: {
-  generations: Array<{
-    generationId: string;
-    testCaseId: string;
-    testCaseName: string;
-    status: GenerationCardStatus;
-  }>;
-}) {
-  return (
-    <Panel>
-      <PanelHeader className="flex items-center gap-2">
-        <LightningIcon size={14} className="text-text-tertiary" />
-        <PanelTitle>Generations</PanelTitle>
-        <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-3xs">
-          {generations.length}
-        </Badge>
-      </PanelHeader>
-      <PanelBody className="p-3">
-        {generations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-tertiary">
-            <p className="text-sm">No generations yet</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {generations.map((g) => (
-              <GenerationCard
-                key={g.generationId}
-                generationId={g.generationId}
-                testCaseName={g.testCaseName}
-                status={g.status}
-              />
-            ))}
-          </div>
-        )}
-      </PanelBody>
-    </Panel>
   );
 }
 
@@ -158,23 +82,10 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
       <PageHeader prNumber={prNumber}>
         <Skeleton className="h-5 w-72" />
       </PageHeader>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
-        <Panel>
-          <PanelHeader>
-            <PanelTitle>Changes</PanelTitle>
-          </PanelHeader>
-          <PanelBody className="p-4">
-            <Skeleton className="h-32 w-full" />
-          </PanelBody>
-        </Panel>
-        <Panel>
-          <PanelHeader>
-            <PanelTitle>Generations</PanelTitle>
-          </PanelHeader>
-          <PanelBody className="p-4">
-            <Skeleton className="h-32 w-full" />
-          </PanelBody>
-        </Panel>
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       </div>
     </>
   );
@@ -188,5 +99,20 @@ function statusBadgeVariant(status: string): "success" | "critical" | "outline" 
       return "critical";
     default:
       return "outline";
+  }
+}
+
+function diffsJobBadgeVariant(
+  status: DiffsJobStatus,
+): "status-passed" | "status-failed" | "status-running" | "status-pending" {
+  switch (status) {
+    case "completed":
+      return "status-passed";
+    case "failed":
+      return "status-failed";
+    case "pending":
+      return "status-pending";
+    default:
+      return "status-running";
   }
 }

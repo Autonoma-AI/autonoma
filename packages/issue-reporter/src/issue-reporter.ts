@@ -145,16 +145,14 @@ export class IssueReporter {
     // ─── Diffs callback: manual high-confidence bug report ──────────────────────
 
     async recordBugFromRunReview(tx: Prisma.TransactionClient, params: RecordBugFromRunReviewParams): Promise<void> {
-        const issue = await tx.issue.create({
-            data: {
-                runReviewId: params.runReviewId,
-                category: params.category,
-                confidence: params.confidence,
-                severity: params.severity,
-                title: params.title,
-                description: params.description,
-                organizationId: params.organizationId,
-            },
+        const issue = await this.upsertIssue(tx, {
+            ownerLink: { runReviewId: params.runReviewId },
+            category: params.category,
+            confidence: params.confidence,
+            severity: params.severity,
+            title: params.title,
+            description: params.description,
+            organizationId: params.organizationId,
         });
 
         await this.promoteIssueToBug(tx, {

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { GenerationStatus, PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import {
     getChangesForSnapshot,
@@ -184,53 +184,87 @@ export class BranchesService extends Service {
                         prInfo: { select: { prNumber: true } },
                     },
                 },
+                diffsJob: {
+                    select: {
+                        status: true,
+                        analysisReasoning: true,
+                        resolutionReasoning: true,
+                        failureReason: true,
+                        startedAt: true,
+                        completedAt: true,
+                        affectedTests: {
+                            select: {
+                                affectedReason: true,
+                                reasoning: true,
+                                testCase: { select: { id: true, name: true, slug: true } },
+                                run: {
+                                    select: {
+                                        id: true,
+                                        status: true,
+                                        runReview: { select: { verdict: true } },
+                                    },
+                                },
+                                generation: { select: { id: true, status: true } },
+                            },
+                            orderBy: { createdAt: "asc" },
+                        },
+                        testCandidates: {
+                            select: {
+                                id: true,
+                                name: true,
+                                instruction: true,
+                                reasoning: true,
+                                status: true,
+                                acceptedTestCase: { select: { id: true, name: true, slug: true } },
+                            },
+                            orderBy: { createdAt: "asc" },
+                        },
+                    },
+                },
             },
         });
 
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
+        if (snapshot.diffsJob == null) throw new NotFoundError("Snapshot has no diffs job");
 
         const { prInfo, ...branchRest } = snapshot.branch;
+        const { diffsJob, branch: _branch, ...snapshotRest } = snapshot;
         const flatSnapshot = {
-            ...snapshot,
+            ...snapshotRest,
             branch: { ...branchRest, prNumber: prInfo?.prNumber },
         };
 
         const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
 
-        const generations = await this.db.testGeneration.findMany({
-            where: { snapshotId },
-            select: {
-                id: true,
-                status: true,
-                createdAt: true,
-                testPlan: {
-                    select: {
-                        testCaseId: true,
-                        testCase: { select: { name: true, slug: true } },
-                    },
-                },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+        const acceptedTestCaseIds = diffsJob.testCandidates
+            .map((c) => c.acceptedTestCase?.id)
+            .filter((id): id is string => id != null);
 
-        const latestByTestCaseId = new Map<string, (typeof generations)[number]>();
-        for (const gen of generations) {
-            const testCaseId = gen.testPlan.testCaseId;
-            if (!latestByTestCaseId.has(testCaseId)) {
-                latestByTestCaseId.set(testCaseId, gen);
+        const candidateGenByTestCaseId = new Map<string, { id: string; status: GenerationStatus }>();
+        if (acceptedTestCaseIds.length > 0) {
+            const candidateGens = await this.db.testGeneration.findMany({
+                where: { snapshotId, testPlan: { testCaseId: { in: acceptedTestCaseIds } } },
+                select: { id: true, status: true, testPlan: { select: { testCaseId: true } } },
+                orderBy: { createdAt: "desc" },
+            });
+            for (const gen of candidateGens) {
+                const tcId = gen.testPlan.testCaseId;
+                if (!candidateGenByTestCaseId.has(tcId)) {
+                    candidateGenByTestCaseId.set(tcId, { id: gen.id, status: gen.status });
+                }
             }
         }
 
-        const latestGenerations = [...latestByTestCaseId.values()].map((gen) => ({
-            generationId: gen.id,
-            status: gen.status,
-            createdAt: gen.createdAt,
-            testCaseId: gen.testPlan.testCaseId,
-            testCaseName: gen.testPlan.testCase.name,
-            testCaseSlug: gen.testPlan.testCase.slug,
-        }));
+        const diffsJobWithCandidateGens = {
+            ...diffsJob,
+            testCandidates: diffsJob.testCandidates.map((c) => ({
+                ...c,
+                generation:
+                    c.acceptedTestCase != null ? (candidateGenByTestCaseId.get(c.acceptedTestCase.id) ?? null) : null,
+            })),
+        };
 
-        return { snapshot: flatSnapshot, changes, generations: latestGenerations };
+        return { snapshot: flatSnapshot, changes, diffsJob: diffsJobWithCandidateGens };
     }
 
     async getActiveSnapshot(branchId: string, organizationId: string) {

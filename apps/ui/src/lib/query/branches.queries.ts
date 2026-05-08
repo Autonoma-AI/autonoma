@@ -44,16 +44,24 @@ export async function ensureSnapshotHistoryData(queryClient: QueryClient, branch
     await ensureAPIQueryData(queryClient, trpc.branches.snapshotHistory.queryOptions({ branchId }));
 }
 
+const TERMINAL_DIFFS_JOB_STATUSES = new Set(["completed", "failed"]);
+const INCOMPLETE_GENERATION_STATUSES = new Set(["pending", "queued", "running"]);
+
 export function useSnapshotDetail(snapshotId: string) {
     return useSuspenseQuery({
         ...trpc.branches.snapshotDetail.queryOptions({ snapshotId }),
         refetchInterval: (query) => {
             const data = query.state.data;
             if (data == null) return false;
-            const hasIncomplete = data.generations.some(
-                (g) => g.status === "pending" || g.status === "queued" || g.status === "running",
+            const allGens = [
+                ...data.diffsJob.affectedTests.map((t) => t.generation),
+                ...data.diffsJob.testCandidates.map((c) => c.generation),
+            ];
+            const hasIncompleteGenerations = allGens.some(
+                (g) => g != null && INCOMPLETE_GENERATION_STATUSES.has(g.status),
             );
-            return hasIncomplete ? 5000 : false;
+            const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(data.diffsJob.status);
+            return hasIncompleteGenerations || hasInFlightDiffsJob ? 5000 : false;
         },
     });
 }
