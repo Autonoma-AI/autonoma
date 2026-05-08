@@ -2,6 +2,7 @@ import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
 import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
 import { Cursor } from "@phosphor-icons/react/Cursor";
 import { CursorClick } from "@phosphor-icons/react/CursorClick";
+import { Globe } from "@phosphor-icons/react/Globe";
 import { Keyboard } from "@phosphor-icons/react/Keyboard";
 import { Mouse } from "@phosphor-icons/react/Mouse";
 import { Question } from "@phosphor-icons/react/Question";
@@ -88,6 +89,18 @@ const refreshUI: CommandUI = {
   badgeClassName: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
+const navigateUI: CommandUI = {
+  name: "navigate",
+  instruction: (params) => (
+    <>
+      Navigate to <strong>{params.url as string}</strong>
+    </>
+  ),
+  iconComponent: Globe,
+  color: commandColors.navigate,
+  badgeClassName: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
 const hoverUI: CommandUI = {
   name: "hover",
   instruction: (params) => (
@@ -107,6 +120,7 @@ const displayCommand: Record<string, CommandUI> = {
   scroll: scrollUI,
   assert: assertUI,
   refresh: refreshUI,
+  navigate: navigateUI,
   hover: hoverUI,
 };
 
