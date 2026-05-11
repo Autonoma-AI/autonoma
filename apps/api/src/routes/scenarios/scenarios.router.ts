@@ -2,12 +2,14 @@ import {
     ConfigureWebhookInputSchema,
     DiscoverInputSchema,
     DryRunInputSchema,
+    GetRecipeInputSchema,
     ListInstancesInputSchema,
     ListScenariosInputSchema,
     ListWebhookCallsInputSchema,
     RemoveWebhookInputSchema,
+    UpdateRecipeInputSchema,
 } from "@autonoma/types";
-import { protectedProcedure, router } from "../../trpc";
+import { internalProcedure, protectedProcedure, router } from "../../trpc";
 
 export const scenariosRouter = router({
     configureWebhook: protectedProcedure
@@ -50,5 +52,15 @@ export const scenariosRouter = router({
         .input(DryRunInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.dryRun(input.applicationId, ctx.organizationId, input.scenarioId),
+        ),
+
+    getRecipe: internalProcedure
+        .input(GetRecipeInputSchema)
+        .query(({ ctx, input }) => ctx.services.scenarios.getRecipe(input.scenarioId, ctx.organizationId)),
+
+    updateRecipe: internalProcedure
+        .input(UpdateRecipeInputSchema)
+        .mutation(({ ctx, input }) =>
+            ctx.services.scenarios.updateRecipe(input.scenarioId, input.fixtureJson, ctx.organizationId),
         ),
 });

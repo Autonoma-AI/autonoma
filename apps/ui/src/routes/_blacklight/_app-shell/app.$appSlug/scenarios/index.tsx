@@ -28,6 +28,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
   cn,
 } from "@autonoma/blacklight";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
@@ -38,19 +39,19 @@ import { FingerprintIcon } from "@phosphor-icons/react/Fingerprint";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WebhooksLogoIcon } from "@phosphor-icons/react/WebhooksLogo";
 import { XIcon } from "@phosphor-icons/react/X";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { useAuth } from "lib/auth";
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureScenariosData } from "lib/query/scenarios.queries";
 import { trpc } from "lib/trpc";
-import { useState } from "react";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
 import { SettingsTabNav } from "../settings/-settings-tab-nav";
 
@@ -426,6 +427,115 @@ type ScenarioData = {
   createdAt?: Date | string;
 };
 
+function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [jsonError, setJsonError] = useState<string | undefined>(undefined);
+
+  const { data, isLoading } = useQuery(trpc.scenarios.getRecipe.queryOptions({ scenarioId }, { enabled: isAdmin }));
+
+  const updateRecipe = useAPIMutation({
+    ...trpc.scenarios.updateRecipe.mutationOptions({
+      onSettled: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.scenarios.getRecipe.queryKey({ scenarioId }),
+        });
+      },
+    }),
+    successToast: { title: "Recipe updated" },
+  });
+
+  if (!isAdmin) return null;
+
+  function handleEdit() {
+    setEditValue(JSON.stringify(data?.fixtureJson, null, 2) ?? "");
+    setJsonError(undefined);
+    setIsEditing(true);
+  }
+
+  function handleSave() {
+    try {
+      JSON.parse(editValue);
+    } catch {
+      setJsonError("Invalid JSON syntax");
+      return;
+    }
+    setJsonError(undefined);
+    updateRecipe.mutate({ scenarioId, fixtureJson: editValue }, { onSuccess: () => setIsEditing(false) });
+  }
+
+  function handleCancel() {
+    setIsEditing(false);
+    setJsonError(undefined);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Recipe</span>
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (data?.fixtureJson == null) {
+    return (
+      <div className="flex flex-col gap-3">
+        <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Recipe</span>
+        <p className="font-mono text-2xs text-text-tertiary">No recipe available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Recipe</span>
+        {!isEditing && (
+          <Button variant="ghost" size="icon-xs" onClick={handleEdit}>
+            <PencilSimpleIcon size={14} />
+          </Button>
+        )}
+      </div>
+
+      {isEditing ? (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            value={editValue}
+            onChange={(e) => {
+              setEditValue(e.target.value);
+              setJsonError(undefined);
+            }}
+            className="min-h-64 resize-y font-mono text-xs"
+          />
+          {jsonError != null && <p className="font-mono text-2xs text-status-critical">{jsonError}</p>}
+          {updateRecipe.error != null && (
+            <p className="font-mono text-2xs text-status-critical">{updateRecipe.error.message}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleSave} disabled={updateRecipe.isPending}>
+              {updateRecipe.isPending ? "Saving..." : "Save"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleCancel} disabled={updateRecipe.isPending}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <pre className="overflow-auto rounded border border-border-dim bg-surface-raised p-3 font-mono text-xs leading-relaxed text-text-secondary">
+          {JSON.stringify(data.fixtureJson, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario Drawer
+// ---------------------------------------------------------------------------
+
 function ScenarioDrawer({
   scenario,
   open,
@@ -525,6 +635,8 @@ function ScenarioDrawer({
                 <ScenarioInstancesList scenarioId={scenario.id} />
               </Suspense>
             </div>
+
+            <ScenarioRecipeEditor scenarioId={scenario.id} />
           </div>
         </ScrollArea>
       </DrawerContent>

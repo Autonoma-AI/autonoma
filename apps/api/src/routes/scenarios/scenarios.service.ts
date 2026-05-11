@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { ScenarioManager } from "@autonoma/scenario";
+import { ScenarioRecipeSchema } from "@autonoma/types";
+import { TRPCError } from "@trpc/server";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
 
@@ -143,5 +146,68 @@ export class ScenariosService extends Service {
 
         this.logger.info("Dry run succeeded", { applicationId, scenarioId });
         return { success: true as const, phase: "down" as const, error: undefined };
+    }
+
+    async getRecipe(scenarioId: string, organizationId: string) {
+        this.logger.info("Getting recipe", { scenarioId });
+
+        const scenario = await this.db.scenario.findFirst({
+            where: { id: scenarioId, application: { organizationId } },
+            select: {
+                activeRecipeVersion: {
+                    select: { fixtureJson: true },
+                },
+            },
+        });
+        if (scenario == null) throw new NotFoundError("Scenario not found");
+
+        return { fixtureJson: scenario.activeRecipeVersion?.fixtureJson ?? null };
+    }
+
+    async updateRecipe(scenarioId: string, fixtureJsonString: string, organizationId: string) {
+        this.logger.info("Updating recipe", { scenarioId });
+
+        const scenario = await this.db.scenario.findFirst({
+            where: { id: scenarioId, application: { organizationId } },
+            select: {
+                id: true,
+                activeRecipeVersionId: true,
+            },
+        });
+        if (scenario == null) throw new NotFoundError("Scenario not found");
+        if (scenario.activeRecipeVersionId == null) throw new NotFoundError("No active recipe version");
+
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(fixtureJsonString);
+        } catch {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid JSON syntax" });
+        }
+
+        const validation = ScenarioRecipeSchema.safeParse(parsed);
+        if (!validation.success) {
+            throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Invalid recipe: ${validation.error.message}`,
+            });
+        }
+
+        const fingerprint = createHash("sha256").update(JSON.stringify(parsed)).digest("hex");
+
+        await this.db.$transaction([
+            this.db.scenarioRecipeVersion.update({
+                where: { id: scenario.activeRecipeVersionId },
+                data: { fixtureJson: parsed as any, fingerprint },
+            }),
+            this.db.scenario.update({
+                where: { id: scenario.id },
+                data: {
+                    description: validation.data.description,
+                    lastSeenFingerprint: fingerprint,
+                },
+            }),
+        ]);
+
+        this.logger.info("Recipe updated", { scenarioId });
     }
 }
