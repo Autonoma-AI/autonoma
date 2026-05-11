@@ -66,10 +66,12 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
             template: {
                 metadata: { labels: { ...labels, app: app.name } },
                 spec: {
+                    nodeSelector: { "kubernetes.io/arch": "amd64" },
                     containers: [
                         {
                             name: app.name,
                             image: imageTag,
+                            imagePullPolicy: "Always",
                             ports: [{ containerPort: app.port }],
                             env: envVars,
                             ...(app.command && {

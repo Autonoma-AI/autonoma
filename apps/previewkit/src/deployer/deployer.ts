@@ -5,6 +5,7 @@ import { RecipeRegistry } from "../recipes/recipe-registry";
 import { EnvInjector } from "./env-injector";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
+import { buildNetworkPolicies } from "./network-policy-factory";
 import {
     buildAppDeployment,
     buildAppHostname,
@@ -31,6 +32,7 @@ export interface DeployOptions {
     repoFullName: string;
     prNumber: number;
     headSha: string;
+    organizationId: string;
     config: PreviewConfig;
     imageTags: Record<string, string>;
     storedSecrets: Record<string, Record<string, string>>;
@@ -40,6 +42,7 @@ export interface DeployOptions {
 export class Deployer {
     private coreApi: k8s.CoreV1Api;
     private appsApi: k8s.AppsV1Api;
+    private networkingApi: k8s.NetworkingV1Api;
     private customApi: k8s.CustomObjectsApi;
     private namespaceManager: NamespaceManager;
     private envInjector: EnvInjector;
@@ -49,9 +52,11 @@ export class Deployer {
         private kc: k8s.KubeConfig,
         private domain: string,
         private gateway: GatewayRef,
+        private gatewaySubnetCidrs: string[] = [],
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
+        this.networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
         this.customApi = kc.makeApiClient(k8s.CustomObjectsApi);
         this.namespaceManager = new NamespaceManager(kc);
         this.recipeRegistry = new RecipeRegistry();
@@ -59,18 +64,21 @@ export class Deployer {
     }
 
     async deploy(opts: DeployOptions): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, config, imageTags, storedSecrets, commentId } = opts;
+        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, storedSecrets, commentId } = opts;
         const domain = config.domain ?? this.domain;
 
         // 1. Create namespace
-        const namespace = await this.namespaceManager.create(repoFullName, prNumber, {
+        const namespace = await this.namespaceManager.create(repoFullName, prNumber, organizationId, {
             commentId,
             lastDeployedSha: headSha,
         });
 
-        logger.info("Deploying preview environment", { namespace, prNumber });
+        logger.info("Deploying preview environment", { namespace, prNumber, organizationId });
 
-        // 2. Deploy service recipes (postgres, redis, etc.)
+        // 2. Apply NetworkPolicies for tenant isolation before any workload runs
+        await this.applyNetworkPolicies(namespace, organizationId);
+
+        // 3. Deploy service recipes (postgres, redis, etc.)
         for (const svcConfig of config.services) {
             const recipe = this.recipeRegistry.get(svcConfig.recipe);
             const resources = recipe.generate(svcConfig, namespace);
@@ -94,10 +102,10 @@ export class Deployer {
             logger.info("Deployed service recipe", { service: svcConfig.name, recipe: svcConfig.recipe, namespace });
         }
 
-        // 3. Wait for service readiness
+        // 4. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 4. Deploy apps + Gateway API routes
+        // 5. Deploy apps + Gateway API routes
         const owner = repoFullName.split("/")[0]!;
         const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
@@ -168,8 +176,15 @@ export class Deployer {
         return this.namespaceManager.getAnnotations(namespace);
     }
 
-    async ensureNamespace(repoFullName: string, prNumber: number, annotations?: NamespaceAnnotations): Promise<string> {
-        return this.namespaceManager.create(repoFullName, prNumber, annotations);
+    async ensureNamespace(
+        repoFullName: string,
+        prNumber: number,
+        organizationId: string,
+        annotations?: NamespaceAnnotations,
+    ): Promise<string> {
+        const namespace = await this.namespaceManager.create(repoFullName, prNumber, organizationId, annotations);
+        await this.applyNetworkPolicies(namespace, organizationId);
+        return namespace;
     }
 
     async updateStatus(repoFullName: string, prNumber: number, annotations: NamespaceAnnotations): Promise<void> {
@@ -264,6 +279,40 @@ export class Deployer {
                     name,
                     namespace,
                     body: service,
+                });
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    private async applyNetworkPolicies(namespace: string, organizationId: string): Promise<void> {
+        const policies = buildNetworkPolicies({
+            namespace,
+            organizationId,
+            ingressControllerNamespace: this.gateway.namespace,
+            gatewaySubnetCidrs: this.gatewaySubnetCidrs,
+        });
+        for (const policy of policies) {
+            await this.applyNetworkPolicy(namespace, policy);
+        }
+        logger.info("Applied tenant isolation network policies", {
+            namespace,
+            organizationId,
+            count: policies.length,
+        });
+    }
+
+    private async applyNetworkPolicy(namespace: string, policy: k8s.V1NetworkPolicy): Promise<void> {
+        const name = policy.metadata!.name!;
+        try {
+            await this.networkingApi.createNamespacedNetworkPolicy({ namespace, body: policy });
+        } catch (err: unknown) {
+            if (isConflict(err)) {
+                await this.networkingApi.replaceNamespacedNetworkPolicy({
+                    name,
+                    namespace,
+                    body: policy,
                 });
             } else {
                 throw err;

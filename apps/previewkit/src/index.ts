@@ -10,6 +10,7 @@ import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { SecretStore } from "./secrets/secret-store";
+import { OrganizationResolver } from "./tenancy/organization-resolver";
 
 // Kubernetes client
 let kc: k8s.KubeConfig;
@@ -17,8 +18,17 @@ if (env.EKS_CLUSTER_NAME != null) {
     if (env.AWS_REGION == null) {
         throw new Error("AWS_REGION is required when EKS_CLUSTER_NAME is set");
     }
-    const loader = new EksKubeconfigLoader(env.EKS_CLUSTER_NAME, env.AWS_REGION);
+    const staticClusterInfo =
+        env.EKS_CLUSTER_ENDPOINT != null && env.EKS_CLUSTER_CA != null
+            ? { endpoint: env.EKS_CLUSTER_ENDPOINT, caData: env.EKS_CLUSTER_CA }
+            : undefined;
+    const loader = new EksKubeconfigLoader(env.EKS_CLUSTER_NAME, env.AWS_REGION, staticClusterInfo);
     kc = await loader.load();
+    // Refresh the token every 45 seconds (STS presigned URLs expire in 60s).
+    // load() mutates the existing kc object in-place, so all API clients pick up the new token.
+    setInterval(() => {
+        loader.load().catch((err) => logger.error("Failed to refresh EKS kubeconfig token", err));
+    }, 45_000);
 } else {
     kc = new k8s.KubeConfig();
     if (env.KUBECONFIG) {
@@ -40,14 +50,23 @@ const builder = new BuildKitBuilder({
 });
 
 // Deployer
-const deployer = new Deployer(kc, env.PREVIEW_DOMAIN, {
-    name: env.GATEWAY_NAME,
-    namespace: env.GATEWAY_NAMESPACE,
-    listener: env.GATEWAY_LISTENER,
-});
+const gatewaySubnetCidrs = env.GATEWAY_SUBNET_CIDRS
+    ? env.GATEWAY_SUBNET_CIDRS.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+    : [];
+const deployer = new Deployer(
+    kc,
+    env.PREVIEW_DOMAIN,
+    { name: env.GATEWAY_NAME, namespace: env.GATEWAY_NAMESPACE, listener: env.GATEWAY_LISTENER },
+    gatewaySubnetCidrs,
+);
 
 // Secret store (K8s Secrets in the previewkit namespace)
 const secretStore = new SecretStore(kc);
+
+// Tenant resolver (DB lookup: repo -> organizationId)
+const organizationResolver = new OrganizationResolver();
 
 // Pipelines
 const previewPipeline = new PreviewPipeline({
@@ -55,6 +74,7 @@ const previewPipeline = new PreviewPipeline({
     builder,
     deployer,
     secretStore,
+    organizationResolver,
     registryUrl: env.REGISTRY_URL,
 });
 

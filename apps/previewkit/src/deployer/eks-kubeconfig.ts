@@ -6,7 +6,8 @@ import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
 import { logger as rootLogger, type Logger } from "../logger";
 
-const CACHE_TTL_MS = 10 * 60 * 1000;
+// STS presigned URLs for EKS auth expire in 60 seconds — refresh at 50s to stay ahead.
+const CACHE_TTL_MS = 50 * 1000;
 
 interface CachedClusterInfo {
     endpoint: string;
@@ -16,6 +17,8 @@ interface CachedClusterInfo {
 export interface EksKubeconfigLoaderOptions {
     clusterName: string;
     region: string;
+    clusterEndpoint?: string;
+    clusterCa?: string;
 }
 
 export class EksKubeconfigLoader {
@@ -29,6 +32,7 @@ export class EksKubeconfigLoader {
     constructor(
         private readonly clusterName: string,
         private readonly region: string,
+        staticClusterInfo?: { endpoint: string; caData: string },
     ) {
         this.logger = rootLogger.child({ name: "EksKubeconfigLoader", cluster: clusterName });
         this.eksClient = new EKSClient({ region });
@@ -38,44 +42,42 @@ export class EksKubeconfigLoader {
             service: "sts",
             sha256: Sha256,
         });
+
+        if (staticClusterInfo != null) {
+            this.clusterInfo = staticClusterInfo;
+        }
     }
 
     async load(): Promise<k8s.KubeConfig> {
-        if (this.cachedKubeconfig != null && this.cachedAt != null) {
-            const age = Date.now() - this.cachedAt;
-            if (age < CACHE_TTL_MS) {
-                return this.cachedKubeconfig;
-            }
+        const now = Date.now();
+        const needsRefresh = this.cachedAt == null || now - this.cachedAt >= CACHE_TTL_MS;
+
+        if (!needsRefresh && this.cachedKubeconfig != null) {
+            return this.cachedKubeconfig;
         }
 
         const cluster = await this.describeCluster();
         const token = await this.mintToken();
 
-        const kc = new k8s.KubeConfig();
-        kc.loadFromOptions({
+        if (this.cachedKubeconfig == null) {
+            this.cachedKubeconfig = new k8s.KubeConfig();
+        }
+
+        // loadFromOptions replaces kc.users on the same object reference.
+        // API clients that hold a reference to this kc call applyToFetchOptions per request,
+        // which re-reads kc.users, so they pick up the fresh token automatically.
+        this.cachedKubeconfig.loadFromOptions({
             clusters: [
-                {
-                    name: this.clusterName,
-                    server: cluster.endpoint,
-                    caData: cluster.caData,
-                    skipTLSVerify: false,
-                },
+                { name: this.clusterName, server: cluster.endpoint, caData: cluster.caData, skipTLSVerify: false },
             ],
             users: [{ name: "previewkit", token }],
-            contexts: [
-                {
-                    name: this.clusterName,
-                    user: "previewkit",
-                    cluster: this.clusterName,
-                },
-            ],
+            contexts: [{ name: this.clusterName, user: "previewkit", cluster: this.clusterName }],
             currentContext: this.clusterName,
         });
 
-        this.cachedKubeconfig = kc;
-        this.cachedAt = Date.now();
+        this.cachedAt = now;
         this.logger.info("Minted EKS kubeconfig", { cachedAt: new Date(this.cachedAt).toISOString() });
-        return kc;
+        return this.cachedKubeconfig;
     }
 
     private async describeCluster(): Promise<CachedClusterInfo> {

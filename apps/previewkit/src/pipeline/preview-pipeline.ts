@@ -19,6 +19,7 @@ import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import type { SecretStore } from "../secrets/secret-store";
+import type { OrganizationResolver } from "../tenancy/organization-resolver";
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +33,7 @@ interface PreviewPipelineOptions {
     builder: Builder;
     deployer: Deployer;
     secretStore: SecretStore;
+    organizationResolver: OrganizationResolver;
     registryUrl: string;
 }
 
@@ -40,6 +42,7 @@ export class PreviewPipeline {
     private builder: Builder;
     private deployer: Deployer;
     private secretStore: SecretStore;
+    private organizationResolver: OrganizationResolver;
     private registryUrl: string;
 
     constructor(options: PreviewPipelineOptions) {
@@ -47,6 +50,7 @@ export class PreviewPipeline {
         this.builder = options.builder;
         this.deployer = options.deployer;
         this.secretStore = options.secretStore;
+        this.organizationResolver = options.organizationResolver;
         this.registryUrl = options.registryUrl;
     }
 
@@ -56,14 +60,22 @@ export class PreviewPipeline {
 
         logger.info("Starting preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
 
-        // 1. Set commit status to pending
+        // 1. Resolve tenant. Rejects deployment if the repo is not linked to an active installation.
+        const organizationId = await this.organizationResolver.resolveByRepoFullName(repoFullName);
+
+        // 2. Set commit status to pending
         await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
 
-        // 2. Post initial comment
-        const commentId = await this.provider.postComment(repoFullName, prNumber, this.buildPendingComment(prNumber));
+        // 3. Post initial comment (best-effort — fails silently if app lacks Issues permission)
+        const commentId = await this.provider
+            .postComment(repoFullName, prNumber, this.buildPendingComment(prNumber))
+            .catch((_e) => {
+                logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
+                return "";
+            });
 
-        // 3. Ensure namespace exists so status can be polled from the first moment
-        const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, {
+        // 4. Ensure namespace exists so status can be polled from the first moment
+        const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {
             commentId,
             lastDeployedSha: headSha,
             status: "pending",
@@ -139,6 +151,7 @@ export class PreviewPipeline {
                 repoFullName,
                 prNumber,
                 headSha,
+                organizationId,
                 config,
                 imageTags,
                 storedSecrets,
@@ -163,12 +176,14 @@ export class PreviewPipeline {
                 }),
             );
 
-            // 11. Update comment with preview URLs
-            await this.provider.updateComment(
-                repoFullName,
-                commentId,
-                this.buildSuccessComment(prNumber, result, config),
-            );
+            // 11. Update comment with preview URLs (skip if no comment was created)
+            if (commentId !== "") {
+                await this.provider.updateComment(
+                    repoFullName,
+                    commentId,
+                    this.buildSuccessComment(prNumber, result, config),
+                );
+            }
 
             // 12. Set commit status to success
             const firstUrl = Object.values(result.urls)[0];
@@ -202,9 +217,11 @@ export class PreviewPipeline {
                 }),
             );
 
-            await this.provider
-                .updateComment(repoFullName, commentId, this.buildFailureComment(prNumber, err))
-                .catch((e) => logger.error("Failed to update failure comment", e));
+            if (commentId !== "") {
+                await this.provider
+                    .updateComment(repoFullName, commentId, this.buildFailureComment(prNumber, err))
+                    .catch((e) => logger.error("Failed to update failure comment", e));
+            }
 
             await this.provider
                 .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
@@ -234,12 +251,14 @@ export class PreviewPipeline {
         prNumber: number,
         shortSha: string,
     ): Promise<Record<string, AppBuildResult>> {
-        const owner = repoFullName.split("/")[0]!;
+        const [rawOrg, rawRepo] = repoFullName.split("/");
+        const org = rawOrg!.toLowerCase();
+        const repo = rawRepo!.toLowerCase();
         const appBuilds: Record<string, AppBuildResult> = {};
 
         for (const app of config.apps) {
             const registry = config.registry ?? this.registryUrl;
-            const imageTag = `${registry}/${owner}/${app.name}:pr-${prNumber}-${shortSha}`;
+            const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
             const contextPath = path.resolve(repoDir, app.path);
 
             const result = await this.builder.build({

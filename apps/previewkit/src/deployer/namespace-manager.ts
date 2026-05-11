@@ -5,6 +5,9 @@ import { isConflict, isNotFound } from "./k8s-errors";
 const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
 const LABEL_PR_NUMBER = "previewkit.dev/pr-number";
 const LABEL_REPO = "previewkit.dev/repo";
+const LABEL_ORGANIZATION = "previewkit.dev/organization";
+
+export { LABEL_MANAGED_BY, LABEL_ORGANIZATION, LABEL_PR_NUMBER, LABEL_REPO };
 
 const ANN_COMMENT_ID = "previewkit.dev/comment-id";
 const ANN_LAST_SHA = "previewkit.dev/last-deployed-sha";
@@ -41,7 +44,12 @@ export class NamespaceManager {
         return name.slice(0, 63).replace(/-+$/, "");
     }
 
-    async create(repoFullName: string, prNumber: number, annotations?: NamespaceAnnotations): Promise<string> {
+    async create(
+        repoFullName: string,
+        prNumber: number,
+        organizationId: string,
+        annotations?: NamespaceAnnotations,
+    ): Promise<string> {
         const name = this.buildNamespaceName(repoFullName, prNumber);
         const sanitizedRepo = repoFullName.replace(/\//g, "-");
 
@@ -50,6 +58,7 @@ export class NamespaceManager {
                 name,
                 labels: {
                     [LABEL_MANAGED_BY]: "previewkit",
+                    [LABEL_ORGANIZATION]: organizationId,
                     [LABEL_PR_NUMBER]: String(prNumber),
                     [LABEL_REPO]: sanitizedRepo,
                 },

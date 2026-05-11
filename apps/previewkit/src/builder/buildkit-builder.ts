@@ -1,11 +1,12 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import path from "node:path";
-import { promisify } from "node:util";
+import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { logger } from "../logger";
 import type { Builder, BuildRequest, BuildResult } from "./builder";
-
-const execFileAsync = promisify(execFile);
+import { EcrRegistryClient } from "./ecr-client";
 
 const BUILD_TIMEOUT = 600_000; // 10 minutes
 
@@ -16,22 +17,25 @@ interface BuildKitBuilderOptions {
 /**
  * Builds container images using two strategies:
  *
- * 1. If the app has a Dockerfile → build it with `buildctl` (BuildKit CLI)
- * 2. If no Dockerfile exists → build with `railpack` which auto-detects
- *    the language/framework and builds directly via BuildKit LLB
+ * 1. If the app has a Dockerfile - build with `buildctl` and `dockerfile.v0`
+ * 2. If no Dockerfile exists - run `railpack prepare` to generate a build plan,
+ *    then build with `buildctl` using the railpack BuildKit frontend.
  *
- * Both paths require a BuildKit daemon running at the configured host.
- * No Docker daemon is needed.
+ * Both paths push directly to the registry via buildctl's image exporter.
  */
 export class BuildKitBuilder implements Builder {
     private buildkitHost: string;
+    private ecr: EcrRegistryClient;
 
     constructor(options: BuildKitBuilderOptions) {
         this.buildkitHost = options.buildkitHost;
+        this.ecr = new EcrRegistryClient();
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
         const start = Date.now();
+
+        await this.ecr.ensureRepo(request.imageTag);
 
         const hasDockerfile = this.resolveDockerfile(request.contextPath, request.dockerfile);
 
@@ -54,14 +58,14 @@ export class BuildKitBuilder implements Builder {
      */
     private resolveDockerfile(contextPath: string, dockerfile?: string): string | undefined {
         if (dockerfile) {
-            const resolved = path.resolve(contextPath, dockerfile);
+            const resolved = resolve(contextPath, dockerfile);
             if (!existsSync(resolved)) {
                 throw new Error(`Specified Dockerfile not found: ${dockerfile} (resolved to ${resolved})`);
             }
             return resolved;
         }
 
-        const defaultPath = path.join(contextPath, "Dockerfile");
+        const defaultPath = join(contextPath, "Dockerfile");
         if (existsSync(defaultPath)) {
             return defaultPath;
         }
@@ -73,8 +77,8 @@ export class BuildKitBuilder implements Builder {
      * Build a Dockerfile with buildctl.
      */
     private async buildWithBuildctl(request: BuildRequest, dockerfilePath: string): Promise<string> {
-        const dockerfileDir = path.dirname(dockerfilePath);
-        const dockerfileName = path.basename(dockerfilePath);
+        const dockerfileDir = dirname(dockerfilePath);
+        const dockerfileName = basename(dockerfilePath);
 
         logger.info("Building with BuildKit (Dockerfile)", {
             app: request.appName,
@@ -82,68 +86,141 @@ export class BuildKitBuilder implements Builder {
             imageTag: request.imageTag,
         });
 
-        const args = [
-            "--addr",
-            this.buildkitHost,
-            "build",
-            "--frontend",
-            "dockerfile.v0",
-            "--local",
-            `context=${request.contextPath}`,
-            "--local",
-            `dockerfile=${dockerfileDir}`,
-            "--opt",
-            `filename=${dockerfileName}`,
-            "--output",
-            `type=image,name=${request.imageTag},push=true`,
-        ];
+        const ecrAuth = await this.ecr.getAuth(request.imageTag);
+        const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
 
-        for (const [key, value] of Object.entries(request.buildArgs)) {
-            args.push("--opt", `build-arg:${key}=${value}`);
+        try {
+            const args = [
+                "--addr",
+                this.buildkitHost,
+                "build",
+                "--frontend",
+                "dockerfile.v0",
+                "--local",
+                `context=${request.contextPath}`,
+                "--local",
+                `dockerfile=${dockerfileDir}`,
+                "--opt",
+                `filename=${dockerfileName}`,
+                "--opt",
+                "platform=linux/amd64",
+                "--output",
+                `type=image,name=${request.imageTag},push=true`,
+            ];
+
+            for (const [key, value] of Object.entries(request.buildArgs)) {
+                args.push("--opt", `build-arg:${key}=${value}`);
+            }
+
+            const extraEnv: Record<string, string> = {};
+            if (dockerConfigDir != null) {
+                extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
+            }
+
+            await this.exec("buildctl", args, extraEnv);
+            return request.imageTag;
+        } finally {
+            if (dockerConfigDir != null) {
+                await rm(dockerConfigDir, { recursive: true }).catch((_e) => {});
+            }
         }
-
-        await this.exec("buildctl", args);
-        return request.imageTag;
     }
 
     /**
-     * Build with Railpack — auto-detects language/framework and builds
-     * directly via BuildKit LLB. No Dockerfile needed.
+     * Build with railpack, which auto-detects the language/framework.
+     *
+     * Two steps:
+     * 1. `railpack prepare` generates a railpack-plan.json describing the build.
+     * 2. `buildctl build` uses the railpack BuildKit frontend to execute the plan
+     *    and push the image directly to the registry - no Docker daemon required.
      */
     private async buildWithRailpack(request: BuildRequest): Promise<string> {
-        logger.info("Building with Railpack (auto-detect)", {
+        logger.info("Building with railpack (auto-detect)", {
             app: request.appName,
             contextPath: request.contextPath,
             imageTag: request.imageTag,
         });
 
-        const args = ["build", request.contextPath, "--name", request.imageTag];
+        const ecrAuth = await this.ecr.getAuth(request.imageTag);
+        const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
+        const planDir = join(tmpdir(), `previewkit-railpack-plan-${Date.now()}`);
+        await mkdir(planDir, { recursive: true });
 
-        for (const [key, value] of Object.entries(request.buildArgs)) {
-            args.push("--env", `${key}=${value}`);
+        try {
+            await this.exec("railpack", [
+                "prepare",
+                request.contextPath,
+                "--plan-out",
+                join(planDir, "railpack-plan.json"),
+            ]);
+
+            const args = [
+                "--addr",
+                this.buildkitHost,
+                "build",
+                "--frontend",
+                "gateway.v0",
+                "--opt",
+                "source=ghcr.io/railwayapp/railpack-frontend",
+                "--local",
+                `context=${request.contextPath}`,
+                "--local",
+                `dockerfile=${planDir}`,
+                "--opt",
+                "platform=linux/amd64",
+                "--output",
+                `type=image,name=${request.imageTag},push=true`,
+            ];
+
+            for (const [key, value] of Object.entries(request.buildArgs)) {
+                args.push("--opt", `build-arg:${key}=${value}`);
+            }
+
+            const extraEnv: Record<string, string> = {};
+            if (dockerConfigDir != null) {
+                extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
+            }
+
+            await this.exec("buildctl", args, extraEnv);
+            return request.imageTag;
+        } finally {
+            await rm(planDir, { recursive: true }).catch((_e) => {});
+            if (dockerConfigDir != null) {
+                await rm(dockerConfigDir, { recursive: true }).catch((_e) => {});
+            }
         }
-
-        await this.exec("railpack", args, {
-            BUILDKIT_HOST: this.buildkitHost,
-        });
-
-        return request.imageTag;
     }
 
-    private async exec(command: string, args: string[], extraEnv?: Record<string, string>): Promise<void> {
-        try {
-            const { stdout, stderr } = await execFileAsync(command, args, {
-                timeout: BUILD_TIMEOUT,
+    private exec(command: string, args: string[], extraEnv?: Record<string, string>): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const child = spawn(command, args, {
                 env: { ...process.env, ...extraEnv },
+                timeout: BUILD_TIMEOUT,
             });
 
-            if (stdout) logger.debug(`${command} stdout`, { stdout });
-            if (stderr) logger.debug(`${command} stderr`, { stderr });
-        } catch (err: unknown) {
-            if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-                throw new Error(`${command} binary not found`);
+            child.on("error", (err: NodeJS.ErrnoException) => {
+                reject(err.code === "ENOENT" ? new Error(`${command} binary not found`) : err);
+            });
+
+            const outputLines: string[] = [];
+
+            for (const stream of [child.stdout, child.stderr]) {
+                createInterface({ input: stream }).on("line", (line) => {
+                    logger.info(`[build] ${line}`, { command });
+                    outputLines.push(line);
+                });
             }
-            throw new Error(`Build failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
-        }
+
+            child.on("close", (code) => {
+                if (child.killed) {
+                    reject(new Error(`Build timed out after ${BUILD_TIMEOUT / 1000}s`));
+                } else if (code === 0) {
+                    resolve();
+                } else {
+                    const output = outputLines.join("\n");
+                    reject(new Error(`Build failed for ${command}:\n${output || `exit code ${code}`}`));
+                }
+            });
+        });
     }
 }

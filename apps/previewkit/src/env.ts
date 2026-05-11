@@ -32,10 +32,20 @@ export const env = createEnv({
 
         // EKS cross-cluster: if set, Previewkit authenticates to this EKS cluster
         // via AWS SDK (STS-presigned GetCallerIdentity) instead of KUBECONFIG / in-cluster.
-        // Requires the pod's IRSA role to have eks:DescribeCluster on the target cluster
-        // and an EKS Access Entry mapping the role to K8s RBAC.
+        // EKS_CLUSTER_ENDPOINT and EKS_CLUSTER_CA skip the eks:DescribeCluster API call,
+        // which is required when the cluster lives in a different AWS account.
         EKS_CLUSTER_NAME: z.string().optional(),
         AWS_REGION: z.string().optional(),
+        EKS_CLUSTER_ENDPOINT: z.string().url().optional(),
+        EKS_CLUSTER_CA: z.string().optional(),
+
+        // Tenant isolation: namespace of the ingress controller in the preview cluster.
+        // Previewkit itself runs in a separate cluster, so it is not referenced here.
+        INGRESS_CONTROLLER_NAMESPACE: z.string().default("ingress-nginx"),
+
+        // Comma-separated CIDRs for the ALB subnets so the ALB can reach pods directly
+        // in IP mode (AWS Gateway API Controller). Required when network policies are enforced.
+        GATEWAY_SUBNET_CIDRS: z.string().default(""),
     },
     runtimeEnv: process.env,
 });
