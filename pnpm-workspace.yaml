@@ -4,6 +4,20 @@ packages:
   - "!apps/**/.output/**"
   - "!apps/**/.nitro/**"
 
+allowBuilds:
+  '@prisma/engines': true
+  '@swc/core': true
+  core-js: true
+  cpu-features: true
+  edgedriver: true
+  esbuild: true
+  geckodriver: true
+  msw: true
+  prisma: true
+  protobufjs: true
+  sharp: true
+  ssh2: true
+
 catalog:
   '@ai-sdk/anthropic': ^3.0.0
   '@ai-sdk/google': ^3.0.30
@@ -31,7 +45,7 @@ catalog:
   ai: ^6.0.34
   better-auth: ^1.6.5
   dotenv: ^17.3.1
-  hono: ^4.12.16
+  hono: ^4.12.18
   playwright: 1.56.1
   react: ^19.0.0
   react-dom: ^19.0.0
@@ -40,6 +54,26 @@ catalog:
   typescript: ^5.7.0
   vitest: ^4.1.4
   zod: 4.3.6
+
+minimumReleaseAgeExclude:
+  - serialize-javascript@7.0.3
+  - fast-xml-parser@5.3.8
+  - fast-xml-parser@5.5.6
+  - serialize-javascript@7.0.5
+  - '@hono/node-server@1.19.13'
+  - fast-xml-parser@5.5.7
+  - postcss@8.5.10
+  - uuid@11.1.1
+  - ip-address@10.1.1
+  - hono@4.12.16
+  - fast-xml-builder@1.1.7
+  - fast-uri@3.1.1
+  - fast-uri@3.1.2
+  - '@babel/plugin-transform-modules-systemjs@7.29.4'
+  - basic-ftp@5.3.1
+  - fast-xml-parser@5.7.0
+  - hono@4.12.18
+  - '@rvf/set-get@7.0.2'
 
 onlyBuiltDependencies:
   - '@prisma/engines'

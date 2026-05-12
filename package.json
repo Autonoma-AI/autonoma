@@ -19,9 +19,11 @@
         "db:migrate": "turbo run db:migrate",
         "agent:execute": "pnpm --filter @autonoma/api agent:execute",
         "db:restore": "tsx scripts/restore-db-from-backup.ts",
-        "prepare": "husky"
+        "prepare": "husky",
+        "fetch-secret": "node -e \"import('@autonoma-ai/envsync').then(({ saveSecretToEnv }) => saveSecretToEnv())\""
     },
     "devDependencies": {
+        "@autonoma-ai/envsync": "^2.0.1",
         "husky": "^9.1.7",
         "lint-staged": "^16.2.7",
         "oxfmt": "0.42.0",
@@ -42,47 +44,10 @@
     "engines": {
         "node": ">=24"
     },
-    "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "@prisma/engines",
-            "core-js",
-            "cpu-features",
-            "esbuild",
-            "prisma",
-            "protobufjs",
-            "sharp",
-            "ssh2"
-        ],
-        "overrides": {
-            "lodash@>=4.0.0 <=4.17.22": ">=4.17.23",
-            "hono@<4.11.7": ">=4.11.7",
-            "hono@<4.11.10": ">=4.11.10",
-            "serialize-javascript@<=7.0.2": ">=7.0.3",
-            "hono@<4.12.4": ">=4.12.4",
-            "fast-xml-parser@>=5.0.0 <5.3.8": ">=5.3.8",
-            "@hono/node-server@<1.19.10": ">=1.19.10",
-            "hono@<4.12.7": ">=4.12.7",
-            "fast-xml-parser@>=5.0.0 <5.5.6": ">=5.5.6",
-            "effect@<3.20.0": ">=3.20.0",
-            "serialize-javascript@<7.0.5": ">=7.0.5",
-            "lodash@>=4.0.0 <=4.17.23": ">=4.18.0",
-            "lodash@<=4.17.23": ">=4.18.0",
-            "defu@<=6.1.4": ">=6.1.5",
-            "vite@>=7.0.0 <=7.3.1": ">=7.3.2",
-            "vite@>=7.1.0 <=7.3.1": ">=7.3.2",
-            "hono@<4.12.12": ">=4.12.12",
-            "hono@>=4.0.0 <=4.12.11": ">=4.12.12",
-            "@hono/node-server@<1.19.13": ">=1.19.13",
-            "fast-xml-parser@>=5.0.0 <5.5.7": ">=5.5.7",
-            "basic-ftp@<=5.2.1": ">=5.2.2",
-            "basic-ftp@=5.2.0": ">=5.2.1",
-            "follow-redirects@<=1.15.11": ">=1.16.0",
-            "dompurify@<=3.3.3": ">=3.4.0",
-            "hono@<4.12.14": ">=4.12.14",
-            "axios@>=1.0.0 <1.15.0": ">=1.15.0",
-            "basic-ftp@<=5.2.2": ">=5.3.0",
-            "protobufjs@<7.5.5": ">=7.5.5"
-        }
+    "packageManager": "pnpm@11.0.9+sha512.34ce82e6780233cf9cad8685029a8f81d2e06196c5a9bad98879f7424940c6817c4e4524fb7d38b8553ceed48b9758b8ebaf1abd3600c232c4c8cf7366086f38",
+    "envsync": {
+        "secretName": "dev/agent",
+        "envFile": ".env",
+        "region": "us-east-1"
     }
 }
