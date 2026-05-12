@@ -81,7 +81,7 @@ async function reviewAndCreateIssue(runId: string, skipBugCreation?: boolean): P
 async function runReplayExecution(architecture: WorkflowArchitecture, runId: string): Promise<void> {
     if (architecture === "WEB") {
         const { runWebReplay } = proxyActivities<WebActivities>({
-            startToCloseTimeout: "30m",
+            startToCloseTimeout: "90m",
             taskQueue: TaskQueue.WEB,
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },
@@ -89,7 +89,7 @@ async function runReplayExecution(architecture: WorkflowArchitecture, runId: str
         await runWebReplay({ runId });
     } else {
         const { runMobileReplay } = proxyActivities<MobileActivities>({
-            startToCloseTimeout: "30m",
+            startToCloseTimeout: "90m",
             taskQueue: TaskQueue.MOBILE,
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },

@@ -92,7 +92,7 @@ async function reviewAndCreateIssue(generationId: string, skipBugCreation?: bool
 async function runExecution(architecture: WorkflowArchitecture, testGenerationId: string): Promise<void> {
     if (architecture === "WEB") {
         const { runWebGeneration } = proxyActivities<WebActivities>({
-            startToCloseTimeout: "30m",
+            startToCloseTimeout: "90m",
             taskQueue: TaskQueue.WEB,
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },
@@ -100,7 +100,7 @@ async function runExecution(architecture: WorkflowArchitecture, testGenerationId
         await runWebGeneration({ testGenerationId });
     } else {
         const { runMobileGeneration } = proxyActivities<MobileActivities>({
-            startToCloseTimeout: "30m",
+            startToCloseTimeout: "90m",
             taskQueue: TaskQueue.MOBILE,
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },
