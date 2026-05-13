@@ -187,3 +187,38 @@ export function toAppInstances(apps: AppConfig[], imageTags: Record<string, stri
         port: app.port,
     }));
 }
+
+/**
+ * Returns whether Previewkit should post comments / set commit statuses for this
+ * organization. Defaults to `true` if the org row is missing — we'd rather emit
+ * feedback than swallow it silently on a transient lookup failure.
+ */
+export async function isGithubFeedbackEnabledForOrg(organizationId: string): Promise<boolean> {
+    const logger = rootLogger.child({ name: "isGithubFeedbackEnabledForOrg" });
+    const org = await db.organization.findUnique({
+        where: { id: organizationId },
+        select: { previewkitGithubFeedbackEnabled: true },
+    });
+    if (org == null) {
+        logger.warn("Organization not found, defaulting feedback to enabled", { organizationId });
+        return true;
+    }
+    return org.previewkitGithubFeedbackEnabled;
+}
+
+/**
+ * Lookup variant used at teardown, where the only stable identifier we have is
+ * the K8s namespace. Defaults to `true` if no environment row exists.
+ */
+export async function isGithubFeedbackEnabledForNamespace(namespace: string): Promise<boolean> {
+    const logger = rootLogger.child({ name: "isGithubFeedbackEnabledForNamespace" });
+    const env = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { organization: { select: { previewkitGithubFeedbackEnabled: true } } },
+    });
+    if (env == null) {
+        logger.warn("Environment row not found, defaulting feedback to enabled", { namespace });
+        return true;
+    }
+    return env.organization.previewkitGithubFeedbackEnabled;
+}

@@ -1,4 +1,4 @@
-import { recordEnvironmentTornDown } from "../db";
+import { isGithubFeedbackEnabledForNamespace, recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -27,11 +27,18 @@ export class TeardownPipeline {
 
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber });
 
+        // 0. Resolve per-org feedback flag before deleting the namespace —
+        //    we look it up from the environment row, which goes away on teardown.
+        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
+        const feedbackEnabled = await isGithubFeedbackEnabledForNamespace(namespace);
+        if (!feedbackEnabled) {
+            logger.info("GitHub feedback disabled for this environment; skipping teardown feedback", { namespace });
+        }
+
         // 1. Read namespace annotations to find the comment ID
         const annotations = await this.deployer.getNamespaceAnnotations(repoFullName, prNumber);
 
         // 2. Delete the namespace (cascading delete of all resources)
-        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         await this.deployer.teardown(repoFullName, prNumber);
 
         // 2b. Record teardown in the DB (best-effort; never blocks teardown).
@@ -46,16 +53,18 @@ export class TeardownPipeline {
             .catch((err) => logger.error("Failed to delete PR-scoped secrets", err));
 
         // 4. Update the PR comment if we have a comment ID
-        if (annotations?.commentId) {
+        if (feedbackEnabled && annotations?.commentId) {
             await this.provider
                 .updateComment(repoFullName, annotations.commentId, this.buildTeardownComment(prNumber))
                 .catch((err) => logger.error("Failed to update teardown comment", err));
         }
 
         // 5. Set commit status
-        await this.provider
-            .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
-            .catch((err) => logger.error("Failed to set teardown status", err));
+        if (feedbackEnabled) {
+            await this.provider
+                .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
+                .catch((err) => logger.error("Failed to set teardown status", err));
+        }
 
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber });
     }

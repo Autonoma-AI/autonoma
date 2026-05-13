@@ -12,30 +12,20 @@ function parseRepo(repoFullName: string): { owner: string; repo: string } {
     return { owner, repo };
 }
 
-// Sentinel commentId stored in namespace annotations when feedback is disabled.
-// updateComment short-circuits when it sees this, so the chain still flows.
-const DISABLED_COMMENT_ID = "feedback-disabled";
-
 interface GitHubProviderOptions {
     appId: string;
     privateKey: string;
-    // When false, postComment / updateComment / setCommitStatus become no-ops
-    // (still logged). Lets us run the full pipeline against a real PR without
-    // posting feedback on it.
-    feedbackEnabled?: boolean;
 }
 
 export class GitHubProvider implements GitProvider {
     readonly name = "github";
     private app: App;
-    private feedbackEnabled: boolean;
 
     constructor(options: GitHubProviderOptions) {
         this.app = new App({
             appId: options.appId,
             privateKey: options.privateKey,
         });
-        this.feedbackEnabled = options.feedbackEnabled ?? true;
     }
 
     private async getInstallationOctokit(repoFullName: string) {
@@ -106,15 +96,6 @@ export class GitHubProvider implements GitProvider {
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {
-        if (!this.feedbackEnabled) {
-            logger.info("GITHUB_FEEDBACK_ENABLED=false; would have posted PR comment", {
-                repoFullName,
-                prNumber,
-                bodyPreview: body.slice(0, 200),
-            });
-            return DISABLED_COMMENT_ID;
-        }
-
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);
 
@@ -131,15 +112,6 @@ export class GitHubProvider implements GitProvider {
     }
 
     async updateComment(repoFullName: string, commentId: string, body: string): Promise<void> {
-        if (!this.feedbackEnabled || commentId === DISABLED_COMMENT_ID) {
-            logger.info("GITHUB_FEEDBACK_ENABLED=false; would have updated PR comment", {
-                repoFullName,
-                commentId,
-                bodyPreview: body.slice(0, 200),
-            });
-            return;
-        }
-
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);
 
@@ -158,16 +130,6 @@ export class GitHubProvider implements GitProvider {
         description: string,
         targetUrl?: string,
     ): Promise<void> {
-        if (!this.feedbackEnabled) {
-            logger.info("GITHUB_FEEDBACK_ENABLED=false; would have set commit status", {
-                repoFullName,
-                sha,
-                state,
-                description,
-            });
-            return;
-        }
-
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);
 

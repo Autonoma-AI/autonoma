@@ -5,6 +5,7 @@ import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { PreviewConfig } from "../config/schema";
 import {
+    isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
     recordEnvironmentCreated,
     recordEnvironmentReady,
@@ -60,16 +61,30 @@ export class PreviewPipeline {
         // 1. Resolve tenant. Rejects deployment if the repo is not linked to an active installation.
         const organizationId = await this.organizationResolver.resolveByRepoFullName(repoFullName);
 
+        // 1b. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
+        const feedbackEnabled = await isGithubFeedbackEnabledForOrg(organizationId);
+        if (!feedbackEnabled) {
+            logger.info("GitHub feedback disabled for organization; skipping comments + commit statuses", {
+                organizationId,
+                repo: repoFullName,
+                pr: prNumber,
+            });
+        }
+
         // 2. Set commit status to pending
-        await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
+        if (feedbackEnabled) {
+            await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
+        }
 
         // 3. Post initial comment (best-effort — fails silently if app lacks Issues permission)
-        const commentId = await this.provider
-            .postComment(repoFullName, prNumber, this.buildPendingComment(prNumber))
-            .catch((_e) => {
-                logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
-                return "";
-            });
+        const commentId = feedbackEnabled
+            ? await this.provider
+                  .postComment(repoFullName, prNumber, this.buildPendingComment(prNumber))
+                  .catch((_e) => {
+                      logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
+                      return "";
+                  })
+            : "";
 
         // 4. Ensure namespace exists so status can be polled from the first moment
         const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {
@@ -175,7 +190,7 @@ export class PreviewPipeline {
             );
 
             // 11. Update comment with preview URLs (skip if no comment was created)
-            if (commentId !== "") {
+            if (feedbackEnabled && commentId !== "") {
                 await this.provider.updateComment(
                     repoFullName,
                     commentId,
@@ -184,14 +199,16 @@ export class PreviewPipeline {
             }
 
             // 12. Set commit status to success
-            const firstUrl = Object.values(result.urls)[0];
-            await this.provider.setCommitStatus(
-                repoFullName,
-                headSha,
-                "success",
-                "Preview environment ready",
-                firstUrl,
-            );
+            if (feedbackEnabled) {
+                const firstUrl = Object.values(result.urls)[0];
+                await this.provider.setCommitStatus(
+                    repoFullName,
+                    headSha,
+                    "success",
+                    "Preview environment ready",
+                    firstUrl,
+                );
+            }
 
             logger.info("Preview deployment complete", { repo: repoFullName, pr: prNumber, urls: result.urls });
         } catch (err) {
@@ -215,15 +232,17 @@ export class PreviewPipeline {
                 }),
             );
 
-            if (commentId !== "") {
+            if (feedbackEnabled && commentId !== "") {
                 await this.provider
                     .updateComment(repoFullName, commentId, this.buildFailureComment(prNumber, err))
                     .catch((e) => logger.error("Failed to update failure comment", e));
             }
 
-            await this.provider
-                .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
-                .catch((e) => logger.error("Failed to set failure status", e));
+            if (feedbackEnabled) {
+                await this.provider
+                    .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
+                    .catch((e) => logger.error("Failed to set failure status", e));
+            }
 
             throw err;
         } finally {

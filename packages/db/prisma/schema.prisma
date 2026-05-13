@@ -103,6 +103,10 @@ model Organization {
   domain    String?            @unique
   status    OrganizationStatus @default(approved)
 
+  // Previewkit: when false, the deploy pipeline runs to completion but does
+  // not post PR comments or update commit statuses on GitHub. Defaults true.
+  previewkitGithubFeedbackEnabled Boolean @default(true) @map("previewkit_github_feedback_enabled")
+
   members                Member[]
   invitations            Invitation[]
   apiKeys                ApiKey[]

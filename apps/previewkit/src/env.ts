@@ -10,11 +10,6 @@ export const env = createEnv({
         GITHUB_APP_ID: z.string().min(1),
         GITHUB_PRIVATE_KEY: z.string().min(1),
 
-        // When false, Previewkit will not post PR comments or update commit statuses on GitHub.
-        // The pipeline still runs to completion and logs what would have been posted.
-        // Useful for end-to-end testing on real client PRs without spamming them.
-        GITHUB_FEEDBACK_ENABLED: z.stringbool().default(true),
-
         // Container registry
         REGISTRY_URL: z.string().default("registry.previewkit.svc.cluster.local:5000"),
 
