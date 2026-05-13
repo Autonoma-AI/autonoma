@@ -18,6 +18,7 @@ integrationTestSuite({
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "feature/login",
@@ -40,28 +41,12 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
         });
 
-        test("recordEnvironmentCreated silently skips when no installation exists for the owner", async ({
-            harness,
-        }) => {
-            await recordEnvironmentCreated({
-                repoFullName: "unknown-owner/web",
-                prNumber: 1,
-                headSha: "abc1234",
-                headRef: "main",
-                namespace: "preview-unknown-owner-web-pr-1",
-            });
-
-            const env = await harness.db.previewkitEnvironment.findUnique({
-                where: { namespace: "preview-unknown-owner-web-pr-1" },
-            });
-            expect(env).toBeNull();
-        });
-
         test("recordEnvironmentCreated is idempotent on namespace (resets error, tornDownAt)", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "old-sha",
                 headRef: "feature/login",
@@ -76,6 +61,7 @@ integrationTestSuite({
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "new-sha",
                 headRef: "feature/login-v2",
@@ -96,10 +82,11 @@ integrationTestSuite({
         });
 
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -133,10 +120,11 @@ integrationTestSuite({
         });
 
         test("recordPhaseChanged records error message on failure", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -158,10 +146,11 @@ integrationTestSuite({
         });
 
         test("recordBuildFinished creates a build row tied to the environment", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -196,10 +185,11 @@ integrationTestSuite({
         });
 
         test("recordBuildFinished records error message on failed builds", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -238,10 +228,11 @@ integrationTestSuite({
         });
 
         test("recordEnvironmentReady updates env and upserts app instances with ready=false", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -281,10 +272,11 @@ integrationTestSuite({
         });
 
         test("recordEnvironmentReady upserts are idempotent across redeploys", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",
@@ -316,10 +308,11 @@ integrationTestSuite({
         });
 
         test("recordEnvironmentTornDown marks env torn_down and stamps tornDownAt", async ({ harness }) => {
-            await harness.createInstallationForOwner("acme");
+            const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
+                organizationId,
                 prNumber: 7,
                 headSha: "abc1234",
                 headRef: "main",

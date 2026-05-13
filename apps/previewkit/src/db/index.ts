@@ -10,6 +10,7 @@ export interface EnvironmentCreatedInput {
     headSha: string;
     headRef: string;
     namespace: string;
+    organizationId: string;
     commentId?: string;
 }
 
@@ -37,14 +38,8 @@ export interface EnvironmentReadyInput {
 
 export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordEnvironmentCreated" });
-    const { repoFullName, prNumber, headSha, headRef, namespace, commentId } = input;
-    logger.info("Recording environment created", { namespace, repoFullName, prNumber });
-
-    const organizationId = await resolveOrganizationId(repoFullName);
-    if (organizationId == null) {
-        logger.warn("No organization found for repo - skipping environment record", { repoFullName });
-        return;
-    }
+    const { repoFullName, prNumber, headSha, headRef, namespace, organizationId, commentId } = input;
+    logger.info("Recording environment created", { namespace, repoFullName, prNumber, organizationId });
 
     await db.previewkitEnvironment.upsert({
         where: { namespace },
@@ -75,6 +70,15 @@ export async function recordPhaseChanged(input: PhaseChangedInput): Promise<void
     const logger = rootLogger.child({ name: "recordPhaseChanged" });
     const { namespace, status, phase, error } = input;
     logger.info("Recording phase change", { namespace, status, phase });
+
+    const existing = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { id: true },
+    });
+    if (existing == null) {
+        logger.warn("Skipping phase change: no environment row found", { namespace, status, phase });
+        return;
+    }
 
     await db.previewkitEnvironment.update({
         where: { namespace },
@@ -182,16 +186,4 @@ export function toAppInstances(apps: AppConfig[], imageTags: Record<string, stri
         imageTag: imageTags[app.name] ?? "",
         port: app.port,
     }));
-}
-
-async function resolveOrganizationId(repoFullName: string): Promise<string | undefined> {
-    const owner = repoFullName.split("/")[0];
-    if (owner == null) return undefined;
-
-    const installation = await db.gitHubInstallation.findFirst({
-        where: { accountLogin: owner },
-        select: { organizationId: true },
-    });
-
-    return installation?.organizationId;
 }

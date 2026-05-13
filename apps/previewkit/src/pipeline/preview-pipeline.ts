@@ -87,6 +87,7 @@ export class PreviewPipeline {
                 headSha,
                 headRef: event.headRef,
                 namespace,
+                organizationId,
                 commentId,
             }),
         );
