@@ -138,8 +138,12 @@ githubHttpRouter.post("/webhook", async (ctx) => {
     try {
         await dispatchWebhookEvent(eventType, installationId, githubService, payload);
     } catch (error) {
+        // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
+        const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+        const causeMessage = cause instanceof Error ? cause.message : cause != null ? String(cause) : undefined;
         processingError = error instanceof Error ? error.message : String(error);
-        logger.fatal("Error processing GitHub webhook", error, { event, deliveryId });
+        if (causeMessage != null) processingError = `${processingError}: ${causeMessage}`;
+        logger.fatal("Error processing GitHub webhook", error, { event, deliveryId, cause: causeMessage });
     }
 
     await githubService.markWebhookEventProcessed(deliveryId, processingError);
@@ -227,6 +231,7 @@ async function forwardPullRequestToPreviewkit(
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(10_000),
         });
         if (!res.ok) {
             const text = await res.text().catch(() => "");
@@ -238,7 +243,7 @@ async function forwardPullRequestToPreviewkit(
 
     const [owner, name] = repo.full_name.split("/");
     const url = `${base}/v1/environments/${owner}/${name}/${pr.number}`;
-    const res = await fetch(url, { method: "DELETE" });
+    const res = await fetch(url, { method: "DELETE", signal: AbortSignal.timeout(10_000) });
     if (!res.ok && res.status !== 404) {
         const text = await res.text().catch(() => "");
         throw new Error(`Previewkit teardown returned ${res.status}: ${text}`);

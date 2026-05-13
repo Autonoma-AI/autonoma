@@ -43,6 +43,7 @@ if (env.EKS_CLUSTER_NAME != null) {
 const githubProvider = new GitHubProvider({
     appId: env.GITHUB_APP_ID,
     privateKey: env.GITHUB_PRIVATE_KEY,
+    feedbackEnabled: env.GITHUB_FEEDBACK_ENABLED,
 });
 
 // Builder
