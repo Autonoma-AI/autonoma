@@ -10,6 +10,7 @@ import {
     triggerRunWorkflow,
 } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
+import { verifyApiKeyAndGetContext } from "./application-setup/verify-api-key";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
 import { env } from "./env";
@@ -35,10 +36,24 @@ export async function createContext(c: HonoContext) {
         headers: c.req.raw.headers,
     });
 
+    let user: AuthUser | null = (rawSession?.user ?? null) as AuthUser | null;
+    let session: AuthSession | null = (rawSession?.session ?? null) as AuthSession | null;
+
+    if (user == null) {
+        const keyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
+        if (keyCtx != null) {
+            const dbUser = await db.user.findUnique({ where: { id: keyCtx.userId } });
+            if (dbUser != null) {
+                user = dbUser as unknown as AuthUser;
+                session = { activeOrganizationId: keyCtx.organizationId } as unknown as AuthSession;
+            }
+        }
+    }
+
     return {
         db,
-        user: (rawSession?.user ?? null) as AuthUser | null,
-        session: (rawSession?.session ?? null) as AuthSession | null,
+        user,
+        session,
         services: buildServices({
             conn: db,
             auth,

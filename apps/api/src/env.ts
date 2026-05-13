@@ -40,6 +40,10 @@ export const env = createEnv({
         // so the API can boot and serve requests without real credentials.
         LOCAL_DEV: z.stringbool().default(false),
         ENGINE_BILLING_SECRET: z.string().min(1).optional(),
+
+        // AWS Secrets Manager — used by the secrets service to store per-app secrets.
+        // AWS_REGION is required when any app has secrets; the SDK also reads it from the environment.
+        AWS_REGION: z.string().optional(),
         RESEND_API_KEY: z.string().min(1).optional(),
         RESEND_AUDIENCE_ID: z.string().min(1).optional(),
         RESEND_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <hello@autonoma.app>"),

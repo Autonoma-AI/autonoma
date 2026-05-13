@@ -2,6 +2,7 @@ import * as k8s from "@kubernetes/client-node";
 import type { PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
 import { RecipeRegistry } from "../recipes/recipe-registry";
+import type { AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
 import { EnvInjector } from "./env-injector";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
@@ -53,6 +54,7 @@ export class Deployer {
         private domain: string,
         private gateway: GatewayRef,
         private gatewaySubnetCidrs: string[] = [],
+        private awsExternalSecretManager?: AwsExternalSecretManager,
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
@@ -78,7 +80,19 @@ export class Deployer {
         // 2. Apply NetworkPolicies for tenant isolation before any workload runs
         await this.applyNetworkPolicies(namespace, organizationId);
 
-        // 3. Deploy service recipes (postgres, redis, etc.)
+        // 3. Apply ExternalSecrets for any AWS Secrets Manager registrations for this org
+        const appNames = config.apps.map((a) => a.name);
+        const awsSecretsByApp =
+            this.awsExternalSecretManager != null
+                ? await this.awsExternalSecretManager.applyForNamespace(
+                      organizationId,
+                      namespace,
+                      repoFullName,
+                      appNames,
+                  )
+                : new Map<string, string>();
+
+        // 4. Deploy service recipes (postgres, redis, etc.)
         for (const svcConfig of config.services) {
             const recipe = this.recipeRegistry.get(svcConfig.recipe);
             const resources = recipe.generate(svcConfig, namespace);
@@ -102,10 +116,10 @@ export class Deployer {
             logger.info("Deployed service recipe", { service: svcConfig.name, recipe: svcConfig.recipe, namespace });
         }
 
-        // 4. Wait for service readiness
+        // 5. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 5. Deploy apps + Gateway API routes
+        // 6. Deploy apps + Gateway API routes
         const owner = repoFullName.split("/")[0]!;
         const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
@@ -127,7 +141,14 @@ export class Deployer {
                 context,
             );
 
-            const deployment = buildAppDeployment({ app, namespace, imageTag, resolvedEnv, prNumber });
+            const deployment = buildAppDeployment({
+                app,
+                namespace,
+                imageTag,
+                resolvedEnv,
+                prNumber,
+                awsSecretName: awsSecretsByApp.get(app.name),
+            });
             const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
             const routeOpts = { app, namespace, prNumber, repoSlug, domain, gateway: this.gateway };
             const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);

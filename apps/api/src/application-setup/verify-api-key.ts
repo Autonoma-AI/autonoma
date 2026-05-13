@@ -22,11 +22,13 @@ export async function verifyApiKeyAndGetContext(
 
     const apiKey = await db.apiKey.findFirst({
         where: { key: hashedKey, enabled: true },
-        select: { userId: true, organizationId: true, expiresAt: true },
+        select: { id: true, userId: true, organizationId: true, expiresAt: true },
     });
 
     if (apiKey == null) return undefined;
     if (apiKey.expiresAt != null && apiKey.expiresAt < new Date()) return undefined;
+
+    void db.apiKey.update({ where: { id: apiKey.id }, data: { lastRequest: new Date() } });
 
     return { userId: apiKey.userId, organizationId: apiKey.organizationId };
 }

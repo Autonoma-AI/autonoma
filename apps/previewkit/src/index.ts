@@ -9,6 +9,7 @@ import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
+import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { SecretStore } from "./secrets/secret-store";
 import { OrganizationResolver } from "./tenancy/organization-resolver";
 
@@ -49,21 +50,26 @@ const builder = new BuildKitBuilder({
     buildkitHost: env.BUILDKIT_HOST,
 });
 
-// Deployer
 const gatewaySubnetCidrs = env.GATEWAY_SUBNET_CIDRS
     ? env.GATEWAY_SUBNET_CIDRS.split(",")
           .map((s) => s.trim())
           .filter(Boolean)
     : [];
+
+// Secret store (K8s Secrets in the previewkit namespace)
+const secretStore = new SecretStore(kc);
+
+// AWS Secrets Manager -> K8s ExternalSecret bridge
+const awsExternalSecretManager = new AwsExternalSecretManager(kc, env.CLUSTER_SECRET_STORE_NAME);
+
+// Deployer
 const deployer = new Deployer(
     kc,
     env.PREVIEW_DOMAIN,
     { name: env.GATEWAY_NAME, namespace: env.GATEWAY_NAMESPACE, listener: env.GATEWAY_LISTENER },
     gatewaySubnetCidrs,
+    awsExternalSecretManager,
 );
-
-// Secret store (K8s Secrets in the previewkit namespace)
-const secretStore = new SecretStore(kc);
 
 // Tenant resolver (DB lookup: repo -> organizationId)
 const organizationResolver = new OrganizationResolver();

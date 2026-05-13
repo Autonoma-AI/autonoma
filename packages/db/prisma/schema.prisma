@@ -343,6 +343,7 @@ model Application {
   githubRepositories      GitHubRepository[]
   onboardingState         OnboardingState?
   applicationSetups       ApplicationSetup[]
+  previewkitSecret        PreviewkitSecret?
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1686,6 +1687,20 @@ model PreviewkitAppInstance {
 
   @@unique([environmentId, appName])
   @@map("previewkit_app_instance")
+}
+
+model PreviewkitSecret {
+  id            String @id @default(cuid())
+  applicationId String @unique @map("application_id")
+  awsSecretArn  String @map("aws_secret_arn")
+  k8sSecretName String @map("k8s_secret_name")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("previewkit_secret")
 }
 
 // ─── Diffs Job ────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import type { GenerationProvider } from "@autonoma/test-updates";
 import type { TriggerDiffsJobParams, TriggerRunWorkflowParams } from "@autonoma/workflow";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
+import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -107,7 +108,7 @@ export function buildServices({
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
-        secrets: new SecretsService(),
+        secrets: new SecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         skills: new SkillsService(conn),
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),

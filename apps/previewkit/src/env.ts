@@ -46,6 +46,10 @@ export const env = createEnv({
         // Comma-separated CIDRs for the ALB subnets so the ALB can reach pods directly
         // in IP mode (AWS Gateway API Controller). Required when network policies are enforced.
         GATEWAY_SUBNET_CIDRS: z.string().default(""),
+
+        // External Secrets Operator: name of the ClusterSecretStore that points to AWS Secrets Manager.
+        // Required only when AWS secret registrations are present for any organization.
+        CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
     },
     runtimeEnv: process.env,
 });

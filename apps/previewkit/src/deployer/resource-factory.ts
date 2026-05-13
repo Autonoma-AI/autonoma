@@ -13,6 +13,7 @@ interface AppResourceOptions {
     imageTag: string;
     resolvedEnv: Record<string, string>;
     prNumber: number;
+    awsSecretName?: string;
 }
 
 interface AppRouteOptions {
@@ -44,7 +45,7 @@ export function buildAppHostname(appName: string, prNumber: number, repoSlug: st
 }
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
-    const { app, namespace, imageTag, resolvedEnv } = opts;
+    const { app, namespace, imageTag, resolvedEnv, awsSecretName } = opts;
     const labels = {
         ...BASE_LABELS,
         app: app.name,
@@ -55,6 +56,8 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
         name,
         value,
     }));
+
+    const envFrom: k8s.V1EnvFromSource[] = awsSecretName != null ? [{ secretRef: { name: awsSecretName } }] : [];
 
     return {
         apiVersion: "apps/v1",
@@ -73,6 +76,7 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
                             image: imageTag,
                             imagePullPolicy: "Always",
                             ports: [{ containerPort: app.port }],
+                            ...(envFrom.length > 0 && { envFrom }),
                             env: envVars,
                             ...(app.command && {
                                 command: ["/bin/sh", "-c", app.command],
