@@ -25,7 +25,7 @@ jobs:
       rollback-status: ${{ steps.rollback.outcome }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine target release
         id: determine-release

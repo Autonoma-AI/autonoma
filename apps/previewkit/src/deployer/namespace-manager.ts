@@ -39,7 +39,14 @@ export class NamespaceManager {
     }
 
     buildNamespaceName(repoFullName: string, prNumber: number): string {
-        const sanitized = repoFullName.replace(/[^a-z0-9-]/g, "-").toLowerCase();
+        // Lowercase first; the character class is case-sensitive so any uppercase
+        // letter would otherwise be replaced with a hyphen, producing names like
+        // `preview--oder-ouse-...` for `CoderHouse/...`.
+        const sanitized = repoFullName
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-+|-+$/g, "");
         const name = `preview-${sanitized}-pr-${prNumber}`;
         return name.slice(0, 63).replace(/-+$/, "");
     }
