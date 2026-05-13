@@ -2,7 +2,7 @@ FROM node:24-slim
 
 ARG BUILDKIT_VERSION=0.29.0
 ARG CRANE_VERSION=0.20.2
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar git \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar \
     && rm -rf /var/lib/apt/lists/* \
     # buildctl — sends Dockerfile builds to the external BuildKit daemon
     && ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') \

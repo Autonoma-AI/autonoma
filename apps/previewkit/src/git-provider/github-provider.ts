@@ -1,4 +1,8 @@
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import { App } from "@octokit/app";
+import { extract as extractTar } from "tar-fs";
 import { logger } from "../logger";
 import type { GitProvider } from "./git-provider";
 
@@ -58,17 +62,37 @@ export class GitHubProvider implements GitProvider {
         }
     }
 
-    async getCloneCredentials(repoFullName: string): Promise<{ token: string }> {
+    async fetchRepoTarball(repoFullName: string, ref: string, targetDir: string): Promise<void> {
         const { owner, repo } = parseRepo(repoFullName);
-        const { data: installation } = await this.app.octokit.request("GET /repos/{owner}/{repo}/installation", {
+        const octokit = await this.getInstallationOctokit(repoFullName);
+
+        logger.info("Downloading repo tarball", { repoFullName, ref });
+
+        // The tarball endpoint returns the gzipped archive body as ArrayBuffer.
+        const response = await octokit.request("GET /repos/{owner}/{repo}/tarball/{ref}", {
             owner,
             repo,
+            ref,
         });
-        const octokit = await this.app.getInstallationOctokit(installation.id);
-        const { token } = (await octokit.auth({ type: "installation" })) as {
-            token: string;
-        };
-        return { token };
+
+        // Octokit returns the binary body as an ArrayBuffer for this endpoint.
+        const buffer = Buffer.from(response.data as ArrayBuffer);
+
+        // GitHub wraps every tarball in a single top-level directory like
+        // `owner-repo-<short-sha>/`. Strip it so files land directly under `targetDir`.
+        const extractor = extractTar(targetDir, {
+            map: (header) => {
+                const firstSlash = header.name.indexOf("/");
+                if (firstSlash >= 0) {
+                    header.name = header.name.slice(firstSlash + 1);
+                }
+                return header;
+            },
+        });
+
+        await pipeline(Readable.from(buffer), createGunzip(), extractor);
+
+        logger.info("Repo tarball extracted", { repoFullName, ref, targetDir, bytes: buffer.length });
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {

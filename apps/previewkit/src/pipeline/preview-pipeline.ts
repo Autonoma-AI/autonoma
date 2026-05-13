@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { PreviewConfig } from "../config/schema";
@@ -21,8 +19,6 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import type { SecretStore } from "../secrets/secret-store";
 import type { OrganizationResolver } from "../tenancy/organization-resolver";
-
-const execFileAsync = promisify(execFile);
 
 interface AppBuildResult {
     imageTag: string;
@@ -237,12 +233,9 @@ export class PreviewPipeline {
     }
 
     private async cloneRepo(event: PullRequestEvent, targetDir: string): Promise<void> {
-        const { token } = await this.provider.getCloneCredentials(event.repoFullName);
-        const cloneUrl = event.cloneUrl.replace("https://", `https://x-access-token:${token}@`);
-
-        logger.info("Cloning repository", { repo: event.repoFullName, ref: event.headRef });
-
-        await execFileAsync("git", ["clone", "--depth=1", "--branch", event.headRef, cloneUrl, targetDir]);
+        // Pin the fetch to the exact head SHA, not the branch ref, so concurrent pushes
+        // never race the extraction.
+        await this.provider.fetchRepoTarball(event.repoFullName, event.headSha, targetDir);
     }
 
     private async buildAllApps(

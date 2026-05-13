@@ -14,7 +14,12 @@ export interface GitProvider {
 
     fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined>;
 
-    getCloneCredentials(repoFullName: string): Promise<{ token: string }>;
+    /**
+     * Download the repository at `ref` as a gzipped tarball and extract its contents into
+     * `targetDir`. Implementations must strip the archive's top-level directory so files
+     * land directly under `targetDir`.
+     */
+    fetchRepoTarball(repoFullName: string, ref: string, targetDir: string): Promise<void>;
 
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
 
