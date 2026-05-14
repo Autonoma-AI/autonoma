@@ -40,20 +40,6 @@ jobs:
               cp -r apps/ui/dist pruned/dist
             context: ./pruned
 
-          - name: Execution Agent Web
-            image: execution-agent-web
-            dockerfile: apps/engine-web/Dockerfile
-            turbo-filter: ""
-            prepare: ""
-            context: .
-
-          - name: Execution Agent Mobile
-            image: execution-agent-mobile
-            dockerfile: apps/engine-mobile/Dockerfile
-            turbo-filter: "@autonoma/engine-mobile..."
-            prepare: mkdir -p pruned && cp -r apps/engine-mobile/dist pruned/dist
-            context: ./pruned
-
           - name: Scenario
             image: scenario
             dockerfile: apps/jobs/scenario/Dockerfile

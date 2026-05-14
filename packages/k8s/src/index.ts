@@ -22,8 +22,6 @@ export type ImageKey =
     | "web"
     | "workflow-device-locking"
     | "workflow-scenario"
-    | "execution-agent-web"
-    | "execution-agent-mobile"
     | "reviewer"
     | "eval-job-finalizer";
 
