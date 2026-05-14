@@ -76,7 +76,6 @@ export class EksKubeconfigLoader {
         });
 
         this.cachedAt = now;
-        this.logger.info("Minted EKS kubeconfig", { cachedAt: new Date(this.cachedAt).toISOString() });
         return this.cachedKubeconfig;
     }
 

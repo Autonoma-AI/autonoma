@@ -5,14 +5,20 @@ import { previewConfigSchema, type PreviewConfig } from "./schema";
 
 const CONFIG_FILE = ".preview.yaml";
 
+/**
+ * Returns the parsed `.preview.yaml`, or `undefined` when the repo doesn't
+ * have one at this ref. A missing file is a normal opt-out signal (most repos
+ * under an installed GitHub App will never have one) — only an invalid file
+ * throws, since that's a user mistake worth surfacing.
+ */
 export async function loadPreviewConfig(
     provider: GitProvider,
     repoFullName: string,
     ref: string,
-): Promise<PreviewConfig> {
+): Promise<PreviewConfig | undefined> {
     const raw = await provider.fetchFileContent(repoFullName, CONFIG_FILE, ref);
     if (!raw) {
-        throw new Error(`No ${CONFIG_FILE} found in ${repoFullName} at ref ${ref}`);
+        return undefined;
     }
 
     const parsed = yaml.load(raw);

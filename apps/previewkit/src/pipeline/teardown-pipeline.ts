@@ -71,7 +71,7 @@ export class TeardownPipeline {
 
     private buildTeardownComment(prNumber: number): string {
         return [
-            `## :previewkit: Preview Environment #${prNumber}`,
+            `## Preview Environment #${prNumber}`,
             "",
             "**Status:** Torn down",
             "",

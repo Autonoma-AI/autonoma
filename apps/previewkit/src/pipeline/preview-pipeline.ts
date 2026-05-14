@@ -62,7 +62,21 @@ export class PreviewPipeline {
         // 1. Resolve tenant. Rejects deployment if the repo is not linked to an active installation.
         const organizationId = await this.organizationResolver.resolveByRepoFullName(repoFullName);
 
-        // 1b. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
+        // 1b. Check that the repo opted in to Previewkit before we touch anything.
+        // A missing `.preview.yaml` is a normal opt-out signal — most repos
+        // under an installed GitHub App will never have one, and we don't want
+        // every PR in those repos to leave a failed status + comment behind.
+        const config = await loadPreviewConfig(this.provider, repoFullName, headSha);
+        if (config == null) {
+            logger.warn("No .preview.yaml found at ref; skipping deployment", {
+                repo: repoFullName,
+                pr: prNumber,
+                sha: shortSha,
+            });
+            return;
+        }
+
+        // 1c. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
         const feedbackEnabled = await isGithubFeedbackEnabledForOrg(organizationId);
         if (!feedbackEnabled) {
             logger.info("GitHub feedback disabled for organization; skipping comments + commit statuses", {
@@ -111,11 +125,7 @@ export class PreviewPipeline {
         let tmpDir: string | undefined;
 
         try {
-            // 4. Load config from repo
-            await this.updatePhase(repoFullName, prNumber, "pending", "loading-config");
-            const config = await loadPreviewConfig(this.provider, repoFullName, headSha);
-
-            // 5. Clone repo
+            // 4. Clone repo (config was already loaded above as the opt-in check).
             await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
             tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             await this.cloneRepo(event, tmpDir);
@@ -325,7 +335,7 @@ export class PreviewPipeline {
 
     private buildPendingComment(prNumber: number): string {
         return [
-            `## :previewkit: Preview Environment #${prNumber}`,
+            `## Preview Environment #${prNumber}`,
             "",
             "**Status:** Building...",
             "",
@@ -343,7 +353,7 @@ export class PreviewPipeline {
             .join("\n");
 
         return [
-            `## :previewkit: Preview Environment #${prNumber}`,
+            `## Preview Environment #${prNumber}`,
             "",
             "**Status:** Ready",
             "",
@@ -351,22 +361,13 @@ export class PreviewPipeline {
             "|-----|-----|",
             urlLines,
             "",
-            ...(serviceLines ? ["**Services:**", serviceLines, ""] : []),
-            `**Namespace:** \`${result.namespace}\``,
+            ...(serviceLines ? ["**Services:**", serviceLines] : []),
         ].join("\n");
     }
 
     private buildFailureComment(prNumber: number, err: unknown): string {
         const message = err instanceof Error ? err.message : "Unknown error occurred";
-        return [
-            `## :previewkit: Preview Environment #${prNumber}`,
-            "",
-            "**Status:** Failed",
-            "",
-            "```",
-            message,
-            "```",
-        ].join("\n");
+        return [`## Preview Environment #${prNumber}`, "", "**Status:** Failed", "", "```", message, "```"].join("\n");
     }
 }
 
