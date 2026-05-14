@@ -70,13 +70,18 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
             });
         }
 
-        if (headers != null && Object.keys(headers).length > 0) {
-            await this.context.setExtraHTTPHeaders(headers);
-            this.logger.info("Scenario auth headers applied", { headerCount: Object.keys(headers).length });
-        }
-
         const page = await this.context.newPage();
         const pageManager = new ActivePageManager(page, this.context);
+
+        if (headers != null && Object.keys(headers).length > 0) {
+            const targetOrigin = this.safeOrigin(url);
+            this.attachHeaderRoute(page, headers, targetOrigin);
+            pageManager.onPageChange((newPage) => this.attachHeaderRoute(newPage, headers, targetOrigin));
+            this.logger.info("Scenario auth headers applied via route interception", {
+                headerCount: Object.keys(headers).length,
+                targetOrigin,
+            });
+        }
 
         this.attachAuthDebugListeners(page, url);
 
@@ -136,6 +141,16 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
             // this recording. Supporting multi-tab video would require FFmpeg screen capture.
             videoRecorder: new WebVideoRecorder(page),
         };
+    }
+
+    private attachHeaderRoute(page: Page, headers: Record<string, string>, targetOrigin?: string) {
+        page.route("**/*", async (route, request) => {
+            if (targetOrigin != null && this.safeOrigin(request.url()) !== targetOrigin) {
+                await route.continue();
+                return;
+            }
+            await route.continue({ headers: { ...request.headers(), ...headers } });
+        });
     }
 
     private attachUploadListener(page: Page, file: string) {
