@@ -50,6 +50,7 @@ export function RerunGenerationDialog({ open, onOpenChange, generationId, curren
           void navigate({
             to: "/app/$appSlug/generations/$generationId",
             params: { generationId: newGenerationId },
+            replace: true,
           });
         },
       },
