@@ -114,7 +114,12 @@
                     "default": 1,
                     "description": "Number of pod replicas."
                 },
-                "resources": { "$ref": "#/definitions/resources" }
+                "resources": { "$ref": "#/definitions/resources" },
+                "depends_on": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Names of backend repos (from config.multirepo.repos) or other apps that must be deployed before this one. Builds still run in parallel; only deploys are ordered."
+                }
             }
         },
         "service": {

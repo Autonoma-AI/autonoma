@@ -76,11 +76,27 @@ export async function execInDeploymentPod(
     };
 }
 
-async function findRunningPod(kc: k8s.KubeConfig, namespace: string, appLabel: string): Promise<k8s.V1Pod | undefined> {
+async function findRunningPod(
+    kc: k8s.KubeConfig,
+    namespace: string,
+    appLabel: string,
+    timeoutMs = 120_000,
+    pollIntervalMs = 3_000,
+): Promise<k8s.V1Pod | undefined> {
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const res = await coreApi.listNamespacedPod({
-        namespace,
-        labelSelector: `app=${appLabel}`,
-    });
-    return res.items.find((pod) => pod.status?.phase === "Running" && pod.metadata?.deletionTimestamp == null);
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        const res = await coreApi.listNamespacedPod({
+            namespace,
+            labelSelector: `app=${appLabel}`,
+        });
+        const running = res.items.find(
+            (pod) => pod.status?.phase === "Running" && pod.metadata?.deletionTimestamp == null,
+        );
+        if (running != null) return running;
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    return undefined;
 }

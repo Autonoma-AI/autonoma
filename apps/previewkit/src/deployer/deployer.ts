@@ -1,6 +1,7 @@
 import * as k8s from "@kubernetes/client-node";
-import type { PreviewConfig } from "../config/schema";
+import type { AppConfig, PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
+import { computeDeployWaves } from "../pipeline/deploy-graph";
 import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
 import { EnvInjector } from "./env-injector";
@@ -27,6 +28,18 @@ import {
 export interface DeployResult {
     namespace: string;
     urls: Record<string, string>;
+}
+
+interface AppDeployContext {
+    namespace: string;
+    prNumber: number;
+    owner: string;
+    repoSlug: string;
+    domain: string;
+    config: PreviewConfig;
+    imageTags: Record<string, string>;
+    storedSecrets: Record<string, Record<string, string>>;
+    awsSecretsByApp: Map<string, string>;
 }
 
 export interface DeployOptions {
@@ -66,6 +79,11 @@ export class Deployer {
     }
 
     async deploy(opts: DeployOptions): Promise<DeployResult> {
+        const waves = computeDeployWaves(opts.config.apps);
+        return this.deployOrdered(opts, waves);
+    }
+
+    private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
         const { repoFullName, prNumber, headSha, organizationId, config, imageTags, storedSecrets, commentId } = opts;
         const domain = config.domain ?? this.domain;
 
@@ -119,53 +137,29 @@ export class Deployer {
         // 5. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 6. Deploy apps + Gateway API routes
+        // 6. Deploy apps wave by wave; apps within each wave are deployed in parallel
         const owner = repoFullName.split("/")[0]!;
         const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
 
-        for (const app of config.apps) {
-            const imageTag = imageTags[app.name];
-            if (imageTag == null) {
-                throw new Error(`No image tag found for app "${app.name}"`);
+        const appCtx: AppDeployContext = {
+            namespace,
+            prNumber,
+            owner,
+            repoSlug,
+            domain,
+            config,
+            imageTags,
+            storedSecrets,
+            awsSecretsByApp,
+        };
+
+        for (const wave of waves) {
+            logger.info("Deploying wave", { namespace, apps: wave.map((a) => a.name) });
+            const results = await Promise.all(wave.map((app) => this.deployApp(app, appCtx)));
+            for (const { name, url } of results) {
+                urls[name] = url;
             }
-
-            const appSecrets = storedSecrets[app.name] ?? {};
-            const context = { pr: String(prNumber), namespace, owner };
-            const resolvedEnv = this.envInjector.resolve(
-                app.env,
-                appSecrets,
-                config.apps,
-                config.services,
-                namespace,
-                context,
-            );
-
-            const deployment = buildAppDeployment({
-                app,
-                namespace,
-                imageTag,
-                resolvedEnv,
-                prNumber,
-                awsSecretName: awsSecretsByApp.get(app.name),
-            });
-            const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
-            const routeOpts = { app, namespace, prNumber, repoSlug, domain, gateway: this.gateway };
-            const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);
-            const httpRoute = buildAppHttpRoute(routeOpts);
-
-            await this.applyDeployment(namespace, deployment);
-            await this.applyService(namespace, service);
-            // TargetGroupConfig must exist before the HTTPRoute so the ALB
-            // controller picks up IP-target config on first reconcile.
-            await this.applyTargetGroupConfig(namespace, targetGroupConfig);
-            await this.applyHttpRoute(namespace, httpRoute);
-
-            const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
-            const url = `https://${host}`;
-            urls[app.name] = url;
-
-            logger.info("Deployed app", { app: app.name, url, namespace });
         }
 
         return { namespace, urls };
@@ -215,6 +209,81 @@ export class Deployer {
     async updateStatus(repoFullName: string, prNumber: number, annotations: NamespaceAnnotations): Promise<void> {
         const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
         await this.namespaceManager.updateAnnotations(namespace, annotations);
+    }
+
+    private async deployApp(app: AppConfig, opts: AppDeployContext): Promise<{ name: string; url: string }> {
+        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, storedSecrets, awsSecretsByApp } =
+            opts;
+
+        const imageTag = imageTags[app.name];
+        if (imageTag == null) {
+            throw new Error(`No image tag found for app "${app.name}"`);
+        }
+
+        const appSecrets = storedSecrets[app.name] ?? {};
+        const templateContext = { pr: String(prNumber), namespace, owner };
+        const resolvedEnv = this.envInjector.resolve(
+            app.env,
+            appSecrets,
+            config.apps,
+            config.services,
+            namespace,
+            templateContext,
+        );
+
+        const deployment = buildAppDeployment({
+            app,
+            namespace,
+            imageTag,
+            resolvedEnv,
+            prNumber,
+            awsSecretName: awsSecretsByApp.get(app.name),
+        });
+        const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
+        const routeOpts = { app, namespace, prNumber, repoSlug, domain, gateway: this.gateway };
+        const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);
+        const httpRoute = buildAppHttpRoute(routeOpts);
+
+        await this.applyDeployment(namespace, deployment);
+        await this.applyService(namespace, service);
+        // TargetGroupConfig must exist before the HTTPRoute so the ALB
+        // controller picks up IP-target config on first reconcile.
+        await this.applyTargetGroupConfig(namespace, targetGroupConfig);
+        await this.applyHttpRoute(namespace, httpRoute);
+
+        await this.waitForDeploymentReady(namespace, app.name);
+
+        const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
+        const url = `https://${host}`;
+        logger.info("Deployed app", { app: app.name, url, namespace });
+        return { name: app.name, url };
+    }
+
+    private async waitForDeploymentReady(namespace: string, appName: string, timeoutMs = 180_000): Promise<void> {
+        const start = Date.now();
+        logger.info("Waiting for deployment to be ready", { namespace, app: appName });
+
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const res = await this.appsApi.readNamespacedDeployment({ namespace, name: appName });
+                const { metadata, spec, status } = res;
+                const desired = spec?.replicas ?? 1;
+                const generation = metadata?.generation ?? 0;
+                const observed = status?.observedGeneration ?? 0;
+                const updated = status?.updatedReplicas ?? 0;
+                const available = status?.availableReplicas ?? 0;
+
+                if (observed >= generation && updated >= desired && available >= desired) {
+                    logger.info("Deployment ready", { namespace, app: appName });
+                    return;
+                }
+            } catch (err) {
+                logger.warn("Transient error polling deployment status, retrying", { namespace, app: appName, err });
+            }
+            await new Promise((r) => setTimeout(r, 3000));
+        }
+
+        throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}`);
     }
 
     private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 120_000): Promise<void> {

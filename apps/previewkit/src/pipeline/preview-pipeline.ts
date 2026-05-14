@@ -169,7 +169,7 @@ export class PreviewPipeline {
                 }),
             );
 
-            // 8. Deploy to Kubernetes
+            // 8. Deploy to Kubernetes respecting depends_on order
             await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-k8s");
             const result = await this.deployer.deploy({
                 repoFullName,
@@ -279,29 +279,29 @@ export class PreviewPipeline {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
         const repo = rawRepo!.toLowerCase();
-        const appBuilds: Record<string, AppBuildResult> = {};
 
-        for (const app of config.apps) {
-            const registry = config.registry ?? this.registryUrl;
-            const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
-            const contextPath = path.resolve(repoDir, app.path);
+        const entries = await Promise.all(
+            config.apps.map(async (app) => {
+                const registry = config.registry ?? this.registryUrl;
+                const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
+                const contextPath = path.resolve(repoDir, app.path);
 
-            const result = await this.builder.build({
-                appName: app.name,
-                contextPath,
-                dockerfile: app.dockerfile,
-                buildArgs: app.build_args,
-                imageTag,
-            });
+                const result = await this.builder.build({
+                    appName: app.name,
+                    contextPath,
+                    dockerfile: app.dockerfile,
+                    buildArgs: app.build_args,
+                    imageTag,
+                });
 
-            appBuilds[app.name] = {
-                imageTag: result.imageTag,
-                durationMs: result.durationMs,
-                logUrl: result.logUrl,
-            };
-        }
+                return [
+                    app.name,
+                    { imageTag: result.imageTag, durationMs: result.durationMs, logUrl: result.logUrl },
+                ] as const;
+            }),
+        );
 
-        return appBuilds;
+        return Object.fromEntries(entries);
     }
 
     private async updatePhase(
@@ -328,8 +328,8 @@ export class PreviewPipeline {
             logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command });
 
             const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
-            if (stdout) logger.debug("Post-deploy hook stdout", { app: hook.app, stdout });
-            if (stderr) logger.debug("Post-deploy hook stderr", { app: hook.app, stderr });
+            if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
+            if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
         }
     }
 

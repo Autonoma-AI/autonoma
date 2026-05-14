@@ -20,6 +20,7 @@ const appSchema = z.object({
     health_check: z.string().optional(),
     replicas: z.number().int().positive().default(1),
     resources: resourcesSchema,
+    depends_on: z.array(z.string()).optional(),
 });
 
 const serviceSchema = z.object({
