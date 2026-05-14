@@ -16,6 +16,7 @@
     "dependencies": {
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/storage": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",
         "@aws-sdk/client-ecr": "^3.1037.0",
         "@aws-sdk/client-eks": "^3.1037.0",
@@ -39,6 +40,7 @@
         "@types/js-yaml": "^4.0.9",
         "@types/node": "catalog:",
         "@types/tar-fs": "^2.0.4",
+        "@vitest/coverage-v8": "^4.1.6",
         "rolldown": "^1.0.0-rc.16",
         "tsx": "catalog:",
         "typescript": "catalog:",

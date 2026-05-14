@@ -1,17 +1,23 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { createReadStream, createWriteStream, existsSync, type WriteStream } from "node:fs";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import type { StorageProvider } from "@autonoma/storage";
 import { logger } from "../logger";
 import type { Builder, BuildRequest, BuildResult } from "./builder";
 import { EcrRegistryClient } from "./ecr-client";
 
 const BUILD_TIMEOUT = 600_000; // 10 minutes
+const LOG_KEY_PREFIX = "previewkit";
 
 interface BuildKitBuilderOptions {
     buildkitHost: string;
+    // Where combined stdout+stderr from buildctl/railpack is captured to a
+    // temp file and uploaded after each build (success or failure). Required —
+    // env validation (`@autonoma/storage/env`) guarantees S3 config at boot,
+    // so there's no "no storage" fallback.
+    storage: StorageProvider;
 }
 
 /**
@@ -22,35 +28,69 @@ interface BuildKitBuilderOptions {
  *    then build with `buildctl` using the railpack BuildKit frontend.
  *
  * Both paths push directly to the registry via buildctl's image exporter.
+ *
+ * Per-build stdout+stderr is captured to a temp file and uploaded to object
+ * storage. The `logUrl` is returned in the BuildResult so callers can link to
+ * the captured logs.
  */
 export class BuildKitBuilder implements Builder {
     private buildkitHost: string;
     private ecr: EcrRegistryClient;
+    private storage: StorageProvider;
 
     constructor(options: BuildKitBuilderOptions) {
         this.buildkitHost = options.buildkitHost;
         this.ecr = new EcrRegistryClient();
+        this.storage = options.storage;
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
         const start = Date.now();
-
         await this.ecr.ensureRepo(request.imageTag);
 
-        const hasDockerfile = this.resolveDockerfile(request.contextPath, request.dockerfile);
+        const logPath = this.buildLogPath(request.imageTag);
+        const logStream = createWriteStream(logPath, { flags: "a" });
 
-        let imageTag: string;
-        if (hasDockerfile) {
-            imageTag = await this.buildWithBuildctl(request, hasDockerfile);
-        } else {
-            imageTag = await this.buildWithRailpack(request);
+        try {
+            const hasDockerfile = this.resolveDockerfile(request.contextPath, request.dockerfile);
+
+            let imageTag: string;
+            try {
+                if (hasDockerfile) {
+                    imageTag = await this.buildWithBuildctl(request, hasDockerfile, logStream);
+                } else {
+                    imageTag = await this.buildWithRailpack(request, logStream);
+                }
+            } catch (buildErr) {
+                // Even on failure we still want the logs uploaded so the
+                // operator can investigate. If the upload itself also fails,
+                // surface that as a note on the original build error rather
+                // than masking the build failure with an upload failure.
+                try {
+                    const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
+                    if (buildErr instanceof Error) {
+                        buildErr.message = `${buildErr.message}\nBuild logs: ${logUrl}`;
+                    }
+                } catch (uploadErr) {
+                    logger.error("Build failed AND log upload failed", uploadErr, { imageTag: request.imageTag });
+                    if (buildErr instanceof Error) {
+                        const uploadMessage = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+                        buildErr.message = `${buildErr.message}\nBuild log upload failed: ${uploadMessage}`;
+                    }
+                }
+                throw buildErr;
+            }
+
+            // Successful build: upload is fatal. A built image with no logs is
+            // worse than a noisy failure — we want to know now, not later.
+            const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
+            const durationMs = Date.now() - start;
+            logger.info("Build complete", { app: request.appName, imageTag, durationMs, logUrl });
+
+            return { imageTag, durationMs, logUrl };
+        } finally {
+            await rm(logPath, { force: true }).catch(() => {});
         }
-
-        const durationMs = Date.now() - start;
-
-        logger.info("Build complete", { app: request.appName, imageTag, durationMs });
-
-        return { imageTag, durationMs };
     }
 
     /**
@@ -73,10 +113,11 @@ export class BuildKitBuilder implements Builder {
         return undefined;
     }
 
-    /**
-     * Build a Dockerfile with buildctl.
-     */
-    private async buildWithBuildctl(request: BuildRequest, dockerfilePath: string): Promise<string> {
+    private async buildWithBuildctl(
+        request: BuildRequest,
+        dockerfilePath: string,
+        logStream: WriteStream,
+    ): Promise<string> {
         const dockerfileDir = dirname(dockerfilePath);
         const dockerfileName = basename(dockerfilePath);
 
@@ -117,24 +158,16 @@ export class BuildKitBuilder implements Builder {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
 
-            await this.exec("buildctl", args, extraEnv);
+            await this.exec("buildctl", args, extraEnv, logStream);
             return request.imageTag;
         } finally {
             if (dockerConfigDir != null) {
-                await rm(dockerConfigDir, { recursive: true }).catch((_e) => {});
+                await rm(dockerConfigDir, { recursive: true }).catch(() => {});
             }
         }
     }
 
-    /**
-     * Build with railpack, which auto-detects the language/framework.
-     *
-     * Two steps:
-     * 1. `railpack prepare` generates a railpack-plan.json describing the build.
-     * 2. `buildctl build` uses the railpack BuildKit frontend to execute the plan
-     *    and push the image directly to the registry - no Docker daemon required.
-     */
-    private async buildWithRailpack(request: BuildRequest): Promise<string> {
+    private async buildWithRailpack(request: BuildRequest, logStream: WriteStream): Promise<string> {
         logger.info("Building with railpack (auto-detect)", {
             app: request.appName,
             contextPath: request.contextPath,
@@ -147,12 +180,12 @@ export class BuildKitBuilder implements Builder {
         await mkdir(planDir, { recursive: true });
 
         try {
-            await this.exec("railpack", [
-                "prepare",
-                request.contextPath,
-                "--plan-out",
-                join(planDir, "railpack-plan.json"),
-            ]);
+            await this.exec(
+                "railpack",
+                ["prepare", request.contextPath, "--plan-out", join(planDir, "railpack-plan.json")],
+                {},
+                logStream,
+            );
 
             const args = [
                 "--addr",
@@ -181,18 +214,25 @@ export class BuildKitBuilder implements Builder {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
 
-            await this.exec("buildctl", args, extraEnv);
+            await this.exec("buildctl", args, extraEnv, logStream);
             return request.imageTag;
         } finally {
-            await rm(planDir, { recursive: true }).catch((_e) => {});
+            await rm(planDir, { recursive: true }).catch(() => {});
             if (dockerConfigDir != null) {
-                await rm(dockerConfigDir, { recursive: true }).catch((_e) => {});
+                await rm(dockerConfigDir, { recursive: true }).catch(() => {});
             }
         }
     }
 
-    private exec(command: string, args: string[], extraEnv?: Record<string, string>): Promise<void> {
-        return new Promise((resolve, reject) => {
+    private exec(
+        command: string,
+        args: string[],
+        extraEnv: Record<string, string>,
+        logStream: WriteStream,
+    ): Promise<void> {
+        return new Promise((resolvePromise, reject) => {
+            logStream.write(`\n$ ${command} ${args.join(" ")}\n`);
+
             const child = spawn(command, args, {
                 env: { ...process.env, ...extraEnv },
                 timeout: BUILD_TIMEOUT,
@@ -202,25 +242,64 @@ export class BuildKitBuilder implements Builder {
                 reject(err.code === "ENOENT" ? new Error(`${command} binary not found`) : err);
             });
 
-            const outputLines: string[] = [];
-
-            for (const stream of [child.stdout, child.stderr]) {
-                createInterface({ input: stream }).on("line", (line) => {
-                    logger.info(`[build] ${line}`, { command });
-                    outputLines.push(line);
-                });
-            }
+            // Pipe both streams to the log file; do NOT end the destination when
+            // a source ends, since multiple exec() calls share the same stream.
+            child.stdout.pipe(logStream, { end: false });
+            child.stderr.pipe(logStream, { end: false });
 
             child.on("close", (code) => {
                 if (child.killed) {
-                    reject(new Error(`Build timed out after ${BUILD_TIMEOUT / 1000}s`));
+                    reject(new Error(`${command} timed out after ${BUILD_TIMEOUT / 1000}s`));
                 } else if (code === 0) {
-                    resolve();
+                    resolvePromise();
                 } else {
-                    const output = outputLines.join("\n");
-                    reject(new Error(`Build failed for ${command}:\n${output || `exit code ${code}`}`));
+                    reject(new Error(`${command} exited with code ${code}`));
                 }
             });
         });
+    }
+
+    /**
+     * Closes the log stream and uploads the file to object storage. Throws on
+     * any failure (upload, empty file, stat) — callers are expected to either
+     * propagate or annotate the original build error.
+     */
+    private async closeAndUploadLog(logStream: WriteStream, logPath: string, imageTag: string): Promise<string> {
+        await new Promise<void>((res) => logStream.end(res));
+
+        const { size } = await stat(logPath);
+        if (size === 0) {
+            throw new Error(`Build log file is empty at ${logPath} — nothing to upload`);
+        }
+
+        const key = this.buildLogKey(imageTag);
+        const readStream = createReadStream(logPath);
+        const url = await this.storage.uploadStream(
+            key,
+            // Node's fs.ReadStream is a Readable; the storage API accepts a
+            // web ReadableStream. Use the toWeb helper.
+            (await import("node:stream")).Readable.toWeb(readStream) as ReadableStream,
+            "text/plain",
+        );
+        logger.info("Build logs uploaded", { url, bytes: size });
+        return url;
+    }
+
+    private buildLogPath(imageTag: string): string {
+        const safe = imageTag.replace(/[^A-Za-z0-9_.-]/g, "_");
+        return join(tmpdir(), `previewkit-build-log-${safe}-${Date.now()}.log`);
+    }
+
+    /**
+     * Derive a deterministic-but-unique S3 key from an imageTag like
+     *   `acct.dkr.ecr.us-east-1.amazonaws.com/preview-acme-bank/api:pr-42-abc1234`
+     * The registry prefix is stripped and `:` becomes `/`, giving:
+     *   `previewkit-build-logs/preview-acme-bank/api/pr-42-abc1234-<epoch>.log`
+     */
+    private buildLogKey(imageTag: string): string {
+        const slashIdx = imageTag.indexOf("/");
+        const withoutRegistry = slashIdx >= 0 ? imageTag.slice(slashIdx + 1) : imageTag;
+        const path = withoutRegistry.replace(":", "/");
+        return `${LOG_KEY_PREFIX}/${path}-${Date.now()}.log`;
     }
 }

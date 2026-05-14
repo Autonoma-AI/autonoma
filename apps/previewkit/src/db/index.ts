@@ -26,7 +26,7 @@ export interface BuildFinishedInput {
     headSha: string;
     status: PreviewkitStatus;
     durationMs: number;
-    appBuilds: Record<string, { imageTag: string; durationMs: number }>;
+    appBuilds: Record<string, { imageTag: string; durationMs: number; logUrl: string }>;
     error?: string;
 }
 

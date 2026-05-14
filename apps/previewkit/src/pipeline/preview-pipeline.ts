@@ -24,6 +24,7 @@ import type { OrganizationResolver } from "../tenancy/organization-resolver";
 interface AppBuildResult {
     imageTag: string;
     durationMs: number;
+    logUrl: string;
 }
 
 interface PreviewPipelineOptions {
@@ -283,7 +284,11 @@ export class PreviewPipeline {
                 imageTag,
             });
 
-            appBuilds[app.name] = { imageTag: result.imageTag, durationMs: result.durationMs };
+            appBuilds[app.name] = {
+                imageTag: result.imageTag,
+                durationMs: result.durationMs,
+                logUrl: result.logUrl,
+            };
         }
 
         return appBuilds;

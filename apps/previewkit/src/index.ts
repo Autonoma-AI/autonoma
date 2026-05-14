@@ -1,3 +1,4 @@
+import { S3Storage } from "@autonoma/storage";
 import { serve } from "@hono/node-server";
 import * as k8s from "@kubernetes/client-node";
 import { createApp } from "./app";
@@ -45,9 +46,13 @@ const githubProvider = new GitHubProvider({
     privateKey: env.GITHUB_PRIVATE_KEY,
 });
 
+// Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
+const storage = S3Storage.createFromEnv();
+
 // Builder
 const builder = new BuildKitBuilder({
     buildkitHost: env.BUILDKIT_HOST,
+    storage,
 });
 
 const gatewaySubnetCidrs = env.GATEWAY_SUBNET_CIDRS

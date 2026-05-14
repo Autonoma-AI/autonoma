@@ -1,7 +1,9 @@
+import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 export const env = createEnv({
+    extends: [storageEnv],
     server: {
         PORT: z.coerce.number().default(3000),
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -38,10 +40,6 @@ export const env = createEnv({
         AWS_REGION: z.string().optional(),
         EKS_CLUSTER_ENDPOINT: z.string().url().optional(),
         EKS_CLUSTER_CA: z.string().optional(),
-
-        // Tenant isolation: namespace of the ingress controller in the preview cluster.
-        // Previewkit itself runs in a separate cluster, so it is not referenced here.
-        INGRESS_CONTROLLER_NAMESPACE: z.string().default("ingress-nginx"),
 
         // Comma-separated CIDRs for the ALB subnets so the ALB can reach pods directly
         // in IP mode (AWS Gateway API Controller). Required when network policies are enforced.

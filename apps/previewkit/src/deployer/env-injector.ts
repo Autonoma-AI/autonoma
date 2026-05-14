@@ -1,7 +1,9 @@
 import type { AppConfig, ServiceConfig } from "../config/schema";
 import type { RecipeRegistry } from "../recipes/recipe-registry";
 
-const SERVICE_TEMPLATE_REGEX = /\{\{(\w+)\.(host|port)\}\}/g;
+// Match K8s-style names (lowercase alnum + hyphens). `\w+` would drop hyphens,
+// which silently broke services and apps named like `api-gateway`.
+const SERVICE_TEMPLATE_REGEX = /\{\{([a-z0-9][a-z0-9-]*[a-z0-9])\.(host|port)\}\}/g;
 const VARIABLE_TEMPLATE_REGEX = /\{\{(pr|namespace|owner)\}\}/g;
 
 interface ServiceMap {

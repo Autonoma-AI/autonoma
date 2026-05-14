@@ -195,4 +195,52 @@ describe("EnvInjector", () => {
         const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
         expect(resolved["WORKER_ID"]).toBe("acme-corp-pr-42-api");
     });
+
+    it("resolves hyphenated service names (regression: was silently dropped by \\w+)", () => {
+        // The schema allows names like `api-gateway` but the old regex used
+        // `\w+` which stops at the hyphen, so the template never matched.
+        const hyphenatedServices: ServiceConfig[] = [
+            ...services,
+            {
+                name: "api-gateway",
+                recipe: "api-gateway",
+                env: {},
+                options: { routes: [{ path: "/", target: "web", strip_prefix: false }] },
+                resources: { cpu: "250m", memory: "256Mi" },
+            },
+        ];
+
+        const configEnv = {
+            GATEWAY_URL: "http://{{api-gateway.host}}:{{api-gateway.port}}",
+        };
+
+        const resolved = injector.resolve(configEnv, {}, apps, hyphenatedServices, "preview-ns", defaultContext);
+        expect(resolved["GATEWAY_URL"]).toBe("http://api-gateway:80");
+    });
+
+    it("resolves templates inside stored-secret values, not just config env", () => {
+        const storedSecrets = {
+            DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
+        };
+
+        const resolved = injector.resolve({}, storedSecrets, apps, services, "preview-ns", defaultContext);
+        expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
+    });
+
+    it("returns an empty object when there is no env and no stored secrets", () => {
+        const resolved = injector.resolve({}, {}, apps, services, "preview-ns", defaultContext);
+        expect(resolved).toEqual({});
+    });
+
+    it("passes through values that look templated but do not match the grammar", () => {
+        // `{{api.foo}}` — wrong field. `{{ pr }}` — internal whitespace.
+        // `{{api}}`    — missing .host/.port. None of these should resolve;
+        //               all should pass through verbatim.
+        const configEnv = {
+            LITERAL_BRACES: "use {{api.foo}} or {{ pr }} or {{api}} as-is",
+        };
+
+        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        expect(resolved["LITERAL_BRACES"]).toBe("use {{api.foo}} or {{ pr }} or {{api}} as-is");
+    });
 });
