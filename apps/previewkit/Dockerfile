@@ -1,7 +1,7 @@
 FROM node:24-alpine
 
 ARG BUILDKIT_VERSION=0.30.0
-RUN apk add --no-cache ca-certificates curl tar bash \
+RUN apk add --no-cache ca-certificates curl tar bash libc6-compat \
     # buildctl - sends Dockerfile builds to the external BuildKit daemon \
     && ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') \
     && curl -sSL "https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" \
