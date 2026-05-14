@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import type { ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
-import { TestDirectory } from "@autonoma/diffs/test-directory";
 import { logger as rootLogger } from "@autonoma/logger";
 
 // ---- Test with steps --------------------------------------------------------
@@ -184,19 +183,4 @@ export async function readSkillFiles(testsDir: string): Promise<ExistingSkillInf
     }
 
     return skills;
-}
-
-/**
- * Loads tests and skills from the given directory and writes them into the
- * repo's autonoma/ structure so the agent's bash tool can read them.
- * `testsDir` must contain qa-tests/ and skills/ subdirectories.
- */
-export async function prepareTestDirectory(testsDir: string, repoDir: string): Promise<TestDirectory> {
-    const logger = rootLogger.child({ name: "prepareTestDirectory" });
-    logger.info("Loading tests from directory", { testsDir });
-
-    const [tests, skills] = await Promise.all([readTestFiles(testsDir), readSkillFiles(testsDir)]);
-
-    logger.info("Writing tests into repo", { tests: tests.length, skills: skills.length });
-    return TestDirectory.create({ workingDirectory: repoDir, tests, skills });
 }

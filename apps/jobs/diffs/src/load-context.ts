@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
 import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
-import { FlowIndex, type FlowInfo, TestDirectory } from "@autonoma/diffs";
+import { FlowIndex, type FlowInfo } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
@@ -136,17 +136,12 @@ export async function loadFlows(applicationId: string, suiteInfo: TestSuiteInfo)
 export async function loadDiffsContext(
     applicationId: string,
     suiteInfo: TestSuiteInfo,
-    repoDir: string,
     headSha: string,
     baseSha: string,
-): Promise<{ input: DiffsAgentInput; testDirectory: TestDirectory; flowIndex: FlowIndex }> {
+): Promise<{ input: DiffsAgentInput; flowIndex: FlowIndex }> {
     const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-    const [testDirectory, flows] = await Promise.all([
-        TestDirectory.create({ workingDirectory: repoDir, tests: existingTests, skills: existingSkills }),
-        loadFlows(applicationId, suiteInfo),
-    ]);
-
+    const flows = await loadFlows(applicationId, suiteInfo);
     const flowIndex = new FlowIndex(flows);
 
     logger.info("Loaded diffs context", {
@@ -157,7 +152,6 @@ export async function loadDiffsContext(
 
     return {
         input: { headSha, baseSha, existingTests, existingSkills },
-        testDirectory,
         flowIndex,
     };
 }

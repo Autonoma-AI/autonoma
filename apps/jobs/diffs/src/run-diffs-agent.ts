@@ -1,6 +1,6 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { DiffsAgent } from "@autonoma/diffs";
-import type { DiffsAgentResult, TestDirectory } from "@autonoma/diffs";
+import type { DiffsAgentResult } from "@autonoma/diffs";
 import type { DiffsAgentInput } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
@@ -8,16 +8,10 @@ import { logger } from "@autonoma/logger";
 interface RunDiffsAgentParams {
     input: DiffsAgentInput;
     repoDir: string;
-    testDirectory: TestDirectory;
     flowIndex: FlowIndex;
 }
 
-export async function runDiffsAgent({
-    input,
-    repoDir,
-    testDirectory,
-    flowIndex,
-}: RunDiffsAgentParams): Promise<DiffsAgentResult> {
+export async function runDiffsAgent({ input, repoDir, flowIndex }: RunDiffsAgentParams): Promise<DiffsAgentResult> {
     const registry = new ModelRegistry({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
@@ -27,7 +21,6 @@ export async function runDiffsAgent({
         model,
         workingDirectory: repoDir,
         flowIndex,
-        testDirectory,
         maxSteps: 50,
     });
 

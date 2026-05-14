@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { GeneratedTest, RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
-import { FlowIndex, TestDirectory } from "@autonoma/diffs";
+import { FlowIndex } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import * as Sentry from "@sentry/node";
@@ -113,16 +113,16 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             const suiteInfo = await updater.currentTestSuiteInfo();
             const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-            const [testDirectory, flowIndex] = await Promise.all([
-                TestDirectory.create({ workingDirectory: repoDir, tests: existingTests, skills: existingSkills }),
-                loadFlows(branchData.applicationId, suiteInfo).then((flows) => new FlowIndex(flows)),
-            ]);
+            const flows = await loadFlows(branchData.applicationId, suiteInfo);
+            const flowIndex = new FlowIndex(flows);
 
             const agentResult = await runResolutionAgent({
                 input: {
                     verdicts,
                     step1Reasoning: diffsJob.analysisReasoning ?? "",
                     testCandidates: candidateInputs,
+                    existingTests,
+                    existingSkills,
                 },
                 db,
                 updater,
@@ -130,7 +130,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
                 applicationId: branchData.applicationId,
                 organizationId: branchData.organizationId,
                 repoDir,
-                testDirectory,
                 flowIndex,
             });
 

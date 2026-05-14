@@ -1,17 +1,19 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { TestDirectory } from "../test-directory";
+import type { ExistingSkillInfo } from "../diffs-agent";
 
 const readSkillSchema = z.object({
     slug: z.string().describe("The slug of the skill to read."),
 });
 
-export function buildReadSkillTool(testDirectory: TestDirectory) {
+export function buildReadSkillTool(skills: ExistingSkillInfo[]) {
+    const skillsBySlug = new Map(skills.map((s) => [s.slug, s]));
+
     return tool({
         description: "Read the full content of a specific skill by its slug.",
         inputSchema: readSkillSchema,
         execute: async ({ slug }) => {
-            const skill = await testDirectory.readSkill(slug);
+            const skill = skillsBySlug.get(slug);
             if (skill == null) {
                 return { error: `Skill "${slug}" not found.` };
             }

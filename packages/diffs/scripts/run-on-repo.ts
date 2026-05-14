@@ -5,18 +5,19 @@
  *   pnpm tsx scripts/run-on-repo.ts <repo-path> [--model flash|glm|kimi]
  *
  * The repo must have at least 2 commits (the agent diffs HEAD~1..HEAD).
- * It reads autonoma/skills/*.md and autonoma test files to build the input.
+ * It reads autonoma/skills/*.md and autonoma/qa-tests/*.md to build the input.
  *
  * Example:
  *   pnpm tsx scripts/run-on-repo.ts /path/to/appium-navigator --model flash
  */
 
 import { execSync } from "node:child_process";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
-import type { DiffsAgentInput } from "../src/diffs-agent";
+import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
-import { TestDirectory } from "../src/test-directory";
 
 // --- Model setup ---
 
@@ -57,6 +58,43 @@ function git(cwd: string, command: string): string {
     return execSync(`git ${command}`, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }).trim();
 }
 
+async function readTestsFromRepo(repoDir: string): Promise<ExistingTestInfo[]> {
+    const dir = join(repoDir, "autonoma", "qa-tests");
+    const files = await readdir(dir).catch(() => [] as string[]);
+    const tests: ExistingTestInfo[] = [];
+
+    for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+        const raw = await readFile(join(dir, file), "utf-8");
+        const slug = file.replace(".md", "");
+        const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
+        const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
+        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
+        tests.push({ id: `test-${slug}`, name, slug, prompt: body });
+    }
+
+    return tests;
+}
+
+async function readSkillsFromRepo(repoDir: string): Promise<ExistingSkillInfo[]> {
+    const dir = join(repoDir, "autonoma", "skills");
+    const files = await readdir(dir).catch(() => [] as string[]);
+    const skills: ExistingSkillInfo[] = [];
+
+    for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+        const raw = await readFile(join(dir, file), "utf-8");
+        const slug = file.replace(".md", "");
+        const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
+        const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
+        const description = frontmatter?.[1]?.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
+        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
+        skills.push({ id: `skill-${slug}`, name, slug, description, content: body });
+    }
+
+    return skills;
+}
+
 // --- Main ---
 
 async function main() {
@@ -65,49 +103,43 @@ async function main() {
     console.log(`Model: ${modelKey}`);
     console.log();
 
-    // Get diff info
     const affectedFiles = git(repoPath, "diff HEAD~1 HEAD --name-only")
         .split("\n")
         .filter((f) => f.length > 0);
     const diffStat = git(repoPath, "diff HEAD~1 HEAD --stat");
     const commitMessage = git(repoPath, "log -1 --format=%s");
+    const headSha = git(repoPath, "rev-parse HEAD");
+    const baseSha = git(repoPath, "rev-parse HEAD~1");
 
     console.log(`Commit: ${commitMessage}`);
     console.log(`Affected files: ${affectedFiles.length}`);
     console.log(diffStat);
     console.log();
 
-    // Read skills and tests
-    const testDirectory = await TestDirectory.load(repoPath);
-    const existingSkills = await testDirectory.readSkills();
-    const existingTests = await testDirectory.readTests();
+    const [existingTests, existingSkills] = await Promise.all([
+        readTestsFromRepo(repoPath),
+        readSkillsFromRepo(repoPath),
+    ]);
 
-    // Build input
     const input: DiffsAgentInput = {
-        analysis: {
-            affectedFiles,
-            summary: commitMessage,
-        },
+        headSha,
+        baseSha,
         existingTests,
         existingSkills,
     };
 
-    // Create model
     const registry = new ModelRegistry({ models: MODEL_OPTIONS });
     const model = registry.getModel({ model: modelKey, tag: "diffs-script" });
 
-    // Run agent
     console.log("--- Starting agent ---\n");
     const startTime = Date.now();
 
-    // Build flow index from test directory (no DB in scripts, so empty flows)
     const flowIndex = new FlowIndex([]);
 
     const agent = new DiffsAgent({
         model,
         workingDirectory: repoPath,
         flowIndex,
-        testDirectory,
         maxSteps: 60,
     });
 
@@ -115,7 +147,6 @@ async function main() {
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-    // Print report
     console.log(`\n\n=== RESULTS (${elapsed}s) ===\n`);
 
     console.log(`Reasoning: ${result.reasoning}\n`);
@@ -139,7 +170,6 @@ async function main() {
         console.log();
     }
 
-    // Summary
     console.log("--- Summary ---");
     console.log(`  Affected tests: ${result.affectedTests.length}`);
     console.log(`  Test candidates: ${result.testCandidates.length}`);

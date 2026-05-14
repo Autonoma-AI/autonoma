@@ -59,13 +59,7 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
         });
 
         const suiteInfo = await updater.currentTestSuiteInfo();
-        const { input, testDirectory, flowIndex } = await loadDiffsContext(
-            branchData.applicationId,
-            suiteInfo,
-            repoDir,
-            headSha,
-            baseSha,
-        );
+        const { input, flowIndex } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
         logger.info("Loaded diffs context", {
             existingTests: input.existingTests.length,
             existingSkills: input.existingSkills.length,
@@ -92,7 +86,6 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
         const agentResult = await runDiffsAgent({
             input: agentInput,
             repoDir,
-            testDirectory,
             flowIndex,
         });
 

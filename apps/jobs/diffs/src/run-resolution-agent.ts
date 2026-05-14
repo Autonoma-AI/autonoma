@@ -9,7 +9,6 @@ import {
     createResolutionCallbacks,
 } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
-import type { TestDirectory } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 
@@ -21,7 +20,6 @@ export interface RunResolutionAgentParams {
     applicationId: string;
     organizationId: string;
     repoDir: string;
-    testDirectory: TestDirectory;
     flowIndex: FlowIndex;
 }
 
@@ -33,7 +31,6 @@ export async function runResolutionAgent({
     applicationId,
     organizationId,
     repoDir,
-    testDirectory,
     flowIndex,
 }: RunResolutionAgentParams): Promise<ResolutionAgentResult> {
     const registry = new ModelRegistry({
@@ -48,7 +45,6 @@ export async function runResolutionAgent({
         workingDirectory: repoDir,
         flowIndex,
         scenarioIndex,
-        testDirectory,
         maxSteps: 50,
     });
 
@@ -62,7 +58,6 @@ export async function runResolutionAgent({
         snapshotId,
         applicationId,
         organizationId,
-        testDirectory,
     });
 
     await Promise.all([

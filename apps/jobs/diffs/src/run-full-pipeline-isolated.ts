@@ -39,7 +39,6 @@ import { CostCollector, MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { DiffsAgentResult, RunReviewVerdict } from "@autonoma/diffs";
 import { runDiffsAgentLocally } from "@autonoma/diffs/run-diffs-locally";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
-import { TestDirectory } from "@autonoma/diffs/test-directory";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     type BaseCliArgs,
@@ -126,12 +125,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             readSkillFiles(args.testsDir),
         ]);
 
-        const testDirectory = await TestDirectory.create({
-            workingDirectory: repoDir,
-            tests: existingTests,
-            skills: existingSkills,
-        });
-
         // Model registry shared across all steps
         const registry = new ModelRegistry({
             models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -149,7 +142,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             headSha,
             existingTests,
             existingSkills,
-            testDirectory,
             maxSteps: args.maxSteps,
         });
         logger.info("Step 1 complete", {
@@ -232,18 +224,11 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
         // ---- Step 4: Resolve ----
         logger.info("Step 4: Running resolution agent");
-        const resolutionTestDirectory = await TestDirectory.create({
-            workingDirectory: repoDir,
-            tests: existingTests,
-            skills: existingSkills,
-        });
-
         const step4Result = await runResolutionAgentLocally({
             model,
             repoDir,
             existingTests,
             existingSkills,
-            testDirectory: resolutionTestDirectory,
             verdicts,
             step1Reasoning: step1Result.reasoning,
             testCandidates: step1Result.testCandidates,

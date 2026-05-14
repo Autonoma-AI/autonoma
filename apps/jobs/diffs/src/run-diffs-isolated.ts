@@ -29,7 +29,6 @@ import {
     type BaseCliArgs,
     parseBaseCliArgs,
     prepareRepo,
-    prepareTestDirectory,
     readSkillFiles,
     readTestFiles,
     resolveCommits,
@@ -65,8 +64,6 @@ async function run(args: CliArgs): Promise<void> {
     try {
         const { baseSha, headSha } = await resolveCommits(repoDir, args);
 
-        const testDirectory = await prepareTestDirectory(args.testsDir, repoDir);
-
         const [existingTests, existingSkills] = await Promise.all([
             readTestFiles(args.testsDir),
             readSkillFiles(args.testsDir),
@@ -85,7 +82,6 @@ async function run(args: CliArgs): Promise<void> {
             headSha,
             existingTests,
             existingSkills,
-            testDirectory,
             maxSteps: args.maxSteps,
         });
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

@@ -7,7 +7,6 @@
         ".": "./src/index.ts",
         "./prepare-runs": "./src/callbacks/trigger-tests.ts",
         "./run-diffs-locally": "./src/run-diffs-locally.ts",
-        "./test-directory": "./src/test-directory.ts",
         "./run-resolution-locally": "./src/run-resolution-locally.ts"
     },
     "scripts": {

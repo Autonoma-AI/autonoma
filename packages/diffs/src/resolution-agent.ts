@@ -1,9 +1,9 @@
 import { extractMessages } from "@autonoma/ai";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
+import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
 import type { FlowIndex } from "./flow-index";
 import type { ScenarioIndex } from "./scenario-index";
-import type { TestDirectory } from "./test-directory";
 import {
     buildCodebaseTools,
     buildResolutionActionTools,
@@ -44,6 +44,8 @@ export interface ResolutionAgentInput {
     verdicts: RunReviewVerdict[];
     step1Reasoning: string;
     testCandidates: TestCandidateInput[];
+    existingTests: ExistingTestInfo[];
+    existingSkills: ExistingSkillInfo[];
 }
 
 export { type ResolutionAgentResult } from "./tools/resolution-finish-tool";
@@ -57,7 +59,6 @@ export interface ResolutionAgentConfig {
     workingDirectory: string;
     flowIndex: FlowIndex;
     scenarioIndex: ScenarioIndex;
-    testDirectory: TestDirectory;
     maxSteps?: number;
 }
 
@@ -73,7 +74,7 @@ export class ResolutionAgent {
         const failedSlugs = new Set(input.verdicts.map((v) => v.testSlug));
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(prompt, failedSlugs);
+            const attemptResult = await this.runAgent(prompt, failedSlugs, input.existingTests, input.existingSkills);
 
             const hasReasoning = attemptResult.reasoning.trim().length > 0;
             if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
@@ -91,8 +92,13 @@ export class ResolutionAgent {
         };
     }
 
-    private async runAgent(prompt: string, failedSlugs: Set<string>): Promise<ResolutionAgentResult> {
-        const { model, workingDirectory, flowIndex, scenarioIndex, testDirectory, maxSteps = 50 } = this.config;
+    private async runAgent(
+        prompt: string,
+        failedSlugs: Set<string>,
+        existingTests: ExistingTestInfo[],
+        existingSkills: ExistingSkillInfo[],
+    ): Promise<ResolutionAgentResult> {
+        const { model, workingDirectory, flowIndex, scenarioIndex, maxSteps = 50 } = this.config;
 
         let result: ResolutionAgentFinishOutput | undefined;
         const collector: ResolutionResultCollector = {
@@ -107,7 +113,7 @@ export class ResolutionAgent {
             instructions: SYSTEM_PROMPT,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
-                ...buildTestInteractionTools(flowIndex, testDirectory),
+                ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
                 ...buildScenarioTools(scenarioIndex),
                 ...buildResolutionActionTools(collector, failedSlugs, flowIndex, scenarioIndex),
                 finish: buildResolutionFinishTool(

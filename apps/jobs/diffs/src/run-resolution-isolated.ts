@@ -31,7 +31,6 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { ResolutionAgentResult, RunReviewVerdict, ScenarioInfo, TestCandidateInput } from "@autonoma/diffs";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
-import { TestDirectory } from "@autonoma/diffs/test-directory";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readSkillFiles, readTestFiles } from "./isolated-utils";
 
@@ -108,15 +107,9 @@ async function run(args: CliArgs): Promise<void> {
     const { repoDir, tempDir } = await prepareRepo(args);
 
     try {
-        const testDirectory = await TestDirectory.create({
-            workingDirectory: repoDir,
-            tests: await readTestFiles(args.testsDir),
-            skills: await readSkillFiles(args.testsDir),
-        });
-
         const [existingTests, existingSkills] = await Promise.all([
-            testDirectory.readTests(),
-            testDirectory.readSkills(),
+            readTestFiles(args.testsDir),
+            readSkillFiles(args.testsDir),
         ]);
 
         const verdictsRaw = await readFile(args.verdicts, "utf-8");
@@ -138,7 +131,6 @@ async function run(args: CliArgs): Promise<void> {
             repoDir,
             existingTests,
             existingSkills,
-            testDirectory,
             verdicts,
             step1Reasoning,
             testCandidates,

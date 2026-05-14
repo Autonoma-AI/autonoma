@@ -9,14 +9,12 @@ import {
     type TestCandidateInput,
 } from "./resolution-agent";
 import { ScenarioIndex, type ScenarioInfo } from "./scenario-index";
-import type { TestDirectory } from "./test-directory";
 
 export interface LocalResolutionRunnerParams {
     model: LanguageModel;
     repoDir: string;
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
-    testDirectory: TestDirectory;
     verdicts: RunReviewVerdict[];
     step1Reasoning: string;
     testCandidates: TestCandidateInput[];
@@ -31,7 +29,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         repoDir,
         existingTests,
         existingSkills,
-        testDirectory,
         verdicts,
         step1Reasoning,
         testCandidates,
@@ -60,11 +57,10 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         workingDirectory: repoDir,
         flowIndex,
         scenarioIndex: new ScenarioIndex(scenarios ?? []),
-        testDirectory,
         maxSteps,
     });
 
-    const result = await agent.resolve({ verdicts, step1Reasoning, testCandidates });
+    const result = await agent.resolve({ verdicts, step1Reasoning, testCandidates, existingTests, existingSkills });
 
     logger.info("Resolution complete", {
         modifiedTests: result.modifiedTests.length,

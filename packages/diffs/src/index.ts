@@ -18,7 +18,6 @@ export {
     type AffectedTest,
 } from "./tools/mark-affected-test-tool";
 export type { TestCandidate } from "./tools/suggest-test-tool";
-export { TestDirectory } from "./test-directory";
 export { FlowIndex, type FlowInfo } from "./flow-index";
 export { ScenarioIndex, type ScenarioInfo, type ScenarioRecipe } from "./scenario-index";
 export {

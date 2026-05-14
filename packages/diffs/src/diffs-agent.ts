@@ -3,7 +3,6 @@ import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import { buildDiffAnalysis } from "./diff-analysis";
 import type { FlowIndex } from "./flow-index";
-import type { TestDirectory } from "./test-directory";
 import { buildActionTools, buildCodebaseTools, buildTestInteractionTools } from "./tools/codebase-tools";
 import {
     type DiffsAgentFinishOutput,
@@ -85,7 +84,6 @@ export interface DiffsAgentConfig {
     model: LanguageModel;
     workingDirectory: string;
     flowIndex: FlowIndex;
-    testDirectory: TestDirectory;
     maxSteps?: number;
 }
 
@@ -117,7 +115,13 @@ export class DiffsAgent {
         const preClassifiedConflicts = input.preClassifiedConflicts ?? [];
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(prompt, validSlugs, preClassifiedConflicts);
+            const attemptResult = await this.runAgent(
+                prompt,
+                validSlugs,
+                preClassifiedConflicts,
+                input.existingTests,
+                input.existingSkills,
+            );
 
             const hasReasoning = attemptResult.reasoning.trim().length > 0;
             if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
@@ -137,8 +141,10 @@ export class DiffsAgent {
         prompt: string,
         validSlugs: Set<string>,
         preClassifiedConflicts: PreClassifiedConflictInfo[],
+        existingTests: ExistingTestInfo[],
+        existingSkills: ExistingSkillInfo[],
     ): Promise<DiffsAgentResult> {
-        const { model, workingDirectory, flowIndex, testDirectory, maxSteps = 50 } = this.config;
+        const { model, workingDirectory, flowIndex, maxSteps = 50 } = this.config;
 
         let result: DiffsAgentFinishOutput | undefined;
         const collector: ResultCollector = {
@@ -157,7 +163,7 @@ export class DiffsAgent {
             instructions: SYSTEM_PROMPT,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
-                ...buildTestInteractionTools(flowIndex, testDirectory),
+                ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
                 ...buildActionTools(collector, validSlugs, validConflictSlugs),
                 finish: buildFinishTool((output) => {
                     result = output;
