@@ -1,4 +1,4 @@
-import type { LanguageModel } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, type LanguageModel } from "@autonoma/ai";
 import { external } from "@autonoma/errors";
 import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
@@ -170,6 +170,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         return new ToolLoopAgent({
             model: this.params.model,
             instructions: this.params.systemPrompt,
+            timeout: AI_REQUEST_TIMEOUT_MS,
             prepareStep: async (step) => {
                 this.stepResults = step.steps;
 

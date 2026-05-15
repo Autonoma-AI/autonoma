@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type LanguageModel, extractMessages } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, extractMessages } from "@autonoma/ai";
 import { buildCodebaseTools } from "@autonoma/codebase";
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -57,6 +57,7 @@ export class HealingAgent {
         const agent = new ToolLoopAgent({
             model: this.config.model,
             instructions: SYSTEM_PROMPT,
+            timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(input.codebase),
                 ...buildFindMatchingBugsTool(matcher),

@@ -1,4 +1,4 @@
-import { extractMessages } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
@@ -111,6 +111,7 @@ export class ResolutionAgent {
         const agent = new ToolLoopAgent({
             model,
             instructions: SYSTEM_PROMPT,
+            timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),

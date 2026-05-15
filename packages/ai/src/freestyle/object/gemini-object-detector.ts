@@ -2,6 +2,7 @@ import { external } from "@autonoma/errors";
 import { type ScreenResolution, Screenshot } from "@autonoma/image";
 import { Output, generateText } from "ai";
 import z from "zod";
+import { AI_REQUEST_TIMEOUT_MS } from "../../constants";
 import { buildMessages } from "../../object/build-messages";
 import { ObjectGenerationFailedError } from "../../object/object-generator";
 import type { LanguageModel } from "../../registry/model-registry";
@@ -79,6 +80,7 @@ export class GeminiObjectDetector extends ObjectDetector {
                     output: Output.object({
                         schema: geminiBoundingBoxResponseSchema,
                     }),
+                    timeout: AI_REQUEST_TIMEOUT_MS,
                 }),
             { wrapper: (error) => new ObjectGenerationFailedError(error) },
         );

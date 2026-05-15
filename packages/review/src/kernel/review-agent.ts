@@ -1,4 +1,4 @@
-import type { LanguageModel } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, type LanguageModel } from "@autonoma/ai";
 import { logger } from "@autonoma/logger";
 import { ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { ModelMessage, ToolSet } from "ai";
@@ -36,6 +36,7 @@ export async function runReviewAgent<TVerdict>(params: RunReviewAgentParams): Pr
         model,
         instructions: systemPrompt,
         tools,
+        timeout: AI_REQUEST_TIMEOUT_MS,
         stopWhen: [hasToolCall(verdictToolName), stepCountIs(maxSteps)],
         onStepFinish: (step) => {
             logger.info("Reviewer step finished", {

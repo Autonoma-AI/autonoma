@@ -2,6 +2,7 @@ import { external } from "@autonoma/errors";
 import type { ScreenResolution, Screenshot } from "@autonoma/image";
 import { Environment, type FunctionCall, GoogleGenAI } from "@google/genai";
 import z from "zod";
+import { AI_REQUEST_TIMEOUT_MS } from "../../constants";
 import { env } from "../../env";
 import { GeminiModelRequestFailedError } from "../object/gemini-object-detector";
 import { PointDetector } from "./point-detector";
@@ -116,6 +117,7 @@ export class GeminiComputerUseModel {
                     ],
                     config: {
                         systemInstruction: this.systemPrompt,
+                        abortSignal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
                         tools: [
                             {
                                 computerUse: {

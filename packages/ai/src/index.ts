@@ -11,6 +11,7 @@ export { simpleCostFunction, inputCacheCostFunction } from "./registry/costs";
 export type { ModelUsage } from "./registry/usage";
 export { CostCollector, type CostRecord } from "./registry/cost-collector";
 
+export { AI_REQUEST_TIMEOUT_MS } from "./constants";
 export { ObjectGenerator, ObjectGenerationFailedError } from "./object/object-generator";
 export { extractMessages, buildMessages } from "./object/build-messages";
 export {

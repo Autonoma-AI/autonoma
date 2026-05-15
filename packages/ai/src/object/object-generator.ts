@@ -1,6 +1,7 @@
 import { external } from "@autonoma/errors";
 import { Output, type ToolSet, generateText, stepCountIs } from "ai";
 import type z from "zod";
+import { AI_REQUEST_TIMEOUT_MS } from "../constants";
 import type { LanguageModel } from "../registry/model-registry";
 import { type ObjectGenerationParams, buildMessages } from "./build-messages";
 import { type RetryConfig, buildRetry } from "./retry";
@@ -41,6 +42,7 @@ export class ObjectGenerator<TResult> {
                 output: Output.object({ schema }),
                 messages: buildMessages(params),
                 maxRetries: 0,
+                timeout: AI_REQUEST_TIMEOUT_MS,
                 experimental_telemetry: { isEnabled: true },
                 ...(tools && { tools, stopWhen: stepCountIs(5) }),
             });

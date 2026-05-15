@@ -9,6 +9,8 @@ export interface RetryConfig {
     maxRetries: number;
     initialDelayInMs: number;
     backoffFactor: number;
+    /** Cap on the delay between retries. Defaults to 10 seconds. */
+    maxDelayInMs?: number;
 }
 
 /**
@@ -54,6 +56,7 @@ export function buildRetry({
     maxRetries = 5,
     initialDelayInMs = 100,
     backoffFactor = 2,
+    maxDelayInMs = 10_000,
 }: RetryConfig): <T>(operation: () => Promise<T>) => Promise<T> {
     return async (operation) => {
         let delay = initialDelayInMs;
@@ -67,7 +70,7 @@ export function buildRetry({
                 // If we've retried the max number of times, throw the error
                 if (i === maxRetries) throw error;
 
-                let currentDelay = delay;
+                let currentDelay = Math.min(delay, maxDelayInMs);
 
                 // Check if the error is due to a rate limit and respect retry headers
                 if (APICallError.isInstance(error)) {

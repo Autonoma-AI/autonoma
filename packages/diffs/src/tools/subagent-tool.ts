@@ -1,3 +1,4 @@
+import { AI_REQUEST_TIMEOUT_MS } from "@autonoma/ai";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { buildBashTool } from "./bash-tool";
@@ -53,6 +54,7 @@ export function buildSubagentTool(model: LanguageModel, workingDirectory: string
             const subagent = new ToolLoopAgent({
                 model,
                 instructions: SUBAGENT_SYSTEM_PROMPT,
+                timeout: AI_REQUEST_TIMEOUT_MS,
                 tools: {
                     ...buildSubagentTools(workingDirectory),
                     finish: tool({
