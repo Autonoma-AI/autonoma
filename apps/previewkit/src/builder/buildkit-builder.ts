@@ -48,7 +48,7 @@ export class BuildKitBuilder implements Builder {
      * for fast subsequent builds of the same app.
      */
     private buildCacheArgs(cacheKey: string): string[] {
-        const common = `type=s3,region=${this.storage.region},bucket=${this.storage.bucket},name=${cacheKey}`;
+        const common = `type=s3,region=${this.storage.region},bucket=${this.storage.bucket},name=${cacheKey},blobs_prefix=buildctl/blobs,manifests_prefix=buildctl/manifests`;
         return ["--import-cache", common, "--export-cache", `${common},mode=max`];
     }
 
