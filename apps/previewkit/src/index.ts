@@ -52,6 +52,7 @@ const storage = S3Storage.createFromEnv();
 // each writes under a distinct top-level key prefix so they can coexist.
 const builder = new BuildKitBuilder({
     buildkitHost: env.BUILDKIT_HOST,
+    buildTimeoutMs: env.BUILD_TIMEOUT_MS,
     storage,
 });
 

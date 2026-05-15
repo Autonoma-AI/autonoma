@@ -19,6 +19,7 @@ export const env = createEnv({
 
         // BuildKit
         BUILDKIT_HOST: z.string().default("tcp://buildkitd.previewkit.svc.cluster.local:1234"),
+        BUILD_TIMEOUT_MS: z.coerce.number().default(1_800_000), // 30 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
         // ACM wildcard certs only match a single leftmost label, so hostnames

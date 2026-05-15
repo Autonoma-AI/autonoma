@@ -19,6 +19,10 @@
             "type": "string",
             "description": "Override the container registry used for built images."
         },
+        "config": {
+            "$ref": "#/definitions/configBlock",
+            "description": "Top-level Preview Kit configuration."
+        },
         "apps": {
             "type": "array",
             "minItems": 1,
@@ -63,6 +67,51 @@
                     "type": "string",
                     "default": "256Mi",
                     "description": "Memory request (e.g. 128Mi, 1Gi)."
+                }
+            }
+        },
+        "repoDependency": {
+            "type": "object",
+            "required": ["name", "repo"],
+            "additionalProperties": false,
+            "description": "A backend repository this preview depends on. Its URL is available as {{name.url}} in app env vars.",
+            "properties": {
+                "name": {
+                    "$ref": "#/definitions/k8sName",
+                    "description": "Alias for this repo. Used in env var templates as {{name.url}}."
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Full repository name in 'org/repo-name' format (e.g. 'autonoma/agent-api')."
+                },
+                "fallback_branch": {
+                    "type": "string",
+                    "default": "main",
+                    "description": "Branch whose ready environment to use as the backend URL."
+                }
+            }
+        },
+        "multirepoConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Multi-repo preview configuration. Declares backend repos this frontend depends on.",
+            "properties": {
+                "repos": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Backend repos to inject as URLs. Reference them in app env vars via {{name.url}}.",
+                    "items": { "$ref": "#/definitions/repoDependency" }
+                }
+            }
+        },
+        "configBlock": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Top-level Preview Kit configuration options.",
+            "properties": {
+                "multirepo": {
+                    "$ref": "#/definitions/multirepoConfig",
+                    "description": "Multi-repo preview configuration."
                 }
             }
         },

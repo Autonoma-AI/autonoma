@@ -32,6 +32,20 @@ const serviceSchema = z.object({
     resources: resourcesSchema,
 });
 
+const repoDependencySchema = z.object({
+    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+    repo: z.string(),
+    fallback_branch: z.string().default("main"),
+});
+
+const multirepoConfigSchema = z.object({
+    repos: z.array(repoDependencySchema).default([]),
+});
+
+const configSchema = z.object({
+    multirepo: multirepoConfigSchema.optional(),
+});
+
 const hookStepSchema = z.object({
     app: z.string(),
     command: z.string(),
@@ -47,6 +61,7 @@ export const previewConfigSchema = z.object({
     version: z.literal(1),
     domain: z.string().optional(),
     registry: z.string().optional(),
+    config: configSchema.optional(),
     apps: z.array(appSchema).min(1, "At least one app is required"),
     services: z.array(serviceSchema).default([]),
     hooks: hooksSchema,
@@ -56,3 +71,5 @@ export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = z.infer<typeof appSchema>;
 export type ServiceConfig = z.infer<typeof serviceSchema>;
 export type HookStep = z.infer<typeof hookStepSchema>;
+export type RepoDependency = z.infer<typeof repoDependencySchema>;
+export type MultirepoConfig = z.infer<typeof multirepoConfigSchema>;

@@ -186,8 +186,8 @@ export class Deployer {
             .toLowerCase()
             .replace(/[^a-z0-9-]/g, "-")
             .replace(/-+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 20);
+            .slice(0, 20)
+            .replace(/^-+|-+$/g, "");
     }
 
     async teardown(repoFullName: string, prNumber: number): Promise<void> {

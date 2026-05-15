@@ -4,7 +4,7 @@ import path from "node:path";
 import { db } from "@autonoma/db";
 import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
-import type { PreviewConfig } from "../config/schema";
+import type { PreviewConfig, RepoDependency } from "../config/schema";
 import {
     isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
@@ -25,6 +25,12 @@ interface AppBuildResult {
     imageTag: string;
     durationMs: number;
     logUrl: string;
+}
+
+interface BackendEntry {
+    dep: RepoDependency;
+    config: PreviewConfig;
+    tmpDir: string;
 }
 
 interface PreviewPipelineOptions {
@@ -78,8 +84,8 @@ export class PreviewPipeline {
         // 2. Check that the repo opted in to Previewkit before we touch anything.
         //    A missing `.preview.yaml` is the second normal opt-out signal — repos
         //    linked to an Application but not yet using Previewkit skip cleanly.
-        const config = await loadPreviewConfig(this.provider, repoFullName, headSha);
-        if (config == null) {
+        const frontendConfig = await loadPreviewConfig(this.provider, repoFullName, headSha);
+        if (frontendConfig == null) {
             logger.warn("No .preview.yaml found at ref; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -121,7 +127,6 @@ export class PreviewPipeline {
             phase: "initializing",
         });
 
-        // 3b. Record environment created in the DB (best-effort).
         await recordSafe(() =>
             recordEnvironmentCreated({
                 repoFullName,
@@ -134,27 +139,54 @@ export class PreviewPipeline {
             }),
         );
 
-        let tmpDir: string | undefined;
+        let frontendDir: string | undefined;
+        let backendEntries: BackendEntry[] = [];
 
         try {
-            // 4. Clone repo (config was already loaded above as the opt-in check).
+            // 5. Clone frontend repo and all backend repos in parallel.
             await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
-            tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
-            await this.cloneRepo(event, tmpDir);
+            frontendDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
+            const backendDeps = frontendConfig.config?.multirepo?.repos ?? [];
+            const [backendResults] = await Promise.all([
+                Promise.all(backendDeps.map((dep) => this.cloneBackendRepo(dep, prNumber))),
+                this.provider.fetchRepoTarball(repoFullName, headSha, frontendDir),
+            ]);
+            backendEntries = backendResults.filter((e): e is BackendEntry => e != null);
 
-            // 6. Load stored secrets per app (baseline owner+app merged with PR-scoped overrides)
-            const owner = repoFullName.split("/")[0]!;
+            // 6. Merge all configs into a single config for building and deploying.
+            const mergedConfig = this.mergeConfigs(frontendConfig, backendEntries);
+
+            // 7. Build appRepoDirs: maps each app name to the directory it should be built from.
+            const appRepoDirs = new Map<string, string>();
+            for (const app of frontendConfig.apps) {
+                appRepoDirs.set(app.name, frontendDir);
+            }
+            for (const entry of backendEntries) {
+                for (const app of entry.config.apps) {
+                    appRepoDirs.set(app.name, entry.tmpDir);
+                }
+            }
+
+            // 8. Load stored secrets per app, using the correct org owner for each repo.
+            const frontendOwner = repoFullName.split("/")[0]!;
+            const appToOwner = new Map<string, string>();
+            for (const app of frontendConfig.apps) appToOwner.set(app.name, frontendOwner);
+            for (const entry of backendEntries) {
+                const backendOwner = entry.dep.repo.split("/")[0]!;
+                for (const app of entry.config.apps) appToOwner.set(app.name, backendOwner);
+            }
             const storedSecrets: Record<string, Record<string, string>> = {};
-            for (const app of config.apps) {
+            for (const app of mergedConfig.apps) {
+                const owner = appToOwner.get(app.name) ?? frontendOwner;
                 storedSecrets[app.name] = await this.secretStore.getMerged(owner, app.name, prNumber);
             }
 
-            // 7. Build all app images
+            // 9. Build all app images in parallel.
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
             const buildStart = Date.now();
             let appBuilds: Record<string, AppBuildResult>;
             try {
-                appBuilds = await this.buildAllApps(config, tmpDir, repoFullName, prNumber, shortSha);
+                appBuilds = await this.buildAllApps(mergedConfig, appRepoDirs, repoFullName, prNumber, shortSha);
             } catch (buildErr) {
                 await recordSafe(() =>
                     recordBuildFinished({
@@ -181,7 +213,7 @@ export class PreviewPipeline {
                 }),
             );
 
-            // 8. Deploy to Kubernetes respecting depends_on order
+            // 10. Deploy everything into one namespace, respecting depends_on order.
             await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-k8s");
             const result = await this.deployer.deploy({
                 repoFullName,
@@ -189,17 +221,17 @@ export class PreviewPipeline {
                 headSha,
                 organizationId,
                 githubRepositoryId,
-                config,
+                config: mergedConfig,
                 imageTags,
                 storedSecrets,
                 commentId,
             });
 
-            // 9. Run post-deploy hooks
+            // 11. Run post-deploy hooks
             await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
-            await this.runPostDeployHooks(config, result);
+            await this.runPostDeployHooks(mergedConfig, result);
 
-            // 10. Mark ready + record URLs
+            // 12. Mark ready + record URLs
             await this.deployer.updateStatus(repoFullName, prNumber, {
                 status: "ready",
                 phase: "ready",
@@ -209,20 +241,20 @@ export class PreviewPipeline {
                 recordEnvironmentReady({
                     namespace,
                     urls: result.urls,
-                    apps: toAppInstances(config.apps, imageTags),
+                    apps: toAppInstances(mergedConfig.apps, imageTags),
                 }),
             );
 
-            // 11. Update comment with preview URLs (skip if no comment was created)
+            // 13. Update comment with preview URLs (skip if no comment was created)
             if (feedbackEnabled && commentId !== "") {
                 await this.provider.updateComment(
                     repoFullName,
                     commentId,
-                    this.buildSuccessComment(prNumber, result, config),
+                    this.buildSuccessComment(prNumber, result, mergedConfig),
                 );
             }
 
-            // 12. Set commit status to success
+            // 14. Set commit status to success
             if (feedbackEnabled) {
                 const firstUrl = Object.values(result.urls)[0];
                 await this.provider.setCommitStatus(
@@ -270,21 +302,46 @@ export class PreviewPipeline {
 
             throw err;
         } finally {
-            if (tmpDir) {
-                await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-            }
+            const dirsToClean = [frontendDir, ...backendEntries.map((e) => e.tmpDir)].filter((d) => d != null);
+            await Promise.all(dirsToClean.map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
         }
     }
 
-    private async cloneRepo(event: PullRequestEvent, targetDir: string): Promise<void> {
-        // Pin the fetch to the exact head SHA, not the branch ref, so concurrent pushes
-        // never race the extraction.
-        await this.provider.fetchRepoTarball(event.repoFullName, event.headSha, targetDir);
+    // Fetches the .preview.yaml from a backend repo and clones it into a temp dir.
+    // Returns null if the repo has no .preview.yaml (opt-out — skip silently).
+    private async cloneBackendRepo(dep: RepoDependency, prNumber: number): Promise<BackendEntry | null> {
+        const config = await loadPreviewConfig(this.provider, dep.repo, dep.fallback_branch);
+        if (config == null) {
+            logger.warn("No .preview.yaml found for backend repo dependency, skipping", {
+                name: dep.name,
+                repo: dep.repo,
+                branch: dep.fallback_branch,
+            });
+            return null;
+        }
+        const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
+        await this.provider.fetchRepoTarball(dep.repo, dep.fallback_branch, tmpDir);
+        logger.info("Cloned backend repo", { name: dep.name, repo: dep.repo, branch: dep.fallback_branch });
+        return { dep, config, tmpDir };
+    }
+
+    private mergeConfigs(frontendConfig: PreviewConfig, backends: BackendEntry[]): PreviewConfig {
+        return {
+            ...frontendConfig,
+            apps: [...frontendConfig.apps, ...backends.flatMap((b) => b.config.apps)],
+            services: [...frontendConfig.services, ...backends.flatMap((b) => b.config.services)],
+            hooks: {
+                post_deploy: [
+                    ...frontendConfig.hooks.post_deploy,
+                    ...backends.flatMap((b) => b.config.hooks.post_deploy),
+                ],
+            },
+        };
     }
 
     private async buildAllApps(
         config: PreviewConfig,
-        repoDir: string,
+        appRepoDirs: Map<string, string>,
         repoFullName: string,
         prNumber: number,
         shortSha: string,
@@ -297,7 +354,9 @@ export class PreviewPipeline {
             config.apps.map(async (app) => {
                 const registry = config.registry ?? this.registryUrl;
                 const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
-                const contextPath = path.resolve(repoDir, app.path);
+                const dir = appRepoDirs.get(app.name);
+                if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
+                const contextPath = path.resolve(dir, app.path);
                 const cacheKey = `${org}/${repo}/${app.name}`;
 
                 const result = await this.builder.build({

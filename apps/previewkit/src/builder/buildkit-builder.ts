@@ -8,11 +8,11 @@ import { logger } from "../logger";
 import type { Builder, BuildRequest, BuildResult } from "./builder";
 import { EcrRegistryClient } from "./ecr-client";
 
-const BUILD_TIMEOUT = 600_000; // 10 minutes
 const LOG_KEY_PREFIX = "buildctl/logs";
 
 interface BuildKitBuilderOptions {
     buildkitHost: string;
+    buildTimeoutMs: number;
     storage: S3Storage;
 }
 
@@ -31,11 +31,13 @@ interface BuildKitBuilderOptions {
  */
 export class BuildKitBuilder implements Builder {
     private readonly buildkitHost: string;
+    private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
     private readonly storage: S3Storage;
 
     constructor(options: BuildKitBuilderOptions) {
         this.buildkitHost = options.buildkitHost;
+        this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
     }
@@ -245,7 +247,7 @@ export class BuildKitBuilder implements Builder {
 
             const child = spawn(command, args, {
                 env: { ...process.env, ...extraEnv },
-                timeout: BUILD_TIMEOUT,
+                timeout: this.buildTimeoutMs,
             });
 
             child.on("error", (err: NodeJS.ErrnoException) => {
@@ -259,7 +261,7 @@ export class BuildKitBuilder implements Builder {
 
             child.on("close", (code) => {
                 if (child.killed) {
-                    reject(new Error(`${command} timed out after ${BUILD_TIMEOUT / 1000}s`));
+                    reject(new Error(`${command} timed out after ${this.buildTimeoutMs / 1000}s`));
                 } else if (code === 0) {
                     resolvePromise();
                 } else {
