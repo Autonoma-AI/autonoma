@@ -285,6 +285,7 @@ export class PreviewPipeline {
                 const registry = config.registry ?? this.registryUrl;
                 const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
                 const contextPath = path.resolve(repoDir, app.path);
+                const cacheKey = `buildctl/cache/${org}/${repo}/${app.name}`;
 
                 const result = await this.builder.build({
                     appName: app.name,
@@ -292,6 +293,7 @@ export class PreviewPipeline {
                     dockerfile: app.dockerfile,
                     buildArgs: app.build_args,
                     imageTag,
+                    cacheKey,
                 });
 
                 return [

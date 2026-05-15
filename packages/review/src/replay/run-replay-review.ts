@@ -3,7 +3,7 @@ import { env as aiEnv } from "@autonoma/ai/env";
 import { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
-import { base64PrivateKey } from "@autonoma/github/env";
+import { base64PrivateKey } from "@autonoma/github/schemas";
 import { logger } from "@autonoma/logger";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { S3Storage } from "@autonoma/storage";

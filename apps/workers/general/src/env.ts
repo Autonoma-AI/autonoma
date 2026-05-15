@@ -1,4 +1,4 @@
-import { base64PrivateKey } from "@autonoma/github/env";
+import { base64PrivateKey } from "@autonoma/github/schemas";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";

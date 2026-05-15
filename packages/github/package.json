@@ -5,7 +5,7 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
-        "./env": "./src/env.ts"
+        "./schemas": "./src/schemas.ts"
     },
     "scripts": {
         "build": "tsc",

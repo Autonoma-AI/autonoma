@@ -33,6 +33,19 @@ function stripBucket(key: string, bucketName: string): string {
 export class S3Storage implements StorageProvider {
     private readonly s3: S3Client;
 
+    /** The bucket this provider writes to. Useful for callers that need to
+     *  emit downstream commands (e.g. BuildKit's S3 cache args) referencing
+     *  the same bucket as the upload destination. */
+    get bucket(): string {
+        return this.config.bucket;
+    }
+
+    /** The AWS region of the bucket. Paired with `bucket` for the same
+     *  reason. */
+    get region(): string {
+        return this.config.region;
+    }
+
     constructor(private readonly config: S3StorageConfig) {
         const clientConfig: S3ClientConfig = {
             region: this.config.region,

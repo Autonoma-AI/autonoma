@@ -3,21 +3,17 @@ import { createReadStream, createWriteStream, existsSync, type WriteStream } fro
 import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { StorageProvider } from "@autonoma/storage";
+import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
 import type { Builder, BuildRequest, BuildResult } from "./builder";
 import { EcrRegistryClient } from "./ecr-client";
 
 const BUILD_TIMEOUT = 600_000; // 10 minutes
-const LOG_KEY_PREFIX = "previewkit";
+const LOG_KEY_PREFIX = "buildctl/logs";
 
 interface BuildKitBuilderOptions {
     buildkitHost: string;
-    // Where combined stdout+stderr from buildctl/railpack is captured to a
-    // temp file and uploaded after each build (success or failure). Required —
-    // env validation (`@autonoma/storage/env`) guarantees S3 config at boot,
-    // so there's no "no storage" fallback.
-    storage: StorageProvider;
+    storage: S3Storage;
 }
 
 /**
@@ -34,14 +30,26 @@ interface BuildKitBuilderOptions {
  * the captured logs.
  */
 export class BuildKitBuilder implements Builder {
-    private buildkitHost: string;
+    private readonly buildkitHost: string;
     private ecr: EcrRegistryClient;
-    private storage: StorageProvider;
+    private readonly storage: S3Storage;
 
     constructor(options: BuildKitBuilderOptions) {
         this.buildkitHost = options.buildkitHost;
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
+    }
+
+    /**
+     * Returns the `--import-cache` + `--export-cache` argv pairs for this
+     * request, or an empty array when no cacheKey was supplied. Bucket +
+     * region are read off the shared S3Storage; `mode=max` exports all
+     * intermediate layers (not just the final image's), which is what we want
+     * for fast subsequent builds of the same app.
+     */
+    private buildCacheArgs(cacheKey: string): string[] {
+        const common = `type=s3,region=${this.storage.region},bucket=${this.storage.bucket},name=${cacheKey}`;
+        return ["--import-cache", common, "--export-cache", `${common},mode=max`];
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
@@ -147,6 +155,7 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
+                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             for (const [key, value] of Object.entries(request.buildArgs)) {
@@ -203,6 +212,7 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
+                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             for (const [key, value] of Object.entries(request.buildArgs)) {

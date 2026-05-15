@@ -49,7 +49,8 @@ const githubProvider = new GitHubProvider({
 // Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
 const storage = S3Storage.createFromEnv();
 
-// Builder
+// Builder. The BuildKit layer cache shares the storage bucket with build logs;
+// each writes under a distinct top-level key prefix so they can coexist.
 const builder = new BuildKitBuilder({
     buildkitHost: env.BUILDKIT_HOST,
     storage,

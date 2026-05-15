@@ -1,6 +1,6 @@
 import { env as billingEnv } from "@autonoma/billing/env";
 import { env as dbEnv } from "@autonoma/db/env";
-import { base64PrivateKey } from "@autonoma/github/env";
+import { base64PrivateKey } from "@autonoma/github/schemas";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
