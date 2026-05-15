@@ -17,7 +17,7 @@ export function buildReadTestTool(tests: ExistingTestInfo[]) {
             if (test == null) {
                 return { error: `Test "${slug}" not found.` };
             }
-            return { slug, name: test.name, instruction: test.prompt };
+            return { slug, name: test.name, instruction: test.prompt, quarantine: test.quarantine };
         },
     });
 }

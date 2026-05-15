@@ -76,7 +76,7 @@ function TestDetailPanel({ slug }: { slug: string }) {
 
   function handleRunTest() {
     runTest.mutate(
-      { testCaseId: test.id },
+      { testCaseId: test.id, snapshotId },
       {
         onSuccess: ({ runId }) => {
           void navigate({

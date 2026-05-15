@@ -16,9 +16,6 @@ export interface RunResolutionAgentParams {
     input: ResolutionAgentInput;
     db: PrismaClient;
     updater: TestSuiteUpdater;
-    snapshotId: string;
-    applicationId: string;
-    organizationId: string;
     repoDir: string;
     flowIndex: FlowIndex;
 }
@@ -36,9 +33,6 @@ export async function runResolutionAgent({
     input,
     db,
     updater,
-    snapshotId,
-    applicationId,
-    organizationId,
     repoDir,
     flowIndex,
 }: RunResolutionAgentParams): Promise<RunResolutionAgentResult> {
@@ -47,7 +41,7 @@ export async function runResolutionAgent({
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
 
-    const scenarioIndex = await loadScenarioIndex(db, applicationId);
+    const scenarioIndex = await loadScenarioIndex(db, updater.applicationId);
 
     const agent = new ResolutionAgent({
         model,
@@ -61,19 +55,13 @@ export async function runResolutionAgent({
     const result = await agent.resolve(input);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-    const callbacks = createResolutionCallbacks({
-        db,
-        updater,
-        snapshotId,
-        applicationId,
-        organizationId,
-    });
+    const callbacks = createResolutionCallbacks({ db, updater });
 
     const accepted: AcceptedCandidateLink[] = [];
 
     await Promise.all([
         ...result.modifiedTests.map((t) => callbacks.modifyTest(t.slug, t.newInstruction)),
-        ...result.quarantinedTests.map((t) => callbacks.quarantineTest(t.slug)),
+        ...result.removedTests.map((t) => callbacks.removeTest(t.slug)),
         ...result.reportedBugs.map((b) => callbacks.reportBug(b)),
         ...result.newTests.map(async (t) => {
             const { testCaseId } = await callbacks.addTest({
@@ -89,7 +77,7 @@ export async function runResolutionAgent({
     logger.info("Resolution agent complete", {
         elapsed: `${elapsed}s`,
         modifiedTests: result.modifiedTests.length,
-        quarantinedTests: result.quarantinedTests.length,
+        removedTests: result.removedTests.length,
         reportedBugs: result.reportedBugs.length,
         newTests: result.newTests.length,
         acceptedCandidates: accepted.length,

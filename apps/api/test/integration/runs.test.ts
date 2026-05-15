@@ -144,14 +144,15 @@ apiTestSuite({
             },
         });
 
-        return { application, testCase, assignment, stepOutputList, si0, si1, testCaseNoSteps };
+        return { application, testCase, assignment, stepOutputList, si0, si1, testCaseNoSteps, snapshotId };
     },
     cases: (test) => {
-        test("trigger creates a run and calls workflow", async ({ harness, seedResult: { testCase } }) => {
+        test("trigger creates a run and calls workflow", async ({ harness, seedResult: { testCase, snapshotId } }) => {
             harness.triggerWorkflow.mockClear();
 
             const result = await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             expect(result.runId).toBeDefined();
@@ -162,31 +163,40 @@ apiTestSuite({
             expect(run?.status).toBe("pending");
         });
 
-        test("trigger throws NOT_FOUND when test case does not exist", async ({ harness }) => {
+        test("trigger throws NOT_FOUND when test case does not exist", async ({
+            harness,
+            seedResult: { snapshotId },
+        }) => {
             await expect(
                 harness.request().runs.trigger({
                     testCaseId: "non-existent-id",
+                    snapshotId,
                 }),
             ).rejects.toThrowError();
         });
 
         test("trigger throws NOT_FOUND when test case has no steps", async ({
             harness,
-            seedResult: { testCaseNoSteps },
+            seedResult: { testCaseNoSteps, snapshotId },
         }) => {
             await expect(
                 harness.request().runs.trigger({
                     testCaseId: testCaseNoSteps.id,
+                    snapshotId,
                 }),
             ).rejects.toThrowError();
         });
 
-        test("trigger marks run as failed when workflow throws", async ({ harness, seedResult: { testCase } }) => {
+        test("trigger marks run as failed when workflow throws", async ({
+            harness,
+            seedResult: { testCase, snapshotId },
+        }) => {
             harness.triggerWorkflow.mockRejectedValueOnce(new Error("Temporal unavailable"));
 
             await expect(
                 harness.request().runs.trigger({
                     testCaseId: testCase.id,
+                    snapshotId,
                 }),
             ).rejects.toThrowError("Temporal unavailable");
 
@@ -197,21 +207,30 @@ apiTestSuite({
             expect(runs[0]?.status).toBe("failed");
         });
 
-        test("list returns all runs for the organization", async ({ harness, seedResult: { testCase } }) => {
+        test("list returns all runs for the organization", async ({
+            harness,
+            seedResult: { testCase, snapshotId },
+        }) => {
             await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
             await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             const runs = await harness.request().runs.list();
             expect(runs.length).toBeGreaterThanOrEqual(2);
         });
 
-        test("list filters by applicationId", async ({ harness, seedResult: { application, testCase } }) => {
+        test("list filters by applicationId", async ({
+            harness,
+            seedResult: { application, testCase, snapshotId },
+        }) => {
             await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             const all = await harness.request().runs.list();
@@ -223,9 +242,10 @@ apiTestSuite({
             expect(otherApp).toHaveLength(0);
         });
 
-        test("list returns correct shape", async ({ harness, seedResult: { testCase } }) => {
+        test("list returns correct shape", async ({ harness, seedResult: { testCase, snapshotId } }) => {
             const { runId } = await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             const runs = await harness.request().runs.list();
@@ -242,10 +262,11 @@ apiTestSuite({
 
         test("detail returns run with steps after completion", async ({
             harness,
-            seedResult: { testCase, stepOutputList },
+            seedResult: { testCase, stepOutputList, snapshotId },
         }) => {
             const { runId } = await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             // Simulate the run completing with output steps
@@ -279,10 +300,11 @@ apiTestSuite({
 
         test("detail returns null for run belonging to another organization", async ({
             harness,
-            seedResult: { testCase },
+            seedResult: { testCase, snapshotId },
         }) => {
             const { runId } = await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             const otherOrg = await harness.db.organization.create({
@@ -303,10 +325,11 @@ apiTestSuite({
 
         test("restart creates a new run, triggers workflow with new id, and leaves original run untouched", async ({
             harness,
-            seedResult: { testCase, stepOutputList },
+            seedResult: { testCase, stepOutputList, snapshotId },
         }) => {
             const { runId: originalRunId } = await harness.request().runs.trigger({
                 testCaseId: testCase.id,
+                snapshotId,
             });
 
             await harness.db.stepOutputList.update({
@@ -351,9 +374,57 @@ apiTestSuite({
             expect(preservedOutputs).not.toBeNull();
         });
 
+        test("trigger throws PRECONDITION_FAILED when test is quarantined for the snapshot", async ({
+            harness,
+            seedResult: { application, testCase, snapshotId },
+        }) => {
+            const bug = await harness.db.bug.create({
+                data: {
+                    title: "Login broken",
+                    description: "...",
+                    severity: "high",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+                select: { id: true },
+            });
+            const issue = await harness.db.issue.create({
+                data: {
+                    kind: "application_bug",
+                    severity: "high",
+                    title: "Login broken",
+                    description: "...",
+                    bugId: bug.id,
+                    organizationId: harness.organizationId,
+                },
+                select: { id: true },
+            });
+
+            await harness.db.testCaseAssignment.update({
+                where: { snapshotId_testCaseId: { snapshotId, testCaseId: testCase.id } },
+                data: { quarantineIssueId: issue.id, stepsId: null },
+            });
+
+            const runsBefore = await harness.db.run.count({
+                where: { assignment: { testCaseId: testCase.id, snapshotId } },
+            });
+
+            await expect(
+                harness.request().runs.trigger({
+                    testCaseId: testCase.id,
+                    snapshotId,
+                }),
+            ).rejects.toThrowError(/quarantined/i);
+
+            const runsAfter = await harness.db.run.count({
+                where: { assignment: { testCaseId: testCase.id, snapshotId } },
+            });
+            expect(runsAfter).toBe(runsBefore);
+        });
+
         test("trigger throws when test case belongs to another organization", async ({
             harness,
-            seedResult: { testCase },
+            seedResult: { testCase, snapshotId },
         }) => {
             const otherOrg = await harness.db.organization.create({
                 data: { name: "Other Org 2", slug: `other-org-2-${crypto.randomUUID()}` },
@@ -370,6 +441,7 @@ apiTestSuite({
             await expect(
                 harness.request(otherSession).runs.trigger({
                     testCaseId: testCase.id,
+                    snapshotId,
                 }),
             ).rejects.toThrowError();
         });

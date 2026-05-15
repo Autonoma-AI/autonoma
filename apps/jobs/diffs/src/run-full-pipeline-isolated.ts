@@ -238,7 +238,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
         logger.info("Step 4 complete", {
             modifiedTests: step4Result.modifiedTests.length,
-            quarantinedTests: step4Result.quarantinedTests.length,
+            removedTests: step4Result.removedTests.length,
             reportedBugs: step4Result.reportedBugs.length,
             newTests: step4Result.newTests.length,
         });
@@ -327,7 +327,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             },
             step4: {
                 modifiedTests: step4Result.modifiedTests.length,
-                quarantinedTests: step4Result.quarantinedTests.length,
+                removedTests: step4Result.removedTests.length,
                 reportedBugs: step4Result.reportedBugs.length,
                 newTests: step4Result.newTests.length,
             },

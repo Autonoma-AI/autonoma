@@ -4,6 +4,7 @@ import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { DiffsTimeline } from "components/snapshot/diffs-timeline";
 import type { DiffsJobStatus } from "components/snapshot/diffs-timeline-types";
+import { QuarantinedTestsSection } from "components/snapshot/quarantined-tests-section";
 import { ShaRange } from "components/snapshot/sha-range";
 import { formatDate } from "lib/format";
 import { ensureSnapshotDetailData, useSnapshotDetail } from "lib/query/branches.queries";
@@ -35,7 +36,7 @@ function SnapshotDetailPage() {
 
 function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   const { data } = useSnapshotDetail(snapshotId);
-  const { snapshot, changes, diffsJob } = data;
+  const { snapshot, changes, diffsJob, quarantinedTests } = data;
 
   return (
     <>
@@ -49,6 +50,8 @@ function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; sna
           <span className="text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
         </div>
       </PageHeader>
+
+      <QuarantinedTestsSection quarantinedTests={quarantinedTests} />
 
       <DiffsTimeline diffsJob={diffsJob} changes={changes} />
     </>

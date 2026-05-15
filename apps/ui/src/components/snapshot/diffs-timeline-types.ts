@@ -6,6 +6,7 @@ export type DiffsJobStatus = DiffsJob["status"];
 export type AffectedTest = DiffsJob["affectedTests"][number];
 export type TestCandidate = DiffsJob["testCandidates"][number];
 export type SnapshotChange = SnapshotDetail["changes"][number];
+export type QuarantinedTest = SnapshotDetail["quarantinedTests"][number];
 
 export const STAGE_KEYS = ["analysis", "replay", "resolution", "generation", "finalization"] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];

@@ -8,6 +8,7 @@ export {
     type MergeContextInfo,
     type PreClassifiedConflictInfo,
     type PreClassifiedConflictVersion,
+    type QuarantineInfo,
 } from "./diffs-agent";
 export type { DiffsAgentResult, ResultCollector } from "./tools/finish-tool";
 export {
@@ -34,7 +35,7 @@ export {
     type ResolutionCallbacks,
 } from "./callbacks/resolution-callbacks";
 export type { ModifiedTest } from "./tools/modify-test-tool";
-export type { QuarantinedTest } from "./tools/quarantine-test-tool";
+export type { RemovedTest } from "./tools/remove-test-tool";
 export type { ReportedBug } from "./tools/report-bug-tool";
 export type { GeneratedTest } from "./tools/add-test-tool";
 export {

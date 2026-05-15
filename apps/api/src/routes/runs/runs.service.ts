@@ -1,6 +1,6 @@
 import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { NotFoundError, TestQuarantinedError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { Architecture } from "@autonoma/types";
 import { type TriggerRunWorkflowParams, type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
@@ -34,8 +34,8 @@ export class RunsService extends Service {
         super();
     }
 
-    async triggerRun(testCaseId: string, organizationId: string) {
-        this.logger.info("Triggering run", { testCaseId, organizationId });
+    async triggerRun(testCaseId: string, snapshotId: string, organizationId: string) {
+        this.logger.info("Triggering run", { testCaseId, snapshotId, organizationId });
 
         const testCase = await this.db.testCase.findFirst({
             where: { id: testCaseId, organizationId },
@@ -46,9 +46,15 @@ export class RunsService extends Service {
         });
         if (testCase == null) throw new NotFoundError("Test case not found");
 
-        const assignment = await this.findAssignmentWithSteps(testCaseId, organizationId);
-        if (assignment == null)
-            throw new NotFoundError("No test case assignment with steps found - run a test generation first");
+        await this.ensureNotQuarantined(testCaseId, snapshotId);
+
+        const assignment = await this.db.testCaseAssignment.findUnique({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
+            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
+        });
+        if (assignment == null || assignment.stepsId == null) {
+            throw new NotFoundError("No steps for this test in this snapshot - run a generation first");
+        }
 
         await this.billingService.checkCreditsGate(organizationId, 1, testCase.application.architecture, "run");
 
@@ -277,6 +283,8 @@ export class RunsService extends Service {
                 planId: true,
                 assignment: {
                     select: {
+                        snapshotId: true,
+                        testCaseId: true,
                         planId: true,
                         plan: { select: { scenarioId: true } },
                         testCase: {
@@ -287,6 +295,8 @@ export class RunsService extends Service {
             },
         });
         if (run == null) throw new NotFoundError("Run not found");
+
+        await this.ensureNotQuarantined(run.assignment.testCaseId, run.assignment.snapshotId);
 
         const newRun = await this.db.run.create({
             data: {
@@ -341,53 +351,21 @@ export class RunsService extends Service {
         this.logger.info("Run deleted", { runId });
     }
 
-    private async findAssignmentWithSteps(testCaseId: string, organizationId: string) {
-        // Prefer assignment that already has stepsId set
-        const assignmentWithSteps = await this.db.testCaseAssignment.findFirst({
-            where: {
-                testCaseId,
-                testCase: { organizationId },
-                stepsId: { not: null },
+    /** Throws TestQuarantinedError if (snapshotId, testCaseId) is quarantined. */
+    private async ensureNotQuarantined(testCaseId: string, snapshotId: string) {
+        const assignment = await this.db.testCaseAssignment.findUnique({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
+            select: {
+                quarantineIssueId: true,
+                quarantineIssue: { select: { kind: true, bugId: true } },
             },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
         });
 
-        if (assignmentWithSteps != null) return assignmentWithSteps;
+        if (assignment?.quarantineIssue == null) return;
 
-        // Fall back: find any assignment and check if there's a generation with steps
-        const latestGeneration = await this.db.testGeneration.findFirst({
-            where: {
-                organizationId,
-                status: "success",
-                stepsId: { not: null },
-                testPlan: { testCaseId },
-            },
-            orderBy: { createdAt: "desc" },
-            select: { stepsId: true, testPlan: { select: { testCaseId: true, scenarioId: true } } },
+        throw new TestQuarantinedError(assignment.quarantineIssue.kind, {
+            bugId: assignment.quarantineIssue.bugId ?? undefined,
+            issueId: assignment.quarantineIssueId ?? undefined,
         });
-
-        if (latestGeneration?.stepsId == null) return null;
-
-        const assignment = await this.db.testCaseAssignment.findFirst({
-            where: { testCaseId, testCase: { organizationId } },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
-        });
-
-        if (assignment == null) return null;
-
-        // Update the assignment with the latest generation's steps
-        await this.db.testCaseAssignment.update({
-            where: { id: assignment.id },
-            data: { stepsId: latestGeneration.stepsId },
-        });
-
-        return {
-            id: assignment.id,
-            stepsId: latestGeneration.stepsId,
-            planId: assignment.planId,
-            plan: assignment.plan ?? { scenarioId: latestGeneration.testPlan.scenarioId },
-        };
     }
 }

@@ -73,9 +73,16 @@ export class ResolutionAgent {
     async resolve(input: ResolutionAgentInput): Promise<ResolutionAgentResult> {
         const prompt = buildPrompt(input);
         const failedSlugs = new Set(input.verdicts.map((v) => v.testSlug));
+        const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(prompt, failedSlugs, input.existingTests, input.existingSkills);
+            const attemptResult = await this.runAgent(
+                prompt,
+                failedSlugs,
+                quarantinedSlugs,
+                input.existingTests,
+                input.existingSkills,
+            );
 
             const hasReasoning = attemptResult.reasoning.trim().length > 0;
             if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
@@ -85,7 +92,7 @@ export class ResolutionAgent {
 
         return {
             modifiedTests: [],
-            quarantinedTests: [],
+            removedTests: [],
             reportedBugs: [],
             newTests: [],
             reasoning: `Resolution agent produced no reasoning after ${MAX_RETRIES} attempts`,
@@ -96,6 +103,7 @@ export class ResolutionAgent {
     private async runAgent(
         prompt: string,
         failedSlugs: Set<string>,
+        quarantinedSlugs: Set<string>,
         existingTests: ExistingTestInfo[],
         existingSkills: ExistingSkillInfo[],
     ): Promise<ResolutionAgentResult> {
@@ -104,7 +112,7 @@ export class ResolutionAgent {
         let result: ResolutionAgentFinishOutput | undefined;
         const collector: ResolutionResultCollector = {
             modifiedTests: [],
-            quarantinedTests: [],
+            removedTests: [],
             reportedBugs: [],
             newTests: [],
         };
@@ -117,7 +125,7 @@ export class ResolutionAgent {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
                 ...buildScenarioTools(scenarioIndex),
-                ...buildResolutionActionTools(collector, failedSlugs, flowIndex, scenarioIndex),
+                ...buildResolutionActionTools(collector, failedSlugs, quarantinedSlugs, flowIndex, scenarioIndex),
                 finish: buildResolutionFinishTool(
                     (output) => {
                         result = output;
@@ -164,7 +172,7 @@ export class ResolutionAgent {
         if (result == null) {
             return {
                 modifiedTests: collector.modifiedTests,
-                quarantinedTests: collector.quarantinedTests,
+                removedTests: collector.removedTests,
                 reportedBugs: collector.reportedBugs,
                 newTests: collector.newTests,
                 reasoning: "",
@@ -239,7 +247,7 @@ You MUST handle every failed test before calling \`finish\`. For each failed tes
 
 1. **\`modify_test\`** - For \`agent_error\` verdicts where the test instruction is stale (the UI/flow changed but the test wasn't updated). Explore the codebase to understand the current state, then rewrite the instruction.
 
-2. **\`quarantine_test\`** - For tests whose flow/feature has been completely removed from the application. The test is no longer valid and should be removed.
+2. **\`remove_test\`** - For tests whose flow/feature has been completely removed from the application. The test is no longer valid and should be removed from the suite.
 
 3. **\`report_bug\`** - For \`application_bug\` verdicts where the test is correct but found a real bug. Create a detailed bug report with codebase context.
 
@@ -256,7 +264,7 @@ When done, call \`finish\` with your overall reasoning.`;
 There are no test replay failures to resolve. Your job is to review the test candidates suggested by Step 1 and create the ones you agree with using \`add_test\`.
 
 - Use \`list_tests\`, \`read_test\`, and \`read_skill\` to explore existing tests and skills and avoid duplicating coverage.
-- Do not invent failures or call \`modify_test\`, \`quarantine_test\`, or \`report_bug\` - there are no failed tests in this run.
+- Do not invent failures or call \`modify_test\`, \`remove_test\`, or \`report_bug\` - there are no failed tests in this run.
 
 When done, call \`finish\` with your overall reasoning.`;
     }
@@ -270,7 +278,7 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 
 1. **Resolve stale tests (agent_error)**: When a test failed because its instruction is outdated, explore the codebase to understand the current UI/flow, then rewrite the test instruction using \`modify_test\`. The new instruction must accurately describe how to test the same behavior in the updated application.
 
-2. **Quarantine removed tests**: When a test covers functionality that has been completely removed from the application, use \`quarantine_test\` to remove it from the test suite. This is different from a stale test - the feature itself no longer exists.
+2. **Remove obsolete tests**: When a test covers functionality that has been completely removed from the application, use \`remove_test\` to take it out of the suite. This is different from a stale test - the feature itself no longer exists.
 
 3. **Report application bugs (application_bug)**: When a test correctly identified a real bug in the application, use \`report_bug\` to create a detailed report. Explore the codebase to find the root cause and suggest a fix.
 
@@ -278,7 +286,10 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 
 5. **Identify patterns**: Look across all verdicts for common failure causes. If multiple tests failed because the same navigation flow changed, explore the flow once and apply that understanding to all affected tests.
 
-## IMPORTANT: You MUST handle every failed test before calling \`finish\`. The finish tool will reject your call if any failed tests are unhandled. Each failed test must be addressed via \`modify_test\`, \`quarantine_test\`, or \`report_bug\`.
+## IMPORTANT: You MUST handle every failed test before calling \`finish\`. The finish tool will reject your call if any failed tests are unhandled. Each failed test must be addressed via \`modify_test\`, \`remove_test\`, or \`report_bug\`.
+
+## Quarantined tests
+A test is quarantined when its entry in \`list_tests\` or \`read_test\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests were excluded from replay so they will not appear among the failed verdicts. Treat each one as still owning coverage of its flow: do NOT propose a new test that duplicates that coverage, and do NOT call \`modify_test\` on a quarantined slug. There is no tool to clear a quarantine - that happens via manual review.
 
 ## Available Tools
 
@@ -290,8 +301,8 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
-- \`list_tests\`: list tests in a specific flow (folder)
-- \`read_test\`: read a test's full instruction by slug
+- \`list_tests\`: list tests in a specific flow (folder); each entry includes quarantine status
+- \`read_test\`: read a test's full instruction by slug, including quarantine status when set
 - \`read_skill\`: read a skill's full content by slug
 
 ### Scenarios
@@ -300,7 +311,7 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 
 ### Actions
 - \`modify_test\`: rewrite a stale test instruction (for agent_error verdicts)
-- \`quarantine_test\`: remove a test whose flow no longer exists
+- \`remove_test\`: remove a test from the suite whose flow no longer exists
 - \`report_bug\`: report an application bug with codebase context (for application_bug verdicts)
 - \`add_test\`: create a new test (from candidates or your own judgment). When accepting a Step 1 candidate, pass its id as \`acceptingCandidateId\` so the system can link the new test back to the candidate. Omit \`acceptingCandidateId\` for tests you invent that weren't proposed in Step 1.
 - \`finish\`: call when done resolving ALL failures
@@ -317,6 +328,6 @@ When creating a new test via \`add_test\`:
 ## Workflow
 1. Review all verdicts to identify patterns and group related failures
 2. For each group, explore the codebase to understand what changed
-3. Apply the appropriate action for each failure (modify_test, quarantine_test, or report_bug)
+3. Apply the appropriate action for each failure (modify_test, remove_test, or report_bug)
 4. For test candidates from Step 1 you agree with, decide whether they need a scenario (list/read scenarios if so), then call \`add_test\`
 5. Call \`finish\` with your overall reasoning - all failed tests must be handled first`;

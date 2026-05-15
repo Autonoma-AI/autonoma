@@ -3,9 +3,9 @@ import { protectedProcedure, router } from "../../trpc";
 
 export const runsRouter = router({
     trigger: protectedProcedure
-        .input(z.object({ testCaseId: z.string() }))
+        .input(z.object({ testCaseId: z.string(), snapshotId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.runs.triggerRun(input.testCaseId, organizationId),
+            services.runs.triggerRun(input.testCaseId, input.snapshotId, organizationId),
         ),
 
     list: protectedProcedure

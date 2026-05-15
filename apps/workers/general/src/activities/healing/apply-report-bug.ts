@@ -1,13 +1,13 @@
 import type { BugStatus, Prisma } from "@autonoma/db";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { QuarantineTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { markActionApplied } from "./mark-applied";
 import type { ApplyReportBugInput } from "./types";
 
 /**
- * Atomic: creates an Issue, links to or creates a Bug + evidence row, and
- * quarantines the test case for this snapshot.
+ * Creates an Issue, links to or creates a Bug + evidence row, and quarantines
+ * the test case for this snapshot.
  *
  * - matchedBugId set: link the Issue to the existing Bug, upsert evidence
  *   (firstSeenAt preserved, lastSeenAt = now), flip Bug.status to "regressed"
@@ -23,21 +23,19 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
     });
     logger.info("Applying report_bug");
 
-    // Resolve snapshot-level metadata via TestSuiteUpdater so the transaction
-    // below doesn't need to re-do the snapshot -> branch -> application join.
     const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
         db,
         snapshotId: input.snapshotId,
         organizationId: input.organizationId,
     });
 
-    await db.$transaction(async (tx) => {
+    const issueId = await db.$transaction(async (tx) => {
         const bugId =
             input.matchedBugId != null
                 ? await linkExistingBug(tx, input.matchedBugId, input)
                 : await createNewBug(tx, input, updater.applicationId);
 
-        await tx.issue.create({
+        const issue = await tx.issue.create({
             data: {
                 ...input.reviewLink,
                 kind: "application_bug",
@@ -47,18 +45,13 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
                 bugId,
                 organizationId: input.organizationId,
             },
+            select: { id: true },
         });
 
-        await tx.testCaseQuarantine.create({
-            data: {
-                snapshotId: input.snapshotId,
-                testCaseId: input.testCaseId,
-                reason: "application_bug",
-                bugId,
-                organizationId: input.organizationId,
-            },
-        });
+        return issue.id;
     });
+
+    await updater.apply(new QuarantineTest({ testCaseId: input.testCaseId, issueId }));
 
     await markActionApplied(input.refinementActionId);
     logger.info("report_bug applied");

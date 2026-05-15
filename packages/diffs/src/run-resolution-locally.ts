@@ -80,7 +80,7 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
 
     logger.info("Resolution complete", {
         modifiedTests: result.modifiedTests.length,
-        quarantinedTests: result.quarantinedTests.length,
+        removedTests: result.removedTests.length,
         reportedBugs: result.reportedBugs.length,
         newTests: result.newTests.length,
     });

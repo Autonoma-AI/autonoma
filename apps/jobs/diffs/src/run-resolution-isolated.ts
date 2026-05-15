@@ -142,7 +142,7 @@ async function run(args: CliArgs): Promise<void> {
         logger.info("Run complete", {
             elapsed: `${elapsed}s`,
             modifiedTests: result.modifiedTests.length,
-            quarantinedTests: result.quarantinedTests.length,
+            removedTests: result.removedTests.length,
             reportedBugs: result.reportedBugs.length,
             newTests: result.newTests.length,
             modelUsage: registry.modelUsage,

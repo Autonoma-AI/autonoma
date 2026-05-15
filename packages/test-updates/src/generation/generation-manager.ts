@@ -17,6 +17,14 @@ export interface GenerationManagerParams {
     jobProvider?: GenerationProvider;
 }
 
+interface QuarantineSummary {
+    quarantineIssueId: string | null;
+    quarantineIssue: {
+        kind: "application_bug" | "engine_limitation";
+        bugId: string | null;
+    } | null;
+}
+
 interface SnapshotGeneration {
     id: string;
     status: GenerationStatus;
@@ -26,11 +34,27 @@ interface SnapshotGeneration {
     testPlan: {
         testCaseId: string;
         scenario: { id: string } | null;
-        testCase: { application: { architecture: string } };
+        testCase: {
+            application: { architecture: string };
+            assignments: QuarantineSummary[];
+        };
     };
 }
 
 const INCOMPLETE_STATUSES: GenerationStatus[] = ["pending", "queued", "running"];
+
+interface PendingGenerationWithQuarantine extends PendingGeneration {
+    quarantine: QuarantineSummary | undefined;
+}
+
+function stripQuarantineContext(gen: PendingGenerationWithQuarantine): PendingGeneration {
+    return {
+        testGenerationId: gen.testGenerationId,
+        planId: gen.planId,
+        scenarioId: gen.scenarioId,
+        architecture: gen.architecture,
+    };
+}
 
 abstract class DeploymentConfigurationError extends Error {
     abstract readonly userMessage: string;
@@ -212,7 +236,7 @@ export class GenerationManager {
      * an empty list.
      */
     async prepareGenerationQueue(): Promise<PendingGeneration[]> {
-        const pending = await this.getPendingGenerations();
+        const pending = await this.getPendingGenerationsWithContext();
 
         if (pending.length === 0) {
             this.logger.info("No pending generations to prepare");
@@ -220,16 +244,22 @@ export class GenerationManager {
         }
         this.logger.info("Preparing generation queue", { count: pending.length });
 
+        const allowed = await this.filterOutQuarantined(pending);
+        if (allowed.length === 0) {
+            this.logger.info("All pending generations were quarantined; nothing to queue");
+            return [];
+        }
+
         try {
-            await this.validateDeploymentForGenerations(pending);
+            await this.validateDeploymentForGenerations(allowed);
         } catch (error) {
             this.logger.fatal("Deployment validation failed", error, {
-                count: pending.length,
-                generationIds: pending.map((g) => g.testGenerationId),
+                count: allowed.length,
+                generationIds: allowed.map((g) => g.testGenerationId),
             });
 
             await this.markAsFailed(
-                pending.map((g) => g.testGenerationId),
+                allowed.map((g) => g.testGenerationId),
                 error instanceof DeploymentConfigurationError
                     ? error.userMessage
                     : "Unknown error. Contact the Autonoma team for help.",
@@ -238,11 +268,63 @@ export class GenerationManager {
             return [];
         }
 
-        await this.markAsQueued(pending.map((g) => g.testGenerationId));
+        await this.markAsQueued(allowed.map((g) => g.testGenerationId));
 
-        this.logger.info("Generation queue prepared", { count: pending.length });
+        this.logger.info("Generation queue prepared", { count: allowed.length });
 
-        return pending;
+        return allowed;
+    }
+
+    /**
+     * Excludes any pending generations whose test case is quarantined for this
+     * snapshot. Excluded generations are marked as failed with reasoning citing
+     * the linked Bug/Issue id.
+     */
+    private async filterOutQuarantined(
+        pending: ReadonlyArray<PendingGenerationWithQuarantine>,
+    ): Promise<PendingGeneration[]> {
+        const allowed: PendingGeneration[] = [];
+        const quarantined: { id: string; reasoning: string }[] = [];
+
+        for (const gen of pending) {
+            const issue = gen.quarantine?.quarantineIssue;
+            if (issue == null) {
+                allowed.push(stripQuarantineContext(gen));
+                continue;
+            }
+
+            const link =
+                issue.bugId != null ? `Bug ${issue.bugId}` : `Issue ${gen.quarantine?.quarantineIssueId ?? "?"}`;
+            quarantined.push({
+                id: gen.testGenerationId,
+                reasoning: `Quarantined: ${issue.kind} (${link})`,
+            });
+        }
+
+        if (quarantined.length > 0) {
+            this.logger.info("Skipping quarantined generations", {
+                count: quarantined.length,
+                generationIds: quarantined.map((g) => g.id),
+            });
+            await this.markEachAsFailed(quarantined);
+        }
+
+        return allowed;
+    }
+
+    /** Same as getPendingGenerations but also returns the assignment's quarantine state. */
+    private async getPendingGenerationsWithContext(): Promise<PendingGenerationWithQuarantine[]> {
+        const generations = await this.fetchGenerations();
+
+        return generations
+            .filter((gen) => gen.status === "pending")
+            .map((gen) => ({
+                testGenerationId: gen.id,
+                planId: gen.testPlanId,
+                scenarioId: gen.testPlan.scenario?.id,
+                architecture: gen.testPlan.testCase.application.architecture as WorkflowArchitecture,
+                quarantine: gen.testPlan.testCase.assignments[0],
+            }));
     }
 
     /**
@@ -294,6 +376,18 @@ export class GenerationManager {
             where: { id: { in: generationIds }, snapshotId: this.snapshotId },
             data: { status: "failed", reasoning },
         });
+    }
+
+    /** Marks each generation as failed with its own reasoning. */
+    private async markEachAsFailed(entries: ReadonlyArray<{ id: string; reasoning: string }>) {
+        await this.db.$transaction(
+            entries.map((entry) =>
+                this.db.testGeneration.update({
+                    where: { id: entry.id, snapshotId: this.snapshotId },
+                    data: { status: "failed", reasoning: entry.reasoning },
+                }),
+            ),
+        );
     }
 
     /** Marks the given generations as queued. */
@@ -369,7 +463,18 @@ export class GenerationManager {
                     select: {
                         testCaseId: true,
                         scenario: { select: { id: true } },
-                        testCase: { select: { application: { select: { architecture: true } } } },
+                        testCase: {
+                            select: {
+                                application: { select: { architecture: true } },
+                                assignments: {
+                                    where: { snapshotId: this.snapshotId },
+                                    select: {
+                                        quarantineIssueId: true,
+                                        quarantineIssue: { select: { kind: true, bugId: true } },
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },

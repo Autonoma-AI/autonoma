@@ -22,7 +22,11 @@ const markInputSchema = z.object({
     reasoning: z.string().describe("Why this test might be affected by the code changes"),
 });
 
-export function buildMarkAffectedTestTool(collector: { affectedTests: AffectedTest[] }, validSlugs: Set<string>) {
+export function buildMarkAffectedTestTool(
+    collector: { affectedTests: AffectedTest[] },
+    validSlugs: Set<string>,
+    quarantinedSlugs: Set<string>,
+) {
     return tool({
         description:
             "Mark an existing test as potentially affected by the code changes. " +
@@ -30,13 +34,21 @@ export function buildMarkAffectedTestTool(collector: { affectedTests: AffectedTe
             "renamed routes, modified validation logic, or deleted features. " +
             "The test will be run automatically after analysis completes. " +
             "You MUST use the exact slug from the Existing Tests list. " +
-            "Do NOT use this tool for pre-classified merge conflicts - use `explain_merge_conflict` for those.",
+            "Do NOT use this tool for pre-classified merge conflicts - use `explain_merge_conflict` for those. " +
+            "Do NOT use this tool for quarantined tests - they are excluded from replay.",
         inputSchema: markInputSchema,
         execute: async (input) => {
             if (!validSlugs.has(input.slug)) {
                 return {
                     success: false,
                     error: `Invalid slug "${input.slug}". Use one of the exact slugs from the Existing Tests list.`,
+                };
+            }
+
+            if (quarantinedSlugs.has(input.slug)) {
+                return {
+                    success: false,
+                    error: `Test "${input.slug}" is quarantined in this snapshot and is excluded from replay. Do not mark it affected.`,
                 };
             }
 

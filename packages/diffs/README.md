@@ -9,7 +9,7 @@ The `DiffsAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Given a diff summary
 1. Explores the actual patch using git commands (`bash`, `glob`, `grep`, `read_file`)
 2. Checks if any reusable skills (login, checkout, etc.) need updating
 3. Runs potentially affected tests via `run_test`
-4. Takes post-run actions per test: `modify_test`, `quarantine_test`, or `bug_found`
+4. Takes post-run actions per test: `modify_test`, `remove_test`, or `bug_found`
 5. Identifies new functionality with no test coverage and suggests new tests via `add_test`
 6. Calls `finish` with an overall reasoning summary
 
@@ -88,7 +88,7 @@ const result = await agent.analyze({
 
 // 4. Use results
 console.log(result.reasoning);
-console.log(result.testActions);    // modify or quarantine actions taken
+console.log(result.testActions);    // modify or remove actions taken
 console.log(result.bugReports);     // bugs introduced by the PR
 console.log(result.newTests);       // suggested new tests
 console.log(result.skillUpdates);   // skills that were updated
@@ -114,20 +114,20 @@ The agent has two categories of tools:
 |------|-------------|--------------|
 | `run_test` | Trigger test execution and wait for results | None |
 | `modify_test` | Update a test instruction to match new behavior | `run_test` |
-| `quarantine_test` | Quarantine a test whose flow was deleted | `run_test` |
+| `remove_test` | Remove a test from the suite when its flow was deleted | `run_test` |
 | `bug_found` | Report a bug introduced by the PR with a fix prompt | `run_test` |
 | `update_skill` | Update a skill's content | None |
 | `add_test` | Suggest a new test for uncovered functionality | None |
 | `finish` | End analysis with overall reasoning | None |
 
-Post-run tools (`modify_test`, `quarantine_test`, `bug_found`) enforce that `run_test` was called first for the given test slug.
+Post-run tools (`modify_test`, `remove_test`, `bug_found`) enforce that `run_test` was called first for the given test slug.
 
 ## Callbacks
 
 The `DiffsAgentCallbacks` interface decouples agent decisions from side effects. The `createCallbacks` factory wires them to real implementations:
 
 - `triggerTestsAndWait` - Triggers parallel test execution via Temporal workflows, polls for completion, returns results
-- `quarantineTest` - Quarantines obsolete tests (stub)
+- `removeTest` - Removes obsolete tests from the suite
 - `modifyTest` - Updates test instruction in the database via `TestSuiteUpdater`
 - `updateSkill` - Updates skill content in the database via `TestSuiteUpdater`
 - `reportBug` - Creates a GitHub issue on the repository via Octokit
@@ -154,7 +154,7 @@ src/
     subagent-tool.ts        # Spawns focused research subagents
     run-test-tool.ts        # Triggers test execution
     modify-test-tool.ts     # Modifies test instructions
-    quarantine-test-tool.ts # Quarantines deleted-flow tests
+    remove-test-tool.ts     # Removes tests whose flow no longer exists
     bug-found-tool.ts       # Reports bugs with fix prompts
     update-skill-tool.ts    # Updates skill content
     add-test-tool.ts        # Suggests new tests

@@ -296,6 +296,76 @@ testUpdateSuite({
             expect(summary[0]?.status).toBe("failed");
         });
 
+        test("prepareGenerationQueue: skips quarantined test cases and marks them failed with linked Bug id", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            const { draft, manager } = await harness.startDraftWithDeployment(organizationId, applicationId, {
+                jobProvider,
+            });
+
+            const { testCaseId: blockedTestCaseId, planId: blockedPlanId } = await draft.addTestCase({
+                folderId,
+                name: "Blocked test",
+                description: "Quarantined for application bug",
+                plan: "Plan A",
+            });
+            const { planId: allowedPlanId } = await draft.addTestCase({
+                folderId,
+                name: "Allowed test",
+                description: "Should still run",
+                plan: "Plan B",
+            });
+
+            const bug = await harness.db.bug.create({
+                data: {
+                    title: "Login broken",
+                    description: "...",
+                    severity: "high",
+                    applicationId,
+                    organizationId,
+                },
+                select: { id: true },
+            });
+            const issue = await harness.db.issue.create({
+                data: {
+                    kind: "application_bug",
+                    severity: "high",
+                    title: "Login broken",
+                    description: "...",
+                    bugId: bug.id,
+                    organizationId,
+                },
+                select: { id: true },
+            });
+
+            await harness.db.testCaseAssignment.update({
+                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: blockedTestCaseId } },
+                data: { quarantineIssueId: issue.id, stepsId: null },
+            });
+
+            await manager.addJob(blockedPlanId);
+            await manager.addJob(allowedPlanId);
+
+            const prepared = await manager.prepareGenerationQueue();
+
+            expect(prepared).toHaveLength(1);
+            expect(prepared[0]?.planId).toBe(allowedPlanId);
+
+            const summary = await manager.getGenerationSummary();
+            const blockedEntry = summary.find((s) => s.testCaseId === blockedTestCaseId);
+            expect(blockedEntry?.status).toBe("failed");
+
+            const blockedGen = await harness.db.testGeneration.findFirst({
+                where: { testPlanId: blockedPlanId, snapshotId: draft.snapshotId },
+                select: { reasoning: true },
+            });
+            expect(blockedGen?.reasoning).toContain("Quarantined");
+            expect(blockedGen?.reasoning).toContain("application_bug");
+            expect(blockedGen?.reasoning).toContain(bug.id);
+        });
+
         test("getGenerationSummary: picks the most recent generation when multiple coexist", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },

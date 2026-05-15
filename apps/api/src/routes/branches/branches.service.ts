@@ -221,6 +221,13 @@ export class BranchesService extends Service {
                         },
                     },
                 },
+                testCaseAssignments: {
+                    where: { quarantineIssueId: { not: null } },
+                    select: {
+                        testCase: { select: { id: true, name: true, slug: true } },
+                        quarantineIssue: { select: { id: true, kind: true, bugId: true } },
+                    },
+                },
             },
         });
 
@@ -228,11 +235,26 @@ export class BranchesService extends Service {
         if (snapshot.diffsJob == null) throw new NotFoundError("Snapshot has no diffs job");
 
         const { prInfo, ...branchRest } = snapshot.branch;
-        const { diffsJob, branch: _branch, ...snapshotRest } = snapshot;
+        const { diffsJob, branch: _branch, testCaseAssignments, ...snapshotRest } = snapshot;
         const flatSnapshot = {
             ...snapshotRest,
             branch: { ...branchRest, prNumber: prInfo?.prNumber },
         };
+
+        const quarantinedTests = testCaseAssignments
+            .filter(
+                (
+                    a,
+                ): a is typeof a & {
+                    quarantineIssue: NonNullable<typeof a.quarantineIssue>;
+                } => a.quarantineIssue != null,
+            )
+            .map((a) => ({
+                testCase: a.testCase,
+                reason: a.quarantineIssue.kind,
+                issueId: a.quarantineIssue.id,
+                bugId: a.quarantineIssue.bugId ?? undefined,
+            }));
 
         const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
 
@@ -264,7 +286,7 @@ export class BranchesService extends Service {
             })),
         };
 
-        return { snapshot: flatSnapshot, changes, diffsJob: diffsJobWithCandidateGens };
+        return { snapshot: flatSnapshot, changes, diffsJob: diffsJobWithCandidateGens, quarantinedTests };
     }
 
     async getActiveSnapshot(branchId: string, organizationId: string) {

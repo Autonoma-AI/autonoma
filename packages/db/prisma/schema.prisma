@@ -145,7 +145,6 @@ model Organization {
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
   testCandidates         TestCandidate[]
-  testCaseQuarantines    TestCaseQuarantine[]
   refinementLoops        RefinementLoop[]
 
   @@map("organization")
@@ -560,7 +559,6 @@ model BranchSnapshot {
 
   diffsJob            DiffsJob?
   issues              Issue[]
-  quarantinedTestCases TestCaseQuarantine[]
   refinementLoops     RefinementLoop[]
 
   @@index([branchId])
@@ -581,6 +579,12 @@ model TestCaseAssignment {
   plan    TestPlan?      @relation(fields: [planId], references: [id])
   stepsId String?        @map("steps_id")
   steps   StepInputList? @relation(fields: [stepsId], references: [id])
+
+  // The test is quarantined iff `quarantineIssue` is set. The Issue's `kind`
+  // is the reason; if it links a Bug, that's the source bug. Deleting the
+  // Issue un-quarantines the test (the FK goes null, the assignment stays).
+  quarantineIssueId String? @map("quarantine_issue_id")
+  quarantineIssue   Issue?  @relation(fields: [quarantineIssueId], references: [id], onDelete: SetNull)
 
   runs Run[]
 
@@ -624,7 +628,6 @@ model TestCase {
   assignments TestCaseAssignment[]
 
   bugEvidence  BugTestCaseEvidence[]
-  quarantines  TestCaseQuarantine[]
 
   affectedIn             AffectedTest[]
   acceptedFromCandidate  TestCandidate?
@@ -863,7 +866,7 @@ model Issue {
   bugId String? @map("bug_id")
   bug   Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
 
-  quarantines TestCaseQuarantine[]
+  quarantinedAssignments TestCaseAssignment[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -898,9 +901,8 @@ model Bug {
   lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
   resolvedAt  DateTime? @map("resolved_at")
 
-  evidence    BugTestCaseEvidence[]
-  issues      Issue[]
-  quarantines TestCaseQuarantine[]
+  evidence BugTestCaseEvidence[]
+  issues   Issue[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -927,41 +929,6 @@ model BugTestCaseEvidence {
   @@unique([bugId, testCaseId])
   @@index([testCaseId])
   @@map("bug_test_case_evidence")
-}
-
-// ─── Test Case Quarantine ────────────────────────────────────────────────────
-
-enum QuarantineReason {
-  application_bug
-  engine_limitation
-
-  @@map("quarantine_reason")
-}
-
-model TestCaseQuarantine {
-  id String @id @default(cuid())
-
-  snapshotId String         @map("snapshot_id")
-  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  testCaseId String   @map("test_case_id")
-  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-
-  reason QuarantineReason
-
-  bugId   String? @map("bug_id")
-  bug     Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
-  issueId String? @map("issue_id")
-  issue   Issue?  @relation(fields: [issueId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now()) @map("created_at")
-
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([snapshotId, testCaseId])
-  @@index([testCaseId])
-  @@map("test_case_quarantine")
 }
 
 // ─── Refinement Loop ─────────────────────────────────────────────────────────

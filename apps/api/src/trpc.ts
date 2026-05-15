@@ -6,6 +6,7 @@ import {
     InternalError,
     NotFoundError,
     SubscriptionGracePeriodExpiredError,
+    TestQuarantinedError,
 } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
@@ -25,6 +26,7 @@ const apiErrorToTrpcCode: Array<{ ctor: APIErrorCtor; code: TRPCErrorCode }> = [
     { ctor: InternalError, code: "INTERNAL_SERVER_ERROR" },
     { ctor: InsufficientCreditsError, code: "PRECONDITION_FAILED" },
     { ctor: SubscriptionGracePeriodExpiredError, code: "PRECONDITION_FAILED" },
+    { ctor: TestQuarantinedError, code: "PRECONDITION_FAILED" },
 ];
 
 const sentryMiddleware = t.middleware(Sentry.trpcMiddleware({ attachRpcInput: true }));

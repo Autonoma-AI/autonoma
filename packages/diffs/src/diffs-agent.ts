@@ -18,11 +18,19 @@ export interface DiffAnalysis {
     summary: string;
 }
 
+/** Quarantine metadata for a single test case in a single snapshot. */
+export interface QuarantineInfo {
+    reason: "application_bug" | "engine_limitation";
+    bugId?: string;
+    issueId?: string;
+}
+
 export interface ExistingTestInfo {
     id: string;
     name: string;
     slug: string;
     prompt: string;
+    quarantine?: QuarantineInfo;
 }
 
 export interface ExistingSkillInfo {
@@ -112,12 +120,14 @@ export class DiffsAgent {
             this.config.flowIndex,
         );
         const validSlugs = new Set(input.existingTests.map((t) => t.slug));
+        const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
         const preClassifiedConflicts = input.preClassifiedConflicts ?? [];
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             const attemptResult = await this.runAgent(
                 prompt,
                 validSlugs,
+                quarantinedSlugs,
                 preClassifiedConflicts,
                 input.existingTests,
                 input.existingSkills,
@@ -140,6 +150,7 @@ export class DiffsAgent {
     private async runAgent(
         prompt: string,
         validSlugs: Set<string>,
+        quarantinedSlugs: Set<string>,
         preClassifiedConflicts: PreClassifiedConflictInfo[],
         existingTests: ExistingTestInfo[],
         existingSkills: ExistingSkillInfo[],
@@ -165,7 +176,7 @@ export class DiffsAgent {
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
-                ...buildActionTools(collector, validSlugs, validConflictSlugs),
+                ...buildActionTools(collector, validSlugs, validConflictSlugs, quarantinedSlugs),
                 finish: buildFinishTool((output) => {
                     result = output;
                 }, collector),
@@ -309,6 +320,9 @@ Consider a test affected if the diff:
 
 Tests will be automatically run and reviewed after your analysis completes - you do not need to run them yourself.
 
+### Quarantined tests
+A test is quarantined when its entry in \`list_tests\` or \`read_test\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests are known-broken (either an application bug or an engine limitation) and are suppressed from replay. Do NOT mark them affected, and do NOT suggest a new test that duplicates the flow a quarantined test already covers - that flow is considered claimed even though the test cannot run.
+
 ## 2. Test Gap Detection
 Identify new functionality that has no test coverage. Use \`suggest_test\` for each new test that should be created. Focus on user-facing behavior introduced by the diff. These suggestions will be reviewed in a later step.
 
@@ -322,8 +336,8 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
-- \`list_tests\`: list tests in a specific flow (folder) - returns slugs and names
-- \`read_test\`: read a test's full instruction by slug
+- \`list_tests\`: list tests in a specific flow (folder) - returns slug, name, and quarantine status
+- \`read_test\`: read a test's full instruction by slug, including quarantine status when set
 - \`read_skill\`: read a skill's full content by slug
 
 ### Actions

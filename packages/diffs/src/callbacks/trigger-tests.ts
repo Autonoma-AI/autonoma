@@ -41,7 +41,6 @@ export async function prepareRuns(
     const { db, snapshotId, applicationId, organizationId, billingService } = params;
     const slugs = affectedTests.map((t) => t.slug);
 
-    // 1. Look up test cases by slug
     const testCases = await db.testCase.findMany({
         where: { slug: { in: slugs }, applicationId },
         select: {
@@ -49,6 +48,10 @@ export async function prepareRuns(
             name: true,
             slug: true,
             application: { select: { architecture: true } },
+            assignments: {
+                where: { snapshotId },
+                select: { quarantineIssueId: true },
+            },
         },
     });
 
@@ -72,6 +75,15 @@ export async function prepareRuns(
         const testCase = testCaseBySlug.get(affected.slug);
         if (testCase == null) {
             logger.warn("Test case not found for slug", { slug: affected.slug, applicationId });
+            continue;
+        }
+
+        if (testCase.assignments[0]?.quarantineIssueId != null) {
+            logger.warn("Skipping run for quarantined test", {
+                slug: affected.slug,
+                testCaseId: testCase.id,
+                snapshotId,
+            });
             continue;
         }
 

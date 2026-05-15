@@ -73,6 +73,7 @@ export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
             name: testCase.name,
             slug: testCase.slug,
             prompt: testCase.plan.prompt,
+            quarantine: testCase.quarantine,
         });
     }
 
@@ -140,6 +141,7 @@ export async function loadDiffsContext(
         existingTests: existingTests.length,
         existingSkills: existingSkills.length,
         flows: flows.length,
+        quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
     });
 
     return {

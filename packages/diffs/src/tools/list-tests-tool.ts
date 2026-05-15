@@ -23,7 +23,7 @@ export function buildListTestsTool(flowIndex: FlowIndex, tests: ExistingTestInfo
 
             const result = slugs.map((slug) => {
                 const test = testsBySlug.get(slug);
-                return { slug, name: test?.name ?? slug };
+                return { slug, name: test?.name ?? slug, quarantine: test?.quarantine };
             });
 
             return { flowName, tests: result, count: result.length };

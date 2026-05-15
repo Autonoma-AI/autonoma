@@ -1,23 +1,19 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
+import { QuarantineTest, type TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ReportedBug } from "../tools/report-bug-tool";
 
 interface ReportBugDeps {
     db: PrismaClient;
-    snapshotId: string;
-    applicationId: string;
-    organizationId: string;
+    updater: TestSuiteUpdater;
 }
 
 /**
- * Records a bug surfaced by the diff resolution agent. Atomic: creates an
- * Issue, creates a Bug (no deduplication - one Bug per call), records the
- * test case as evidence, and quarantines the test case in the given snapshot.
+ * Records a bug surfaced by the diff resolution agent. Creates a Bug
+ * (no deduplication - one Bug per call) and a linked Issue, then
+ * quarantines the test case.
  */
-export async function reportBug(
-    bug: ReportedBug,
-    { db, snapshotId, applicationId, organizationId }: ReportBugDeps,
-): Promise<void> {
+export async function reportBug(bug: ReportedBug, { db, updater }: ReportBugDeps): Promise<void> {
     logger.info("Reporting bug found in diff resolution", {
         runId: bug.runId,
         slug: bug.slug,
@@ -25,7 +21,7 @@ export async function reportBug(
     });
 
     const testCase = await db.testCase.findFirst({
-        where: { slug: bug.slug, applicationId },
+        where: { slug: bug.slug, applicationId: updater.applicationId },
         select: { id: true },
     });
 
@@ -44,14 +40,14 @@ export async function reportBug(
         return;
     }
 
-    await db.$transaction(async (tx) => {
+    const issueId = await db.$transaction(async (tx) => {
         const created = await tx.bug.create({
             data: {
                 title: bug.summary,
                 description: buildBugDescription(bug),
                 severity: "medium",
-                applicationId,
-                organizationId,
+                applicationId: updater.applicationId,
+                organizationId: updater.organizationId,
                 evidence: {
                     create: { testCaseId: testCase.id },
                 },
@@ -59,7 +55,7 @@ export async function reportBug(
             select: { id: true },
         });
 
-        await tx.issue.create({
+        const issue = await tx.issue.create({
             data: {
                 runReviewId: runReview.id,
                 kind: "application_bug",
@@ -67,20 +63,15 @@ export async function reportBug(
                 title: bug.summary,
                 description: buildBugDescription(bug),
                 bugId: created.id,
-                organizationId,
+                organizationId: updater.organizationId,
             },
+            select: { id: true },
         });
 
-        await tx.testCaseQuarantine.create({
-            data: {
-                snapshotId,
-                testCaseId: testCase.id,
-                reason: "application_bug",
-                bugId: created.id,
-                organizationId,
-            },
-        });
+        return issue.id;
     });
+
+    await updater.apply(new QuarantineTest({ testCaseId: testCase.id, issueId }));
 }
 
 function buildBugDescription(bug: ReportedBug): string {

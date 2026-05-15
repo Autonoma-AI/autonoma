@@ -13,11 +13,11 @@ import { buildListScenariosTool } from "./list-scenarios-tool";
 import { buildListTestsTool } from "./list-tests-tool";
 import { buildMarkAffectedTestTool } from "./mark-affected-test-tool";
 import { buildModifyTestTool } from "./modify-test-tool";
-import { buildQuarantineTestTool } from "./quarantine-test-tool";
 import { buildReadFileTool } from "./read-file-tool";
 import { buildReadScenarioTool } from "./read-scenario-tool";
 import { buildReadSkillTool } from "./read-skill-tool";
 import { buildReadTestTool } from "./read-test-tool";
+import { buildRemoveTestTool } from "./remove-test-tool";
 import { buildReportBugTool } from "./report-bug-tool";
 import type { ResolutionResultCollector } from "./resolution-finish-tool";
 import { buildSubagentTool } from "./subagent-tool";
@@ -33,9 +33,14 @@ export function buildCodebaseTools(model: LanguageModel, workingDirectory: strin
     };
 }
 
-export function buildActionTools(collector: ResultCollector, validSlugs: Set<string>, validConflictSlugs: Set<string>) {
+export function buildActionTools(
+    collector: ResultCollector,
+    validSlugs: Set<string>,
+    validConflictSlugs: Set<string>,
+    quarantinedSlugs: Set<string>,
+) {
     return {
-        mark_affected_test: buildMarkAffectedTestTool(collector, validSlugs),
+        mark_affected_test: buildMarkAffectedTestTool(collector, validSlugs, quarantinedSlugs),
         explain_merge_conflict: buildExplainMergeConflictTool(collector, validConflictSlugs),
         suggest_test: buildSuggestTestTool(collector),
     };
@@ -57,12 +62,13 @@ export function buildTestInteractionTools(
 export function buildResolutionActionTools(
     collector: ResolutionResultCollector,
     validSlugs: Set<string>,
+    quarantinedSlugs: Set<string>,
     flowIndex: FlowIndex,
     scenarioIndex: ScenarioIndex,
 ) {
     return {
-        modify_test: buildModifyTestTool(collector, validSlugs),
-        quarantine_test: buildQuarantineTestTool(collector, validSlugs),
+        modify_test: buildModifyTestTool(collector, validSlugs, quarantinedSlugs),
+        remove_test: buildRemoveTestTool(collector, validSlugs),
         report_bug: buildReportBugTool(collector),
         add_test: buildAddTestTool(collector, flowIndex, scenarioIndex),
     };

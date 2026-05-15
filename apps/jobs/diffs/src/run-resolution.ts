@@ -29,7 +29,17 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
                 testCaseId: true,
                 affectedReason: true,
                 runId: true,
-                testCase: { select: { id: true, name: true, slug: true } },
+                testCase: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        assignments: {
+                            where: { snapshotId },
+                            select: { quarantineIssueId: true },
+                        },
+                    },
+                },
                 run: {
                     select: {
                         id: true,
@@ -128,9 +138,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
                 },
                 db,
                 updater,
-                snapshotId,
-                applicationId: branchData.applicationId,
-                organizationId: branchData.organizationId,
                 repoDir,
                 flowIndex,
             });
@@ -176,7 +183,12 @@ type AffectedTestWithRun = {
     testCaseId: string;
     affectedReason: "code_change" | "merge_plan_imported" | "merge_conflict";
     runId: string | null;
-    testCase: { id: string; name: string; slug: string };
+    testCase: {
+        id: string;
+        name: string;
+        slug: string;
+        assignments: { quarantineIssueId: string | null }[];
+    };
     run: {
         id: string;
         status: string;
@@ -198,12 +210,18 @@ function buildVerdicts(
     const runsPassed: string[] = [];
     const runsActionable: string[] = [];
     const runsWithoutReview: string[] = [];
+    const runsQuarantined: string[] = [];
 
     for (const affected of affectedTests) {
         const run = affected.run;
         if (run == null) continue;
 
         const slug = affected.testCase.slug;
+
+        if (affected.testCase.assignments[0]?.quarantineIssueId != null) {
+            runsQuarantined.push(slug);
+            continue;
+        }
 
         if (run.status === "success") {
             runsPassed.push(slug);
@@ -236,6 +254,7 @@ function buildVerdicts(
         runsPassed,
         runsActionable,
         runsWithoutReview,
+        runsQuarantined,
     });
 
     return verdicts;

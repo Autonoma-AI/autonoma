@@ -23,6 +23,8 @@ export async function fetchTestSuiteInfo(db: PrismaClient, snapshotId: string) {
                     },
                 },
                 steps: { select: { id: true, list: true } },
+                quarantineIssueId: true,
+                quarantineIssue: { select: { kind: true, bugId: true } },
             },
         });
 
@@ -37,13 +39,21 @@ export async function fetchTestSuiteInfo(db: PrismaClient, snapshotId: string) {
         });
 
         return {
-            testCases: testCaseAssignments.map(({ testCase, plan, steps }) => ({
+            testCases: testCaseAssignments.map(({ testCase, plan, steps, quarantineIssueId, quarantineIssue }) => ({
                 id: testCase.id,
                 slug: testCase.slug,
                 name: testCase.name,
                 folderId: testCase.folderId,
                 plan,
                 steps,
+                quarantine:
+                    quarantineIssue != null
+                        ? {
+                              reason: quarantineIssue.kind,
+                              bugId: quarantineIssue.bugId ?? undefined,
+                              issueId: quarantineIssueId ?? undefined,
+                          }
+                        : undefined,
             })),
             skills: skillAssignments.map(({ skill, plan }) => ({
                 id: skill.id,

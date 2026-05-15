@@ -15,18 +15,30 @@ export interface ModifiedTestCollector {
     modifiedTests: ModifiedTest[];
 }
 
-export function buildModifyTestTool(collector: ModifiedTestCollector, validSlugs: Set<string>) {
+export function buildModifyTestTool(
+    collector: ModifiedTestCollector,
+    validSlugs: Set<string>,
+    quarantinedSlugs: Set<string>,
+) {
     return tool({
         description:
             "Rewrite a test instruction because the UI or flow it describes has changed. " +
             "Use this when the reviewer verdict is 'agent_error' - meaning the test instruction is stale, not that the application has a bug. " +
-            "You MUST explore the codebase first to understand the current state before writing the new instruction.",
+            "You MUST explore the codebase first to understand the current state before writing the new instruction. " +
+            "Do NOT use this tool on quarantined tests - their generation is gated and the change will be dead-weight.",
         inputSchema: modifyTestSchema,
         execute: async (input) => {
             if (!validSlugs.has(input.slug)) {
                 return {
                     success: false,
                     error: `Unknown test slug: ${input.slug}. Valid slugs: ${[...validSlugs].join(", ")}`,
+                };
+            }
+
+            if (quarantinedSlugs.has(input.slug)) {
+                return {
+                    success: false,
+                    error: `Test "${input.slug}" is quarantined in this snapshot. Modifying it has no effect because generation is gated for quarantined tests.`,
                 };
             }
 

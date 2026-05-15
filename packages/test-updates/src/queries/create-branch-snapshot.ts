@@ -87,6 +87,7 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
             testCaseId: true,
             planId: true,
             stepsId: true,
+            quarantineIssueId: true,
         },
     });
 
@@ -96,14 +97,19 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
         sourceSnapshotId,
         sourceKind,
         assignmentCount: assignments.length,
+        quarantinedAssignmentCount: assignments.filter((a) => a.quarantineIssueId != null).length,
     });
     await tx.testCaseAssignment.createMany({
-        data: assignments.map((a) => ({
-            snapshotId: targetSnapshotId,
-            testCaseId: a.testCaseId,
-            planId: a.planId ?? undefined,
-            stepsId: a.stepsId ?? undefined,
-        })),
+        data: assignments.map((a) => {
+            const isQuarantined = a.quarantineIssueId != null;
+            return {
+                snapshotId: targetSnapshotId,
+                testCaseId: a.testCaseId,
+                planId: a.planId ?? undefined,
+                stepsId: isQuarantined ? undefined : (a.stepsId ?? undefined),
+                quarantineIssueId: a.quarantineIssueId ?? undefined,
+            };
+        }),
     });
 }
 

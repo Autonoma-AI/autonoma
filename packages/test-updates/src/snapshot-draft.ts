@@ -510,6 +510,24 @@ export class SnapshotDraft {
         this.logger.info("Test case removed from snapshot", { testCaseId });
     }
 
+    /**
+     * Marks a test case as quarantined for this snapshot by linking it to the
+     * Issue that describes the failure, and clears its replay pointer. The
+     * Issue's `kind` is the quarantine reason; if it carries a `bugId`, that's
+     * the source Bug. Throws if no assignment exists for (snapshotId, testCaseId).
+     */
+    public async quarantineTestCase(testCaseId: string, issueId: string) {
+        this.logger.info("Quarantining test case", { testCaseId, issueId });
+        await this.db.testCaseAssignment.update({
+            where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
+            data: {
+                quarantineIssueId: issueId,
+                stepsId: null,
+            },
+        });
+        this.logger.info("Test case quarantined", { testCaseId, issueId });
+    }
+
     /** Adds a new skill to this snapshot with an initial plan. */
     public async addSkill({ name, description, plan }: AddSkillParams) {
         const slug = await this.generateSkillSlug(name);
