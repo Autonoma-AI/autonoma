@@ -47,6 +47,9 @@ export interface DeployOptions {
     prNumber: number;
     headSha: string;
     organizationId: string;
+    // GitHub-side numeric repo id. Used to find the Application row for
+    // Application-scoped resources (e.g. AWS Secrets Manager registrations).
+    githubRepositoryId: number;
     config: PreviewConfig;
     imageTags: Record<string, string>;
     storedSecrets: Record<string, Record<string, string>>;
@@ -84,7 +87,17 @@ export class Deployer {
     }
 
     private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, storedSecrets, commentId } = opts;
+        const {
+            repoFullName,
+            prNumber,
+            headSha,
+            organizationId,
+            githubRepositoryId,
+            config,
+            imageTags,
+            storedSecrets,
+            commentId,
+        } = opts;
         const domain = config.domain ?? this.domain;
 
         // 1. Create namespace
@@ -105,7 +118,7 @@ export class Deployer {
                 ? await this.awsExternalSecretManager.applyForNamespace(
                       organizationId,
                       namespace,
-                      repoFullName,
+                      githubRepositoryId,
                       appNames,
                   )
                 : new Map<string, string>();

@@ -136,7 +136,7 @@ githubHttpRouter.post("/webhook", async (ctx) => {
 
     let processingError: string | undefined;
     try {
-        await dispatchWebhookEvent(eventType, installationId, githubService, payload);
+        await dispatchWebhookEvent(eventType, installationId, organizationId, githubService, payload);
     } catch (error) {
         // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
         const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
@@ -154,6 +154,7 @@ githubHttpRouter.post("/webhook", async (ctx) => {
 async function dispatchWebhookEvent(
     type: GitHubWebhookEventType,
     installationId: number,
+    organizationId: string,
     githubService: GitHubInstallationService,
     payload: Record<string, unknown>,
 ): Promise<void> {
@@ -172,10 +173,10 @@ async function dispatchWebhookEvent(
         case "pull_request_opened":
         case "pull_request_synchronize":
         case "pull_request_reopened":
-            await forwardPullRequestToPreviewkit("deploy", payload);
+            await forwardPullRequestToPreviewkit("deploy", organizationId, payload);
             return;
         case "pull_request_closed":
-            await forwardPullRequestToPreviewkit("teardown", payload);
+            await forwardPullRequestToPreviewkit("teardown", organizationId, payload);
             return;
         default:
             return;
@@ -194,12 +195,14 @@ interface PullRequestPayload {
 }
 
 interface RepositoryPayload {
+    id: number;
     full_name: string;
     clone_url: string;
 }
 
 async function forwardPullRequestToPreviewkit(
     op: "deploy" | "teardown",
+    organizationId: string,
     payload: Record<string, unknown>,
 ): Promise<void> {
     if (env.PREVIEWKIT_URL == null) {
@@ -221,6 +224,8 @@ async function forwardPullRequestToPreviewkit(
         const body = {
             repoFullName: repo.full_name,
             prNumber: pr.number,
+            organizationId,
+            githubRepositoryId: repo.id,
             headSha: pr.head.sha,
             headRef: pr.head.ref,
             baseSha: pr.base.sha,
@@ -242,7 +247,11 @@ async function forwardPullRequestToPreviewkit(
     }
 
     const [owner, name] = repo.full_name.split("/");
-    const url = `${base}/v1/environments/${owner}/${name}/${pr.number}`;
+    const teardownQuery = new URLSearchParams({
+        organizationId,
+        githubRepositoryId: String(repo.id),
+    });
+    const url = `${base}/v1/environments/${owner}/${name}/${pr.number}?${teardownQuery.toString()}`;
     const res = await fetch(url, { method: "DELETE", signal: AbortSignal.timeout(10_000) });
     if (!res.ok && res.status !== 404) {
         const text = await res.text().catch(() => "");

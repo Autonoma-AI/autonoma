@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { db } from "@autonoma/db";
 import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { PreviewConfig } from "../config/schema";
@@ -19,7 +20,6 @@ import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import type { SecretStore } from "../secrets/secret-store";
-import type { OrganizationResolver } from "../tenancy/organization-resolver";
 
 interface AppBuildResult {
     imageTag: string;
@@ -32,7 +32,6 @@ interface PreviewPipelineOptions {
     builder: Builder;
     deployer: Deployer;
     secretStore: SecretStore;
-    organizationResolver: OrganizationResolver;
     registryUrl: string;
 }
 
@@ -41,7 +40,6 @@ export class PreviewPipeline {
     private builder: Builder;
     private deployer: Deployer;
     private secretStore: SecretStore;
-    private organizationResolver: OrganizationResolver;
     private registryUrl: string;
 
     constructor(options: PreviewPipelineOptions) {
@@ -49,23 +47,37 @@ export class PreviewPipeline {
         this.builder = options.builder;
         this.deployer = options.deployer;
         this.secretStore = options.secretStore;
-        this.organizationResolver = options.organizationResolver;
         this.registryUrl = options.registryUrl;
     }
 
     async deploy(event: PullRequestEvent): Promise<void> {
-        const { repoFullName, prNumber, headSha } = event;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
         logger.info("Starting preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
 
-        // 1. Resolve tenant. Rejects deployment if the repo is not linked to an active installation.
-        const organizationId = await this.organizationResolver.resolveByRepoFullName(repoFullName);
+        // 1. Confirm the repo is linked to an Application (the user's opt-in signal).
+        //    Many repos under an installed GitHub App will never have one; we want
+        //    those PRs to be silently ignored rather than spammed with failed statuses.
+        //    Done first because it's a cheap local DB query and short-circuits before
+        //    we pay for the GitHub API call below.
+        const application = await db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            select: { id: true },
+        });
+        if (application == null) {
+            logger.info("Repo not linked to an Application; skipping deployment", {
+                repo: repoFullName,
+                pr: prNumber,
+                organizationId,
+                githubRepositoryId,
+            });
+            return;
+        }
 
-        // 1b. Check that the repo opted in to Previewkit before we touch anything.
-        // A missing `.preview.yaml` is a normal opt-out signal — most repos
-        // under an installed GitHub App will never have one, and we don't want
-        // every PR in those repos to leave a failed status + comment behind.
+        // 2. Check that the repo opted in to Previewkit before we touch anything.
+        //    A missing `.preview.yaml` is the second normal opt-out signal — repos
+        //    linked to an Application but not yet using Previewkit skip cleanly.
         const config = await loadPreviewConfig(this.provider, repoFullName, headSha);
         if (config == null) {
             logger.warn("No .preview.yaml found at ref; skipping deployment", {
@@ -176,6 +188,7 @@ export class PreviewPipeline {
                 prNumber,
                 headSha,
                 organizationId,
+                githubRepositoryId,
                 config,
                 imageTags,
                 storedSecrets,

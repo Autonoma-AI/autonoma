@@ -12,7 +12,6 @@ import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { SecretStore } from "./secrets/secret-store";
-import { OrganizationResolver } from "./tenancy/organization-resolver";
 
 // Kubernetes client
 let kc: k8s.KubeConfig;
@@ -77,16 +76,12 @@ const deployer = new Deployer(
     awsExternalSecretManager,
 );
 
-// Tenant resolver (DB lookup: repo -> organizationId)
-const organizationResolver = new OrganizationResolver();
-
 // Pipelines
 const previewPipeline = new PreviewPipeline({
     provider: githubProvider,
     builder,
     deployer,
     secretStore,
-    organizationResolver,
     registryUrl: env.REGISTRY_URL,
 });
 

@@ -9,6 +9,11 @@ import type { TeardownPipeline } from "../pipeline/teardown-pipeline";
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
     prNumber: z.number().int().positive(),
+    // Tenant + repo identity. The upstream API (which holds the GitHubInstallation
+    // <-> Organization binding) resolves these from the webhook and forwards them
+    // here, so Previewkit doesn't need a second lookup of its own.
+    organizationId: z.string().min(1),
+    githubRepositoryId: z.number().int().positive(),
     headSha: z.string().min(1),
     headRef: z.string().min(1),
     cloneUrl: z.string().url(),
@@ -35,6 +40,8 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
                 action: "opened",
                 prNumber: parsed.data.prNumber,
                 repoFullName: parsed.data.repoFullName,
+                organizationId: parsed.data.organizationId,
+                githubRepositoryId: parsed.data.githubRepositoryId,
                 headSha: parsed.data.headSha,
                 headRef: parsed.data.headRef,
                 baseSha: parsed.data.baseSha ?? "",
@@ -92,11 +99,23 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
                 return c.json({ error: "pr must be a positive integer" }, 400);
             }
 
+            const organizationId = c.req.query("organizationId");
+            if (organizationId == null || organizationId === "") {
+                return c.json({ error: "organizationId query param is required" }, 400);
+            }
+            const githubRepositoryIdRaw = c.req.query("githubRepositoryId");
+            const githubRepositoryId = githubRepositoryIdRaw != null ? Number(githubRepositoryIdRaw) : NaN;
+            if (!Number.isInteger(githubRepositoryId) || githubRepositoryId <= 0) {
+                return c.json({ error: "githubRepositoryId query param must be a positive integer" }, 400);
+            }
+
             const repoFullName = `${owner}/${repo}`;
             const event: PullRequestEvent = {
                 action: "closed",
                 prNumber: pr,
                 repoFullName,
+                organizationId,
+                githubRepositoryId,
                 headSha: "",
                 headRef: "",
                 baseSha: "",

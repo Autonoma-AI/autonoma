@@ -48,13 +48,13 @@ export class AwsExternalSecretManager {
     async applyForNamespace(
         organizationId: string,
         namespace: string,
-        repoFullName: string,
+        githubRepositoryId: number,
         appNames: string[],
     ): Promise<Map<string, string>> {
         this.logger.info("Applying AWS ExternalSecrets for namespace", {
             organizationId,
             namespace,
-            repoFullName,
+            githubRepositoryId,
             appNames,
         });
 
@@ -62,9 +62,7 @@ export class AwsExternalSecretManager {
             where: {
                 application: {
                     organizationId,
-                    githubRepositories: {
-                        some: { fullName: repoFullName },
-                    },
+                    githubRepositoryId,
                 },
             },
         });
@@ -72,7 +70,7 @@ export class AwsExternalSecretManager {
         const result = new Map<string, string>();
 
         if (record == null) {
-            this.logger.info("No AWS ExternalSecret registered for repo", { repoFullName, namespace });
+            this.logger.info("No AWS ExternalSecret registered for repo", { githubRepositoryId, namespace });
             return result;
         }
 
@@ -84,7 +82,7 @@ export class AwsExternalSecretManager {
         }
 
         this.logger.info("AWS ExternalSecrets applied", {
-            repoFullName,
+            githubRepositoryId,
             k8sSecretName: record.k8sSecretName,
             awsSecretArn: record.awsSecretArn,
             appCount: appNames.length,
