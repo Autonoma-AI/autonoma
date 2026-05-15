@@ -49,7 +49,6 @@ export type BillingConsumptionTarget = "generation" | "run";
 export type DeductGenerationContext = {
     organizationId?: string;
     architecture?: ApplicationArchitecture;
-    isRerun?: boolean;
 };
 
 export type BillingSessionResult = {

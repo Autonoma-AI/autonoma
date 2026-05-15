@@ -11,7 +11,6 @@ import {
   getStepOverlayPoints,
 } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
-import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
@@ -33,7 +32,6 @@ import Markdown from "react-markdown";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../../-home/helpers";
 import { AppLink } from "../../../-app-link";
 import { useCurrentApplication } from "../../../-use-current-application";
-import { RerunGenerationDialog } from "./-rerun-generation-dialog";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/generations/$generationId/")({
   loader: async ({ context: { queryClient }, params: { generationId } }) => {
@@ -66,7 +64,6 @@ function GenerationDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | undefined>(undefined);
   const currentApp = useCurrentApplication();
   const { isAdmin } = useAuth();
-  const [showRerun, setShowRerun] = useState(false);
   const requestReview = useRequestReview();
   const { data: generation } = useGenerationDetail(generationId);
 
@@ -153,12 +150,6 @@ function GenerationDetailPage() {
                 {reviewStatus === "failed" ? "Retry review" : "Review"}
               </Button>
             )}
-            {isAdmin && (
-              <Button variant="outline" size="sm" onClick={() => setShowRerun(true)} aria-label="rerun-generation">
-                <ArrowsClockwiseIcon size={14} />
-                Re-run
-              </Button>
-            )}
             {isAdmin && temporalUrl != null && (
               <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="size-7 p-0">
@@ -233,15 +224,6 @@ function GenerationDetailPage() {
           </div>
         )}
       </div>
-
-      {isAdmin && (
-        <RerunGenerationDialog
-          open={showRerun}
-          onOpenChange={setShowRerun}
-          generationId={generationId}
-          currentPlan={generation.testPlan.plan}
-        />
-      )}
 
       <NavigableLightbox
         steps={lightboxSteps}

@@ -113,17 +113,7 @@ export class CreditsService extends Service {
             architecture = generation.testPlan.testCase.application.architecture;
         }
 
-        const isRerun = context?.isRerun ?? false;
-        let transactionId: string;
-
-        if (isRerun) {
-            const existingCount = await this.db.creditTransaction.count({
-                where: { generationId, type: CreditTransactionType.GENERATION_CONSUMPTION },
-            });
-            transactionId = `ctr_gen_${generationId}_rerun_${existingCount + 1}`;
-        } else {
-            transactionId = `ctr_gen_${generationId}`;
-        }
+        const transactionId = `ctr_gen_${generationId}`;
 
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
         const cost = getGenerationCreditCost(architecture, pricing);

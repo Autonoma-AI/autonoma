@@ -1,16 +1,14 @@
 import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
-import { BadRequestError, NotFoundError } from "@autonoma/errors";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import type { GenerationProvider } from "@autonoma/test-updates";
-import { type WorkflowArchitecture, findLatestWorkflowByGenerationId } from "@autonoma/workflow";
+import { findLatestWorkflowByGenerationId } from "@autonoma/workflow";
 import { Service } from "../service";
 
 export class TestGenerationsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
-        private readonly generationProvider: GenerationProvider,
         private readonly billingService: BillingService,
     ) {
         super();
@@ -163,120 +161,6 @@ export class TestGenerationsService extends Service {
                     : undefined,
             steps,
         };
-    }
-
-    async rerunGeneration(generationId: string, organizationId: string, planContent?: string) {
-        this.logger.info("Rerunning generation", { generationId, organizationId });
-
-        const existing = await this.db.testGeneration.findFirst({
-            where: { id: generationId, organizationId },
-            select: {
-                testPlanId: true,
-                snapshotId: true,
-                testPlan: {
-                    select: {
-                        prompt: true,
-                        scenarioId: true,
-                        scenarioName: true,
-                        testCaseId: true,
-                        testCase: {
-                            select: { application: { select: { architecture: true } } },
-                        },
-                    },
-                },
-                snapshot: {
-                    select: {
-                        branch: {
-                            select: {
-                                deployment: {
-                                    select: {
-                                        webDeployment: { select: { url: true } },
-                                        mobileDeployment: { select: { deploymentId: true } },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-        if (existing == null) throw new NotFoundError();
-
-        const architecture = existing.testPlan.testCase.application.architecture as WorkflowArchitecture;
-
-        const deployment = existing.snapshot.branch.deployment;
-        if (deployment == null) {
-            throw new BadRequestError("Cannot rerun generation: no deployment is configured for this application");
-        }
-        if (architecture === "WEB") {
-            const webUrl = deployment.webDeployment?.url;
-            if (webUrl == null || webUrl === "") {
-                throw new BadRequestError(
-                    "Cannot rerun generation: no deployment URL is configured for this application",
-                );
-            }
-        } else if (deployment.mobileDeployment == null) {
-            throw new BadRequestError(
-                "Cannot rerun generation: no mobile deployment is configured for this application",
-            );
-        }
-
-        const planChanged = planContent != null && planContent !== existing.testPlan.prompt;
-
-        const newGeneration = await this.db.$transaction(async (tx) => {
-            const targetPlanId = planChanged
-                ? (
-                      await tx.testPlan.create({
-                          data: {
-                              prompt: planContent,
-                              testCaseId: existing.testPlan.testCaseId,
-                              scenarioId: existing.testPlan.scenarioId,
-                              scenarioName: existing.testPlan.scenarioName,
-                              organizationId,
-                          },
-                          select: { id: true },
-                      })
-                  ).id
-                : existing.testPlanId;
-
-            return tx.testGeneration.create({
-                data: {
-                    testPlanId: targetPlanId,
-                    snapshotId: existing.snapshotId,
-                    organizationId,
-                },
-                select: { id: true, testPlanId: true },
-            });
-        });
-
-        this.logger.info("New generation created for rerun", {
-            sourceGenerationId: generationId,
-            newGenerationId: newGeneration.id,
-            planChanged,
-        });
-
-        const scenarioId = existing.testPlan.scenarioId ?? undefined;
-
-        await this.generationProvider.fireJobs(existing.snapshotId, [
-            {
-                testGenerationId: newGeneration.id,
-                planId: newGeneration.testPlanId,
-                scenarioId,
-                architecture,
-            },
-        ]);
-
-        await this.db.testGeneration.update({
-            where: { id: newGeneration.id },
-            data: { status: "queued" },
-        });
-
-        this.logger.info("Generation rerun triggered", {
-            sourceGenerationId: generationId,
-            newGenerationId: newGeneration.id,
-        });
-
-        return { generationId: newGeneration.id };
     }
 
     async deleteGeneration(generationId: string, organizationId: string) {

@@ -35,22 +35,6 @@ export async function ensureGenerationDetailData(queryClient: QueryClient, gener
     await ensureAPIQueryData(queryClient, trpc.generations.detail.queryOptions({ generationId }));
 }
 
-export function useRerunGeneration() {
-    const queryClient = useQueryClient();
-    const currentApp = useCurrentApplication();
-    return useAPIMutation({
-        ...trpc.generations.rerun.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({
-                    queryKey: trpc.generations.list.queryKey({ applicationId: currentApp.id }),
-                });
-            },
-        }),
-        successToast: { title: "Generation restarted" },
-        errorToast: { title: "Failed to restart generation" },
-    });
-}
-
 export function useDeleteGeneration() {
     const queryClient = useQueryClient();
     const currentApp = useCurrentApplication();

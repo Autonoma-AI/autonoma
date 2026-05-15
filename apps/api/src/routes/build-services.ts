@@ -98,7 +98,7 @@ export function buildServices({
         deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
-        testGenerations: new TestGenerationsService(conn, storageProvider, generationProvider, billingService),
+        testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
