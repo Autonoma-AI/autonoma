@@ -350,6 +350,20 @@ export class PreviewPipeline {
         const org = rawOrg!.toLowerCase();
         const repo = rawRepo!.toLowerCase();
 
+        // Templating context for build_args. Resolves `{{name.host}}`,
+        // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}`
+        // — same grammar the deployer applies to runtime env. The URL form is
+        // what makes Vite-baked VITE_*_URL vars point at this PR's specific
+        // services (e.g. `https://anvil-pr-42-acme-foo.preview.autonoma.app`).
+        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
+        const templateContext = { pr: String(prNumber), namespace, owner: org };
+        const publicUrlInfo = {
+            domain: config.domain ?? this.deployer.getDomain(),
+            repoSlug: this.deployer.buildRepoSlug(repoFullName),
+            prNumber,
+        };
+        const envInjector = this.deployer.getEnvInjector();
+
         const entries = await Promise.all(
             config.apps.map(async (app) => {
                 const registry = config.registry ?? this.registryUrl;
@@ -359,11 +373,20 @@ export class PreviewPipeline {
                 const contextPath = path.resolve(dir, app.path);
                 const cacheKey = `${org}/${repo}/${app.name}`;
 
+                const resolvedBuildArgs = envInjector.applyTemplates(
+                    app.build_args,
+                    config.apps,
+                    config.services,
+                    namespace,
+                    templateContext,
+                    publicUrlInfo,
+                );
+
                 const result = await this.builder.build({
                     appName: app.name,
                     contextPath,
                     dockerfile: app.dockerfile,
-                    buildArgs: app.build_args,
+                    buildArgs: resolvedBuildArgs,
                     imageTag,
                     cacheKey,
                 });

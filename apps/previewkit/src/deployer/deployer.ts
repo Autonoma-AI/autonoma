@@ -178,7 +178,7 @@ export class Deployer {
         return { namespace, urls };
     }
 
-    private buildRepoSlug(repoFullName: string): string {
+    public buildRepoSlug(repoFullName: string): string {
         // `owner/repo` -> `owner-repo`, sanitized + truncated so the full
         // hostname stays under the 63-char DNS label limit even with long
         // app names and PR numbers.
@@ -203,9 +203,32 @@ export class Deployer {
         return this.kc;
     }
 
+    /** Default preview domain (taken from env at construction time). The
+     *  pipeline applies the same `config.domain ?? deployer.getDomain()`
+     *  priority used internally before computing public URLs. */
+    getDomain(): string {
+        return this.domain;
+    }
+
+    /** Exposed so the pipeline can template `build_args` (which run BEFORE
+     *  any deployer call) using the same `{{name.host/port/url}}` grammar
+     *  the deployer applies to runtime env. */
+    getEnvInjector(): EnvInjector {
+        return this.envInjector;
+    }
+
     async getNamespaceAnnotations(repoFullName: string, prNumber: number) {
         const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
         return this.namespaceManager.getAnnotations(namespace);
+    }
+
+    /** Returns true iff the K8s namespace for this (repo, pr) currently
+     *  exists in the cluster. Distinguishes NotFound (returns false) from
+     *  transient API errors (throws), so callers can safely use this as a
+     *  precondition before destructive actions. */
+    async namespaceExists(repoFullName: string, prNumber: number): Promise<boolean> {
+        const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
+        return this.namespaceManager.exists(namespace);
     }
 
     async ensureNamespace(
@@ -235,6 +258,7 @@ export class Deployer {
 
         const appSecrets = storedSecrets[app.name] ?? {};
         const templateContext = { pr: String(prNumber), namespace, owner };
+        const publicUrlInfo = { domain, repoSlug, prNumber };
         const resolvedEnv = this.envInjector.resolve(
             app.env,
             appSecrets,
@@ -242,6 +266,7 @@ export class Deployer {
             config.services,
             namespace,
             templateContext,
+            publicUrlInfo,
         );
 
         const deployment = buildAppDeployment({

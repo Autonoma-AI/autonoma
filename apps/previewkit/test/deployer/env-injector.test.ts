@@ -7,6 +7,7 @@ const registry = new RecipeRegistry();
 const injector = new EnvInjector(registry);
 
 const defaultContext = { pr: "42", namespace: "preview-acme-corp-my-repo-pr-42", owner: "acme-corp" };
+const defaultPublicUrlInfo = { domain: "preview.autonoma.app", repoSlug: "acme-corp-my-repo", prNumber: 42 };
 
 const apps: AppConfig[] = [
     {
@@ -50,7 +51,15 @@ describe("EnvInjector", () => {
             DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
     });
 
@@ -59,7 +68,15 @@ describe("EnvInjector", () => {
             API_URL: "http://{{api.host}}:{{api.port}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["API_URL"]).toBe("http://api:4000");
     });
 
@@ -68,7 +85,15 @@ describe("EnvInjector", () => {
             REDIS_URL: "redis://{{cache.host}}:{{cache.port}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["REDIS_URL"]).toBe("redis://cache:6379");
     });
 
@@ -78,7 +103,15 @@ describe("EnvInjector", () => {
             LOG_LEVEL: "info",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved).toEqual(configEnv);
     });
 
@@ -87,7 +120,15 @@ describe("EnvInjector", () => {
             CONFIG: "{{db.host}}:{{db.port}},{{cache.host}}:{{cache.port}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["CONFIG"]).toBe("db:5432,cache:6379");
     });
 
@@ -96,9 +137,9 @@ describe("EnvInjector", () => {
             URL: "http://{{unknown.host}}:{{unknown.port}}",
         };
 
-        expect(() => injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext)).toThrow(
-            /Unknown service\/app reference/,
-        );
+        expect(() =>
+            injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
+        ).toThrow(/Unknown service\/app reference/);
     });
 
     it("includes stored secrets in resolved env", () => {
@@ -107,7 +148,15 @@ describe("EnvInjector", () => {
             STRIPE_KEY: "sk_test_456",
         };
 
-        const resolved = injector.resolve({}, storedSecrets, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            {},
+            storedSecrets,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["OPENAI_API_KEY"]).toBe("sk-test-123");
         expect(resolved["STRIPE_KEY"]).toBe("sk_test_456");
     });
@@ -121,7 +170,15 @@ describe("EnvInjector", () => {
             DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
         };
 
-        const resolved = injector.resolve(configEnv, storedSecrets, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            storedSecrets,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
         expect(resolved["OPENAI_API_KEY"]).toBe("sk-test-123");
     });
@@ -132,7 +189,15 @@ describe("EnvInjector", () => {
             NODE_ENV: "preview",
         };
 
-        const resolved = injector.resolve({}, storedSecrets, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            {},
+            storedSecrets,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["API_KEY"]).toBe("some-key");
         expect(resolved["NODE_ENV"]).toBe("preview");
     });
@@ -142,7 +207,15 @@ describe("EnvInjector", () => {
             TASK_QUEUE: "pr-{{pr}}-default",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["TASK_QUEUE"]).toBe("pr-42-default");
     });
 
@@ -151,7 +224,15 @@ describe("EnvInjector", () => {
             K8S_NAMESPACE: "{{namespace}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["K8S_NAMESPACE"]).toBe("preview-acme-corp-my-repo-pr-42");
     });
 
@@ -160,7 +241,15 @@ describe("EnvInjector", () => {
             ORG: "{{owner}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["ORG"]).toBe("acme-corp");
     });
 
@@ -181,7 +270,15 @@ describe("EnvInjector", () => {
             TEMPORAL_TASK_QUEUE: "pr-{{pr}}-default",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, temporalServices, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            temporalServices,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["TEMPORAL_ADDRESS"]).toBe("temporal.shared.svc.cluster.local:7233");
         expect(resolved["TEMPORAL_NAMESPACE"]).toBe("preview-pr-42");
         expect(resolved["TEMPORAL_TASK_QUEUE"]).toBe("pr-42-default");
@@ -192,7 +289,15 @@ describe("EnvInjector", () => {
             WORKER_ID: "{{owner}}-pr-{{pr}}-{{api.host}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["WORKER_ID"]).toBe("acme-corp-pr-42-api");
     });
 
@@ -214,7 +319,15 @@ describe("EnvInjector", () => {
             GATEWAY_URL: "http://{{api-gateway.host}}:{{api-gateway.port}}",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, hyphenatedServices, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            hyphenatedServices,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["GATEWAY_URL"]).toBe("http://api-gateway:80");
     });
 
@@ -223,12 +336,20 @@ describe("EnvInjector", () => {
             DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
         };
 
-        const resolved = injector.resolve({}, storedSecrets, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            {},
+            storedSecrets,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
     });
 
     it("returns an empty object when there is no env and no stored secrets", () => {
-        const resolved = injector.resolve({}, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve({}, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo);
         expect(resolved).toEqual({});
     });
 
@@ -240,7 +361,67 @@ describe("EnvInjector", () => {
             LITERAL_BRACES: "use {{api.foo}} or {{ pr }} or {{api}} as-is",
         };
 
-        const resolved = injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext);
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved["LITERAL_BRACES"]).toBe("use {{api.foo}} or {{ pr }} or {{api}} as-is");
+    });
+
+    it("resolves {{name.url}} to the public preview URL for apps", () => {
+        const configEnv = {
+            VITE_API_URL: "{{api.url}}",
+            VITE_WEB_URL: "{{web.url}}",
+        };
+
+        const resolved = injector.resolve(
+            configEnv,
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
+        // hostname = `<app>-pr-<N>-<slug>.<domain>`, scheme `https://`
+        expect(resolved["VITE_API_URL"]).toBe("https://api-pr-42-acme-corp-my-repo.preview.autonoma.app");
+        expect(resolved["VITE_WEB_URL"]).toBe("https://web-pr-42-acme-corp-my-repo.preview.autonoma.app");
+    });
+
+    it("throws when {{name.url}} is used on a service (no public URL)", () => {
+        const configEnv = {
+            FAIL: "postgres://{{db.url}}",
+        };
+
+        expect(() =>
+            injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
+        ).toThrow(/only available for apps/);
+    });
+
+    it("applyTemplates exposes the same grammar without secret merging (used for build_args)", () => {
+        // build_args has no secret-store concept — applyTemplates skips that
+        // step. Should still resolve `.url`, `{{pr}}`, etc.
+        const buildArgs = {
+            VITE_API_URL: "{{api.url}}",
+            BUILD_TARGET: "pr-{{pr}}",
+            STATIC: "no-template-here",
+        };
+
+        const resolved = injector.applyTemplates(
+            buildArgs,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
+        expect(resolved["VITE_API_URL"]).toBe("https://api-pr-42-acme-corp-my-repo.preview.autonoma.app");
+        expect(resolved["BUILD_TARGET"]).toBe("pr-42");
+        expect(resolved["STATIC"]).toBe("no-template-here");
     });
 });

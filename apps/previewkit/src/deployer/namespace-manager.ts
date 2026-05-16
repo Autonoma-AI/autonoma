@@ -136,8 +136,11 @@ export class NamespaceManager {
         try {
             await this.coreApi.readNamespace({ name: namespace });
             return true;
-        } catch {
-            return false;
+        } catch (err) {
+            if (isNotFound(err)) return false;
+            // Don't swallow transient API errors — a network blip would make
+            // teardown skip a namespace that does in fact exist.
+            throw err;
         }
     }
 

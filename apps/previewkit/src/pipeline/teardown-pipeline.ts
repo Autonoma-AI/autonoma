@@ -27,9 +27,24 @@ export class TeardownPipeline {
 
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber });
 
-        // 0. Resolve per-org feedback flag before deleting the namespace —
-        //    we look it up from the environment row, which goes away on teardown.
+        // 0. Short-circuit if the namespace doesn't exist. This happens when
+        //    the deploy was silently skipped (no Application linked, or no
+        //    `.preview.yaml` at the head SHA) — there's nothing to tear down,
+        //    no comment to update, no commit status to flip. Acting anyway
+        //    would try to delete a non-existent namespace and surface a 404.
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
+        const exists = await this.deployer.namespaceExists(repoFullName, prNumber);
+        if (!exists) {
+            logger.info("Namespace does not exist; skipping teardown (deploy was previously a no-op)", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+            });
+            return;
+        }
+
+        // 1. Resolve per-org feedback flag before deleting the namespace —
+        //    we look it up from the environment row, which goes away on teardown.
         const feedbackEnabled = await isGithubFeedbackEnabledForNamespace(namespace);
         if (!feedbackEnabled) {
             logger.info("GitHub feedback disabled for this environment; skipping teardown feedback", { namespace });
