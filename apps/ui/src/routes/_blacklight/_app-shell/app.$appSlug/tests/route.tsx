@@ -37,9 +37,18 @@ function TestsPage() {
   if (isGenerating) {
     return (
       <div className="flex flex-col gap-6">
-        <header>
-          <h1 className="text-2xl font-medium tracking-tight text-text-primary">Tests</h1>
-          <p className="mt-1 font-mono text-xs text-text-secondary">0 tests on branch {branch.name}</p>
+        <header className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-medium tracking-tight text-text-primary">Tests</h1>
+            <p className="mt-1 font-mono text-xs text-text-secondary">0 tests on branch {branch.name}</p>
+          </div>
+
+          {isAdmin && (
+            <Button size="sm" className="gap-1.5 font-mono text-2xs" render={<AppLink to="/app/$appSlug/edit" />}>
+              <PencilSimpleIcon size={12} />
+              {hasPending ? "Continue editing" : "Edit test suite"}
+            </Button>
+          )}
         </header>
 
         <div className="flex min-h-[400px] border border-border-mid bg-surface-raised">
