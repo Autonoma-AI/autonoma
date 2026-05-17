@@ -19,6 +19,7 @@ import { execInDeploymentPod } from "../deployer/pod-exec";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
+import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import type { SecretStore } from "../secrets/secret-store";
 
 interface AppBuildResult {
@@ -38,6 +39,7 @@ interface PreviewPipelineOptions {
     builder: Builder;
     deployer: Deployer;
     secretStore: SecretStore;
+    awsSecretsFetcher: AwsSecretsFetcher;
     registryUrl: string;
 }
 
@@ -46,6 +48,7 @@ export class PreviewPipeline {
     private builder: Builder;
     private deployer: Deployer;
     private secretStore: SecretStore;
+    private awsSecretsFetcher: AwsSecretsFetcher;
     private registryUrl: string;
 
     constructor(options: PreviewPipelineOptions) {
@@ -53,6 +56,7 @@ export class PreviewPipeline {
         this.builder = options.builder;
         this.deployer = options.deployer;
         this.secretStore = options.secretStore;
+        this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.registryUrl = options.registryUrl;
     }
 
@@ -69,7 +73,10 @@ export class PreviewPipeline {
         //    we pay for the GitHub API call below.
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: { id: true },
+            select: {
+                id: true,
+                previewkitSecret: { select: { awsSecretArn: true } },
+            },
         });
         if (application == null) {
             logger.info("Repo not linked to an Application; skipping deployment", {
@@ -186,7 +193,14 @@ export class PreviewPipeline {
             const buildStart = Date.now();
             let appBuilds: Record<string, AppBuildResult>;
             try {
-                appBuilds = await this.buildAllApps(mergedConfig, appRepoDirs, repoFullName, prNumber, shortSha);
+                appBuilds = await this.buildAllApps(
+                    mergedConfig,
+                    appRepoDirs,
+                    repoFullName,
+                    prNumber,
+                    shortSha,
+                    application.previewkitSecret?.awsSecretArn,
+                );
             } catch (buildErr) {
                 await recordSafe(() =>
                     recordBuildFinished({
@@ -345,6 +359,7 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         shortSha: string,
+        awsSecretArn: string | undefined,
     ): Promise<Record<string, AppBuildResult>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
@@ -364,6 +379,16 @@ export class PreviewPipeline {
         };
         const envInjector = this.deployer.getEnvInjector();
 
+        const needsAwsSecrets = config.apps.some((app) => app.build_secrets.length > 0);
+        if (needsAwsSecrets && awsSecretArn == null) {
+            throw new Error(
+                "build_secrets requested but no PreviewkitSecret is registered for this Application " +
+                    "(needed to resolve the AWS Secrets Manager ARN)",
+            );
+        }
+        const awsSecretMap =
+            needsAwsSecrets && awsSecretArn != null ? await this.awsSecretsFetcher.fetchJson(awsSecretArn) : {};
+
         const entries = await Promise.all(
             config.apps.map(async (app) => {
                 const registry = config.registry ?? this.registryUrl;
@@ -373,8 +398,14 @@ export class PreviewPipeline {
                 const contextPath = path.resolve(dir, app.path);
                 const cacheKey = `${org}/${repo}/${app.name}`;
 
+                const secretBuildArgs =
+                    app.build_secrets.length > 0
+                        ? this.awsSecretsFetcher.pickKeys(awsSecretMap, app.build_secrets, awsSecretArn!)
+                        : {};
+                const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
+
                 const resolvedBuildArgs = envInjector.applyTemplates(
-                    app.build_args,
+                    mergedBuildArgs,
                     config.apps,
                     config.services,
                     namespace,

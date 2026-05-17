@@ -12,6 +12,7 @@ import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
+import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 import { SecretStore } from "./secrets/secret-store";
 
 runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
@@ -70,6 +71,12 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // AWS Secrets Manager -> K8s ExternalSecret bridge
     const awsExternalSecretManager = new AwsExternalSecretManager(kc, env.CLUSTER_SECRET_STORE_NAME);
 
+    // AWS Secrets Manager direct fetcher — for build-time secrets that need to
+    // land in `build_args` before the build runs (i.e. before any K8s Secret
+    // would be materialised via ExternalSecret CRs). Uses S3_REGION since the
+    // previewkit pod's existing IAM role is region-scoped to it.
+    const awsSecretsFetcher = new AwsSecretsFetcher(env.S3_REGION);
+
     // Deployer
     const deployer = new Deployer(
         kc,
@@ -85,6 +92,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         builder,
         deployer,
         secretStore,
+        awsSecretsFetcher,
         registryUrl: env.REGISTRY_URL,
     });
 

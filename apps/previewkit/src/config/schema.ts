@@ -14,6 +14,7 @@ const appSchema = z.object({
     path: z.string().default("."),
     dockerfile: z.string().optional(),
     build_args: z.record(z.string(), z.string()).default({}),
+    build_secrets: z.array(z.string()).default([]),
     port: z.number().int().positive(),
     env: z.record(z.string(), z.string()).default({}),
     command: z.string().optional(),
