@@ -1,4 +1,4 @@
-import { executeChild, proxyActivities } from "@temporalio/workflow";
+import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, RunGenerationPipelineInput } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -65,7 +65,7 @@ export async function runGenerationPipelineWorkflow(input: RunGenerationPipeline
 
     if (runs.length === 0) return;
 
-    await Promise.all(
+    const results = await Promise.allSettled(
         runs.map((run) =>
             executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
                 workflowId: `run-replay-${run.runId}`,
@@ -74,4 +74,13 @@ export async function runGenerationPipelineWorkflow(input: RunGenerationPipeline
             }),
         ),
     );
+
+    for (const [index, result] of results.entries()) {
+        if (result.status === "rejected") {
+            log.warn("Child run-replay workflow failed", {
+                runId: runs[index]!.runId,
+                reason: String(result.reason),
+            });
+        }
+    }
 }
