@@ -30,6 +30,7 @@ interface Row {
 
 interface SecretDialogProps {
   applicationId: string;
+  appName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialKey?: string;
@@ -46,6 +47,7 @@ function newRow(partial?: Partial<Row>): Row {
 
 export function SecretDialog({
   applicationId,
+  appName,
   open,
   onOpenChange,
   initialKey = "",
@@ -55,7 +57,7 @@ export function SecretDialog({
 }: SecretDialogProps) {
   const [rows, setRows] = useState<Row[]>(() => [newRow({ key: initialKey, value: initialValue })]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const upsertSecrets = useUpsertSecrets(applicationId);
+  const upsertSecrets = useUpsertSecrets(applicationId, appName);
 
   function replaceWithParsed(entries: { key: string; value: string }[]) {
     if (entries.length === 0) return;
@@ -107,7 +109,7 @@ export function SecretDialog({
   function handleSave() {
     if (!canSave) return;
     upsertSecrets.mutate(
-      { applicationId, items },
+      { applicationId, appName, items },
       {
         onSuccess: () => {
           setRows([newRow()]);

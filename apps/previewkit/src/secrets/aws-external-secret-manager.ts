@@ -41,9 +41,14 @@ export class AwsExternalSecretManager {
     }
 
     /**
-     * Creates an ExternalSecret CR in the namespace for the repo's registered AWS secret.
-     * The secret is shared across all apps in the deployment - returns a map of
-     * appName -> k8sSecretName so the deployer can wire envFrom on each deployment.
+     * Creates one ExternalSecret CR per (app, AWS-SM-ARN) pair registered for
+     * this Application. Each app's secret is independently IAM-scoped — adding
+     * a new app to the monorepo requires registering its own PreviewkitSecret
+     * row pointing at its own AWS SM ARN.
+     *
+     * Returns appName → k8sSecretName for the apps that have a registered
+     * secret, so the deployer can wire `envFrom` per Deployment. Apps without
+     * a registered secret are simply absent from the map.
      */
     async applyForNamespace(
         organizationId: string,
@@ -58,34 +63,43 @@ export class AwsExternalSecretManager {
             appNames,
         });
 
-        const record = await this.prisma.previewkitSecret.findFirst({
+        const records = await this.prisma.previewkitSecret.findMany({
             where: {
-                application: {
-                    organizationId,
-                    githubRepositoryId,
-                },
+                application: { organizationId, githubRepositoryId },
+                appName: { in: appNames },
             },
         });
 
         const result = new Map<string, string>();
 
-        if (record == null) {
-            this.logger.info("No AWS ExternalSecret registered for repo", { githubRepositoryId, namespace });
+        if (records.length === 0) {
+            this.logger.info("No AWS ExternalSecrets registered for any of the listed apps", {
+                githubRepositoryId,
+                namespace,
+                appNames,
+            });
             return result;
         }
 
-        const resource = this.buildExternalSecret(record, namespace, organizationId);
-        await this.applyExternalSecret(namespace, resource);
+        for (const record of records) {
+            if (record.appName == null) continue;
 
-        for (const appName of appNames) {
-            result.set(appName, record.k8sSecretName);
+            const resource = this.buildExternalSecret(record, namespace, organizationId);
+            await this.applyExternalSecret(namespace, resource);
+            result.set(record.appName, record.k8sSecretName);
+
+            this.logger.info("Applied AWS ExternalSecret", {
+                appName: record.appName,
+                k8sSecretName: record.k8sSecretName,
+                awsSecretArn: record.awsSecretArn,
+                namespace,
+            });
         }
 
         this.logger.info("AWS ExternalSecrets applied", {
             githubRepositoryId,
-            k8sSecretName: record.k8sSecretName,
-            awsSecretArn: record.awsSecretArn,
-            appCount: appNames.length,
+            appliedCount: result.size,
+            requestedCount: appNames.length,
             namespace,
         });
 

@@ -17,13 +17,14 @@ import { useEffect, useState } from "react";
 
 interface DeleteSecretDialogProps {
   applicationId: string;
+  appName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   secretKey: string | undefined;
 }
 
-export function DeleteSecretDialog({ applicationId, open, onOpenChange, secretKey }: DeleteSecretDialogProps) {
-  const deleteSecret = useDeleteSecret(applicationId);
+export function DeleteSecretDialog({ applicationId, appName, open, onOpenChange, secretKey }: DeleteSecretDialogProps) {
+  const deleteSecret = useDeleteSecret(applicationId, appName);
   const [confirmation, setConfirmation] = useState("");
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export function DeleteSecretDialog({ applicationId, open, onOpenChange, secretKe
   function handleDelete() {
     if (secretKey == null || !matches) return;
     deleteSecret.mutate(
-      { applicationId, key: secretKey },
+      { applicationId, appName, key: secretKey },
       {
         onSuccess: () => onOpenChange(false),
       },

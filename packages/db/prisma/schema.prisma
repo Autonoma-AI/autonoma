@@ -166,20 +166,20 @@ enum OnboardingStep {
 }
 
 model OnboardingState {
-  id                    String         @id @default(cuid())
-  applicationId         String         @unique @map("application_id")
-  step                  OnboardingStep @default(install) @map("step")
-  agentConnectedAt      DateTime?      @map("agent_connected_at")
+  id                   String         @id @default(cuid())
+  applicationId        String         @unique @map("application_id")
+  step                 OnboardingStep @default(install) @map("step")
+  agentConnectedAt     DateTime?      @map("agent_connected_at")
   /// [AgentLogEntry]
-  agentLogs             Json           @default("[]") @map("agent_logs")
-  productionUrl         String?        @map("production_url")
-  completedAt           DateTime?      @map("completed_at")
-  lastDiscoveryError    String?        @map("last_discovery_error")
-  lastDiscoveredAt      DateTime?      @map("last_discovered_at")
-  lastDiscoveredModels  Int?           @map("last_discovered_models")
-  discoveringStartedAt  DateTime?      @map("discovering_started_at")
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
+  agentLogs            Json           @default("[]") @map("agent_logs")
+  productionUrl        String?        @map("production_url")
+  completedAt          DateTime?      @map("completed_at")
+  lastDiscoveryError   String?        @map("last_discovery_error")
+  lastDiscoveredAt     DateTime?      @map("last_discovered_at")
+  lastDiscoveredModels Int?           @map("last_discovered_models")
+  discoveringStartedAt DateTime?      @map("discovering_started_at")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -204,7 +204,7 @@ model ApplicationSetup {
   userId         String       @map("user_id")
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    events ApplicationSetupEvent[]
+  events ApplicationSetupEvent[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -314,7 +314,7 @@ model Application {
   onboardingState         OnboardingState?
   applicationSetups       ApplicationSetup[]
   bugs                    Bug[]
-  previewkitSecret        PreviewkitSecret?
+  previewkitSecrets       PreviewkitSecret[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -557,9 +557,9 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  diffsJob            DiffsJob?
-  issues              Issue[]
-  refinementLoops     RefinementLoop[]
+  diffsJob        DiffsJob?
+  issues          Issue[]
+  refinementLoops RefinementLoop[]
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -627,10 +627,10 @@ model TestCase {
   tags        TestTag[]
   assignments TestCaseAssignment[]
 
-  bugEvidence  BugTestCaseEvidence[]
+  bugEvidence BugTestCaseEvidence[]
 
-  affectedIn             AffectedTest[]
-  acceptedFromCandidate  TestCandidate?
+  affectedIn            AffectedTest[]
+  acceptedFromCandidate TestCandidate?
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1015,8 +1015,8 @@ model RefinementAction {
   iterationId String              @map("iteration_id")
   iteration   RefinementIteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
 
-  planId     String? @map("plan_id")
-  testCaseId String? @map("test_case_id")
+  planId     String?              @map("plan_id")
+  testCaseId String?              @map("test_case_id")
   kind       RefinementActionKind
 
   /// ![object]
@@ -1469,7 +1469,6 @@ model GitHubWebhookEvent {
   @@map("github_webhook_event")
 }
 
-
 // ─── Billing ─────────────────────────────────────────────────────
 
 enum SubscriptionStatus {
@@ -1600,9 +1599,9 @@ model BillingPromoRedemption {
   promoCodeId    String @map("promo_code_id")
   organizationId String @map("organization_id")
 
-    promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-    organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-    creditTransaction CreditTransaction?
+  promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creditTransaction CreditTransaction?
 
   @@unique([promoCodeId, organizationId])
   @@index([promoCodeId])
@@ -1700,16 +1699,19 @@ model PreviewkitAppInstance {
 }
 
 model PreviewkitSecret {
-  id            String @id @default(cuid())
-  applicationId String @unique @map("application_id")
-  awsSecretArn  String @map("aws_secret_arn")
-  k8sSecretName String @map("k8s_secret_name")
+  id            String  @id @default(cuid())
+  applicationId String  @map("application_id")
+  appName       String? @map("app_name")
+  awsSecretArn  String  @map("aws_secret_arn")
+  k8sSecretName String  @map("k8s_secret_name")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@unique([applicationId, appName])
+  @@index([applicationId])
   @@map("previewkit_secret")
 }
 

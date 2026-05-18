@@ -37,7 +37,11 @@ function SecretsPage() {
           </PanelHeader>
           <PanelBody>
             <Suspense fallback={<SecretsListSkeleton />}>
-              <SecretsList applicationId={app.id} />
+              {/* TODO(per-app secrets UX): replace appSlug placeholder with a
+                  user-selectable app picker. With per-app PreviewkitSecret
+                  rows, every Application can have N apps inside it (monorepo);
+                  this page currently only addresses the slug-named one. */}
+              <SecretsList applicationId={app.id} appName={appSlug} />
             </Suspense>
           </PanelBody>
         </Panel>
@@ -55,8 +59,8 @@ function SecretsPage() {
   );
 }
 
-function SecretsList({ applicationId }: { applicationId: string }) {
-  const { data: secrets } = useSecrets(applicationId);
+function SecretsList({ applicationId, appName }: { applicationId: string; appName: string }) {
+  const { data: secrets } = useSecrets(applicationId, appName);
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<SecretSummary>();
@@ -109,10 +113,11 @@ function SecretsList({ applicationId }: { applicationId: string }) {
         </div>
       )}
 
-      <SecretDialog applicationId={applicationId} open={addOpen} onOpenChange={setAddOpen} />
+      <SecretDialog applicationId={applicationId} appName={appName} open={addOpen} onOpenChange={setAddOpen} />
       {editing !== undefined && (
         <SecretDialog
           applicationId={applicationId}
+          appName={appName}
           open={editing !== undefined}
           onOpenChange={(open) => {
             if (!open) setEditing(undefined);
@@ -124,6 +129,7 @@ function SecretsList({ applicationId }: { applicationId: string }) {
       )}
       <DeleteSecretDialog
         applicationId={applicationId}
+        appName={appName}
         open={deleting != null}
         onOpenChange={(open) => {
           if (!open) setDeleting(undefined);

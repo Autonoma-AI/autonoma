@@ -5,18 +5,18 @@ export const secretsRouter = router({
     list: protectedProcedure
         .input(ListSecretsInputSchema)
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.secrets.list(organizationId, input.applicationId),
+            services.secrets.list(organizationId, input.applicationId, input.appName),
         ),
 
     upsert: protectedProcedure
         .input(UpsertSecretsInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.secrets.upsert(organizationId, input.applicationId, input.items),
+            services.secrets.upsert(organizationId, input.applicationId, input.appName, input.items),
         ),
 
     delete: protectedProcedure
         .input(DeleteSecretInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.secrets.delete(organizationId, input.applicationId, input.key),
+            services.secrets.delete(organizationId, input.applicationId, input.appName, input.key),
         ),
 });

@@ -4,17 +4,17 @@ import { type RouterOutputs, trpc } from "lib/trpc";
 
 export type SecretSummary = RouterOutputs["secrets"]["list"][number];
 
-export function useSecrets(applicationId: string) {
-    return useSuspenseQuery(trpc.secrets.list.queryOptions({ applicationId }));
+export function useSecrets(applicationId: string, appName: string) {
+    return useSuspenseQuery(trpc.secrets.list.queryOptions({ applicationId, appName }));
 }
 
-export function useUpsertSecrets(applicationId: string) {
+export function useUpsertSecrets(applicationId: string, appName: string) {
     const queryClient = useQueryClient();
     return useAPIMutation({
         ...trpc.secrets.upsert.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.secrets.list.queryKey({ applicationId }),
+                    queryKey: trpc.secrets.list.queryKey({ applicationId, appName }),
                 });
             },
         }),
@@ -29,13 +29,13 @@ export function useUpsertSecrets(applicationId: string) {
     });
 }
 
-export function useDeleteSecret(applicationId: string) {
+export function useDeleteSecret(applicationId: string, appName: string) {
     const queryClient = useQueryClient();
     return useAPIMutation({
         ...trpc.secrets.delete.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.secrets.list.queryKey({ applicationId }),
+                    queryKey: trpc.secrets.list.queryKey({ applicationId, appName }),
                 });
             },
         }),

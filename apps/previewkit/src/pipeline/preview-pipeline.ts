@@ -75,7 +75,7 @@ export class PreviewPipeline {
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
             select: {
                 id: true,
-                previewkitSecret: { select: { awsSecretArn: true } },
+                previewkitSecrets: { select: { appName: true, awsSecretArn: true } },
             },
         });
         if (application == null) {
@@ -193,13 +193,17 @@ export class PreviewPipeline {
             const buildStart = Date.now();
             let appBuilds: Record<string, AppBuildResult>;
             try {
+                const arnByApp = new Map<string, string>();
+                for (const s of application.previewkitSecrets) {
+                    if (s.appName != null) arnByApp.set(s.appName, s.awsSecretArn);
+                }
                 appBuilds = await this.buildAllApps(
                     mergedConfig,
                     appRepoDirs,
                     repoFullName,
                     prNumber,
                     shortSha,
-                    application.previewkitSecret?.awsSecretArn,
+                    arnByApp,
                 );
             } catch (buildErr) {
                 await recordSafe(() =>
@@ -359,7 +363,7 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         shortSha: string,
-        awsSecretArn: string | undefined,
+        arnByApp: Map<string, string>,
     ): Promise<Record<string, AppBuildResult>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
@@ -379,15 +383,14 @@ export class PreviewPipeline {
         };
         const envInjector = this.deployer.getEnvInjector();
 
-        const needsAwsSecrets = config.apps.some((app) => app.build_secrets.length > 0);
-        if (needsAwsSecrets && awsSecretArn == null) {
-            throw new Error(
-                "build_secrets requested but no PreviewkitSecret is registered for this Application " +
-                    "(needed to resolve the AWS Secrets Manager ARN)",
-            );
+        for (const app of config.apps) {
+            if (app.build_secrets.length > 0 && !arnByApp.has(app.name)) {
+                throw new Error(
+                    `App "${app.name}" declares build_secrets but no PreviewkitSecret is registered for it. ` +
+                        `Register a PreviewkitSecret row with appName="${app.name}" pointing at the app's AWS SM ARN.`,
+                );
+            }
         }
-        const awsSecretMap =
-            needsAwsSecrets && awsSecretArn != null ? await this.awsSecretsFetcher.fetchJson(awsSecretArn) : {};
 
         const entries = await Promise.all(
             config.apps.map(async (app) => {
@@ -398,9 +401,14 @@ export class PreviewPipeline {
                 const contextPath = path.resolve(dir, app.path);
                 const cacheKey = `${org}/${repo}/${app.name}`;
 
+                const appArn = arnByApp.get(app.name);
                 const secretBuildArgs =
-                    app.build_secrets.length > 0
-                        ? this.awsSecretsFetcher.pickKeys(awsSecretMap, app.build_secrets, awsSecretArn!)
+                    app.build_secrets.length > 0 && appArn != null
+                        ? this.awsSecretsFetcher.pickKeys(
+                              await this.awsSecretsFetcher.fetchJson(appArn),
+                              app.build_secrets,
+                              appArn,
+                          )
                         : {};
                 const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
 

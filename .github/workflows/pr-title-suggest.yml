@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_REGION: us-east-1
-  BEDROCK_MODEL_ID: global.anthropic.claude-haiku-4-5-20251001-v1:0
+  AWS_REGION: us-east-2
+  BEDROCK_MODEL_ID: anthropic.claude-haiku-4-5-20251001-v1:0
   COMMENT_MARKER: "<!-- pr-title-suggestion -->"
 
 jobs:

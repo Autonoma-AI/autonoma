@@ -22,11 +22,11 @@ export class SecretsService {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
-    async list(organizationId: string, applicationId: string): Promise<SecretSummary[]> {
-        this.logger.info("Listing secrets", { organizationId, applicationId });
+    async list(organizationId: string, applicationId: string, appName: string): Promise<SecretSummary[]> {
+        this.logger.info("Listing secrets", { organizationId, applicationId, appName });
 
         const record = await this.conn.previewkitSecret.findFirst({
-            where: { applicationId, application: { organizationId } },
+            where: { applicationId, appName, application: { organizationId } },
         });
 
         if (record == null) return [];
@@ -43,8 +43,8 @@ export class SecretsService {
             .sort((a, b) => a.key.localeCompare(b.key));
     }
 
-    async upsert(organizationId: string, applicationId: string, items: SecretItem[]): Promise<void> {
-        this.logger.info("Upserting secrets", { organizationId, applicationId, count: items.length });
+    async upsert(organizationId: string, applicationId: string, appName: string, items: SecretItem[]): Promise<void> {
+        this.logger.info("Upserting secrets", { organizationId, applicationId, appName, count: items.length });
 
         const app = await this.conn.application.findFirst({
             where: { id: applicationId, organizationId },
@@ -54,21 +54,21 @@ export class SecretsService {
         if (app == null) throw new NotFoundError("Application not found");
 
         const existing = await this.conn.previewkitSecret.findUnique({
-            where: { applicationId },
+            where: { applicationId_appName: { applicationId, appName } },
         });
 
         if (existing == null) {
-            await this.createAppSecret(app, app.organization.slug, items);
+            await this.createAppSecret(app, app.organization.slug, appName, items);
         } else {
             await this.mergeIntoSecret(existing.awsSecretArn, items);
         }
     }
 
-    async delete(organizationId: string, applicationId: string, key: string): Promise<void> {
-        this.logger.info("Deleting secret", { organizationId, applicationId, key });
+    async delete(organizationId: string, applicationId: string, appName: string, key: string): Promise<void> {
+        this.logger.info("Deleting secret", { organizationId, applicationId, appName, key });
 
         const record = await this.conn.previewkitSecret.findFirst({
-            where: { applicationId, application: { organizationId } },
+            where: { applicationId, appName, application: { organizationId } },
         });
 
         if (record == null) throw new NotFoundError(`Secret '${key}' not found`);
@@ -86,41 +86,58 @@ export class SecretsService {
             }),
         );
 
-        this.logger.info("Secret deleted", { applicationId, key });
+        this.logger.info("Secret deleted", { applicationId, appName, key });
     }
 
+    /**
+     * Creates an AWS Secrets Manager secret scoped to one app inside the
+     * (potentially monorepo) Application, then registers a PreviewkitSecret
+     * row pointing at the new ARN. Each app gets its own ARN — independent
+     * IAM scope, no cross-app key collisions, and the runtime ExternalSecret
+     * machinery mounts a per-app K8s Secret in the preview namespace.
+     */
     private async createAppSecret(
         app: { id: string; name: string },
         orgSlug: string,
+        appName: string,
         items: SecretItem[],
     ): Promise<void> {
-        const secretName = `previewkit/${orgSlug}/${app.name}`;
+        const secretName = `previewkit/${orgSlug}/${app.name}/${appName}`;
         const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
 
-        this.logger.info("Creating AWS secret for app", { applicationId: app.id, secretName });
+        this.logger.info("Creating AWS secret for app", { applicationId: app.id, appName, secretName });
 
         const result = await this.client.send(
             new CreateSecretCommand({
                 Name: secretName,
                 SecretString: JSON.stringify(secretValue),
                 Tags: [
-                    { Key: "previewkit:type", Value: "organization" },
+                    { Key: "previewkit:type", Value: "application-app" },
                     { Key: "previewkit:org", Value: orgSlug },
-                    { Key: "previewkit:app", Value: app.name },
+                    { Key: "previewkit:application", Value: app.name },
+                    { Key: "previewkit:app", Value: appName },
                 ],
             }),
         );
 
         const arn = result.ARN;
-        if (arn == null) throw new Error(`AWS secret created but no ARN returned for app ${app.id}`);
+        if (arn == null) throw new Error(`AWS secret created but no ARN returned for app ${app.id}/${appName}`);
 
-        const k8sSecretName = this.toK8sName(app.name);
+        // K8s Secret name is scoped by the inner app — the preview namespace
+        // already provides per-PR isolation, so `<inner-app>-secrets` is
+        // unique within that namespace.
+        const k8sSecretName = this.toK8sName(appName);
 
         await this.conn.previewkitSecret.create({
-            data: { applicationId: app.id, awsSecretArn: arn, k8sSecretName },
+            data: { applicationId: app.id, appName, awsSecretArn: arn, k8sSecretName },
         });
 
-        this.logger.info("AWS secret created and registered", { applicationId: app.id, arn, k8sSecretName });
+        this.logger.info("AWS secret created and registered", {
+            applicationId: app.id,
+            appName,
+            arn,
+            k8sSecretName,
+        });
     }
 
     private async mergeIntoSecret(awsSecretArn: string, items: SecretItem[]): Promise<void> {
