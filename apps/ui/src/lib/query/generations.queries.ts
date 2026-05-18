@@ -6,12 +6,21 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 
 export function useGenerations() {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.generations.list.queryOptions({ applicationId: currentApp.id }));
-}
-
-export function useGenerationsPolling(options?: { refetchInterval?: number }) {
-    const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.generations.list.queryOptions({ applicationId: currentApp.id }, options));
+    return useSuspenseQuery(
+        trpc.generations.list.queryOptions(
+            { applicationId: currentApp.id },
+            {
+                refetchInterval: (query) => {
+                    const data = query.state.data;
+                    if (data == null) return false;
+                    const hasActive = data.some(
+                        (g) => g.status === "queued" || g.status === "pending" || g.status === "running",
+                    );
+                    return hasActive ? 5000 : false;
+                },
+            },
+        ),
+    );
 }
 
 export function useGenerationDetail(generationId: string) {

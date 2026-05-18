@@ -1,19 +1,14 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { formatDate } from "lib/format";
-import { trpc } from "lib/trpc";
+import { useGenerations } from "lib/query/generations.queries";
 import { AppLink } from "../../-app-link";
-import { useCurrentApplication } from "../../-use-current-application";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "./helpers";
 
 const TH = "px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary";
 
 export function LastGenerationsTable() {
-  const app = useCurrentApplication();
-  const { data: generations } = useSuspenseQuery(
-    trpc.generations.list.queryOptions({ applicationId: app.id }, { refetchInterval: 5000 }),
-  );
+  const { data: generations } = useGenerations();
 
   const recent = generations.slice(0, 5);
   return (

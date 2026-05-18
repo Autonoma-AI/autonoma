@@ -5,7 +5,19 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 
 export function useRuns() {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.runs.list.queryOptions({ applicationId: currentApp.id }));
+    return useSuspenseQuery(
+        trpc.runs.list.queryOptions(
+            { applicationId: currentApp.id },
+            {
+                refetchInterval: (query) => {
+                    const data = query.state.data;
+                    if (data == null) return false;
+                    const hasActive = data.some((r) => r.status === "pending" || r.status === "running");
+                    return hasActive ? 5000 : false;
+                },
+            },
+        ),
+    );
 }
 
 export function useRunDetail(

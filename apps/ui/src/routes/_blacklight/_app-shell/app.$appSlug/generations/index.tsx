@@ -1,16 +1,13 @@
 import { Badge, Button, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { ensureGenerationsListData } from "lib/query/generations.queries";
-import { trpc } from "lib/trpc";
+import { ensureGenerationsListData, useGenerations } from "lib/query/generations.queries";
 import { useState } from "react";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
 import { AppLink } from "../../-app-link";
-import { useCurrentApplication } from "../../-use-current-application";
 import { DeleteGenerationDialog } from "./-delete-generation-dialog";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/generations/")({
@@ -26,12 +23,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/gener
 const TH = "px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary";
 
 function GenerationsTable() {
-  const app = useCurrentApplication();
   const { isAdmin } = useAuth();
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | undefined>(undefined);
-  const { data: generations } = useSuspenseQuery(
-    trpc.generations.list.queryOptions({ applicationId: app.id }, { refetchInterval: 5000 }),
-  );
+  const { data: generations } = useGenerations();
 
   function handleDeleteClick(e: React.MouseEvent, id: string, name: string) {
     e.preventDefault();
