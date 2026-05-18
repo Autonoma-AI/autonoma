@@ -1,300 +1,300 @@
-name: PR Title Suggest
-
-on:
-  pull_request:
-    branches: [main]
-    types: [opened, edited, synchronize, reopened, ready_for_review]
-  issue_comment:
-    types: [edited]
-
-permissions:
-  contents: read
-  pull-requests: write
-
-concurrency:
-  group: pr-title-suggest-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
-
-env:
-  AWS_REGION: us-east-2
-  BEDROCK_MODEL_ID: anthropic.claude-haiku-4-5-20251001-v1:0
-  COMMENT_MARKER: "<!-- pr-title-suggestion -->"
-
-jobs:
-  suggest:
-    name: Suggest conventional commit title
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.sender.type != 'Bot'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_SERVICE_ACCOUNT_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SERVICE_ACCOUNT_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Collect PR context
-        id: context
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-          DIFF_STAT=$(git diff --stat "$BASE_SHA...$HEAD_SHA" | head -50 || true)
-          FILES=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" | head -50 || true)
-          COMMITS=$(git log --format='%s' "$BASE_SHA..$HEAD_SHA" | head -30 || true)
-          {
-            echo "diff_stat<<PR_EOF"
-            echo "$DIFF_STAT"
-            echo "PR_EOF"
-            echo "files<<PR_EOF"
-            echo "$FILES"
-            echo "PR_EOF"
-            echo "commits<<PR_EOF"
-            echo "$COMMITS"
-            echo "PR_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Invoke Bedrock
-        id: bedrock
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          DIFF_STAT: ${{ steps.context.outputs.diff_stat }}
-          FILES: ${{ steps.context.outputs.files }}
-          COMMITS: ${{ steps.context.outputs.commits }}
-        run: |
-          set -euo pipefail
-
-          SYSTEM_PROMPT=$(cat <<'EOF'
-          You review GitHub pull request titles and rewrite lazy, vague, or non-descriptive ones into a high-quality Conventional Commit title suitable for an auto-generated changelog.
-
-          Rules for the title you produce:
-          - MUST match the regex: ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?: .+
-          - Use `!` after the type or scope if there is a breaking change.
-          - Prefer a scope in parentheses when one is obvious from the changed paths (e.g. `api`, `ui`, `engine-web`, `engine-mobile`, `db`, `docs`, `ai`, `types`).
-          - Imperative mood, lowercase after the colon, no trailing period.
-          - Total length <= 70 characters.
-          - Describe the WHAT/WHY a user of the changelog would care about, not the diff mechanics.
-          - Never invent behavior not supported by the PR context.
-
-          Decide if the current title is already good enough. A title is "alreadyGood" only if it:
-          1. Already matches the Conventional Commit regex, AND
-          2. Is specific enough that someone reading a changelog would understand the change.
-
-          Respond with ONLY a JSON object (no code fences, no prose) matching:
-          {
-            "alreadyGood": boolean,
-            "title": "...",
-            "reason": "one short sentence explaining the rewrite, or why the current title is fine"
-          }
-          EOF
-          )
-
-          USER_PROMPT=$(cat <<EOF
-          Current PR title:
-          ${PR_TITLE}
-
-          PR body:
-          ${PR_BODY:-<empty>}
-
-          Commits on this PR:
-          ${COMMITS:-<none>}
-
-          Changed files:
-          ${FILES:-<none>}
-
-          Diff stat:
-          ${DIFF_STAT:-<none>}
-          EOF
-          )
-
-          PAYLOAD=$(jq -n \
-            --arg system "$SYSTEM_PROMPT" \
-            --arg user "$USER_PROMPT" \
-            '{
-              anthropic_version: "bedrock-2023-05-31",
-              max_tokens: 512,
-              temperature: 0,
-              system: $system,
-              messages: [
-                { role: "user", content: [{ type: "text", text: $user }] }
-              ]
-            }')
-
-          echo "$PAYLOAD" > /tmp/bedrock-payload.json
-
-          aws bedrock-runtime invoke-model \
-            --model-id "$BEDROCK_MODEL_ID" \
-            --content-type application/json \
-            --accept application/json \
-            --body fileb:///tmp/bedrock-payload.json \
-            /tmp/bedrock-response.json >/dev/null
-
-          RAW=$(jq -r '.content[0].text' /tmp/bedrock-response.json)
-          echo "Model output: $RAW"
-
-          JSON=$(printf '%s' "$RAW" | awk '
-            /^[[:space:]]*\{/ {flag=1}
-            flag {print}
-            /^[[:space:]]*\}[[:space:]]*$/ {flag=0}
-          ')
-
-          if [ -z "$JSON" ]; then
-            echo "Could not extract JSON object from model output."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          PARSED=$(echo "$JSON" | jq -c '.')
-          ALREADY_GOOD=$(echo "$PARSED" | jq -r '.alreadyGood')
-          SUGGESTED=$(echo "$PARSED" | jq -r '.title')
-          REASON=$(echo "$PARSED" | jq -r '.reason')
-
-          if ! [[ "$SUGGESTED" =~ ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?:\ .+ ]]; then
-            echo "Model returned an invalid conventional commit title: $SUGGESTED"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ ${#SUGGESTED} -gt 70 ]; then
-            echo "Suggested title exceeds 70 chars, skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          {
-            echo "already_good=$ALREADY_GOOD"
-            echo "suggested<<PR_EOF"
-            echo "$SUGGESTED"
-            echo "PR_EOF"
-            echo "reason<<PR_EOF"
-            echo "$REASON"
-            echo "PR_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Post or update suggestion comment
-        if: steps.bedrock.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          ALREADY_GOOD: ${{ steps.bedrock.outputs.already_good }}
-          SUGGESTED: ${{ steps.bedrock.outputs.suggested }}
-          REASON: ${{ steps.bedrock.outputs.reason }}
-        run: |
-          set -euo pipefail
-
-          EXISTING_ID=$(gh api \
-            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --paginate \
-            --jq "map(select(.body | contains(\"${COMMENT_MARKER}\"))) | .[0].id // empty")
-
-          if [ "$ALREADY_GOOD" = "true" ] || [ "$SUGGESTED" = "$PR_TITLE" ]; then
-            if [ -n "$EXISTING_ID" ]; then
-              echo "Title is already good; deleting stale suggestion comment $EXISTING_ID."
-              gh api -X DELETE "repos/${{ github.repository }}/issues/comments/${EXISTING_ID}"
-            else
-              echo "Title is already a good conventional commit; nothing to do."
-            fi
-            exit 0
-          fi
-
-          BODY=$(cat <<EOF
-          ${COMMENT_MARKER}
-          ### Suggested conventional commit title
-
-          I analyzed this PR and think the title could be clearer for the changelog.
-
-          **Current:** \`${PR_TITLE}\`
-          **Suggested:** \`${SUGGESTED}\`
-
-          _${REASON}_
-
-          - [ ] Apply this title to the PR
-
-          <sub>Tick the box above to rename the PR. Powered by Amazon Bedrock (\`${BEDROCK_MODEL_ID}\`). Re-runs on every PR update.</sub>
-          EOF
-          )
-
-          if [ -n "$EXISTING_ID" ]; then
-            echo "Updating existing comment $EXISTING_ID."
-            jq -n --arg body "$BODY" '{body: $body}' > /tmp/comment.json
-            gh api -X PATCH \
-              "repos/${{ github.repository }}/issues/comments/${EXISTING_ID}" \
-              --input /tmp/comment.json >/dev/null
-          else
-            echo "Posting new suggestion comment."
-            gh pr comment "$PR_NUMBER" --body "$BODY"
-          fi
-
-  apply:
-    name: Apply suggested title on checkbox tick
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.action == 'edited' &&
-      github.event.issue.pull_request != null &&
-      contains(github.event.comment.body, '<!-- pr-title-suggestion -->') &&
-      contains(github.event.comment.body, '- [x] Apply this title to the PR') &&
-      !contains(github.event.changes.body.from, '- [x] Apply this title to the PR')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify editor has write access
-        id: perms
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EDITOR_LOGIN: ${{ github.event.sender.login }}
-        run: |
-          set -euo pipefail
-          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${EDITOR_LOGIN}/permission" \
-            --jq '.permission')
-          echo "Editor permission: $PERM"
-          if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
-            echo "Editor lacks write permission; ignoring."
-            echo "allowed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "allowed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Apply suggested title
-        if: steps.perms.outputs.allowed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          COMMENT_ID: ${{ github.event.comment.id }}
-        run: |
-          set -euo pipefail
-
-          SUGGESTED=$(printf '%s' "$COMMENT_BODY" \
-            | grep -E '^\*\*Suggested:\*\* `' \
-            | head -1 \
-            | sed -E 's/^\*\*Suggested:\*\* `(.*)`$/\1/')
-
-          if [ -z "$SUGGESTED" ]; then
-            echo "Could not extract suggested title from comment."
-            exit 1
-          fi
-
-          if ! [[ "$SUGGESTED" =~ ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?:\ .+ ]]; then
-            echo "Refusing to apply non-conventional title: $SUGGESTED"
-            exit 1
-          fi
-
-          echo "Renaming PR #${PR_NUMBER} to: $SUGGESTED"
-          gh pr edit "$PR_NUMBER" --title "$SUGGESTED"
-
-          UPDATED=$(printf '%s' "$COMMENT_BODY" | sed 's/- \[x\] Apply this title to the PR/- [x] ~Apply this title to the PR~ (applied)/')
-          jq -n --arg body "$UPDATED" '{body: $body}' > /tmp/comment.json
-          gh api -X PATCH \
-            "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-            --input /tmp/comment.json >/dev/null
+#name: PR Title Suggest
+#
+#on:
+#  pull_request:
+#    branches: [main]
+#    types: [opened, edited, synchronize, reopened, ready_for_review]
+#  issue_comment:
+#    types: [edited]
+#
+#permissions:
+#  contents: read
+#  pull-requests: write
+#
+#concurrency:
+#  group: pr-title-suggest-${{ github.event.pull_request.number || github.event.issue.number }}
+#  cancel-in-progress: true
+#
+#env:
+#  AWS_REGION: us-east-2
+#  BEDROCK_MODEL_ID: anthropic.claude-haiku-4-5-20251001-v1:0
+#  COMMENT_MARKER: "<!-- pr-title-suggestion -->"
+#
+#jobs:
+#  suggest:
+#    name: Suggest conventional commit title
+#    if: >-
+#      github.event_name == 'pull_request' &&
+#      github.event.sender.type != 'Bot'
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          fetch-depth: 0
+#
+#      - name: Configure AWS credentials
+#        uses: aws-actions/configure-aws-credentials@v4
+#        with:
+#          aws-access-key-id: ${{ secrets.AWS_SERVICE_ACCOUNT_ACCESS_KEY }}
+#          aws-secret-access-key: ${{ secrets.AWS_SERVICE_ACCOUNT_SECRET_ACCESS_KEY }}
+#          aws-region: ${{ env.AWS_REGION }}
+#
+#      - name: Collect PR context
+#        id: context
+#        env:
+#          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+#          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+#          PR_TITLE: ${{ github.event.pull_request.title }}
+#          PR_BODY: ${{ github.event.pull_request.body }}
+#        run: |
+#          set -euo pipefail
+#          DIFF_STAT=$(git diff --stat "$BASE_SHA...$HEAD_SHA" | head -50 || true)
+#          FILES=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" | head -50 || true)
+#          COMMITS=$(git log --format='%s' "$BASE_SHA..$HEAD_SHA" | head -30 || true)
+#          {
+#            echo "diff_stat<<PR_EOF"
+#            echo "$DIFF_STAT"
+#            echo "PR_EOF"
+#            echo "files<<PR_EOF"
+#            echo "$FILES"
+#            echo "PR_EOF"
+#            echo "commits<<PR_EOF"
+#            echo "$COMMITS"
+#            echo "PR_EOF"
+#          } >> "$GITHUB_OUTPUT"
+#
+#      - name: Invoke Bedrock
+#        id: bedrock
+#        env:
+#          PR_TITLE: ${{ github.event.pull_request.title }}
+#          PR_BODY: ${{ github.event.pull_request.body }}
+#          DIFF_STAT: ${{ steps.context.outputs.diff_stat }}
+#          FILES: ${{ steps.context.outputs.files }}
+#          COMMITS: ${{ steps.context.outputs.commits }}
+#        run: |
+#          set -euo pipefail
+#
+#          SYSTEM_PROMPT=$(cat <<'EOF'
+#          You review GitHub pull request titles and rewrite lazy, vague, or non-descriptive ones into a high-quality Conventional Commit title suitable for an auto-generated changelog.
+#
+#          Rules for the title you produce:
+#          - MUST match the regex: ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?: .+
+#          - Use `!` after the type or scope if there is a breaking change.
+#          - Prefer a scope in parentheses when one is obvious from the changed paths (e.g. `api`, `ui`, `engine-web`, `engine-mobile`, `db`, `docs`, `ai`, `types`).
+#          - Imperative mood, lowercase after the colon, no trailing period.
+#          - Total length <= 70 characters.
+#          - Describe the WHAT/WHY a user of the changelog would care about, not the diff mechanics.
+#          - Never invent behavior not supported by the PR context.
+#
+#          Decide if the current title is already good enough. A title is "alreadyGood" only if it:
+#          1. Already matches the Conventional Commit regex, AND
+#          2. Is specific enough that someone reading a changelog would understand the change.
+#
+#          Respond with ONLY a JSON object (no code fences, no prose) matching:
+#          {
+#            "alreadyGood": boolean,
+#            "title": "...",
+#            "reason": "one short sentence explaining the rewrite, or why the current title is fine"
+#          }
+#          EOF
+#          )
+#
+#          USER_PROMPT=$(cat <<EOF
+#          Current PR title:
+#          ${PR_TITLE}
+#
+#          PR body:
+#          ${PR_BODY:-<empty>}
+#
+#          Commits on this PR:
+#          ${COMMITS:-<none>}
+#
+#          Changed files:
+#          ${FILES:-<none>}
+#
+#          Diff stat:
+#          ${DIFF_STAT:-<none>}
+#          EOF
+#          )
+#
+#          PAYLOAD=$(jq -n \
+#            --arg system "$SYSTEM_PROMPT" \
+#            --arg user "$USER_PROMPT" \
+#            '{
+#              anthropic_version: "bedrock-2023-05-31",
+#              max_tokens: 512,
+#              temperature: 0,
+#              system: $system,
+#              messages: [
+#                { role: "user", content: [{ type: "text", text: $user }] }
+#              ]
+#            }')
+#
+#          echo "$PAYLOAD" > /tmp/bedrock-payload.json
+#
+#          aws bedrock-runtime invoke-model \
+#            --model-id "$BEDROCK_MODEL_ID" \
+#            --content-type application/json \
+#            --accept application/json \
+#            --body fileb:///tmp/bedrock-payload.json \
+#            /tmp/bedrock-response.json >/dev/null
+#
+#          RAW=$(jq -r '.content[0].text' /tmp/bedrock-response.json)
+#          echo "Model output: $RAW"
+#
+#          JSON=$(printf '%s' "$RAW" | awk '
+#            /^[[:space:]]*\{/ {flag=1}
+#            flag {print}
+#            /^[[:space:]]*\}[[:space:]]*$/ {flag=0}
+#          ')
+#
+#          if [ -z "$JSON" ]; then
+#            echo "Could not extract JSON object from model output."
+#            echo "skip=true" >> "$GITHUB_OUTPUT"
+#            exit 0
+#          fi
+#
+#          PARSED=$(echo "$JSON" | jq -c '.')
+#          ALREADY_GOOD=$(echo "$PARSED" | jq -r '.alreadyGood')
+#          SUGGESTED=$(echo "$PARSED" | jq -r '.title')
+#          REASON=$(echo "$PARSED" | jq -r '.reason')
+#
+#          if ! [[ "$SUGGESTED" =~ ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?:\ .+ ]]; then
+#            echo "Model returned an invalid conventional commit title: $SUGGESTED"
+#            echo "skip=true" >> "$GITHUB_OUTPUT"
+#            exit 0
+#          fi
+#
+#          if [ ${#SUGGESTED} -gt 70 ]; then
+#            echo "Suggested title exceeds 70 chars, skipping."
+#            echo "skip=true" >> "$GITHUB_OUTPUT"
+#            exit 0
+#          fi
+#
+#          {
+#            echo "already_good=$ALREADY_GOOD"
+#            echo "suggested<<PR_EOF"
+#            echo "$SUGGESTED"
+#            echo "PR_EOF"
+#            echo "reason<<PR_EOF"
+#            echo "$REASON"
+#            echo "PR_EOF"
+#          } >> "$GITHUB_OUTPUT"
+#
+#      - name: Post or update suggestion comment
+#        if: steps.bedrock.outputs.skip != 'true'
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          PR_NUMBER: ${{ github.event.pull_request.number }}
+#          PR_TITLE: ${{ github.event.pull_request.title }}
+#          ALREADY_GOOD: ${{ steps.bedrock.outputs.already_good }}
+#          SUGGESTED: ${{ steps.bedrock.outputs.suggested }}
+#          REASON: ${{ steps.bedrock.outputs.reason }}
+#        run: |
+#          set -euo pipefail
+#
+#          EXISTING_ID=$(gh api \
+#            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+#            --paginate \
+#            --jq "map(select(.body | contains(\"${COMMENT_MARKER}\"))) | .[0].id // empty")
+#
+#          if [ "$ALREADY_GOOD" = "true" ] || [ "$SUGGESTED" = "$PR_TITLE" ]; then
+#            if [ -n "$EXISTING_ID" ]; then
+#              echo "Title is already good; deleting stale suggestion comment $EXISTING_ID."
+#              gh api -X DELETE "repos/${{ github.repository }}/issues/comments/${EXISTING_ID}"
+#            else
+#              echo "Title is already a good conventional commit; nothing to do."
+#            fi
+#            exit 0
+#          fi
+#
+#          BODY=$(cat <<EOF
+#          ${COMMENT_MARKER}
+#          ### Suggested conventional commit title
+#
+#          I analyzed this PR and think the title could be clearer for the changelog.
+#
+#          **Current:** \`${PR_TITLE}\`
+#          **Suggested:** \`${SUGGESTED}\`
+#
+#          _${REASON}_
+#
+#          - [ ] Apply this title to the PR
+#
+#          <sub>Tick the box above to rename the PR. Powered by Amazon Bedrock (\`${BEDROCK_MODEL_ID}\`). Re-runs on every PR update.</sub>
+#          EOF
+#          )
+#
+#          if [ -n "$EXISTING_ID" ]; then
+#            echo "Updating existing comment $EXISTING_ID."
+#            jq -n --arg body "$BODY" '{body: $body}' > /tmp/comment.json
+#            gh api -X PATCH \
+#              "repos/${{ github.repository }}/issues/comments/${EXISTING_ID}" \
+#              --input /tmp/comment.json >/dev/null
+#          else
+#            echo "Posting new suggestion comment."
+#            gh pr comment "$PR_NUMBER" --body "$BODY"
+#          fi
+#
+#  apply:
+#    name: Apply suggested title on checkbox tick
+#    if: >-
+#      github.event_name == 'issue_comment' &&
+#      github.event.action == 'edited' &&
+#      github.event.issue.pull_request != null &&
+#      contains(github.event.comment.body, '<!-- pr-title-suggestion -->') &&
+#      contains(github.event.comment.body, '- [x] Apply this title to the PR') &&
+#      !contains(github.event.changes.body.from, '- [x] Apply this title to the PR')
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Verify editor has write access
+#        id: perms
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          EDITOR_LOGIN: ${{ github.event.sender.login }}
+#        run: |
+#          set -euo pipefail
+#          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${EDITOR_LOGIN}/permission" \
+#            --jq '.permission')
+#          echo "Editor permission: $PERM"
+#          if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
+#            echo "Editor lacks write permission; ignoring."
+#            echo "allowed=false" >> "$GITHUB_OUTPUT"
+#          else
+#            echo "allowed=true" >> "$GITHUB_OUTPUT"
+#          fi
+#
+#      - name: Apply suggested title
+#        if: steps.perms.outputs.allowed == 'true'
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          PR_NUMBER: ${{ github.event.issue.number }}
+#          COMMENT_BODY: ${{ github.event.comment.body }}
+#          COMMENT_ID: ${{ github.event.comment.id }}
+#        run: |
+#          set -euo pipefail
+#
+#          SUGGESTED=$(printf '%s' "$COMMENT_BODY" \
+#            | grep -E '^\*\*Suggested:\*\* `' \
+#            | head -1 \
+#            | sed -E 's/^\*\*Suggested:\*\* `(.*)`$/\1/')
+#
+#          if [ -z "$SUGGESTED" ]; then
+#            echo "Could not extract suggested title from comment."
+#            exit 1
+#          fi
+#
+#          if ! [[ "$SUGGESTED" =~ ^(feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(\([a-z0-9-]+\))?!?:\ .+ ]]; then
+#            echo "Refusing to apply non-conventional title: $SUGGESTED"
+#            exit 1
+#          fi
+#
+#          echo "Renaming PR #${PR_NUMBER} to: $SUGGESTED"
+#          gh pr edit "$PR_NUMBER" --title "$SUGGESTED"
+#
+#          UPDATED=$(printf '%s' "$COMMENT_BODY" | sed 's/- \[x\] Apply this title to the PR/- [x] ~Apply this title to the PR~ (applied)/')
+#          jq -n --arg body "$UPDATED" '{body: $body}' > /tmp/comment.json
+#          gh api -X PATCH \
+#            "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+#            --input /tmp/comment.json >/dev/null
