@@ -1703,7 +1703,6 @@ model PreviewkitSecret {
   applicationId String @map("application_id")
   appName       String @map("app_name")
   awsSecretArn  String @map("aws_secret_arn")
-  k8sSecretName String @map("k8s_secret_name")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 

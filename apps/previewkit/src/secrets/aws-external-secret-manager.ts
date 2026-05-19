@@ -82,15 +82,16 @@ export class AwsExternalSecretManager {
         }
 
         for (const record of records) {
-            if (record.appName == null) continue;
-
-            const resource = this.buildExternalSecret(record, namespace, organizationId);
+            // K8s Secret name is derived from appName locally — see toK8sName().
+            // The previewkit_secret row no longer persists it.
+            const k8sSecretName = this.toK8sName(record.appName);
+            const resource = this.buildExternalSecret(record, k8sSecretName, namespace, organizationId);
             await this.applyExternalSecret(namespace, resource);
-            result.set(record.appName, record.k8sSecretName);
+            result.set(record.appName, k8sSecretName);
 
             this.logger.info("Applied AWS ExternalSecret", {
                 appName: record.appName,
-                k8sSecretName: record.k8sSecretName,
+                k8sSecretName,
                 awsSecretArn: record.awsSecretArn,
                 namespace,
             });
@@ -107,7 +108,8 @@ export class AwsExternalSecretManager {
     }
 
     private buildExternalSecret(
-        record: { id: string; awsSecretArn: string; k8sSecretName: string },
+        record: { id: string; awsSecretArn: string },
+        k8sSecretName: string,
         namespace: string,
         organizationId: string,
     ): ExternalSecret {
@@ -130,12 +132,30 @@ export class AwsExternalSecretManager {
                     kind: "ClusterSecretStore",
                 },
                 target: {
-                    name: record.k8sSecretName,
+                    name: k8sSecretName,
                     creationPolicy: "Owner",
                 },
                 dataFrom: [{ extract: { key: record.awsSecretArn } }],
             },
         };
+    }
+
+    /**
+     * Derive the K8s Secret name that External Secrets Operator materialises
+     * in the preview namespace from the inner app's name. The per-PR namespace
+     * already provides isolation, so `<appName>-secrets` is unique without any
+     * further scoping. Mirrors the rules `previewkit.dev/managed-by` k8s names
+     * follow: lowercase alnum + hyphens, trimmed, capped under the 63-char
+     * label limit (55 + `-secrets` suffix = 63).
+     */
+    private toK8sName(appName: string): string {
+        return appName
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 55)
+            .concat("-secrets");
     }
 
     private async applyExternalSecret(namespace: string, resource: ExternalSecret): Promise<void> {

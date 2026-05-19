@@ -123,20 +123,17 @@ export class SecretsService {
         const arn = result.ARN;
         if (arn == null) throw new Error(`AWS secret created but no ARN returned for app ${app.id}/${appName}`);
 
-        // K8s Secret name is scoped by the inner app — the preview namespace
-        // already provides per-PR isolation, so `<inner-app>-secrets` is
-        // unique within that namespace.
-        const k8sSecretName = this.toK8sName(appName);
-
+        // The K8s Secret name materialised in the preview namespace is
+        // derived from `appName` by the previewkit deployer at deploy time;
+        // we no longer persist it here.
         await this.conn.previewkitSecret.create({
-            data: { applicationId: app.id, appName, awsSecretArn: arn, k8sSecretName },
+            data: { applicationId: app.id, appName, awsSecretArn: arn },
         });
 
         this.logger.info("AWS secret created and registered", {
             applicationId: app.id,
             appName,
             arn,
-            k8sSecretName,
         });
     }
 
@@ -169,15 +166,5 @@ export class SecretsService {
             if (err instanceof ResourceNotFoundException) return {};
             throw err;
         }
-    }
-
-    private toK8sName(appName: string): string {
-        return appName
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 55)
-            .concat("-secrets");
     }
 }
