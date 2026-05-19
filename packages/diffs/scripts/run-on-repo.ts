@@ -1,23 +1,25 @@
 /**
- * Run the diffs agent against a real git repository.
+ * Run the diffs agent against a real git repository, sourcing the existing
+ * tests/skills/flows from the database for a given snapshot.
  *
  * Usage:
- *   pnpm tsx scripts/run-on-repo.ts <repo-path> [--model flash|glm|kimi]
+ *   pnpm tsx scripts/run-on-repo.ts <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]
  *
  * The repo must have at least 2 commits (the agent diffs HEAD~1..HEAD).
- * It reads autonoma/skills/*.md and autonoma/qa-tests/*.md to build the input.
  *
  * Example:
- *   pnpm tsx scripts/run-on-repo.ts /path/to/appium-navigator --model flash
+ *   pnpm tsx scripts/run-on-repo.ts /path/to/appium-navigator --snapshot=snap_123 --model=flash
  */
 
 import { execSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
-import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "../src/diffs-agent";
+import { db } from "@autonoma/db";
+import { fetchTestSuiteInfo } from "@autonoma/test-updates";
+import type { DiffsAgentInput } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
+import { loadFlows } from "../src/loaders/load-flows";
+import { mapTestSuiteToContext } from "../src/loaders/map-suite-to-context";
 
 // --- Model setup ---
 
@@ -40,15 +42,22 @@ type ModelKey = keyof typeof MODEL_OPTIONS;
 const args = process.argv.slice(2);
 const modelFlag = args.find((a) => a.startsWith("--model="))?.split("=")[1] as ModelKey | undefined;
 const modelKey: ModelKey = modelFlag ?? "flash";
+const snapshotId = args.find((a) => a.startsWith("--snapshot="))?.split("=")[1];
+
+function usage(): never {
+    console.error(
+        "Usage: pnpm tsx scripts/run-on-repo.ts <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]",
+    );
+    process.exit(1);
+}
 
 function getRepoPath(): string {
     const path = args.find((a) => !a.startsWith("--"));
-    if (path == null) {
-        console.error("Usage: pnpm tsx scripts/run-on-repo.ts <repo-path> [--model=flash|glm|kimi]");
-        process.exit(1);
-    }
+    if (path == null) usage();
     return path;
 }
+
+if (snapshotId == null || snapshotId.length === 0) usage();
 
 const repoPath = getRepoPath();
 
@@ -58,41 +67,15 @@ function git(cwd: string, command: string): string {
     return execSync(`git ${command}`, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }).trim();
 }
 
-async function readTestsFromRepo(repoDir: string): Promise<ExistingTestInfo[]> {
-    const dir = join(repoDir, "autonoma", "qa-tests");
-    const files = await readdir(dir).catch(() => [] as string[]);
-    const tests: ExistingTestInfo[] = [];
-
-    for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const raw = await readFile(join(dir, file), "utf-8");
-        const slug = file.replace(".md", "");
-        const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
-        const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
-        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
-        tests.push({ id: `test-${slug}`, name, slug, prompt: body });
+async function resolveApplicationId(snapId: string): Promise<string> {
+    const snapshot = await db.branchSnapshot.findUnique({
+        where: { id: snapId },
+        select: { branch: { select: { applicationId: true } } },
+    });
+    if (snapshot == null) {
+        throw new Error(`Snapshot ${snapId} not found`);
     }
-
-    return tests;
-}
-
-async function readSkillsFromRepo(repoDir: string): Promise<ExistingSkillInfo[]> {
-    const dir = join(repoDir, "autonoma", "skills");
-    const files = await readdir(dir).catch(() => [] as string[]);
-    const skills: ExistingSkillInfo[] = [];
-
-    for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const raw = await readFile(join(dir, file), "utf-8");
-        const slug = file.replace(".md", "");
-        const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
-        const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
-        const description = frontmatter?.[1]?.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
-        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
-        skills.push({ id: `skill-${slug}`, name, slug, description, content: body });
-    }
-
-    return skills;
+    return snapshot.branch.applicationId;
 }
 
 // --- Main ---
@@ -100,6 +83,7 @@ async function readSkillsFromRepo(repoDir: string): Promise<ExistingSkillInfo[]>
 async function main() {
     console.log("\n=== Diffs Agent - Real Repo Test ===");
     console.log(`Repo: ${repoPath}`);
+    console.log(`Snapshot: ${snapshotId}`);
     console.log(`Model: ${modelKey}`);
     console.log();
 
@@ -116,10 +100,13 @@ async function main() {
     console.log(diffStat);
     console.log();
 
-    const [existingTests, existingSkills] = await Promise.all([
-        readTestsFromRepo(repoPath),
-        readSkillsFromRepo(repoPath),
-    ]);
+    const applicationId = await resolveApplicationId(snapshotId!);
+    const suiteInfo = await fetchTestSuiteInfo(db, snapshotId!);
+    const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
+    const flows = await loadFlows(db, applicationId, suiteInfo);
+
+    console.log(`Loaded ${existingTests.length} tests, ${existingSkills.length} skills, ${flows.length} flows`);
+    console.log();
 
     const input: DiffsAgentInput = {
         headSha,
@@ -134,7 +121,7 @@ async function main() {
     console.log("--- Starting agent ---\n");
     const startTime = Date.now();
 
-    const flowIndex = new FlowIndex([]);
+    const flowIndex = new FlowIndex(flows);
 
     const agent = new DiffsAgent({
         model,

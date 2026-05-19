@@ -52,6 +52,8 @@ export {
     type DetectMergesParams,
     type RelevantMerge,
 } from "./merge-detection";
+export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
+export { loadFlows } from "./loaders/load-flows";
 export { runDiffsAgentLocally, type LocalDiffsRunnerParams } from "./run-diffs-locally";
 export {
     runResolutionAgentLocally,

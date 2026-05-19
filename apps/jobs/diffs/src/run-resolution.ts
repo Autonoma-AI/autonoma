@@ -1,13 +1,13 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
-import { FlowIndex } from "@autonoma/diffs";
+import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import * as Sentry from "@sentry/node";
 import type { ModelMessage } from "ai";
 import { createDiffsServices } from "./create-services";
-import { loadBranchData, loadFlows, mapTestSuiteToContext } from "./load-context";
+import { loadBranchData } from "./load-context";
 import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
 import { uploadConversation } from "./upload-conversation";
 
@@ -125,7 +125,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             const suiteInfo = await updater.currentTestSuiteInfo();
             const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-            const flows = await loadFlows(branchData.applicationId, suiteInfo);
+            const flows = await loadFlows(db, branchData.applicationId, suiteInfo);
             const flowIndex = new FlowIndex(flows);
 
             const agentResult = await runResolutionAgent({

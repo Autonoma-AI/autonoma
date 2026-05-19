@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
-import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
-import { FlowIndex, type FlowInfo } from "@autonoma/diffs";
+import type { DiffsAgentInput } from "@autonoma/diffs";
+import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
@@ -58,74 +58,6 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
     };
 }
 
-export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
-    existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
-} {
-    const existingTests: ExistingTestInfo[] = [];
-    for (const testCase of suiteInfo.testCases) {
-        if (testCase.plan == null) {
-            logger.warn("Test case has no plan, skipping", { testCaseId: testCase.id, slug: testCase.slug });
-            continue;
-        }
-        existingTests.push({
-            id: testCase.id,
-            name: testCase.name,
-            slug: testCase.slug,
-            prompt: testCase.plan.prompt,
-            quarantine: testCase.quarantine,
-        });
-    }
-
-    const existingSkills: ExistingSkillInfo[] = [];
-    for (const skill of suiteInfo.skills) {
-        if (skill.plan == null) {
-            logger.warn("Skill has no plan, skipping", { skillId: skill.id, slug: skill.slug });
-            continue;
-        }
-        existingSkills.push({
-            id: skill.id,
-            name: skill.name,
-            slug: skill.slug,
-            description: skill.description,
-            content: skill.plan.content,
-        });
-    }
-
-    return { existingTests, existingSkills };
-}
-
-export async function loadFlows(applicationId: string, suiteInfo: TestSuiteInfo): Promise<FlowInfo[]> {
-    const folders = await db.folder.findMany({
-        where: { applicationId },
-        select: { id: true, name: true, description: true },
-    });
-
-    const testSlugsByFolderId = new Map<string, string[]>();
-    for (const testCase of suiteInfo.testCases) {
-        if (testCase.plan == null) {
-            logger.warn("Test case has no plan, skipping from flow index", {
-                testCaseId: testCase.id,
-                slug: testCase.slug,
-            });
-            continue;
-        }
-        const slugs = testSlugsByFolderId.get(testCase.folderId);
-        if (slugs != null) {
-            slugs.push(testCase.slug);
-        } else {
-            testSlugsByFolderId.set(testCase.folderId, [testCase.slug]);
-        }
-    }
-
-    return folders.map((folder) => ({
-        id: folder.id,
-        name: folder.name,
-        description: folder.description ?? undefined,
-        testSlugs: testSlugsByFolderId.get(folder.id) ?? [],
-    }));
-}
-
 export async function loadDiffsContext(
     applicationId: string,
     suiteInfo: TestSuiteInfo,
@@ -134,7 +66,7 @@ export async function loadDiffsContext(
 ): Promise<{ input: DiffsAgentInput; flowIndex: FlowIndex }> {
     const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-    const flows = await loadFlows(applicationId, suiteInfo);
+    const flows = await loadFlows(db, applicationId, suiteInfo);
     const flowIndex = new FlowIndex(flows);
 
     logger.info("Loaded diffs context", {
