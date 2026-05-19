@@ -1311,6 +1311,9 @@ importers:
       '@autonoma/github':
         specifier: workspace:*
         version: link:../github
+      '@autonoma/healing':
+        specifier: workspace:*
+        version: link:../healing
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger

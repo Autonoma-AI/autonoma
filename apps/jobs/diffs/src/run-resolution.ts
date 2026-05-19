@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
-import type { RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
-import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
+import type { TestCandidateInput } from "@autonoma/diffs";
+import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import * as Sentry from "@sentry/node";
@@ -177,87 +177,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
         newTests: newTestsCount,
         acceptedCandidates: acceptedCandidates.length,
     });
-}
-
-type AffectedTestWithRun = {
-    testCaseId: string;
-    affectedReason: "code_change" | "merge_plan_imported" | "merge_conflict";
-    runId: string | null;
-    testCase: {
-        id: string;
-        name: string;
-        slug: string;
-        assignments: { quarantineIssueId: string | null }[];
-    };
-    run: {
-        id: string;
-        status: string;
-        assignment: { plan: { prompt: string } | null } | null;
-        runReview: {
-            status: string;
-            verdict: string | null;
-            reasoning: string | null;
-            issue: { title: string; description: string } | null;
-        } | null;
-    } | null;
-};
-
-function buildVerdicts(
-    affectedTests: AffectedTestWithRun[],
-    logger: ReturnType<typeof rootLogger.child>,
-): RunReviewVerdict[] {
-    const verdicts: RunReviewVerdict[] = [];
-    const runsPassed: string[] = [];
-    const runsActionable: string[] = [];
-    const runsWithoutReview: string[] = [];
-    const runsQuarantined: string[] = [];
-
-    for (const affected of affectedTests) {
-        const run = affected.run;
-        if (run == null) continue;
-
-        const slug = affected.testCase.slug;
-
-        if (affected.testCase.assignments[0]?.quarantineIssueId != null) {
-            runsQuarantined.push(slug);
-            continue;
-        }
-
-        if (run.status === "success") {
-            runsPassed.push(slug);
-            continue;
-        }
-
-        const review = run.runReview;
-        if (review == null || review.status !== "completed") {
-            runsWithoutReview.push(slug);
-            continue;
-        }
-
-        verdicts.push({
-            runId: run.id,
-            testSlug: slug,
-            testName: affected.testCase.name,
-            originalPrompt: run.assignment?.plan?.prompt ?? "",
-            runStatus: run.status,
-            verdict: review.verdict ?? "unknown",
-            reviewReasoning: review.reasoning ?? "",
-            issueTitle: review.issue?.title ?? undefined,
-            issueDescription: review.issue?.description ?? undefined,
-            affectedReason: affected.affectedReason,
-        });
-        runsActionable.push(slug);
-    }
-
-    logger.info("Built verdicts", {
-        actionable: verdicts.length,
-        runsPassed,
-        runsActionable,
-        runsWithoutReview,
-        runsQuarantined,
-    });
-
-    return verdicts;
 }
 
 interface LinkResolutionOutcomesParams {

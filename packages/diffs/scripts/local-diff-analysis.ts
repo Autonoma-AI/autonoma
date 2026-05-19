@@ -3,12 +3,12 @@
  * tests/skills/flows from the database for a given snapshot.
  *
  * Usage:
- *   pnpm tsx scripts/run-on-repo.ts <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]
+ *   pnpm local-diff-analysis <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]
  *
  * The repo must have at least 2 commits (the agent diffs HEAD~1..HEAD).
  *
  * Example:
- *   pnpm tsx scripts/run-on-repo.ts /path/to/appium-navigator --snapshot=snap_123 --model=flash
+ *   pnpm local-diff-analysis /path/to/appium-navigator --snapshot=snap_123 --model=flash
  */
 
 import { execSync } from "node:child_process";
@@ -45,9 +45,7 @@ const modelKey: ModelKey = modelFlag ?? "flash";
 const snapshotId = args.find((a) => a.startsWith("--snapshot="))?.split("=")[1];
 
 function usage(): never {
-    console.error(
-        "Usage: pnpm tsx scripts/run-on-repo.ts <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]",
-    );
+    console.error("Usage: pnpm local-diff-analysis <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]");
     process.exit(1);
 }
 

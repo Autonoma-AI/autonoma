@@ -16,13 +16,16 @@
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
         "build": "tsc",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "local-diff-analysis": "tsx --env-file=../../.env scripts/local-diff-analysis.ts",
+        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
+        "@autonoma/healing": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "ai": "catalog:",

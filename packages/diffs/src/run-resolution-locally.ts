@@ -22,6 +22,12 @@ export interface LocalResolutionRunnerParams {
     step1Reasoning: string;
     testCandidates: LocalTestCandidateInput[];
     scenarios?: ScenarioInfo[];
+    /**
+     * Real per-flow index from {@link loadFlows}. When omitted the runner
+     * falls back to a flat single-flow index containing every test, which is
+     * fine for ad-hoc local runs but does not mirror production fidelity.
+     */
+    flowIndex?: FlowIndex;
     maxSteps?: number;
 }
 
@@ -36,6 +42,7 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         step1Reasoning,
         testCandidates,
         scenarios,
+        flowIndex: providedFlowIndex,
         maxSteps,
     } = params;
 
@@ -45,15 +52,18 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         verdicts: verdicts.length,
         testCandidates: testCandidates.length,
         scenarios: scenarios?.length ?? 0,
+        flowIndexProvided: providedFlowIndex != null,
     });
 
-    const flowIndex = new FlowIndex([
-        {
-            id: "all",
-            name: "All Tests",
-            testSlugs: existingTests.map((t) => t.slug),
-        },
-    ]);
+    const flowIndex =
+        providedFlowIndex ??
+        new FlowIndex([
+            {
+                id: "all",
+                name: "All Tests",
+                testSlugs: existingTests.map((t) => t.slug),
+            },
+        ]);
 
     const agent = new ResolutionAgent({
         model,

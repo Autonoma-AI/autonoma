@@ -1,4 +1,5 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
+import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "@autonoma/healing";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import { buildDiffAnalysis } from "./diff-analysis";
@@ -171,7 +172,7 @@ export class DiffsAgent {
 
         const agent = new ToolLoopAgent({
             model,
-            instructions: SYSTEM_PROMPT,
+            instructions: `${SYSTEM_PROMPT}\n\n${PLAN_AUTHORING_GUIDE}`,
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
@@ -238,9 +239,21 @@ interface PromptInput {
 }
 
 function buildPrompt(input: PromptInput, flowIndex: FlowIndex): string {
-    const { analysis, merges, preClassifiedConflicts } = input;
+    const { analysis, existingSkills, merges, preClassifiedConflicts } = input;
 
-    let prompt = `Analyze the following code changes.
+    const planAuthoringContext = buildPlanAuthoringContext({
+        skills: existingSkills.map((s) => ({ id: s.id, slug: s.slug, name: s.name, description: s.description })),
+        flows: flowIndex.listFlows().map((f) => ({
+            id: f.id,
+            name: f.name,
+            description: f.description,
+            testCount: f.testCount,
+        })),
+    });
+
+    let prompt = `${planAuthoringContext}
+
+Analyze the following code changes.
 
 ## Changes Summary
 ${analysis.summary}
@@ -280,19 +293,9 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
         }
     }
 
-    // Show flows (folders) as navigable context
-    const flows = flowIndex.listFlows();
-    if (flows.length > 0) {
-        prompt += "\n\n## Test Flows\n";
+    if (flowIndex.listFlows().length > 0) {
         prompt +=
-            "Tests are organized into flows (folders). Use `list_tests` to see tests in a flow, " +
-            "and `read_test` to inspect a specific test's instruction.\n";
-        for (const flow of flows) {
-            prompt += `\n- **${flow.name}** (${flow.testCount} tests)`;
-            if (flow.description != null) {
-                prompt += ` - ${flow.description}`;
-            }
-        }
+            "\n\nFlows are listed in the Plan Authoring Context above. Use `list_tests` to see tests in a flow and `read_test` to inspect a specific test's instruction.";
     }
 
     prompt += "\n\nAnalyze the diff and take appropriate actions using the available tools. When done, call `finish`.";

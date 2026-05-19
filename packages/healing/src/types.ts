@@ -2,6 +2,7 @@ import type { Codebase } from "@autonoma/codebase";
 import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
 import type { ModelMessage } from "ai";
 import type { HealingAction } from "./actions";
+import type { FlowSummary, ScenarioLookup, SkillSummary } from "./plan-authoring/types";
 
 export type { HealingAction } from "./actions";
 
@@ -56,12 +57,19 @@ export interface SnapshotInfo {
     organizationId: string;
 }
 
+export interface PlanAuthoringInput {
+    scenarios: ScenarioLookup;
+    skills: SkillSummary[];
+    flows: FlowSummary[];
+}
+
 export type HealingInput =
     | (SnapshotInfo & {
           mode: "diffs";
           failures: FailureRecord[];
           diffContext: DiffsContext;
           codebase: Codebase;
+          planAuthoring: PlanAuthoringInput;
       })
     | (SnapshotInfo & {
           mode: "refinement";
@@ -70,6 +78,7 @@ export type HealingInput =
           priorActions: HealingAction[];
           failures: FailureRecord[];
           codebase: Codebase;
+          planAuthoring: PlanAuthoringInput;
       });
 
 export interface HealingResult {

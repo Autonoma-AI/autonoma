@@ -1,4 +1,5 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
+import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "@autonoma/healing";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
@@ -71,7 +72,7 @@ export class ResolutionAgent {
     }
 
     async resolve(input: ResolutionAgentInput): Promise<ResolutionAgentResult> {
-        const prompt = buildPrompt(input);
+        const prompt = buildPrompt(input, this.config.flowIndex, this.config.scenarioIndex);
         const failedSlugs = new Set(input.verdicts.map((v) => v.testSlug));
         const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
 
@@ -119,7 +120,7 @@ export class ResolutionAgent {
 
         const agent = new ToolLoopAgent({
             model,
-            instructions: SYSTEM_PROMPT,
+            instructions: `${SYSTEM_PROMPT}\n\n${PLAN_AUTHORING_GUIDE}`,
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
@@ -184,10 +185,23 @@ export class ResolutionAgent {
     }
 }
 
-function buildPrompt(input: ResolutionAgentInput): string {
-    const { verdicts, step1Reasoning, testCandidates } = input;
+function buildPrompt(input: ResolutionAgentInput, flowIndex: FlowIndex, scenarioIndex: ScenarioIndex): string {
+    const { verdicts, step1Reasoning, testCandidates, existingSkills } = input;
 
-    let prompt = `## Step 1 Analysis Context
+    const planAuthoringContext = buildPlanAuthoringContext({
+        scenarios: scenarioIndex.listScenarios().map((s) => ({ id: s.id, name: s.name, description: s.description })),
+        skills: existingSkills.map((s) => ({ id: s.id, slug: s.slug, name: s.name, description: s.description })),
+        flows: flowIndex.listFlows().map((f) => ({
+            id: f.id,
+            name: f.name,
+            description: f.description,
+            testCount: f.testCount,
+        })),
+    });
+
+    let prompt = `${planAuthoringContext}
+
+## Step 1 Analysis Context
 
 The analysis agent (Step 1) reviewed the code changes and provided this reasoning:
 

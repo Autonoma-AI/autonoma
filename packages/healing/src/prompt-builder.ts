@@ -1,3 +1,4 @@
+import { buildPlanAuthoringContext } from "./plan-authoring";
 import type { DiffsContext, FailureRecord, HealingAction, HealingInput, TestCandidateInput } from "./types";
 
 /**
@@ -6,6 +7,14 @@ import type { DiffsContext, FailureRecord, HealingAction, HealingInput, TestCand
  */
 export function buildHealingPrompt(input: HealingInput): string {
     const sections: string[] = [];
+
+    sections.push(
+        buildPlanAuthoringContext({
+            scenarios: input.planAuthoring.scenarios.listScenarios(),
+            skills: input.planAuthoring.skills,
+            flows: input.planAuthoring.flows,
+        }),
+    );
 
     if (input.mode === "diffs") {
         sections.push("# Mode: diffs");

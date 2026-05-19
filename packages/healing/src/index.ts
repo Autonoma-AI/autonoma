@@ -6,6 +6,7 @@ export type {
     DiffsContext,
     TestCandidateInput,
     SnapshotInfo,
+    PlanAuthoringInput,
 } from "./types";
 export {
     healingActionSchema,
@@ -18,3 +19,14 @@ export {
     type HealingEvidenceItem,
 } from "./actions";
 export { BugMatcher, type BugCandidate } from "./bug-matcher";
+export {
+    PLAN_AUTHORING_GUIDE,
+    buildPlanAuthoringContext,
+    type FlowSummary,
+    type PlanAuthoringContextInput,
+    type ScenarioDetail,
+    type ScenarioLookup,
+    type ScenarioSummary,
+    type SkillSummary,
+} from "./plan-authoring";
+export { buildScenarioTools } from "./tools/scenario-tools";

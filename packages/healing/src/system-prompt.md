@@ -57,6 +57,10 @@ For each failure (and for any net-new test you decide to create), pick exactly o
   refinement mode, the codebase is at the snapshot's head; there's no diff to query.
 - **`screenshot`** - inspect screenshots from a failure's evidence list when you need to see
   what the engine saw.
+- **`list_scenarios`, `read_scenario`** - inspect the named test data environments available
+  for this application. Use these whenever you `update_plan` or `add_test` and the plan
+  depends on seeded data, so the new plan references the actual entity names and values that
+  the platform will seed.
 - **`update_plan`, `report_bug`, `report_engine_limitation`, `remove_test`** -
   the action tools available in every mode. Each call is recorded; you can call multiple
   times in one run.

@@ -4,12 +4,15 @@ import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, extractMessages } from "@aut
 import { buildCodebaseTools } from "@autonoma/codebase";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
+import { PLAN_AUTHORING_GUIDE } from "./plan-authoring";
 import { buildHealingPrompt } from "./prompt-builder";
 import { buildHealingActionTools, createHealingActionCollector } from "./tools/action-tools";
 import { buildFinishTool } from "./tools/finish-tool";
+import { buildScenarioTools } from "./tools/scenario-tools";
 import type { HealingInput, HealingResult } from "./types";
 
-const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "system-prompt.md"), "utf-8");
+const SYSTEM_PROMPT_BASE = readFileSync(join(import.meta.dirname, "system-prompt.md"), "utf-8");
+const SYSTEM_PROMPT = `${SYSTEM_PROMPT_BASE}\n\n${PLAN_AUTHORING_GUIDE}`;
 
 export interface HealingAgentConfig {
     model: LanguageModel;
@@ -55,6 +58,7 @@ export class HealingAgent {
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(input.codebase),
+                ...buildScenarioTools(input.planAuthoring.scenarios),
                 ...buildHealingActionTools(collector, failureKeysByTestCaseId, {
                     allowAddTest: input.mode === "diffs",
                 }),

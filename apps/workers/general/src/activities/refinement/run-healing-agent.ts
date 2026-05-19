@@ -1,6 +1,16 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import { db } from "@autonoma/db";
-import { HealingAgent, type FailureRecord, type HealingAction, healingActionSchema } from "@autonoma/healing";
+import { type PrismaClient, db } from "@autonoma/db";
+import {
+    HealingAgent,
+    type FailureRecord,
+    type FlowSummary,
+    type HealingAction,
+    type PlanAuthoringInput,
+    type ScenarioDetail,
+    type ScenarioLookup,
+    type SkillSummary,
+    healingActionSchema,
+} from "@autonoma/healing";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
@@ -45,6 +55,12 @@ export async function runHealingAgentForRefinement(
 
         const failures = collectFailureRecords(input);
 
+        const planAuthoring = await loadPlanAuthoringInput({
+            db,
+            applicationId: updater.applicationId,
+            snapshotId: input.snapshotId,
+        });
+
         const registry = new ModelRegistry({
             models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
         });
@@ -60,6 +76,7 @@ export async function runHealingAgentForRefinement(
                     priorActions,
                     failures,
                     codebase,
+                    planAuthoring,
                     snapshotId: input.snapshotId,
                     applicationId: updater.applicationId,
                     organizationId: input.organizationId,
@@ -226,4 +243,106 @@ function actionReasoning(a: DecoratedAction): string {
 function actionPayload(a: DecoratedAction): Record<string, unknown> {
     const { kind: _kind, ...rest } = a;
     return rest as unknown as Record<string, unknown>;
+}
+
+async function loadPlanAuthoringInput({
+    db,
+    applicationId,
+    snapshotId,
+}: {
+    db: PrismaClient;
+    applicationId: string;
+    snapshotId: string;
+}): Promise<PlanAuthoringInput> {
+    const [scenarios, skills, flows] = await Promise.all([
+        loadScenarioLookup(db, applicationId),
+        loadSkillSummaries(db, snapshotId),
+        loadFlowSummaries(db, applicationId, snapshotId),
+    ]);
+    return { scenarios, skills, flows };
+}
+
+async function loadScenarioLookup(db: PrismaClient, applicationId: string): Promise<ScenarioLookup> {
+    const scenarios = await db.scenario.findMany({
+        where: { applicationId, isDisabled: false },
+        select: {
+            id: true,
+            name: true,
+            description: true,
+            activeRecipeVersion: {
+                select: { fingerprint: true, fixtureJson: true, validationStatus: true },
+            },
+            instances: {
+                where: { status: "UP_SUCCESS" },
+                orderBy: { upAt: "desc" },
+                take: 3,
+                select: { metadata: true },
+            },
+        },
+    });
+
+    const details: ScenarioDetail[] = scenarios.map((s) => {
+        const sample = s.instances.find((i) => i.metadata != null);
+        return {
+            id: s.id,
+            name: s.name,
+            description: s.description ?? undefined,
+            activeRecipe:
+                s.activeRecipeVersion != null
+                    ? {
+                          fingerprint: s.activeRecipeVersion.fingerprint,
+                          fixtureJson: s.activeRecipeVersion.fixtureJson,
+                          validationStatus: s.activeRecipeVersion.validationStatus,
+                      }
+                    : undefined,
+            sampleMetadata: sample?.metadata ?? undefined,
+        };
+    });
+
+    const byId = new Map(details.map((d) => [d.id, d]));
+
+    return {
+        listScenarios: () => details.map((d) => ({ id: d.id, name: d.name, description: d.description })),
+        getScenario: (id) => byId.get(id),
+        hasScenario: (id) => byId.has(id),
+    };
+}
+
+async function loadSkillSummaries(db: PrismaClient, snapshotId: string): Promise<SkillSummary[]> {
+    const assignments = await db.skillAssignment.findMany({
+        where: { snapshotId },
+        select: {
+            skill: { select: { id: true, slug: true, name: true, description: true } },
+        },
+    });
+    return assignments.map((a) => ({
+        id: a.skill.id,
+        slug: a.skill.slug,
+        name: a.skill.name,
+        description: a.skill.description,
+    }));
+}
+
+async function loadFlowSummaries(db: PrismaClient, applicationId: string, snapshotId: string): Promise<FlowSummary[]> {
+    const folders = await db.folder.findMany({
+        where: { applicationId },
+        select: { id: true, name: true, description: true },
+    });
+
+    const assignments = await db.testCaseAssignment.findMany({
+        where: { snapshotId },
+        select: { testCase: { select: { folderId: true } } },
+    });
+
+    const counts = new Map<string, number>();
+    for (const a of assignments) {
+        counts.set(a.testCase.folderId, (counts.get(a.testCase.folderId) ?? 0) + 1);
+    }
+
+    return folders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description ?? undefined,
+        testCount: counts.get(f.id) ?? 0,
+    }));
 }
