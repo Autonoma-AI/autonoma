@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
-import type { Builder, BuildRequest, BuildResult } from "./builder";
+import { BuildError, type Builder, type BuildRequest, type BuildResult } from "./builder";
 import { EcrRegistryClient } from "./ecr-client";
 
 const LOG_KEY_PREFIX = "buildctl/logs";
@@ -73,22 +73,19 @@ export class BuildKitBuilder implements Builder {
                 }
             } catch (buildErr) {
                 // Even on failure we still want the logs uploaded so the
-                // operator can investigate. If the upload itself also fails,
-                // surface that as a note on the original build error rather
-                // than masking the build failure with an upload failure.
+                // operator can investigate. Surface the log URL as a typed
+                // field on BuildError so callers can render a clickable link
+                // without grepping the error message. If the upload itself
+                // fails, log it and continue — the build error is the more
+                // important signal to propagate.
+                const originalMessage = buildErr instanceof Error ? buildErr.message : String(buildErr);
+                let logUrl: string | undefined;
                 try {
-                    const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
-                    if (buildErr instanceof Error) {
-                        buildErr.message = `${buildErr.message}\nBuild logs: ${logUrl}`;
-                    }
+                    logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
                 } catch (uploadErr) {
                     logger.error("Build failed AND log upload failed", uploadErr, { imageTag: request.imageTag });
-                    if (buildErr instanceof Error) {
-                        const uploadMessage = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-                        buildErr.message = `${buildErr.message}\nBuild log upload failed: ${uploadMessage}`;
-                    }
                 }
-                throw buildErr;
+                throw new BuildError(originalMessage, { logUrl, cause: buildErr });
             }
 
             // Successful build: upload is fatal. A built image with no logs is

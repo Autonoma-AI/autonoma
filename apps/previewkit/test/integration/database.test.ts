@@ -163,8 +163,18 @@ integrationTestSuite({
                 status: "building",
                 durationMs: 42_000,
                 appBuilds: {
-                    web: { imageTag: "ghcr.io/acme/web:pr-7-abc1234", durationMs: 30_000 },
-                    api: { imageTag: "ghcr.io/acme/api:pr-7-abc1234", durationMs: 12_000 },
+                    web: {
+                        status: "ok",
+                        imageTag: "ghcr.io/acme/web:pr-7-abc1234",
+                        durationMs: 30_000,
+                        logUrl: "s3://logs/web.log",
+                    },
+                    api: {
+                        status: "ok",
+                        imageTag: "ghcr.io/acme/api:pr-7-abc1234",
+                        durationMs: 12_000,
+                        logUrl: "s3://logs/api.log",
+                    },
                 },
             });
 
@@ -179,8 +189,8 @@ integrationTestSuite({
             expect(build.status).toBe("building");
             expect(build.finishedAt).not.toBeNull();
             expect(build.appBuilds).toMatchObject({
-                web: { imageTag: "ghcr.io/acme/web:pr-7-abc1234", durationMs: 30_000 },
-                api: { imageTag: "ghcr.io/acme/api:pr-7-abc1234", durationMs: 12_000 },
+                web: { status: "ok", imageTag: "ghcr.io/acme/web:pr-7-abc1234", durationMs: 30_000 },
+                api: { status: "ok", imageTag: "ghcr.io/acme/api:pr-7-abc1234", durationMs: 12_000 },
             });
         });
 

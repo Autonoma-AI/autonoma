@@ -1672,7 +1672,7 @@ model PreviewkitBuild {
   finishedAt DateTime?        @map("finished_at")
   durationMs Int?             @map("duration_ms")
 
-  /// ![Record<string, { imageTag: string; durationMs: number }>]
+  /// [PreviewkitAppBuilds]
   appBuilds Json @default("{}") @map("app_builds")
 
   @@index([environmentId, startedAt])

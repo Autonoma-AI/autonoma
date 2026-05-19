@@ -25,9 +25,27 @@ import {
     type TargetGroupConfiguration,
 } from "./resource-factory";
 
+/**
+ * Per-app outcome of the deploy phase. Apps are deployed independently — one
+ * app's failure does not abort the others.
+ *
+ * - `ok`: Deployment, Service, HTTPRoute applied and the Deployment reported
+ *   ready. `url` is set.
+ * - `failed`: K8s apply or readiness wait threw. `url` is still set because
+ *   the DNS host is computed from the app name and may resolve to a partially
+ *   applied resource (commonly serving 502).
+ * - `skipped`: deployer was not given an imageTag for this app (its build
+ *   failed upstream), so no K8s resources were applied at all.
+ */
+export type AppDeployOutcome =
+    | { status: "ok"; url: string }
+    | { status: "failed"; url: string; error: string }
+    | { status: "skipped"; reason: string };
+
 export interface DeployResult {
     namespace: string;
     urls: Record<string, string>;
+    appOutcomes: Record<string, AppDeployOutcome>;
 }
 
 interface AppDeployContext {
@@ -150,10 +168,17 @@ export class Deployer {
         // 5. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 6. Deploy apps wave by wave; apps within each wave are deployed in parallel
+        // 6. Deploy apps wave by wave; apps within each wave are deployed in parallel.
+        //    Each app is its own failure domain — one app's failure (build skip
+        //    or K8s apply error) does not stop other apps from deploying. Wave
+        //    ordering is preserved purely as a hint: depends_on still controls
+        //    *when* an app is attempted, but a downstream app is attempted even
+        //    if its upstream failed (the user prefers a partial preview over
+        //    none — see the per-app independence design discussion).
         const owner = repoFullName.split("/")[0]!;
         const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
+        const appOutcomes: Record<string, AppDeployOutcome> = {};
 
         const appCtx: AppDeployContext = {
             namespace,
@@ -169,13 +194,61 @@ export class Deployer {
 
         for (const wave of waves) {
             logger.info("Deploying wave", { namespace, apps: wave.map((a) => a.name) });
-            const results = await Promise.all(wave.map((app) => this.deployApp(app, appCtx)));
-            for (const { name, url } of results) {
-                urls[name] = url;
+            const settled = await Promise.allSettled(wave.map((app) => this.tryDeployApp(app, appCtx)));
+            for (let i = 0; i < wave.length; i++) {
+                const app = wave[i]!;
+                const result = settled[i]!;
+                // tryDeployApp never rejects — it converts thrown errors into a
+                // structured outcome. Treating an `allSettled` rejection here as
+                // possible would just be defensive paranoia.
+                if (result.status !== "fulfilled") {
+                    logger.error("tryDeployApp unexpectedly rejected — treating as failed", result.reason, {
+                        namespace,
+                        app: app.name,
+                    });
+                    const url = `https://${buildAppHostname(app.name, prNumber, repoSlug, domain)}`;
+                    appOutcomes[app.name] = {
+                        status: "failed",
+                        url,
+                        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+                    };
+                    urls[app.name] = url;
+                    continue;
+                }
+                const outcome = result.value;
+                appOutcomes[app.name] = outcome;
+                if (outcome.status !== "skipped") {
+                    urls[app.name] = outcome.url;
+                }
             }
         }
 
-        return { namespace, urls };
+        return { namespace, urls, appOutcomes };
+    }
+
+    /**
+     * Wraps `deployApp` with per-app error capture. Returns a structured outcome
+     * instead of throwing so the wave loop can keep going for the remaining apps.
+     */
+    private async tryDeployApp(app: AppConfig, ctx: AppDeployContext): Promise<AppDeployOutcome> {
+        const imageTag = ctx.imageTags[app.name];
+        if (imageTag == null || imageTag === "") {
+            logger.info("Skipping app deploy: no image tag (build failed upstream)", {
+                namespace: ctx.namespace,
+                app: app.name,
+            });
+            return { status: "skipped", reason: "build failed" };
+        }
+
+        try {
+            const { url } = await this.deployApp(app, ctx);
+            return { status: "ok", url };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error("App deploy failed", err, { namespace: ctx.namespace, app: app.name });
+            const url = `https://${buildAppHostname(app.name, ctx.prNumber, ctx.repoSlug, ctx.domain)}`;
+            return { status: "failed", url, error: message };
+        }
     }
 
     public buildRepoSlug(repoFullName: string): string {

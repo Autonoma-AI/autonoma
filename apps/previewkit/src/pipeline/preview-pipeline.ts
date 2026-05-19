@@ -2,10 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { db } from "@autonoma/db";
-import type { Builder } from "../builder/builder";
+import { BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
 import {
+    type AppBuildOutcome,
     isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
     recordEnvironmentCreated,
@@ -13,8 +14,9 @@ import {
     recordPhaseChanged,
     toAppInstances,
 } from "../db";
-import type { Deployer } from "../deployer/deployer";
+import type { AppDeployOutcome, Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
+import type { EnvInjector, PublicUrlInfo } from "../deployer/env-injector";
 import { execInDeploymentPod } from "../deployer/pod-exec";
 import type { DiffsClient } from "../diffs/diffs-client";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
@@ -25,10 +27,36 @@ import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import type { SecretStore } from "../secrets/secret-store";
 
-interface AppBuildResult {
-    imageTag: string;
-    durationMs: number;
-    logUrl: string;
+/**
+ * Combined per-app outcome rendered in the PR comment. Bundles the build and
+ * deploy phases so the comment can show one row per app with the final status.
+ */
+interface AppFinalOutcome {
+    name: string;
+    status: "ok" | "failed";
+    url?: string;
+    error?: string;
+    buildLogUrl?: string;
+}
+
+/**
+ * Shared input to every per-app build. Computed once at the top of
+ * `buildAllApps` and passed unchanged into each `buildOneApp` invocation —
+ * the per-app value (`app`) is the only parameter that varies across builds.
+ */
+interface AppBuildContext {
+    config: PreviewConfig;
+    appRepoDirs: Map<string, string>;
+    arnByApp: Map<string, string>;
+    envInjector: EnvInjector;
+    namespace: string;
+    templateContext: { pr: string; namespace: string; owner: string };
+    publicUrlInfo: PublicUrlInfo;
+    registry: string;
+    org: string;
+    repo: string;
+    prNumber: number;
+    shortSha: string;
 }
 
 interface DependencyEntry {
@@ -222,50 +250,48 @@ export class PreviewPipeline {
                 storedSecrets[app.name] = await this.secretStore.getMerged(owner, app.name, prNumber);
             }
 
-            // 9. Build all app images in parallel.
+            // 9. Build all app images in parallel. Per-app build failures are
+            //    captured into the outcome map rather than thrown — only the
+            //    "every app failed" case aborts the pipeline as a global error.
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
             const buildStart = Date.now();
-            let appBuilds: Record<string, AppBuildResult>;
-            try {
-                const arnByApp = new Map<string, string>();
-                for (const s of application.previewkitSecrets) {
-                    if (s.appName != null) arnByApp.set(s.appName, s.awsSecretArn);
-                }
-                appBuilds = await this.buildAllApps(
-                    mergedConfig,
-                    appRepoDirs,
-                    repoFullName,
-                    prNumber,
-                    shortSha,
-                    arnByApp,
-                );
-            } catch (buildErr) {
-                await recordSafe(() =>
-                    recordBuildFinished({
-                        namespace,
-                        headSha,
-                        status: "failed",
-                        durationMs: Date.now() - buildStart,
-                        appBuilds: {},
-                        error: buildErr instanceof Error ? buildErr.message : String(buildErr),
-                    }),
-                );
-                throw buildErr;
+            const arnByApp = new Map<string, string>();
+            for (const s of application.previewkitSecrets) {
+                if (s.appName != null) arnByApp.set(s.appName, s.awsSecretArn);
             }
+            const appBuilds = await this.buildAllApps(
+                mergedConfig,
+                appRepoDirs,
+                repoFullName,
+                prNumber,
+                shortSha,
+                arnByApp,
+            );
             const buildDurationMs = Date.now() - buildStart;
-            const imageTags = Object.fromEntries(Object.entries(appBuilds).map(([name, b]) => [name, b.imageTag]));
+
+            const imageTags: Record<string, string> = {};
+            for (const [name, outcome] of Object.entries(appBuilds)) {
+                if (outcome.status === "ok") imageTags[name] = outcome.imageTag;
+            }
+            const allBuildsFailed = Object.values(appBuilds).every((o) => o.status === "failed");
 
             await recordSafe(() =>
                 recordBuildFinished({
                     namespace,
                     headSha,
-                    status: "building",
+                    status: allBuildsFailed ? "failed" : "building",
                     durationMs: buildDurationMs,
                     appBuilds,
+                    error: allBuildsFailed ? "All app builds failed" : undefined,
                 }),
             );
 
-            // 10. Deploy everything into one namespace, respecting depends_on order.
+            if (allBuildsFailed) {
+                throw new Error("All app builds failed; see per-app build outcomes for details");
+            }
+
+            // 10. Deploy. The deployer also runs each app independently — one
+            //     app's K8s apply or readiness failure does not abort the rest.
             await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-k8s");
             const result = await this.deployer.deploy({
                 repoFullName,
@@ -279,11 +305,24 @@ export class PreviewPipeline {
                 commentId,
             });
 
-            // 11. Run post-deploy hooks
-            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
-            await this.runPostDeployHooks(mergedConfig, result);
+            // 11. Aggregate per-app outcomes for downstream reporting + decisions.
+            const finalOutcomes = this.computeFinalOutcomes(mergedConfig, appBuilds, result.appOutcomes);
+            const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
+            const readyCount = readyAppNames.size;
+            const totalCount = finalOutcomes.length;
 
-            // 12. Mark ready + record URLs
+            // 12. Run post-deploy hooks only for apps that came up. Hooks that
+            //     target a failed app would fail at `kubectl exec` time with
+            //     "no pod" — better to skip silently than poison the pipeline.
+            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
+            await this.runPostDeployHooks(mergedConfig, result, readyAppNames);
+
+            // 13. If nothing came up, treat as a global failure. Otherwise mark
+            //     the env ready — a partial preview is still useful.
+            if (readyCount === 0) {
+                throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
+            }
+
             await this.deployer.updateStatus(repoFullName, prNumber, {
                 status: "ready",
                 phase: "ready",
@@ -297,24 +336,27 @@ export class PreviewPipeline {
                 }),
             );
 
-            // 13. Update comment with preview URLs (skip if no comment was created)
+            // 14. Update PR comment with per-app status table.
             if (feedbackEnabled && commentId !== "") {
                 await this.provider.updateComment(
                     repoFullName,
                     commentId,
-                    this.buildSuccessComment(prNumber, result, mergedConfig),
+                    this.buildResultComment(prNumber, finalOutcomes, mergedConfig, readyCount, totalCount),
                 );
             }
 
-            // 14. Set commit status to success
+            // 15. Single global commit status. Success only when every app
+            //     came up; otherwise failure with an "N/M ready" description.
+            //     Per-app contexts (`previewkit/<app>`) are a Stage B follow-up.
             if (feedbackEnabled) {
-                const firstUrl = Object.values(result.urls)[0];
+                const allReady = readyCount === totalCount;
+                const firstReadyUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
                 await this.provider.setCommitStatus(
                     repoFullName,
                     headSha,
-                    "success",
-                    "Preview environment ready",
-                    firstUrl,
+                    allReady ? "success" : "failure",
+                    allReady ? "Preview environment ready" : `${readyCount}/${totalCount} apps ready`,
+                    firstReadyUrl,
                 );
             }
 
@@ -345,7 +387,13 @@ export class PreviewPipeline {
                 }
             }
 
-            logger.info("Preview deployment complete", { repo: repoFullName, pr: prNumber, urls: result.urls });
+            logger.info("Preview deployment complete", {
+                repo: repoFullName,
+                pr: prNumber,
+                readyCount,
+                totalCount,
+                urls: result.urls,
+            });
         } catch (err) {
             logger.error("Preview deployment failed", err, { repo: repoFullName, pr: prNumber });
 
@@ -438,7 +486,7 @@ export class PreviewPipeline {
         prNumber: number,
         shortSha: string,
         arnByApp: Map<string, string>,
-    ): Promise<Record<string, AppBuildResult>> {
+    ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
         const repo = rawRepo!.toLowerCase();
@@ -456,62 +504,93 @@ export class PreviewPipeline {
             prNumber,
         };
         const envInjector = this.deployer.getEnvInjector();
+        const registry = config.registry ?? this.registryUrl;
 
-        for (const app of config.apps) {
-            if (app.build_secrets.length > 0 && !arnByApp.has(app.name)) {
+        // Each app is built independently — a failure in one app is captured
+        // into its own outcome and does not abort the other builds. `buildOneApp`
+        // never throws, so we don't need allSettled here.
+        const entries = await Promise.all(
+            config.apps.map(async (app) => {
+                const outcome = await this.buildOneApp(app, {
+                    config,
+                    appRepoDirs,
+                    arnByApp,
+                    envInjector,
+                    namespace,
+                    templateContext,
+                    publicUrlInfo,
+                    registry,
+                    org,
+                    repo,
+                    prNumber,
+                    shortSha,
+                });
+                return [app.name, outcome] as const;
+            }),
+        );
+
+        return Object.fromEntries(entries);
+    }
+
+    /**
+     * Builds one app's image. Catches all failures and returns a structured
+     * outcome instead of throwing — the caller relies on this to keep the
+     * other apps' builds running when one fails.
+     */
+    private async buildOneApp(app: PreviewConfig["apps"][number], ctx: AppBuildContext): Promise<AppBuildOutcome> {
+        const start = Date.now();
+        try {
+            if (app.build_secrets.length > 0 && !ctx.arnByApp.has(app.name)) {
                 throw new Error(
                     `App "${app.name}" declares build_secrets but no PreviewkitSecret is registered for it. ` +
                         `Register a PreviewkitSecret row with appName="${app.name}" pointing at the app's AWS SM ARN.`,
                 );
             }
+
+            const imageTag = `${ctx.registry}/${ctx.org}/${ctx.repo}:${app.name}-pr-${ctx.prNumber}-${ctx.shortSha}`;
+            const dir = ctx.appRepoDirs.get(app.name);
+            if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
+            const contextPath = path.resolve(dir, app.path);
+            const cacheKey = `${ctx.org}/${ctx.repo}/${app.name}`;
+
+            const appArn = ctx.arnByApp.get(app.name);
+            const secretBuildArgs =
+                app.build_secrets.length > 0 && appArn != null
+                    ? this.awsSecretsFetcher.pickKeys(
+                          await this.awsSecretsFetcher.fetchJson(appArn),
+                          app.build_secrets,
+                          appArn,
+                      )
+                    : {};
+            const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
+
+            const resolvedBuildArgs = ctx.envInjector.applyTemplates(
+                mergedBuildArgs,
+                ctx.config.apps,
+                ctx.config.services,
+                ctx.namespace,
+                ctx.templateContext,
+                ctx.publicUrlInfo,
+            );
+
+            const result = await this.builder.build({
+                appName: app.name,
+                contextPath,
+                dockerfile: app.dockerfile,
+                buildArgs: resolvedBuildArgs,
+                imageTag,
+                cacheKey,
+            });
+
+            return { status: "ok", imageTag: result.imageTag, durationMs: result.durationMs, logUrl: result.logUrl };
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const logUrl = err instanceof BuildError ? err.logUrl : undefined;
+            logger.error("App build failed", err, { app: app.name, logUrl });
+            const outcome: AppBuildOutcome = { status: "failed", durationMs: Date.now() - start, error: message };
+            if (logUrl != null) outcome.logUrl = logUrl;
+            return outcome;
         }
-
-        const entries = await Promise.all(
-            config.apps.map(async (app) => {
-                const registry = config.registry ?? this.registryUrl;
-                const imageTag = `${registry}/${org}/${repo}:${app.name}-pr-${prNumber}-${shortSha}`;
-                const dir = appRepoDirs.get(app.name);
-                if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
-                const contextPath = path.resolve(dir, app.path);
-                const cacheKey = `${org}/${repo}/${app.name}`;
-
-                const appArn = arnByApp.get(app.name);
-                const secretBuildArgs =
-                    app.build_secrets.length > 0 && appArn != null
-                        ? this.awsSecretsFetcher.pickKeys(
-                              await this.awsSecretsFetcher.fetchJson(appArn),
-                              app.build_secrets,
-                              appArn,
-                          )
-                        : {};
-                const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
-
-                const resolvedBuildArgs = envInjector.applyTemplates(
-                    mergedBuildArgs,
-                    config.apps,
-                    config.services,
-                    namespace,
-                    templateContext,
-                    publicUrlInfo,
-                );
-
-                const result = await this.builder.build({
-                    appName: app.name,
-                    contextPath,
-                    dockerfile: app.dockerfile,
-                    buildArgs: resolvedBuildArgs,
-                    imageTag,
-                    cacheKey,
-                });
-
-                return [
-                    app.name,
-                    { imageTag: result.imageTag, durationMs: result.durationMs, logUrl: result.logUrl },
-                ] as const;
-            }),
-        );
-
-        return Object.fromEntries(entries);
     }
 
     private async updatePhase(
@@ -525,22 +604,98 @@ export class PreviewPipeline {
         await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
     }
 
-    private async runPostDeployHooks(config: PreviewConfig, result: DeployResult): Promise<void> {
+    private async runPostDeployHooks(
+        config: PreviewConfig,
+        result: DeployResult,
+        readyAppNames: Set<string>,
+    ): Promise<void> {
         if (config.hooks.post_deploy.length === 0) return;
+
+        const runnable = config.hooks.post_deploy.filter((h) => readyAppNames.has(h.app));
+        const skipped = config.hooks.post_deploy.filter((h) => !readyAppNames.has(h.app));
+        for (const hook of skipped) {
+            logger.info("Skipping post-deploy hook: target app did not come up", {
+                app: hook.app,
+                command: hook.command,
+            });
+        }
+        if (runnable.length === 0) return;
 
         logger.info("Running post-deploy hooks", {
             namespace: result.namespace,
-            hooks: config.hooks.post_deploy.length,
+            hooks: runnable.length,
         });
 
         const kc = this.deployer.getKubeConfig();
-        for (const hook of config.hooks.post_deploy) {
+        for (const hook of runnable) {
             logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command });
 
             const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
             if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
             if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
         }
+    }
+
+    /**
+     * Combines per-app build and deploy outcomes into a single status row per
+     * app, used for both the PR comment table and the commit-status rollup.
+     *
+     * Stage A keeps this binary: an app is `ok` only if both build and deploy
+     * succeeded; everything else is `failed`. The `error` field surfaces the
+     * earliest failure (build error wins over deploy error, since a failed
+     * build implies a skipped deploy).
+     */
+    private computeFinalOutcomes(
+        config: PreviewConfig,
+        appBuilds: Record<string, AppBuildOutcome>,
+        deployOutcomes: Record<string, AppDeployOutcome>,
+    ): AppFinalOutcome[] {
+        return config.apps.map((app) => {
+            const build = appBuilds[app.name];
+            const deploy = deployOutcomes[app.name];
+
+            if (build == null) {
+                // Defensive: every config app should have been built. Treat
+                // a missing entry as a failure rather than silently dropping.
+                return { name: app.name, status: "failed", error: "No build outcome recorded" };
+            }
+
+            if (build.status === "failed") {
+                const outcome: AppFinalOutcome = { name: app.name, status: "failed", error: build.error };
+                if (build.logUrl != null) outcome.buildLogUrl = build.logUrl;
+                return outcome;
+            }
+
+            if (deploy == null) {
+                return {
+                    name: app.name,
+                    status: "failed",
+                    error: "No deploy outcome recorded",
+                    buildLogUrl: build.logUrl,
+                };
+            }
+
+            if (deploy.status === "ok") {
+                return { name: app.name, status: "ok", url: deploy.url, buildLogUrl: build.logUrl };
+            }
+
+            if (deploy.status === "skipped") {
+                return {
+                    name: app.name,
+                    status: "failed",
+                    error: `Deploy skipped: ${deploy.reason}`,
+                    buildLogUrl: build.logUrl,
+                };
+            }
+
+            return {
+                name: app.name,
+                status: "failed",
+                url: deploy.url,
+                error: deploy.error,
+                buildLogUrl: build.logUrl,
+            };
+        });
     }
 
     private buildPendingComment(prNumber: number): string {
@@ -553,26 +708,64 @@ export class PreviewPipeline {
         ].join("\n");
     }
 
-    private buildSuccessComment(prNumber: number, result: DeployResult, config: PreviewConfig): string {
-        const urlLines = Object.entries(result.urls)
-            .map(([app, url]) => `| ${app} | ${url} |`)
+    /**
+     * Renders the per-app status table after the pipeline has completed. Shows
+     * one row per app with status, URL (when the deploy actually applied
+     * resources), and a link to the build log when one was captured.
+     *
+     * Per-app error messages are emitted as collapsed `<details>` blocks under
+     * the table so the comment stays readable when several apps fail.
+     */
+    private buildResultComment(
+        prNumber: number,
+        outcomes: AppFinalOutcome[],
+        config: PreviewConfig,
+        readyCount: number,
+        totalCount: number,
+    ): string {
+        const statusLine =
+            readyCount === totalCount ? "**Status:** Ready" : `**Status:** ${readyCount}/${totalCount} apps ready`;
+
+        const rows = outcomes
+            .map((o) => {
+                const status = o.status === "ok" ? "Ready" : "Failed";
+                const url = o.url != null ? o.url : "-";
+                const logs = o.buildLogUrl != null ? `[view](${o.buildLogUrl})` : "-";
+                return `| ${o.name} | ${status} | ${url} | ${logs} |`;
+            })
             .join("\n");
+
+        const errorBlocks = outcomes
+            .filter((o) => o.status === "failed" && o.error != null)
+            .map((o) =>
+                ["<details>", `<summary>${o.name} - error</summary>`, "", "```", o.error, "```", "</details>"].join(
+                    "\n",
+                ),
+            );
 
         const serviceLines = config.services
             .map((s) => `- ${s.name} (${s.recipe}${s.version ? `:${s.version}` : ""})`)
             .join("\n");
 
-        return [
+        const sections: string[] = [
             `## Preview Environment #${prNumber}`,
             "",
-            "**Status:** Ready",
+            statusLine,
             "",
-            "| App | URL |",
-            "|-----|-----|",
-            urlLines,
-            "",
-            ...(serviceLines ? ["**Services:**", serviceLines] : []),
-        ].join("\n");
+            "| App | Status | URL | Build logs |",
+            "|-----|--------|-----|------------|",
+            rows,
+        ];
+
+        if (errorBlocks.length > 0) {
+            sections.push("", ...errorBlocks);
+        }
+
+        if (serviceLines.length > 0) {
+            sections.push("", "**Services:**", serviceLines);
+        }
+
+        return sections.join("\n");
     }
 
     private buildFailureComment(prNumber: number, err: unknown): string {

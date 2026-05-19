@@ -21,12 +21,26 @@ export interface PhaseChangedInput {
     error?: string;
 }
 
+/**
+ * Per-app outcome of the build phase. Each app is recorded independently so
+ * that one failed build doesn't erase the others from the history.
+ *
+ * - `ok`: the image was built and pushed; `imageTag` + `logUrl` are set.
+ * - `failed`: the build threw. `error` carries the message; `logUrl` is set
+ *   when the builder managed to upload the captured log (it usually does —
+ *   the log upload only fails if S3 itself is unreachable or the log file
+ *   is empty, both of which are rare).
+ */
+export type AppBuildOutcome =
+    | { status: "ok"; imageTag: string; durationMs: number; logUrl: string }
+    | { status: "failed"; durationMs: number; error: string; logUrl?: string };
+
 export interface BuildFinishedInput {
     namespace: string;
     headSha: string;
     status: PreviewkitStatus;
     durationMs: number;
-    appBuilds: Record<string, { imageTag: string; durationMs: number; logUrl: string }>;
+    appBuilds: Record<string, AppBuildOutcome>;
     error?: string;
 }
 
@@ -188,11 +202,19 @@ export async function recordEnvironmentTornDown(namespace: string): Promise<void
 }
 
 export function toAppInstances(apps: AppConfig[], imageTags: Record<string, string>): EnvironmentReadyInput["apps"] {
-    return apps.map((app) => ({
-        appName: app.name,
-        imageTag: imageTags[app.name] ?? "",
-        port: app.port,
-    }));
+    // Only record instances for apps that actually built. Apps whose build
+    // failed have no imageTag and never produced a Deployment, so emitting
+    // a row for them would just lie about cluster state.
+    return apps
+        .filter((app) => {
+            const tag = imageTags[app.name];
+            return tag != null && tag !== "";
+        })
+        .map((app) => ({
+            appName: app.name,
+            imageTag: imageTags[app.name]!,
+            port: app.port,
+        }));
 }
 
 /**
