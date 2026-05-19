@@ -63,6 +63,8 @@ interface DependencyEntry {
     dep: RepoDependency;
     config: PreviewConfig;
     tmpDir: string;
+    usedFallback: boolean;
+    targetBranch: string;
 }
 
 interface PreviewPipelineOptions {
@@ -338,10 +340,18 @@ export class PreviewPipeline {
 
             // 14. Update PR comment with per-app status table.
             if (feedbackEnabled && commentId !== "") {
+                const fallbackDeps = dependencyEntries.filter((e) => e.usedFallback);
                 await this.provider.updateComment(
                     repoFullName,
                     commentId,
-                    this.buildResultComment(prNumber, finalOutcomes, mergedConfig, readyCount, totalCount),
+                    this.buildResultComment(
+                        prNumber,
+                        finalOutcomes,
+                        mergedConfig,
+                        readyCount,
+                        totalCount,
+                        fallbackDeps,
+                    ),
                 );
             }
 
@@ -446,10 +456,12 @@ export class PreviewPipeline {
 
         let config = await loadPreviewConfig(this.provider, dep.repo, targetBranch);
         let branch = targetBranch;
+        let usedFallback = false;
 
         if (config == null && targetBranch !== dep.fallback_branch) {
             config = await loadPreviewConfig(this.provider, dep.repo, dep.fallback_branch);
             branch = dep.fallback_branch;
+            usedFallback = true;
         }
 
         if (config == null) {
@@ -464,8 +476,8 @@ export class PreviewPipeline {
 
         const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
         await this.provider.fetchRepoTarball(dep.repo, branch, tmpDir);
-        logger.info("Cloned dependency repo", { name: dep.name, repo: dep.repo, branch });
-        return { dep, config, tmpDir };
+        logger.info("Cloned dependency repo", { name: dep.name, repo: dep.repo, branch, usedFallback });
+        return { dep, config, tmpDir, usedFallback, targetBranch };
     }
 
     private mergeConfigs(primaryConfig: PreviewConfig, deps: DependencyEntry[]): PreviewConfig {
@@ -722,6 +734,7 @@ export class PreviewPipeline {
         config: PreviewConfig,
         readyCount: number,
         totalCount: number,
+        fallbackDeps: DependencyEntry[],
     ): string {
         const statusLine =
             readyCount === totalCount ? "**Status:** Ready" : `**Status:** ${readyCount}/${totalCount} apps ready`;
@@ -763,6 +776,17 @@ export class PreviewPipeline {
 
         if (serviceLines.length > 0) {
             sections.push("", "**Services:**", serviceLines);
+        }
+
+        if (fallbackDeps.length > 0) {
+            sections.push(
+                "",
+                "> **Note:** Some backend branches were not found. The fallback branch was used instead:",
+                ...fallbackDeps.map(
+                    (e) =>
+                        `> - \`${e.dep.repo}\` - branch \`${e.targetBranch}\` not found, using \`${e.dep.fallback_branch}\``,
+                ),
+            );
         }
 
         return sections.join("\n");
