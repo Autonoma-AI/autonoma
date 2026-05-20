@@ -6,7 +6,7 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 
 | Job | Package Name | Purpose |
 |-----|-------------|---------|
-| **diffs** | `@autonoma/job-diffs` | Analyzes code diffs on a branch, runs an AI agent to determine test impacts (new tests, updates, bug reports, skill updates), and queues pending generations. |
+| **diffs** | `@autonoma/job-diffs` | Analyzes code diffs on a branch, runs an AI agent to determine test impacts (new tests, updates, bug reports), and queues pending generations. |
 | **scenario** | `@autonoma/job-scenario` | Manages test scenario lifecycle - "up" provisions a scenario instance before a run/generation, "down" tears it down afterward. |
 | **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/review`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |

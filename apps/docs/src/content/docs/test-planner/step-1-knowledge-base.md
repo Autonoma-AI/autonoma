@@ -1,9 +1,9 @@
 ---
 title: "Step 1: Generate Knowledge Base"
-description: "Analyze your codebase to produce AUTONOMA.md, skill files, and features.json. This is the first step of the pipeline and feeds every step that follows."
+description: "Analyze your codebase to produce AUTONOMA.md and features.json. This is the first step of the pipeline and feeds every step that follows."
 ---
 
-The knowledge base generator is the **first step** of the pipeline. It reads your frontend codebase and produces a user-perspective guide to every important page, flow, and interaction in your application, plus navigation skill files that the test-runner uses to reach specific pages later on.
+The knowledge base generator is the **first step** of the pipeline. It reads your frontend codebase and produces a user-perspective guide to every important page, flow, and interaction in your application.
 
 Because this runs first, every subsequent step (entity audit, scenarios, environment factory, validation, and test generation) builds on the understanding captured here. Getting the core flows right in this step is the single highest-leverage thing you can do for the quality of the final suite.
 
@@ -15,7 +15,6 @@ Because this runs first, every subsequent step (entity audit, scenarios, environ
 ## What this produces
 
 - `autonoma/AUTONOMA.md`
-- `autonoma/skills/*.md`
 - `autonoma/features.json`
 
 ## What to review
@@ -37,7 +36,7 @@ If the core flows are wrong, the rest of the suite will be prioritized incorrect
 
 # Knowledge Base Generator
 
-You generate a structured knowledge base for a codebase. Your output MUST be written to `autonoma/AUTONOMA.md` with YAML frontmatter, and skill files in `autonoma/skills/`.
+You generate a structured knowledge base for a codebase. Your output MUST be written to `autonoma/AUTONOMA.md` with YAML frontmatter.
 
 ## Instructions
 
@@ -58,7 +57,7 @@ You generate a structured knowledge base for a codebase. Your output MUST be wri
 3. Create the output directory:
 
    ```bash
-   mkdir -p autonoma/skills
+   mkdir -p autonoma
    ```
 
 4. Follow the fetched instructions to analyze the codebase — discover the application, map pages and flows, identify core workflows.
@@ -83,7 +82,6 @@ core_flows:
     description: "User and org settings management"
     core: false
 feature_count: 12
-skill_count: 8
 ---
 ```
 
@@ -116,7 +114,7 @@ Checks:
 - Frontmatter contains all required fields
 - `core_flows` is a non-empty list with feature/description/core fields
 - At least one flow has `core: true`
-- `feature_count` and `skill_count` are positive integers
+- `feature_count` is a positive integer
 - `app_description` is at least 20 characters
 
 ## Important

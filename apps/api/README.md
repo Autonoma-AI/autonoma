@@ -77,7 +77,6 @@ Each router is thin wiring - business logic lives in the corresponding service c
 | `generations` | `TestGenerationsService` | AI test generation |
 | `tests` | `TestsService` | Test cases |
 | `scenarios` | `ScenariosService` | Execution scenarios |
-| `skills` | `SkillsService` | AI skills |
 | `github` | `GitHubInstallationService` | GitHub app integrations |
 | `issues` | `IssuesService` | Test issues and reviews |
 | `onboarding` | `OnboardingService` | User onboarding |

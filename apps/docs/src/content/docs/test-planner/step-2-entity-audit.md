@@ -54,7 +54,7 @@ Rule: every `independently_created: true` model gets a factory. Every pure depen
 
 ## Prerequisites
 
-- `autonoma/AUTONOMA.md` and `autonoma/skills/` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
+- `autonoma/AUTONOMA.md` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
 - Access to your backend codebase — the agent needs to read service files, repositories, and route handlers
 
 ## What this produces

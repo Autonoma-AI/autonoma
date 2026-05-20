@@ -12,7 +12,7 @@ Step 6 consumes the named scenarios from Step 3 — reconciled with reality in S
 
 ## Prerequisites
 
-- `autonoma/AUTONOMA.md` and `autonoma/skills/` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
+- `autonoma/AUTONOMA.md` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
 - `autonoma/scenarios.md` must exist and have been validated end-to-end (output from [Step 3](/test-planner/step-3-scenarios/), reconciled in [Step 5](/test-planner/step-5-validate/))
 
 :::tip[Your scenario data is already validated]
@@ -61,7 +61,6 @@ The goal is not to write "tests." The goal is to **find bugs**. Be adversarial. 
 Look for an `autonoma/` directory in the workspace. It should contain:
 
 - `AUTONOMA.md` - the main application guide
-- `skills/` - step-by-step navigation and setup guides
 
 If it doesn't exist, tell the user:
 
@@ -84,8 +83,6 @@ Read `AUTONOMA.md` fully. Understand:
   - **Ignore these elements**: Don't interact with or assert against these
   - **Don't report these as bugs**: Don't write tests specifically targeting these
 
-Scan the `skills/` directory index to know what skills are available. You'll reference these in tests.
-
 ### 0.3 - Load test data scenarios (if provided)
 
 Look for a `scenarios.md` file alongside the AUTONOMA knowledge base (in `autonoma/` or provided separately). This file describes named test data scenarios - pre-configured environments with known data.
@@ -97,7 +94,7 @@ If scenarios exist:
 - **If the scenario marks a field as generated, tests must reference the token instead of a literal.** For example, if `variable_fields` includes `{{project_title}}`, write `click the project titled ({{project_title}} variable)` - not `click the project titled "My Project"`.
 - **Never write conditional test steps.** The scenario guarantees the data exists. Don't write "if X exists, do A; otherwise verify B." Each test follows exactly one path.
 
-If no scenarios file exists, tests should create their own data in the Setup section using skills (e.g., `skills/create-a-project.md`). Even in this case, never write conditional steps - if a test needs data, the setup must create it.
+If no scenarios file exists, tests should describe the setup steps inline. Even in this case, never write conditional steps - if a test needs data, the setup must create it.
 
 ---
 
@@ -138,7 +135,7 @@ Create the file `qa-tests/.scratchpad/feature-inventory.md`. You will append to 
 
 #### Step 2: List every page/route
 
-Using the codebase (route files, navigation components, sidebar config) AND the AUTONOMA knowledge base (skills, core flows table), produce a flat list of every page a user can visit. Include the URL pattern and a short description.
+Using the codebase (route files, navigation components, sidebar config) AND the AUTONOMA knowledge base (core flows table), produce a flat list of every page a user can visit. Include the URL pattern and a short description.
 
 Write this list to the scratchpad under a `## Pages` heading.
 
@@ -445,15 +442,13 @@ priority: [one of: Critical | High | Medium | Low]
 
 ## Setup
 
-<!-- Reference AUTONOMA skills for any setup the agent needs to do before the test begins. -->
-<!-- The agent will read these skill files to know how to perform setup. -->
+<!-- Describe any setup the agent needs to do before the test begins. -->
 <!-- If test data scenarios are available, specify which scenario to use. -->
 
 Using scenario: `standard`
 
-Follow these skills in order:
-1. `skills/login.md` - Log in as a test user
-2. `skills/create-a-project.md` - Create a project named "Test Project Alpha"
+1. Log in as a test user
+2. Create a project named "Test Project Alpha"
 
 After setup, you should be on the Projects list page showing "Test Project Alpha."
 
@@ -494,9 +489,8 @@ Do **not** use P0/P1/P2/P3, lowercase variants, hyphenated forms, or any other f
 - **Use only these actions**: click, scroll, type/input text, and assert. These are the only things the test runner can do.
 - **Assertions must be concrete and verifiable.** Never write "Assert that an error appears" or "Assert that the page shows a proper error." Always specify **what text, what element, or what visual state** the agent should look for. For example: "Assert that the text 'Name is required' appears below the Name field" or "Assert that a red banner appears at the top with the text 'Failed to save.'" If you don't know the exact error text, go back to the codebase and find it. Vague assertions produce tests that always "pass" because the agent interprets them loosely.
 - **For success states, be equally specific.** Don't write "Verify the save was successful." Find the exact feedback: what toast appears (title and message text), what page redirect happens (what URL or heading), what UI state changes (button text changes, item appears in list). Search for toast/notification calls near form submission handlers and API mutation callbacks in the codebase.
-- **Never write conditional steps.** Don't write "If X exists, do A; otherwise verify B." If the test needs X to exist, the setup must ensure X exists (via a scenario or a setup skill). Each test follows exactly one path.
+- **Never write conditional steps.** Don't write "If X exists, do A; otherwise verify B." If the test needs X to exist, the setup must ensure X exists (via a scenario or explicit setup steps). Each test follows exactly one path.
 - **One test, one scenario.** Don't combine "happy path" and "error case" in the same test. Split them.
-- **Always use skills for setup.** Never write raw login or navigation steps in the Setup section. Always reference the skill file. The agent will read the skill file and execute those steps. The only exception is if a setup step is truly unique to this test and doesn't have a corresponding skill.
 - **After setup, confirm position.** Always include an assertion or description of where the agent should be after completing setup, before the Steps section begins. This anchors the agent.
 - **Use realistic test data.** Names, emails, addresses that look real. Not "asdf" or "test123" (unless you're specifically testing bad input).
 - **Use real text from the UI.** If a button says "Save Changes" in the code, write "click the 'Save Changes' button" - not "click the save button." If a dialog title is "Create a test" in the code, write exactly that - not "Create Test."
@@ -704,7 +698,7 @@ After all files are written, tell the user:
 >
 > **Adversarial review**: [X] gaps identified, [Y] addressed with additional tests. [Brief summary of what was added.]
 >
-> Each test references skills from the AUTONOMA knowledge base for setup steps. Make sure both `autonoma/` and `qa-tests/` are available to the execution agent."
+> Make sure both `autonoma/` and `qa-tests/` are available to the execution agent."
 
 ---
 
@@ -722,7 +716,6 @@ After all files are written, tell the user:
 - **Test live/interactive content directly.** If the app embeds a device stream, browser iframe, canvas, or video player, test the interactions with that content - not just the surrounding controls. The embedded content is often the core product experience.
 - **Write journey tests.** After all flow-specific tests, write 2-5 E2E journey tests that chain the core flows together into complete user paths. These catch integration bugs that flow-specific tests miss.
 - **There is no upper bound.** Write as many tests as you need to be confident every bug will be caught. If a test has even a small chance of catching a real bug, include it. You can trim later, but a shipped bug is worse than an extra test.
-- **Always reference skills for setup.** The execution agent is separate from you - it doesn't know the codebase. It knows AUTONOMA.md and whatever skills you reference. If your test requires the agent to be on a specific page, reference the skill. Don't assume it knows how to get there.
 - **Write Tier 1 tests first.** Do not write Tier 2 or 3 tests until all Tier 1 tests are complete. This prevents the failure mode where you run out of context/budget before covering core flows deeply enough.
 - **Use subagents to parallelize.** Discovery, test writing, and the adversarial review should all use subagents where possible. Launch exploration agents in parallel during discovery. Launch writing agents in parallel for different flows. The adversarial review is a separate agent that runs after all tests are written.
 - **If context compaction occurs, re-read this prompt and use a TODO list.** Before compaction happens, write your current TODO list and progress to the scratchpad (`qa-tests/.scratchpad/`). After compaction, immediately re-read this prompt, AUTONOMA.md, scenarios.md, your feature inventory (`qa-tests/.scratchpad/feature-inventory.md`), and your TODO list. The feature inventory is your most important artifact - it tells you which pages you've already decomposed and which features need tests. Resume from where you left off. This prevents losing track of progress and is the #1 cause of under-generated test suites.

@@ -70,8 +70,7 @@ packages/engine/src/
 │   │       ├── command-tool.ts        # Wraps Command as an AI SDK tool
 │   │       ├── execution-finished-tool.ts
 │   │       ├── ask-user-tool.ts
-│   │       ├── wait-tool.ts
-│   │       └── skill-resolver-tool.ts
+│   │       └── wait-tool.ts
 │   ├── runner/
 │   │   ├── execution-agent-runner.ts  # Main runner - ties installer + factory + recording
 │   │   ├── artifacts.ts               # Writes screenshots, steps, video to disk
@@ -148,7 +147,6 @@ These tools are available to the model but are not recorded as test steps:
 | **wait** | Sleeps for N seconds. Useful for loading screens or animations |
 | **ask-user** | Sends questions to a human via WebSocket. Pauses execution until answered. Only available in frontend-connected sessions |
 | **execution-finished** | Called by the model to end the test. Takes `{ success, reasoning }` |
-| **resolve-skill** | Resolves a reusable sub-flow from a skills directory. Only available when skills config is provided |
 
 ## Driver Interfaces
 
@@ -359,4 +357,4 @@ Navigate to the login page, enter "user@test.com" and "password123",
 click Sign In, and assert the dashboard is visible.
 ```
 
-The `loadTestCase` function parses the frontmatter against a Zod schema and extracts the prompt from the body. It also walks up the directory tree looking for an `autonoma/skills/` directory to auto-load skill definitions.
+The `loadTestCase` function parses the frontmatter against a Zod schema and extracts the prompt from the body.

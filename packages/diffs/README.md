@@ -1,17 +1,16 @@
 # @autonoma/diffs
 
-AI agent that analyzes code diffs on pull requests. It reviews changes, runs affected tests, reports bugs, suggests test modifications, updates skills, and identifies test coverage gaps - all autonomously using LLM tool-calling.
+AI agent that analyzes code diffs on pull requests. It reviews changes, runs affected tests, reports bugs, suggests test modifications, and identifies test coverage gaps - all autonomously using LLM tool-calling.
 
 ## How It Works
 
-The `DiffsAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Given a diff summary, existing tests, and existing skills, it:
+The `DiffsAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Given a diff summary and existing tests, it:
 
 1. Explores the actual patch using git commands (`bash`, `glob`, `grep`, `read_files`)
-2. Checks if any reusable skills (login, checkout, etc.) need updating
-3. Runs potentially affected tests via `run_test`
-4. Takes post-run actions per test: `modify_test`, `remove_test`, or `bug_found`
-5. Identifies new functionality with no test coverage and suggests new tests via `add_test`
-6. Calls `finish` with an overall reasoning summary
+2. Runs potentially affected tests via `run_test`
+3. Takes post-run actions per test: `modify_test`, `remove_test`, or `bug_found`
+4. Identifies new functionality with no test coverage and suggests new tests via `add_test`
+5. Calls `finish` with an overall reasoning summary
 
 The agent retries up to 3 times if it produces no actions.
 
@@ -25,7 +24,6 @@ import {
   type DiffsAgentInput,
   type DiffAnalysis,
   type ExistingTestInfo,
-  type ExistingSkillInfo,
   type TestRunResult,
 } from "@autonoma/diffs";
 
@@ -36,7 +34,6 @@ import type {
   ResultCollector,
   BugReport,
   GeneratedTest,
-  SkillUpdate,
 } from "@autonoma/diffs";
 
 // Callbacks (wiring agent actions to real side effects)
@@ -80,9 +77,6 @@ const result = await agent.analyze({
   existingTests: [
     { id: "t1", name: "Login flow", slug: "login-flow", prompt: "Navigate to login..." },
   ],
-  existingSkills: [
-    { id: "s1", name: "Login", slug: "login", description: "...", content: "..." },
-  ],
 });
 
 // 4. Use results
@@ -90,7 +84,6 @@ console.log(result.reasoning);
 console.log(result.testActions);    // modify or remove actions taken
 console.log(result.bugReports);     // bugs introduced by the PR
 console.log(result.newTests);       // suggested new tests
-console.log(result.skillUpdates);   // skills that were updated
 ```
 
 ## Tools
@@ -115,7 +108,6 @@ The agent has two categories of tools:
 | `modify_test` | Update a test instruction to match new behavior | `run_test` |
 | `remove_test` | Remove a test from the suite when its flow was deleted | `run_test` |
 | `bug_found` | Report a bug introduced by the PR with a fix prompt | `run_test` |
-| `update_skill` | Update a skill's content | None |
 | `add_test` | Suggest a new test for uncovered functionality | None |
 | `finish` | End analysis with overall reasoning | None |
 
@@ -128,7 +120,6 @@ The `DiffsAgentCallbacks` interface decouples agent decisions from side effects.
 - `triggerTestsAndWait` - Triggers parallel test execution via Temporal workflows, polls for completion, returns results
 - `removeTest` - Removes obsolete tests from the suite
 - `modifyTest` - Updates test instruction in the database via `TestSuiteUpdater`
-- `updateSkill` - Updates skill content in the database via `TestSuiteUpdater`
 - `reportBug` - Creates a GitHub issue on the repository via Octokit
 
 ## Architecture
@@ -141,7 +132,6 @@ src/
   callbacks/
     create-callbacks.ts     # Factory wiring DiffsAgentCallbacks to real implementations
     modify-test.ts          # Database update for test modifications
-    update-skill.ts         # Database update for skill content
     report-bug.ts           # GitHub issue creation via Octokit
   tools/
     index.ts                # Re-exports all tool builders
@@ -155,7 +145,6 @@ src/
     modify-test-tool.ts     # Modifies test instructions
     remove-test-tool.ts     # Removes tests whose flow no longer exists
     bug-found-tool.ts       # Reports bugs with fix prompts
-    update-skill-tool.ts    # Updates skill content
     add-test-tool.ts        # Suggests new tests
     finish-tool.ts          # Ends analysis, collects results
 ```

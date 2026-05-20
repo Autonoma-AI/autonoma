@@ -1,6 +1,6 @@
 # @autonoma/test-updates
 
-Manages the lifecycle of test suite updates for a branch. Handles creating snapshot drafts, applying changes (add/update/remove test cases and skills), scheduling generation jobs, assigning generation results, and finalizing (activating) snapshots.
+Manages the lifecycle of test suite updates for a branch. Handles creating snapshot drafts, applying changes (add/update/remove test cases), scheduling generation jobs, assigning generation results, and finalizing (activating) snapshots.
 
 ## Exports
 
@@ -28,9 +28,6 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `RemoveTest` | Removes a test case from the snapshot |
 | `RegenerateSteps` | Clears steps and queues a new generation for an existing plan |
 | `DiscardChange` | Reverts a test case to its previous snapshot state |
-| `AddSkill` | Adds a skill with an initial plan |
-| `UpdateSkill` | Updates the plan for an existing skill |
-| `RemoveSkill` | Removes a skill from the snapshot |
 
 ### Temporal entry point (`@autonoma/test-updates/temporal`)
 
@@ -100,7 +97,6 @@ await updater.discard();
 ```ts
 const info = await updater.currentTestSuiteInfo();
 // info.testCases - array of { id, slug, name, plan, steps }
-// info.skills    - array of { id, slug, name, description, plan }
 
 const changes = await updater.getChanges();
 // Array of { type: "added" | "removed" | "updated", testCaseId, testCaseName, ... }
@@ -119,7 +115,7 @@ Branch
   └── pendingSnapshot  - the draft being edited (created by startUpdate)
 ```
 
-`SnapshotDraft.start()` creates a new pending snapshot and copies all test case and skill assignments from the active snapshot. Changes are applied against this draft. When finalized, the draft becomes the new active snapshot and the previous one is marked as superseded.
+`SnapshotDraft.start()` creates a new pending snapshot and copies all test case assignments from the active snapshot. Changes are applied against this draft. When finalized, the draft becomes the new active snapshot and the previous one is marked as superseded.
 
 ### Command pattern for changes
 

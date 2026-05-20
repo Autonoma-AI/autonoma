@@ -11,7 +11,7 @@ Each scenario is a nested tree of records rooted at your **scope entity** (e.g.,
 
 ## Prerequisites
 
-- `autonoma/AUTONOMA.md` and `autonoma/skills/` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
+- `autonoma/AUTONOMA.md` must exist (output from [Step 1](/test-planner/step-1-knowledge-base/))
 - `autonoma/entity-audit.md` must exist (output from [Step 2](/test-planner/step-2-entity-audit/))
 - Access to your backend codebase — the agent reads the ORM schema directly (Prisma schema, Drizzle tables, Ecto schemas, ActiveRecord models, etc.) to understand relationships
 
@@ -57,7 +57,7 @@ Step 4 installs the SDK and Step 5 validates the scenarios against the real data
 
 # Scenario Generator
 
-You generate test data scenarios from a knowledge base. Your input is `autonoma/AUTONOMA.md`, `autonoma/skills/`, and `autonoma/entity-audit.md`. Your output MUST be written to `autonoma/scenarios.md` with YAML frontmatter.
+You generate test data scenarios from a knowledge base. Your input is `autonoma/AUTONOMA.md` and `autonoma/entity-audit.md`. Your output MUST be written to `autonoma/scenarios.md` with YAML frontmatter.
 
 ## Instructions
 
@@ -71,19 +71,17 @@ You generate test data scenarios from a knowledge base. Your input is `autonoma/
 
 3. Read `autonoma/entity-audit.md` — the authoritative schema map from Step 2. It lists every model, its relationships, and whether creation goes through a factory or raw SQL. Use it as the source of truth for model names, fields, FK edges, and the scope field.
 
-4. Scan `autonoma/skills/` to understand what entities can be created and their relationships.
+4. Explore the backend codebase only to fill gaps the audit does not cover (enum values, string length limits, constraint details).
 
-5. Explore the backend codebase only to fill gaps the audit does not cover (enum values, string length limits, constraint details).
-
-6. **Scoping analysis** — assess whether the scope entity provides real per-run data isolation. Does the scope entity parent most other models via required FKs? Can a new scope entity be created per test run? Do most models eventually chain back to the scope entity?
+5. **Scoping analysis** — assess whether the scope entity provides real per-run data isolation. Does the scope entity parent most other models via required FKs? Can a new scope entity be created per test run? Do most models eventually chain back to the scope entity?
 
    If yes to all: the app has natural multi-tenant isolation — each test run creates its own scope entity.
 
    If the scope entity is a singleton, shared across users, or does not meaningfully partition data: the app **lacks natural per-run isolation**. In this case you MUST slug all identifying fields with `{{testRunId}}` so parallel or sequential runs never collide.
 
-7. Design three scenarios: `standard`, `empty`, `large`.
+6. Design three scenarios: `standard`, `empty`, `large`.
 
-8. **Variable fields.** Prefer hardcoded values when they make tests simpler, more reviewable, and more stable. If a field needs run-level uniqueness but can still be expressed as a concrete literal, prefer a planner-chosen hardcoded value with a discriminator suffix over introducing a variable placeholder (e.g. `Acme Project qa-17` over `{{project_name}}`).
+7. **Variable fields.** Prefer hardcoded values when they make tests simpler, more reviewable, and more stable. If a field needs run-level uniqueness but can still be expressed as a concrete literal, prefer a planner-chosen hardcoded value with a discriminator suffix over introducing a variable placeholder (e.g. `Acme Project qa-17` over `{{project_name}}`).
 
    **Exception — apps without natural per-run isolation:** if your scoping analysis determined the app lacks natural isolation, **reverse the default**. Slug ALL identifying fields — names, titles, descriptions, labels, slugs, emails, usernames — with inline `{{testRunId}}`.
 
@@ -101,9 +99,9 @@ You generate test data scenarios from a knowledge base. Your input is `autonoma/
    - a reason explaining why it truly must vary
    - a plain-language test reference such as `({{project_title}} variable)`
 
-9. **Nested tree constraint.** Design scenario entity tables so they can be expressed as a nested tree rooted at the scope entity. Step 4 and Step 5 convert scenarios into nested `create` payloads — flat cross-model structures connected only by `_ref` break when JSON key order is not preserved. Children must nest under their parent using the relation field names from the audit. Use `_ref` only for cross-branch references.
+8. **Nested tree constraint.** Design scenario entity tables so they can be expressed as a nested tree rooted at the scope entity. Step 4 and Step 5 convert scenarios into nested `create` payloads — flat cross-model structures connected only by `_ref` break when JSON key order is not preserved. Children must nest under their parent using the relation field names from the audit. Use `_ref` only for cross-branch references.
 
-10. **Standalone vs via-owner.** For every model, consult the Step 2 audit:
+9. **Standalone vs via-owner.** For every model, consult the Step 2 audit:
 
     - Models with `independently_created: true` may appear as top-level tree nodes when the scenario wants them in isolation.
     - Models whose `created_by` list contains an owner already in the tree must NOT appear as separate nodes — they're minted inline by the owner's factory. Quote the `why` from the audit in the scenario prose so the reader knows where they came from.

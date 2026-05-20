@@ -84,7 +84,6 @@ src/
                 ├── edit/       # Test suite editing, generations, changes
                 ├── history/    # Run history
                 ├── scenarios/  # Test scenarios
-                ├── skills/     # Skill management
                 └── settings/   # Branch settings
 ```
 
