@@ -53,19 +53,22 @@ export class AwsExternalSecretManager {
     async applyForNamespace(
         organizationId: string,
         namespace: string,
-        githubRepositoryId: number,
         appNames: string[],
     ): Promise<Map<string, string>> {
         this.logger.info("Applying AWS ExternalSecrets for namespace", {
             organizationId,
             namespace,
-            githubRepositoryId,
             appNames,
         });
 
+        // Filter only by organizationId + appName, not by githubRepositoryId.
+        // In multirepo deployments, apps from different repos (each with their
+        // own Application and githubRepositoryId) are deployed into the same
+        // namespace. Filtering by a single githubRepositoryId would silently
+        // skip secrets registered for apps from the other repos.
         const records = await this.prisma.previewkitSecret.findMany({
             where: {
-                application: { organizationId, githubRepositoryId },
+                application: { organizationId },
                 appName: { in: appNames },
             },
         });
@@ -74,7 +77,6 @@ export class AwsExternalSecretManager {
 
         if (records.length === 0) {
             this.logger.info("No AWS ExternalSecrets registered for any of the listed apps", {
-                githubRepositoryId,
                 namespace,
                 appNames,
             });
@@ -98,7 +100,6 @@ export class AwsExternalSecretManager {
         }
 
         this.logger.info("AWS ExternalSecrets applied", {
-            githubRepositoryId,
             appliedCount: result.size,
             requestedCount: appNames.length,
             namespace,

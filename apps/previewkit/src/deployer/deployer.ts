@@ -105,17 +105,7 @@ export class Deployer {
     }
 
     private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
-        const {
-            repoFullName,
-            prNumber,
-            headSha,
-            organizationId,
-            githubRepositoryId,
-            config,
-            imageTags,
-            storedSecrets,
-            commentId,
-        } = opts;
+        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, storedSecrets, commentId } = opts;
         const domain = config.domain ?? this.domain;
 
         // 1. Create namespace
@@ -133,12 +123,7 @@ export class Deployer {
         const appNames = config.apps.map((a) => a.name);
         const awsSecretsByApp =
             this.awsExternalSecretManager != null
-                ? await this.awsExternalSecretManager.applyForNamespace(
-                      organizationId,
-                      namespace,
-                      githubRepositoryId,
-                      appNames,
-                  )
+                ? await this.awsExternalSecretManager.applyForNamespace(organizationId, namespace, appNames)
                 : new Map<string, string>();
 
         // 4. Deploy service recipes (postgres, redis, etc.)

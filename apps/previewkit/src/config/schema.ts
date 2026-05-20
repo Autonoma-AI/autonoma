@@ -32,6 +32,9 @@ const serviceSchema = z.object({
     env: z.record(z.string(), z.string()).default({}),
     options: z.record(z.string(), z.unknown()).default({}),
     resources: resourcesSchema,
+    // aws recipe
+    s3: z.boolean().optional(),
+    sqs: z.boolean().optional(),
 });
 
 const branchConventionSchema = z.discriminatedUnion("type", [

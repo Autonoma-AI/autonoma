@@ -9,6 +9,11 @@ import { BuildError, type Builder, type BuildRequest, type BuildResult } from ".
 import { EcrRegistryClient } from "./ecr-client";
 
 const LOG_KEY_PREFIX = "buildctl/logs";
+const BUILD_MAX_RETRIES = 3;
+const BUILDKIT_RETRY_DELAY_MS = 5000;
+// Keep only the tail of each stream for transient error detection.
+// 8 KB is enough for any error string without buffering the full build log.
+const TAIL_SIZE = 8192;
 
 interface BuildKitBuilderOptions {
     buildkitHost: string;
@@ -58,46 +63,82 @@ export class BuildKitBuilder implements Builder {
         const start = Date.now();
         await this.ecr.ensureRepo(request.imageTag);
 
-        const logPath = this.buildLogPath(request.imageTag);
-        const logStream = createWriteStream(logPath, { flags: "a" });
+        for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
+            const isLastAttempt = attempt === BUILD_MAX_RETRIES;
+            const logPath = this.buildLogPath(request.imageTag);
+            const logStream = createWriteStream(logPath, { flags: "a" });
 
-        try {
-            const hasDockerfile = this.resolveDockerfile(request.contextPath, request.dockerfile);
-
-            let imageTag: string;
             try {
-                if (hasDockerfile) {
-                    imageTag = await this.buildWithBuildctl(request, hasDockerfile, logStream);
-                } else {
-                    imageTag = await this.buildWithRailpack(request, logStream);
+                const imageTag = await this.dispatchBuild(request, logStream);
+                const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
+                const durationMs = Date.now() - start;
+                logger.info("Build complete", { app: request.appName, imageTag, durationMs, logUrl });
+                return { imageTag, durationMs, logUrl };
+            } catch (err) {
+                if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
+                    await this.onTransientError(err, attempt, request.appName, logStream, logPath, request.imageTag);
+                    continue;
                 }
-            } catch (buildErr) {
-                // Even on failure we still want the logs uploaded so the
-                // operator can investigate. Surface the log URL as a typed
-                // field on BuildError so callers can render a clickable link
-                // without grepping the error message. If the upload itself
-                // fails, log it and continue — the build error is the more
-                // important signal to propagate.
-                const originalMessage = buildErr instanceof Error ? buildErr.message : String(buildErr);
-                let logUrl: string | undefined;
-                try {
-                    logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
-                } catch (uploadErr) {
-                    logger.error("Build failed AND log upload failed", uploadErr, { imageTag: request.imageTag });
+                if (err instanceof BuildError) {
+                    throw await this.annotateWithLogs(err, logStream, logPath, request.imageTag);
                 }
-                throw new BuildError(originalMessage, { logUrl, cause: buildErr });
+                throw err;
+            } finally {
+                await rm(logPath, { force: true }).catch(() => {});
             }
-
-            // Successful build: upload is fatal. A built image with no logs is
-            // worse than a noisy failure — we want to know now, not later.
-            const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
-            const durationMs = Date.now() - start;
-            logger.info("Build complete", { app: request.appName, imageTag, durationMs, logUrl });
-
-            return { imageTag, durationMs, logUrl };
-        } finally {
-            await rm(logPath, { force: true }).catch(() => {});
         }
+
+        throw new BuildError("buildkit build loop exited without returning");
+    }
+
+    private dispatchBuild(request: BuildRequest, logStream: WriteStream): Promise<string> {
+        const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
+        if (dockerfilePath != null) {
+            return this.buildWithBuildctl(request, dockerfilePath, logStream);
+        }
+        return this.buildWithRailpack(request, logStream);
+    }
+
+    private async onTransientError(
+        err: BuildError,
+        attempt: number,
+        appName: string,
+        logStream: WriteStream,
+        logPath: string,
+        imageTag: string,
+    ): Promise<void> {
+        logger.warn("BuildKit transient error, retrying", {
+            app: appName,
+            attempt,
+            maxRetries: BUILD_MAX_RETRIES,
+            message: err.message,
+        });
+        logStream.write(
+            `\n[previewkit] BuildKit transient error - retrying (attempt ${attempt}/${BUILD_MAX_RETRIES})...\n`,
+        );
+        try {
+            await this.closeAndUploadLog(logStream, logPath, imageTag);
+        } catch {
+            // best-effort upload of partial logs on transient failure
+        }
+        // Brief delay so a crashed/evicted BuildKit pod has time to restart
+        // before the next attempt connects.
+        await new Promise<void>((res) => setTimeout(res, BUILDKIT_RETRY_DELAY_MS));
+    }
+
+    private async annotateWithLogs(
+        err: BuildError,
+        logStream: WriteStream,
+        logPath: string,
+        imageTag: string,
+    ): Promise<never> {
+        let logUrl: string | undefined;
+        try {
+            logUrl = await this.closeAndUploadLog(logStream, logPath, imageTag);
+        } catch (uploadErr) {
+            logger.error("Build failed AND log upload failed", uploadErr, { imageTag });
+        }
+        throw new BuildError(err.message, { logUrl, cause: err });
     }
 
     /**
@@ -142,6 +183,8 @@ export class BuildKitBuilder implements Builder {
                 "--addr",
                 this.buildkitHost,
                 "build",
+                "--progress",
+                "plain",
                 "--frontend",
                 "dockerfile.v0",
                 "--local",
@@ -200,6 +243,8 @@ export class BuildKitBuilder implements Builder {
                 "--addr",
                 this.buildkitHost,
                 "build",
+                "--progress",
+                "plain",
                 "--frontend",
                 "gateway.v0",
                 "--opt",
@@ -251,21 +296,35 @@ export class BuildKitBuilder implements Builder {
             });
 
             child.on("error", (err: NodeJS.ErrnoException) => {
-                reject(err.code === "ENOENT" ? new Error(`${command} binary not found`) : err);
+                const message = err.code === "ENOENT" ? `${command} binary not found` : err.message;
+                reject(new BuildError(message, { cause: err }));
             });
 
             // Pipe both streams to the log file; do NOT end the destination when
             // a source ends, since multiple exec() calls share the same stream.
-            child.stdout.pipe(logStream, { end: false });
-            child.stderr.pipe(logStream, { end: false });
+            // Tee both streams into small tail buffers to detect transient BuildKit
+            // errors - buildctl writes the graceful_stop message to stdout in
+            // --progress plain mode, but to stderr in other modes.
+            let stdoutTail = "";
+            child.stdout.on("data", (chunk: Buffer) => {
+                logStream.write(chunk);
+                stdoutTail = (stdoutTail + chunk.toString()).slice(-TAIL_SIZE);
+            });
+            let stderrTail = "";
+            child.stderr.on("data", (chunk: Buffer) => {
+                logStream.write(chunk);
+                stderrTail = (stderrTail + chunk.toString()).slice(-TAIL_SIZE);
+            });
 
             child.on("close", (code) => {
                 if (child.killed) {
-                    reject(new Error(`${command} timed out after ${this.buildTimeoutMs / 1000}s`));
+                    reject(new BuildError(`${command} timed out after ${this.buildTimeoutMs / 1000}s`));
                 } else if (code === 0) {
                     resolvePromise();
                 } else {
-                    reject(new Error(`${command} exited with code ${code}`));
+                    const combined = stdoutTail + stderrTail;
+                    const isTransient = combined.includes("graceful_stop") || combined.includes("connection refused");
+                    reject(new BuildError(`${command} exited with code ${code}`, { isTransient }));
                 }
             });
         });

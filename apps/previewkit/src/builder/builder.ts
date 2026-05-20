@@ -24,10 +24,12 @@ export interface BuildResult {
  */
 export class BuildError extends Error {
     readonly logUrl?: string;
+    readonly isTransient: boolean;
 
-    constructor(message: string, options?: { logUrl?: string; cause?: unknown }) {
+    constructor(message: string, options?: { logUrl?: string; cause?: unknown; isTransient?: boolean }) {
         super(message, options?.cause != null ? { cause: options.cause } : undefined);
         this.name = "BuildError";
+        this.isTransient = options?.isTransient ?? false;
         if (options?.logUrl != null) this.logUrl = options.logUrl;
     }
 }

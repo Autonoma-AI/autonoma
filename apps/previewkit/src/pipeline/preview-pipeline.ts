@@ -574,6 +574,7 @@ export class PreviewPipeline {
                           appArn,
                       )
                     : {};
+
             const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
 
             const resolvedBuildArgs = ctx.envInjector.applyTemplates(
