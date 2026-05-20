@@ -1626,11 +1626,12 @@ model PreviewkitEnvironment {
   id String @id @default(cuid())
 
   // Identity — matches the K8s namespace naming: preview-{owner}-{repo}-pr-{N}
-  namespace    String @unique
-  repoFullName String @map("repo_full_name")
-  prNumber     Int    @map("pr_number")
-  headSha      String @map("head_sha")
-  headRef      String @map("head_ref")
+  namespace          String @unique
+  repoFullName       String @map("repo_full_name")
+  prNumber           Int    @map("pr_number")
+  headSha            String @map("head_sha")
+  headRef            String @map("head_ref")
+  githubRepositoryId Int?   @map("github_repository_id")
 
   status PreviewkitStatus @default(pending)
   phase  String?

@@ -1,3 +1,4 @@
+import { db } from "@autonoma/db";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Deployer } from "../deployer/deployer";
@@ -125,6 +126,58 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
 
             teardownPipeline.teardown(event).catch((err) => {
                 logger.error("Teardown failed", err, { repo: repoFullName, pr });
+            });
+
+            return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
+        })
+
+        .post("/environments/:owner/:repo/:pr/redeploy", async (c) => {
+            const owner = c.req.param("owner");
+            const repo = c.req.param("repo");
+            const pr = Number(c.req.param("pr"));
+            if (!Number.isInteger(pr) || pr <= 0) {
+                return c.json({ error: "pr must be a positive integer" }, 400);
+            }
+
+            const repoFullName = `${owner}/${repo}`;
+            const env = await db.previewkitEnvironment.findUnique({
+                where: { repoFullName_prNumber: { repoFullName, prNumber: pr } },
+                select: {
+                    headSha: true,
+                    headRef: true,
+                    organizationId: true,
+                    githubRepositoryId: true,
+                    status: true,
+                },
+            });
+
+            if (env == null) {
+                return c.json({ error: "Environment not found" }, 404);
+            }
+
+            if (env.status === "torn_down") {
+                return c.json({ error: "Environment has been torn down and cannot be redeployed" }, 409);
+            }
+
+            if (env.githubRepositoryId == null) {
+                return c.json({ error: "Environment predates redeploy support and cannot be redeployed" }, 409);
+            }
+
+            const event: PullRequestEvent = {
+                action: "synchronize",
+                prNumber: pr,
+                repoFullName,
+                organizationId: env.organizationId,
+                githubRepositoryId: env.githubRepositoryId,
+                headSha: env.headSha,
+                headRef: env.headRef,
+                baseSha: "",
+                baseRef: "",
+                cloneUrl: "",
+            };
+
+            previewPipeline.deploy(event).catch((err) => {
+                logger.error("Redeploy failed", err, { repo: repoFullName, pr });
             });
 
             return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);

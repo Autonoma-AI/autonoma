@@ -11,6 +11,7 @@ export interface EnvironmentCreatedInput {
     headRef: string;
     namespace: string;
     organizationId: string;
+    githubRepositoryId?: number;
     commentId?: string;
 }
 
@@ -52,7 +53,8 @@ export interface EnvironmentReadyInput {
 
 export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordEnvironmentCreated" });
-    const { repoFullName, prNumber, headSha, headRef, namespace, organizationId, commentId } = input;
+    const { repoFullName, prNumber, headSha, headRef, namespace, organizationId, githubRepositoryId, commentId } =
+        input;
     logger.info("Recording environment created", { namespace, repoFullName, prNumber, organizationId });
 
     // On update, only overwrite `commentId` when the caller actually provides
@@ -70,6 +72,7 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             prNumber,
             headSha,
             headRef,
+            githubRepositoryId,
             commentId,
             status: "pending",
             phase: "initializing",

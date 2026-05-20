@@ -205,6 +205,7 @@ export class PreviewPipeline {
                 headRef: event.headRef,
                 namespace,
                 organizationId,
+                githubRepositoryId,
                 commentId,
             }),
         );
