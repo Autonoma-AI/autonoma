@@ -83,6 +83,8 @@ export interface DiffsAgentInput {
     merges?: MergeContextInfo[];
     /** Merge-conflict tests to enrich with reasoning. Empty for non-merge runs. */
     preClassifiedConflicts?: PreClassifiedConflictInfo[];
+    /** Free-text testing guidelines from the application owner. */
+    testScopeGuidelines?: string;
 }
 
 // --- Agent ---
@@ -114,6 +116,7 @@ export class DiffsAgent {
                 existingSkills: input.existingSkills,
                 merges: input.merges ?? [],
                 preClassifiedConflicts: input.preClassifiedConflicts ?? [],
+                testScopeGuidelines: input.testScopeGuidelines,
             },
             this.config.flowIndex,
         );
@@ -221,10 +224,11 @@ interface PromptInput {
     existingSkills: ExistingSkillInfo[];
     merges: MergeContextInfo[];
     preClassifiedConflicts: PreClassifiedConflictInfo[];
+    testScopeGuidelines?: string;
 }
 
 function buildPrompt(input: PromptInput, flowIndex: FlowIndex): string {
-    const { analysis, merges, preClassifiedConflicts } = input;
+    const { analysis, merges, preClassifiedConflicts, testScopeGuidelines } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         flows: flowIndex.listFlows().map((f) => ({
@@ -233,6 +237,7 @@ function buildPrompt(input: PromptInput, flowIndex: FlowIndex): string {
             description: f.description,
             testCount: f.testCount,
         })),
+        testScopeGuidelines,
     });
 
     let prompt = `${planAuthoringContext}

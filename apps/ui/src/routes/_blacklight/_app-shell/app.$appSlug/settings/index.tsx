@@ -34,6 +34,13 @@ const EXAMPLE_INSTRUCTIONS = [
   "The app uses dark mode by default - do not toggle theme settings.",
 ];
 
+const EXAMPLE_TEST_SCOPE_GUIDELINES = [
+  "Do not generate tests for the /admin section.",
+  "The checkout flow is business-critical - prioritize coverage there.",
+  "Skip tests that depend on third-party email delivery.",
+  "Avoid tests that hit billing or live payment integrations.",
+];
+
 function ThemePanel() {
   const { theme, setTheme } = useTheme();
   const isDark = theme === "blacklight-dark";
@@ -82,6 +89,8 @@ function SettingsPage() {
   const currentApp = useCurrentApplication();
   const [savedInstructions, setSavedInstructions] = useState(currentApp.customInstructions ?? "");
   const [customInstructions, setCustomInstructions] = useState(currentApp.customInstructions ?? "");
+  const [savedGuidelines, setSavedGuidelines] = useState(currentApp.testScopeGuidelines ?? "");
+  const [testScopeGuidelines, setTestScopeGuidelines] = useState(currentApp.testScopeGuidelines ?? "");
   const updateSettings = useUpdateApplicationSettings();
 
   useEffect(() => {
@@ -90,26 +99,60 @@ function SettingsPage() {
     setCustomInstructions(instructions);
   }, [currentApp.customInstructions]);
 
-  const hasChanges = customInstructions !== savedInstructions;
+  useEffect(() => {
+    const guidelines = currentApp.testScopeGuidelines ?? "";
+    setSavedGuidelines(guidelines);
+    setTestScopeGuidelines(guidelines);
+  }, [currentApp.testScopeGuidelines]);
 
-  function handleSave() {
-    const normalizedInstructions = customInstructions.trim();
+  const hasInstructionsChanges = customInstructions !== savedInstructions;
+  const hasGuidelinesChanges = testScopeGuidelines !== savedGuidelines;
+
+  function toNullable(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+
+  function handleSaveInstructions() {
+    const normalized = customInstructions.trim();
     updateSettings.mutate(
       {
         id: currentApp.id,
-        customInstructions: normalizedInstructions === "" ? null : normalizedInstructions,
+        customInstructions: toNullable(customInstructions),
+        testScopeGuidelines: toNullable(savedGuidelines),
       },
       {
         onSuccess: () => {
-          setSavedInstructions(normalizedInstructions);
-          setCustomInstructions(normalizedInstructions);
+          setSavedInstructions(normalized);
+          setCustomInstructions(normalized);
         },
       },
     );
   }
 
-  function handleReset() {
+  function handleSaveGuidelines() {
+    const normalized = testScopeGuidelines.trim();
+    updateSettings.mutate(
+      {
+        id: currentApp.id,
+        customInstructions: toNullable(savedInstructions),
+        testScopeGuidelines: toNullable(testScopeGuidelines),
+      },
+      {
+        onSuccess: () => {
+          setSavedGuidelines(normalized);
+          setTestScopeGuidelines(normalized);
+        },
+      },
+    );
+  }
+
+  function handleResetInstructions() {
     setCustomInstructions(savedInstructions);
+  }
+
+  function handleResetGuidelines() {
+    setTestScopeGuidelines(savedGuidelines);
   }
 
   return (
@@ -162,13 +205,83 @@ function SettingsPage() {
             <Separator />
 
             <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={handleReset} disabled={!hasChanges} aria-label="app-settings-reset">
+              <Button
+                variant="outline"
+                onClick={handleResetInstructions}
+                disabled={!hasInstructionsChanges}
+                aria-label="app-settings-instructions-reset"
+              >
                 Reset
               </Button>
               <Button
-                onClick={handleSave}
-                disabled={!hasChanges || updateSettings.isPending}
-                aria-label="app-settings-save"
+                onClick={handleSaveInstructions}
+                disabled={!hasInstructionsChanges || updateSettings.isPending}
+                aria-label="app-settings-instructions-save"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save changes"}
+              </Button>
+            </div>
+          </PanelBody>
+        </Panel>
+
+        <Panel>
+          <PanelHeader>
+            <PanelTitle>Test scope guidelines</PanelTitle>
+          </PanelHeader>
+          <PanelBody className="space-y-4">
+            <p className="text-xs text-text-secondary">
+              These guidelines are read by the agents that plan, generate, and modify your test suite. Use them to say
+              what should not be tested, or what deserves extra coverage.
+            </p>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="test-scope-guidelines"
+                className="font-mono text-2xs uppercase tracking-widest text-text-tertiary"
+              >
+                Guidelines
+              </Label>
+              <Textarea
+                id="test-scope-guidelines"
+                placeholder="Enter guidelines for the plan-authoring agents..."
+                value={testScopeGuidelines}
+                onChange={(e) => setTestScopeGuidelines(e.target.value)}
+                maxLength={MAX_INSTRUCTIONS_LENGTH}
+                rows={8}
+                className="resize-y font-mono text-xs"
+              />
+              <p className="text-right font-mono text-3xs text-text-tertiary">
+                {testScopeGuidelines.length} / {MAX_INSTRUCTIONS_LENGTH}
+              </p>
+            </div>
+
+            <div className="rounded-md border border-border-dim bg-surface-base p-4">
+              <p className="mb-3 font-mono text-2xs uppercase tracking-widest text-text-tertiary">Examples</p>
+              <ul className="space-y-2">
+                {EXAMPLE_TEST_SCOPE_GUIDELINES.map((example) => (
+                  <li key={example} className="flex items-start gap-2 text-xs text-text-secondary">
+                    <span className="mt-1.5 block size-1 shrink-0 rounded-full bg-text-tertiary" />
+                    <span>{example}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <Separator />
+
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handleResetGuidelines}
+                disabled={!hasGuidelinesChanges}
+                aria-label="app-settings-guidelines-reset"
+              >
+                Reset
+              </Button>
+              <Button
+                onClick={handleSaveGuidelines}
+                disabled={!hasGuidelinesChanges || updateSettings.isPending}
+                aria-label="app-settings-guidelines-save"
               >
                 {updateSettings.isPending ? "Saving..." : "Save changes"}
               </Button>
@@ -177,10 +290,10 @@ function SettingsPage() {
         </Panel>
 
         <Alert>
-          <AlertTitle>How this is applied</AlertTitle>
+          <AlertTitle>How these are applied</AlertTitle>
           <AlertDescription>
-            The saved instructions are appended to the end of each run prompt. They apply to all test runs within this
-            application, including generated and manually created tests.
+            Agent instructions are appended to every test run prompt and apply at execution time. Testing guidelines are
+            read by the agents that author and modify your test suite (diff analysis, healing, resolution).
           </AlertDescription>
         </Alert>
 

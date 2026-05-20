@@ -253,11 +253,19 @@ async function loadPlanAuthoringInput({
     applicationId: string;
     snapshotId: string;
 }): Promise<PlanAuthoringInput> {
-    const [scenarios, flows] = await Promise.all([
+    const [scenarios, flows, application] = await Promise.all([
         loadScenarioLookup(db, applicationId),
         loadFlowSummaries(db, applicationId, snapshotId),
+        db.application.findUniqueOrThrow({
+            where: { id: applicationId },
+            select: { testScopeGuidelines: true },
+        }),
     ]);
-    return { scenarios, flows };
+    return {
+        scenarios,
+        flows,
+        testScopeGuidelines: application.testScopeGuidelines ?? undefined,
+    };
 }
 
 async function loadScenarioLookup(db: PrismaClient, applicationId: string): Promise<ScenarioLookup> {

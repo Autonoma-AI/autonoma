@@ -286,13 +286,14 @@ enum ApplicationArchitecture {
 }
 
 model Application {
-  id                 String                  @id @default(cuid())
-  name               String
-  slug               String                  @map("slug")
-  architecture       ApplicationArchitecture
-  customInstructions String?                 @map("custom_instructions")
-  disabled           Boolean                 @default(false)
-  githubRepositoryId Int?                    @map("github_repository_id")
+  id                      String                  @id @default(cuid())
+  name                    String
+  slug                    String                  @map("slug")
+  architecture            ApplicationArchitecture
+  customInstructions      String?                 @map("custom_instructions")
+  testScopeGuidelines     String?                 @map("test_scope_guidelines")
+  disabled                Boolean                 @default(false)
+  githubRepositoryId      Int?                    @map("github_repository_id")
 
   mainBranchId String? @unique @map("main_branch_id")
   mainBranch   Branch? @relation("MainBranch", fields: [mainBranchId], references: [id])

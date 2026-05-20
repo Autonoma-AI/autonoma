@@ -36,6 +36,7 @@ const UpdateDataSchema = z.discriminatedUnion("architecture", [
 const UpdateSettingsSchema = z.object({
     id: z.string(),
     customInstructions: z.string().max(5000).nullable(),
+    testScopeGuidelines: z.string().max(5000).nullable(),
 });
 
 export const applicationsRouter = router({
@@ -74,6 +75,7 @@ export const applicationsRouter = router({
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applications.updateSettings(input.id, organizationId, {
                 customInstructions: input.customInstructions,
+                testScopeGuidelines: input.testScopeGuidelines,
             }),
         ),
 });

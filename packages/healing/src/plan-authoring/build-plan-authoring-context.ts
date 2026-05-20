@@ -15,6 +15,11 @@ export function buildPlanAuthoringContext(input: PlanAuthoringContextInput): str
         "When you write or modify a plan body, reference the data below by exact id / slug / name. The plan-authoring guide in your system prompt explains the body shape and the rules; this section lists what is actually available in this run.",
     );
 
+    const guidelines = input.testScopeGuidelines?.trim();
+    if (guidelines != null && guidelines.length > 0) {
+        sections.push(renderGuidelines(guidelines));
+    }
+
     if (input.scenarios != null) {
         sections.push(renderScenarios(input.scenarios));
     }
@@ -22,6 +27,15 @@ export function buildPlanAuthoringContext(input: PlanAuthoringContextInput): str
     sections.push(renderFlows(input.flows));
 
     return sections.join("\n\n");
+}
+
+function renderGuidelines(guidelines: string): string {
+    return [
+        "## Test scope guidelines",
+        "Free-text guidance from the application owner. Treat these as constraints when deciding what to test, what to skip, and where to add coverage. They override your defaults unless they conflict with the plan-authoring rules.",
+        "",
+        guidelines,
+    ].join("\n");
 }
 
 function renderScenarios(scenarios: ScenarioSummary[]): string {

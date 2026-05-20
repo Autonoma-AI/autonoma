@@ -56,7 +56,7 @@ type UpdateDataInput = Partial<Pick<Application, "name">> &
           })
     );
 
-type UpdateSettingsInput = Pick<Application, "customInstructions">;
+type UpdateSettingsInput = Pick<Application, "customInstructions" | "testScopeGuidelines">;
 
 class NoMainBranchError extends Error {
     constructor(applicationId: string) {
@@ -423,6 +423,7 @@ export class ApplicationsService extends Service {
             where: { id },
             data: {
                 customInstructions: data.customInstructions,
+                testScopeGuidelines: data.testScopeGuidelines,
             },
             include: deploymentInclude,
         });

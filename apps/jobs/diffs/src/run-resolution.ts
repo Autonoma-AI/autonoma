@@ -125,7 +125,13 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             const suiteInfo = await updater.currentTestSuiteInfo();
             const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
 
-            const flows = await loadFlows(db, branchData.applicationId, suiteInfo);
+            const [flows, application] = await Promise.all([
+                loadFlows(db, branchData.applicationId, suiteInfo),
+                db.application.findUniqueOrThrow({
+                    where: { id: branchData.applicationId },
+                    select: { testScopeGuidelines: true },
+                }),
+            ]);
             const flowIndex = new FlowIndex(flows);
 
             const agentResult = await runResolutionAgent({
@@ -135,6 +141,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
                     testCandidates: candidateInputs,
                     existingTests,
                     existingSkills,
+                    testScopeGuidelines: application.testScopeGuidelines ?? undefined,
                 },
                 db,
                 updater,

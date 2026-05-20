@@ -48,6 +48,8 @@ export interface ResolutionAgentInput {
     testCandidates: TestCandidateInput[];
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
+    /** Free-text testing guidelines from the application owner. */
+    testScopeGuidelines?: string;
 }
 
 export { type ResolutionAgentResult } from "./tools/resolution-finish-tool";
@@ -157,7 +159,7 @@ export class ResolutionAgent {
 }
 
 function buildPrompt(input: ResolutionAgentInput, flowIndex: FlowIndex, scenarioIndex: ScenarioIndex): string {
-    const { verdicts, step1Reasoning, testCandidates } = input;
+    const { verdicts, step1Reasoning, testCandidates, testScopeGuidelines } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         scenarios: scenarioIndex.listScenarios().map((s) => ({ id: s.id, name: s.name, description: s.description })),
@@ -167,6 +169,7 @@ function buildPrompt(input: ResolutionAgentInput, flowIndex: FlowIndex, scenario
             description: f.description,
             testCount: f.testCount,
         })),
+        testScopeGuidelines,
     });
 
     let prompt = `${planAuthoringContext}

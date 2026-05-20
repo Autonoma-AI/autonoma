@@ -12,6 +12,7 @@ export function buildHealingPrompt(input: HealingInput): string {
         buildPlanAuthoringContext({
             scenarios: input.planAuthoring.scenarios.listScenarios(),
             flows: input.planAuthoring.flows,
+            testScopeGuidelines: input.planAuthoring.testScopeGuidelines,
         }),
     );
 

@@ -60,6 +60,8 @@ export interface SnapshotInfo {
 export interface PlanAuthoringInput {
     scenarios: ScenarioLookup;
     flows: FlowSummary[];
+    /** Free-text guidelines from the application owner about what to / not to test. */
+    testScopeGuidelines?: string;
 }
 
 export type HealingInput =
