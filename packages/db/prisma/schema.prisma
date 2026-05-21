@@ -560,7 +560,7 @@ model BranchSnapshot {
 
   diffsJob        DiffsJob?
   issues          Issue[]
-  refinementLoops RefinementLoop[]
+  refinementLoop  RefinementLoop?
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -971,7 +971,7 @@ enum RefinementIterationStatus {
 model RefinementLoop {
   id String @id @default(cuid())
 
-  snapshotId String         @map("snapshot_id")
+  snapshotId String         @unique @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
   triggeredBy RefinementTrigger @map("triggered_by")
@@ -985,7 +985,6 @@ model RefinementLoop {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([snapshotId])
   @@map("refinement_loop")
 }
 
