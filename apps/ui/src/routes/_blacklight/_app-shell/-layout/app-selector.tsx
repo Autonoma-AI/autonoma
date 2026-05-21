@@ -10,14 +10,18 @@ import {
   DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuGroup,
   DropdownMenuGroupLabel,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@autonoma/blacklight";
+import { AppWindowIcon } from "@phosphor-icons/react/AppWindow";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
-import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
@@ -25,8 +29,6 @@ import { useNavigate, useParams, useRouteContext } from "@tanstack/react-router"
 import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { useState } from "react";
-
-// ─── DiscardConfirmDialog ────────────────────────────────────────────────────
 
 function DiscardConfirmDialog({
   appName,
@@ -68,9 +70,7 @@ function DiscardConfirmDialog({
   );
 }
 
-// ─── AppSelector ─────────────────────────────────────────────────────────────
-
-function AppSelector({ currentApp }: { currentApp: { slug: string; name: string } }) {
+function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; name: string }; collapsed: boolean }) {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const navigate = useNavigate();
   const deleteApp = useDeleteApplication();
@@ -83,13 +83,37 @@ function AppSelector({ currentApp }: { currentApp: { slug: string; name: string 
     (app) => app.onboardingState == null || app.onboardingState.step === "completed",
   );
 
+  const trigger = collapsed ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Switch app (current: ${currentApp.name})`}
+                className="flex w-full items-center justify-center rounded px-2 py-1.5 text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
+              >
+                <AppWindowIcon size={18} />
+              </button>
+            }
+          />
+        }
+      />
+      <TooltipContent side="right">{currentApp.name}</TooltipContent>
+    </Tooltip>
+  ) : (
+    <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-xs font-medium text-text-primary transition-colors hover:bg-surface-raised">
+      <span className="block size-2 shrink-0 rounded-sm bg-primary" />
+      <span className="truncate">{currentApp.name}</span>
+      <CaretUpDownIcon size={12} className="ml-auto shrink-0 text-text-tertiary" />
+    </DropdownMenuTrigger>
+  );
+
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-base hover:text-text-primary">
-          {currentApp.name}
-          <CaretDownIcon size={10} className="text-text-tertiary" />
-        </DropdownMenuTrigger>
+        {trigger}
         <DropdownMenuContent align="start" className="max-h-[70vh] overflow-y-auto">
           <DropdownMenuItem
             className="gap-1.5 border border-dashed border-border-mid text-primary"
@@ -183,123 +207,7 @@ function AppSelector({ currentApp }: { currentApp: { slug: string; name: string 
   );
 }
 
-// ─── PendingOnboardingBanner ─────────────────────────────────────────────────
-
-function PendingOnboardingBanner() {
-  const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
-  const navigate = useNavigate();
-  const deleteApp = useDeleteApplication();
-  const [discardTarget, setDiscardTarget] = useState<{ id: string; name: string }>();
-
-  const incompleteApps = applications.filter(
-    (app) => app.onboardingState != null && app.onboardingState.step !== "completed",
-  );
-
-  if (incompleteApps.length === 0) return null;
-
-  const singleApp = incompleteApps.length === 1 ? incompleteApps[0] : undefined;
-
-  return (
-    <>
-      <div className="mb-4 flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5">
-        <span className="text-2xs text-text-secondary">
-          {singleApp != null ? (
-            <>
-              <strong className="font-medium text-text-primary">{singleApp.name}</strong> has incomplete setup.
-            </>
-          ) : (
-            <>
-              You have <strong className="font-medium text-text-primary">{incompleteApps.length} apps</strong> with
-              incomplete setup.
-            </>
-          )}
-        </span>
-        <div className="flex items-center gap-2">
-          {singleApp != null ? (
-            <>
-              <Button
-                variant="ghost"
-                size="xs"
-                className="font-mono text-3xs uppercase text-text-tertiary"
-                onClick={() => setDiscardTarget({ id: singleApp.id, name: singleApp.name })}
-              >
-                Discard
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                className="font-mono text-3xs uppercase"
-                onClick={() => navigateToOnboarding(singleApp.id, singleApp.onboardingState?.step, navigate)}
-              >
-                Continue setup
-                <ArrowRightIcon size={12} />
-              </Button>
-            </>
-          ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button variant="outline" size="xs" className="font-mono text-3xs uppercase">
-                    View apps
-                    <CaretDownIcon size={10} />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuGroupLabel className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">
-                    Pending setup
-                  </DropdownMenuGroupLabel>
-                  {incompleteApps.map((app) => (
-                    <DropdownMenuItem
-                      key={app.id}
-                      className="text-text-tertiary opacity-60 hover:opacity-100"
-                      onClick={() => {
-                        navigateToOnboarding(app.id, app.onboardingState?.step, navigate);
-                      }}
-                    >
-                      <span className="truncate">{app.name}</span>
-                      <div className="ml-auto flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          className="rounded p-0.5 text-text-tertiary hover:text-status-critical"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDiscardTarget({ id: app.id, name: app.name });
-                          }}
-                        >
-                          <TrashIcon size={12} />
-                        </button>
-                        <ArrowRightIcon size={12} />
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      </div>
-
-      <DiscardConfirmDialog
-        appName={discardTarget?.name ?? ""}
-        open={discardTarget != null}
-        onOpenChange={(open) => {
-          if (!open) setDiscardTarget(undefined);
-        }}
-        onConfirm={() => {
-          if (discardTarget == null) return;
-          deleteApp.mutate({ id: discardTarget.id }, { onSuccess: () => setDiscardTarget(undefined) });
-        }}
-        isPending={deleteApp.isPending}
-      />
-    </>
-  );
-}
-
-// ─── AppBreadcrumb ────────────────────────────────────────────────────────────
-
-function AppBreadcrumb() {
+export function SidebarAppSelector({ collapsed }: { collapsed: boolean }) {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const params = useParams({ strict: false }) as { appSlug?: string };
 
@@ -308,7 +216,14 @@ function AppBreadcrumb() {
   const app = applications.find((a) => a.slug === params.appSlug);
   if (app == null) return null;
 
-  return <AppSelector currentApp={app} />;
-}
+  if (collapsed) {
+    return <AppSelector currentApp={app} collapsed={collapsed} />;
+  }
 
-export { AppBreadcrumb, PendingOnboardingBanner };
+  return (
+    <div className="flex flex-col gap-1 pt-4 border-t border-border-dim">
+      <span className="px-1.5 font-mono text-3xs uppercase tracking-widest text-text-tertiary">App</span>
+      <AppSelector currentApp={app} collapsed={collapsed} />
+    </div>
+  );
+}

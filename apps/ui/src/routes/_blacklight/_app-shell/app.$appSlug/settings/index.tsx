@@ -10,10 +10,7 @@ import {
   PanelTitle,
   Separator,
   Textarea,
-  useTheme,
 } from "@autonoma/blacklight";
-import { MoonIcon } from "@phosphor-icons/react/Moon";
-import { SunIcon } from "@phosphor-icons/react/Sun";
 import { createFileRoute } from "@tanstack/react-router";
 import { useUpdateApplicationSettings } from "lib/query/applications.queries";
 import { useEffect, useState } from "react";
@@ -40,49 +37,6 @@ const EXAMPLE_TEST_SCOPE_GUIDELINES = [
   "Skip tests that depend on third-party email delivery.",
   "Avoid tests that hit billing or live payment integrations.",
 ];
-
-function ThemePanel() {
-  const { theme, setTheme } = useTheme();
-  const isDark = theme === "blacklight-dark";
-
-  return (
-    <Panel>
-      <PanelHeader>
-        <PanelTitle>Appearance</PanelTitle>
-      </PanelHeader>
-      <PanelBody className="space-y-4">
-        <p className="text-xs text-text-secondary">Choose between light and dark mode for the interface.</p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => setTheme("blacklight")}
-            className={`flex flex-1 items-center gap-3 rounded-md border px-4 py-3 text-xs font-medium transition-colors ${
-              !isDark
-                ? "border-primary-ink bg-primary-ink/10 text-text-primary"
-                : "border-border-dim text-text-secondary hover:border-border-mid hover:text-text-primary"
-            }`}
-          >
-            <SunIcon size={18} weight={!isDark ? "fill" : "regular"} />
-            Light
-          </button>
-          <button
-            type="button"
-            onClick={() => setTheme("blacklight-dark")}
-            className={`flex flex-1 items-center gap-3 rounded-md border px-4 py-3 text-xs font-medium transition-colors ${
-              isDark
-                ? "border-primary-ink bg-primary-ink/10 text-text-primary"
-                : "border-border-dim text-text-secondary hover:border-border-mid hover:text-text-primary"
-            }`}
-          >
-            <MoonIcon size={18} weight={isDark ? "fill" : "regular"} />
-            Dark
-          </button>
-        </div>
-        <p className="font-mono text-3xs text-text-tertiary">You can also press D to toggle the theme.</p>
-      </PanelBody>
-    </Panel>
-  );
-}
 
 function SettingsPage() {
   const { appSlug } = Route.useParams();
@@ -296,8 +250,6 @@ function SettingsPage() {
             read by the agents that author and modify your test suite (diff analysis, healing, resolution).
           </AlertDescription>
         </Alert>
-
-        <ThemePanel />
 
         <DangerZonePanel />
       </div>

@@ -21,6 +21,7 @@ import { CHECKOUT_TYPE_SUBSCRIPTION } from "lib/billing/formatters";
 import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
 import { useEffect, useState } from "react";
+import { SidebarAppSelector } from "./app-selector";
 import { SidebarAgentStatus } from "./sidebar-agent-status";
 import { SidebarMilestones } from "./sidebar-milestones";
 
@@ -233,32 +234,30 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
   return (
     <aside className="flex flex-col border-r border-border-dim bg-surface-base">
       {/* Header */}
-      <div
-        className={`flex h-14 shrink-0 items-center justify-between border-b border-border-dim ${collapsed ? "justify-center px-2" : "px-4"}`}
-      >
-        {!collapsed && (
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex size-6 shrink-0 items-center justify-center bg-primary font-mono text-3xs font-bold text-primary-foreground">
-              {activeOrganization.name.charAt(0).toUpperCase()}
-            </div>
-            <span className="truncate text-xs font-medium text-text-primary">{activeOrganization.name}</span>
-          </div>
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onToggleCollapsed}
-                className="shrink-0 text-text-tertiary hover:text-text-primary"
-              />
-            }
-          >
-            {collapsed ? <CaretLineRightIcon size={14} /> : <CaretLineLeftIcon size={14} />}
-          </TooltipTrigger>
-          <TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand" : "Collapse"}</TooltipContent>
-        </Tooltip>
+      <div className={`flex shrink-0 flex-col gap-2 ${collapsed ? "px-2 py-3" : "px-3 py-3"}`}>
+        <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between gap-2"}`}>
+          {!collapsed && (
+            <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-tertiary">
+              {activeOrganization.name}
+            </span>
+          )}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onToggleCollapsed}
+                  className="shrink-0 text-text-tertiary hover:text-text-primary"
+                />
+              }
+            >
+              {collapsed ? <CaretLineRightIcon size={14} /> : <CaretLineLeftIcon size={14} />}
+            </TooltipTrigger>
+            <TooltipContent side={collapsed ? "right" : "bottom"}>{collapsed ? "Expand" : "Collapse"}</TooltipContent>
+          </Tooltip>
+        </div>
+        {hasAppNav && <SidebarAppSelector collapsed={collapsed} />}
       </div>
 
       {/* Milestones */}

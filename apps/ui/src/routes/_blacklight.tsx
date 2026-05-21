@@ -6,7 +6,6 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-  useTheme,
   useToastManager,
 } from "@autonoma/blacklight";
 import { Outlet, createFileRoute } from "@tanstack/react-router";
@@ -28,11 +27,8 @@ function BlacklightLayout() {
 }
 
 function ThemedShell() {
-  const { theme } = useTheme();
-  const resolvedTheme = theme === "system" ? "blacklight-dark" : theme;
-
   return (
-    <div className={`${resolvedTheme} h-dvh`}>
+    <div className="blacklight-dark h-dvh">
       <Outlet />
     </div>
   );
