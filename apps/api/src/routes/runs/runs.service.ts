@@ -4,6 +4,7 @@ import { NotFoundError, TestQuarantinedError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { Architecture } from "@autonoma/types";
 import { type TriggerRunWorkflowParams, type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
+import { buildScenarioDebug } from "../scenario-debug";
 import { Service } from "../service";
 
 function computeDuration(startedAt: Date | null, completedAt: Date | null): string | null {
@@ -114,8 +115,8 @@ export class RunsService extends Service {
         return { runId: run.id };
     }
 
-    async getRunDetail(runId: string, organizationId: string) {
-        this.logger.info("Getting run detail", { runId, organizationId });
+    async getRunDetail(runId: string, organizationId: string, isAdmin: boolean) {
+        this.logger.info("Getting run detail", { runId, organizationId, isAdmin });
 
         const run = await this.db.run.findFirst({
             where: {
@@ -130,6 +131,13 @@ export class RunsService extends Service {
                         testCase: {
                             include: { tags: { include: { tag: true } } },
                         },
+                        snapshot: {
+                            select: {
+                                id: true,
+                                status: true,
+                                branch: { select: { id: true, name: true } },
+                            },
+                        },
                     },
                 },
                 outputs: {
@@ -137,7 +145,7 @@ export class RunsService extends Service {
                         list: {
                             include: {
                                 stepInput: {
-                                    select: { interaction: true, params: true },
+                                    select: { interaction: true, params: true, waitCondition: true },
                                 },
                             },
                             orderBy: { order: "asc" },
@@ -149,6 +157,29 @@ export class RunsService extends Service {
                         id: true,
                         status: true,
                         issue: { select: { id: true, severity: true, title: true } },
+                    },
+                },
+                scenarioInstance: {
+                    select: {
+                        id: true,
+                        status: true,
+                        upAt: true,
+                        downAt: true,
+                        lastError: true,
+                        auth: true,
+                        resolvedVariables: true,
+                        scenario: { select: { id: true, name: true } },
+                        deployment: {
+                            select: {
+                                webhookUrl: true,
+                                webDeployment: { select: { url: true } },
+                            },
+                        },
+                    },
+                },
+                plan: {
+                    select: {
+                        scenarioName: true,
                     },
                 },
             },
@@ -167,7 +198,15 @@ export class RunsService extends Service {
             },
         );
 
-        const [steps, temporalWorkflow] = await Promise.all([
+        const webhookCallsPromise =
+            isAdmin && run.scenarioInstance != null
+                ? this.db.webhookCall.findMany({
+                      where: { instanceId: run.scenarioInstance.id },
+                      orderBy: { createdAt: "desc" },
+                  })
+                : Promise.resolve([]);
+
+        const [steps, temporalWorkflow, webhookCalls] = await Promise.all([
             Promise.all(
                 outputSteps.map(async (step) => ({
                     id: step.id,
@@ -175,6 +214,7 @@ export class RunsService extends Service {
                     output: step.output,
                     interaction: step.stepInput.interaction,
                     params: step.stepInput.params,
+                    waitCondition: step.stepInput.waitCondition,
                     screenshotBefore: await (step.screenshotBefore &&
                         this.storageProvider.getSignedUrl(step.screenshotBefore, 3600)),
                     screenshotAfter: await (step.screenshotAfter &&
@@ -182,7 +222,17 @@ export class RunsService extends Service {
                 })),
             ),
             temporalWorkflowPromise,
+            webhookCallsPromise,
         ]);
+
+        const debug = isAdmin
+            ? buildScenarioDebug({
+                  scenarioInstance: run.scenarioInstance,
+                  snapshot: run.assignment.snapshot,
+                  webhookCalls,
+                  scenarioName: run.plan?.scenarioName,
+              })
+            : undefined;
 
         return {
             id: run.id,
@@ -211,6 +261,7 @@ export class RunsService extends Service {
                                   : undefined,
                       }
                     : undefined,
+            debug,
         };
     }
 

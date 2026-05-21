@@ -1,3 +1,10 @@
+/** Format a duration in milliseconds as "Nms" or "N.Ns". */
+export function formatDuration(ms: number | null | undefined): string {
+    if (ms == null) return "—";
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+}
+
 /** Format a date to a human-readable string. */
 export function formatDate(date: Date) {
     return date.toLocaleString(undefined, {

@@ -18,7 +18,10 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { Stack } from "@phosphor-icons/react/Stack";
 import { Trash } from "@phosphor-icons/react/Trash";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
+import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
+import { DebugPanel } from "components/debug/debug-panel";
+import { StepOutputDisplay } from "components/debug/step-output-display";
 import { Sentry } from "components/icons/sentry";
 import { Temporal } from "components/icons/temporal";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
@@ -50,6 +53,7 @@ interface RunStep {
   interaction: string;
   params: unknown;
   output: object;
+  waitCondition?: string | null;
   screenshotBefore: string | null;
   screenshotAfter: string | null;
 }
@@ -83,12 +87,12 @@ function toRunStatusLabel(status: RunStatus) {
 function RunDetailPage() {
   const { runId } = Route.useParams();
   const currentApp = useCurrentApplication();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin } = useAuth();
   const navigate = useAppNavigate();
 
   const { data: run } = useRunDetail(runId, { refetchInterval: computeRefetchInterval });
   const [lightboxIndex, setLightboxIndex] = useState<number | undefined>(undefined);
+  const [showDebug, setShowDebug] = useState(false);
 
   const restartRun = useRestartRun(runId);
   const requestReview = useRequestRunReview();
@@ -260,6 +264,18 @@ function RunDetailPage() {
                 </Button>
               </>
             )}
+            {isAdmin && (
+              <Button
+                variant={showDebug ? "default" : "outline"}
+                size="sm"
+                className="hidden lg:inline-flex"
+                onClick={() => setShowDebug(!showDebug)}
+                aria-label="toggle-debug-info"
+              >
+                <WrenchIcon size={14} />
+                {showDebug ? "Close debug" : "Debug"}
+              </Button>
+            )}
             <Badge variant={toRunBadgeVariant(status)}>{toRunStatusLabel(status)}</Badge>
           </div>
         </div>
@@ -281,7 +297,7 @@ function RunDetailPage() {
         </div>
 
         {/* Steps */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className={`flex min-w-0 flex-1 flex-col overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
           {steps.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
               <Stack size={24} className="text-text-tertiary" />
@@ -308,6 +324,13 @@ function RunDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Debug panel */}
+        {isAdmin && showDebug && run.debug != null && (
+          <div className="hidden w-80 shrink-0 overflow-y-auto lg:block">
+            <DebugPanel debug={run.debug} />
+          </div>
+        )}
       </div>
 
       <NavigableLightbox
@@ -455,6 +478,7 @@ function StepCard({ step, isLast, onImageClick }: { step: RunStep; isLast: boole
             <Badge variant="outline" className="w-fit font-mono text-3xs uppercase">
               {step.interaction}
             </Badge>
+            <StepOutputDisplay output={step.output as Record<string, unknown>} />
           </div>
         </div>
       </div>

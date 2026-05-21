@@ -3,6 +3,7 @@ import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { findLatestWorkflowByGenerationId } from "@autonoma/workflow";
+import { buildScenarioDebug } from "../scenario-debug";
 import { Service } from "../service";
 
 export class TestGenerationsService extends Service {
@@ -14,10 +15,9 @@ export class TestGenerationsService extends Service {
         super();
     }
 
-    async getGenerationDetail(generationId: string, organizationId: string) {
-        this.logger.info("Getting generation detail", { generationId, organizationId });
+    async getGenerationDetail(generationId: string, organizationId: string, isAdmin: boolean) {
+        this.logger.info("Getting generation detail", { generationId, organizationId, isAdmin });
 
-        console.time(`generation-detail:query:${generationId}`);
         const generation = await this.db.testGeneration.findFirst({
             where: {
                 id: generationId,
@@ -30,10 +30,12 @@ export class TestGenerationsService extends Service {
                 finalScreenshot: true,
                 videoUrl: true,
                 createdAt: true,
+                conversationUrl: true,
                 testPlan: {
                     select: {
                         id: true,
                         prompt: true,
+                        scenarioName: true,
                         testCase: {
                             select: {
                                 id: true,
@@ -67,16 +69,40 @@ export class TestGenerationsService extends Service {
                                     select: {
                                         interaction: true,
                                         params: true,
+                                        waitCondition: true,
                                     },
                                 },
                             },
                         },
                     },
                 },
+                scenarioInstance: {
+                    select: {
+                        id: true,
+                        status: true,
+                        upAt: true,
+                        downAt: true,
+                        lastError: true,
+                        auth: true,
+                        resolvedVariables: true,
+                        scenario: { select: { id: true, name: true } },
+                        deployment: {
+                            select: {
+                                webhookUrl: true,
+                                webDeployment: { select: { url: true } },
+                            },
+                        },
+                    },
+                },
+                snapshot: {
+                    select: {
+                        id: true,
+                        status: true,
+                        branch: { select: { id: true, name: true } },
+                    },
+                },
             },
         });
-
-        console.timeEnd(`generation-detail:query:${generationId}`);
 
         if (generation == null) throw new NotFoundError();
 
@@ -88,8 +114,15 @@ export class TestGenerationsService extends Service {
             stepCount: outputSteps.length,
         });
 
-        console.time(`generation-detail:post-query:${generationId}`);
-        const [steps, videoUrl, finalScreenshotUrl, temporalWorkflow] = await Promise.all([
+        const webhookCallsPromise =
+            isAdmin && generation.scenarioInstance != null
+                ? this.db.webhookCall.findMany({
+                      where: { instanceId: generation.scenarioInstance.id },
+                      orderBy: { createdAt: "desc" },
+                  })
+                : Promise.resolve([]);
+
+        const [steps, videoUrl, finalScreenshotUrl, temporalWorkflow, webhookCalls] = await Promise.all([
             Promise.all(
                 outputSteps.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
                     id: rest.id,
@@ -97,6 +130,7 @@ export class TestGenerationsService extends Service {
                     interaction: rest.stepInput.interaction,
                     params: rest.stepInput.params,
                     output: rest.output,
+                    waitCondition: rest.stepInput.waitCondition,
                     screenshotBefore: await (screenshotBefore &&
                         this.storageProvider.getSignedUrl(screenshotBefore, 3600)),
                     screenshotAfter: await (screenshotAfter &&
@@ -120,9 +154,22 @@ export class TestGenerationsService extends Service {
                     });
                     return undefined;
                 }),
+            webhookCallsPromise,
         ]);
 
-        console.timeEnd(`generation-detail:post-query:${generationId}`);
+        const conversationUrl =
+            isAdmin && generation.conversationUrl != null
+                ? await this.storageProvider.getSignedUrl(generation.conversationUrl, 3600)
+                : undefined;
+
+        const debug = isAdmin
+            ? buildScenarioDebug({
+                  scenarioInstance: generation.scenarioInstance,
+                  snapshot: generation.snapshot,
+                  webhookCalls,
+                  scenarioName: generation.testPlan.scenarioName,
+              })
+            : undefined;
 
         return {
             id: generation.id,
@@ -134,10 +181,12 @@ export class TestGenerationsService extends Service {
             finalScreenshot: finalScreenshotUrl,
             videoUrl,
             temporalWorkflow,
+            conversationUrl,
             testPlan: {
                 id: generation.testPlan.id,
                 plan: generation.testPlan.prompt,
                 name: generation.testPlan.testCase.name,
+                scenarioName: generation.testPlan.scenarioName ?? undefined,
             },
             testCase: {
                 id: generation.testPlan.testCase.id,
@@ -160,6 +209,7 @@ export class TestGenerationsService extends Service {
                       }
                     : undefined,
             steps,
+            debug,
         };
     }
 

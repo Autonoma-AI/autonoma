@@ -18,7 +18,10 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
+import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
+import { DebugPanel } from "components/debug/debug-panel";
+import { StepOutputDisplay } from "components/debug/step-output-display";
 import { Temporal } from "components/icons";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
 import { env } from "env";
@@ -49,6 +52,7 @@ interface GenerationStep {
   interaction: string;
   params: unknown;
   output?: object;
+  waitCondition?: string | null;
   screenshotBefore: string | null | undefined;
   screenshotAfter: string | null | undefined;
 }
@@ -60,6 +64,7 @@ function stepDescription(step: GenerationStep): React.ReactNode {
 function GenerationDetailPage() {
   const { generationId } = Route.useParams();
   const [showPlan, setShowPlan] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | undefined>(undefined);
   const currentApp = useCurrentApplication();
   const { isAdmin } = useAuth();
@@ -158,6 +163,18 @@ function GenerationDetailPage() {
               <FileTextIcon size={14} />
               {showPlan ? "Close plan" : "View plan"}
             </Button>
+            {isAdmin && (
+              <Button
+                variant={showDebug ? "default" : "outline"}
+                size="sm"
+                className="hidden lg:inline-flex"
+                onClick={() => setShowDebug(!showDebug)}
+                aria-label="toggle-debug-info"
+              >
+                <WrenchIcon size={14} />
+                {showDebug ? "Close debug" : "Debug"}
+              </Button>
+            )}
             <Badge variant={toGenerationBadgeVariant(status)} className="h-7 px-3 text-xs">
               {toGenerationStatusLabel(status)}
             </Badge>
@@ -183,7 +200,7 @@ function GenerationDetailPage() {
         )}
 
         {/* Steps */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className={`flex min-w-0 flex-1 flex-col overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
           {generation.steps.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
               <StackIcon size={24} className="text-text-tertiary" />
@@ -208,6 +225,13 @@ function GenerationDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Debug panel */}
+        {isAdmin && showDebug && generation.debug != null && (
+          <div className="hidden w-80 shrink-0 overflow-y-auto lg:block">
+            <DebugPanel debug={generation.debug} conversationUrl={generation.conversationUrl} />
+          </div>
+        )}
 
         {/* Plan panel */}
         {showPlan && (
@@ -380,6 +404,7 @@ function StepCard({
             <Badge variant="outline" className="w-fit font-mono text-3xs uppercase">
               {step.interaction}
             </Badge>
+            {step.output != null && <StepOutputDisplay output={step.output as Record<string, unknown>} />}
           </div>
         </div>
       </div>

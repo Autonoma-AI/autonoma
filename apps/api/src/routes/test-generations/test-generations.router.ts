@@ -10,8 +10,8 @@ export const generationsRouter = router({
 
     detail: protectedProcedure
         .input(z.object({ generationId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.testGenerations.getGenerationDetail(input.generationId, organizationId),
+        .query(({ ctx: { services, organizationId, user }, input }) =>
+            services.testGenerations.getGenerationDetail(input.generationId, organizationId, user.role === "admin"),
         ),
 
     delete: protectedProcedure

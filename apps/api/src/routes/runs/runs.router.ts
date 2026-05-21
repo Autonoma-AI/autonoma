@@ -16,8 +16,8 @@ export const runsRouter = router({
 
     detail: protectedProcedure
         .input(z.object({ runId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.runs.getRunDetail(input.runId, organizationId),
+        .query(({ ctx: { services, organizationId, user }, input }) =>
+            services.runs.getRunDetail(input.runId, organizationId, user.role === "admin"),
         ),
 
     restart: protectedProcedure
