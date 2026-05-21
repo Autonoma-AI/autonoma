@@ -4,8 +4,22 @@ import { buildAppHostname } from "./resource-factory";
 
 // Match K8s-style names (lowercase alnum + hyphens). `\w+` would drop hyphens,
 // which silently broke services and apps named like `api-gateway`.
-const SERVICE_TEMPLATE_REGEX = /\{\{([a-z0-9][a-z0-9-]*[a-z0-9])\.(host|port|url)\}\}/g;
+//
+// The field part used to be a fixed `host|port|url` whitelist. With addons in
+// the mix it's widened to any identifier-shaped token — the *resolver* now
+// distinguishes valid app/service fields (host/port/url) from provider-defined
+// addon output keys (whatever the provider returned). Unknown tokens still
+// throw with a helpful message.
+const SERVICE_TEMPLATE_REGEX = /\{\{([a-z0-9][a-z0-9-]*[a-z0-9])\.([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 const VARIABLE_TEMPLATE_REGEX = /\{\{(pr|namespace|owner)\}\}/g;
+
+/**
+ * Per-addon outputs produced by `AddonManager.provisionAll`. The outer key
+ * is the addon name from `.preview.yaml`; the inner map is the provider's
+ * declared outputs (e.g. NeonProvider returns `{ connectionString, host,
+ * database }`). Apps reference these as `{{addonName.<key>}}`.
+ */
+export type AddonOutputs = Record<string, Record<string, string>>;
 
 interface ServiceEntry {
     host: string;
@@ -57,8 +71,9 @@ export class EnvInjector {
         namespace: string,
         context: ContextVariables,
         publicUrlInfo: PublicUrlInfo,
+        addonOutputs: AddonOutputs = {},
     ): Record<string, string> {
-        return this.applyTemplates(configEnv, apps, services, namespace, context, publicUrlInfo);
+        return this.applyTemplates(configEnv, apps, services, namespace, context, publicUrlInfo, addonOutputs);
     }
 
     /**
@@ -68,6 +83,10 @@ export class EnvInjector {
      *   - `{{<name>.host}}` — in-cluster DNS of an app or service
      *   - `{{<name>.port}}` — in-cluster port of an app or service
      *   - `{{<name>.url}}`  — public HTTPS URL of an app (apps only)
+     *   - `{{<addonName>.<key>}}` — provider-defined output from a
+     *     successfully provisioned addon (e.g. `{{db.connectionString}}`).
+     *     Apps/services take precedence over addons; the config schema
+     *     enforces name uniqueness across all three pools.
      */
     applyTemplates(
         values: Record<string, string>,
@@ -76,6 +95,7 @@ export class EnvInjector {
         _namespace: string,
         context: ContextVariables,
         publicUrlInfo: PublicUrlInfo,
+        addonOutputs: AddonOutputs = {},
     ): Record<string, string> {
         const serviceMap = this.buildServiceMap(apps, services, publicUrlInfo);
         const resolved: Record<string, string> = {};
@@ -88,29 +108,65 @@ export class EnvInjector {
             });
 
             result = result.replace(SERVICE_TEMPLATE_REGEX, (_match, name: string, field: string) => {
-                const svc = serviceMap[name];
-                if (!svc) {
-                    throw new Error(
-                        `Unknown service/app reference "{{${name}.${field}}}" in ${key}. ` +
-                            `Available names: ${Object.keys(serviceMap).join(", ")}`,
-                    );
-                }
-                if (field === "url") {
-                    if (svc.url == null) {
-                        throw new Error(
-                            `{{${name}.url}} is only available for apps. ` +
-                                `"${name}" is a service (no public URL). Use {{${name}.host}} for in-cluster access.`,
-                        );
-                    }
-                    return svc.url;
-                }
-                return field === "host" ? svc.host : String(svc.port);
+                return this.resolveReference(name, field, key, serviceMap, addonOutputs);
             });
 
             resolved[key] = result;
         }
 
         return resolved;
+    }
+
+    /**
+     * Looks up `{{name.field}}` against the three sources. Apps/services
+     * win (their field set is constrained to host/port/url); if the name
+     * is not in the service map, falls back to addon outputs where the
+     * key is provider-defined. Throws with a list of available names
+     * when nothing matches.
+     */
+    private resolveReference(
+        name: string,
+        field: string,
+        sourceKey: string,
+        serviceMap: ServiceMap,
+        addonOutputs: AddonOutputs,
+    ): string {
+        const svc = serviceMap[name];
+        if (svc != null) {
+            if (field === "url") {
+                if (svc.url == null) {
+                    throw new Error(
+                        `{{${name}.url}} is only available for apps. ` +
+                            `"${name}" is a service (no public URL). Use {{${name}.host}} for in-cluster access.`,
+                    );
+                }
+                return svc.url;
+            }
+            if (field === "host") return svc.host;
+            if (field === "port") return String(svc.port);
+            throw new Error(
+                `{{${name}.${field}}} in ${sourceKey}: only host/port/url are supported for apps and services. ` +
+                    `If "${name}" is meant to be an addon, declare it under \`addons:\` in .preview.yaml.`,
+            );
+        }
+
+        const outputs = addonOutputs[name];
+        if (outputs != null) {
+            const value = outputs[field];
+            if (value == null) {
+                const available = Object.keys(outputs).sort().join(", ") || "(none)";
+                throw new Error(
+                    `{{${name}.${field}}} in ${sourceKey}: addon "${name}" has no output named "${field}". ` +
+                        `Available outputs: ${available}.`,
+                );
+            }
+            return value;
+        }
+
+        const names = [...Object.keys(serviceMap), ...Object.keys(addonOutputs)].sort().join(", ");
+        throw new Error(
+            `Unknown reference "{{${name}.${field}}}" in ${sourceKey}. Available names: ${names || "(none)"}.`,
+        );
     }
 
     private buildServiceMap(apps: AppConfig[], services: ServiceConfig[], publicUrlInfo: PublicUrlInfo): ServiceMap {

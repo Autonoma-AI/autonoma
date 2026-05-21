@@ -141,6 +141,7 @@ model Organization {
   applicationSetups      ApplicationSetup[]
   signupHookStates       SignupHookState[]
   previewkitEnvironments PreviewkitEnvironment[]
+  previewkitOrgSecrets   PreviewkitOrgSecret[]
   gitHubWebhookEvents    GitHubWebhookEvent[]
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
@@ -1654,6 +1655,7 @@ model PreviewkitEnvironment {
 
   builds       PreviewkitBuild[]
   appInstances PreviewkitAppInstance[]
+  addons       PreviewkitAddon[]
 
   @@unique([repoFullName, prNumber])
   @@index([organizationId, status])
@@ -1713,6 +1715,68 @@ model PreviewkitSecret {
   @@unique([applicationId, appName])
   @@index([applicationId])
   @@map("previewkit_secret")
+}
+
+// Org-scoped credentials referenced by `.preview.yaml` addons via the
+// `auth_secret` field. Stored in AWS Secrets Manager as a JSON map (matching
+// the per-app PreviewkitSecret pattern); each provider's options schema picks
+// the key it needs (e.g. NeonProvider expects `token`).
+model PreviewkitOrgSecret {
+  id             String @id @default(cuid())
+  organizationId String @map("organization_id")
+  name           String
+  awsSecretArn   String @map("aws_secret_arn")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("previewkit_org_secret")
+}
+
+enum PreviewkitAddonStatus {
+  pending
+  ok
+  failed
+  deprovisioned
+
+  @@map("previewkit_addon_status")
+}
+
+// One row per (environment, addon name) — the provisioned state of a
+// third-party resource (Neon branch, etc.). `outputs` are surfaced into
+// the template engine so apps can reference {{addonName.<key>}} in env
+// and build_args. On re-push, rows with status=ok replay cached outputs;
+// rows in any other status are re-attempted.
+model PreviewkitAddon {
+  id            String                @id @default(cuid())
+  environmentId String                @map("environment_id")
+  environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  name     String
+  provider String
+
+  status PreviewkitAddonStatus @default(pending)
+  error  String?
+
+  /// [PreviewkitAddonState]
+  state Json @default("{}")
+
+  /// [PreviewkitAddonOutputs]
+  outputs Json @default("{}")
+
+  provisionedAt   DateTime? @map("provisioned_at")
+  deprovisionedAt DateTime? @map("deprovisioned_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([environmentId, name])
+  @@index([environmentId])
+  @@map("previewkit_addon")
 }
 
 // ─── Diffs Job ────────────────────────────────────────────────────────────────

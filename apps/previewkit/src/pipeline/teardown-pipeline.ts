@@ -1,3 +1,5 @@
+import { db } from "@autonoma/db";
+import type { AddonManager } from "../addons/addon-manager";
 import { isGithubFeedbackEnabledForNamespace, recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
@@ -7,19 +9,22 @@ import { logger } from "../logger";
 interface TeardownPipelineOptions {
     provider: GitProvider;
     deployer: Deployer;
+    addonManager: AddonManager;
 }
 
 export class TeardownPipeline {
-    private provider: GitProvider;
-    private deployer: Deployer;
+    private readonly provider: GitProvider;
+    private readonly deployer: Deployer;
+    private readonly addonManager: AddonManager;
 
     constructor(options: TeardownPipelineOptions) {
         this.provider = options.provider;
         this.deployer = options.deployer;
+        this.addonManager = options.addonManager;
     }
 
     async teardown(event: PullRequestEvent): Promise<void> {
-        const { repoFullName, prNumber, headSha } = event;
+        const { repoFullName, prNumber, headSha, organizationId } = event;
 
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber });
 
@@ -48,6 +53,27 @@ export class TeardownPipeline {
 
         // 1. Read namespace annotations to find the comment ID
         const annotations = await this.deployer.getNamespaceAnnotations(repoFullName, prNumber);
+
+        // 1.5. Deprovision third-party addons (Neon branches, etc.) BEFORE
+        //      deleting the namespace. Best-effort — orphaned external
+        //      resources are recoverable via reconciler, but a stuck
+        //      namespace is not, so per-addon failures must not block the
+        //      rest of teardown. The manager handles its own try/catch
+        //      and persistence of failed states.
+        const envRow = await db.previewkitEnvironment
+            .findUnique({ where: { namespace }, select: { id: true } })
+            .catch((err) => {
+                logger.warn("Failed to look up env row for addon deprovisioning; skipping", { namespace, err });
+                return null;
+            });
+        if (envRow != null) {
+            await this.addonManager.deprovisionAll(envRow.id, organizationId).catch((err) => {
+                logger.error("Addon deprovisioning encountered an unexpected error (continuing)", err, {
+                    namespace,
+                    organizationId,
+                });
+            });
+        }
 
         // 2. Delete the namespace (cascading delete of all resources)
         await this.deployer.teardown(repoFullName, prNumber);

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { db } from "@autonoma/db";
+import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
 import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
@@ -16,7 +17,7 @@ import {
 } from "../db";
 import type { AppDeployOutcome, Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
-import type { EnvInjector, PublicUrlInfo } from "../deployer/env-injector";
+import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { execInDeploymentPod } from "../deployer/pod-exec";
 import type { DiffsClient } from "../diffs/diffs-client";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
@@ -51,6 +52,9 @@ interface AppBuildContext {
     namespace: string;
     templateContext: { pr: string; namespace: string; owner: string };
     publicUrlInfo: PublicUrlInfo;
+    // Successfully provisioned addon outputs, available to `build_args` via
+    // `{{addonName.<key>}}` templates. Empty if the env declares no addons.
+    addonOutputs: AddonOutputs;
     registry: string;
     org: string;
     repo: string;
@@ -71,6 +75,7 @@ interface PreviewPipelineOptions {
     builder: Builder;
     deployer: Deployer;
     awsSecretsFetcher: AwsSecretsFetcher;
+    addonManager: AddonManager;
     registryUrl: string;
     diffsClient?: DiffsClient;
 }
@@ -80,6 +85,7 @@ export class PreviewPipeline {
     private readonly builder: Builder;
     private readonly deployer: Deployer;
     private readonly awsSecretsFetcher: AwsSecretsFetcher;
+    private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly diffsClient?: DiffsClient;
 
@@ -88,6 +94,7 @@ export class PreviewPipeline {
         this.builder = options.builder;
         this.deployer = options.deployer;
         this.awsSecretsFetcher = options.awsSecretsFetcher;
+        this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.diffsClient = options.diffsClient;
     }
@@ -206,8 +213,20 @@ export class PreviewPipeline {
             }),
         );
 
+        // recordEnvironmentCreated runs through recordSafe (DB errors don't
+        // fail the deploy). For addon provisioning we need the env row's id,
+        // so look it up explicitly — if the earlier upsert was swallowed,
+        // we'll fall back to skipping addon provisioning rather than
+        // failing the whole deploy.
+        const environmentRow = await db.previewkitEnvironment.findUnique({
+            where: { namespace },
+            select: { id: true },
+        });
+
         let primaryDir: string | undefined;
         let dependencyEntries: DependencyEntry[] = [];
+        let addonOutcomes: AddonProvisionOutcome[] = [];
+        let addonOutputs: AddonOutputs = {};
 
         try {
             // 5. Clone the primary repo and all dependency repos in parallel.
@@ -235,6 +254,37 @@ export class PreviewPipeline {
                 }
             }
 
+            // 8. Provision third-party addons (Neon branches, etc.). Each
+            //      addon is its own failure domain — one bad addon does not
+            //      abort the build. Successful outputs flow into build_args
+            //      and runtime env via {{addonName.<key>}} templates. Apps
+            //      whose templates reference a failed addon will themselves
+            //      fail at template-resolve time, which the per-app status
+            //      table already surfaces cleanly.
+            if (mergedConfig.addons.length > 0) {
+                await this.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
+                if (environmentRow == null) {
+                    logger.warn(
+                        "Cannot provision addons: PreviewkitEnvironment row missing. " +
+                            "Continuing without addon outputs — apps that reference them will fail at template-resolve time.",
+                        { namespace, addonNames: mergedConfig.addons.map((a) => a.name) },
+                    );
+                } else {
+                    addonOutcomes = await this.addonManager.provisionAll(
+                        environmentRow.id,
+                        organizationId,
+                        namespace,
+                        prNumber,
+                        mergedConfig.addons,
+                    );
+                    addonOutputs = Object.fromEntries(
+                        addonOutcomes
+                            .filter((o): o is Extract<AddonProvisionOutcome, { status: "ok" }> => o.status === "ok")
+                            .map((o) => [o.name, o.outputs]),
+                    );
+                }
+            }
+
             // 9. Build all app images in parallel. Per-app build failures are
             //    captured into the outcome map rather than thrown — only the
             //    "every app failed" case aborts the pipeline as a global error.
@@ -251,6 +301,7 @@ export class PreviewPipeline {
                 prNumber,
                 shortSha,
                 arnByApp,
+                addonOutputs,
             );
             const buildDurationMs = Date.now() - buildStart;
 
@@ -286,6 +337,7 @@ export class PreviewPipeline {
                 githubRepositoryId,
                 config: mergedConfig,
                 imageTags,
+                addonOutputs,
                 commentId,
             });
 
@@ -333,6 +385,7 @@ export class PreviewPipeline {
                         readyCount,
                         totalCount,
                         fallbackDeps,
+                        addonOutcomes,
                     ),
                 );
             }
@@ -480,14 +533,16 @@ export class PreviewPipeline {
         prNumber: number,
         shortSha: string,
         arnByApp: Map<string, string>,
+        addonOutputs: AddonOutputs,
     ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
         const repo = rawRepo!.toLowerCase();
 
         // Templating context for build_args. Resolves `{{name.host}}`,
-        // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}`
-        // — same grammar the deployer applies to runtime env. The URL form is
+        // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}`,
+        // and now `{{addonName.<key>}}` for successfully provisioned addons —
+        // same grammar the deployer applies to runtime env. The URL form is
         // what makes Vite-baked VITE_*_URL vars point at this PR's specific
         // services (e.g. `https://anvil-pr-42-acme-foo.preview.autonoma.app`).
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
@@ -513,6 +568,7 @@ export class PreviewPipeline {
                     namespace,
                     templateContext,
                     publicUrlInfo,
+                    addonOutputs,
                     registry,
                     org,
                     repo,
@@ -566,6 +622,7 @@ export class PreviewPipeline {
                 ctx.namespace,
                 ctx.templateContext,
                 ctx.publicUrlInfo,
+                ctx.addonOutputs,
             );
 
             const result = await this.builder.build({
@@ -718,6 +775,7 @@ export class PreviewPipeline {
         readyCount: number,
         totalCount: number,
         fallbackDeps: DependencyEntry[],
+        addonOutcomes: AddonProvisionOutcome[],
     ): string {
         const statusLine =
             readyCount === totalCount ? "**Status:** Ready" : `**Status:** ${readyCount}/${totalCount} apps ready`;
@@ -743,6 +801,32 @@ export class PreviewPipeline {
             .map((s) => `- ${s.name} (${s.recipe}${s.version ? `:${s.version}` : ""})`)
             .join("\n");
 
+        // Compact one-line-per-addon summary. The provider name carries the
+        // most useful context ("neon" + Ready tells the operator everything
+        // they need). Errors get a `<details>` block below, same shape as
+        // the per-app error rendering.
+        const addonByName = new Map(config.addons.map((a) => [a.name, a]));
+        const addonLines = addonOutcomes
+            .map((o) => {
+                const provider = addonByName.get(o.name)?.provider ?? "unknown";
+                const status = o.status === "ok" ? "Ready" : "Failed";
+                return `- ${o.name} (${provider}) - ${status}`;
+            })
+            .join("\n");
+        const addonErrorBlocks = addonOutcomes
+            .filter((o): o is Extract<AddonProvisionOutcome, { status: "failed" }> => o.status === "failed")
+            .map((o) =>
+                [
+                    "<details>",
+                    `<summary>${o.name} (addon) - error</summary>`,
+                    "",
+                    "```",
+                    o.error,
+                    "```",
+                    "</details>",
+                ].join("\n"),
+            );
+
         const sections: string[] = [
             `## Preview Environment #${prNumber}`,
             "",
@@ -759,6 +843,13 @@ export class PreviewPipeline {
 
         if (serviceLines.length > 0) {
             sections.push("", "**Services:**", serviceLines);
+        }
+
+        if (addonLines.length > 0) {
+            sections.push("", "**Addons:**", addonLines);
+            if (addonErrorBlocks.length > 0) {
+                sections.push("", ...addonErrorBlocks);
+            }
         }
 
         if (fallbackDeps.length > 0) {

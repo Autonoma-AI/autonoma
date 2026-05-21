@@ -21,6 +21,7 @@ import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
+import { OrgSecretsService } from "./org-secrets/org-secrets.service";
 import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SecretsService } from "./secrets/secrets.service";
@@ -43,6 +44,7 @@ export interface Services {
     folders: FoldersService;
     scenarios: ScenariosService;
     secrets: SecretsService;
+    orgSecrets: OrgSecretsService;
     skills: SkillsService;
     github: GitHubInstallationService;
     issues: IssuesService;
@@ -103,6 +105,7 @@ export function buildServices({
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
         secrets: new SecretsService(conn, env.AWS_REGION ?? "us-east-1"),
+        orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         skills: new SkillsService(conn),
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),

@@ -134,7 +134,7 @@ describe("EnvInjector", () => {
 
         expect(() =>
             injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
-        ).toThrow(/Unknown service\/app reference/);
+        ).toThrow(/Unknown reference/);
     });
 
     it("resolves {{pr}} template", () => {
@@ -269,11 +269,20 @@ describe("EnvInjector", () => {
     });
 
     it("passes through values that look templated but do not match the grammar", () => {
-        // `{{api.foo}}` — wrong field. `{{ pr }}` — internal whitespace.
-        // `{{api}}`    — missing .host/.port. None of these should resolve;
-        //               all should pass through verbatim.
+        // `{{ pr }}`            — internal whitespace.
+        // `{{api}}`             — missing .host/.port.
+        // `{{api.host.extra}}`  — extra dot after a valid-looking match prefix
+        //                         keeps the `}}` from being adjacent, so the
+        //                         regex never anchors. (We deliberately do NOT
+        //                         test `{{api.foo}}` here: with addons in the
+        //                         mix the field part is now an open identifier,
+        //                         so `{{api.foo}}` resolves and throws because
+        //                         "api" is an app with no `foo` output. That's
+        //                         a behaviour change vs. the host/port/url-only
+        //                         era — silent passthrough became a loud error,
+        //                         which is the better default.)
         const configEnv = {
-            LITERAL_BRACES: "use {{api.foo}} or {{ pr }} or {{api}} as-is",
+            LITERAL_BRACES: "use {{ pr }} or {{api}} or {{api.host.extra}} as-is",
         };
 
         const resolved = injector.resolve(
@@ -284,7 +293,7 @@ describe("EnvInjector", () => {
             defaultContext,
             defaultPublicUrlInfo,
         );
-        expect(resolved["LITERAL_BRACES"]).toBe("use {{api.foo}} or {{ pr }} or {{api}} as-is");
+        expect(resolved["LITERAL_BRACES"]).toBe("use {{ pr }} or {{api}} or {{api.host.extra}} as-is");
     });
 
     it("resolves {{name.url}} to the public preview URL for apps", () => {
@@ -336,5 +345,83 @@ describe("EnvInjector", () => {
         expect(resolved["VITE_API_URL"]).toBe("https://api-pr-42-acme-corp-my-repo.preview.autonoma.app");
         expect(resolved["BUILD_TARGET"]).toBe("pr-42");
         expect(resolved["STATIC"]).toBe("no-template-here");
+    });
+
+    describe("addon outputs", () => {
+        it("resolves addon outputs via {{name.<key>}} templates", () => {
+            const configEnv = {
+                DATABASE_URL: "{{neondb.connectionString}}",
+                DB_HOST: "{{neondb.host}}",
+            };
+
+            const resolved = injector.resolve(
+                configEnv,
+                {},
+                apps,
+                services,
+                "preview-ns",
+                defaultContext,
+                defaultPublicUrlInfo,
+                {
+                    neondb: {
+                        connectionString: "postgres://u:p@ep-foo.us-east-2.aws.neon.tech/myapp?sslmode=require",
+                        host: "ep-foo.us-east-2.aws.neon.tech",
+                    },
+                },
+            );
+            expect(resolved["DATABASE_URL"]).toBe(
+                "postgres://u:p@ep-foo.us-east-2.aws.neon.tech/myapp?sslmode=require",
+            );
+            expect(resolved["DB_HOST"]).toBe("ep-foo.us-east-2.aws.neon.tech");
+        });
+
+        it("throws when an addon output key is missing", () => {
+            const configEnv = { DATABASE_URL: "{{neondb.notARealKey}}" };
+            expect(() =>
+                injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {
+                    neondb: { connectionString: "postgres://..." },
+                }),
+            ).toThrow(/has no output named "notARealKey"/);
+        });
+
+        it("apps take precedence over addons of the same name (config validation should prevent this in practice)", () => {
+            // The config schema rejects colliding names; this test pins the
+            // runtime behaviour for safety if a colliding map ever slips
+            // through (e.g. constructed by code without going through the
+            // schema). Apps win because they're consulted first.
+            const configEnv = { URL: "{{api.host}}" };
+            const resolved = injector.resolve(
+                configEnv,
+                {},
+                apps,
+                services,
+                "preview-ns",
+                defaultContext,
+                defaultPublicUrlInfo,
+                { api: { host: "wrong-host" } },
+            );
+            expect(resolved["URL"]).toBe("api"); // the app's in-cluster host
+        });
+
+        it("apps + services constrained to host/port/url even with addons present", () => {
+            const configEnv = { OOPS: "{{api.connectionString}}" };
+            expect(() =>
+                injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {}),
+            ).toThrow(/only host\/port\/url are supported for apps and services/);
+        });
+
+        it("applyTemplates honours addon outputs for build_args", () => {
+            const buildArgs = { VITE_DB_URL: "{{neondb.connectionString}}" };
+            const resolved = injector.applyTemplates(
+                buildArgs,
+                apps,
+                services,
+                "preview-ns",
+                defaultContext,
+                defaultPublicUrlInfo,
+                { neondb: { connectionString: "postgres://x" } },
+            );
+            expect(resolved["VITE_DB_URL"]).toBe("postgres://x");
+        });
     });
 });

@@ -167,4 +167,84 @@ describe("previewConfigSchema", () => {
             expect(result.success).toBe(false);
         });
     });
+
+    describe("addons", () => {
+        it("defaults to empty array when absent", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+            });
+            expect(result.success).toBe(true);
+            if (result.success) expect(result.data.addons).toEqual([]);
+        });
+
+        it("parses a Neon addon entry", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+                addons: [
+                    {
+                        name: "db",
+                        provider: "neon",
+                        auth_secret: "neon-api-key",
+                        options: { project_id: "epic-water-12345", parent_branch: "main" },
+                    },
+                ],
+            });
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.addons).toHaveLength(1);
+                expect(result.data.addons[0]).toMatchObject({
+                    name: "db",
+                    provider: "neon",
+                    auth_secret: "neon-api-key",
+                });
+            }
+        });
+
+        it("rejects addon with empty auth_secret", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+                addons: [{ name: "db", provider: "neon", auth_secret: "" }],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        it("rejects addon with empty provider", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+                addons: [{ name: "db", provider: "", auth_secret: "key" }],
+            });
+            expect(result.success).toBe(false);
+        });
+
+        it("rejects names colliding across apps + services + addons", () => {
+            // Catches the surprising case where an addon shadows an app the
+            // template engine would otherwise have resolved against — uniqueness
+            // is enforced at config-parse time, not silently at resolve time.
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "db", port: 3000 }],
+                addons: [{ name: "db", provider: "neon", auth_secret: "key" }],
+            });
+            expect(result.success).toBe(false);
+            if (!result.success) {
+                expect(result.error.issues.some((i) => i.message.includes("must be unique"))).toBe(true);
+            }
+        });
+
+        it("rejects names colliding between two addons", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+                addons: [
+                    { name: "db", provider: "neon", auth_secret: "k1" },
+                    { name: "db", provider: "neon", auth_secret: "k2" },
+                ],
+            });
+            expect(result.success).toBe(false);
+        });
+    });
 });

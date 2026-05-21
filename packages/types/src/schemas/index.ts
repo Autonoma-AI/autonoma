@@ -13,3 +13,4 @@ export * from "./replay-verdict";
 export * from "./generation";
 export * from "./api-key";
 export * from "./secrets";
+export * from "./org-secrets";

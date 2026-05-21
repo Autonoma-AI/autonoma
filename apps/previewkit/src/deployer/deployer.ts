@@ -4,7 +4,7 @@ import { logger } from "../logger";
 import { computeDeployWaves } from "../pipeline/deploy-graph";
 import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
-import { EnvInjector } from "./env-injector";
+import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
 import { buildNetworkPolicies } from "./network-policy-factory";
@@ -57,6 +57,7 @@ interface AppDeployContext {
     config: PreviewConfig;
     imageTags: Record<string, string>;
     awsSecretsByApp: Map<string, string>;
+    addonOutputs: AddonOutputs;
 }
 
 export interface DeployOptions {
@@ -69,6 +70,7 @@ export interface DeployOptions {
     githubRepositoryId: number;
     config: PreviewConfig;
     imageTags: Record<string, string>;
+    addonOutputs?: AddonOutputs;
     commentId?: string;
 }
 
@@ -103,7 +105,16 @@ export class Deployer {
     }
 
     private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, commentId } = opts;
+        const {
+            repoFullName,
+            prNumber,
+            headSha,
+            organizationId,
+            config,
+            imageTags,
+            addonOutputs = {},
+            commentId,
+        } = opts;
         const domain = config.domain ?? this.domain;
 
         // 1. Create namespace
@@ -172,6 +183,7 @@ export class Deployer {
             config,
             imageTags,
             awsSecretsByApp,
+            addonOutputs,
         };
 
         for (const wave of waves) {
@@ -303,7 +315,7 @@ export class Deployer {
     }
 
     private async deployApp(app: AppConfig, opts: AppDeployContext): Promise<{ name: string; url: string }> {
-        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, awsSecretsByApp } = opts;
+        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, awsSecretsByApp, addonOutputs } = opts;
 
         const imageTag = imageTags[app.name];
         if (imageTag == null) {
@@ -319,6 +331,7 @@ export class Deployer {
             namespace,
             templateContext,
             publicUrlInfo,
+            addonOutputs,
         );
 
         const deployment = buildAppDeployment({

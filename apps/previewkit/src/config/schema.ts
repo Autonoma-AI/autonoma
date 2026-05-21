@@ -37,6 +37,18 @@ const serviceSchema = z.object({
     sqs: z.boolean().optional(),
 });
 
+// Third-party resources provisioned via provider plugins (Neon, etc.).
+// `auth_secret` references the name of a PreviewkitOrgSecret for the
+// organization — the secret stores a JSON map and each provider's options
+// schema picks the field it needs. `options` is forwarded verbatim to the
+// provider, which validates it with its own zod schema.
+const addonSchema = z.object({
+    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+    provider: z.string().min(1, "provider is required"),
+    auth_secret: z.string().min(1, "auth_secret is required"),
+    options: z.record(z.string(), z.unknown()).default({}),
+});
+
 const branchConventionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("same_branch_name") }),
     z.object({
@@ -80,19 +92,43 @@ const hooksSchema = z
     })
     .default({ post_deploy: [] });
 
-export const previewConfigSchema = z.object({
-    version: z.literal(1),
-    domain: z.string().optional(),
-    registry: z.string().optional(),
-    config: configSchema.optional(),
-    apps: z.array(appSchema).min(1, "At least one app is required"),
-    services: z.array(serviceSchema).default([]),
-    hooks: hooksSchema,
-});
+export const previewConfigSchema = z
+    .object({
+        version: z.literal(1),
+        domain: z.string().optional(),
+        registry: z.string().optional(),
+        config: configSchema.optional(),
+        apps: z.array(appSchema).min(1, "At least one app is required"),
+        services: z.array(serviceSchema).default([]),
+        addons: z.array(addonSchema).default([]),
+        hooks: hooksSchema,
+    })
+    // Names from apps/services/addons share one namespace: they all become
+    // tokens in `{{name.<field>}}` templates and many become DNS labels in
+    // K8s. Collisions would silently resolve to whichever pool the injector
+    // checked first — reject them up front instead.
+    .superRefine((cfg, ctx) => {
+        const seen = new Map<string, "app" | "service" | "addon">();
+        const check = (name: string, kind: "app" | "service" | "addon") => {
+            const existing = seen.get(name);
+            if (existing != null) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: `Name "${name}" is used by both a ${existing} and an ${kind} — names must be unique across apps, services, and addons`,
+                });
+                return;
+            }
+            seen.set(name, kind);
+        };
+        for (const a of cfg.apps) check(a.name, "app");
+        for (const s of cfg.services) check(s.name, "service");
+        for (const a of cfg.addons) check(a.name, "addon");
+    });
 
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = z.infer<typeof appSchema>;
 export type ServiceConfig = z.infer<typeof serviceSchema>;
+export type AddonConfig = z.infer<typeof addonSchema>;
 export type HookStep = z.infer<typeof hookStepSchema>;
 export type BranchConvention = z.infer<typeof branchConventionSchema>;
 export type RepoDependency = z.infer<typeof repoDependencySchema>;

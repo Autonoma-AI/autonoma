@@ -2,6 +2,10 @@ import { runWithSentry } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { serve } from "@hono/node-server";
 import * as k8s from "@kubernetes/client-node";
+import { AddonManager } from "./addons/addon-manager";
+import { OrgSecretResolver } from "./addons/org-secret-resolver";
+import { NeonProvider } from "./addons/providers/neon";
+import { AddonProviderRegistry } from "./addons/registry";
 import { createApp } from "./app";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { Deployer } from "./deployer/deployer";
@@ -99,12 +103,23 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
             ? new DiffsClient(env.AUTONOMA_API_URL, env.AUTONOMA_SERVICE_SECRET)
             : undefined;
 
+    // Addon plugin registry + manager. Built-in providers are registered
+    // here; new providers (PlanetScale, Upstash, ...) just append to this
+    // list. The OrgSecretResolver shares the AwsSecretsFetcher with the
+    // build-time secret machinery — same AWS SM, different scope (org vs
+    // app), same JSON-map convention.
+    const addonProviderRegistry = new AddonProviderRegistry();
+    addonProviderRegistry.register(new NeonProvider());
+    const orgSecretResolver = new OrgSecretResolver(awsSecretsFetcher);
+    const addonManager = new AddonManager(addonProviderRegistry, orgSecretResolver);
+
     // Pipelines
     const previewPipeline = new PreviewPipeline({
         provider: githubProvider,
         builder,
         deployer,
         awsSecretsFetcher,
+        addonManager,
         registryUrl: env.REGISTRY_URL,
         diffsClient,
     });
@@ -112,6 +127,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     const teardownPipeline = new TeardownPipeline({
         provider: githubProvider,
         deployer,
+        addonManager,
     });
 
     // HTTP server. All /v1/* routes require either the API-key Bearer
