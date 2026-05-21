@@ -14,7 +14,7 @@ import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
-import { SecretStore } from "./secrets/secret-store";
+import { PreviewkitSecretsService } from "./secrets/secrets-service";
 
 runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // Kubernetes client
@@ -66,10 +66,11 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
               .filter(Boolean)
         : [];
 
-    // Secret store (K8s Secrets in the previewkit namespace)
-    const secretStore = new SecretStore(kc);
-
-    // AWS Secrets Manager -> K8s ExternalSecret bridge
+    // AWS Secrets Manager -> K8s ExternalSecret bridge. Every per-app secret
+    // bundle lands in the preview namespace as a K8s Secret and is mounted
+    // into the Deployment via `envFrom: secretRef`. There is no separate
+    // in-cluster SecretStore anymore — AWS Secrets Manager is the single
+    // source of truth for runtime credentials.
     const awsExternalSecretManager = new AwsExternalSecretManager(kc, env.CLUSTER_SECRET_STORE_NAME);
 
     // AWS Secrets Manager direct fetcher — for build-time secrets that need to
@@ -77,6 +78,11 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // would be materialised via ExternalSecret CRs). Uses S3_REGION since the
     // previewkit pod's existing IAM role is region-scoped to it.
     const awsSecretsFetcher = new AwsSecretsFetcher(env.S3_REGION);
+
+    // CRUD over the per-app AWS Secrets Manager bundles, exposed via the
+    // HTTP /v1/secrets routes. Mirrors the autonoma API's tRPC `secrets`
+    // route for callers that prefer curl over a typed client.
+    const secretsService = new PreviewkitSecretsService(env.S3_REGION);
 
     // Deployer
     const deployer = new Deployer(
@@ -98,7 +104,6 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         provider: githubProvider,
         builder,
         deployer,
-        secretStore,
         awsSecretsFetcher,
         registryUrl: env.REGISTRY_URL,
         diffsClient,
@@ -107,11 +112,19 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     const teardownPipeline = new TeardownPipeline({
         provider: githubProvider,
         deployer,
-        secretStore,
     });
 
-    // HTTP server
-    const app = createApp({ previewPipeline, teardownPipeline, deployer, secretStore });
+    // HTTP server. All /v1/* routes require either the API-key Bearer
+    // header (external callers) or the service shared secret (internal
+    // service-to-service from the autonoma API). /health stays open for
+    // kubelet probes.
+    const app = createApp({
+        previewPipeline,
+        teardownPipeline,
+        deployer,
+        secretsService,
+        serviceSecret: env.PREVIEWKIT_SERVICE_SECRET,
+    });
 
     const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
         logger.info(`Previewkit listening on http://localhost:${info.port}`);

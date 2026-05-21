@@ -1,3 +1,4 @@
+import { verifyApiKey } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
@@ -10,7 +11,6 @@ import {
     triggerRunWorkflow,
 } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
-import { verifyApiKeyAndGetContext } from "./application-setup/verify-api-key";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
 import { env } from "./env";
@@ -40,7 +40,7 @@ export async function createContext(c: HonoContext) {
     let session: AuthSession | null = (rawSession?.session ?? null) as AuthSession | null;
 
     if (user == null) {
-        const keyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
+        const keyCtx = await verifyApiKey(db, c.req.header("authorization"));
         if (keyCtx != null) {
             const dbUser = await db.user.findUnique({ where: { id: keyCtx.userId } });
             if (dbUser != null) {

@@ -1,3 +1,4 @@
+import { requireApiKey, type UserAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
@@ -14,18 +15,19 @@ import { cors } from "hono/cors";
 import { encryptionHelper, generationProvider, scenarioManager } from "../context";
 import { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 import { ApplicationSetupService } from "./application-setup.service";
-import { verifyApiKeyAndGetContext } from "./verify-api-key";
 
-export const applicationSetupHttpRouter = new Hono();
+export const applicationSetupHttpRouter = new Hono<{ Variables: UserAuthVariables }>();
 
+// CORS first (preflight needs to succeed before auth), then auth gates
+// every actual request. Both apply to all routes in this router.
 applicationSetupHttpRouter.use("*", cors({ origin: "*" }));
+applicationSetupHttpRouter.use("*", requireApiKey({ db }));
 
 const onboardingManager = new OnboardingManager(db, generationProvider, scenarioManager, encryptionHelper);
 const service = new ApplicationSetupService(db, generationProvider, onboardingManager, scenarioManager);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+    const { userId, organizationId } = c.var.user;
 
     const parsed = CreateSetupBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -34,8 +36,8 @@ applicationSetupHttpRouter.post("/setups", async (c) => {
 
     try {
         const result = await service.createSetup(
-            apiKeyCtx.userId,
-            apiKeyCtx.organizationId,
+            userId,
+            organizationId,
             parsed.data.applicationId,
             parsed.data.repoName,
         );
@@ -48,8 +50,7 @@ applicationSetupHttpRouter.post("/setups", async (c) => {
 });
 
 applicationSetupHttpRouter.post("/setups/:id/events", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+    const { organizationId } = c.var.user;
 
     const parsed = SetupEventBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -57,7 +58,7 @@ applicationSetupHttpRouter.post("/setups/:id/events", async (c) => {
     }
 
     try {
-        await service.addEvent(c.req.param("id"), apiKeyCtx.organizationId, parsed.data);
+        await service.addEvent(c.req.param("id"), organizationId, parsed.data);
         return c.json({ ok: true });
     } catch (err) {
         Sentry.captureException(err);
@@ -67,8 +68,7 @@ applicationSetupHttpRouter.post("/setups/:id/events", async (c) => {
 });
 
 applicationSetupHttpRouter.post("/setups/:id/scenario-recipe-versions", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+    const { organizationId } = c.var.user;
 
     const parsed = UploadScenarioRecipeVersionsBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -76,11 +76,7 @@ applicationSetupHttpRouter.post("/setups/:id/scenario-recipe-versions", async (c
     }
 
     try {
-        const result = await service.uploadScenarioRecipeVersions(
-            c.req.param("id"),
-            apiKeyCtx.organizationId,
-            parsed.data,
-        );
+        const result = await service.uploadScenarioRecipeVersions(c.req.param("id"), organizationId, parsed.data);
         return c.json(result);
     } catch (err) {
         if (err instanceof NotFoundError) {
@@ -96,11 +92,9 @@ applicationSetupHttpRouter.post("/setups/:id/scenario-recipe-versions", async (c
 });
 
 applicationSetupHttpRouter.get("/setups/:id/scenarios", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
-
+    const { organizationId } = c.var.user;
     try {
-        const result = await service.listScenariosForSetup(c.req.param("id"), apiKeyCtx.organizationId);
+        const result = await service.listScenariosForSetup(c.req.param("id"), organizationId);
         return c.json(result);
     } catch (err) {
         if (err instanceof NotFoundError) {
@@ -113,11 +107,9 @@ applicationSetupHttpRouter.get("/setups/:id/scenarios", async (c) => {
 });
 
 applicationSetupHttpRouter.get("/applications/:id/scenarios", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
-
+    const { organizationId } = c.var.user;
     try {
-        const result = await service.listScenariosForApplication(c.req.param("id"), apiKeyCtx.organizationId);
+        const result = await service.listScenariosForApplication(c.req.param("id"), organizationId);
         return c.json(result);
     } catch (err) {
         if (err instanceof NotFoundError) {
@@ -130,11 +122,9 @@ applicationSetupHttpRouter.get("/applications/:id/scenarios", async (c) => {
 });
 
 applicationSetupHttpRouter.get("/applications/:id/test-suite", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
-
+    const { organizationId } = c.var.user;
     try {
-        const result = await service.getTestSuiteForApplication(c.req.param("id"), apiKeyCtx.organizationId);
+        const result = await service.getTestSuiteForApplication(c.req.param("id"), organizationId);
         return c.json(result);
     } catch (err) {
         if (err instanceof NotFoundError) {
@@ -147,8 +137,7 @@ applicationSetupHttpRouter.get("/applications/:id/test-suite", async (c) => {
 });
 
 applicationSetupHttpRouter.post("/setups/:id/artifacts", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+    const { organizationId } = c.var.user;
 
     const parsed = UploadArtifactsBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -156,7 +145,7 @@ applicationSetupHttpRouter.post("/setups/:id/artifacts", async (c) => {
     }
 
     try {
-        await service.uploadArtifacts(c.req.param("id"), apiKeyCtx.organizationId, parsed.data);
+        await service.uploadArtifacts(c.req.param("id"), organizationId, parsed.data);
         return c.json({ ok: true });
     } catch (err) {
         if (err instanceof NotFoundError) {
@@ -172,8 +161,7 @@ applicationSetupHttpRouter.post("/setups/:id/artifacts", async (c) => {
 });
 
 applicationSetupHttpRouter.patch("/setups/:id", async (c) => {
-    const apiKeyCtx = await verifyApiKeyAndGetContext(db, c.req.header("authorization"));
-    if (apiKeyCtx == null) return c.json({ error: "Unauthorized" }, 401);
+    const { organizationId } = c.var.user;
 
     const parsed = UpdateSetupBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -181,7 +169,7 @@ applicationSetupHttpRouter.patch("/setups/:id", async (c) => {
     }
 
     try {
-        await service.updateSetup(c.req.param("id"), apiKeyCtx.organizationId, parsed.data);
+        await service.updateSetup(c.req.param("id"), organizationId, parsed.data);
         return c.json({ ok: true });
     } catch (err) {
         Sentry.captureException(err);

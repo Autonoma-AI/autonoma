@@ -58,6 +58,15 @@ export const env = createEnv({
         // Leave unset to disable automatic diffs triggering.
         AUTONOMA_API_URL: z.string().url().optional(),
         AUTONOMA_SERVICE_SECRET: z.string().min(1).optional(),
+
+        // Shared secret accepted on the Authorization: Bearer header for
+        // internal service-to-service calls into Previewkit (autonoma's
+        // webhook forwarder, primarily). The autonoma API sends the same
+        // value under the same variable name. Leave unset in dev to allow
+        // unauthenticated calls during local poking; the auth middleware
+        // refuses to honour an empty secret in production-ish environments
+        // by skipping the service-secret path when this is missing.
+        PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
     },
     runtimeEnv: process.env,
 });

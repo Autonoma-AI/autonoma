@@ -209,6 +209,15 @@ async function forwardPullRequestToPreviewkit(
         logger.info("Skipping Previewkit forward: PREVIEWKIT_URL not configured", { op });
         return;
     }
+    if (env.PREVIEWKIT_SERVICE_SECRET == null) {
+        // Fail loudly: without the shared secret, Previewkit's auth
+        // middleware will 401 every request, and a silent skip would
+        // mask a real misconfiguration in production.
+        throw new Error(
+            "PREVIEWKIT_SERVICE_SECRET is not set on the autonoma API but PREVIEWKIT_URL is. " +
+                "Configure both so the webhook forwarder can authenticate to Previewkit.",
+        );
+    }
 
     const pr = payload.pull_request as PullRequestPayload | undefined;
     const repo = payload.repository as RepositoryPayload | undefined;
@@ -218,6 +227,7 @@ async function forwardPullRequestToPreviewkit(
     }
 
     const base = env.PREVIEWKIT_URL.replace(/\/$/, "");
+    const authHeader = { authorization: `Bearer ${env.PREVIEWKIT_SERVICE_SECRET}` };
 
     if (op === "deploy") {
         const url = `${base}/v1/environments`;
@@ -234,7 +244,7 @@ async function forwardPullRequestToPreviewkit(
         };
         const res = await fetch(url, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...authHeader },
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(10_000),
         });
@@ -252,7 +262,11 @@ async function forwardPullRequestToPreviewkit(
         githubRepositoryId: String(repo.id),
     });
     const url = `${base}/v1/environments/${owner}/${name}/${pr.number}?${teardownQuery.toString()}`;
-    const res = await fetch(url, { method: "DELETE", signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(url, {
+        method: "DELETE",
+        headers: authHeader,
+        signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok && res.status !== 404) {
         const text = await res.text().catch(() => "");
         throw new Error(`Previewkit teardown returned ${res.status}: ${text}`);

@@ -56,7 +56,6 @@ interface AppDeployContext {
     domain: string;
     config: PreviewConfig;
     imageTags: Record<string, string>;
-    storedSecrets: Record<string, Record<string, string>>;
     awsSecretsByApp: Map<string, string>;
 }
 
@@ -70,7 +69,6 @@ export interface DeployOptions {
     githubRepositoryId: number;
     config: PreviewConfig;
     imageTags: Record<string, string>;
-    storedSecrets: Record<string, Record<string, string>>;
     commentId?: string;
 }
 
@@ -105,7 +103,7 @@ export class Deployer {
     }
 
     private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, storedSecrets, commentId } = opts;
+        const { repoFullName, prNumber, headSha, organizationId, config, imageTags, commentId } = opts;
         const domain = config.domain ?? this.domain;
 
         // 1. Create namespace
@@ -173,7 +171,6 @@ export class Deployer {
             domain,
             config,
             imageTags,
-            storedSecrets,
             awsSecretsByApp,
         };
 
@@ -306,20 +303,17 @@ export class Deployer {
     }
 
     private async deployApp(app: AppConfig, opts: AppDeployContext): Promise<{ name: string; url: string }> {
-        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, storedSecrets, awsSecretsByApp } =
-            opts;
+        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, awsSecretsByApp } = opts;
 
         const imageTag = imageTags[app.name];
         if (imageTag == null) {
             throw new Error(`No image tag found for app "${app.name}"`);
         }
 
-        const appSecrets = storedSecrets[app.name] ?? {};
         const templateContext = { pr: String(prNumber), namespace, owner };
         const publicUrlInfo = { domain, repoSlug, prNumber };
         const resolvedEnv = this.envInjector.resolve(
             app.env,
-            appSecrets,
             config.apps,
             config.services,
             namespace,

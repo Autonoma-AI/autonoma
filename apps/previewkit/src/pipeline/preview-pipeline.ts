@@ -25,7 +25,6 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
-import type { SecretStore } from "../secrets/secret-store";
 
 /**
  * Combined per-app outcome rendered in the PR comment. Bundles the build and
@@ -71,7 +70,6 @@ interface PreviewPipelineOptions {
     provider: GitProvider;
     builder: Builder;
     deployer: Deployer;
-    secretStore: SecretStore;
     awsSecretsFetcher: AwsSecretsFetcher;
     registryUrl: string;
     diffsClient?: DiffsClient;
@@ -81,7 +79,6 @@ export class PreviewPipeline {
     private readonly provider: GitProvider;
     private readonly builder: Builder;
     private readonly deployer: Deployer;
-    private readonly secretStore: SecretStore;
     private readonly awsSecretsFetcher: AwsSecretsFetcher;
     private readonly registryUrl: string;
     private readonly diffsClient?: DiffsClient;
@@ -90,7 +87,6 @@ export class PreviewPipeline {
         this.provider = options.provider;
         this.builder = options.builder;
         this.deployer = options.deployer;
-        this.secretStore = options.secretStore;
         this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.registryUrl = options.registryUrl;
         this.diffsClient = options.diffsClient;
@@ -239,20 +235,6 @@ export class PreviewPipeline {
                 }
             }
 
-            // 8. Load stored secrets per app, using the correct org owner for each repo.
-            const primaryOwner = repoFullName.split("/")[0]!;
-            const appToOwner = new Map<string, string>();
-            for (const app of primaryConfig.apps) appToOwner.set(app.name, primaryOwner);
-            for (const entry of dependencyEntries) {
-                const depOwner = entry.dep.repo.split("/")[0]!;
-                for (const app of entry.config.apps) appToOwner.set(app.name, depOwner);
-            }
-            const storedSecrets: Record<string, Record<string, string>> = {};
-            for (const app of mergedConfig.apps) {
-                const owner = appToOwner.get(app.name) ?? primaryOwner;
-                storedSecrets[app.name] = await this.secretStore.getMerged(owner, app.name, prNumber);
-            }
-
             // 9. Build all app images in parallel. Per-app build failures are
             //    captured into the outcome map rather than thrown — only the
             //    "every app failed" case aborts the pipeline as a global error.
@@ -304,7 +286,6 @@ export class PreviewPipeline {
                 githubRepositoryId,
                 config: mergedConfig,
                 imageTags,
-                storedSecrets,
                 commentId,
             });
 

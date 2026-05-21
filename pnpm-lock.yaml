@@ -143,6 +143,9 @@ importers:
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@autonoma/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../../packages/billing
@@ -609,6 +612,9 @@ importers:
 
   apps/previewkit:
     dependencies:
+      '@autonoma/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -1106,6 +1112,22 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/auth:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
+      hono:
+        specifier: 'catalog:'
+        version: 4.12.18
+    devDependencies:
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
       vitest:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))

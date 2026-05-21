@@ -34,8 +34,13 @@ export const env = createEnv({
         // Internal Previewkit service URL. When set, pull_request webhooks are forwarded
         // to Previewkit's REST endpoints. Leave unset to disable preview environments.
         PREVIEWKIT_URL: z.string().url().optional(),
-        // Shared secret for service-to-service calls from Previewkit.
-        // Previewkit sends this as Authorization: Bearer <secret> to POST /v1/diffs/internal/trigger.
+        // Shared secret for service-to-service calls between this API and Previewkit.
+        // Used both ways:
+        //   - INCOMING: Previewkit calls our /v1/diffs/internal/trigger with this as
+        //     Authorization: Bearer <secret>; we compare against this env value.
+        //   - OUTGOING: this API calls Previewkit's /v1/* endpoints (webhook forwarder)
+        //     and signs requests with this same value. Previewkit verifies it on its end.
+        // Both sides must hold the same value.
         PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
 
         // Used to indicate that we're running in a test environment.

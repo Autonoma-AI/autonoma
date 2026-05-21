@@ -53,7 +53,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -70,7 +69,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -87,7 +85,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -105,7 +102,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -122,7 +118,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -138,68 +133,8 @@ describe("EnvInjector", () => {
         };
 
         expect(() =>
-            injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
+            injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
         ).toThrow(/Unknown service\/app reference/);
-    });
-
-    it("includes stored secrets in resolved env", () => {
-        const storedSecrets = {
-            OPENAI_API_KEY: "sk-test-123",
-            STRIPE_KEY: "sk_test_456",
-        };
-
-        const resolved = injector.resolve(
-            {},
-            storedSecrets,
-            apps,
-            services,
-            "preview-ns",
-            defaultContext,
-            defaultPublicUrlInfo,
-        );
-        expect(resolved["OPENAI_API_KEY"]).toBe("sk-test-123");
-        expect(resolved["STRIPE_KEY"]).toBe("sk_test_456");
-    });
-
-    it(".preview.yaml env overrides stored secrets", () => {
-        const storedSecrets = {
-            DATABASE_URL: "postgres://production:5432/prod",
-            OPENAI_API_KEY: "sk-test-123",
-        };
-        const configEnv = {
-            DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
-        };
-
-        const resolved = injector.resolve(
-            configEnv,
-            storedSecrets,
-            apps,
-            services,
-            "preview-ns",
-            defaultContext,
-            defaultPublicUrlInfo,
-        );
-        expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
-        expect(resolved["OPENAI_API_KEY"]).toBe("sk-test-123");
-    });
-
-    it("stored secrets with no config env pass through as-is", () => {
-        const storedSecrets = {
-            API_KEY: "some-key",
-            NODE_ENV: "preview",
-        };
-
-        const resolved = injector.resolve(
-            {},
-            storedSecrets,
-            apps,
-            services,
-            "preview-ns",
-            defaultContext,
-            defaultPublicUrlInfo,
-        );
-        expect(resolved["API_KEY"]).toBe("some-key");
-        expect(resolved["NODE_ENV"]).toBe("preview");
     });
 
     it("resolves {{pr}} template", () => {
@@ -209,7 +144,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -226,7 +160,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -243,7 +176,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -275,7 +207,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             temporalServices,
             "preview-ns",
@@ -294,7 +225,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -324,7 +254,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             hyphenatedServices,
             "preview-ns",
@@ -334,25 +263,8 @@ describe("EnvInjector", () => {
         expect(resolved["GATEWAY_URL"]).toBe("http://api-gateway:80");
     });
 
-    it("resolves templates inside stored-secret values, not just config env", () => {
-        const storedSecrets = {
-            DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
-        };
-
-        const resolved = injector.resolve(
-            {},
-            storedSecrets,
-            apps,
-            services,
-            "preview-ns",
-            defaultContext,
-            defaultPublicUrlInfo,
-        );
-        expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
-    });
-
-    it("returns an empty object when there is no env and no stored secrets", () => {
-        const resolved = injector.resolve({}, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo);
+    it("returns an empty object when there is no config env", () => {
+        const resolved = injector.resolve({}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo);
         expect(resolved).toEqual({});
     });
 
@@ -366,7 +278,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -384,7 +295,6 @@ describe("EnvInjector", () => {
 
         const resolved = injector.resolve(
             configEnv,
-            {},
             apps,
             services,
             "preview-ns",
@@ -402,7 +312,7 @@ describe("EnvInjector", () => {
         };
 
         expect(() =>
-            injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
+            injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
         ).toThrow(/only available for apps/);
     });
 

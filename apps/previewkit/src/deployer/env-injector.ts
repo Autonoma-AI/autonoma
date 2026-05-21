@@ -39,20 +39,26 @@ export class EnvInjector {
     constructor(private recipeRegistry: RecipeRegistry) {}
 
     /**
-     * Resolves runtime env: stored secrets merged with `.preview.yaml` env,
-     * with `.preview.yaml` values winning, then templated.
+     * Resolves runtime env from `.preview.yaml` by templating its values.
+     *
+     * Sensitive runtime env (API keys, third-party credentials) lives in the
+     * per-app AWS Secrets Manager bundle and is mounted into the pod via
+     * ExternalSecretsOperator's `envFrom: secretRef`, which lands those keys
+     * as environment variables INDEPENDENTLY of this function. If both the
+     * AWS SM bundle and `.preview.yaml`'s `env:` define the same key, the
+     * Kubernetes `env:` list (i.e. this function's output) wins over
+     * `envFrom`, matching the kubectl rule. Treat that as the override
+     * channel for committed switches like PLAID_ENV / SEND_EMAILS_LOCALLY.
      */
     resolve(
         configEnv: Record<string, string>,
-        storedSecrets: Record<string, string>,
         apps: AppConfig[],
         services: ServiceConfig[],
         namespace: string,
         context: ContextVariables,
         publicUrlInfo: PublicUrlInfo,
     ): Record<string, string> {
-        const merged = { ...storedSecrets, ...configEnv };
-        return this.applyTemplates(merged, apps, services, namespace, context, publicUrlInfo);
+        return this.applyTemplates(configEnv, apps, services, namespace, context, publicUrlInfo);
     }
 
     /**

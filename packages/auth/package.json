@@ -1,0 +1,25 @@
+{
+    "name": "@autonoma/auth",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Shared authentication helpers for Autonoma services (API key verification, service-to-service shared secret).",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix src/",
+        "fmt": "oxfmt --write src/",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "@autonoma/db": "workspace:*",
+        "hono": "catalog:"
+    },
+    "devDependencies": {
+        "dotenv": "catalog:",
+        "vitest": "catalog:"
+    }
+}

@@ -1,0 +1,224 @@
+import { db, type PrismaClient } from "@autonoma/db";
+import {
+    CreateSecretCommand,
+    GetSecretValueCommand,
+    ResourceNotFoundException,
+    SecretsManagerClient,
+    UpdateSecretCommand,
+} from "@aws-sdk/client-secrets-manager";
+import { logger as rootLogger, type Logger } from "../logger";
+
+export interface SecretItem {
+    key: string;
+    value: string;
+}
+
+export interface SecretSummary {
+    key: string;
+    maskedLength: number;
+    updatedAt: Date;
+}
+
+/**
+ * CRUD over per-app AWS Secrets Manager bundles, served from Previewkit's
+ * own HTTP surface so external tooling (CI, scripts) can manage secrets
+ * without going through the autonoma API.
+ *
+ * Each (applicationId, appName) pair maps to one AWS Secrets Manager
+ * secret whose SecretString is a JSON map of key→value. Writing a new
+ * bundle creates the AWS SM secret (named `previewkit/<orgSlug>/<application>/<appName>`)
+ * and registers a `previewkit_secret` row pointing at the ARN. The
+ * runtime ExternalSecret bridge picks up new keys on the next deploy.
+ *
+ * Mirrors the per-org tRPC `secrets.list/upsert/delete` route on the
+ * autonoma API. Both surfaces are intentionally independent in v1; if
+ * the duplication becomes painful we can fold both into a shared package.
+ */
+export class PreviewkitSecretsService {
+    private readonly client: SecretsManagerClient;
+    private readonly logger: Logger;
+
+    constructor(
+        awsRegion: string,
+        private readonly prisma: PrismaClient = db,
+    ) {
+        this.client = new SecretsManagerClient({ region: awsRegion });
+        this.logger = rootLogger.child({ name: this.constructor.name });
+    }
+
+    async list(applicationId: string, appName: string, callerOrgId: string | undefined): Promise<SecretSummary[]> {
+        this.logger.info("Listing secrets", { applicationId, appName });
+
+        const app = await this.findApplication(applicationId, callerOrgId);
+        // 404-on-missing semantics: returning [] for "you don't own it"
+        // matches "no secrets registered yet" so the response never reveals
+        // whether the application exists outside the caller's org.
+        if (app == null) return [];
+
+        const record = await this.prisma.previewkitSecret.findUnique({
+            where: { applicationId_appName: { applicationId, appName } },
+        });
+
+        if (record == null) return [];
+
+        const values = await this.fetchSecretValue(record.awsSecretArn);
+        const now = new Date();
+
+        return Object.entries(values)
+            .map(([key, value]) => ({
+                key,
+                maskedLength: Math.min(value.length, 32),
+                updatedAt: now,
+            }))
+            .sort((a, b) => a.key.localeCompare(b.key));
+    }
+
+    async upsert(
+        applicationId: string,
+        appName: string,
+        items: SecretItem[],
+        callerOrgId: string | undefined,
+    ): Promise<void> {
+        if (items.length === 0) {
+            throw new Error("Refusing to upsert: items must contain at least one entry");
+        }
+        this.logger.info("Upserting secrets", { applicationId, appName, count: items.length });
+
+        const app = await this.findApplication(applicationId, callerOrgId);
+        if (app == null) {
+            throw new Error(`Application not found: ${applicationId}`);
+        }
+
+        const existing = await this.prisma.previewkitSecret.findUnique({
+            where: { applicationId_appName: { applicationId, appName } },
+        });
+
+        if (existing == null) {
+            await this.createAppSecret(app, app.organization.slug, appName, items);
+        } else {
+            await this.mergeIntoSecret(existing.awsSecretArn, items);
+        }
+    }
+
+    async delete(
+        applicationId: string,
+        appName: string,
+        key: string,
+        callerOrgId: string | undefined,
+    ): Promise<boolean> {
+        this.logger.info("Deleting secret", { applicationId, appName, key });
+
+        const app = await this.findApplication(applicationId, callerOrgId);
+        if (app == null) return false;
+
+        const record = await this.prisma.previewkitSecret.findUnique({
+            where: { applicationId_appName: { applicationId, appName } },
+        });
+        if (record == null) return false;
+
+        const values = await this.fetchSecretValue(record.awsSecretArn);
+        if (!(key in values)) return false;
+
+        delete values[key];
+
+        await this.client.send(
+            new UpdateSecretCommand({
+                SecretId: record.awsSecretArn,
+                SecretString: JSON.stringify(values),
+            }),
+        );
+
+        this.logger.info("Secret deleted", { applicationId, appName, key });
+        return true;
+    }
+
+    /**
+     * Resolves the Application referenced in the URL, narrowed by the
+     * caller's org when set. Returning `null` when the org doesn't match
+     * is what makes 404 / "[]" responses indistinguishable from "doesn't
+     * exist", so the API never leaks cross-org existence.
+     *
+     * `callerOrgId == null` indicates a service-secret caller (autonoma
+     * internal): we trust the URL and don't narrow by org.
+     */
+    private async findApplication(
+        applicationId: string,
+        callerOrgId: string | undefined,
+    ): Promise<{ id: string; name: string; organization: { slug: string } } | null> {
+        return this.prisma.application.findFirst({
+            where: callerOrgId != null ? { id: applicationId, organizationId: callerOrgId } : { id: applicationId },
+            select: { id: true, name: true, organization: { select: { slug: true } } },
+        });
+    }
+
+    /**
+     * Allocates a new AWS Secrets Manager secret for one (app, appName)
+     * pair and registers the ARN as a PreviewkitSecret row. AWS SM names
+     * follow `previewkit/<orgSlug>/<application>/<appName>` for tidy IAM
+     * scoping; identical to the convention the autonoma API uses.
+     */
+    private async createAppSecret(
+        app: { id: string; name: string },
+        orgSlug: string,
+        appName: string,
+        items: SecretItem[],
+    ): Promise<void> {
+        const secretName = `previewkit/${orgSlug}/${app.name}/${appName}`;
+        const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
+
+        this.logger.info("Creating AWS secret for app", { applicationId: app.id, appName, secretName });
+
+        const result = await this.client.send(
+            new CreateSecretCommand({
+                Name: secretName,
+                SecretString: JSON.stringify(secretValue),
+                Tags: [
+                    { Key: "previewkit:type", Value: "application-app" },
+                    { Key: "previewkit:org", Value: orgSlug },
+                    { Key: "previewkit:application", Value: app.name },
+                    { Key: "previewkit:app", Value: appName },
+                ],
+            }),
+        );
+
+        const arn = result.ARN;
+        if (arn == null) throw new Error(`AWS secret created but no ARN returned for app ${app.id}/${appName}`);
+
+        await this.prisma.previewkitSecret.create({
+            data: { applicationId: app.id, appName, awsSecretArn: arn },
+        });
+
+        this.logger.info("AWS secret created and registered", { applicationId: app.id, appName, arn });
+    }
+
+    private async mergeIntoSecret(awsSecretArn: string, items: SecretItem[]): Promise<void> {
+        const values = await this.fetchSecretValue(awsSecretArn);
+
+        for (const item of items) {
+            values[item.key] = item.value;
+        }
+
+        await this.client.send(
+            new UpdateSecretCommand({
+                SecretId: awsSecretArn,
+                SecretString: JSON.stringify(values),
+            }),
+        );
+    }
+
+    private async fetchSecretValue(secretArn: string): Promise<Record<string, string>> {
+        try {
+            const result = await this.client.send(new GetSecretValueCommand({ SecretId: secretArn }));
+
+            if (result.SecretString == null) return {};
+
+            const parsed = JSON.parse(result.SecretString) as unknown;
+            if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) return {};
+
+            return parsed as Record<string, string>;
+        } catch (err: unknown) {
+            if (err instanceof ResourceNotFoundException) return {};
+            throw err;
+        }
+    }
+}

@@ -1,119 +1,96 @@
 ---
 title: Secrets
-description: Manage sensitive values outside of .preview.yaml via the Previewkit secrets API. Supports owner-wide secrets and PR-scoped overrides.
+description: How to manage credentials, API keys, and other sensitive values for your Previewkit environments.
 ---
 
-Anything you wouldn't commit to your repo — API keys, third-party tokens, signed credentials — should not live in `.preview.yaml`. Manage it via the Previewkit secrets API instead.
+Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in `.preview.yaml`. Manage it through the Previewkit API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
 
-## How secrets get into your app
-
-Secrets are stored as Kubernetes Secrets in the previewkit control namespace, keyed by `(owner, app, [pr])`. At deploy time, Previewkit merges them with the `env` map from `.preview.yaml` and resolves [templates](/previewkit/preview-yaml/#environment-templating) the same way.
-
-Stored secrets and the `env` map share the same name space. If both define `STRIPE_API_KEY`, **the value in `.preview.yaml` wins** — secrets fill in for values you didn't put in the YAML.
-
-## Two scopes
-
-| Scope        | Applies to                 | Endpoint suffix      |
-|--------------|----------------------------|----------------------|
-| **owner**    | Every PR for that owner    | `/secrets/:owner/:app/:key`           |
-| **PR-scoped**| Only one specific PR       | `/secrets/:owner/:app/pr/:pr/:key`    |
-
-Owner-scoped secrets are inherited by every PR; PR-scoped secrets override the owner default for one PR (useful for testing values in isolation without affecting concurrent previews).
-
-## API reference
-
-All endpoints are unauthenticated on the internal network — your Previewkit deployment should restrict the Service to internal callers only.
-
-### List owner-scoped secrets
+## Managing secrets
 
 ```
-GET /v1/secrets/:owner/:app
+GET    /v1/secrets/:applicationId/:app                # list keys (no values)
+PUT    /v1/secrets/:applicationId/:app                # batch upsert; body: {"items":[{"key","value"},...]}
+PUT    /v1/secrets/:applicationId/:app/:key           # single upsert; body: {"value":"..."}
+DELETE /v1/secrets/:applicationId/:app/:key           # delete one key
 ```
 
-Returns the list of secret keys (names only, never values).
+`applicationId` is your autonoma Application row id. Look it up once via the dashboard and hardcode it in your CI. `app` matches the `name:` field of an app inside `.preview.yaml`. For a single-app repo it's just that one name; for a monorepo each app has its own bundle.
 
-```json
-{ "owner": "acme-corp", "app": "api", "keys": ["STRIPE_API_KEY", "SENTRY_DSN"] }
-```
+### Authentication
 
-### Set an owner-scoped secret
-
-```
-PUT /v1/secrets/:owner/:app/:key
-Content-Type: application/json
-
-{ "value": "sk_live_..." }
-```
-
-Creates or updates the secret. The body must include a non-empty `value` string.
-
-### Delete an owner-scoped secret
-
-```
-DELETE /v1/secrets/:owner/:app/:key
-```
-
-Returns 404 if the key didn't exist.
-
-### List PR-scoped secrets
-
-```
-GET /v1/secrets/:owner/:app/pr/:pr
-```
-
-### Set a PR-scoped secret
-
-```
-PUT /v1/secrets/:owner/:app/pr/:pr/:key
-Content-Type: application/json
-
-{ "value": "test_..." }
-```
-
-### Delete a PR-scoped secret
-
-```
-DELETE /v1/secrets/:owner/:app/pr/:pr/:key
-```
-
-PR-scoped secrets are automatically removed when the PR is closed (i.e., when Previewkit tears down the environment).
-
-## Example workflow
-
-Set the production Stripe key for all `acme-corp/storefront` previews:
+Every call needs an `Authorization: Bearer <api-key>` header. Create an API key from the autonoma dashboard (Settings → API keys); keys are scoped to your organization, so they can only see and modify your own applications' secrets. Treat them like a password.
 
 ```bash
-curl -X PUT "https://previewkit.internal/v1/secrets/acme-corp/api/STRIPE_API_KEY" \
+export PREVIEWKIT_API_KEY="ak_live_..."
+
+# Batch upsert
+curl -X PUT "https://previewkit.autonoma.app/v1/secrets/app_abc123/web" \
+  -H "Authorization: Bearer $PREVIEWKIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"key":"STRIPE_API_KEY","value":"sk_live_..."},{"key":"SENTRY_DSN","value":"https://..."}]}'
+
+# Single key upsert
+curl -X PUT "https://previewkit.autonoma.app/v1/secrets/app_abc123/web/STRIPE_API_KEY" \
+  -H "Authorization: Bearer $PREVIEWKIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"value":"sk_live_..."}'
+
+# List keys (names only, never values)
+curl "https://previewkit.autonoma.app/v1/secrets/app_abc123/web" \
+  -H "Authorization: Bearer $PREVIEWKIT_API_KEY"
+
+# Delete
+curl -X DELETE "https://previewkit.autonoma.app/v1/secrets/app_abc123/web/STRIPE_API_KEY" \
+  -H "Authorization: Bearer $PREVIEWKIT_API_KEY"
 ```
 
-For PR #142, override with a test key:
+Calls without a valid Bearer token get a 401. Calls referencing an `applicationId` your key doesn't have access to are indistinguishable from "no secrets yet" - the API never reveals whether a foreign application exists.
 
-```bash
-curl -X PUT "https://previewkit.internal/v1/secrets/acme-corp/api/pr/142/STRIPE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"value":"sk_test_..."}'
+Updates take effect on the next preview deploy for that app.
+
+## Build-time secrets (`build_secrets`)
+
+`NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in `build_secrets:` inside `.preview.yaml` and Previewkit will pass them to your builder:
+
+```yaml
+apps:
+  - name: web
+    port: 3000
+    build_secrets:
+      - NEXT_PUBLIC_FIREBASE_API_KEY
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID
+      - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ```
 
-Then use it in `.preview.yaml` by NOT redeclaring `STRIPE_API_KEY` in `env`:
+Each name must already be a key you've uploaded via the API. The build fails fast with a clear error if a listed key isn't there.
+
+Server-only secrets (those your running pod reads via `process.env`) do NOT need to be in `build_secrets` - the runtime mount already covers them. Listing them anyway is harmless but verbose.
+
+## Overrides committed to git
+
+If you also define a key in `.preview.yaml`'s `env:` map, the value there wins over the uploaded one. Use this for behaviour switches that must pass code review:
 
 ```yaml
 apps:
   - name: api
     port: 4000
     env:
-      # STRIPE_API_KEY is injected from the stored secret
-      WEBHOOK_URL: "https://webhook.site/{{pr}}-{{owner}}"
+      # A wrong API edit can't silently flip a preview into "talk to live banking".
+      PLAID_ENV: "sandbox"
+      SEND_EMAILS_LOCALLY: "false"
 ```
 
-When PR #142 closes, the PR-scoped override is deleted automatically. The owner-scoped secret remains.
+Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env:` resolve the same way - see [environment templating](/previewkit/preview-yaml/#environment-templating).
 
-## What not to put in secrets
+## What goes where
 
-These belong in `.preview.yaml` (or are generated by Previewkit):
+| Value type | Where it lives |
+|---|---|
+| Third-party API keys, database URLs, signed tokens | Previewkit API |
+| `NEXT_PUBLIC_*` / `VITE_*` baked into a client bundle | Previewkit API, also listed in `build_secrets` |
+| In-cluster service URLs (`{{db.host}}`, `{{api.host}}`) | `.preview.yaml` env - resolved automatically, no upload needed |
+| PR / owner / namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`) | `.preview.yaml` env - resolved automatically, no upload needed |
+| Behaviour switches that should pass code review (`PLAID_ENV=sandbox`, `SEND_EMAILS_LOCALLY=false`) | `.preview.yaml` env - keep in git so a wrong API edit can't silently flip a preview into "talk to production" mode |
+| Anything non-sensitive that varies between environments | `.preview.yaml` env - reviewable in git |
 
-- Database URLs of in-preview services (`{{db.host}}` resolves at deploy time)
-- App-to-app URLs (`{{api.host}}`)
-- PR/owner/namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`)
-- Anything that varies by environment but isn't sensitive (use `.preview.yaml` so it's reviewable)
+If you're unsure, default to the Previewkit API. You only need to think about `build_secrets` when a value must be present *during* the build (the client-bundle case above).

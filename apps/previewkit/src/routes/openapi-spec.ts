@@ -6,28 +6,12 @@ const ownerParam = {
     description: "Repository owner (e.g. GitHub organization slug)",
 } as const;
 
-const appParam = {
-    name: "app",
-    in: "path",
-    required: true,
-    schema: { type: "string" },
-    description: "App name as declared in the repo's .preview.yaml",
-} as const;
-
 const repoParam = {
     name: "repo",
     in: "path",
     required: true,
     schema: { type: "string" },
     description: "Repository name (without owner)",
-} as const;
-
-const keyParam = {
-    name: "key",
-    in: "path",
-    required: true,
-    schema: { type: "string" },
-    description: "Secret key (environment variable name)",
 } as const;
 
 const prParam = {
@@ -38,11 +22,28 @@ const prParam = {
     description: "Pull request number",
 } as const;
 
-const savedResponse = {
-    "application/json": { schema: { $ref: "#/components/schemas/SecretMutationResponse" } },
+const applicationIdParam = {
+    name: "applicationId",
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description: "Application row id (CUID). Look up once from the autonoma dashboard.",
 } as const;
-const savedPrResponse = {
-    "application/json": { schema: { $ref: "#/components/schemas/PrSecretMutationResponse" } },
+
+const appParam = {
+    name: "app",
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description: "App name as declared in the repo's .preview.yaml",
+} as const;
+
+const keyParam = {
+    name: "key",
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description: "Secret key (environment variable name)",
 } as const;
 
 export const openApiSpec = {
@@ -52,20 +53,22 @@ export const openApiSpec = {
         version: "0.1.0",
         description:
             "Previewkit provides Vercel-style preview environments for pull requests on Kubernetes. " +
-            "This API exposes webhook ingestion for Git providers and CRUD for per-owner / per-app / per-PR secrets.",
+            "This surface carries the environment lifecycle and CRUD over per-app AWS Secrets Manager bundles. " +
+            "Sensitive runtime values flow to pods via the per-app bundle and the ExternalSecret bridge. " +
+            "All /v1/* endpoints require an Authorization: Bearer header (autonoma API key or service shared secret); /health is open.",
     },
     servers: [{ url: "/", description: "Current host" }],
+    security: [{ bearerAuth: [] }],
     tags: [
         { name: "Health", description: "Liveness probe" },
         {
             name: "Environments",
             description: "On-demand preview environment lifecycle (create, poll status, teardown)",
         },
-        { name: "Secrets (baseline)", description: "Owner + app scoped secrets, shared across all PRs for that app" },
         {
-            name: "Secrets (PR-scoped)",
+            name: "Secrets",
             description:
-                "Owner + app + PR scoped secrets. Merged on top of baseline at deploy time and deleted with the namespace on teardown. Intended for external per-preview resources (e.g. a Neon database branch created by the client's CI).",
+                "CRUD over per-app AWS Secrets Manager bundles. Each (applicationId, app) maps to one AWS SM secret whose keys are auto-mounted into the running pod via ExternalSecretsOperator. Mirrors the autonoma API's tRPC `secrets.*` route.",
         },
     ],
     paths: {
@@ -144,7 +147,7 @@ export const openApiSpec = {
             delete: {
                 tags: ["Environments"],
                 summary: "Tear down a preview environment",
-                description: "Fire-and-forget. Deletes the namespace and all PR-scoped secrets.",
+                description: "Fire-and-forget. Deletes the preview namespace and all resources inside it.",
                 parameters: [ownerParam, repoParam, prParam],
                 responses: {
                     "202": {
@@ -162,14 +165,16 @@ export const openApiSpec = {
                 },
             },
         },
-        "/v1/secrets/{owner}/{app}": {
+        "/v1/secrets/{applicationId}/{app}": {
             get: {
-                tags: ["Secrets (baseline)"],
-                summary: "List baseline secret keys for an app",
-                parameters: [ownerParam, appParam],
+                tags: ["Secrets"],
+                summary: "List secret keys for an app's AWS Secrets Manager bundle",
+                description:
+                    "Returns key names only; values are never returned. The bundle is the single AWS SM secret keyed by (applicationId, app).",
+                parameters: [applicationIdParam, appParam],
                 responses: {
                     "200": {
-                        description: "List of stored secret keys (values are never returned)",
+                        description: "List of secret keys (empty if no bundle exists yet)",
                         content: {
                             "application/json": {
                                 schema: { $ref: "#/components/schemas/SecretKeysResponse" },
@@ -178,69 +183,43 @@ export const openApiSpec = {
                     },
                 },
             },
-        },
-        "/v1/secrets/{owner}/{app}/{key}": {
             put: {
-                tags: ["Secrets (baseline)"],
-                summary: "Create or update a baseline secret",
-                parameters: [ownerParam, appParam, keyParam],
+                tags: ["Secrets"],
+                summary: "Batch upsert keys into the AWS SM bundle",
+                description:
+                    "Creates the AWS SM secret on first call (allocating an ARN named `previewkit/<orgSlug>/<application>/<app>` and registering a `previewkit_secret` row) and merges the items on subsequent calls. Existing keys not in `items` are preserved.",
+                parameters: [applicationIdParam, appParam],
                 requestBody: {
                     required: true,
                     content: {
                         "application/json": {
-                            schema: { $ref: "#/components/schemas/SecretValueRequest" },
+                            schema: { $ref: "#/components/schemas/SecretItemsRequest" },
                         },
                     },
                 },
                 responses: {
-                    "200": { description: "Secret saved", content: savedResponse },
+                    "200": {
+                        description: "Bundle saved",
+                        content: {
+                            "application/json": { schema: { $ref: "#/components/schemas/SecretBatchResponse" } },
+                        },
+                    },
                     "400": {
                         description: "Invalid body",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
-                },
-            },
-            delete: {
-                tags: ["Secrets (baseline)"],
-                summary: "Delete a baseline secret",
-                parameters: [ownerParam, appParam, keyParam],
-                responses: {
-                    "200": { description: "Secret deleted", content: savedResponse },
                     "404": {
-                        description: "Secret not found",
+                        description: "Application not found",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                 },
             },
         },
-        "/v1/secrets/{owner}/{app}/pr/{pr}": {
-            get: {
-                tags: ["Secrets (PR-scoped)"],
-                summary: "List PR-scoped secret keys for an app",
-                parameters: [ownerParam, appParam, prParam],
-                responses: {
-                    "200": {
-                        description: "List of stored PR-scoped secret keys",
-                        content: {
-                            "application/json": {
-                                schema: { $ref: "#/components/schemas/PrSecretKeysResponse" },
-                            },
-                        },
-                    },
-                    "400": {
-                        description: "pr must be a positive integer",
-                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
-                    },
-                },
-            },
-        },
-        "/v1/secrets/{owner}/{app}/pr/{pr}/{key}": {
+        "/v1/secrets/{applicationId}/{app}/{key}": {
             put: {
-                tags: ["Secrets (PR-scoped)"],
-                summary: "Create or update a PR-scoped secret",
-                description:
-                    "PR-scoped secrets override the baseline at deploy time. Typical use: the client's CI creates a Neon branch per PR and writes the connection string here before the preview deploys.",
-                parameters: [ownerParam, appParam, prParam, keyParam],
+                tags: ["Secrets"],
+                summary: "Upsert a single key in the AWS SM bundle",
+                parameters: [applicationIdParam, appParam, keyParam],
                 requestBody: {
                     required: true,
                     content: {
@@ -250,25 +229,35 @@ export const openApiSpec = {
                     },
                 },
                 responses: {
-                    "200": { description: "Secret saved", content: savedPrResponse },
+                    "200": {
+                        description: "Key saved",
+                        content: {
+                            "application/json": { schema: { $ref: "#/components/schemas/SecretMutationResponse" } },
+                        },
+                    },
                     "400": {
-                        description: "Invalid body or pr parameter",
+                        description: "Invalid body",
+                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    },
+                    "404": {
+                        description: "Application not found",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                 },
             },
             delete: {
-                tags: ["Secrets (PR-scoped)"],
-                summary: "Delete a PR-scoped secret",
-                parameters: [ownerParam, appParam, prParam, keyParam],
+                tags: ["Secrets"],
+                summary: "Delete a single key from the AWS SM bundle",
+                parameters: [applicationIdParam, appParam, keyParam],
                 responses: {
-                    "200": { description: "Secret deleted", content: savedPrResponse },
-                    "400": {
-                        description: "pr must be a positive integer",
-                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    "200": {
+                        description: "Key deleted",
+                        content: {
+                            "application/json": { schema: { $ref: "#/components/schemas/SecretMutationResponse" } },
+                        },
                     },
                     "404": {
-                        description: "Secret not found",
+                        description: "Bundle or key not found",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                 },
@@ -276,6 +265,14 @@ export const openApiSpec = {
         },
     },
     components: {
+        securitySchemes: {
+            bearerAuth: {
+                type: "http",
+                scheme: "bearer",
+                description:
+                    "Autonoma API key (`Authorization: Bearer <key>`) for external callers, or the service shared secret for internal autonoma-to-previewkit calls. /health is exempt; every other route requires this.",
+            },
+        },
         schemas: {
             HealthResponse: {
                 type: "object",
@@ -345,50 +342,68 @@ export const openApiSpec = {
                 },
                 required: ["repoFullName", "prNumber", "status", "urls"],
             },
+            SecretItem: {
+                type: "object",
+                properties: {
+                    key: { type: "string", example: "STRIPE_API_KEY" },
+                    value: { type: "string", example: "sk_live_..." },
+                },
+                required: ["key", "value"],
+            },
+            SecretItemsRequest: {
+                type: "object",
+                properties: {
+                    items: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/SecretItem" },
+                        minItems: 1,
+                    },
+                },
+                required: ["items"],
+            },
             SecretValueRequest: {
                 type: "object",
-                properties: { value: { type: "string", example: "postgres://..." } },
+                properties: { value: { type: "string", example: "sk_live_..." } },
                 required: ["value"],
+            },
+            SecretSummary: {
+                type: "object",
+                description: "Key metadata; values are never returned.",
+                properties: {
+                    key: { type: "string" },
+                    maskedLength: { type: "integer", description: "Length of the stored value, capped at 32." },
+                    updatedAt: { type: "string", format: "date-time" },
+                },
+                required: ["key", "maskedLength", "updatedAt"],
             },
             SecretKeysResponse: {
                 type: "object",
                 properties: {
-                    owner: { type: "string" },
+                    applicationId: { type: "string" },
                     app: { type: "string" },
-                    keys: { type: "array", items: { type: "string" } },
+                    keys: { type: "array", items: { $ref: "#/components/schemas/SecretSummary" } },
                 },
-                required: ["owner", "app", "keys"],
-            },
-            PrSecretKeysResponse: {
-                type: "object",
-                properties: {
-                    owner: { type: "string" },
-                    app: { type: "string" },
-                    pr: { type: "integer" },
-                    keys: { type: "array", items: { type: "string" } },
-                },
-                required: ["owner", "app", "pr", "keys"],
+                required: ["applicationId", "app", "keys"],
             },
             SecretMutationResponse: {
                 type: "object",
                 properties: {
-                    owner: { type: "string" },
+                    applicationId: { type: "string" },
                     app: { type: "string" },
                     key: { type: "string" },
                     status: { type: "string", enum: ["saved", "deleted"] },
                 },
-                required: ["owner", "app", "key", "status"],
+                required: ["applicationId", "app", "key", "status"],
             },
-            PrSecretMutationResponse: {
+            SecretBatchResponse: {
                 type: "object",
                 properties: {
-                    owner: { type: "string" },
+                    applicationId: { type: "string" },
                     app: { type: "string" },
-                    pr: { type: "integer" },
-                    key: { type: "string" },
-                    status: { type: "string", enum: ["saved", "deleted"] },
+                    status: { type: "string", enum: ["saved"] },
+                    count: { type: "integer", description: "Number of items merged into the bundle." },
                 },
-                required: ["owner", "app", "pr", "key", "status"],
+                required: ["applicationId", "app", "status", "count"],
             },
         },
     },
