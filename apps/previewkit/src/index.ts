@@ -169,7 +169,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         teardownPipeline,
         deployer,
         secretsService,
-        serviceSecret: env.PREVIEWKIT_SERVICE_SECRET,
+        serviceSecret: env.AUTONOMA_SERVICE_SECRET,
     });
 
     const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
