@@ -48,11 +48,23 @@ export function buildHealingActionTools(
         collector.handledTestCaseIds.add(testCaseId);
     }
 
+    function rejectIfHandled(testCaseId: string) {
+        if (!collector.handledTestCaseIds.has(testCaseId)) return undefined;
+        const prior = collector.actions.find((a) => actionTestCaseId(a) === testCaseId);
+        const priorKind = prior?.kind ?? "unknown";
+        return {
+            recorded: false,
+            error: `testCase ${testCaseId} already has an action this iteration (${priorKind}). Each failure gets exactly one action - pick the most appropriate and drop the others.`,
+        };
+    }
+
     const update_plan = tool({
         description:
             "Update a failing test's plan prompt. Use when the plan instruction is wrong (stale after code change, plan_mismatch verdict, or too vague). The loop re-queues a generation with the new prompt next iteration.",
         inputSchema: updatePlanInputSchema,
         execute: (input) => {
+            const rejected = rejectIfHandled(input.testCaseId);
+            if (rejected != null) return rejected;
             collector.actions.push({ kind: "update_plan", ...input });
             markHandled(input.testCaseId);
             return { recorded: true };
@@ -64,6 +76,8 @@ export function buildHealingActionTools(
             "Report a confirmed application bug. Atomic: creates an Issue, links to an existing Bug or creates a new one, and quarantines the test case for this snapshot. The apply layer dedupes against existing bugs and against your other report_bug calls in this batch - just describe each bug you find.",
         inputSchema: reportBugInputSchema,
         execute: (input) => {
+            const rejected = rejectIfHandled(input.testCaseId);
+            if (rejected != null) return rejected;
             collector.actions.push({ kind: "report_bug", ...input });
             markHandled(input.testCaseId);
             return { recorded: true };
@@ -75,6 +89,8 @@ export function buildHealingActionTools(
             "Report that the engine/agent cannot drive this scenario and there's no plan workaround. Atomic: creates an Issue with kind=engine_limitation and quarantines the test case for this snapshot.",
         inputSchema: reportEngineLimitationInputSchema,
         execute: (input) => {
+            const rejected = rejectIfHandled(input.testCaseId);
+            if (rejected != null) return rejected;
             collector.actions.push({ kind: "report_engine_limitation", ...input });
             markHandled(input.testCaseId);
             return { recorded: true };
@@ -86,6 +102,8 @@ export function buildHealingActionTools(
             "Permanently remove a test from the suite because the feature it covered no longer exists in the application. Suite-level delete, not a per-snapshot quarantine.",
         inputSchema: removeTestInputSchema,
         execute: (input) => {
+            const rejected = rejectIfHandled(input.testCaseId);
+            if (rejected != null) return rejected;
             collector.actions.push({ kind: "remove_test", ...input });
             markHandled(input.testCaseId);
             return { recorded: true };
@@ -107,4 +125,9 @@ export function buildHealingActionTools(
     }
 
     return tools;
+}
+
+function actionTestCaseId(a: HealingAction): string | undefined {
+    if (a.kind === "add_test") return undefined;
+    return a.testCaseId;
 }
