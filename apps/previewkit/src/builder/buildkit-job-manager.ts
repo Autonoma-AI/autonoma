@@ -18,7 +18,6 @@ const DEFAULT_READINESS_TIMEOUT_MS = 90_000;
 // previewkit pipeline normally calls release() on completion, so this is only
 // a backstop for previewkit crashes mid-build.
 const TTL_SECONDS_AFTER_FINISHED = 600;
-const BUILDER_SERVICE_ACCOUNT = "previewkit-builder";
 
 interface BuildKitJobManagerOptions {
     kc: k8s.KubeConfig;
@@ -27,6 +26,9 @@ interface BuildKitJobManagerOptions {
     namespace: string;
     /** Image with the buildkitd daemon. */
     image: string;
+    /** ServiceAccount the build pods run as. Must exist in `namespace` and
+     *  carry the IRSA annotation for S3 cache access. */
+    serviceAccountName: string;
     /** Hard upper bound on a single Job (seconds). Passed straight to
      *  Job.spec.activeDeadlineSeconds so K8s self-terminates stuck builds
      *  even if previewkit crashed before calling release(). */
@@ -173,7 +175,7 @@ export class BuildKitJobManager {
                     metadata: { labels },
                     spec: {
                         restartPolicy: "Never",
-                        serviceAccountName: BUILDER_SERVICE_ACCOUNT,
+                        serviceAccountName: this.options.serviceAccountName,
                         affinity: {
                             podAntiAffinity: {
                                 // Soft preference - the scheduler tries to put

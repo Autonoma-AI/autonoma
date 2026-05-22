@@ -82,6 +82,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         kc: localKc,
         namespace: env.BUILDKIT_BUILD_NAMESPACE,
         image: env.BUILDKIT_IMAGE,
+        serviceAccountName: env.BUILDKIT_BUILDER_SERVICE_ACCOUNT,
         activeDeadlineSeconds: Math.ceil(env.BUILD_TIMEOUT_MS / 1000) + 60,
     });
 

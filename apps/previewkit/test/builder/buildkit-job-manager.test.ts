@@ -135,6 +135,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -154,6 +155,9 @@ describe("BuildKitJobManager", () => {
         expect(job.spec?.activeDeadlineSeconds).toBe(1860);
         expect(job.spec?.template.spec?.containers[0]?.image).toBe("moby/buildkit:v0.21.1");
         expect(job.spec?.template.spec?.containers[0]?.securityContext?.privileged).toBe(true);
+        // SA used by the pod must match the operator's manifest, not a
+        // hardcoded string in the source.
+        expect(job.spec?.template.spec?.serviceAccountName).toBe("buildkitd");
         // Soft anti-affinity so one build pod per node where possible.
         const antiAffinity =
             job.spec?.template.spec?.affinity?.podAntiAffinity?.preferredDuringSchedulingIgnoredDuringExecution;
@@ -177,6 +181,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -202,6 +207,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -217,6 +223,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:doesnotexist",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -246,6 +253,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -269,6 +277,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -289,6 +298,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 
@@ -306,6 +316,7 @@ describe("BuildKitJobManager", () => {
             kc,
             namespace: "previewkit-builds",
             image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
         });
 

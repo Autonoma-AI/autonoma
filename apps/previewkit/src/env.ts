@@ -22,8 +22,15 @@ export const env = createEnv({
         // BUILDKIT_BUILD_NAMESPACE using BUILDKIT_IMAGE. The Job runs in
         // the same cluster as previewkit; previewkit connects to it by
         // in-cluster DNS, so no static endpoint is configured here.
-        BUILDKIT_BUILD_NAMESPACE: z.string().default("previewkit-builds"),
+        //
+        // BUILDKIT_BUILDER_SERVICE_ACCOUNT is the SA each build pod runs
+        // as. It needs IRSA for the S3 cache bucket and lives in the same
+        // namespace as the Jobs. The default "buildkitd" matches the SA
+        // in deployment/previewkit/builds-namespace.yaml; override if your
+        // cluster uses a different name.
+        BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
         BUILDKIT_IMAGE: z.string().default("moby/buildkit:v0.21.1"),
+        BUILDKIT_BUILDER_SERVICE_ACCOUNT: z.string().default("buildkitd"),
         BUILD_TIMEOUT_MS: z.coerce.number().default(1_800_000), // 30 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
