@@ -10,21 +10,13 @@ const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
 const LABEL_TYPE = "previewkit.dev/type";
 const LABEL_BUILD_ID = "previewkit.dev/build-id";
 const BUILDKIT_PORT = 1234;
-// 16 hex chars (8 random bytes) is plenty for collision-free naming without
-// padding the K8s resource name beyond the 63-char DNS label limit.
 const BUILD_ID_BYTES = 8;
+const BUILD_NODE_POOL = "buildkit";
 const READINESS_POLL_INTERVAL_MS = 500;
 const DEFAULT_READINESS_TIMEOUT_MS = 90_000;
-// Per-dial timeout for the post-Ready TCP probe. The connect should complete
-// in low single-digit milliseconds in-cluster; this is just an outer bound.
 const DIAL_TIMEOUT_MS = 2_000;
-// Total budget for the kube-proxy / endpoints lag after Pod.status.Ready
-// flips True. In practice this is sub-second; 30s is room to spare.
 const DIAL_RETRY_BUDGET_MS = 30_000;
 const DIAL_RETRY_INTERVAL_MS = 500;
-// Auto-clean completed Jobs from the cluster after this many seconds. The
-// previewkit pipeline normally calls release() on completion, so this is only
-// a backstop for previewkit crashes mid-build.
 const TTL_SECONDS_AFTER_FINISHED = 600;
 
 interface BuildKitJobManagerOptions {
@@ -234,6 +226,11 @@ export class BuildKitJobManager {
                     spec: {
                         restartPolicy: "Never",
                         serviceAccountName: this.options.serviceAccountName,
+                        nodeSelector: {
+                            "kubernetes.io/arch": "amd64",
+                            pool: BUILD_NODE_POOL,
+                        },
+                        tolerations: [{ key: "pool", operator: "Equal", value: BUILD_NODE_POOL, effect: "NoSchedule" }],
                         affinity: {
                             podAntiAffinity: {
                                 // Soft preference - the scheduler tries to put

@@ -590,9 +590,12 @@ export class PreviewPipeline {
         const start = Date.now();
         try {
             if (app.build_secrets.length > 0 && !ctx.arnByApp.has(app.name)) {
+                const registered = [...ctx.arnByApp.keys()].sort();
+                const registeredList = registered.length > 0 ? registered.join(", ") : "(none)";
                 throw new Error(
-                    `App "${app.name}" declares build_secrets but no PreviewkitSecret is registered for it. ` +
-                        `Register a PreviewkitSecret row with appName="${app.name}" pointing at the app's AWS SM ARN.`,
+                    `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it in the registry. ` +
+                        `Registered appNames for this Application: ${registeredList}. ` +
+                        `Upsert a secret via PUT /v1/secrets/<applicationId>/${app.name} (or the autonoma dashboard) so the AWS Secrets Manager bundle is linked to this appName.`,
                 );
             }
 

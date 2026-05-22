@@ -163,6 +163,17 @@ describe("BuildKitJobManager", () => {
         // SA used by the pod must match the operator's manifest, not a
         // hardcoded string in the source.
         expect(job.spec?.template.spec?.serviceAccountName).toBe("buildkitd");
+        // Pin to the buildkit Karpenter pool (amd64-only, NoSchedule-tainted).
+        // Without the toleration, the pod would never schedule; without the
+        // arch / pool labels, it could land on a Graviton or generic worker
+        // pool and buildctl would hang on platform-mismatch.
+        expect(job.spec?.template.spec?.nodeSelector).toEqual({
+            "kubernetes.io/arch": "amd64",
+            pool: "buildkit",
+        });
+        expect(job.spec?.template.spec?.tolerations).toEqual([
+            { key: "pool", operator: "Equal", value: "buildkit", effect: "NoSchedule" },
+        ]);
         // Soft anti-affinity so one build pod per node where possible.
         const antiAffinity =
             job.spec?.template.spec?.affinity?.podAntiAffinity?.preferredDuringSchedulingIgnoredDuringExecution;
