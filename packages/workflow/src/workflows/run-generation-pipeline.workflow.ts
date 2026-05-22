@@ -1,4 +1,4 @@
-import { executeChild, log, proxyActivities } from "@temporalio/workflow";
+import { executeChild, log, ParentClosePolicy, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, RunGenerationPipelineInput } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -70,6 +70,7 @@ export async function runGenerationPipelineWorkflow(input: RunGenerationPipeline
             executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
                 workflowId: `run-replay-${run.runId}`,
                 taskQueue: TaskQueue.GENERAL,
+                parentClosePolicy: ParentClosePolicy.REQUEST_CANCEL,
                 args: [{ runId: run.runId, architecture: run.architecture, scenarioId: run.scenarioId }],
             }),
         ),

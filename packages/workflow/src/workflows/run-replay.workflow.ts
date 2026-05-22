@@ -1,4 +1,4 @@
-import { log, proxyActivities } from "@temporalio/workflow";
+import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -50,19 +50,26 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
     } catch (error) {
         const reason = error instanceof Error ? error.message : "Replay failed";
         log.error("Run replay failed, marking as failed", { runId, reason });
-        await general.markRunFailed({ runId, reason });
+        await CancellationScope.nonCancellable(() => general.markRunFailed({ runId, reason }));
         throw error;
     } finally {
         // Step 3: After replay completes (or fails), run cleanup in parallel.
         // Use allSettled so that a failure in one step does not prevent the others
         // from executing - e.g. a scenarioDown failure must not skip reviewReplay.
-        const postSteps: Promise<unknown>[] = [general.reviewReplay({ runId })];
+        const cancelled = CancellationScope.current().consideredCancelled;
+        await CancellationScope.nonCancellable(async () => {
+            const postSteps: Promise<unknown>[] = [];
 
-        if (scenarioInstanceId != null) {
-            postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
-        }
+            if (!cancelled) {
+                postSteps.push(general.reviewReplay({ runId }));
+            }
 
-        await Promise.allSettled(postSteps);
+            if (scenarioInstanceId != null) {
+                postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
+            }
+
+            await Promise.allSettled(postSteps);
+        });
     }
 }
 

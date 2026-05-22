@@ -1,4 +1,4 @@
-import { executeChild, log, proxyActivities } from "@temporalio/workflow";
+import { executeChild, log, ParentClosePolicy, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { TestPlanItem, WorkflowArchitecture } from "../types";
@@ -24,6 +24,7 @@ export async function batchGenerationWorkflow(input: BatchGenerationInput): Prom
         testPlans.map((plan) =>
             executeChild(singleGenerationWorkflow, {
                 workflowId: `generation-${plan.testGenerationId}`,
+                parentClosePolicy: ParentClosePolicy.REQUEST_CANCEL,
                 args: [
                     {
                         testGenerationId: plan.testGenerationId,

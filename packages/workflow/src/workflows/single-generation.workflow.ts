@@ -1,4 +1,4 @@
-import { log, proxyActivities } from "@temporalio/workflow";
+import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -41,10 +41,12 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
         } catch (error) {
             const reason = error instanceof Error ? error.message : "Scenario setup failed";
             log.error("Scenario setup failed", { testGenerationId, scenarioId, reason });
-            await general.markGenerationFailed({
-                testGenerationId,
-                reason: `Scenario setup failed: ${reason}`,
-            });
+            await CancellationScope.nonCancellable(() =>
+                general.markGenerationFailed({
+                    testGenerationId,
+                    reason: `Scenario setup failed: ${reason}`,
+                }),
+            );
             throw error;
         }
     } else {
@@ -56,19 +58,23 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     } catch (error) {
         const reason = error instanceof Error ? error.message : "Execution failed";
         log.error("Generation execution failed, marking as failed", { testGenerationId, reason });
-        await general.markGenerationFailed({ testGenerationId, reason });
+        await CancellationScope.nonCancellable(() => general.markGenerationFailed({ testGenerationId, reason }));
         throw error;
     } finally {
-        const postSteps: Promise<unknown>[] = [
-            general.notifyGenerationExit({ testGenerationId }),
-            general.reviewGeneration({ generationId: testGenerationId }),
-        ];
+        const cancelled = CancellationScope.current().consideredCancelled;
+        await CancellationScope.nonCancellable(async () => {
+            const postSteps: Promise<unknown>[] = [general.notifyGenerationExit({ testGenerationId })];
 
-        if (scenarioInstanceId != null) {
-            postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
-        }
+            if (!cancelled) {
+                postSteps.push(general.reviewGeneration({ generationId: testGenerationId }));
+            }
 
-        await Promise.allSettled(postSteps);
+            if (scenarioInstanceId != null) {
+                postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
+            }
+
+            await Promise.allSettled(postSteps);
+        });
     }
 }
 
