@@ -11,6 +11,14 @@ Structured logging package for all Autonoma backend services. Wraps Sentry for p
 | `createSentryConfig` | Builds a `@sentry/node` `NodeOptions` config from a scope config |
 | `runWithSentry` | Initializes Sentry + runs an async job with proper flush and exit handling |
 | `RunWithSentryOptions` | Options type for `runWithSentry` |
+| `ObservabilityContext` | Typed interface listing every canonical log/observability field name |
+| `ObservabilityContextSchema` | Zod schema that backs `ObservabilityContext` - source of truth for what's canonical |
+| `withObservabilityContext` | Bind a set of canonical IDs to the current async scope (AsyncLocalStorage) |
+| `getObservabilityContext` | Read the currently-bound canonical IDs |
+| `extendObservabilityContext` | Merge additional fields into the current scope (no-op outside one) |
+| `pickObservabilityContext` | Zod-validate and pick canonical fields off an unknown shape |
+| `OBSERVABILITY_CONTEXT_KEYS` | Tuple of every canonical field name |
+| `LogExtra` | Payload type for `logger.{info,warn,error,debug}` calls (canonical fields + `extra`) |
 
 A secondary export path `@autonoma/logger/env` exposes the validated environment config.
 
@@ -86,6 +94,107 @@ Sentry.init(createSentryConfig({
     contextName: "api",
     tags: { service: "api" },
 }));
+```
+
+## Canonical observability context
+
+Every log line, Sentry tag, and PostHog event property emitted from the backend
+should carry the same set of camelCase IDs. The canonical schema lives in
+`observability-context.ts` and is the only place where field names are added or
+renamed.
+
+### Rules
+
+- All canonical IDs are **camelCase**. No `snake_case`.
+- Fields live inside atomic **groups** (`temporal`, `organization`, `application`,
+  `branch`, `snapshot`, `refinementLoop`, `refinementIteration`, `testCase`,
+  `testGeneration`, `run`, `job`). Each group is optional, but if you include a
+  group, all of its required fields must be present. You can't have a workflow
+  context with `workflowId` but no `temporalRunId`.
+- One concept, one name. Never both `runId` and `run_id`; never both
+  `iteration` and `iterationNumber`.
+- Add a field to a group in `ObservabilityContextSchema` before using it. Don't
+  invent new keys at call sites.
+- Anything that is not a canonical ID goes under `extra:` in the log payload.
+
+Internally the context is **stored nested** (groups in ALS) and **emitted
+flat** (single-level keys on Sentry tags / log records / PostHog properties),
+so consumers downstream still see `snapshotId`, `branchId`, `workflowId` as
+top-level keys.
+
+### Ambient context with AsyncLocalStorage
+
+Wrap an entry point (Temporal activity, job, request handler) in
+`withObservabilityContext({ ... })` once. Every `logger.*` call inside that
+scope automatically gets those fields - including from deeply nested functions,
+across `await` boundaries, and from `child()` loggers.
+
+```ts
+import { logger, withObservabilityContext, extendObservabilityContext } from "@autonoma/logger";
+
+await withObservabilityContext(
+    { snapshot: { snapshotId }, job: { jobName: "diffs" } },
+    async () => {
+        logger.info("Starting diffs analysis"); // emits snapshotId + jobName
+
+        const branchId = await loadBranchId(snapshotId);
+        extendObservabilityContext({ branch: { branchId } }); // adds branchId
+
+        logger.info("Branch loaded"); // emits snapshotId + jobName + branchId
+    },
+);
+```
+
+### Temporal integration
+
+Workers built with `@autonoma/workflow/worker` install an activity interceptor
+that:
+
+1. Sets the canonical Temporal IDs (`workflowId`, `temporalRunId`,
+   `workflowType`, `taskQueue`, `activityType`, `activityId`, `attempt`).
+2. Calls `loadSnapshotObservabilityContext(snapshotId)` if the activity input
+   has a `snapshotId`, to derive `branchId`, `applicationId`, `organizationId`,
+   `headSha`, `baseSha`, `prevSnapshotId`, `prNumber` in one Prisma query.
+3. Picks up any other canonical ID present directly on the activity input
+   (`iterationId`, `loopId`, `testGenerationId`, `runId`, ...).
+
+After that, an activity body can just do `logger.info("did the thing")` and
+every relevant ID shows up in the log, in Sentry tags, and in any PostHog
+event captured during the activity.
+
+For workflow code (which can't use ALS or Prisma), use the raw `log` from
+`@temporalio/workflow` and pass canonical IDs as the meta arg. The worker
+installs `temporalSdkLogger` (`packages/workflow/src/worker/temporal-sdk-logger.ts`)
+on the Temporal Runtime, which forwards every workflow log call to
+`BackendLogger` -> Sentry + PostHog + console. Temporal also auto-injects
+`workflowId`, `runId` (remapped to `temporalRunId`), `taskQueue`, and
+`workflowType`, so the only thing the workflow needs to add is the domain IDs.
+
+```ts
+import { log } from "@temporalio/workflow";
+
+export async function myWorkflow(input) {
+    log.info("Workflow started", { snapshot: { snapshotId: input.snapshotId } });
+    // Sentry event includes: snapshotId, workflowId, temporalRunId, taskQueue, workflowType
+}
+```
+
+### Don't pass IDs by hand
+
+```ts
+// BAD - ambient context already provides snapshotId/branchId/applicationId
+logger.child({ name: "AnalyzeDiffs", snapshotId, branchId, applicationId }).info("starting");
+
+// GOOD - name binds the class, IDs come from the ambient context
+logger.child({ name: "AnalyzeDiffs" }).info("starting");
+```
+
+```ts
+// BAD - ad-hoc fields at the top level pollute the canonical namespace
+logger.info("Generation queue prepared", { count: prepared.length });
+
+// GOOD - extra: bag for anything non-canonical
+logger.info("Generation queue prepared", { extra: { count: prepared.length } });
 ```
 
 ## Log levels

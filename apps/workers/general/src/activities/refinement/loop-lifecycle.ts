@@ -43,7 +43,7 @@ import type {
  * value to remain invisible.
  */
 export async function initRefinementLoop(input: InitRefinementLoopInput): Promise<InitRefinementLoopOutput> {
-    const logger = rootLogger.child({ name: "initRefinementLoop", snapshotId: input.snapshotId });
+    const logger = rootLogger.child({ name: "initRefinementLoop" });
     logger.info("Initializing refinement loop", { triggeredBy: input.triggeredBy });
 
     // Snapshot-level metadata (org, branch) is immutable for a snapshot's lifetime;
@@ -102,8 +102,9 @@ export async function initRefinementLoop(input: InitRefinementLoopInput): Promis
 
         logger.info("Refinement loop initialized", {
             loopId: loop.id,
-            firstIterationId: iteration.id,
-            inputCount: planIds.length,
+            iterationId: iteration.id,
+            organizationId: updater.organizationId,
+            extra: { inputCount: planIds.length },
         });
 
         return {
@@ -117,7 +118,7 @@ export async function initRefinementLoop(input: InitRefinementLoopInput): Promis
 
 /** Transitions an iteration to running. Called at the top of the iter body. */
 export async function markRefinementIterationRunning(input: MarkRefinementIterationRunningInput): Promise<void> {
-    const logger = rootLogger.child({ name: "markRefinementIterationRunning", iterationId: input.iterationId });
+    const logger = rootLogger.child({ name: "markRefinementIterationRunning" });
     logger.info("Marking iteration as running");
     await db.refinementIteration.update({
         where: { id: input.iterationId },

@@ -31,14 +31,10 @@ import { uploadHealingConversation } from "./upload-conversation";
 export async function runHealingAgentForRefinement(
     input: RunHealingAgentForRefinementInput,
 ): Promise<RunHealingAgentForRefinementOutput> {
-    const logger = rootLogger.child({
-        name: "runHealingAgentForRefinement",
-        snapshotId: input.snapshotId,
-        iterationId: input.iterationId,
-        iteration: input.iteration,
-    });
+    const logger = rootLogger.child({ name: "runHealingAgentForRefinement" });
     logger.info("Starting refinement healing run", {
-        failureCount: input.failuresAtGeneration.length + input.failuresAtReplay.length,
+        iterationNumber: input.iteration,
+        extra: { failureCount: input.failuresAtGeneration.length + input.failuresAtReplay.length },
     });
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
@@ -89,7 +85,7 @@ export async function runHealingAgentForRefinement(
             storage: S3Storage.createFromEnv(),
             iterationId: input.iterationId,
             conversation: result.conversation,
-            logger: logger.child({ name: "uploadHealingConversation", iterationId: input.iterationId }),
+            logger: logger.child({ name: "uploadHealingConversation" }),
         });
         if (conversationUrl != null) {
             await db.refinementIteration.update({
@@ -99,8 +95,7 @@ export async function runHealingAgentForRefinement(
         }
 
         logger.info("Refinement healing run finished", {
-            actionCount: persisted.length,
-            modelUsage: registry.modelUsage,
+            extra: { actionCount: persisted.length, modelUsage: registry.modelUsage },
         });
 
         return { persistedActions: persisted, reasoning: result.reasoning };

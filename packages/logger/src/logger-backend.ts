@@ -12,6 +12,7 @@ import {
 import type { ConsoleLogger } from "./console-logger";
 import { consoleLogger } from "./console-logger";
 import { env } from "./env";
+import { flattenObservabilityContext, getObservabilityContext } from "./observability-context";
 import { type HandledError, SentryLogger, asError } from "./sentry-logger";
 
 export class BackendLogger extends SentryLogger {
@@ -47,16 +48,19 @@ export class BackendLogger extends SentryLogger {
     }
 
     captureLog(message: string, level: SeverityLevel, extra?: Record<string, unknown>, error?: HandledError): void {
+        const flatObservability = flattenObservabilityContext(getObservabilityContext());
         const combinedData: Record<string, unknown> = shouldUseSentry()
             ? {
                   ...getCurrentScope().getScopeData().tags,
                   ...getCurrentScope().getScopeData().extra,
+                  ...flatObservability,
                   ...this.bindings,
                   ...extra,
               }
-            : { ...this.bindings, ...extra };
+            : { ...flatObservability, ...this.bindings, ...extra };
 
         if (shouldUseSentry()) {
+            applyObservabilityTags(flatObservability);
             const errorObj: Error | undefined = error ? asError(error) : undefined;
             if (errorObj) {
                 if ("digest" in errorObj) combinedData.digest = errorObj.digest as string;
@@ -100,15 +104,24 @@ export class BackendLogger extends SentryLogger {
 
     captureException(error: HandledError): void {
         const errorObject = asError(error);
+        const flatObservability = flattenObservabilityContext(getObservabilityContext());
         if (shouldUseSentry()) {
             withScope((scope) => {
+                for (const [key, value] of Object.entries(flatObservability)) {
+                    if (value == null) continue;
+                    scope.setTag(key, String(value));
+                    scope.setExtra(key, value);
+                }
                 for (const [key, value] of Object.entries(this.bindings)) scope.setExtra(key, value);
 
                 scope.setExtra("message", `Exception captured: ${errorObject?.message}`);
                 captureException(error);
             });
         }
-        this.structuredLogger.error({ err: error, ...this.bindings }, `Exception captured: ${errorObject?.message}`);
+        this.structuredLogger.error(
+            { err: error, ...flatObservability, ...this.bindings },
+            `Exception captured: ${errorObject?.message}`,
+        );
     }
 
     setUser(user: User): void {
@@ -196,4 +209,10 @@ export async function setSentryUserContext(user: {
 
 function shouldUseSentry(): boolean {
     return env.NODE_ENV === "production";
+}
+
+function applyObservabilityTags(flat: Record<string, string | number>): void {
+    for (const [key, value] of Object.entries(flat)) {
+        setTag(key, String(value));
+    }
 }

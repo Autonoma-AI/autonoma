@@ -1,13 +1,12 @@
-import { Badge, Button, Skeleton } from "@autonoma/blacklight";
+import { Badge, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { Temporal } from "components/icons/temporal";
+import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { DiffsTimeline } from "components/snapshot/diffs-timeline";
 import type { DiffsJobStatus } from "components/snapshot/diffs-timeline-types";
 import { QuarantinedTestsSection } from "components/snapshot/quarantined-tests-section";
 import { ShaRange } from "components/snapshot/sha-range";
-import { env } from "env";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureSnapshotDetailData, useSnapshotDetail } from "lib/query/branches.queries";
@@ -42,12 +41,6 @@ function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { isAdmin } = useAuth();
   const { snapshot, changes, diffsJob, quarantinedTests } = data;
 
-  const temporalBaseUrl = env.VITE_TEMPORAL_URL?.replace(/\/$/, "");
-  const temporalUrl =
-    temporalBaseUrl != null && diffsJob.temporalWorkflow != null
-      ? `${temporalBaseUrl}/namespaces/${env.VITE_TEMPORAL_NAMESPACE}/workflows/${diffsJob.temporalWorkflow.workflowId}/${diffsJob.temporalWorkflow.runId}`
-      : undefined;
-
   return (
     <>
       <PageHeader prNumber={prNumber}>
@@ -58,12 +51,11 @@ function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; sna
             diffs: {diffsJob.status}
           </Badge>
           <span className="text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
-          {isAdmin && temporalUrl != null && (
-            <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm" className="size-7 p-0">
-                <Temporal className="size-4" />
-              </Button>
-            </a>
+          {isAdmin && diffsJob.temporalWorkflow != null && (
+            <>
+              <TemporalLink workflowId={diffsJob.temporalWorkflow.workflowId} runId={diffsJob.temporalWorkflow.runId} />
+              <SentryLogsLink filterField="snapshotId" filterValue={snapshot.id} />
+            </>
           )}
         </div>
       </PageHeader>

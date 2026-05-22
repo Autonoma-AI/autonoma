@@ -1,3 +1,4 @@
+import { getObservabilityContext } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { PostHog } from "posthog-node";
 
@@ -12,7 +13,12 @@ export class PostHogAnalytics {
         const span = Sentry.getActiveSpan();
         const traceId = span != null ? Sentry.spanToJSON(span).trace_id : undefined;
 
-        const enriched = traceId != null ? { ...properties, $sentry_trace_id: traceId } : properties;
+        const observabilityCtx = getObservabilityContext();
+        const enriched: Record<string, unknown> = {
+            ...observabilityCtx,
+            ...properties,
+            ...(traceId != null && { $sentry_trace_id: traceId }),
+        };
 
         this.client?.capture({ distinctId, event, properties: enriched });
     }

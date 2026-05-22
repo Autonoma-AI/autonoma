@@ -7,7 +7,7 @@ import type { AnalyzeDiffsInput, AnalyzeDiffsOutput, PreparedRunInfo } from "@au
 import { Context } from "@temporalio/activity";
 
 export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput> {
-    const logger = rootLogger.child({ name: "analyzeDiffs", snapshotId });
+    const logger = rootLogger.child({ name: "analyzeDiffs" });
     logger.info("Starting diffs analysis");
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
@@ -31,10 +31,12 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
         const combinedAffectedTests = Array.from(combinedAffectedTestsBySlug.values());
 
         logger.info("Agent analysis complete, persisting state and preparing runs", {
-            agentAffectedTests: analysisResult.affectedTests.length,
-            importedAffectedTests: analysisResult.importedAffectedTests.length,
-            combined: combinedAffectedTests.length,
-            testCandidates: analysisResult.testCandidates.length,
+            extra: {
+                agentAffectedTests: analysisResult.affectedTests.length,
+                importedAffectedTests: analysisResult.importedAffectedTests.length,
+                combined: combinedAffectedTests.length,
+                testCandidates: analysisResult.testCandidates.length,
+            },
         });
 
         const { branch } = await db.branchSnapshot.findUniqueOrThrow({
@@ -80,8 +82,10 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
         });
 
         logger.info("Diffs analysis activity completed", {
-            preparedRuns: preparedRunInfos.length,
-            reasoning: analysisResult.reasoning.slice(0, 200),
+            extra: {
+                preparedRuns: preparedRunInfos.length,
+                reasoning: analysisResult.reasoning.slice(0, 200),
+            },
         });
 
         return { replays: preparedRunInfos };

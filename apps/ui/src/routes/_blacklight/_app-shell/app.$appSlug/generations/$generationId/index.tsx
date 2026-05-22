@@ -22,9 +22,8 @@ import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
 import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
-import { Temporal } from "components/icons";
+import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
-import { env } from "env";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureGenerationDetailData, useGenerationDetail } from "lib/query/generations.queries";
@@ -73,11 +72,6 @@ function GenerationDetailPage() {
 
   const status = generation.status as GenerationStatus;
   const isActive = status === "queued" || status === "running";
-  const temporalBaseUrl = env.VITE_TEMPORAL_URL?.replace(/\/$/, "");
-  const temporalUrl =
-    temporalBaseUrl != null && generation.temporalWorkflow != null
-      ? `${temporalBaseUrl}/namespaces/${env.VITE_TEMPORAL_NAMESPACE}/workflows/${generation.temporalWorkflow.workflowId}/${generation.temporalWorkflow.runId}`
-      : undefined;
 
   const review = generation.review;
   const reviewStatus = review?.status;
@@ -147,12 +141,14 @@ function GenerationDetailPage() {
                 {reviewStatus === "failed" ? "Retry review" : "Review"}
               </Button>
             )}
-            {isAdmin && temporalUrl != null && (
-              <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="size-7 p-0">
-                  <Temporal className="size-4" />
-                </Button>
-              </a>
+            {isAdmin && generation.temporalWorkflow != null && (
+              <>
+                <TemporalLink
+                  workflowId={generation.temporalWorkflow.workflowId}
+                  runId={generation.temporalWorkflow.runId}
+                />
+                <SentryLogsLink filterField="testGenerationId" filterValue={generation.id} />
+              </>
             )}
             <Button
               variant={showPlan ? "default" : "outline"}

@@ -1,4 +1,4 @@
-import { logger } from "@autonoma/logger";
+import { logger, withObservabilityContext } from "@autonoma/logger";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
@@ -14,18 +14,20 @@ export interface TriggerRefinementLoopParams {
 export async function triggerRefinementLoop(params: TriggerRefinementLoopParams): Promise<void> {
     const { snapshotId, triggeredBy, maxIterations } = params;
 
-    logger.info("Triggering refinement loop workflow", { snapshotId, triggeredBy });
+    return await withObservabilityContext({ snapshot: { snapshotId } }, async () => {
+        logger.info("Triggering refinement loop workflow");
 
-    const client = await getTemporalClient();
-    const workflowId = `refinement-loop-${snapshotId}`;
+        const client = await getTemporalClient();
+        const workflowId = `refinement-loop-${snapshotId}`;
 
-    await client.workflow.start(WORKFLOW_TYPE.REFINEMENT_LOOP, {
-        workflowId,
-        workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.GENERAL,
-        searchAttributes: getWorkflowSearchAttributes(),
-        args: [{ snapshotId, triggeredBy, maxIterations }],
+        await client.workflow.start(WORKFLOW_TYPE.REFINEMENT_LOOP, {
+            workflowId,
+            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
+            taskQueue: TaskQueue.GENERAL,
+            searchAttributes: getWorkflowSearchAttributes(),
+            args: [{ snapshotId, triggeredBy, maxIterations }],
+        });
+
+        logger.info("Refinement loop workflow started", { workflowId });
     });
-
-    logger.info("Refinement loop workflow started", { workflowId, snapshotId });
 }

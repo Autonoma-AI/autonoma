@@ -1,4 +1,4 @@
-import { executeChild, proxyActivities } from "@temporalio/workflow";
+import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -50,14 +50,34 @@ const DEFAULT_MAX_ITERATIONS = 3;
  */
 export async function refinementLoopWorkflow(input: RefinementLoopInput): Promise<RefinementLoopResult> {
     const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const baseIds = { snapshot: { snapshotId: input.snapshotId } };
 
-    // --- Init phase: create loop + iter 1 from snapshot's pending gens ---
+    log.info("Refinement loop workflow started", {
+        ...baseIds,
+        extra: { maxIterations, triggeredBy: input.triggeredBy },
+    });
+
     const { loopId, organizationId, firstIterationId, hasPendingWork } = await general.initRefinementLoop({
         snapshotId: input.snapshotId,
         triggeredBy: input.triggeredBy,
     });
 
+    const loopIds = {
+        ...baseIds,
+        organization: { organizationId },
+        refinementLoop: { loopId, triggeredBy: input.triggeredBy },
+    };
+    log.info("Refinement loop initialized", {
+        ...loopIds,
+        refinementIteration: { iterationId: firstIterationId, iterationNumber: 1 },
+        extra: { hasPendingWork },
+    });
+
     if (hasPendingWork) {
+        log.info("Firing iteration 1 generation pipeline", {
+            ...loopIds,
+            refinementIteration: { iterationId: firstIterationId, iterationNumber: 1 },
+        });
         await executeChild(WORKFLOW_TYPE.RUN_GENERATION_PIPELINE, {
             workflowId: `gen-pipeline-${loopId}-iter-1`,
             taskQueue: TaskQueue.GENERAL,
@@ -82,20 +102,36 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
     try {
         while (currentIterationNumber <= maxIterations) {
             iterationsRun = currentIterationNumber;
+            const iterIds = {
+                ...loopIds,
+                refinementIteration: { iterationId: currentIterationId, iterationNumber: currentIterationNumber },
+            };
 
+            log.info("Refinement iteration starting", iterIds);
             await general.markRefinementIterationRunning({ iterationId: currentIterationId });
 
             const results = await general.analyzeResults({ iterationId: currentIterationId });
             for (const tcId of results.validatedTestCaseIds) validatedTestCaseIds.add(tcId);
 
             const hasFailures = results.failuresAtGeneration.length > 0 || results.failuresAtReplay.length > 0;
+            log.info("Iteration analysis complete", {
+                ...iterIds,
+                extra: {
+                    hasFailures,
+                    validatedTestCaseCount: results.validatedTestCaseIds.length,
+                    generationFailureCount: results.failuresAtGeneration.length,
+                    replayFailureCount: results.failuresAtReplay.length,
+                },
+            });
 
             if (!hasFailures) {
                 finalStatus = "converged";
                 await general.finishRefinementIteration({ iterationId: currentIterationId });
+                log.info("Refinement iteration converged with no failures", iterIds);
                 break;
             }
 
+            log.info("Running healing agent for iteration failures", iterIds);
             const triage = await longRunning.runHealingAgentForRefinement({
                 iterationId: currentIterationId,
                 iteration: currentIterationNumber,
@@ -116,16 +152,15 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             await general.finishRefinementIteration({ iterationId: currentIterationId });
 
             if (applyResult.nextIterationId == null) {
-                // Healing produced only report_bug / report_engine_limitation / remove_test:
-                // nothing more to refine. The reports stand as outputs; loop converges.
                 finalStatus = "converged";
+                log.info("Healing produced no plan changes; refinement converged", iterIds);
                 break;
             }
 
-            // Fire iter N+1's pipeline. By invariant, the pending gens in the
-            // snapshot at this point are exactly the ones healing's
-            // TestSuiteChange.apply queued for the planIds applyHealingActions
-            // just recorded as iter N+1's inputs.
+            log.info("Firing next iteration generation pipeline", {
+                ...iterIds,
+                extra: { nextIterationNumber: currentIterationNumber + 1 },
+            });
             await executeChild(WORKFLOW_TYPE.RUN_GENERATION_PIPELINE, {
                 workflowId: `gen-pipeline-${loopId}-iter-${currentIterationNumber + 1}`,
                 taskQueue: TaskQueue.GENERAL,
@@ -144,12 +179,18 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
         }
 
         await general.finishRefinementLoop({ loopId, status: finalStatus });
+        log.info("Refinement loop finished", { ...loopIds, extra: { finalStatus, iterationsRun } });
     } catch (e) {
+        log.error("Refinement loop failed", {
+            ...loopIds,
+            extra: { reason: e instanceof Error ? e.message : String(e) },
+        });
         await general.finishRefinementLoop({ loopId, status: "error" });
         throw e;
     }
 
     await general.finalizePendingSnapshot({ snapshotId: input.snapshotId });
+    log.info("Snapshot finalized after refinement loop", loopIds);
 
     return {
         loopId,

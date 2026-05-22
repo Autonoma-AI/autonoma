@@ -34,10 +34,7 @@ import type {
 export async function prepareGenerationQueue(
     input: PrepareGenerationQueueInput,
 ): Promise<PrepareGenerationQueueOutput> {
-    const logger = rootLogger.child({
-        name: "prepareGenerationQueue",
-        snapshotId: input.snapshotId,
-    });
+    const logger = rootLogger.child({ name: "prepareGenerationQueue" });
     logger.info("Preparing generation queue for snapshot");
 
     const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
@@ -48,7 +45,7 @@ export async function prepareGenerationQueue(
 
     const prepared = await updater.prepareGenerationQueue();
 
-    logger.info("Generation queue prepared", { count: prepared.length });
+    logger.info("Generation queue prepared", { extra: { count: prepared.length } });
 
     return {
         generations: prepared.map((p) => ({
@@ -71,11 +68,8 @@ export async function prepareGenerationQueue(
 export async function prepareRunsForGenerations(
     input: PrepareRunsForGenerationsInput,
 ): Promise<PrepareRunsForGenerationsOutput> {
-    const logger = rootLogger.child({
-        name: "prepareRunsForGenerations",
-        count: input.generationIds.length,
-    });
-    logger.info("Creating runs for successful generations");
+    const logger = rootLogger.child({ name: "prepareRunsForGenerations" });
+    logger.info("Creating runs for successful generations", { extra: { count: input.generationIds.length } });
 
     if (input.generationIds.length === 0) return { runs: [] };
 
@@ -143,7 +137,7 @@ export async function prepareRunsForGenerations(
         });
     }
 
-    logger.info("Runs created", { count: runs.length });
+    logger.info("Runs created", { extra: { count: runs.length } });
     return { runs };
 }
 

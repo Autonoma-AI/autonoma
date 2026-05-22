@@ -1,9 +1,8 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { AffectedTest, DiffsAgentResult } from "@autonoma/diffs";
-import { logger } from "@autonoma/logger";
+import { extendObservabilityContext, logger, withObservabilityContext } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
-import * as Sentry from "@sentry/node";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runMergeFlow } from "./merge-flow";
@@ -22,13 +21,14 @@ export interface DiffsAnalysisResult extends DiffsAgentResult {
 }
 
 export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysisResult> {
-    Sentry.setTag("snapshotId", snapshotId);
-    logger.info("Starting diffs analysis job", { snapshotId });
+    return await withObservabilityContext({ snapshot: { snapshotId } }, () => runDiffsAnalysisInner(snapshotId));
+}
+
+async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisResult> {
+    logger.info("Starting diffs analysis job");
 
     const { githubApp, updater } = await createDiffsServices(snapshotId);
     const branchId = updater.branchId;
-
-    Sentry.setTag("branchId", branchId);
 
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
@@ -39,11 +39,15 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
         );
     }
 
-    Sentry.setTag("headSha", headSha);
-    logger.info("Loaded pending snapshot", { snapshotId, branchId, headSha, baseSha });
+    extendObservabilityContext({
+        branch: { branchId },
+        snapshot: { snapshotId, headSha, baseSha },
+    });
+    logger.info("Loaded pending snapshot");
 
     const branchData = await loadBranchData(branchId, githubApp);
-    logger.info("Loaded branch data", { applicationId: branchData.applicationId, fullName: branchData.fullName });
+    extendObservabilityContext({ application: { applicationId: branchData.applicationId } });
+    logger.info("Loaded branch data", { extra: { fullName: branchData.fullName } });
 
     const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
@@ -61,8 +65,10 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
         const suiteInfo = await updater.currentTestSuiteInfo();
         const { input, flowIndex } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
         logger.info("Loaded diffs context", {
-            existingTests: input.existingTests.length,
-            existingSkills: input.existingSkills.length,
+            extra: {
+                existingTests: input.existingTests.length,
+                existingSkills: input.existingSkills.length,
+            },
         });
 
         const mergeResult = await runOptionalMergeFlow({
@@ -94,7 +100,7 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
             snapshotId,
             phase: "analysis",
             conversation: agentResult.conversation,
-            logger: logger.child({ name: "uploadConversation", snapshotId }),
+            logger: logger.child({ name: "uploadConversation" }),
         });
 
         return {

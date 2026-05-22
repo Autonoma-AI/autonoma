@@ -22,10 +22,8 @@ import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
 import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
-import { Sentry } from "components/icons/sentry";
-import { Temporal } from "components/icons/temporal";
+import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
-import { env } from "env";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { useRequestRunReview } from "lib/query/issues.queries";
@@ -111,17 +109,6 @@ function RunDetailPage() {
   const steps = run.steps as unknown as RunStep[];
   const review = run.review;
   const reviewStatus = review?.status;
-  const temporalBaseUrl = env.VITE_TEMPORAL_URL?.replace(/\/$/, "");
-
-  const temporalUrl =
-    temporalBaseUrl != null && run.temporalWorkflow != null
-      ? `${temporalBaseUrl}/namespaces/${env.VITE_TEMPORAL_NAMESPACE}/workflows/${run.temporalWorkflow.workflowId}/${run.temporalWorkflow.runId}`
-      : undefined;
-
-  const sentryUrl = env.VITE_SENTRY_URL
-    ? `${env.VITE_SENTRY_URL}/explore/logs/?logsFields=timestamp&logsFields=message&logsQuery=run_id%3A${run.id}&logsSortBys=-timestamp&statsPeriod=1h`
-    : undefined;
-
   const testCaseSlug = run.testCaseSlug;
   const testUrl = `/app/${currentApp.slug}/tests/${testCaseSlug}`;
 
@@ -229,19 +216,11 @@ function RunDetailPage() {
             )}
             {isAdmin && (
               <>
-                {temporalUrl != null && (
-                  <a href={temporalUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" size="sm" className="size-7 p-0">
-                      <Temporal className="size-4" />
-                    </Button>
-                  </a>
-                )}
-                {sentryUrl != null && (
-                  <a href={sentryUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" size="sm" className="size-7 p-0">
-                      <Sentry className="size-4" />
-                    </Button>
-                  </a>
+                {run.temporalWorkflow != null && (
+                  <>
+                    <TemporalLink workflowId={run.temporalWorkflow.workflowId} runId={run.temporalWorkflow.runId} />
+                    <SentryLogsLink filterField="runId" filterValue={run.id} />
+                  </>
                 )}
                 <Button
                   variant="outline"

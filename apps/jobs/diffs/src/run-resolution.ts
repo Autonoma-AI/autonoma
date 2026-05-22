@@ -2,9 +2,8 @@ import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
-import { logger as rootLogger } from "@autonoma/logger";
+import { extendObservabilityContext, logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
-import * as Sentry from "@sentry/node";
 import type { ModelMessage } from "ai";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData } from "./load-context";
@@ -12,9 +11,8 @@ import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution
 import { uploadConversation } from "./upload-conversation";
 
 export async function runDiffsResolution(snapshotId: string): Promise<void> {
-    const logger = rootLogger.child({ name: "runDiffsResolution", snapshotId });
-
-    Sentry.setTag("snapshotId", snapshotId);
+    const logger = rootLogger.child({ name: "runDiffsResolution" });
+    extendObservabilityContext({ snapshot: { snapshotId } });
 
     const diffsJob = await db.diffsJob.findUniqueOrThrow({
         where: { snapshotId },
@@ -65,18 +63,23 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
 
     const runIdsCount = affectedTests.filter((t) => t.runId != null).length;
     logger.info("Loaded resolution inputs", {
-        affectedTestsCount: affectedTests.length,
-        runIdsCount,
-        testCandidatesCount: testCandidates.length,
+        extra: {
+            affectedTestsCount: affectedTests.length,
+            runIdsCount,
+            testCandidatesCount: testCandidates.length,
+        },
     });
 
     const { githubApp, updater } = await createDiffsServices(snapshotId);
     const branchId = updater.branchId;
 
-    Sentry.setTag("branchId", branchId);
-
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
+
+    const snapshotGroup: { snapshotId: string; headSha?: string; baseSha?: string } = { snapshotId };
+    if (headSha != null) snapshotGroup.headSha = headSha;
+    if (baseSha != null) snapshotGroup.baseSha = baseSha;
+    extendObservabilityContext({ branch: { branchId }, snapshot: snapshotGroup });
 
     if (headSha == null || baseSha == null) {
         throw new Error(
@@ -105,8 +108,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
         const verdicts = buildVerdicts(affectedTests, logger);
 
         logger.info("Running resolution agent", {
-            verdictCount: verdicts.length,
-            candidateCount: candidateInputs.length,
+            extra: { verdictCount: verdicts.length, candidateCount: candidateInputs.length },
         });
 
         const branchData = await loadBranchData(branchId, githubApp);
@@ -180,9 +182,11 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
     });
 
     logger.info("Diffs resolution complete", {
-        modifiedTests: modifiedSlugs.length,
-        newTests: newTestsCount,
-        acceptedCandidates: acceptedCandidates.length,
+        extra: {
+            modifiedTests: modifiedSlugs.length,
+            newTests: newTestsCount,
+            acceptedCandidates: acceptedCandidates.length,
+        },
     });
 }
 

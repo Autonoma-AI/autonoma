@@ -1,4 +1,4 @@
-import { logger } from "@autonoma/logger";
+import { logger, withObservabilityContext } from "@autonoma/logger";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
@@ -14,20 +14,22 @@ export interface TriggerDiffsJobParams {
 export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<void> {
     const { branchId, snapshotId } = params;
 
-    logger.info("Triggering diffs analysis workflow", { branchId, snapshotId });
+    return await withObservabilityContext({ branch: { branchId }, snapshot: { snapshotId } }, async () => {
+        logger.info("Triggering diffs analysis workflow");
 
-    const client = await getTemporalClient();
-    const workflowId = `diffs-analysis-${snapshotId}`;
+        const client = await getTemporalClient();
+        const workflowId = `diffs-analysis-${snapshotId}`;
 
-    await client.workflow.start(WORKFLOW_TYPE.DIFFS_ANALYSIS, {
-        workflowId,
-        workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.DIFFS,
-        searchAttributes: getWorkflowSearchAttributes(),
-        args: [{ snapshotId }],
+        await client.workflow.start(WORKFLOW_TYPE.DIFFS_ANALYSIS, {
+            workflowId,
+            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
+            taskQueue: TaskQueue.DIFFS,
+            searchAttributes: getWorkflowSearchAttributes(),
+            args: [{ snapshotId }],
+        });
+
+        logger.info("Diffs analysis workflow started", { workflowId });
     });
-
-    logger.info("Diffs analysis workflow started", { workflowId, branchId, snapshotId });
 }
 
 export async function findLatestWorkflowBySnapshotId(snapshotId: string): Promise<WorkflowRef | undefined> {
@@ -41,7 +43,10 @@ export async function findLatestWorkflowBySnapshotId(snapshotId: string): Promis
             runId: description.runId,
         };
     } catch (error) {
-        logger.warn("Failed to query diffs workflow", { snapshotId, error });
+        logger.warn("Failed to query diffs workflow", {
+            snapshot: { snapshotId },
+            extra: { error: String(error) },
+        });
         return undefined;
     }
 }
@@ -51,22 +56,24 @@ export async function findLatestWorkflowBySnapshotId(snapshotId: string): Promis
  * Called when a new trigger arrives while an older snapshot is still being analyzed.
  */
 export async function cancelDiffsJob(snapshotId: string): Promise<void> {
-    const workflowId = `diffs-analysis-${snapshotId}`;
-    logger.info("Cancelling diffs workflow for snapshot", { snapshotId, workflowId });
-
-    try {
-        const client = await getTemporalClient();
-        const handle = client.workflow.getHandle(workflowId);
+    return await withObservabilityContext({ snapshot: { snapshotId } }, async () => {
+        const workflowId = `diffs-analysis-${snapshotId}`;
+        logger.info("Cancelling diffs workflow for snapshot", { workflowId });
 
         try {
-            await handle.describe();
-            await handle.cancel();
-            logger.info("Diffs workflow cancelled successfully", { snapshotId, workflowId });
-        } catch {
-            logger.info("Diffs workflow not found or already completed", { snapshotId, workflowId });
+            const client = await getTemporalClient();
+            const handle = client.workflow.getHandle(workflowId);
+
+            try {
+                await handle.describe();
+                await handle.cancel();
+                logger.info("Diffs workflow cancelled successfully", { workflowId });
+            } catch {
+                logger.info("Diffs workflow not found or already completed", { workflowId });
+            }
+        } catch (error) {
+            logger.error("Failed to cancel diffs workflow", error, { workflowId });
+            throw error;
         }
-    } catch (error) {
-        logger.error("Failed to cancel diffs workflow", { snapshotId, workflowId, error });
-        throw error;
-    }
+    });
 }

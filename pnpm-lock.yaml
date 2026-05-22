@@ -1096,6 +1096,9 @@ importers:
 
   packages/analytics:
     dependencies:
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -1791,6 +1794,9 @@ importers:
 
   packages/workflow:
     dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger

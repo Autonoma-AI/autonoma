@@ -17,3 +17,4 @@ export { findLatestWorkflowByRunId, type TriggerRunWorkflowParams, triggerRunWor
 export { getTemporalClient, resetTemporalClient } from "./client";
 export { TaskQueue } from "./task-queues";
 export type { WorkflowRef } from "./types";
+export { loadSnapshotObservabilityContext } from "./observability";

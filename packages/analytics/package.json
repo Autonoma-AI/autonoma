@@ -14,6 +14,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/logger": "workspace:*",
         "@sentry/node": "catalog:",
         "posthog-node": "^4.18.0"
     },

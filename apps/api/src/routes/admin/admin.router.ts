@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { env } from "../../env";
 import { publicProcedure, router } from "../../trpc";
 
 const adminProcedure = publicProcedure.use(async ({ ctx, next }) => {
@@ -16,6 +17,14 @@ const adminProcedure = publicProcedure.use(async ({ ctx, next }) => {
 });
 
 export const adminRouter = router({
+    /**
+     * Returns deployment-level config admins use to deep-link into observability
+     * tools (Sentry logs explorer, etc.). Admin-only because the namespace value
+     * is internal deployment metadata; not meant for end-user UI.
+     */
+    deploymentConfig: adminProcedure.query(() => ({
+        environment: env.SENTRY_ENV,
+    })),
     listOrganizations: adminProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
     listPendingOrgs: adminProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: adminProcedure

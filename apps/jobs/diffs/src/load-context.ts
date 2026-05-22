@@ -76,11 +76,13 @@ export async function loadDiffsContext(
     const flowIndex = new FlowIndex(flows);
 
     logger.info("Loaded diffs context", {
-        existingTests: existingTests.length,
-        existingSkills: existingSkills.length,
-        flows: flows.length,
-        quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
-        hasTestScopeGuidelines: application.testScopeGuidelines != null,
+        extra: {
+            existingTests: existingTests.length,
+            existingSkills: existingSkills.length,
+            flows: flows.length,
+            quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
+            hasTestScopeGuidelines: application.testScopeGuidelines != null,
+        },
     });
 
     return {

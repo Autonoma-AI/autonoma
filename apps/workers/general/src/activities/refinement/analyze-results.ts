@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { logger as rootLogger } from "@autonoma/logger";
+import { extendObservabilityContext, logger as rootLogger } from "@autonoma/logger";
 import type {
     AnalyzeResultsInput,
     AnalyzeResultsOutput,
@@ -25,19 +25,25 @@ import type {
  * continue rather than crash.
  */
 export async function analyzeResults(input: AnalyzeResultsInput): Promise<AnalyzeResultsOutput> {
-    const logger = rootLogger.child({ name: "analyzeResults", iterationId: input.iterationId });
+    const logger = rootLogger.child({ name: "analyzeResults" });
     logger.info("Analyzing iteration results");
 
     const iteration = await db.refinementIteration.findUniqueOrThrow({
         where: { id: input.iterationId },
         select: {
+            number: true,
             inputs: { select: { planId: true } },
-            loop: { select: { snapshotId: true } },
+            loop: { select: { id: true, snapshotId: true, triggeredBy: true } },
         },
     });
 
     const planIds = iteration.inputs.map((i) => i.planId);
     const snapshotId = iteration.loop.snapshotId;
+    extendObservabilityContext({
+        snapshot: { snapshotId },
+        refinementLoop: { loopId: iteration.loop.id, triggeredBy: iteration.loop.triggeredBy },
+        refinementIteration: { iterationId: input.iterationId, iterationNumber: iteration.number },
+    });
 
     if (planIds.length === 0) {
         logger.info("Iteration has no input plans; nothing to analyze");
@@ -96,11 +102,7 @@ export async function analyzeResults(input: AnalyzeResultsInput): Promise<Analyz
         const generation = latestGenByPlan.get(planId);
 
         if (generation == null) {
-            logger.fatal("Input plan has no generation in this snapshot - invariant violated", {
-                planId,
-                snapshotId,
-                iterationId: input.iterationId,
-            });
+            logger.fatal("Input plan has no generation in this snapshot - invariant violated", { planId });
             throw new Error(
                 `analyzeResults: no TestGeneration found for planId=${planId} in snapshot=${snapshotId} ` +
                     `(iteration=${input.iterationId}). The refinement loop's pre-fire step must have created ` +
@@ -134,9 +136,7 @@ export async function analyzeResults(input: AnalyzeResultsInput): Promise<Analyz
         if (run == null) {
             logger.fatal("Generation succeeded but no run exists for plan - invariant violated", {
                 planId,
-                generationId: generation.id,
-                snapshotId,
-                iterationId: input.iterationId,
+                testGenerationId: generation.id,
             });
             throw new Error(
                 `analyzeResults: TestGeneration ${generation.id} for planId=${planId} succeeded but no ` +
@@ -168,9 +168,11 @@ export async function analyzeResults(input: AnalyzeResultsInput): Promise<Analyz
     }
 
     logger.info("Analysis complete", {
-        validated: validatedTestCaseIds.length,
-        failuresAtGeneration: failuresAtGeneration.length,
-        failuresAtReplay: failuresAtReplay.length,
+        extra: {
+            validated: validatedTestCaseIds.length,
+            failuresAtGeneration: failuresAtGeneration.length,
+            failuresAtReplay: failuresAtReplay.length,
+        },
     });
 
     return { validatedTestCaseIds, failuresAtGeneration, failuresAtReplay };

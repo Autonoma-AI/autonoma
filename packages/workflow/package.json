@@ -17,6 +17,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@sentry/node": "catalog:",

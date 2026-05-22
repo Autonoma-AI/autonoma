@@ -9,10 +9,7 @@ import type { FinalizePendingSnapshotInput } from "@autonoma/workflow/activities
  * the loop for the apply* activities to operate against it.
  */
 export async function finalizePendingSnapshot(input: FinalizePendingSnapshotInput): Promise<void> {
-    const logger = rootLogger.child({
-        name: "finalizePendingSnapshot",
-        snapshotId: input.snapshotId,
-    });
+    const logger = rootLogger.child({ name: "finalizePendingSnapshot" });
     logger.info("Finalizing snapshot");
 
     const updater = await TestSuiteUpdater.continueUpdateBySnapshot({

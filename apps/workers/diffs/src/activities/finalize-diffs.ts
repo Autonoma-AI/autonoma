@@ -9,11 +9,11 @@ import type { FinalizeDiffsInput } from "@autonoma/workflow/activities";
  * marked failed with that reason.
  */
 export async function finalizeDiffs({ snapshotId, failureReason }: FinalizeDiffsInput): Promise<void> {
-    const logger = rootLogger.child({ name: "finalizeDiffs", snapshotId });
+    const logger = rootLogger.child({ name: "finalizeDiffs" });
     const completedAt = new Date();
 
     if (failureReason != null) {
-        logger.info("Marking diffs job failed", { failureReason });
+        logger.info("Marking diffs job failed", { extra: { failureReason } });
         await db.diffsJob.update({
             where: { snapshotId },
             data: { status: "failed", failureReason, completedAt },

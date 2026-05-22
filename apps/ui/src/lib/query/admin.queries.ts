@@ -11,6 +11,10 @@ export function useAdminOrganizations() {
     return useSuspenseQuery(trpc.admin.listOrganizations.queryOptions());
 }
 
+export function useAdminDeploymentConfig() {
+    return useSuspenseQuery(trpc.admin.deploymentConfig.queryOptions());
+}
+
 export function useAdminPendingOrgs() {
     return useSuspenseQuery(trpc.admin.listPendingOrgs.queryOptions());
 }

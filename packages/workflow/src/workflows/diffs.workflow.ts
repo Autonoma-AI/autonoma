@@ -1,4 +1,4 @@
-import { executeChild, proxyActivities } from "@temporalio/workflow";
+import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -45,42 +45,35 @@ function dispatchReplay({ runId, architecture, scenarioId }: RunReplayArgs): Pro
 
 export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<void> {
     const { snapshotId } = input;
+    const ids = { snapshot: { snapshotId } };
 
-    // Step 1: Analyze diffs - explores code, updates skills, identifies affected tests, suggests new tests.
-    // Persists DiffsJob.analysisReasoning, AffectedTest, TestCandidate, and Run records.
+    log.info("Diffs analysis workflow started", ids);
+
     const step1 = await longRunning.analyzeDiffs({ snapshotId });
+    log.info("Diffs analysis step finished", { ...ids, extra: { replayCount: step1.replays.length } });
 
-    // Step 2: Execute affected test replays in parallel.
-    // The replay-reviewer fires automatically in each replay workflow's finally block,
-    // populating RunReview records (but skipping Issue/Bug creation for diffs replays).
     if (step1.replays.length > 0) {
+        log.info("Dispatching affected-test replays", { ...ids, extra: { replayCount: step1.replays.length } });
         await Promise.allSettled(step1.replays.map((run) => dispatchReplay(run)));
     }
 
-    // Step 3: Resolve - reads reviewer verdicts from DB, modifies stale tests, gathers pending generations.
-    // Persists DiffsJob.resolutionReasoning and reconciles AffectedTest/TestCandidate links.
     await standard.resolveDiffs({ snapshotId });
+    log.info("Diffs resolution step finished", ids);
 
-    // Step 4: Run the refinement loop synchronously. The loop reads pending
-    // gens from the snapshot as its iter-1 scope, fires + analyzes them, heals
-    // failures, and activates the snapshot on completion. We surface refinement
-    // failures through the DiffsJob status so UI consumers (which poll by job
-    // status) see the failure rather than seeing the job hung in "generating".
     try {
+        log.info("Starting refinement loop child workflow", ids);
         await executeChild(WORKFLOW_TYPE.REFINEMENT_LOOP, {
             workflowId: `refinement-loop-${snapshotId}`,
             taskQueue: TaskQueue.GENERAL,
             args: [{ snapshotId, triggeredBy: "diffs" as const }],
         });
     } catch (error) {
-        await shortLived.finalizeDiffs({
-            snapshotId,
-            failureReason: error instanceof Error ? error.message : String(error),
-        });
+        const failureReason = error instanceof Error ? error.message : String(error);
+        log.error("Refinement loop failed; finalizing diffs job as failed", { ...ids, extra: { failureReason } });
+        await shortLived.finalizeDiffs({ snapshotId, failureReason });
         throw error;
     }
 
-    // Step 5: Mark the DiffsJob completed. Runs after the refinement loop so
-    // the job's terminal status reflects the full pipeline including refinement.
     await shortLived.finalizeDiffs({ snapshotId });
+    log.info("Diffs analysis workflow completed", ids);
 }

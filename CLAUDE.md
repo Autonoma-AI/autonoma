@@ -88,6 +88,27 @@ import { foo } from "./foo.js";
 
 All strict flags enabled. Every package extends `tsconfig.base.json`. This includes `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, etc.
 
+### No `as` Casts
+
+**Never use `as` type assertions.** They silently lie to the compiler and bite later. When TypeScript can't infer a type, choose one of:
+
+- **Reshape the source type or function signature** so the value already has the right type (preferred).
+- **Add an explicit type annotation** on a variable / parameter / return so inference flows correctly.
+- **Validate at the boundary with Zod** (`schema.parse(value)`) when the data comes from outside the type system - HTTP requests, JSON files, env vars, third-party SDK responses. The Zod parse returns a properly typed value; no cast needed.
+- **Use a user-defined type guard** (`function isFoo(x: unknown): x is Foo { ... }`) for runtime discrimination.
+
+The only acceptable assertion is `as const` (for literal-type narrowing). `as unknown as T`, `as Record<string, unknown>`, `as any` are all forbidden - they always indicate the wrong abstraction.
+
+```ts
+// BAD
+applyTags(ctx as Record<string, unknown>);
+const user = response.data as User;
+
+// GOOD
+function applyTags(ctx: ObservabilityContext): void { ... }   // typed parameter, no cast at call site
+const user = UserSchema.parse(response.data);                  // zod-validated at the boundary
+```
+
 ### Classes vs Functions
 
 - **Needs state or dependencies?** Class with constructor injection.
@@ -715,6 +736,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 25. **Environment variables use `createEnv` from `@t3-oss/env-core`.** Never read `process.env` directly. Always define environment variables in a dedicated `env.ts` file using `createEnv` with Zod schemas for validation. This ensures type safety, runtime validation, and a single source of truth for all required environment variables. Pass validated env values as function parameters rather than reading `process.env` in library code.
 26. **Never use `window.location` for navigation.** This is a React SPA with TanStack Router. Never use `window.location.replace()`, `window.location.href = ...`, `window.location.assign()`, or any other browser-native navigation API. Always use TanStack Router's `useNavigate()` hook or `<Link>` component. Browser-native navigation causes a full page reload, destroys React state, and bypasses the router entirely.
 27. **Always use `<Link>` instead of `onClick` + `navigate()` for navigation.** Never attach navigation to a button's `onClick` handler. Use TanStack Router's `<Link>` component (or wrap with `<Link>`) so the browser gets a real `<a>` tag - this enables cmd/ctrl+click to open in a new tab, right-click context menus, hover URL previews, and proper accessibility semantics. Reserve `useNavigate()` only for programmatic navigation after async operations (e.g., redirect after a successful form submission).
+28. **Canonical observability fields are camelCase, grouped, and atomic.** Every log line, Sentry tag, and PostHog property should carry the same canonical IDs. The schema lives in `packages/logger/src/observability-context.ts` (`ObservabilityContextSchema`) and is organized into atomic groups: `temporal`, `organization`, `application`, `branch`, `snapshot`, `refinementLoop`, `refinementIteration`, `testCase`, `testGeneration`, `run`, `job`. Each group is optional but its required fields are mandatory - you can't have a `refinementLoop` group with `loopId` but no `triggeredBy`. At an entry point (Temporal activity interceptor, job entry, request handler) wrap the work in `withObservabilityContext({ snapshot: { snapshotId }, ... })`; downstream code calls `extendObservabilityContext({ branch: { branchId } })` as more groups become known. Inside that scope, every `logger.*` call automatically carries those fields, flattened to top-level keys at emit (snapshotId, branchId, workflowId, ...) - do **not** thread IDs through `logger.child({ snapshotId, ... })`. The `extra:` bag is the only place for non-canonical fields: `logger.info("...", { extra: { count: 42 } })`. Add new fields to the appropriate group (or create a new group) before using them; never invent ad-hoc keys at call sites or use `snake_case` field names.
 
 ---
 

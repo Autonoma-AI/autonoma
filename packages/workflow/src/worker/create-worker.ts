@@ -1,7 +1,8 @@
 import { logger } from "@autonoma/logger";
-import { NativeConnection, Worker, type WorkerInterceptors } from "@temporalio/worker";
+import { NativeConnection, Runtime, Worker, type WorkerInterceptors } from "@temporalio/worker";
 import { env } from "../env";
 import type { TaskQueue } from "../task-queues";
+import { temporalSdkLogger } from "./temporal-sdk-logger";
 
 export interface CreateWorkerOptions {
     taskQueue: TaskQueue;
@@ -13,12 +14,13 @@ export interface CreateWorkerOptions {
 }
 
 export async function createTemporalWorker(options: CreateWorkerOptions): Promise<Worker> {
-    const log = logger.child({ name: "TemporalWorker", taskQueue: options.taskQueue });
+    installTemporalRuntimeOnce();
+
+    const log = logger.child({ name: "TemporalWorker" });
 
     log.info("Creating Temporal worker", {
-        address: env.TEMPORAL_ADDRESS,
-        namespace: env.TEMPORAL_NAMESPACE,
         taskQueue: options.taskQueue,
+        extra: { address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE },
     });
 
     const connection = await NativeConnection.connect({ address: env.TEMPORAL_ADDRESS });
@@ -43,4 +45,19 @@ export async function createTemporalWorker(options: CreateWorkerOptions): Promis
     log.info("Temporal worker created", { taskQueue: options.taskQueue });
 
     return worker;
+}
+
+let runtimeInstalled = false;
+
+/**
+ * Install the Temporal Runtime with our SDK logger forwarder. Must run once
+ * per process, before the first `Worker.create`. Subsequent calls are no-ops.
+ *
+ * Every worker process in the monorepo already has exactly one
+ * `createTemporalWorker` call, so this guard is defensive (e.g. tests).
+ */
+function installTemporalRuntimeOnce(): void {
+    if (runtimeInstalled) return;
+    Runtime.install({ logger: temporalSdkLogger });
+    runtimeInstalled = true;
 }
