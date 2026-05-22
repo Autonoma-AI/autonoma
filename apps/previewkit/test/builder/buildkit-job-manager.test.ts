@@ -118,6 +118,10 @@ function makeKc(): { kc: k8s.KubeConfig; batch: FakeBatchV1Api; core: FakeCoreV1
     return { kc, batch, core };
 }
 
+/** Default dial stub: always resolves immediately. The manager calls this
+ *  after the pod reports Ready; in tests we don't have a real service. */
+const dialAlwaysOk: (host: string, port: number, timeoutMs: number) => Promise<void> = async () => {};
+
 describe("BuildKitJobManager", () => {
     beforeEach(() => {
         // Skip real wall-clock waits between readiness polls; vitest's fake
@@ -137,6 +141,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const promise = mgr.provision();
@@ -183,6 +188,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const seen = new Set<string>();
@@ -209,6 +215,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const promise = mgr.provision();
@@ -225,6 +232,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:doesnotexist",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const promise = mgr.provision();
@@ -255,6 +263,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const promise = mgr.provision();
@@ -279,6 +288,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         const promise = mgr.provision();
@@ -292,6 +302,37 @@ describe("BuildKitJobManager", () => {
         expect((err as BuildError).isTransient).toBe(true);
     });
 
+    it("retries the TCP dial until the Service is reachable (covers kube-proxy lag)", async () => {
+        const { kc, core } = makeKc();
+        core.podListSequence = [{ items: [podWith({ ready: true })] }];
+
+        // Simulate the post-Ready window where the pod IP resolves but
+        // kube-proxy hasn't programmed iptables yet: first two dials get
+        // ECONNREFUSED, third succeeds.
+        let dialAttempts = 0;
+        const flakyDial: (host: string, port: number, timeoutMs: number) => Promise<void> = async () => {
+            dialAttempts++;
+            if (dialAttempts < 3) {
+                const err = new Error("connect ECONNREFUSED 172.20.1.2:1234");
+                throw err;
+            }
+        };
+
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            dial: flakyDial,
+        });
+
+        const promise = mgr.provision();
+        await vi.runAllTimersAsync();
+        await expect(promise).resolves.toBeDefined();
+        expect(dialAttempts).toBe(3);
+    });
+
     it("release deletes the Job with background propagation", async () => {
         const { kc, batch } = makeKc();
         const mgr = new BuildKitJobManager({
@@ -300,6 +341,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         await mgr.release({ name: "pk-builder-abcd1234efef5678" });
@@ -318,6 +360,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
         });
 
         await expect(mgr.release({ name: "pk-builder-deadbeef00000000" })).resolves.toBeUndefined();

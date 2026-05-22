@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { createConnection } from "node:net";
 import * as k8s from "@kubernetes/client-node";
 import { isNotFound } from "../deployer/k8s-errors";
 import { logger as rootLogger, type Logger } from "../logger";
@@ -14,6 +15,13 @@ const BUILDKIT_PORT = 1234;
 const BUILD_ID_BYTES = 8;
 const READINESS_POLL_INTERVAL_MS = 500;
 const DEFAULT_READINESS_TIMEOUT_MS = 90_000;
+// Per-dial timeout for the post-Ready TCP probe. The connect should complete
+// in low single-digit milliseconds in-cluster; this is just an outer bound.
+const DIAL_TIMEOUT_MS = 2_000;
+// Total budget for the kube-proxy / endpoints lag after Pod.status.Ready
+// flips True. In practice this is sub-second; 30s is room to spare.
+const DIAL_RETRY_BUDGET_MS = 30_000;
+const DIAL_RETRY_INTERVAL_MS = 500;
 // Auto-clean completed Jobs from the cluster after this many seconds. The
 // previewkit pipeline normally calls release() on completion, so this is only
 // a backstop for previewkit crashes mid-build.
@@ -33,6 +41,10 @@ interface BuildKitJobManagerOptions {
      *  Job.spec.activeDeadlineSeconds so K8s self-terminates stuck builds
      *  even if previewkit crashed before calling release(). */
     activeDeadlineSeconds: number;
+    /** Override the TCP dial probe used after Pod becomes Ready. Production
+     *  uses the default (node:net createConnection); tests inject a fake
+     *  that resolves without doing real I/O. */
+    dial?: (host: string, port: number, timeoutMs: number) => Promise<void>;
 }
 
 export interface BuildKitInstance {
@@ -61,11 +73,13 @@ export class BuildKitJobManager {
     private readonly batchApi: k8s.BatchV1Api;
     private readonly coreApi: k8s.CoreV1Api;
     private readonly logger: Logger;
+    private readonly dial: (host: string, port: number, timeoutMs: number) => Promise<void>;
 
     constructor(private readonly options: BuildKitJobManagerOptions) {
         this.batchApi = options.kc.makeApiClient(k8s.BatchV1Api);
         this.coreApi = options.kc.makeApiClient(k8s.CoreV1Api);
         this.logger = rootLogger.child({ name: this.constructor.name });
+        this.dial = options.dial ?? tryConnect;
     }
 
     /**
@@ -94,7 +108,16 @@ export class BuildKitJobManager {
 
             await this.waitForReady(buildId);
 
-            const host = `tcp://${name}.${namespace}.svc.cluster.local:${BUILDKIT_PORT}`;
+            // Pod.status.Ready trips when kubelet's TCP probe succeeds from
+            // inside the pod's net namespace - but there's a separate lag
+            // before the endpoints controller wires the pod into the Service
+            // backends and kube-proxy programs its iptables. Hand control to
+            // buildctl during that window and the first dial gets RST'd.
+            // Probe with a real TCP connect from this pod before returning.
+            const dnsName = `${name}.${namespace}.svc.cluster.local`;
+            await this.waitForTcpReachable(dnsName);
+
+            const host = `tcp://${dnsName}:${BUILDKIT_PORT}`;
             this.logger.info("Buildkit Job ready", { name, host });
             return { name, buildId, host };
         } catch (err) {
@@ -124,6 +147,41 @@ export class BuildKitJobManager {
             if (isNotFound(err)) return;
             throw err;
         }
+    }
+
+    /**
+     * Real TCP dial against the Service hostname, retrying on ECONNREFUSED /
+     * timeout / DNS failures until kube-proxy has wired the new pod into
+     * iptables. Returns void on the first successful connect; throws a
+     * transient BuildError after `DIAL_RETRY_BUDGET_MS` so the retry loop in
+     * BuildKitBuilder picks it up and tries a fresh Job.
+     *
+     * Without this, `Pod.status.Ready` says "yes, kubelet's loopback probe
+     * succeeded" before the endpoints controller and kube-proxy finish their
+     * own propagation, and buildctl gets `connection refused` on its first
+     * attempt against an IP that resolves but has no backend yet.
+     */
+    private async waitForTcpReachable(host: string): Promise<void> {
+        const deadline = Date.now() + DIAL_RETRY_BUDGET_MS;
+        let attempts = 0;
+        let lastErr: Error | undefined;
+        while (Date.now() < deadline) {
+            attempts++;
+            try {
+                await this.dial(host, BUILDKIT_PORT, DIAL_TIMEOUT_MS);
+                if (attempts > 1) {
+                    this.logger.info("buildkit Service became reachable", { host, attempts });
+                }
+                return;
+            } catch (err) {
+                lastErr = err instanceof Error ? err : new Error(String(err));
+                await new Promise<void>((res) => setTimeout(res, DIAL_RETRY_INTERVAL_MS));
+            }
+        }
+        throw new BuildError(
+            `buildkit Service ${host}:${BUILDKIT_PORT} did not accept connections within ${DIAL_RETRY_BUDGET_MS}ms (${attempts} attempts, last error: ${lastErr?.message ?? "unknown"})`,
+            { isTransient: true, cause: lastErr },
+        );
     }
 
     private async waitForReady(buildId: string): Promise<void> {
@@ -257,6 +315,32 @@ export class BuildKitJobManager {
             },
         };
     }
+}
+
+/**
+ * One TCP connect attempt with a hard timeout. Resolves on `connect`, rejects
+ * on socket error or when the timeout fires first. The socket is always
+ * destroyed before resolving / rejecting so we don't leak FDs across retries.
+ */
+function tryConnect(host: string, port: number, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection({ host, port });
+        const timer = setTimeout(() => {
+            socket.destroy();
+            reject(new Error(`dial ${host}:${port} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+
+        socket.once("connect", () => {
+            clearTimeout(timer);
+            socket.end();
+            resolve();
+        });
+        socket.once("error", (err) => {
+            clearTimeout(timer);
+            socket.destroy();
+            reject(err);
+        });
+    });
 }
 
 interface PodFailure {
