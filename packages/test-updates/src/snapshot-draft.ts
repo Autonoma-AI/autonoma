@@ -2,7 +2,18 @@ import crypto from "node:crypto";
 import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
-import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams } from "./changes";
+import type { AddTestParams, UpdateTestParams } from "./changes";
+
+interface AddSkillParams {
+    name: string;
+    description: string;
+    plan: string;
+}
+
+interface UpdateSkillParams {
+    skillId: string;
+    plan: string;
+}
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
 import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 

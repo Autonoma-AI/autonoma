@@ -1,6 +1,6 @@
 import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { AddSkill, AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
+import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestAPI } from "vitest";
 
@@ -144,27 +144,6 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         });
 
         return { branchId, snapshotId, testCaseId, assignmentId: assignment.id };
-    }
-
-    /**
-     * Creates a branch with an active snapshot that has a skill assigned.
-     * Returns the branchId and skillId for use in tests.
-     */
-    async setupBranchWithSkill(
-        organizationId: string,
-        applicationId: string,
-        skillSlug: string,
-        skillName: string,
-        skillDescription: string,
-    ): Promise<{ branchId: string; skillId: string }> {
-        const branchId = await this.createBranch(organizationId, applicationId);
-
-        const updater = await TestSuiteUpdater.startUpdate({ db: this.db, branchId });
-        await updater.apply(new AddSkill({ name: skillName, description: skillDescription, plan: "initial content" }));
-        await updater.finalize();
-
-        const skill = await this.db.skill.findFirstOrThrow({ where: { slug: skillSlug, applicationId } });
-        return { branchId, skillId: skill.id };
     }
 }
 

@@ -1,6 +1,6 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
-import { AddSkill, AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
+import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 
@@ -193,7 +193,7 @@ apiTestSuite({
             ).rejects.toThrow(NotFoundError);
         });
 
-        test("inherits test case and skill assignments from main branch on a new PR branch", async ({
+        test("inherits test case assignments from main branch on a new PR branch", async ({
             harness,
             seedResult: { app, service },
         }) => {
@@ -226,13 +226,6 @@ apiTestSuite({
                     plan: "Open homepage",
                 }),
             );
-            const { skillId: inheritedSkillId } = await mainUpdater.apply(
-                new AddSkill({
-                    name: "Diffs inherited skill",
-                    description: "Inherited by PR branches",
-                    plan: "Log in",
-                }),
-            );
             // Discard pending generations queued by AddTest so the snapshot can finalize -
             // this test only verifies inheritance, not generation execution.
             for (const g of await mainUpdater.getPendingGenerations()) {
@@ -254,13 +247,6 @@ apiTestSuite({
             });
             expect(testAssignments).toHaveLength(1);
             expect(testAssignments[0]!.testCaseId).toBe(inheritedTestCaseId);
-
-            const skillAssignments = await harness.db.skillAssignment.findMany({
-                where: { snapshotId: result.snapshotId },
-                select: { skillId: true },
-            });
-            expect(skillAssignments).toHaveLength(1);
-            expect(skillAssignments[0]!.skillId).toBe(inheritedSkillId);
         });
 
         test("triggerDiffs dispatches to PR flow when ref is not main and prNumber is set", async ({

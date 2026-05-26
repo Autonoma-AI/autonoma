@@ -4,7 +4,6 @@ import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
 import type { ScenarioManager } from "@autonoma/scenario";
 import {
-    AddSkill,
     AddTest,
     BranchAlreadyHasPendingSnapshotError,
     type GenerationProvider,
@@ -192,13 +191,11 @@ export class ApplicationSetupService {
         this.assertNoScenarioRecipesInArtifacts(body.artifacts ?? []);
 
         const updater = await this.getUpdater(branchId, organizationId);
-        await this.applySkills(updater, body.skills ?? []);
         await this.applyTests(updater, body.testCases ?? [], setup.applicationId, organizationId);
         await this.createFileEvents(setupId, body);
 
         log.info("Uploaded artifacts", {
             setupId,
-            skills: body.skills?.length ?? 0,
             testCases: body.testCases?.length ?? 0,
             artifacts: body.artifacts?.length ?? 0,
         });
@@ -261,22 +258,13 @@ export class ApplicationSetupService {
         });
         const branch = application?.mainBranch;
         const snapshotId = branch?.pendingSnapshot?.id ?? branch?.activeSnapshot?.id;
-        if (snapshotId == null) return { tests: [], skills: [] };
+        if (snapshotId == null) return { tests: [] };
 
         const suiteInfo = await fetchTestSuiteInfo(this.db, snapshotId);
         return {
             tests: suiteInfo.testCases
                 .filter((tc) => tc.plan != null)
                 .map((tc) => ({ id: tc.id, name: tc.name, slug: tc.slug, prompt: tc.plan!.prompt })),
-            skills: suiteInfo.skills
-                .filter((s) => s.plan != null)
-                .map((s) => ({
-                    id: s.id,
-                    name: s.name,
-                    slug: s.slug,
-                    description: s.description,
-                    content: s.plan!.content,
-                })),
         };
     }
 
@@ -340,18 +328,6 @@ export class ApplicationSetupService {
                 organizationId,
                 jobProvider: this.generationProvider,
             });
-        }
-    }
-
-    private async applySkills(
-        updater: TestSuiteUpdater,
-        skills: NonNullable<UploadArtifactsBody["skills"]>,
-    ): Promise<void> {
-        for (const skill of skills) {
-            const { data: frontmatter, content } = matter(skill.content);
-            const name = (frontmatter.name as string | undefined) ?? skill.name.replace(/\.(md|markdown)$/i, "");
-            const description = (frontmatter.description as string | undefined) ?? name;
-            await updater.apply(new AddSkill({ name, description, plan: content.trim() }));
         }
     }
 
@@ -434,10 +410,6 @@ export class ApplicationSetupService {
 
     private async createFileEvents(setupId: string, body: UploadArtifactsBody): Promise<void> {
         const fileEvents: Array<{ type: "file.created"; data: { filePath: string } }> = [
-            ...(body.skills ?? []).map((skill) => ({
-                type: "file.created" as const,
-                data: { filePath: `autonoma/skills/${skill.name}` },
-            })),
             ...(body.testCases ?? []).map((testCase) => ({
                 type: "file.created" as const,
                 data: {
