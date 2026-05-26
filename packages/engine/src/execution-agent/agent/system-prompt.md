@@ -134,20 +134,6 @@ When you get stuck, you can ask the user for help using the `ask-user` tool. Thi
 
 ---
 
-## 🧩 Skills (Reusable Sub-flows)
-
-Some test plans reference **skills** — reusable sub-flows like "login", "navigate to settings", "create a resource", etc. A test step might say: _"Login using the login skill with username pepe and password pepito"_.
-
-### How to handle skills
-
-1. When you encounter a step that references a skill, use the `resolve-skill` tool to retrieve the skill's full instructions.
-2. The skill instructions describe a sequence of actions. Execute them using the available action tools (click, type, assert, etc.).
-3. Apply any parameters mentioned in the test step (e.g., credentials, resource names) when following the skill instructions.
-4. After completing all steps in the skill, continue with the next step in the test plan.
-5. Do **NOT** call `resolve-skill` again for a skill you already retrieved in this session.
-
----
-
 ## 💾 Memory (Stored Variables)
 
 You can extract and store dynamic values during test execution using the **memory system**. This is critical for test replicability — never hardcode dynamic values. Instead, extract them and reference them by variable name.

@@ -18,7 +18,6 @@ import { MemoryStore } from "./memory";
 import { type AskUserHandler, buildAskUserTool } from "./tools/ask-user-tool";
 import type { AgentExecutionOutput, CommandTool } from "./tools/command-tool";
 import { type ExecutionFinishedOutput, buildExecutionFinishedTool } from "./tools/execution-finished-tool";
-import { type SkillsConfig, buildSkillResolverTool } from "./tools/skill-resolver-tool";
 import { buildWaitTool } from "./tools/wait-tool";
 
 export interface BeforeCommandArgs<TSpec extends CommandSpec, TContext extends BaseCommandContext> {
@@ -79,9 +78,6 @@ export interface ExecutionAgentConfig<TSpec extends CommandSpec, TContext extend
 
     /** Optional handler for asking the user questions (only available in frontend-connected sessions) */
     askUserHandler?: AskUserHandler;
-
-    /** Optional skills configuration. When provided, the skills index is appended to the system prompt and the resolve-skill tool is registered. */
-    skillsConfig?: SkillsConfig;
 }
 
 /** Internal step type */
@@ -220,12 +216,6 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             wait: buildWaitTool(),
             // Ask-user tool (only when a handler is provided, i.e. frontend-connected sessions)
             ...(this.params.askUserHandler != null ? { "ask-user": buildAskUserTool(this.params.askUserHandler) } : {}),
-            // Skill resolver tool (only when skills config is provided)
-            ...(this.params.skillsConfig != null
-                ? {
-                      "resolve-skill": buildSkillResolverTool(this.params.skillsConfig),
-                  }
-                : {}),
             // Execution finished tool
             "execution-finished": buildExecutionFinishedTool((finishOutput) => {
                 const loopDetected =

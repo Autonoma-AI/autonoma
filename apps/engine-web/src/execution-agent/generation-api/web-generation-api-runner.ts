@@ -2,13 +2,7 @@ import { writeFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-    GenerationAPIRunner,
-    type PlanData,
-    type TestCase,
-    buildExecutionPrompt,
-    buildSkillsConfigFromPlanData,
-} from "@autonoma/engine";
+import { GenerationAPIRunner, type PlanData, type TestCase, buildExecutionPrompt } from "@autonoma/engine";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
@@ -44,7 +38,6 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
         }
 
         const file = await this.resolveUploadFilePath(webDeployment.file);
-        const skillsConfig = buildSkillsConfigFromPlanData(planData);
 
         const rawAuth = scenarioInstance?.auth;
         this.parseLogger.info("Raw scenarioInstance.auth", {
@@ -109,7 +102,6 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
             ),
             file,
             url: webDeployment.url,
-            skillsConfig,
             cookies,
             headers: auth?.headers,
             credentials: auth?.credentials,

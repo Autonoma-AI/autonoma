@@ -63,7 +63,7 @@ export class GenerationPersister<TSpec extends CommandSpec> {
 
     /**
      * Marks the generation as running, creates StepInputList + StepOutputList,
-     * and returns the test plan, application, and skill assignments.
+     * and returns the test plan and application.
      */
     public async markRunning() {
         const generation = await this.db.testGeneration.update({
@@ -93,12 +93,6 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                                         mobileDeployment: true,
                                     },
                                 },
-                            },
-                        },
-                        skillAssignments: {
-                            select: {
-                                skill: { select: { slug: true, name: true, description: true } },
-                                plan: { select: { content: true } },
                             },
                         },
                     },

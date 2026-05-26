@@ -102,7 +102,6 @@ export class ExecutionAgentRunner<TSpec extends CommandSpec, TApplicationData, T
                 drivers: context,
                 beforeCommand: async ({ agent }) => beforeStepHandler({ state: agent.getState() }),
                 afterCommand: async ({ agent }) => afterStepHandler({ state: agent.getState() }),
-                skillsConfig: this.testCase?.skillsConfig,
             });
 
             this.logger.info("Execution agent built successfully");

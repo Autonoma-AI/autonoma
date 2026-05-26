@@ -5,7 +5,6 @@ export * from "./test-case";
 export * from "./components/wait-planner";
 export * from "./memory";
 export type { AskUserHandler } from "./tools/ask-user-tool";
-export type { SkillEntry, SkillsConfig, SkillsRecord } from "./tools/skill-resolver-tool";
 
 export * from "./tools/command-tool";
 export * from "./tools/commands";

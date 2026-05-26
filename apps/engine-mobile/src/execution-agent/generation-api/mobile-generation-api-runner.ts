@@ -2,13 +2,7 @@ import { writeFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-    GenerationAPIRunner,
-    type PlanData,
-    type TestCase,
-    buildExecutionPrompt,
-    buildSkillsConfigFromPlanData,
-} from "@autonoma/engine";
+import { GenerationAPIRunner, type PlanData, type TestCase, buildExecutionPrompt } from "@autonoma/engine";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
@@ -49,8 +43,6 @@ export class MobileGenerationAPIRunner extends GenerationAPIRunner<
 
         const photo = await this.resolvePhotoFilePath(mobileDeployment.photo);
 
-        const skillsConfig = buildSkillsConfigFromPlanData(planData);
-
         const authParsed = AuthPayloadSchema.safeParse(planData.scenarioInstance?.auth);
         const auth = authParsed.success ? authParsed.data : undefined;
         const credentials = auth?.credentials;
@@ -70,7 +62,6 @@ export class MobileGenerationAPIRunner extends GenerationAPIRunner<
             packageUrl: mobileDeployment.packageUrl,
             packageName: mobileDeployment.packageName,
             photo,
-            skillsConfig,
             credentials,
             recipeVariables,
         };

@@ -10,7 +10,6 @@ import {
 } from "./execution-agent";
 import { DEFAULT_AGENT_SYSTEM_PROMPT } from "./system-prompt";
 import type { AskUserHandler } from "./tools/ask-user-tool";
-import type { SkillsConfig } from "./tools/skill-resolver-tool";
 
 /** The parameters that are optional for the ExecutionAgent. */
 type ExecutionAgentOptionalParams =
@@ -18,8 +17,7 @@ type ExecutionAgentOptionalParams =
     | "systemPrompt"
     | "minTimeBetweenSteps"
     | "maxTimeBetweenSteps"
-    | "askUserHandler"
-    | "skillsConfig";
+    | "askUserHandler";
 
 /**
  * The configuration for the execution agent factory. These are the same as
@@ -49,9 +47,6 @@ export interface BuildAgentRunParams<TSpec extends CommandSpec, TContext extends
         Partial<Pick<ExecutionAgentRunParams<TSpec, TContext>, ExecutionAgentOptionalRunParams>> {
     /** Optional handler for asking the user questions (only in frontend-connected sessions) */
     askUserHandler?: AskUserHandler;
-
-    /** Optional skills configuration for resolving reusable sub-flows */
-    skillsConfig?: SkillsConfig;
 }
 
 /**
@@ -99,7 +94,6 @@ export class ExecutionAgentFactory<TSpec extends CommandSpec, TContext extends B
             // askUserHandler comes from runParams (set at runtime by QuaraConnectionHandler)
             // and must not be overridden by factory config, so it's placed after the spread
             askUserHandler: runParams.askUserHandler,
-            skillsConfig: runParams.skillsConfig,
         });
     }
 
