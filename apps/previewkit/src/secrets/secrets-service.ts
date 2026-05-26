@@ -20,6 +20,30 @@ export interface SecretSummary {
 }
 
 /**
+ * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
+ * name is `previewkit/<orgSlug>/<application.name>/<appName>`. AWS SM only
+ * accepts `[A-Za-z0-9_/+=.@!-]` in names; we forbid `/` per-segment too so
+ * that an `app.name` like `foo/bar` does not silently change the path depth
+ * of the assembled name. Any other character is replaced with `-`, then
+ * runs of `-` collapse and leading/trailing `-` is trimmed for readability.
+ *
+ * Reference: https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_CreateSecret.html
+ */
+const AWS_SM_SEGMENT_INVALID_REGEX = /[^A-Za-z0-9_+=.@!-]+/g;
+
+function sanitizeName(segment: string): string {
+    const sanitized = segment.replace(AWS_SM_SEGMENT_INVALID_REGEX, "-").replace(/^-+|-+$/g, "");
+    if (sanitized.length === 0) {
+        throw new Error(
+            `Cannot derive a valid AWS Secrets Manager name segment from "${segment}": ` +
+                `all characters were stripped or the input was empty. ` +
+                `Segment must contain at least one of A-Z, a-z, 0-9, _ + = . @ ! -.`,
+        );
+    }
+    return sanitized;
+}
+
+/**
  * CRUD over per-app AWS Secrets Manager bundles, served from Previewkit's
  * own HTTP surface so external tooling (CI, scripts) can manage secrets
  * without going through the autonoma API.
@@ -163,7 +187,11 @@ export class PreviewkitSecretsService {
         appName: string,
         items: SecretItem[],
     ): Promise<void> {
-        const secretName = `previewkit/${orgSlug}/${app.name}/${appName}`;
+        const sanitizedOrgSlug = sanitizeName(orgSlug);
+        const sanitizedApplicationName = sanitizeName(app.name);
+        const sanitizedAppName = sanitizeName(appName);
+        const secretName = `previewkit/${sanitizedOrgSlug}/${sanitizedApplicationName}/${sanitizedAppName}`;
+
         const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
 
         this.logger.info("Creating AWS secret for app", { applicationId: app.id, appName, secretName });
