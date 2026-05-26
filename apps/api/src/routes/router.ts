@@ -16,7 +16,6 @@ import { orgSecretsRouter } from "./org-secrets/org-secrets.router";
 import { runsRouter } from "./runs/runs.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
 import { secretsRouter } from "./secrets/secrets.router";
-import { skillsRouter } from "./skills/skills.router";
 import { snapshotEditRouter } from "./snapshot-edit/snapshot-edit.router";
 import { generationsRouter } from "./test-generations/test-generations.router";
 import { testsRouter } from "./tests/tests.router";
@@ -39,7 +38,6 @@ const appRouterImpl = router({
     scenarios: scenariosRouter,
     secrets: secretsRouter,
     orgSecrets: orgSecretsRouter,
-    skills: skillsRouter,
     github: githubRouter,
     onboarding: onboardingRouter,
     snapshotEdit: snapshotEditRouter,

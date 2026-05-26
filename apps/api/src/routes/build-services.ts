@@ -25,7 +25,6 @@ import { OrgSecretsService } from "./org-secrets/org-secrets.service";
 import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SecretsService } from "./secrets/secrets.service";
-import { SkillsService } from "./skills/skills.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
 import { TestsService } from "./tests/tests.service";
@@ -45,7 +44,6 @@ export interface Services {
     scenarios: ScenariosService;
     secrets: SecretsService;
     orgSecrets: OrgSecretsService;
-    skills: SkillsService;
     github: GitHubInstallationService;
     issues: IssuesService;
     onboarding: OnboardingService;
@@ -106,7 +104,6 @@ export function buildServices({
         scenarios: new ScenariosService(conn, scenarioManager),
         secrets: new SecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
-        skills: new SkillsService(conn),
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
         onboarding: new OnboardingService(onboardingManager),
