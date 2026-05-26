@@ -6,9 +6,24 @@ import { BaseRecipe, type RecipeConnectionInfo, type RecipeResources } from "./r
 const DEFAULT_VERSION = "latest";
 const PORT = 4566;
 
+const subscriptionSchema = z.object({
+    topic: z.string(),
+    queue: z.string(),
+    filter_policy: z.string().optional(),
+});
+
+const s3NotificationSchema = z.object({
+    bucket: z.string(),
+    queue: z.string(),
+    events: z.array(z.string()).default(["s3:ObjectCreated:*"]),
+});
+
 const optionsSchema = z.object({
     queues: z.array(z.string()).default([]),
     buckets: z.array(z.string()).default([]),
+    topics: z.array(z.string()).default([]),
+    subscriptions: z.array(subscriptionSchema).default([]),
+    s3_notifications: z.array(s3NotificationSchema).default([]),
 });
 
 export type AwsOptions = z.infer<typeof optionsSchema>;
@@ -145,6 +160,34 @@ function buildInitScript(options: AwsOptions): string {
         lines.push(`awslocal s3 mb "s3://${bucket}"`);
     }
 
+    for (const topic of options.topics) {
+        lines.push(`awslocal sns create-topic --name "${topic}"`);
+    }
+
+    for (const sub of options.subscriptions) {
+        const topicArn = `arn:aws:sns:us-east-1:000000000000:${sub.topic}`;
+        const queueArn = `arn:aws:sqs:us-east-1:000000000000:${sub.queue}`;
+        if (sub.filter_policy != null) {
+            const escaped = sub.filter_policy.replace(/'/g, "'\\''");
+            lines.push(
+                `awslocal sns subscribe --topic-arn "${topicArn}" --protocol sqs --notification-endpoint "${queueArn}" --attributes '{"FilterPolicy":"${escaped}"}'`,
+            );
+        } else {
+            lines.push(
+                `awslocal sns subscribe --topic-arn "${topicArn}" --protocol sqs --notification-endpoint "${queueArn}"`,
+            );
+        }
+    }
+
+    for (const notif of options.s3_notifications) {
+        const queueArn = `arn:aws:sqs:us-east-1:000000000000:${notif.queue}`;
+        const eventsJson = notif.events.map((e) => `\\"${e}\\"`).join(",");
+        const config = `{"QueueConfigurations":[{"QueueArn":"${queueArn}","Events":[${eventsJson}]}]}`;
+        lines.push(
+            `awslocal s3api put-bucket-notification-configuration --bucket "${notif.bucket}" --notification-configuration '${config}'`,
+        );
+    }
+
     lines.push("");
     return lines.join("\n");
 }
@@ -153,8 +196,11 @@ function buildServicesList(config: ServiceConfig): string[] {
     const services: string[] = [];
     if (config.s3) services.push("s3");
     if (config.sqs) services.push("sqs");
+    if (config.sns) services.push("sns");
     if (services.length === 0) {
-        throw new Error(`AWS recipe "${config.name}" requires at least one service. Set s3: true and/or sqs: true.`);
+        throw new Error(
+            `AWS recipe "${config.name}" requires at least one service. Set s3: true, sqs: true, and/or sns: true.`,
+        );
     }
     return services;
 }

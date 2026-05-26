@@ -12,6 +12,7 @@ const resourcesSchema = z
 const appSchema = z.object({
     name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
     path: z.string().default("."),
+    build_context: z.string().optional(),
     dockerfile: z.string().optional(),
     build_args: z.record(z.string(), z.string()).default({}),
     build_secrets: z.array(z.string()).default([]),
@@ -35,6 +36,7 @@ const serviceSchema = z.object({
     // aws recipe
     s3: z.boolean().optional(),
     sqs: z.boolean().optional(),
+    sns: z.boolean().optional(),
 });
 
 // Third-party resources provisioned via provider plugins (Neon, etc.).
@@ -84,13 +86,18 @@ const configSchema = z.object({
 const hookStepSchema = z.object({
     app: z.string(),
     command: z.string(),
+    // "exec" (default) runs the command inside a running pod via kubectl exec.
+    // "job" creates a one-off K8s Job using the app's built image — use this
+    // for pre_deploy migrations where the app pod hasn't started yet.
+    type: z.enum(["exec", "job"]).default("exec"),
 });
 
 const hooksSchema = z
     .object({
+        pre_deploy: z.array(hookStepSchema).default([]),
         post_deploy: z.array(hookStepSchema).default([]),
     })
-    .default({ post_deploy: [] });
+    .default({ pre_deploy: [], post_deploy: [] });
 
 export const previewConfigSchema = z
     .object({

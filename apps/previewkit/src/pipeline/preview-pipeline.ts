@@ -15,9 +15,9 @@ import {
     recordPhaseChanged,
     toAppInstances,
 } from "../db";
-import type { AppDeployOutcome, Deployer } from "../deployer/deployer";
-import { type DeployResult } from "../deployer/deployer";
+import type { AppDeployOutcome, DeployResult, Deployer } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
+import { runHookJob } from "../deployer/hook-job-runner";
 import { execInDeploymentPod } from "../deployer/pod-exec";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import type { PullRequestEvent } from "../git-provider/git-provider";
@@ -281,8 +281,7 @@ export class PreviewPipeline {
                     );
                 }
             }
-
-            // 9. Build all app images in parallel. Per-app build failures are
+            // 8. Build all app images in parallel. Per-app build failures are
             //    captured into the outcome map rather than thrown — only the
             //    "every app failed" case aborts the pipeline as a global error.
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
@@ -296,6 +295,11 @@ export class PreviewPipeline {
                 pr: prNumber,
                 applicationId: application.id,
                 registeredSecretApps: [...arnByApp.keys()].sort(),
+            });
+            logger.info("AWS secret ARNs by app", {
+                apps: Object.fromEntries(arnByApp),
+                registeredApps: [...arnByApp.keys()],
+                totalSecretRegistrations: arnByApp.size,
             });
             const appBuilds = await this.buildAllApps(
                 mergedConfig,
@@ -330,10 +334,7 @@ export class PreviewPipeline {
                 throw new Error("All app builds failed; see per-app build outcomes for details");
             }
 
-            // 10. Deploy. The deployer also runs each app independently — one
-            //     app's K8s apply or readiness failure does not abort the rest.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-k8s");
-            const result = await this.deployer.deploy({
+            const deployOpts = {
                 repoFullName,
                 prNumber,
                 headSha,
@@ -343,21 +344,75 @@ export class PreviewPipeline {
                 imageTags,
                 addonOutputs,
                 commentId,
-            });
+            };
 
-            // 11. Aggregate per-app outcomes for downstream reporting + decisions.
+            // 10. Deploy services (postgres, redis, etc.) and wait for readiness.
+            //     App pods have not started yet at this point.
+            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
+            const infraResult = await this.deployer.deployInfra(deployOpts);
+
+            // 11. Pre-deploy hooks (e.g. Postgres schema creation). Services are
+            //     up; app pods have not started yet, so there is no CrashLoopBackOff
+            //     race: schemas exist before any app tries to connect.
+            await this.updatePhase(repoFullName, prNumber, "deploying", "pre-deploy-hooks");
+            await this.runPreDeployHooks(
+                mergedConfig,
+                infraResult.namespace,
+                repoFullName,
+                prNumber,
+                imageTags,
+                addonOutputs,
+            );
+
+            // 12. Deploy apps wave by wave. Each app is its own failure domain.
+            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
+            const result = await this.deployer.deployApps(deployOpts, infraResult);
+
+            // 13. Collect apps that are ready now (for post_deploy hook filtering).
+            //     Apps in CrashLoopBackOff are not in this set and their own
+            //     hooks are skipped — but proxy hooks (e.g. running another
+            //     service's migration from a sibling pod) still run.
+            const readyAppNamesForHooks = new Set(
+                Object.entries(result.appOutcomes)
+                    .filter(([_, o]) => o.status === "ok")
+                    .map(([n]) => n),
+            );
+
+            // 14. Run post-deploy hooks only for apps that came up. Hooks that
+            //     target a failed app would fail at `kubectl exec` time with
+            //     "no pod" — better to skip silently than poison the pipeline.
+            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
+            await this.runPostDeployHooks(mergedConfig, result, readyAppNamesForHooks);
+
+            // 15. Restart any apps that crashed during startup with CrashLoopBackOff.
+            //     Post_deploy hooks above typically run migrations — deleting the
+            //     crashing pods lets them restart immediately (bypassing exponential
+            //     backoff) with the schema changes already in place.
+            const crashedApps = Object.entries(result.appOutcomes).flatMap(([name, o]) => {
+                if (o.status === "failed" && o.crashLoopBackOff === true) {
+                    return [{ name, url: o.url }];
+                }
+                return [];
+            });
+            if (crashedApps.length > 0) {
+                logger.info("Restarting crash-looped apps after post_deploy hooks", {
+                    namespace: result.namespace,
+                    apps: crashedApps.map((a) => a.name),
+                });
+                const recovered = await this.deployer.restartCrashedApps(result.namespace, crashedApps);
+                for (const [name, outcome] of Object.entries(recovered)) {
+                    result.appOutcomes[name] = outcome;
+                }
+            }
+
+            // 16. Aggregate per-app outcomes for downstream reporting + decisions.
+            //     Re-computed after crash recovery so recovered apps show as ok.
             const finalOutcomes = this.computeFinalOutcomes(mergedConfig, appBuilds, result.appOutcomes);
             const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
             const readyCount = readyAppNames.size;
             const totalCount = finalOutcomes.length;
 
-            // 12. Run post-deploy hooks only for apps that came up. Hooks that
-            //     target a failed app would fail at `kubectl exec` time with
-            //     "no pod" — better to skip silently than poison the pipeline.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
-            await this.runPostDeployHooks(mergedConfig, result, readyAppNames);
-
-            // 13. If nothing came up, treat as a global failure. Otherwise mark
+            // 14. If nothing came up, treat as a global failure. Otherwise mark
             //     the env ready — a partial preview is still useful.
             if (readyCount === 0) {
                 throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
@@ -528,6 +583,7 @@ export class PreviewPipeline {
             apps: [...primaryConfig.apps, ...deps.flatMap((d) => d.config.apps)],
             services: [...primaryConfig.services, ...deps.flatMap((d) => d.config.services)],
             hooks: {
+                pre_deploy: [...primaryConfig.hooks.pre_deploy, ...deps.flatMap((d) => d.config.hooks.pre_deploy)],
                 post_deploy: [...primaryConfig.hooks.post_deploy, ...deps.flatMap((d) => d.config.hooks.post_deploy)],
             },
         };
@@ -566,6 +622,8 @@ export class PreviewPipeline {
         // Each app is built independently — a failure in one app is captured
         // into its own outcome and does not abort the other builds. `buildOneApp`
         // never throws, so we don't need allSettled here.
+        // Each build spawns its own ephemeral BuildKit Job, so all builds run
+        // fully in parallel — Karpenter scales the node pool as needed.
         const entries = await Promise.all(
             config.apps.map(async (app) => {
                 const outcome = await this.buildOneApp(app, {
@@ -614,6 +672,7 @@ export class PreviewPipeline {
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
             const contextPath = path.resolve(dir, app.path);
+            const buildContext = app.build_context != null ? path.resolve(dir, app.build_context) : undefined;
             const cacheKey = `${ctx.org}/${ctx.repo}/${app.name}`;
 
             const appArn = ctx.arnByApp.get(app.name);
@@ -641,6 +700,7 @@ export class PreviewPipeline {
             const result = await this.builder.build({
                 appName: app.name,
                 contextPath,
+                buildContext,
                 dockerfile: app.dockerfile,
                 buildArgs: resolvedBuildArgs,
                 imageTag,
@@ -669,6 +729,61 @@ export class PreviewPipeline {
         await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
     }
 
+    private async runPreDeployHooks(
+        config: PreviewConfig,
+        namespace: string,
+        repoFullName: string,
+        prNumber: number,
+        imageTags: Record<string, string>,
+        addonOutputs: AddonOutputs,
+    ): Promise<void> {
+        if (config.hooks.pre_deploy.length === 0) return;
+
+        logger.info("Running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
+
+        const kc = this.deployer.getKubeConfig();
+        for (const hook of config.hooks.pre_deploy) {
+            if (hook.type === "job") {
+                const imageTag = imageTags[hook.app];
+                if (imageTag == null) {
+                    throw new Error(
+                        `Pre-deploy hook (type: job) for app "${hook.app}" has no built image — ` +
+                            `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
+                    );
+                }
+                const appConfig = config.apps.find((a) => a.name === hook.app);
+                if (appConfig == null) {
+                    throw new Error(`Pre-deploy hook (type: job) references unknown app "${hook.app}"`);
+                }
+                const org = repoFullName.split("/")[0]!.toLowerCase();
+                const context = { pr: String(prNumber), namespace, owner: org };
+                const publicUrlInfo = {
+                    domain: config.domain ?? this.deployer.getDomain(),
+                    repoSlug: this.deployer.buildRepoSlug(repoFullName),
+                    prNumber,
+                };
+                const resolvedEnv = this.deployer
+                    .getEnvInjector()
+                    .resolve(
+                        appConfig.env,
+                        config.apps,
+                        config.services,
+                        namespace,
+                        context,
+                        publicUrlInfo,
+                        addonOutputs,
+                    );
+                logger.info("Executing pre-deploy hook Job", { app: hook.app, command: hook.command });
+                await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv);
+            } else {
+                logger.info("Executing pre-deploy hook", { app: hook.app, command: hook.command });
+                const { stdout, stderr } = await execInDeploymentPod(kc, namespace, hook.app, hook.command);
+                if (stdout) logger.info("Pre-deploy hook stdout", { app: hook.app, stdout });
+                if (stderr) logger.warn("Pre-deploy hook stderr", { app: hook.app, stderr });
+            }
+        }
+    }
+
     private async runPostDeployHooks(
         config: PreviewConfig,
         result: DeployResult,
@@ -694,10 +809,19 @@ export class PreviewPipeline {
         const kc = this.deployer.getKubeConfig();
         for (const hook of runnable) {
             logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command });
-
-            const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
-            if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
-            if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
+            try {
+                const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
+                if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
+                if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
+            } catch (err) {
+                // Post-deploy hook failures are non-fatal: apps are already running and
+                // migrations are typically idempotent (already applied on re-deploys).
+                // Log prominently so operators can investigate, but don't abort the deploy.
+                logger.error("Post-deploy hook failed (non-fatal)", err, {
+                    app: hook.app,
+                    command: hook.command,
+                });
+            }
         }
     }
 

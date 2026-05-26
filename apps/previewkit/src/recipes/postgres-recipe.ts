@@ -1,6 +1,11 @@
 import type * as k8s from "@kubernetes/client-node";
+import { z } from "zod";
 import type { ServiceConfig } from "../config/schema";
 import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
+
+const optionsSchema = z.object({
+    databases: z.array(z.string()).default([]),
+});
 
 const DEFAULT_VERSION = "16-alpine";
 const PORT = 5432;
@@ -14,12 +19,15 @@ export class PostgresRecipe extends BaseRecipe {
     }
 
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
+        const options = optionsSchema.parse(config.options);
         const version = config.version ?? DEFAULT_VERSION;
         const image = `postgres:${version}`;
         const labels = {
             "previewkit.dev/managed-by": "previewkit",
             "previewkit.dev/service": config.name,
         };
+        const hasExtraDatabases = options.databases.length > 0;
+        const initConfigMapName = `${config.name}-initdb`;
 
         const pvc: k8s.V1PersistentVolumeClaim = {
             apiVersion: "v1",
@@ -80,6 +88,14 @@ export class PostgresRecipe extends BaseRecipe {
                                         name: "data",
                                         mountPath: "/var/lib/postgresql/data",
                                     },
+                                    ...(hasExtraDatabases
+                                        ? [
+                                              {
+                                                  name: "initdb",
+                                                  mountPath: "/docker-entrypoint-initdb.d",
+                                              },
+                                          ]
+                                        : []),
                                 ],
                                 readinessProbe: {
                                     exec: {
@@ -95,6 +111,17 @@ export class PostgresRecipe extends BaseRecipe {
                                 name: "data",
                                 persistentVolumeClaim: { claimName: `${config.name}-data` },
                             },
+                            ...(hasExtraDatabases
+                                ? [
+                                      {
+                                          name: "initdb",
+                                          configMap: {
+                                              name: initConfigMapName,
+                                              defaultMode: 0o755,
+                                          },
+                                      },
+                                  ]
+                                : []),
                         ],
                     },
                 },
@@ -115,12 +142,31 @@ export class PostgresRecipe extends BaseRecipe {
             },
         };
 
+        const configMaps: k8s.V1ConfigMap[] = [];
+        if (hasExtraDatabases) {
+            configMaps.push({
+                apiVersion: "v1",
+                kind: "ConfigMap",
+                metadata: { name: initConfigMapName, namespace, labels },
+                data: { "01-create-databases.sh": buildInitScript(options.databases) },
+            });
+        }
+
         return {
             deployments: [],
             statefulSets: [statefulSet],
             services: [service],
-            configMaps: [],
+            configMaps,
             persistentVolumeClaims: [pvc],
         };
     }
+}
+
+function buildInitScript(databases: string[]): string {
+    const lines = ["#!/bin/bash", "set -e", ""];
+    for (const db of databases) {
+        lines.push(`createdb --username "$POSTGRES_USER" "${db}" || true`);
+    }
+    lines.push("");
+    return lines.join("\n");
 }

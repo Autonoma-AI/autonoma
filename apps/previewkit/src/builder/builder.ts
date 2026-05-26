@@ -1,6 +1,13 @@
 export interface BuildRequest {
     appName: string;
+    /** Directory passed to `railpack prepare` and used for Dockerfile resolution. */
     contextPath: string;
+    /**
+     * Docker build context root. Defaults to `contextPath` when omitted.
+     * Set to the monorepo root when the app has workspace dependencies that
+     * need to be visible during `bun install` inside the container build.
+     */
+    buildContext?: string;
     dockerfile?: string;
     buildArgs: Record<string, string>;
     imageTag: string;

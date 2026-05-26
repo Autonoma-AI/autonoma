@@ -37,7 +37,12 @@ export async function execInDeploymentPod(
     stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
+    // The status callback fires when the command exits, but stdout/stderr bytes
+    // may still be in transit over the WebSocket. Store the failure and only
+    // resolve/reject after ws.close so the buffers are fully drained.
     await new Promise<void>((resolve, reject) => {
+        let failedStatus: k8s.V1Status | undefined;
+
         exec.exec(
             namespace,
             podName,
@@ -48,23 +53,29 @@ export async function execInDeploymentPod(
             null,
             false,
             (status) => {
-                if (status.status === "Success") {
-                    resolve();
-                    return;
+                if (status.status !== "Success") {
+                    failedStatus = status;
                 }
-                const exitCode = status.details?.causes?.find((c) => c.reason === "ExitCode")?.message;
-                reject(
-                    new Error(
-                        `Command failed in ${podName}: ${status.message ?? "non-zero exit"}${
-                            exitCode != null ? ` (exit ${exitCode})` : ""
-                        }`,
-                    ),
-                );
             },
         ).then((ws) => {
             ws.on("close", () => {
                 stdout.end();
                 stderr.end();
+                if (failedStatus != null) {
+                    const exitCode = failedStatus.details?.causes?.find((c) => c.reason === "ExitCode")?.message;
+                    const out = Buffer.concat(stdoutChunks).toString("utf-8").trim();
+                    const err = Buffer.concat(stderrChunks).toString("utf-8").trim();
+                    const captured = [out, err].filter(Boolean).join("\n");
+                    reject(
+                        new Error(
+                            `Command failed in ${podName}: ${failedStatus.message ?? "non-zero exit"}` +
+                                `${exitCode != null ? ` (exit ${exitCode})` : ""}` +
+                                `${captured ? `\n${captured}` : ""}`,
+                        ),
+                    );
+                } else {
+                    resolve();
+                }
             });
             ws.on("error", reject);
         }, reject);
@@ -91,9 +102,12 @@ async function findRunningPod(
             namespace,
             labelSelector: `app=${appLabel}`,
         });
-        const running = res.items.find(
-            (pod) => pod.status?.phase === "Running" && pod.metadata?.deletionTimestamp == null,
-        );
+        const running = res.items.find((pod) => {
+            if (pod.status?.phase !== "Running") return false;
+            if (pod.metadata?.deletionTimestamp != null) return false;
+            const containerStatuses = pod.status?.containerStatuses ?? [];
+            return containerStatuses.every((cs) => cs.state?.running != null);
+        });
         if (running != null) return running;
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }

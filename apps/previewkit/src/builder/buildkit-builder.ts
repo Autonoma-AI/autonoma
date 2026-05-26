@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, type WriteStream } from "node:fs";
 import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,10 +51,9 @@ interface BuildKitBuilderOptions {
  * Builds container images using two strategies:
  *
  * 1. If the app has a Dockerfile - build with `buildctl` and `dockerfile.v0`
- * 2. If no Dockerfile exists - run `railpack prepare` to generate a build plan,
- *    then build with `buildctl` using the railpack BuildKit frontend.
+ * 2. Otherwise - run `railpack prepare` from the app directory.
  *
- * Both paths push directly to the registry via buildctl's image exporter.
+ * All paths push directly to the registry via buildctl's image exporter.
  *
  * Per-build stdout+stderr is captured to a temp file and uploaded to object
  * storage. The `logUrl` is returned in the BuildResult so callers can link to
@@ -219,6 +219,7 @@ export class BuildKitBuilder implements Builder {
 
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
         const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
+        const buildContext = request.buildContext ?? request.contextPath;
 
         try {
             const args = [
@@ -230,7 +231,7 @@ export class BuildKitBuilder implements Builder {
                 "--frontend",
                 "dockerfile.v0",
                 "--local",
-                `context=${request.contextPath}`,
+                `context=${buildContext}`,
                 "--local",
                 `dockerfile=${dockerfileDir}`,
                 "--opt",
@@ -274,7 +275,7 @@ export class BuildKitBuilder implements Builder {
 
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
         const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
-        const planDir = join(tmpdir(), `previewkit-railpack-plan-${Date.now()}`);
+        const planDir = join(tmpdir(), `previewkit-railpack-plan-${randomUUID()}`);
         await mkdir(planDir, { recursive: true });
 
         try {
@@ -286,6 +287,7 @@ export class BuildKitBuilder implements Builder {
                 logStream,
             );
 
+            const buildContext = request.buildContext ?? request.contextPath;
             const args = [
                 "--addr",
                 buildkitHost,
@@ -297,7 +299,7 @@ export class BuildKitBuilder implements Builder {
                 "--opt",
                 "source=ghcr.io/railwayapp/railpack-frontend",
                 "--local",
-                `context=${request.contextPath}`,
+                `context=${buildContext}`,
                 "--local",
                 `dockerfile=${planDir}`,
                 "--opt",

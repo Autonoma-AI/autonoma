@@ -33,19 +33,31 @@ import {
  *   ready. `url` is set.
  * - `failed`: K8s apply or readiness wait threw. `url` is still set because
  *   the DNS host is computed from the app name and may resolve to a partially
- *   applied resource (commonly serving 502).
+ *   applied resource (commonly serving 502). `crashLoopBackOff` is true when
+ *   the failure was specifically CrashLoopBackOff — these pods may recover
+ *   after post_deploy hooks run migrations.
  * - `skipped`: deployer was not given an imageTag for this app (its build
  *   failed upstream), so no K8s resources were applied at all.
  */
 export type AppDeployOutcome =
     | { status: "ok"; url: string }
-    | { status: "failed"; url: string; error: string }
+    | { status: "failed"; url: string; error: string; crashLoopBackOff?: boolean }
     | { status: "skipped"; reason: string };
 
 export interface DeployResult {
     namespace: string;
     urls: Record<string, string>;
     appOutcomes: Record<string, AppDeployOutcome>;
+}
+
+/**
+ * Result of the infra-only phase (namespace + services). Passed into
+ * `deployApps` so the pipeline can insert pre-deploy hooks between the two
+ * phases (e.g. create Postgres schemas after the DB is up, before app pods start).
+ */
+export interface InfraDeployResult {
+    namespace: string;
+    awsSecretsByApp: Map<string, string>;
 }
 
 interface AppDeployContext {
@@ -99,23 +111,26 @@ export class Deployer {
         this.envInjector = new EnvInjector(this.recipeRegistry);
     }
 
+    /**
+     * Full deploy: infra (services) + apps. Convenience wrapper for callers
+     * that do not need to insert steps between the two phases.
+     */
     async deploy(opts: DeployOptions): Promise<DeployResult> {
-        const waves = computeDeployWaves(opts.config.apps);
-        return this.deployOrdered(opts, waves);
+        const infraResult = await this.deployInfra(opts);
+        return this.deployApps(opts, infraResult);
     }
 
-    private async deployOrdered(opts: DeployOptions, waves: AppConfig[][]): Promise<DeployResult> {
-        const {
-            repoFullName,
-            prNumber,
-            headSha,
-            organizationId,
-            config,
-            imageTags,
-            addonOutputs = {},
-            commentId,
-        } = opts;
-        const domain = config.domain ?? this.domain;
+    /**
+     * Phase 1: namespace, network policies, external secrets, service recipes,
+     * and service readiness wait. Returns an `InfraDeployResult` that must be
+     * passed to `deployApps` to complete the deployment.
+     *
+     * Splitting here lets the pipeline run pre-deploy hooks (e.g. Postgres
+     * schema creation) after services are up but before any app pod starts,
+     * which avoids CrashLoopBackOff caused by missing schemas.
+     */
+    async deployInfra(opts: DeployOptions): Promise<InfraDeployResult> {
+        const { repoFullName, prNumber, headSha, organizationId, config, commentId } = opts;
 
         // 1. Create namespace
         const namespace = await this.namespaceManager.create(repoFullName, prNumber, organizationId, {
@@ -162,13 +177,19 @@ export class Deployer {
         // 5. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 6. Deploy apps wave by wave; apps within each wave are deployed in parallel.
-        //    Each app is its own failure domain — one app's failure (build skip
-        //    or K8s apply error) does not stop other apps from deploying. Wave
-        //    ordering is preserved purely as a hint: depends_on still controls
-        //    *when* an app is attempted, but a downstream app is attempted even
-        //    if its upstream failed (the user prefers a partial preview over
-        //    none — see the per-app independence design discussion).
+        return { namespace, awsSecretsByApp };
+    }
+
+    /**
+     * Phase 2: deploy app images wave by wave. Accepts the `InfraDeployResult`
+     * from `deployInfra`. Each app is its own failure domain — one app's
+     * failure (build skip or K8s apply error) does not stop other apps.
+     */
+    async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
+        const { repoFullName, prNumber, config, imageTags, addonOutputs = {} } = opts;
+        const { namespace, awsSecretsByApp } = infraResult;
+        const domain = config.domain ?? this.domain;
+
         const owner = repoFullName.split("/")[0]!;
         const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
@@ -186,6 +207,7 @@ export class Deployer {
             addonOutputs,
         };
 
+        const waves = computeDeployWaves(config.apps);
         for (const wave of waves) {
             logger.info("Deploying wave", { namespace, apps: wave.map((a) => a.name) });
             const settled = await Promise.allSettled(wave.map((app) => this.tryDeployApp(app, appCtx)));
@@ -241,7 +263,61 @@ export class Deployer {
             const message = err instanceof Error ? err.message : String(err);
             logger.error("App deploy failed", err, { namespace: ctx.namespace, app: app.name });
             const url = `https://${buildAppHostname(app.name, ctx.prNumber, ctx.repoSlug, ctx.domain)}`;
-            return { status: "failed", url, error: message };
+            const crashLoopBackOff = message.includes("CrashLoopBackOff");
+            return { status: "failed", url, error: message, crashLoopBackOff };
+        }
+    }
+
+    /**
+     * For each app that ended in CrashLoopBackOff, deletes its crashing pods
+     * (bypassing exponential backoff) then waits for the Deployment to become
+     * Ready. Called after post_deploy hooks so that migrations applied during
+     * post_deploy are in place before the pods restart.
+     *
+     * Returns updated outcomes keyed by app name. Apps that do not recover
+     * within `timeoutMs` stay `failed`.
+     */
+    async restartCrashedApps(
+        namespace: string,
+        crashedApps: Array<{ name: string; url: string }>,
+        timeoutMs = 120_000,
+    ): Promise<Record<string, AppDeployOutcome>> {
+        const results: Record<string, AppDeployOutcome> = {};
+        for (const { name, url } of crashedApps) {
+            logger.info("Restarting crash-looped app after post_deploy hooks", { namespace, app: name });
+            try {
+                await this.deleteCrashedPods(namespace, name);
+                await this.waitForDeploymentReady(namespace, name, timeoutMs);
+                results[name] = { status: "ok", url };
+                logger.info("App recovered after post_deploy restart", { namespace, app: name });
+            } catch (err) {
+                const error = err instanceof Error ? err.message : String(err);
+                logger.warn("App did not recover after post_deploy restart", { namespace, app: name, error });
+                results[name] = { status: "failed", url, error };
+            }
+        }
+        return results;
+    }
+
+    private async deleteCrashedPods(namespace: string, appName: string): Promise<void> {
+        const pods = await this.coreApi.listNamespacedPod({
+            namespace,
+            labelSelector: `app=${appName}`,
+        });
+        for (const pod of pods.items) {
+            const podName = pod.metadata?.name;
+            if (podName == null) continue;
+            const isCrashing = pod.status?.containerStatuses?.some(
+                (cs) => cs.state?.waiting?.reason === "CrashLoopBackOff",
+            );
+            if (isCrashing) {
+                await this.coreApi.deleteNamespacedPod({ namespace, name: podName }).catch(() => {});
+                logger.info("Deleted CrashLoopBackOff pod for post_deploy recovery", {
+                    namespace,
+                    app: appName,
+                    pod: podName,
+                });
+            }
         }
     }
 
@@ -362,7 +438,7 @@ export class Deployer {
         return { name: app.name, url };
     }
 
-    private async waitForDeploymentReady(namespace: string, appName: string, timeoutMs = 180_000): Promise<void> {
+    private async waitForDeploymentReady(namespace: string, appName: string, timeoutMs = 300_000): Promise<void> {
         const start = Date.now();
         logger.info("Waiting for deployment to be ready", { namespace, app: appName });
 
@@ -380,7 +456,28 @@ export class Deployer {
                     logger.info("Deployment ready", { namespace, app: appName });
                     return;
                 }
+
+                // Fail fast if any pod is in CrashLoopBackOff — it won't become
+                // available within the timeout window anyway.
+                const pods = await this.coreApi.listNamespacedPod({
+                    namespace,
+                    labelSelector: `app=${appName}`,
+                });
+                for (const pod of pods.items) {
+                    for (const cs of pod.status?.containerStatuses ?? []) {
+                        if (cs.state?.waiting?.reason === "CrashLoopBackOff") {
+                            throw new Error(`Pod for "${appName}" is in CrashLoopBackOff`);
+                        }
+                    }
+                }
             } catch (err) {
+                if (err instanceof Error && err.message.includes("CrashLoopBackOff")) {
+                    logger.warn("Deployment failing due to CrashLoopBackOff, skipping wait", {
+                        namespace,
+                        app: appName,
+                    });
+                    throw err;
+                }
                 logger.warn("Transient error polling deployment status, retrying", { namespace, app: appName, err });
             }
             await new Promise((r) => setTimeout(r, 3000));
