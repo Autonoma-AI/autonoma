@@ -12,7 +12,7 @@ ARG MISE_VERSION=2026.3.17
 # files in the turbo-monorepo build path. Node handles .js + .mjs; bun handles
 # .ts and ESM/CJS edge cases. The official install script targets glibc; on
 # alpine we use the musl tarball.
-ARG BUN_VERSION=1.1.34
+ARG BUN_VERSION=1.2.20
 RUN apk add --no-cache ca-certificates curl tar bash libc6-compat git unzip \
     # buildctl - sends Dockerfile builds to the external BuildKit daemon \
     && ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') \
