@@ -1,0 +1,179 @@
+import { logger, type Logger } from "@autonoma/logger";
+import {
+    stepCountIs,
+    ToolLoopAgent,
+    type ModelMessage,
+    type PrepareStepFunction,
+    type StepResult,
+    type StopCondition,
+    type Tool,
+} from "ai";
+import type { LanguageModel } from "../registry/model-registry";
+import { logStepContent } from "./log-step";
+import type { ReportResultTool } from "./tools/agent-result";
+import type { AgentTool } from "./tools/agent-tool";
+import { FatalToolError } from "./tools/tool-errors";
+
+type GenericToolSet = Record<string, Tool>;
+type PrepareStepArgs = Parameters<PrepareStepFunction<GenericToolSet>>[0];
+type PrepareStepReturn = Awaited<ReturnType<PrepareStepFunction<GenericToolSet>>>;
+type AgentStepResult = StepResult<GenericToolSet>;
+
+export interface AgentConfig<TResult> {
+    /** A descriptive name for this type of agent, used for observability. */
+    name: string;
+
+    /** The model to use for the agent loop. */
+    model: LanguageModel;
+
+    /** Maximum number of steps the agent will take before failing with {@link MaxStepsReached}. */
+    maxSteps?: number;
+
+    /**
+     * The system prompt of the agent.
+     *
+     * Must be set when constructing the agent, not at the start of the generation. This precludes
+     * the system prompt from carrying dynamic per-run information, which is an intended design
+     * restriction: anything that varies by run belongs in the user prompt.
+     */
+    systemPrompt: string;
+
+    /** The tool used to report the result of the agent execution. */
+    reportTool: ReportResultTool<unknown, TResult>;
+
+    /** Tools that may be used during the execution of the agent loop. */
+    tools: AgentTool<unknown, unknown>[];
+}
+
+export class NoAgentResultError extends FatalToolError {
+    constructor(
+        public readonly conversation: ModelMessage[],
+        public readonly partialResult?: unknown,
+    ) {
+        super("No result was produced by the agent loop");
+    }
+}
+
+export class MaxStepsReached extends FatalToolError {
+    constructor(
+        public readonly conversation: ModelMessage[],
+        public readonly partialResult?: unknown,
+    ) {
+        super("The agent loop reached the maximum number of steps without producing a result");
+    }
+}
+
+export class MultipleResultCalls extends FatalToolError {
+    constructor() {
+        super("The result tool was called multiple times during the agent loop execution, which is not allowed");
+    }
+}
+
+/**
+ * Per-run state holder for an agent.
+ *
+ * Keeps track of the {@link ToolLoopAgent} instance and the loop's accumulated result. Subclass to
+ * carry additional per-run state - validation context, partial collectors, snapshot of state for
+ * the report tool to read.
+ */
+export class AgentLoop<TResult = unknown> {
+    protected readonly logger: Logger;
+
+    protected result: TResult | undefined = undefined;
+
+    private readonly name: string;
+    private readonly model: LanguageModel;
+    private readonly systemPrompt: string;
+    private readonly tools: AgentTool<unknown, unknown>[];
+    private readonly resultTool: ReportResultTool<unknown, TResult>;
+    private readonly maxSteps: number;
+
+    constructor({ name, model, systemPrompt, tools, reportTool: resultTool, maxSteps }: AgentConfig<TResult>) {
+        this.name = name;
+        this.model = model;
+        this.systemPrompt = systemPrompt;
+        this.tools = tools;
+        this.resultTool = resultTool;
+        this.maxSteps = maxSteps ?? 50;
+
+        this.logger = logger.child({ name: this.name });
+    }
+
+    /** Set the result of the execution. Called by {@link ReportResultTool.execute}. */
+    public setResult(result: TResult) {
+        if (this.result != null) {
+            this.logger.fatal("Result tool was called multiple times during agent loop execution", {
+                previousResult: this.result,
+                newResult: result,
+            });
+            throw new MultipleResultCalls();
+        }
+
+        this.logger.info("Setting result of agent loop", { result });
+        this.result = result;
+    }
+
+    /**
+     * Hook invoked before each step. Subclasses can override to inject per-step messages or
+     * settings. Default implementation is identity (returns the input args unchanged).
+     */
+    protected async prepareStep(args: PrepareStepArgs): Promise<PrepareStepReturn> {
+        return args;
+    }
+
+    /**
+     * Hook invoked after each step finishes. The default logs the step's content via
+     * {@link logStepContent} - subclasses can override or chain (`super.onStepFinish(result)`)
+     * to add custom per-step side effects.
+     */
+    protected async onStepFinish(result: AgentStepResult): Promise<void> {
+        logStepContent(this.logger, result.content);
+    }
+
+    /**
+     * Optional hook subclasses can implement to expose a partial result when the loop terminates
+     * without the report tool firing (e.g. max-steps reached, agent gave up). The returned value
+     * is attached to {@link NoAgentResultError.partialResult} / {@link MaxStepsReached.partialResult}
+     * so callers can persist partial state for debugging.
+     */
+    protected snapshotPartial?(): unknown;
+
+    /**
+     * Custom stop condition that fires once the report tool has produced a result.
+     */
+    private readonly hasProducedResult: StopCondition<GenericToolSet> = () => this.result !== undefined;
+
+    public async runLoop(userPrompt: ModelMessage[]): Promise<TResult> {
+        this.logger.info("Starting agent loop", { tools: this.tools.map((t) => t.name) });
+
+        const tools: GenericToolSet = Object.fromEntries(
+            [...this.tools, this.resultTool].map((t) => [t.name, t.toTool(this)]),
+        );
+
+        const agent = new ToolLoopAgent({
+            model: this.model,
+            instructions: this.systemPrompt,
+            tools,
+            stopWhen: [stepCountIs(this.maxSteps), this.hasProducedResult],
+            prepareStep: (args) => this.prepareStep(args),
+            onStepFinish: (result) => this.onStepFinish(result),
+        });
+
+        const generationResult = await agent.generate({ messages: userPrompt });
+        const conversation = generationResult.response.messages;
+
+        if (this.result === undefined) {
+            const partialResult = this.snapshotPartial?.();
+            if (generationResult.steps.length >= this.maxSteps) {
+                this.logger.fatal("Agent loop reached maximum number of steps without producing a result");
+                throw new MaxStepsReached(conversation, partialResult);
+            }
+            this.logger.fatal("Agent loop finished without producing a result");
+            throw new NoAgentResultError(conversation, partialResult);
+        }
+
+        this.logger.info("Agent loop finished successfully", { result: this.result });
+
+        return this.result;
+    }
+}

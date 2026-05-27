@@ -1,9 +1,10 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { promisify } from "node:util";
 import type { GitHubInstallationClient } from "@autonoma/github";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { glob as globPackage } from "glob";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,12 +24,35 @@ export interface GrepHit {
     match: string;
 }
 
+export interface GlobOptions {
+    /** Defaults to the codebase root. Pass an absolute path or a path relative to the root. */
+    cwd?: string;
+    /** Additional ignore globs on top of the defaults (node_modules, dist, .git). */
+    ignore?: string[];
+}
+
 export interface DirectoryEntry {
     name: string;
     type: "file" | "directory";
 }
 
 const DEFAULT_GREP_LIMIT = 200;
+const DEFAULT_GLOB_IGNORES = ["**/node_modules/**", "**/dist/**", "**/.git/**"];
+
+let ripgrepChecked = false;
+
+function assertRipgrepAvailable(): void {
+    if (ripgrepChecked) return;
+    try {
+        execFileSync("rg", ["--version"], { stdio: "ignore" });
+        ripgrepChecked = true;
+    } catch {
+        throw new Error(
+            "ripgrep (rg) is not installed or not found in PATH. " +
+                "Install it with: brew install ripgrep (macOS), apt install ripgrep (Ubuntu), or see https://github.com/BurntSushi/ripgrep#installation",
+        );
+    }
+}
 
 /**
  * "The user's source tree at a specific commit", with a small read API.
@@ -103,24 +127,49 @@ export class Codebase {
     }
 
     async grep(pattern: string, options: GrepOptions = {}): Promise<GrepHit[]> {
+        assertRipgrepAvailable();
+
         const limit = options.maxResults ?? DEFAULT_GREP_LIMIT;
-        const args = ["grep", "-n", "--no-color", "-I", "-e", pattern];
+        const args = [
+            "--no-heading",
+            "--line-number",
+            "--color=never",
+            "--glob=!node_modules",
+            "--glob=!dist",
+            "--glob=!.git",
+        ];
+
         if (options.glob != null) {
-            args.push("--", options.glob);
+            args.push(`--glob=${options.glob}`);
         }
 
+        args.push("-e", pattern, this.root);
+
         try {
-            const { stdout } = await execFileAsync("git", args, {
+            const { stdout } = await execFileAsync("rg", args, {
                 cwd: this.root,
                 maxBuffer: 5 * 1024 * 1024,
                 timeout: 30_000,
             });
             return this.parseGrep(stdout, limit);
         } catch (error) {
-            // git grep exits 1 when there are no matches; treat that as empty result, not failure.
+            // rg exits 1 when there are no matches; treat that as empty result, not failure.
             if (isExitOne(error)) return [];
             throw error;
         }
+    }
+
+    /**
+     * Match files by glob pattern. Defaults `cwd` to the codebase root and excludes
+     * `node_modules`, `dist`, `.git`. Returns paths relative to `cwd`.
+     */
+    async glob(pattern: string, options: GlobOptions = {}): Promise<string[]> {
+        const matches = await globPackage(pattern, {
+            cwd: options.cwd ?? this.root,
+            nodir: true,
+            ignore: [...DEFAULT_GLOB_IGNORES, ...(options.ignore ?? [])],
+        });
+        return matches;
     }
 
     async listDirectory(path = "."): Promise<DirectoryEntry[]> {
@@ -142,15 +191,22 @@ export class Codebase {
             const colonOne = raw.indexOf(":");
             const colonTwo = raw.indexOf(":", colonOne + 1);
             if (colonOne === -1 || colonTwo === -1) continue;
-            const path = raw.slice(0, colonOne);
+            const absolutePath = raw.slice(0, colonOne);
             const lineNum = Number.parseInt(raw.slice(colonOne + 1, colonTwo), 10);
             const match = raw.slice(colonTwo + 1);
             if (Number.isNaN(lineNum)) continue;
+            const path = relativeToRoot(absolutePath, this.root);
             hits.push({ path, line: lineNum, match });
             if (hits.length >= limit) break;
         }
         return hits;
     }
+}
+
+function relativeToRoot(absolutePath: string, root: string): string {
+    const normalizedRoot = root.endsWith("/") ? root : `${root}/`;
+    if (absolutePath.startsWith(normalizedRoot)) return absolutePath.slice(normalizedRoot.length);
+    return absolutePath;
 }
 
 function isExitOne(error: unknown): boolean {

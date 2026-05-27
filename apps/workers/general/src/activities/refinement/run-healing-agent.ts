@@ -66,7 +66,6 @@ export async function runHealingAgentForRefinement(
             body: async (codebase) => {
                 const agent = new HealingAgent({ model });
                 return await agent.heal({
-                    mode: "refinement",
                     iteration: input.iteration,
                     priorActions,
                     failures,
@@ -237,8 +236,7 @@ function actionPlanId(a: DecoratedAction): string | undefined {
     return a.kind === "update_plan" ? a.planId : undefined;
 }
 
-function actionTestCaseId(a: DecoratedAction): string | undefined {
-    if (a.kind === "add_test") return undefined;
+function actionTestCaseId(a: DecoratedAction): string {
     return a.testCaseId;
 }
 

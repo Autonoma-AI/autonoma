@@ -32,26 +32,6 @@ export interface FailureRecord {
     reviewReasoning?: string;
 }
 
-export interface DiffsContext {
-    baseSha: string;
-    /** Codebase clone is checked out at this SHA. */
-    headSha: string;
-    /** Files that changed between baseSha and headSha. Cheap to inline at prompt time. */
-    changedFiles: string[];
-    /** Step-1 diffs analysis narrative. */
-    step1Reasoning: string;
-    /** New test ideas the analysis agent suggested. */
-    testCandidates: TestCandidateInput[];
-}
-
-export interface TestCandidateInput {
-    name: string;
-    folderId: string;
-    folderName: string;
-    instruction: string;
-    reasoning: string;
-}
-
 export interface SnapshotInfo {
     snapshotId: string;
     applicationId: string;
@@ -65,35 +45,21 @@ export interface PlanAuthoringInput {
     testScopeGuidelines?: string;
 }
 
-export type HealingInput =
-    | (SnapshotInfo & {
-          mode: "diffs";
-          failures: FailureRecord[];
-          /**
-           * Subset of failures' testCaseIds that may be targeted by report_bug
-           * or report_engine_limitation - i.e. those whose failure carries a
-           * source review the apply layer can link evidence to.
-           */
-          reportableTestCaseIds: Set<string>;
-          diffContext: DiffsContext;
-          codebase: Codebase;
-          planAuthoring: PlanAuthoringInput;
-      })
-    | (SnapshotInfo & {
-          mode: "refinement";
-          iteration: number;
-          /** Actions emitted in earlier iterations of the same loop. */
-          priorActions: HealingAction[];
-          failures: FailureRecord[];
-          /**
-           * Subset of failures' testCaseIds that may be targeted by report_bug
-           * or report_engine_limitation - i.e. those whose failure carries a
-           * source review the apply layer can link evidence to.
-           */
-          reportableTestCaseIds: Set<string>;
-          codebase: Codebase;
-          planAuthoring: PlanAuthoringInput;
-      });
+export interface HealingInput extends SnapshotInfo {
+    /** 1-indexed iteration number within the refinement loop. */
+    iteration: number;
+    /** Actions emitted in earlier iterations of the same loop. */
+    priorActions: HealingAction[];
+    failures: FailureRecord[];
+    /**
+     * Subset of failures' testCaseIds that may be targeted by report_bug
+     * or report_engine_limitation - i.e. those whose failure carries a
+     * source review the apply layer can link evidence to.
+     */
+    reportableTestCaseIds: Set<string>;
+    codebase: Codebase;
+    planAuthoring: PlanAuthoringInput;
+}
 
 export interface HealingResult {
     actions: HealingAction[];

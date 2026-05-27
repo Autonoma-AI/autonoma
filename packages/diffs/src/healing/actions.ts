@@ -18,15 +18,6 @@ const updatePlanActionSchema = z.object({
     reasoning: z.string().describe("Why this rewrite addresses the failure"),
 });
 
-const addTestActionSchema = z.object({
-    kind: z.literal("add_test"),
-    name: z.string().describe("Display name for the new test case"),
-    folderId: z.string().describe("ID of the folder/flow this test belongs in"),
-    prompt: z.string().describe("Natural language test instruction"),
-    scenarioId: z.string().optional().describe("Optional scenario ID to seed test data; omit if test starts fresh"),
-    reasoning: z.string().describe("Why this test should exist"),
-});
-
 const reportBugActionSchema = z.object({
     kind: z.literal("report_bug"),
     testCaseId: z.string().describe("ID of the test case that surfaced the bug"),
@@ -55,7 +46,6 @@ const removeTestActionSchema = z.object({
 
 export const healingActionSchema = z.discriminatedUnion("kind", [
     updatePlanActionSchema,
-    addTestActionSchema,
     reportBugActionSchema,
     reportEngineLimitationActionSchema,
     removeTestActionSchema,
@@ -63,13 +53,11 @@ export const healingActionSchema = z.discriminatedUnion("kind", [
 
 export type HealingAction = z.infer<typeof healingActionSchema>;
 export type UpdatePlanAction = z.infer<typeof updatePlanActionSchema>;
-export type AddTestAction = z.infer<typeof addTestActionSchema>;
 export type ReportBugAction = z.infer<typeof reportBugActionSchema>;
 export type ReportEngineLimitationAction = z.infer<typeof reportEngineLimitationActionSchema>;
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
-export const addTestInputSchema = addTestActionSchema.omit({ kind: true });
 export const reportBugInputSchema = reportBugActionSchema.omit({ kind: true });
 export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({ kind: true });
 export const removeTestInputSchema = removeTestActionSchema.omit({ kind: true });

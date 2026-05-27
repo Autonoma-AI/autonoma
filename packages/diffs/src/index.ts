@@ -65,25 +65,20 @@ export {
     Codebase,
     buildRepoTools,
     type DirectoryEntry,
+    type GlobOptions,
     type GrepHit,
     type GrepOptions,
     type ReadFileOptions,
 } from "./codebase";
 
+export type { CodebaseLoop, TestLookupLoop, ScenarioLookupLoop, ScreenshotInspectionLoop } from "./agents";
+
 export { HealingAgent, type HealingAgentConfig } from "./healing/healing-agent";
-export type {
-    HealingInput,
-    HealingResult,
-    FailureRecord,
-    DiffsContext,
-    SnapshotInfo,
-    PlanAuthoringInput,
-} from "./healing/types";
+export type { HealingInput, HealingResult, FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export {
     healingActionSchema,
     type HealingAction,
     type UpdatePlanAction,
-    type AddTestAction,
     type ReportBugAction,
     type ReportEngineLimitationAction,
     type RemoveTestAction,

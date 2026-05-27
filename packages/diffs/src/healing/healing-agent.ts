@@ -19,12 +19,9 @@ export interface HealingAgentConfig {
 }
 
 /**
- * Mode-aware agent that diagnoses failing test plans and decides what to do
- * about each one. Same agent for both diffs (single-shot, post code-change)
- * and refinement (iterative, inside refinement loop).
- *
- * Emits a structured action list. The runner is responsible for applying the
- * actions via Temporal activities.
+ * Diagnoses failing test plans inside a refinement loop iteration and decides
+ * what to do about each one. Emits a structured action list; the runner is
+ * responsible for applying the actions via Temporal activities.
  */
 export class HealingAgent {
     private readonly logger: Logger;
@@ -35,11 +32,10 @@ export class HealingAgent {
 
     async heal(input: HealingInput): Promise<HealingResult> {
         this.logger.info("Starting healing run", {
-            mode: input.mode,
             failureCount: input.failures.length,
             snapshotId: input.snapshotId,
             applicationId: input.applicationId,
-            iteration: input.mode === "refinement" ? input.iteration : undefined,
+            iteration: input.iteration,
         });
 
         const collector = createHealingActionCollector();
@@ -59,7 +55,6 @@ export class HealingAgent {
                 ...buildRepoTools(input.codebase),
                 ...buildScenarioTools(input.planAuthoring.scenarios),
                 ...buildHealingActionTools(collector, failureKeysByTestCaseId, {
-                    allowAddTest: input.mode === "diffs",
                     reportableTestCaseIds: input.reportableTestCaseIds,
                 }),
                 finish: buildFinishTool(collector, failureKeys, onFinish),

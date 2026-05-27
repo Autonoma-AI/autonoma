@@ -35,3 +35,5 @@ export * from "./freestyle/object";
 export * from "./freestyle/point";
 
 export type { ModelEntry } from "./registry/model-entries";
+
+export * from "./agent";

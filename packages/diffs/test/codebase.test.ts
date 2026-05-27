@@ -64,7 +64,7 @@ describe("Codebase", () => {
         }
     });
 
-    it("greps for matches via git grep", async () => {
+    it("greps for matches via ripgrep", async () => {
         const codebase = await makeCodebase();
         try {
             const hits = await codebase.grep("Sign In");
@@ -77,11 +77,46 @@ describe("Codebase", () => {
         }
     });
 
+    it("greps respects the glob filter", async () => {
+        const codebase = await makeCodebase();
+        try {
+            const hits = await codebase.grep("export function", { glob: "**/checkout.tsx" });
+            expect(hits).toHaveLength(1);
+            expect(hits[0]!.path).toBe("src/checkout.tsx");
+        } finally {
+            await codebase.dispose();
+        }
+    });
+
+    it("greps caps results at maxResults", async () => {
+        const codebase = await makeCodebase();
+        try {
+            const hits = await codebase.grep("export", { maxResults: 1 });
+            expect(hits).toHaveLength(1);
+        } finally {
+            await codebase.dispose();
+        }
+    });
+
     it("returns empty array on no grep matches", async () => {
         const codebase = await makeCodebase();
         try {
             const hits = await codebase.grep("ThisStringDoesNotExistAnywhere");
             expect(hits).toEqual([]);
+        } finally {
+            await codebase.dispose();
+        }
+    });
+
+    it("globs files by pattern, excluding default ignores", async () => {
+        const codebase = await makeCodebase();
+        try {
+            const tsxFiles = (await codebase.glob("**/*.tsx")).sort();
+            expect(tsxFiles).toEqual(["src/checkout.tsx", "src/login.tsx"]);
+
+            const allFiles = await codebase.glob("**/*");
+            expect(allFiles).toContain("README.md");
+            expect(allFiles.every((p) => !p.startsWith(".git"))).toBe(true);
         } finally {
             await codebase.dispose();
         }

@@ -1,6 +1,5 @@
-import { type ToolSet, tool } from "ai";
+import { tool } from "ai";
 import {
-    addTestInputSchema,
     type HealingAction,
     removeTestInputSchema,
     reportBugInputSchema,
@@ -27,12 +26,6 @@ export function createHealingActionCollector(): HealingActionCollector {
 }
 
 export interface BuildHealingActionToolsOptions {
-    /**
-     * Whether to expose `add_test` to the agent. Only diffs mode can ground an
-     * add_test call (Step-1 candidates with real folder ids); refinement mode
-     * has no suite-wide context, so the tool is omitted entirely there.
-     */
-    allowAddTest: boolean;
     /**
      * testCaseIds that may be targeted by report_bug / report_engine_limitation.
      * Excludes hallucinated IDs and real failures whose source review is missing,
@@ -128,24 +121,9 @@ export function buildHealingActionTools(
         },
     });
 
-    const tools: ToolSet = { update_plan, report_bug, report_engine_limitation, remove_test };
-
-    if (options.allowAddTest) {
-        tools.add_test = tool({
-            description:
-                "Create a brand-new test case that does not exist today. Use for accepted Step-1 candidates (diffs mode) or coverage gaps you discover while reading code.",
-            inputSchema: addTestInputSchema,
-            execute: (input) => {
-                collector.actions.push({ kind: "add_test", ...input });
-                return { recorded: true };
-            },
-        });
-    }
-
-    return tools;
+    return { update_plan, report_bug, report_engine_limitation, remove_test };
 }
 
-function actionTestCaseId(a: HealingAction): string | undefined {
-    if (a.kind === "add_test") return undefined;
+function actionTestCaseId(a: HealingAction): string {
     return a.testCaseId;
 }
