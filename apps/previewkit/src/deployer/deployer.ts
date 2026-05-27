@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as k8s from "@kubernetes/client-node";
 import type { AppConfig, PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
@@ -543,20 +544,27 @@ export class Deployer {
         throw new Error(`Timed out waiting for services to be ready in ${namespace}`);
     }
 
-    private async applyDeployment(namespace: string, deployment: k8s.V1Deployment): Promise<void> {
-        const name = deployment.metadata!.name!;
+    private async applyDeployment(namespace: string, deployment: k8s.V1Deployment, times = 5): Promise<void> {
+        const name = deployment.metadata?.name ?? `no-name-${randomUUID()}`;
+        if (times <= 0) {
+            throw new Error(`Max times reached trying to apply deployment for ${name} on ${namespace}. Tried 5 times.`);
+        }
+
         try {
             await this.appsApi.createNamespacedDeployment({ namespace, body: deployment });
+            logger.info(`Deployment ${name} on ${namespace} created`);
         } catch (err: unknown) {
-            if (isConflict(err)) {
-                await this.appsApi.replaceNamespacedDeployment({
-                    name,
-                    namespace,
-                    body: deployment,
-                });
-            } else {
-                throw err;
-            }
+            if (!isConflict(err)) throw err;
+
+            logger.info(`There was a conflict. Deleting and recreating the deployment ${name} on ${namespace}`);
+
+            await this.appsApi.deleteNamespacedDeployment({
+                name,
+                namespace,
+            });
+            // waiting because delete is asynchronous and cascading takes time
+            await new Promise((r) => setTimeout(r, 1_000));
+            return this.applyDeployment(namespace, deployment, times - 1);
         }
     }
 
