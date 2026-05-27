@@ -168,7 +168,7 @@ export class Deployer {
                 await this.applyStatefulSet(namespace, ss);
             }
             for (const dep of resources.deployments) {
-                await this.applyDeployment(namespace, dep);
+                await this.applyServiceDeployment(namespace, dep);
             }
             for (const svc of resources.services) {
                 await this.applyService(namespace, svc);
@@ -494,7 +494,7 @@ export class Deployer {
         throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}`);
     }
 
-    private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 120_000): Promise<void> {
+    private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 180_000): Promise<void> {
         if (config.services.length === 0) return;
 
         // Only wait on services that actually generated a K8s Service resource.
@@ -544,6 +544,24 @@ export class Deployer {
         throw new Error(`Timed out waiting for services to be ready in ${namespace}`);
     }
 
+    private async applyServiceDeployment(namespace: string, deployment: k8s.V1Deployment): Promise<void> {
+        const name = deployment.metadata!.name!;
+        if (name == null) {
+            throw new Error(
+                `applyServiceDeployment received deployment.metadata.name == null on namespace ${namespace}`,
+            );
+        }
+
+        try {
+            await this.appsApi.createNamespacedDeployment({ namespace, body: deployment });
+            logger.info(`Deployment ${name} on ${namespace} created`);
+        } catch (err: unknown) {
+            if (!isConflict(err)) throw err;
+            await this.appsApi.replaceNamespacedDeployment({ name, namespace, body: deployment });
+            logger.info(`Deployment ${name} on ${namespace} replaced`);
+        }
+    }
+
     private async applyDeployment(namespace: string, deployment: k8s.V1Deployment, times = 5): Promise<void> {
         const name = deployment.metadata?.name ?? `no-name-${randomUUID()}`;
         if (times <= 0) {
@@ -558,11 +576,7 @@ export class Deployer {
 
             logger.info(`There was a conflict. Deleting and recreating the deployment ${name} on ${namespace}`);
 
-            await this.appsApi.deleteNamespacedDeployment({
-                name,
-                namespace,
-            });
-            // waiting because delete is asynchronous and cascading takes time
+            await this.appsApi.deleteNamespacedDeployment({ name, namespace });
             await new Promise((r) => setTimeout(r, 1_000));
             return this.applyDeployment(namespace, deployment, times - 1);
         }
