@@ -69,6 +69,12 @@ export type HealingInput =
     | (SnapshotInfo & {
           mode: "diffs";
           failures: FailureRecord[];
+          /**
+           * Subset of failures' testCaseIds that may be targeted by report_bug
+           * or report_engine_limitation - i.e. those whose failure carries a
+           * source review the apply layer can link evidence to.
+           */
+          reportableTestCaseIds: Set<string>;
           diffContext: DiffsContext;
           codebase: Codebase;
           planAuthoring: PlanAuthoringInput;
@@ -79,6 +85,12 @@ export type HealingInput =
           /** Actions emitted in earlier iterations of the same loop. */
           priorActions: HealingAction[];
           failures: FailureRecord[];
+          /**
+           * Subset of failures' testCaseIds that may be targeted by report_bug
+           * or report_engine_limitation - i.e. those whose failure carries a
+           * source review the apply layer can link evidence to.
+           */
+          reportableTestCaseIds: Set<string>;
           codebase: Codebase;
           planAuthoring: PlanAuthoringInput;
       });

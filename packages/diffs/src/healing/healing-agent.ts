@@ -60,6 +60,7 @@ export class HealingAgent {
                 ...buildScenarioTools(input.planAuthoring.scenarios),
                 ...buildHealingActionTools(collector, failureKeysByTestCaseId, {
                     allowAddTest: input.mode === "diffs",
+                    reportableTestCaseIds: input.reportableTestCaseIds,
                 }),
                 finish: buildFinishTool(collector, failureKeys, onFinish),
             },

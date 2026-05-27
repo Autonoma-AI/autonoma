@@ -48,6 +48,7 @@ export async function runHealingAgentForRefinement(
         const priorActions = await loadPriorActions(input.iterationId);
 
         const failures = collectFailureRecords(input);
+        const reportableTestCaseIds = computeReportableTestCaseIds(input);
 
         const planAuthoring = await loadPlanAuthoringInput({
             db,
@@ -69,6 +70,7 @@ export async function runHealingAgentForRefinement(
                     iteration: input.iteration,
                     priorActions,
                     failures,
+                    reportableTestCaseIds,
                     codebase,
                     planAuthoring,
                     snapshotId: input.snapshotId,
@@ -116,6 +118,17 @@ async function loadPriorActions(currentIterationId: string): Promise<HealingActi
     });
 
     return priorRows.map((row) => healingActionSchema.parse({ kind: row.kind, ...(row.payload as object) }));
+}
+
+function computeReportableTestCaseIds(input: RunHealingAgentForRefinementInput): Set<string> {
+    const reportable = new Set<string>();
+    for (const f of input.failuresAtGeneration) {
+        if (f.generationReviewId != null) reportable.add(f.testCaseId);
+    }
+    for (const f of input.failuresAtReplay) {
+        if (f.runReviewId != null) reportable.add(f.testCaseId);
+    }
+    return reportable;
 }
 
 function collectFailureRecords(input: RunHealingAgentForRefinementInput): FailureRecord[] {

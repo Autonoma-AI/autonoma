@@ -33,6 +33,12 @@ export interface BuildHealingActionToolsOptions {
      * has no suite-wide context, so the tool is omitted entirely there.
      */
     allowAddTest: boolean;
+    /**
+     * testCaseIds that may be targeted by report_bug / report_engine_limitation.
+     * Excludes hallucinated IDs and real failures whose source review is missing,
+     * so the apply layer always has a review to link evidence to.
+     */
+    reportableTestCaseIds: Set<string>;
 }
 
 export function buildHealingActionTools(
@@ -58,6 +64,14 @@ export function buildHealingActionTools(
         };
     }
 
+    function rejectIfNotReportable(testCaseId: string) {
+        if (options.reportableTestCaseIds.has(testCaseId)) return undefined;
+        return {
+            recorded: false,
+            error: `testCase ${testCaseId} cannot be the target of report_bug or report_engine_limitation. Either it is not one of this iteration's failing test cases, or its failure has no source review to link evidence to. Pick a different action (update_plan, remove_test) or a different testCaseId from the failure list.`,
+        };
+    }
+
     const update_plan = tool({
         description:
             "Update a failing test's plan prompt. Use when the plan instruction is wrong (stale after code change, plan_mismatch verdict, or too vague). The loop re-queues a generation with the new prompt next iteration.",
@@ -76,6 +90,8 @@ export function buildHealingActionTools(
             "Report a confirmed application bug. Atomic: creates an Issue, links to an existing Bug or creates a new one, and quarantines the test case for this snapshot. The apply layer dedupes against existing bugs and against your other report_bug calls in this batch - just describe each bug you find.",
         inputSchema: reportBugInputSchema,
         execute: (input) => {
+            const notReportable = rejectIfNotReportable(input.testCaseId);
+            if (notReportable != null) return notReportable;
             const rejected = rejectIfHandled(input.testCaseId);
             if (rejected != null) return rejected;
             collector.actions.push({ kind: "report_bug", ...input });
@@ -89,6 +105,8 @@ export function buildHealingActionTools(
             "Report that the engine/agent cannot drive this scenario and there's no plan workaround. Atomic: creates an Issue with kind=engine_limitation and quarantines the test case for this snapshot.",
         inputSchema: reportEngineLimitationInputSchema,
         execute: (input) => {
+            const notReportable = rejectIfNotReportable(input.testCaseId);
+            if (notReportable != null) return notReportable;
             const rejected = rejectIfHandled(input.testCaseId);
             if (rejected != null) return rejected;
             collector.actions.push({ kind: "report_engine_limitation", ...input });
