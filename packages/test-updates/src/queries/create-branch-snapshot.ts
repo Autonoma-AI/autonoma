@@ -20,7 +20,7 @@ interface CreateBranchSnapshotParams {
 }
 
 /**
- * Creates a new branch snapshot and copies test case + skill assignments from the
+ * Creates a new branch snapshot and copies test case assignments from the
  * appropriate source snapshot:
  * - the branch's own active snapshot if it has one, or
  * - the application's main branch active snapshot (so a brand new PR branch inherits
@@ -64,7 +64,6 @@ export async function createBranchSnapshot({
 
     if (sourceSnapshotId != null) {
         await copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
-        await copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
         await copyScenarioRecipeVersions({ tx, sourceSnapshotId, sourceKind, targetSnapshotId: created.id, logger });
     }
 
@@ -110,32 +109,6 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
                 quarantineIssueId: a.quarantineIssueId ?? undefined,
             };
         }),
-    });
-}
-
-async function copySkillAssignments({ tx, sourceSnapshotId, sourceKind, targetSnapshotId, logger }: CopyParams) {
-    logger.info("Retrieving skill assignments from source snapshot", { sourceSnapshotId, sourceKind });
-    const skillAssignments = await tx.skillAssignment.findMany({
-        where: { snapshotId: sourceSnapshotId },
-        select: {
-            skillId: true,
-            planId: true,
-        },
-    });
-
-    if (skillAssignments.length === 0) return;
-
-    logger.info("Copying skill assignments from source snapshot", {
-        sourceSnapshotId,
-        sourceKind,
-        assignmentCount: skillAssignments.length,
-    });
-    await tx.skillAssignment.createMany({
-        data: skillAssignments.map((a) => ({
-            snapshotId: targetSnapshotId,
-            skillId: a.skillId,
-            planId: a.planId ?? undefined,
-        })),
     });
 }
 

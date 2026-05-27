@@ -1,7 +1,7 @@
 import { SnapshotStatus } from "@autonoma/db";
 import { expect } from "vitest";
 import { BranchAlreadyHasPendingSnapshotError, SnapshotDraft, SnapshotNotPendingError } from "../src/snapshot-draft";
-import { findSkill, findTestCase, testUpdateSuite } from "./harness";
+import { findTestCase, testUpdateSuite } from "./harness";
 
 testUpdateSuite({
     name: "SnapshotDraft",
@@ -167,30 +167,6 @@ testUpdateSuite({
             expect(healthy?.stepsId).toBe(stepsByTcId.get(healthyTcId));
         });
 
-        test("start: copies skill assignments from active snapshot", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const branchId = await harness.createBranch(organizationId, applicationId);
-
-            const first = await SnapshotDraft.start({ db: harness.db, branchId });
-            await first.addSkill({
-                name: "Auth skill",
-                slug: "auth-skill",
-                description: "Handles auth",
-                plan: "Login with credentials",
-            });
-            await first.activate();
-
-            const second = await SnapshotDraft.start({ db: harness.db, branchId });
-            const info = await second.currentTestSuiteInfo();
-
-            expect(info.skills).toHaveLength(1);
-            const sk = findSkill(info, "auth-skill");
-            expect(sk.name).toBe("Auth skill");
-            expect(sk.plan?.content).toBe("Login with credentials");
-        });
-
         test("start: copies scenario recipe versions from active snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },
@@ -254,7 +230,7 @@ testUpdateSuite({
             expect(copiedRecipes[0]?.id).not.toBe(recipeVersion.id);
         });
 
-        test("start: copies test case and skill assignments from main branch active snapshot on brand new branch", async ({
+        test("start: copies test case assignments from main branch active snapshot on brand new branch", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
@@ -272,12 +248,6 @@ testUpdateSuite({
                 description: "Tests main inheritance",
                 plan: "Go to main inherited page",
             });
-            await mainDraft.addSkill({
-                name: "Main inherited skill",
-                slug: "main-inherited-skill",
-                description: "Handles inherited auth",
-                plan: "Inherited login",
-            });
             await mainDraft.activate();
 
             const mainBranch = await harness.db.branch.findUniqueOrThrow({
@@ -294,11 +264,6 @@ testUpdateSuite({
             const tc = findTestCase(info, "main-inherited-test");
             expect(tc.name).toBe("Main inherited test");
             expect(tc.plan?.prompt).toBe("Go to main inherited page");
-
-            expect(info.skills).toHaveLength(1);
-            const sk = findSkill(info, "main-inherited-skill");
-            expect(sk.name).toBe("Main inherited skill");
-            expect(sk.plan?.content).toBe("Inherited login");
 
             const prSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
                 where: { id: prDraft.snapshotId },
@@ -323,7 +288,6 @@ testUpdateSuite({
             const info = await prDraft.currentTestSuiteInfo();
 
             expect(info.testCases).toHaveLength(0);
-            expect(info.skills).toHaveLength(0);
         });
 
         test("start: throws BranchAlreadyHasPendingSnapshotError when branch has pending snapshot", async ({
@@ -544,72 +508,6 @@ testUpdateSuite({
 
             const info = await draft.currentTestSuiteInfo();
             expect(info.testCases).toHaveLength(0);
-        });
-
-        // -- addSkill / updateSkillPlan / removeSkill --
-
-        test("addSkill: creates skill with plan and assignment", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            await draft.addSkill({
-                name: "Navigation skill",
-                slug: "navigation-skill",
-                description: "Handles navigation",
-                plan: "Navigate to pages",
-            });
-
-            const info = await draft.currentTestSuiteInfo();
-
-            expect(info.skills).toHaveLength(1);
-            const sk = findSkill(info, "navigation-skill");
-            expect(sk.name).toBe("Navigation skill");
-            expect(sk.plan?.content).toBe("Navigate to pages");
-        });
-
-        test("updateSkillPlan: creates new plan and updates assignment", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            const { skillId, planId: originalPlanId } = await draft.addSkill({
-                name: "Auth skill update",
-                slug: "auth-skill-update",
-                description: "Auth skill",
-                plan: "Original auth plan",
-            });
-
-            const { planId: newPlanId } = await draft.updateSkillPlan({
-                skillId,
-                plan: "Updated auth plan",
-            });
-            expect(newPlanId).not.toBe(originalPlanId);
-
-            const info = await draft.currentTestSuiteInfo();
-            const sk = findSkill(info, "auth-skill-update");
-            expect(sk.plan?.content).toBe("Updated auth plan");
-        });
-
-        test("removeSkill: deletes the assignment", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            const { skillId } = await draft.addSkill({
-                name: "Remove skill",
-                slug: "remove-skill",
-                description: "Will be removed",
-                plan: "Some skill plan",
-            });
-
-            await draft.removeSkill(skillId);
-
-            const info = await draft.currentTestSuiteInfo();
-            expect(info.skills).toHaveLength(0);
         });
 
         // -- updateManySteps() --

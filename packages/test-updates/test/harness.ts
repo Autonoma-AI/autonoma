@@ -232,13 +232,6 @@ export function findTestCase(info: TestSuiteInfo, slug: string) {
     return tc!;
 }
 
-export function findSkill(info: TestSuiteInfo, slug: string) {
-    const sk = info.skills.find((s) => s.slug === slug);
-    expect(sk, `skill "${slug}" not found`).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted above
-    return sk!;
-}
-
 interface SeedResult {
     organizationId: string;
     applicationId: string;

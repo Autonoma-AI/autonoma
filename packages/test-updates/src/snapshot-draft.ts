@@ -3,17 +3,6 @@ import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddTestParams, UpdateTestParams } from "./changes";
-
-interface AddSkillParams {
-    name: string;
-    description: string;
-    plan: string;
-}
-
-interface UpdateSkillParams {
-    skillId: string;
-    plan: string;
-}
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
 import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 
@@ -202,8 +191,8 @@ export class SnapshotDraft {
     }
 
     /**
-     * Creates a new pending snapshot for a branch and copies test case and
-     * skill assignments from the branch's current active snapshot. For a brand
+     * Creates a new pending snapshot for a branch and copies test case
+     * assignments from the branch's current active snapshot. For a brand
      * new branch with no active snapshot, falls back to the application's main
      * branch active snapshot so that new PR branches inherit the live suite.
      *
@@ -279,7 +268,7 @@ export class SnapshotDraft {
     }
 
     /**
-     * Retrieves information about the test cases and skills currently assigned in this snapshot,
+     * Retrieves information about the test cases currently assigned in this snapshot,
      * including their associated plans and steps.
      */
     public async currentTestSuiteInfo() {
@@ -471,15 +460,6 @@ export class SnapshotDraft {
         return existing != null ? `${baseSlug}-${this.generateRandomSuffix()}` : baseSlug;
     }
 
-    private async generateSkillSlug(name: string): Promise<string> {
-        const baseSlug = toSlug(name);
-        const existing = await this.db.skill.findFirst({
-            where: { applicationId: this.applicationId, slug: baseSlug },
-            select: { id: true },
-        });
-        return existing != null ? `${baseSlug}-${this.generateRandomSuffix()}` : baseSlug;
-    }
-
     /** Adds a new test case to this snapshot with an empty assignment (no plan or steps). */
     public async addTestCase({ name, description, plan, folderId, scenarioId, scenarioName }: AddTestParams) {
         const slug = await this.generateTestCaseSlug(name);
@@ -537,67 +517,6 @@ export class SnapshotDraft {
             },
         });
         this.logger.info("Test case quarantined", { testCaseId, issueId });
-    }
-
-    /** Adds a new skill to this snapshot with an initial plan. */
-    public async addSkill({ name, description, plan }: AddSkillParams) {
-        const slug = await this.generateSkillSlug(name);
-        this.logger.info("Adding new skill", { name, slug });
-
-        const skill = await this.db.skill.create({
-            data: {
-                name,
-                slug,
-                description,
-                organizationId: this.organizationId,
-                applicationId: this.applicationId,
-                plans: {
-                    create: { content: plan, organizationId: this.organizationId },
-                },
-            },
-            select: { id: true, plans: true },
-        });
-        const skillId = skill.id;
-        // biome-ignore lint/style/noNonNullAssertion: A single plan was just created
-        const planId = skill.plans[0]!.id;
-        this.logger.info("Skill created", { skillId, planId });
-
-        this.logger.info("Adding skill to snapshot", { skillId });
-        await this.db.skillAssignment.create({ data: { snapshotId: this.snapshotId, skillId, planId } });
-        this.logger.info("Skill added to snapshot", { skillId });
-
-        return { skillId, planId };
-    }
-
-    /** Updates the plan for a skill. */
-    public async updateSkillPlan({ skillId, plan }: UpdateSkillParams) {
-        this.logger.info("Updating plan for skill", { skillId });
-
-        const { id: planId } = await this.db.skillPlan.create({
-            data: {
-                skillId,
-                content: plan,
-                organizationId: this.organizationId,
-            },
-        });
-
-        await this.db.skillAssignment.update({
-            where: { snapshotId_skillId: { snapshotId: this.snapshotId, skillId } },
-            data: { planId },
-        });
-
-        this.logger.info("Skill plan updated", { skillId, planId });
-
-        return { planId };
-    }
-
-    /** Removes a skill from this snapshot by deleting its assignment. */
-    public async removeSkill(skillId: string) {
-        this.logger.info("Removing skill from snapshot", { skillId });
-        await this.db.skillAssignment.delete({
-            where: { snapshotId_skillId: { snapshotId: this.snapshotId, skillId } },
-        });
-        this.logger.info("Skill removed from snapshot", { skillId });
     }
 
     /**
@@ -716,7 +635,6 @@ export class SnapshotDraft {
 
             await tx.testGeneration.deleteMany({ where: { snapshotId: this.snapshotId } });
             await tx.testCaseAssignment.deleteMany({ where: { snapshotId: this.snapshotId } });
-            await tx.skillAssignment.deleteMany({ where: { snapshotId: this.snapshotId } });
 
             await tx.branch.update({
                 where: { id: this.branchId },
