@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker, workflowsPath } from "@autonoma/workflow/worker";
+import * as Sentry from "@sentry/node";
 import * as activities from "./activities/index";
 import { env } from "./env";
 import { sentryServiceInterceptor } from "./sentry-service-interceptor";
@@ -37,9 +38,11 @@ runWithSentry({ name: "worker-general", dsn: env.SENTRY_DSN_WORKER_GENERAL }, as
             await worker.shutdown();
             await runPromise;
             logger.info("General worker shutdown complete", { signal, taskQueue: TaskQueue.GENERAL });
+            await Sentry.flush(2000);
             process.exit(0);
         } catch (error) {
             logger.error("General worker shutdown failed", error, { signal, taskQueue: TaskQueue.GENERAL });
+            await Sentry.flush(2000);
             process.exit(1);
         }
     };

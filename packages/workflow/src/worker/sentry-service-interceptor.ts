@@ -61,7 +61,18 @@ export function createSentryServiceInterceptor(
                             const fromArgs = extractCanonicalFieldsFromArgs(input.args);
                             return withObservabilityContext(mergeShallow(observability, fromArgs), async () => {
                                 await maybeBootstrapEntityContext(input.args);
-                                return next(input);
+                                try {
+                                    return await next(input);
+                                } catch (error) {
+                                    if (error instanceof Error) {
+                                        logger.fatal(`Activity failed: ${activityType}`, error);
+                                    } else {
+                                        logger.fatal(`Activity failed: ${activityType}`, {
+                                            extra: { error: String(error) },
+                                        });
+                                    }
+                                    throw error;
+                                }
                             });
                         });
                     });

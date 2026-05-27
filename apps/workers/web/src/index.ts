@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker } from "@autonoma/workflow/worker";
+import * as Sentry from "@sentry/node";
 import { Context } from "@temporalio/activity";
 import type { ActivityExecuteInput, ActivityInboundCallsInterceptor, Next, Worker } from "@temporalio/worker";
 import * as activities from "./activities";
@@ -66,6 +67,7 @@ class ShutdownAfterFirstActivityInterceptor implements ActivityInboundCallsInter
         } catch (error) {
             logger.error("Worker shutdown error", error);
         } finally {
+            await Sentry.flush(2000);
             process.exit(exitCode);
         }
     }
@@ -113,9 +115,11 @@ runWithSentry({ name: "worker-web", dsn: env.SENTRY_DSN_WORKER_WEB }, async () =
             await worker.shutdown();
             await runPromise;
             logger.info("Web worker shutdown complete", { signal, taskQueue: TaskQueue.WEB });
+            await Sentry.flush(2000);
             process.exit(0);
         } catch (error) {
             logger.error("Web worker shutdown failed", error, { signal, taskQueue: TaskQueue.WEB });
+            await Sentry.flush(2000);
             process.exit(1);
         }
     };

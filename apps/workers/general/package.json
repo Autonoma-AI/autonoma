@@ -23,6 +23,7 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/workflow": "workspace:*",
+        "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
