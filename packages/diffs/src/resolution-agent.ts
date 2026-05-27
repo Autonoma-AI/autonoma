@@ -1,7 +1,7 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall } from "ai";
-import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
+import type { ExistingTestInfo } from "./diffs-agent";
 import type { FlowIndex } from "./flow-index";
 import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "./healing/plan-authoring";
 import type { ScenarioIndex } from "./scenario-index";
@@ -47,7 +47,6 @@ export interface ResolutionAgentInput {
     step1Reasoning: string;
     testCandidates: TestCandidateInput[];
     existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
     /** Free-text testing guidelines from the application owner. */
     testScopeGuidelines?: string;
 }
@@ -75,7 +74,7 @@ export class ResolutionAgent {
         const failedSlugs = new Set(input.verdicts.map((v) => v.testSlug));
         const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
 
-        return await this.runAgent(prompt, failedSlugs, quarantinedSlugs, input.existingTests, input.existingSkills);
+        return await this.runAgent(prompt, failedSlugs, quarantinedSlugs, input.existingTests);
     }
 
     private async runAgent(
@@ -83,7 +82,6 @@ export class ResolutionAgent {
         failedSlugs: Set<string>,
         quarantinedSlugs: Set<string>,
         existingTests: ExistingTestInfo[],
-        existingSkills: ExistingSkillInfo[],
     ): Promise<ResolutionAgentResult> {
         const { model, workingDirectory, flowIndex, scenarioIndex } = this.config;
 
@@ -101,7 +99,7 @@ export class ResolutionAgent {
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
-                ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
+                ...buildTestInteractionTools(flowIndex, existingTests),
                 ...buildScenarioTools(scenarioIndex),
                 ...buildResolutionActionTools(collector, failedSlugs, quarantinedSlugs, flowIndex, scenarioIndex),
                 finish: buildResolutionFinishTool((output) => (result = output), collector, failedSlugs),
@@ -240,7 +238,7 @@ You MUST handle every failed test before calling \`finish\`. For each failed tes
 
 Additionally:
 - Review test candidates from Step 1 and use \`add_test\` to create the ones you agree with
-- Use \`list_tests\`, \`read_tests\`, and \`read_skill\` to explore existing tests and skills for context - always pass every slug you need to read in a single \`read_tests\` call
+- Use \`list_tests\` and \`read_tests\` to explore existing tests for context - always pass every slug you need to read in a single \`read_tests\` call
 
 Look for cross-cutting patterns - if multiple tests failed for the same underlying reason, explore the codebase once and apply that understanding across all affected tests.
 
@@ -250,7 +248,7 @@ When done, call \`finish\` with your overall reasoning.`;
 
 There are no test replay failures to resolve. Your job is to review the test candidates suggested by Step 1 and create the ones you agree with using \`add_test\`.
 
-- Use \`list_tests\`, \`read_tests\`, and \`read_skill\` to explore existing tests and skills and avoid duplicating coverage. Always batch every slug you need to read into one \`read_tests\` call.
+- Use \`list_tests\` and \`read_tests\` to explore existing tests and avoid duplicating coverage. Always batch every slug you need to read into one \`read_tests\` call.
 - Do not invent failures or call \`modify_test\`, \`remove_test\`, or \`report_bug\` - there are no failed tests in this run.
 
 When done, call \`finish\` with your overall reasoning.`;
@@ -290,7 +288,6 @@ A test is quarantined when its entry in \`list_tests\` or \`read_tests\` carries
 ### Test discovery
 - \`list_tests\`: list tests in a specific flow (folder); each entry includes quarantine status
 - \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
-- \`read_skill\`: read a skill's full content by slug
 
 ### Scenarios
 - \`list_scenarios\`: list all scenarios (named test data environments) available for this application

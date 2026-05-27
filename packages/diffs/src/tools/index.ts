@@ -15,4 +15,3 @@ export { buildResolutionFinishTool } from "./resolution-finish-tool";
 export { buildResolutionActionTools } from "./codebase-tools";
 export { buildListTestsTool } from "./list-tests-tool";
 export { buildReadTestTool } from "./read-test-tool";
-export { buildReadSkillTool } from "./read-skill-tool";

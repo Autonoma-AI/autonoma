@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import type { ExistingSkillInfo, ExistingTestInfo } from "../diffs-agent";
+import type { ExistingTestInfo } from "../diffs-agent";
 import type { FlowIndex } from "../flow-index";
 import type { ScenarioIndex } from "../scenario-index";
 import { buildAddTestTool } from "./add-test-tool";
@@ -15,7 +15,6 @@ import { buildMarkAffectedTestTool } from "./mark-affected-test-tool";
 import { buildModifyTestTool } from "./modify-test-tool";
 import { buildReadFileTool } from "./read-file-tool";
 import { buildReadScenarioTool } from "./read-scenario-tool";
-import { buildReadSkillTool } from "./read-skill-tool";
 import { buildReadTestTool } from "./read-test-tool";
 import { buildRemoveTestTool } from "./remove-test-tool";
 import { buildReportBugTool } from "./report-bug-tool";
@@ -46,16 +45,11 @@ export function buildActionTools(
     };
 }
 
-export function buildTestInteractionTools(
-    flowIndex: FlowIndex,
-    tests: ExistingTestInfo[],
-    skills: ExistingSkillInfo[],
-) {
+export function buildTestInteractionTools(flowIndex: FlowIndex, tests: ExistingTestInfo[]) {
     return {
         list_flows: buildListFlowsTool(flowIndex),
         list_tests: buildListTestsTool(flowIndex, tests),
         read_tests: buildReadTestTool(tests),
-        read_skill: buildReadSkillTool(skills),
     };
 }
 

@@ -1,6 +1,6 @@
 import { logger as rootLogger } from "@autonoma/logger";
 import type { LanguageModel } from "ai";
-import { DiffsAgent, type ExistingSkillInfo, type ExistingTestInfo } from "./diffs-agent";
+import { DiffsAgent, type ExistingTestInfo } from "./diffs-agent";
 import { FlowIndex } from "./flow-index";
 import type { DiffsAgentResult } from "./tools/finish-tool";
 
@@ -10,16 +10,14 @@ export interface LocalDiffsRunnerParams {
     baseSha: string;
     headSha: string;
     existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
 }
 
 export async function runDiffsAgentLocally(params: LocalDiffsRunnerParams): Promise<DiffsAgentResult> {
     const logger = rootLogger.child({ name: "runDiffsAgentLocally", repoDir: params.repoDir });
-    const { model, repoDir, baseSha, headSha, existingTests, existingSkills } = params;
+    const { model, repoDir, baseSha, headSha, existingTests } = params;
 
     logger.info("Starting DiffsAgent", {
         existingTests: existingTests.length,
-        existingSkills: existingSkills.length,
     });
 
     const flowIndex = new FlowIndex([
@@ -36,7 +34,7 @@ export async function runDiffsAgentLocally(params: LocalDiffsRunnerParams): Prom
         flowIndex,
     });
 
-    const result = await agent.analyze({ headSha, baseSha, existingTests, existingSkills });
+    const result = await agent.analyze({ headSha, baseSha, existingTests });
 
     logger.info("Analysis complete", {
         affectedTests: result.affectedTests.length,

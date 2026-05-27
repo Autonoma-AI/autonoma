@@ -7,7 +7,7 @@
  * Usage:
  *   tsx src/run-diffs-isolated.ts \
  *     --repo <url-or-local-path> \
- *     [--tests-dir <path>]       dir containing qa-tests/ and skills/ (defaults to fixtures/)
+ *     [--tests-dir <path>]       dir containing qa-tests/ (defaults to fixtures/)
  *     [--branch <name>]          resolves base = merge-base(main, branch), head = branch tip
  *     [--base <ref>]             explicit base commit (default: HEAD~1)
  *     [--head <ref>]             explicit head commit (default: HEAD)
@@ -24,14 +24,7 @@ import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { DiffsAgentResult } from "@autonoma/diffs";
 import { runDiffsAgentLocally } from "@autonoma/diffs/run-diffs-locally";
 import { logger as rootLogger } from "@autonoma/logger";
-import {
-    type BaseCliArgs,
-    parseBaseCliArgs,
-    prepareRepo,
-    readSkillFiles,
-    readTestFiles,
-    resolveCommits,
-} from "./isolated-utils";
+import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readTestFiles, resolveCommits } from "./isolated-utils";
 
 // ---- CLI -------------------------------------------------------------------
 
@@ -62,10 +55,7 @@ async function run(args: CliArgs): Promise<void> {
     try {
         const { baseSha, headSha } = await resolveCommits(repoDir, args);
 
-        const [existingTests, existingSkills] = await Promise.all([
-            readTestFiles(args.testsDir),
-            readSkillFiles(args.testsDir),
-        ]);
+        const existingTests = await readTestFiles(args.testsDir);
 
         const registry = new ModelRegistry({
             models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -79,7 +69,6 @@ async function run(args: CliArgs): Promise<void> {
             baseSha,
             headSha,
             existingTests,
-            existingSkills,
         });
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 

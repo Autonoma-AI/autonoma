@@ -2,8 +2,8 @@
  * Isolated Full Diff Pipeline Runner
  *
  * Runs the entire diff analysis workflow locally without DB, Temporal, S3,
- * or the GitHub App. Takes a git repository, test/skill files, and commit
- * SHAs as input, executes the full pipeline, and produces structured results on disk.
+ * or the GitHub App. Takes a git repository, test files, and commit SHAs as
+ * input, executes the full pipeline, and produces structured results on disk.
  *
  * Pipeline steps:
  *   1. DiffsAgent - analyze code changes, identify affected tests
@@ -18,7 +18,7 @@
  *   tsx src/run-full-pipeline-isolated.ts \
  *     --repo <url-or-local-path> \
  *     --url <application-url-to-test-against> \
- *     [--tests-dir <path>]       dir with qa-tests/ and skills/ (defaults to fixtures/)
+ *     [--tests-dir <path>]       dir with qa-tests/ (defaults to fixtures/)
  *     [--branch <name>]          resolves base/head from branch
  *     [--base <ref>]             explicit base commit
  *     [--head <ref>]             explicit head commit
@@ -39,14 +39,7 @@ import type { DiffsAgentResult, RunReviewVerdict } from "@autonoma/diffs";
 import { runDiffsAgentLocally } from "@autonoma/diffs/run-diffs-locally";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { logger as rootLogger } from "@autonoma/logger";
-import {
-    type BaseCliArgs,
-    parseBaseCliArgs,
-    prepareRepo,
-    readSkillFiles,
-    readTestFiles,
-    resolveCommits,
-} from "./isolated-utils";
+import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readTestFiles, resolveCommits } from "./isolated-utils";
 import { mapVerdictToResolutionInput } from "./map-verdict-to-resolution-input";
 import { type LocalReplayResult, runReplayLocally } from "./run-replay-locally";
 import { runReviewLocally } from "./run-review-locally";
@@ -119,10 +112,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
     try {
         const { baseSha, headSha } = await resolveCommits(repoDir, args);
 
-        const [existingTests, existingSkills] = await Promise.all([
-            readTestFiles(args.testsDir),
-            readSkillFiles(args.testsDir),
-        ]);
+        const existingTests = await readTestFiles(args.testsDir);
 
         // Model registry shared across all steps
         const registry = new ModelRegistry({
@@ -140,7 +130,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             baseSha,
             headSha,
             existingTests,
-            existingSkills,
         });
         logger.info("Step 1 complete", {
             elapsed: `${((Date.now() - startStep1) / 1000).toFixed(1)}s`,
@@ -226,7 +215,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             model,
             repoDir,
             existingTests,
-            existingSkills,
             verdicts,
             step1Reasoning: step1Result.reasoning,
             testCandidates: step1Result.testCandidates,

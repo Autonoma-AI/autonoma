@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { LanguageModel } from "ai";
-import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
+import type { ExistingTestInfo } from "./diffs-agent";
 import { FlowIndex } from "./flow-index";
 import {
     ResolutionAgent,
@@ -17,7 +17,6 @@ export interface LocalResolutionRunnerParams {
     model: LanguageModel;
     repoDir: string;
     existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
     verdicts: RunReviewVerdict[];
     step1Reasoning: string;
     testCandidates: LocalTestCandidateInput[];
@@ -36,7 +35,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         model,
         repoDir,
         existingTests,
-        existingSkills,
         verdicts,
         step1Reasoning,
         testCandidates,
@@ -46,7 +44,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
 
     logger.info("Starting ResolutionAgent", {
         existingTests: existingTests.length,
-        existingSkills: existingSkills.length,
         verdicts: verdicts.length,
         testCandidates: testCandidates.length,
         scenarios: scenarios?.length ?? 0,
@@ -82,7 +79,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         step1Reasoning,
         testCandidates: candidatesWithIds,
         existingTests,
-        existingSkills,
     });
 
     logger.info("Resolution complete", {

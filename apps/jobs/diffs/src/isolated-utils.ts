@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
-import type { ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
+import type { ExistingTestInfo } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 
 // ---- Test with steps --------------------------------------------------------
@@ -161,23 +161,4 @@ export async function readTestFiles(testsDir: string): Promise<ExistingTestWithS
     }
 
     return tests;
-}
-
-export async function readSkillFiles(testsDir: string): Promise<ExistingSkillInfo[]> {
-    const dir = join(testsDir, "skills");
-    const files = await readdir(dir);
-    const skills: ExistingSkillInfo[] = [];
-
-    for (const file of files) {
-        if (!file.endsWith(".md")) continue;
-        const raw = await readFile(join(dir, file), "utf-8");
-        const slug = file.replace(".md", "");
-        const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
-        const name = frontmatter?.[1]?.match(/name:\s*(.+)/)?.[1]?.trim() ?? slug;
-        const description = frontmatter?.[1]?.match(/description:\s*(.+)/)?.[1]?.trim() ?? "";
-        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
-        skills.push({ id: `skill-${slug}`, name, slug, description, content: body });
-    }
-
-    return skills;
 }

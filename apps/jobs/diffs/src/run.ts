@@ -67,7 +67,6 @@ async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisR
         logger.info("Loaded diffs context", {
             extra: {
                 existingTests: input.existingTests.length,
-                existingSkills: input.existingSkills.length,
             },
         });
 

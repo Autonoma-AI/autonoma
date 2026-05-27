@@ -10,7 +10,7 @@
  *     --verdicts <path>           path to JSON file with RunReviewVerdict[]
  *     [--step1-result <path>]     path to Step 1 (DiffsAgent) JSON output
  *     [--scenarios <path>]        path to JSON file with ScenarioInfo[] (enables list_scenarios / read_scenario)
- *     [--tests-dir <path>]        dir containing qa-tests/ and skills/ (defaults to fixtures/)
+ *     [--tests-dir <path>]        dir containing qa-tests/ (defaults to fixtures/)
  *     [--branch <name>]           branch to check out in a local repo or clone from a remote
  *
  * Natural chaining with the analysis runner:
@@ -31,7 +31,7 @@ import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { LocalTestCandidateInput, ResolutionAgentResult, RunReviewVerdict, ScenarioInfo } from "@autonoma/diffs";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { logger as rootLogger } from "@autonoma/logger";
-import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readSkillFiles, readTestFiles } from "./isolated-utils";
+import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readTestFiles } from "./isolated-utils";
 
 // ---- CLI -------------------------------------------------------------------
 
@@ -105,10 +105,7 @@ async function run(args: CliArgs): Promise<void> {
     const { repoDir, tempDir } = await prepareRepo(args);
 
     try {
-        const [existingTests, existingSkills] = await Promise.all([
-            readTestFiles(args.testsDir),
-            readSkillFiles(args.testsDir),
-        ]);
+        const existingTests = await readTestFiles(args.testsDir);
 
         const verdictsRaw = await readFile(args.verdicts, "utf-8");
         const verdicts: RunReviewVerdict[] = JSON.parse(verdictsRaw);
@@ -128,7 +125,6 @@ async function run(args: CliArgs): Promise<void> {
             model,
             repoDir,
             existingTests,
-            existingSkills,
             verdicts,
             step1Reasoning,
             testCandidates,

@@ -34,14 +34,6 @@ export interface ExistingTestInfo {
     quarantine?: QuarantineInfo;
 }
 
-export interface ExistingSkillInfo {
-    id: string;
-    name: string;
-    slug: string;
-    description: string;
-    content: string;
-}
-
 export interface MergeContextInfo {
     prNumber: number;
     sourceBranchName: string;
@@ -78,7 +70,6 @@ export interface DiffsAgentInput {
     headSha: string;
     baseSha: string;
     existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
     /** Merges present in the range that were deterministically processed before the agent ran. Empty for non-merge runs. */
     merges?: MergeContextInfo[];
     /** Merge-conflict tests to enrich with reasoning. Empty for non-merge runs. */
@@ -113,7 +104,6 @@ export class DiffsAgent {
             {
                 analysis,
                 existingTests: input.existingTests,
-                existingSkills: input.existingSkills,
                 merges: input.merges ?? [],
                 preClassifiedConflicts: input.preClassifiedConflicts ?? [],
                 testScopeGuidelines: input.testScopeGuidelines,
@@ -124,14 +114,7 @@ export class DiffsAgent {
         const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
         const preClassifiedConflicts = input.preClassifiedConflicts ?? [];
 
-        return await this.runAgent(
-            prompt,
-            validSlugs,
-            quarantinedSlugs,
-            preClassifiedConflicts,
-            input.existingTests,
-            input.existingSkills,
-        );
+        return await this.runAgent(prompt, validSlugs, quarantinedSlugs, preClassifiedConflicts, input.existingTests);
     }
 
     private async runAgent(
@@ -140,7 +123,6 @@ export class DiffsAgent {
         quarantinedSlugs: Set<string>,
         preClassifiedConflicts: PreClassifiedConflictInfo[],
         existingTests: ExistingTestInfo[],
-        existingSkills: ExistingSkillInfo[],
     ): Promise<DiffsAgentResult> {
         const { model, workingDirectory, flowIndex } = this.config;
 
@@ -162,7 +144,7 @@ export class DiffsAgent {
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
-                ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
+                ...buildTestInteractionTools(flowIndex, existingTests),
                 ...buildActionTools(collector, validSlugs, validConflictSlugs, quarantinedSlugs),
                 finish: buildFinishTool((output) => (result = output), collector),
             },
@@ -221,7 +203,6 @@ export class DiffsAgent {
 interface PromptInput {
     analysis: DiffAnalysis;
     existingTests: ExistingTestInfo[];
-    existingSkills: ExistingSkillInfo[];
     merges: MergeContextInfo[];
     preClassifiedConflicts: PreClassifiedConflictInfo[];
     testScopeGuidelines?: string;
@@ -330,7 +311,6 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 ### Test discovery
 - \`list_tests\`: list tests in a specific flow (folder) - returns slug, name, and quarantine status
 - \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
-- \`read_skill\`: read a skill's full content by slug
 
 ### Actions
 - \`mark_affected_test\`: flag a test as potentially affected by the changes (must use exact slug, records as \`code_change\`)
@@ -339,7 +319,7 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`finish\`: call when done with your analysis
 
 ## File System Layout
-Test files exist on disk at \`autonoma/qa-tests/{slug}.md\` and skills at \`autonoma/skills/{slug}.md\`. These files are for reference only - prefer using \`read_tests\` and \`read_skill\` tools to inspect them. When calling tools, always use plain slug identifiers (e.g. \`login-flow\`), never file paths.
+Test files exist on disk at \`autonoma/qa-tests/{slug}.md\`. These files are for reference only - prefer using the \`read_tests\` tool to inspect them. When calling tools, always use plain slug identifiers (e.g. \`login-flow\`), never file paths.
 
 ## Workflow
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed

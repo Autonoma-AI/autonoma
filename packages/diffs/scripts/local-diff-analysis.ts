@@ -1,6 +1,6 @@
 /**
  * Run the diffs agent against a real git repository, sourcing the existing
- * tests/skills/flows from the database for a given snapshot.
+ * tests/flows from the database for a given snapshot.
  *
  * Usage:
  *   pnpm local-diff-analysis <repo-path> --snapshot=<snapshotId> [--model=flash|glm|kimi]
@@ -100,17 +100,16 @@ async function main() {
 
     const applicationId = await resolveApplicationId(snapshotId!);
     const suiteInfo = await fetchTestSuiteInfo(db, snapshotId!);
-    const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
+    const { existingTests } = mapTestSuiteToContext(suiteInfo);
     const flows = await loadFlows(db, applicationId, suiteInfo);
 
-    console.log(`Loaded ${existingTests.length} tests, ${existingSkills.length} skills, ${flows.length} flows`);
+    console.log(`Loaded ${existingTests.length} tests, ${flows.length} flows`);
     console.log();
 
     const input: DiffsAgentInput = {
         headSha,
         baseSha,
         existingTests,
-        existingSkills,
     };
 
     const registry = new ModelRegistry({ models: MODEL_OPTIONS });

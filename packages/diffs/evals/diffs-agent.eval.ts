@@ -45,7 +45,6 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
                 // Should have run both tests
@@ -71,55 +70,45 @@ describe("diffs agent evals", () => {
         );
     });
 
-    describe("auth flow - validation bug, login skill outdated", () => {
-        it(
-            "should report a bug for signup and update the login skill",
-            { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT },
-            async () => {
-                fixture = await createAuthFlowFixture();
-                const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+    describe("auth flow - validation bug", () => {
+        it("should report a bug for signup", { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT }, async () => {
+            fixture = await createAuthFlowFixture();
+            const callbacks = buildMockCallbacks(fixture.testRunResults);
+            const { model, registry } = createEvalModel();
 
-                const agent = new DiffsAgent({
-                    model,
-                    workingDirectory: fixture.repoDir,
-                    callbacks,
-                });
+            const agent = new DiffsAgent({
+                model,
+                workingDirectory: fixture.repoDir,
+                callbacks,
+            });
 
-                const result = await agent.analyze(fixture.input);
+            const result = await agent.analyze(fixture.input);
 
-                console.log("=== Auth Flow Results ===");
-                console.log("Reasoning:", result.reasoning);
-                console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
-                console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
-                console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+            console.log("=== Auth Flow Results ===");
+            console.log("Reasoning:", result.reasoning);
+            console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
+            console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
+            console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
+            console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
-                // Should run the signup test (it fails due to validation bug)
-                expect(callbacks.calls.triggerTestsAndWait).toContain("test-signup");
+            // Should run the signup test (it fails due to validation bug)
+            expect(callbacks.calls.triggerTestsAndWait).toContain("test-signup");
 
-                // Signup test failed due to a bug in the email validation regex - should report bug
-                const signupBug = result.bugReports.find((b) => b.slug === "test-signup");
-                expect(signupBug).toBeDefined();
-                expect(signupBug?.fixPrompt).toBeTruthy();
-                expect(signupBug?.detailedExplanation).toBeTruthy();
+            // Signup test failed due to a bug in the email validation regex - should report bug
+            const signupBug = result.bugReports.find((b) => b.slug === "test-signup");
+            expect(signupBug).toBeDefined();
+            expect(signupBug?.fixPrompt).toBeTruthy();
+            expect(signupBug?.detailedExplanation).toBeTruthy();
 
-                // Login skill should be updated (new "Remember me" checkbox)
-                expect(result.skillUpdates.length).toBeGreaterThanOrEqual(1);
-                const loginSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-login");
-                expect(loginSkillUpdate).toBeDefined();
-
-                // Login test passes - should NOT have any action for it
-                const loginActions = result.testActions.filter((a) => a.slug === "test-login");
-                expect(loginActions).toHaveLength(0);
-            },
-        );
+            // Login test passes - should NOT have any action for it
+            const loginActions = result.testActions.filter((a) => a.slug === "test-login");
+            expect(loginActions).toHaveLength(0);
+        });
     });
 
     describe("form project (v0) - multi-step wizard, validation bug, social media section", () => {
         it(
-            "should modify tests for wizard flow, report phone validation bug, update fill-form skill, and add social media tests",
+            "should modify tests for wizard flow, report phone validation bug, and add social media tests",
             { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT },
             async () => {
                 fixture = await createFormProjectFixture();
@@ -138,7 +127,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -165,11 +153,6 @@ describe("diffs agent evals", () => {
                 const hasLinkedInModify = modifyActions.some((a) => a.slug === "test-linkedin-url");
                 expect(hasLinkedInModify).toBe(true);
 
-                // Skills should be updated (fill-complete-form, review-and-submit, go-back-and-edit all outdated)
-                expect(result.skillUpdates.length).toBeGreaterThanOrEqual(2);
-                const fillFormSkill = result.skillUpdates.find((s) => s.skillId === "skill-fill-complete-form");
-                expect(fillFormSkill).toBeDefined();
-
                 // Should suggest new tests for social media section and/or step validation
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
 
@@ -190,7 +173,7 @@ describe("diffs agent evals", () => {
 
     describe("ecommerce - carousel to grid, discount bug, Buy Now", () => {
         it(
-            "should modify carousel tests, report discount bug, update browse-images skill, and add Buy Now test",
+            "should modify carousel tests, report discount bug, and add Buy Now test",
             { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT },
             async () => {
                 fixture = await createEcommerceFixture();
@@ -209,7 +192,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -227,10 +209,6 @@ describe("diffs agent evals", () => {
                 expect(priceBug).toBeDefined();
                 expect(priceBug?.fixPrompt).toBeTruthy();
 
-                // Browse images skill should be updated (carousel instructions outdated)
-                const browseSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-browse-images");
-                expect(browseSkillUpdate).toBeDefined();
-
                 // Should suggest at least one new test for Buy Now feature
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
@@ -239,7 +217,7 @@ describe("diffs agent evals", () => {
 
     describe("kanban - drag-and-drop, off-by-one bug, delete column", () => {
         it(
-            "should modify move tests, report off-by-one bug, update move-task skill, and add delete column test",
+            "should modify move tests, report off-by-one bug, and add delete column test",
             { repeats: EVAL_REPEATS, timeout: 600_000 },
             async () => {
                 fixture = await createKanbanFixture();
@@ -258,7 +236,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -278,10 +255,6 @@ describe("diffs agent evals", () => {
                 const journeyBug = result.bugReports.find((b) => b.slug === "test-move-journey");
                 expect(journeyBug).toBeDefined();
                 expect(journeyBug?.fixPrompt).toBeTruthy();
-
-                // Move-task skill should be updated (references move buttons)
-                const moveSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-move-task");
-                expect(moveSkillUpdate).toBeDefined();
 
                 // Should suggest at least one new test for delete column
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
@@ -310,7 +283,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -330,10 +302,6 @@ describe("diffs agent evals", () => {
                 const typingBug = result.bugReports.find((b) => b.slug === "test-typing-indicator");
                 expect(typingBug).toBeDefined();
                 expect(typingBug?.fixPrompt).toBeTruthy();
-
-                // Send-message skill should be updated (references seen status)
-                const sendSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-send-message");
-                expect(sendSkillUpdate).toBeDefined();
 
                 // Should suggest at least one new test for reactions
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
@@ -362,7 +330,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -387,10 +354,6 @@ describe("diffs agent evals", () => {
                 const hasResultsModify = modifyActions.some((a) => a.slug === "test-results-count");
                 expect(hasResultsModify).toBe(true);
 
-                // Navigate-pages skill should be updated (pagination no longer exists)
-                const navSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-navigate-pages");
-                expect(navSkillUpdate).toBeDefined();
-
                 // Should suggest new tests for column visibility and/or infinite scroll
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);
             },
@@ -399,7 +362,7 @@ describe("diffs agent evals", () => {
 
     describe("checkout - coupon codes, PayPal, division-by-zero bug", () => {
         it(
-            "should modify payment tests, report division-by-zero bug, update payment skill, and add coupon/PayPal tests",
+            "should modify payment tests, report division-by-zero bug, and add coupon/PayPal tests",
             { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT },
             async () => {
                 fixture = await createCheckoutFixture();
@@ -418,7 +381,6 @@ describe("diffs agent evals", () => {
                 console.log("Reasoning:", result.reasoning);
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Skill updates:", JSON.stringify(result.skillUpdates, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
 
@@ -434,10 +396,6 @@ describe("diffs agent evals", () => {
                 const couponBug = result.bugReports.find((b) => b.slug === "test-coupon-100");
                 expect(couponBug).toBeDefined();
                 expect(couponBug?.fixPrompt).toBeTruthy();
-
-                // Payment skill should be updated (tabs added)
-                const paymentSkillUpdate = result.skillUpdates.find((s) => s.skillId === "skill-fill-payment");
-                expect(paymentSkillUpdate).toBeDefined();
 
                 // Should suggest new tests for coupon and/or PayPal features
                 expect(result.testCandidates.length).toBeGreaterThanOrEqual(1);

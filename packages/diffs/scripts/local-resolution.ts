@@ -1,7 +1,7 @@
 /**
  * Run the resolution agent against a real git repository, sourcing every
- * input (verdicts, candidates, Step 1 reasoning, tests, skills, flows) from
- * the database for a given snapshot. Mirrors {@link runDiffsResolution} but
+ * input (verdicts, candidates, Step 1 reasoning, tests, flows) from the
+ * database for a given snapshot. Mirrors {@link runDiffsResolution} but
  * skips the GitHub clone, all DB writes, and S3 conversation upload.
  *
  * Usage:
@@ -157,11 +157,11 @@ async function main() {
         return;
     }
 
-    const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
+    const { existingTests } = mapTestSuiteToContext(suiteInfo);
     const flows = await loadFlows(db, applicationId, suiteInfo);
     const flowIndex = new FlowIndex(flows);
 
-    console.log(`Loaded ${existingTests.length} tests, ${existingSkills.length} skills, ${flows.length} flows`);
+    console.log(`Loaded ${existingTests.length} tests, ${flows.length} flows`);
     console.log(`Resolution inputs: ${verdicts.length} verdicts, ${candidateInputs.length} candidates`);
     console.log();
 
@@ -175,7 +175,6 @@ async function main() {
         model,
         repoDir: repoPath,
         existingTests,
-        existingSkills,
         verdicts,
         step1Reasoning: diffsJob.analysisReasoning ?? "",
         testCandidates: candidateInputs,

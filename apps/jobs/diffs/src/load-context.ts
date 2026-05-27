@@ -64,7 +64,7 @@ export async function loadDiffsContext(
     headSha: string,
     baseSha: string,
 ): Promise<{ input: DiffsAgentInput; flowIndex: FlowIndex }> {
-    const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
+    const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
     const [flows, application] = await Promise.all([
         loadFlows(db, applicationId, suiteInfo),
@@ -78,7 +78,6 @@ export async function loadDiffsContext(
     logger.info("Loaded diffs context", {
         extra: {
             existingTests: existingTests.length,
-            existingSkills: existingSkills.length,
             flows: flows.length,
             quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
             hasTestScopeGuidelines: application.testScopeGuidelines != null,
@@ -90,7 +89,6 @@ export async function loadDiffsContext(
             headSha,
             baseSha,
             existingTests,
-            existingSkills,
             testScopeGuidelines: application.testScopeGuidelines ?? undefined,
         },
         flowIndex,

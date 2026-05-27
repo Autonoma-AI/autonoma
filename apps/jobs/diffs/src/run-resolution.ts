@@ -125,7 +125,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             });
 
             const suiteInfo = await updater.currentTestSuiteInfo();
-            const { existingTests, existingSkills } = mapTestSuiteToContext(suiteInfo);
+            const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
             const [flows, application] = await Promise.all([
                 loadFlows(db, branchData.applicationId, suiteInfo),
@@ -142,7 +142,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
                     step1Reasoning: diffsJob.analysisReasoning ?? "",
                     testCandidates: candidateInputs,
                     existingTests,
-                    existingSkills,
                     testScopeGuidelines: application.testScopeGuidelines ?? undefined,
                 },
                 db,

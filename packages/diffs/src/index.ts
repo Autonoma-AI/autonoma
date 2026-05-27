@@ -3,7 +3,6 @@ export {
     type DiffsAgentConfig,
     type DiffAnalysis,
     type DiffsAgentInput,
-    type ExistingSkillInfo,
     type ExistingTestInfo,
     type MergeContextInfo,
     type PreClassifiedConflictInfo,
