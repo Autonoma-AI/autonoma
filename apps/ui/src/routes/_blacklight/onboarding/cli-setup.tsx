@@ -12,6 +12,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
 import { trpc, trpcClient } from "lib/trpc";
+import posthog from "posthog-js";
 import { useEffect, useRef, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
@@ -19,9 +20,37 @@ interface CliSetupProps {
   appId?: string;
 }
 
+// Module-scope guard: "started onboarding" is the top-of-funnel signup signal.
+// Anchored on an explicit event (not a URL or tRPC procedure name) so it
+// survives route/query-param/procedure refactors. Fires once per page load —
+// StrictMode double-invokes effects and the reset flow remounts this page, and
+// the insight counts unique users, so a hard guard keeps it clean either way.
+let hasTrackedOnboardingStarted = false;
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const value = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))?.[1];
+  return value != null ? decodeURIComponent(value) : null;
+}
+
 export function CliSetupPage({ appId }: CliSetupProps) {
   const [applicationId, setApplicationId] = useState(appId ?? "");
   const hasApp = applicationId.length > 0;
+
+  useEffect(() => {
+    if (hasTrackedOnboardingStarted) return;
+    hasTrackedOnboardingStarted = true;
+
+    // Source breakdown (Direct/Search/Social/AI) is person-level
+    // ($initial_referring_domain, stitched from the website via ph_id), so it
+    // attaches automatically. referring_blog/hypothesis come from the
+    // cross-domain cookies main.tsx writes, for blog-level attribution.
+    posthog.capture("onboarding_started", {
+      step: "cli-setup",
+      referring_blog: readCookie("autonoma_referring_blog"),
+      hypothesis: readCookie("autonoma_hypothesis"),
+    });
+  }, []);
 
   if (!hasApp) {
     return <NameStep onCreated={(id) => setApplicationId(id)} />;
