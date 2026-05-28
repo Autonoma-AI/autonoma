@@ -93,7 +93,7 @@ export class AgentLoop<TResult = unknown> {
     private readonly systemPrompt: string;
     private readonly tools: AgentTool<unknown, unknown>[];
     private readonly resultTool: ReportResultTool<unknown, TResult>;
-    private readonly maxSteps: number;
+    private readonly maxSteps: number | undefined;
 
     constructor({ name, model, systemPrompt, tools, reportTool: resultTool, maxSteps }: AgentConfig<TResult>) {
         this.name = name;
@@ -101,7 +101,7 @@ export class AgentLoop<TResult = unknown> {
         this.systemPrompt = systemPrompt;
         this.tools = tools;
         this.resultTool = resultTool;
-        this.maxSteps = maxSteps ?? 50;
+        this.maxSteps = maxSteps;
 
         this.logger = logger.child({ name: this.name });
     }
@@ -161,7 +161,7 @@ export class AgentLoop<TResult = unknown> {
             model: this.model,
             instructions: this.systemPrompt,
             tools,
-            stopWhen: [stepCountIs(this.maxSteps), this.hasProducedResult],
+            stopWhen: [this.hasProducedResult, ...(this.maxSteps != null ? [stepCountIs(this.maxSteps)] : [])],
             prepareStep: (args) => this.prepareStep(args),
             onStepFinish: (result) => this.onStepFinish(result),
         });
@@ -171,7 +171,7 @@ export class AgentLoop<TResult = unknown> {
 
         if (this.result === undefined) {
             const partialResult = this.snapshotPartial?.();
-            if (generationResult.steps.length >= this.maxSteps) {
+            if (this.maxSteps != null && generationResult.steps.length >= this.maxSteps) {
                 this.logger.fatal("Agent loop reached maximum number of steps without producing a result");
                 throw new MaxStepsReached(conversation, partialResult);
             }
