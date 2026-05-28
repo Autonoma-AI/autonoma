@@ -59,6 +59,13 @@ describe("MongoDbRecipe", () => {
         expect(service?.spec?.ports).toEqual([{ port: 27017, targetPort: 27017, name: "mongo" }]);
     });
 
+    it("publishes the pod's DNS even when not ready so postStart can resolve itself", () => {
+        // Without this flag the bootstrap deadlocks: readiness waits on
+        // rs.initiate, rs.initiate waits on DNS, DNS waits on readiness.
+        const result = recipe.generate(baseService(), "ns");
+        expect(result.services[0]?.spec?.publishNotReadyAddresses).toBe(true);
+    });
+
     it("mounts a 1Gi PVC at /data/db", () => {
         const result = recipe.generate(baseService(), "ns");
         const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];
@@ -100,20 +107,24 @@ describe("MongoDbRecipe", () => {
 
         // Waits for mongod before initiating.
         expect(script).toContain('until mongosh --quiet --port 27017 --eval "db.adminCommand({ping:1}).ok"');
+        // Waits for the pod's own DNS to resolve - rs.initiate validates
+        // that the member host maps to "this node".
+        expect(script).toContain('until getent hosts "$MEMBER_HOST"');
         // Idempotent: only initiates when rs.status() throws NotYetInitialized.
         expect(script).toContain("rs.status()");
         expect(script).toContain('e.codeName === "NotYetInitialized"');
         // Names the replicaset rs0 with one member at the pod's stable DNS.
         expect(script).toContain('rs.initiate({ _id: "rs0"');
-        expect(script).toContain("${HOSTNAME}.db:27017");
+        expect(script).toContain('MEMBER_HOST="${HOSTNAME}.db"');
+        expect(script).toContain('host: "\'"$MEMBER_HOST:27017"\'"');
     });
 
     it("uses the service name in the replicaset member DNS, not a hardcoded host", () => {
         const result = recipe.generate(baseService({ name: "events-store" }), "ns");
         const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];
         const script = container?.lifecycle?.postStart?.exec?.command?.[2] ?? "";
-        expect(script).toContain("${HOSTNAME}.events-store:27017");
-        expect(script).not.toContain("${HOSTNAME}.db:");
+        expect(script).toContain('MEMBER_HOST="${HOSTNAME}.events-store"');
+        expect(script).not.toContain('MEMBER_HOST="${HOSTNAME}.db"');
     });
 
     it("scopes resources to the requested namespace", () => {

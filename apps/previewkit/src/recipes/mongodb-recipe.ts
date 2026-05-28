@@ -114,6 +114,13 @@ export class MongoDbRecipe extends BaseRecipe {
                 // pod in the namespace; clusterIP-backed Services do not
                 // guarantee that.
                 clusterIP: "None",
+                // Publish pod DNS as soon as the pod has an IP, not waiting
+                // for readiness. Required so `postStart` can resolve its own
+                // `<pod>.<service>` hostname when it calls `rs.initiate()` -
+                // without this, readiness waits on rs.initiate, rs.initiate
+                // waits on DNS, DNS waits on readiness, and the container
+                // CrashLoopBackOffs.
+                publishNotReadyAddresses: true,
                 selector: { app: config.name },
                 ports: [{ port: PORT, targetPort: PORT, name: "mongo" }],
             },
@@ -130,10 +137,19 @@ export class MongoDbRecipe extends BaseRecipe {
 }
 
 /**
- * Idempotent replicaset init. Waits for mongod to accept pings (postStart
- * runs in parallel with the container starting), then calls
+ * Idempotent replicaset init. Waits for mongod to accept pings AND for
+ * the pod's own DNS entry (`<pod>.<service>`) to resolve, then calls
  * `rs.initiate()` only if the replicaset is not yet initialized. On a pod
  * restart `rs.status()` succeeds and we skip the init.
+ *
+ * The DNS wait is critical: `rs.initiate()` validates that the configured
+ * member host resolves to "this node", which requires the headless Service
+ * to have already published this pod's DNS A record. Pairs with
+ * `publishNotReadyAddresses: true` on the Service - without that flag, the
+ * pod's DNS is gated on readiness, which is gated on this script
+ * succeeding (circular). With the flag, DNS appears within a second or
+ * two of the pod getting its IP, so this loop almost always exits on the
+ * first iteration.
  *
  * Quoting note: `mongosh --eval` takes its JS argument inside shell single
  * quotes; we break out of the single quotes around `"$HOSTNAME"` so bash
@@ -142,7 +158,11 @@ export class MongoDbRecipe extends BaseRecipe {
 function buildReplicaSetInitScript(serviceName: string): string {
     return [
         "set -e",
+        `MEMBER_HOST="\${HOSTNAME}.${serviceName}"`,
         `until mongosh --quiet --port ${PORT} --eval "db.adminCommand({ping:1}).ok" 2>/dev/null | grep -q 1; do`,
+        "  sleep 1",
+        "done",
+        `until getent hosts "$MEMBER_HOST" >/dev/null 2>&1; do`,
         "  sleep 1",
         "done",
         `mongosh --quiet --port ${PORT} --eval '`,
@@ -150,7 +170,7 @@ function buildReplicaSetInitScript(serviceName: string): string {
         "    rs.status();",
         "  } catch (e) {",
         '    if (e.codeName === "NotYetInitialized") {',
-        `      rs.initiate({ _id: "${REPLICA_SET}", members: [{ _id: 0, host: "'"\${HOSTNAME}.${serviceName}:${PORT}"'" }] });`,
+        `      rs.initiate({ _id: "${REPLICA_SET}", members: [{ _id: 0, host: "'"$MEMBER_HOST:${PORT}"'" }] });`,
         "    }",
         "  }",
         "'",
