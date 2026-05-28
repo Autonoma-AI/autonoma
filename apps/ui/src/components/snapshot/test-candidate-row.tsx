@@ -1,35 +1,69 @@
-import { Badge } from "@autonoma/blacklight";
-import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
-import { useState } from "react";
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
+import { Link } from "@tanstack/react-router";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import type { TestCandidate } from "./diffs-timeline-types";
 
 const STATUS_BADGE: Record<
   TestCandidate["status"],
-  { label: string; variant: "status-pending" | "status-passed" | "status-failed" }
+  { label: string; variant: "status-pending" | "status-passed" | "status-failed"; hint: string }
 > = {
-  pending: { label: "pending", variant: "status-pending" },
-  accepted: { label: "accepted", variant: "status-passed" },
-  rejected: { label: "rejected", variant: "status-failed" },
+  pending: {
+    label: "pending",
+    variant: "status-pending",
+    hint: "The proposal has not been decided yet.",
+  },
+  accepted: {
+    label: "accepted",
+    variant: "status-passed",
+    hint: "The proposed candidate was added to the test suite.",
+  },
+  rejected: {
+    label: "rejected",
+    variant: "status-failed",
+    hint: "The proposed candidate was discarded.",
+  },
 };
 
 interface TestCandidateRowProps {
   candidate: TestCandidate;
+  prNumber?: number;
 }
 
-export function TestCandidateRow({ candidate }: TestCandidateRowProps) {
-  const [expanded, setExpanded] = useState(false);
+export function TestCandidateRow({ candidate, prNumber }: TestCandidateRowProps) {
   const statusBadge = STATUS_BADGE[candidate.status];
+  const app = useCurrentApplication();
+
+  const instruction = candidate.instruction.trim();
+  const reasoning = candidate.reasoning.trim();
+  const generationReview = candidate.generation?.reviewReasoning?.trim() ?? "";
+  const hasDetails = instruction.length > 0 || reasoning.length > 0 || generationReview.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-raised">
       <div className="flex items-start gap-3 px-4 py-3">
-        <Badge variant={statusBadge.variant} className="mt-0.5 shrink-0">
-          {statusBadge.label}
-        </Badge>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Badge variant={statusBadge.variant} className="mt-0.5 shrink-0">
+                {statusBadge.label}
+              </Badge>
+            }
+          />
+          <TooltipContent>{statusBadge.hint}</TooltipContent>
+        </Tooltip>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {candidate.acceptedTestCase != null ? (
+          {candidate.acceptedTestCase != null ? (
+            prNumber != null ? (
+              <Link
+                to="/app/$appSlug/pull-requests/$prNumber/suite"
+                params={{ appSlug: app.slug, prNumber }}
+                search={{ testSlug: candidate.acceptedTestCase.slug }}
+                className="min-w-0 truncate font-mono text-sm text-text-primary hover:underline"
+              >
+                {candidate.acceptedTestCase.name}
+              </Link>
+            ) : (
               <AppLink
                 to="/app/$appSlug/tests/$testSlug"
                 params={{ testSlug: candidate.acceptedTestCase.slug }}
@@ -37,29 +71,28 @@ export function TestCandidateRow({ candidate }: TestCandidateRowProps) {
               >
                 {candidate.acceptedTestCase.name}
               </AppLink>
-            ) : (
-              <span className="min-w-0 truncate font-mono text-sm text-text-primary">{candidate.name}</span>
-            )}
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs text-text-tertiary">{candidate.instruction}</p>
+            )
+          ) : (
+            <span className="min-w-0 truncate font-mono text-sm text-text-primary">{candidate.name}</span>
+          )}
         </div>
-        {candidate.reasoning.trim().length > 0 && (
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            aria-expanded={expanded}
-            aria-label={expanded ? "Hide reasoning" : "Show reasoning"}
-            className="inline-flex size-6 shrink-0 items-center justify-center text-text-tertiary transition-colors hover:bg-surface-base hover:text-text-primary"
-          >
-            <CaretDownIcon size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </button>
-        )}
       </div>
-      {expanded && (
-        <div className="border-t border-border-dim bg-surface-base px-4 py-3">
-          <p className="text-xs leading-relaxed text-text-secondary">{candidate.reasoning}</p>
+      {hasDetails && (
+        <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
+          {instruction.length > 0 && <ReasoningSection label="Proposal" content={instruction} />}
+          {reasoning.length > 0 && <ReasoningSection label="Reasoning" content={reasoning} />}
+          {generationReview.length > 0 && <ReasoningSection label="Generation review" content={generationReview} />}
         </div>
       )}
+    </div>
+  );
+}
+
+function ReasoningSection({ label, content }: { label: string; content: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{content}</p>
     </div>
   );
 }

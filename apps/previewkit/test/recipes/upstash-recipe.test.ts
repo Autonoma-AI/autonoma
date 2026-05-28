@@ -123,20 +123,14 @@ describe("UpstashRecipe", () => {
     });
 
     it("requests cpu+memory on the proxy and limits memory only", () => {
-        const result = recipe.generate(
-            baseService({ resources: { cpu: "500m", memory: "512Mi" } }),
-            "ns",
-        );
+        const result = recipe.generate(baseService({ resources: { cpu: "500m", memory: "512Mi" } }), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
         expect(proxy?.resources?.requests).toEqual({ cpu: "500m", memory: "512Mi" });
         expect(proxy?.resources?.limits).toEqual({ memory: "512Mi" });
     });
 
     it("gives Redis a small fixed budget independent of config.resources", () => {
-        const result = recipe.generate(
-            baseService({ resources: { cpu: "2000m", memory: "2Gi" } }),
-            "ns",
-        );
+        const result = recipe.generate(baseService({ resources: { cpu: "2000m", memory: "2Gi" } }), "ns");
         const redis = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "redis");
         expect(redis?.resources?.requests).toEqual({ cpu: "50m", memory: "64Mi" });
         expect(redis?.resources?.limits).toEqual({ memory: "128Mi" });

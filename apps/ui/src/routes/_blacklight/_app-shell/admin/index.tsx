@@ -22,9 +22,10 @@ import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { UsersIcon } from "@phosphor-icons/react/Users";
 import { XIcon } from "@phosphor-icons/react/X";
-import { Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
@@ -647,6 +648,10 @@ function AdminContent() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" render={<Link to="/admin/issues" />}>
+              <ShieldWarningIcon size={14} />
+              Engine limitations
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
               <PlusIcon size={14} />
               Create organization

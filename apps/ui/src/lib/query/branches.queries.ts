@@ -61,7 +61,8 @@ export function useSnapshotDetail(snapshotId: string) {
                 (g) => g != null && INCOMPLETE_GENERATION_STATUSES.has(g.status),
             );
             const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(data.diffsJob.status);
-            return hasIncompleteGenerations || hasInFlightDiffsJob ? 5000 : false;
+            const hasInFlightLoop = data.refinementLoop?.status === "running";
+            return hasIncompleteGenerations || hasInFlightDiffsJob || hasInFlightLoop ? 5000 : false;
         },
     });
 }

@@ -1,41 +1,36 @@
-import { Badge, BrailleSpinner } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, cn } from "@autonoma/blacklight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import type { ReactNode } from "react";
-import type { StageStatus } from "./diffs-timeline-types";
+import type { IterationVisualState } from "./refinement-types";
 
-interface TimelineStageProps {
-  index: number;
-  title: string;
-  status: StageStatus;
+interface IterationStepProps {
+  number: number;
+  state: IterationVisualState;
   isLast?: boolean;
   children: ReactNode;
 }
 
-export function TimelineStage({ index, title, status, isLast, children }: TimelineStageProps) {
+export function IterationStep({ number, state, isLast, children }: IterationStepProps) {
   return (
     <div className="relative flex gap-4">
       <div className="flex flex-col items-center">
-        <StageMarker status={status} index={index} />
-        {!(isLast ?? false) && (
-          <div
-            className={status === "done" ? "mt-1 w-px flex-1 bg-status-passed/40" : "mt-1 w-px flex-1 bg-border-dim"}
-          />
-        )}
+        <StepMarker state={state} number={number} />
+        {!(isLast ?? false) && <div className={cn("mt-1 w-px flex-1", railColor(state))} />}
       </div>
-      <div className="flex-1 pb-8">
+      <div className={cn("flex-1 pb-6", state === "pending" && "opacity-50")}>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-medium tracking-tight text-text-primary">{title}</h2>
-          <StatusBadge status={status} />
+          <h3 className="text-sm font-medium tracking-tight text-text-primary">Iteration {number}</h3>
+          <StateBadge state={state} />
         </div>
-        <div className={status === "upcoming" ? "opacity-50" : undefined}>{children}</div>
+        {children}
       </div>
     </div>
   );
 }
 
-function StageMarker({ status, index }: { status: StageStatus; index: number }) {
-  if (status === "done") {
+function StepMarker({ state, number }: { state: IterationVisualState; number: number }) {
+  if (state === "validated" || state === "healed") {
     return (
       <div className="flex size-7 items-center justify-center rounded-full bg-status-passed/20 text-status-passed">
         <CheckIcon size={14} weight="bold" />
@@ -43,7 +38,7 @@ function StageMarker({ status, index }: { status: StageStatus; index: number }) 
     );
   }
 
-  if (status === "current") {
+  if (state === "running") {
     return (
       <div className="flex size-7 items-center justify-center rounded-full bg-status-running/20 text-status-running">
         <BrailleSpinner animation="scan" size="sm" />
@@ -51,7 +46,7 @@ function StageMarker({ status, index }: { status: StageStatus; index: number }) 
     );
   }
 
-  if (status === "failed") {
+  if (state === "no_actions") {
     return (
       <div className="flex size-7 items-center justify-center rounded-full bg-status-failed/20 text-status-failed">
         <WarningIcon size={14} weight="bold" />
@@ -61,36 +56,48 @@ function StageMarker({ status, index }: { status: StageStatus; index: number }) 
 
   return (
     <div className="flex size-7 items-center justify-center rounded-full border border-border-mid bg-surface-base text-text-tertiary">
-      <span className="font-mono text-2xs">{index + 1}</span>
+      <span className="font-mono text-2xs">{number}</span>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: StageStatus }) {
-  switch (status) {
-    case "done":
+function StateBadge({ state }: { state: IterationVisualState }) {
+  switch (state) {
+    case "validated":
       return (
         <Badge variant="status-passed" className="px-1.5 py-0 text-3xs">
-          done
+          validated
         </Badge>
       );
-    case "current":
+    case "healed":
+      return (
+        <Badge variant="status-passed" className="px-1.5 py-0 text-3xs">
+          healed
+        </Badge>
+      );
+    case "running":
       return (
         <Badge variant="status-running" className="px-1.5 py-0 text-3xs">
-          in progress
+          running
         </Badge>
       );
-    case "failed":
+    case "no_actions":
       return (
         <Badge variant="status-failed" className="px-1.5 py-0 text-3xs">
-          failed
+          no actions
         </Badge>
       );
-    case "upcoming":
+    case "pending":
       return (
         <Badge variant="outline" className="px-1.5 py-0 text-3xs">
           upcoming
         </Badge>
       );
   }
+}
+
+function railColor(state: IterationVisualState): string {
+  if (state === "validated" || state === "healed") return "bg-status-passed/40";
+  if (state === "no_actions") return "bg-status-failed/40";
+  return "bg-border-dim";
 }

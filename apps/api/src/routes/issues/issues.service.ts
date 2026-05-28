@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { IssueKind, PrismaClient } from "@autonoma/db";
 import { GenerationStatus, RunStatus } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
@@ -18,17 +18,26 @@ export class IssuesService extends Service {
         super();
     }
 
-    async listIssues(organizationId: string, applicationId?: string) {
-        this.logger.info("Listing issues", { organizationId, applicationId });
+    async listIssues(organizationId: string, filter: { applicationId?: string; kind?: IssueKind } = {}) {
+        this.logger.info("Listing issues", { organizationId, ...filter });
 
         const issues = await this.db.issue.findMany({
             where: {
                 organizationId,
-                ...(applicationId != null
+                ...(filter.kind != null ? { kind: filter.kind } : {}),
+                ...(filter.applicationId != null
                     ? {
                           OR: [
-                              { generationReview: { generation: { testPlan: { testCase: { applicationId } } } } },
-                              { runReview: { run: { assignment: { testCase: { applicationId } } } } },
+                              {
+                                  generationReview: {
+                                      generation: { testPlan: { testCase: { applicationId: filter.applicationId } } },
+                                  },
+                              },
+                              {
+                                  runReview: {
+                                      run: { assignment: { testCase: { applicationId: filter.applicationId } } },
+                                  },
+                              },
                           ],
                       }
                     : {}),
@@ -39,6 +48,17 @@ export class IssuesService extends Service {
                 severity: true,
                 title: true,
                 createdAt: true,
+                snapshot: {
+                    select: {
+                        id: true,
+                        branch: {
+                            select: {
+                                application: { select: { id: true, name: true, slug: true } },
+                                prInfo: { select: { prNumber: true } },
+                            },
+                        },
+                    },
+                },
                 generationReview: {
                     select: {
                         generation: {
@@ -50,6 +70,7 @@ export class IssuesService extends Service {
                                         testCase: {
                                             select: {
                                                 name: true,
+                                                application: { select: { id: true, name: true, slug: true } },
                                             },
                                         },
                                     },
@@ -69,6 +90,7 @@ export class IssuesService extends Service {
                                         testCase: {
                                             select: {
                                                 name: true,
+                                                application: { select: { id: true, name: true, slug: true } },
                                             },
                                         },
                                     },
@@ -79,19 +101,28 @@ export class IssuesService extends Service {
                 },
             },
             orderBy: { createdAt: "desc" },
+            take: 100,
         });
 
         this.logger.info("Issues listed", { count: issues.length });
 
         return issues.map((issue) => {
+            const snapshotLink =
+                issue.snapshot != null && issue.snapshot.branch.prInfo != null
+                    ? { snapshotId: issue.snapshot.id, prNumber: issue.snapshot.branch.prInfo.prNumber }
+                    : undefined;
+
             if (issue.generationReview != null) {
+                const testCase = issue.generationReview.generation.testPlan.testCase;
                 return {
                     id: issue.id,
                     kind: issue.kind,
                     severity: issue.severity,
                     title: issue.title,
                     createdAt: issue.createdAt,
-                    testName: issue.generationReview.generation.testPlan.testCase.name,
+                    testName: testCase.name,
+                    application: testCase.application,
+                    snapshot: snapshotLink,
                     source: "generation" as const,
                     sourceId: issue.generationReview.generation.id,
                     sourceStatus: issue.generationReview.generation.status,
@@ -107,6 +138,8 @@ export class IssuesService extends Service {
                 title: issue.title,
                 createdAt: issue.createdAt,
                 testName: run.assignment.testCase.name,
+                application: run.assignment.testCase.application,
+                snapshot: snapshotLink,
                 source: "run" as const,
                 sourceId: run.id,
                 sourceStatus: run.status,

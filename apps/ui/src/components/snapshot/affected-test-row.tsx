@@ -1,7 +1,7 @@
 import { Badge } from "@autonoma/blacklight";
-import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
-import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import type { AffectedTest } from "./diffs-timeline-types";
 
 const REASON_BADGE: Record<AffectedTest["affectedReason"], { label: string; variant: "warn" | "critical" | "high" }> = {
@@ -10,7 +10,11 @@ const REASON_BADGE: Record<AffectedTest["affectedReason"], { label: string; vari
   merge_conflict: { label: "merge conflict", variant: "critical" },
 };
 
-type NameLink = { kind: "test" } | { kind: "run"; runId: string } | { kind: "generation"; generationId: string };
+type NameLink =
+  | { kind: "test" }
+  | { kind: "run"; runId: string }
+  | { kind: "generation"; generationId: string }
+  | { kind: "pr-suite"; prNumber: number };
 
 interface AffectedTestRowProps {
   test: AffectedTest;
@@ -25,8 +29,8 @@ export function AffectedTestRow({
   showReasoning = true,
   nameLink = { kind: "test" },
 }: AffectedTestRowProps) {
-  const [expanded, setExpanded] = useState(false);
   const reasonBadge = REASON_BADGE[test.affectedReason];
+  const app = useCurrentApplication();
 
   const nameClassName = "min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline";
   const nameNode =
@@ -42,11 +46,25 @@ export function AffectedTestRow({
       >
         {test.testCase.name}
       </AppLink>
+    ) : nameLink.kind === "pr-suite" ? (
+      <Link
+        to="/app/$appSlug/pull-requests/$prNumber/suite"
+        params={{ appSlug: app.slug, prNumber: nameLink.prNumber }}
+        search={{ testSlug: test.testCase.slug }}
+        className={nameClassName}
+      >
+        {test.testCase.name}
+      </Link>
     ) : (
       <AppLink to="/app/$appSlug/tests/$testSlug" params={{ testSlug: test.testCase.slug }} className={nameClassName}>
         {test.testCase.name}
       </AppLink>
     );
+
+  const whyAffected = showReasoning ? test.reasoning.trim() : "";
+  const replayReview = test.run?.runReview?.reasoning?.trim() ?? "";
+  const generationReview = test.generation?.generationReview?.reasoning?.trim() ?? "";
+  const hasDetails = whyAffected.length > 0 || replayReview.length > 0 || generationReview.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-raised">
@@ -56,23 +74,23 @@ export function AffectedTestRow({
         </Badge>
         {nameNode}
         {rightSlot}
-        {showReasoning && test.reasoning.trim().length > 0 && (
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            aria-expanded={expanded}
-            aria-label={expanded ? "Hide reasoning" : "Show reasoning"}
-            className="inline-flex size-6 shrink-0 items-center justify-center text-text-tertiary transition-colors hover:bg-surface-base hover:text-text-primary"
-          >
-            <CaretDownIcon size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </button>
-        )}
       </div>
-      {expanded && (
-        <div className="border-t border-border-dim bg-surface-base px-4 py-3">
-          <p className="text-xs leading-relaxed text-text-secondary">{test.reasoning}</p>
+      {hasDetails && (
+        <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
+          {whyAffected.length > 0 && <ReasoningSection label="Why this test is affected" content={whyAffected} />}
+          {replayReview.length > 0 && <ReasoningSection label="Replay review" content={replayReview} />}
+          {generationReview.length > 0 && <ReasoningSection label="Generation review" content={generationReview} />}
         </div>
       )}
+    </div>
+  );
+}
+
+function ReasoningSection({ label, content }: { label: string; content: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{content}</p>
     </div>
   );
 }

@@ -1,16 +1,26 @@
-import { Badge, Skeleton } from "@autonoma/blacklight";
+import {
+  Badge,
+  Button,
+  Skeleton,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { Link, Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
-import { DiffsTimeline } from "components/snapshot/diffs-timeline";
 import type { DiffsJobStatus } from "components/snapshot/diffs-timeline-types";
-import { QuarantinedTestsSection } from "components/snapshot/quarantined-tests-section";
+import { PipelineStrip } from "components/snapshot/pipeline-strip";
 import { ShaRange } from "components/snapshot/sha-range";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureSnapshotDetailData, useSnapshotDetail } from "lib/query/branches.queries";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 export const Route = createFileRoute(
@@ -21,10 +31,10 @@ export const Route = createFileRoute(
     if (app == null) throw notFound();
     await ensureSnapshotDetailData(context.queryClient, snapshotId);
   },
-  component: SnapshotDetailPage,
+  component: SnapshotDetailLayout,
 });
 
-function SnapshotDetailPage() {
+function SnapshotDetailLayout() {
   const { prNumber, snapshotId } = Route.useParams();
 
   return (
@@ -37,33 +47,100 @@ function SnapshotDetailPage() {
 }
 
 function SnapshotDetailContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
+  const { appSlug } = Route.useParams();
   const { data } = useSnapshotDetail(snapshotId);
   const { isAdmin } = useAuth();
-  const { snapshot, changes, diffsJob, quarantinedTests } = data;
+  const { snapshot, changes, diffsJob, refinementLoop } = data;
+  const [pipelineOpen, setPipelineOpen] = useState(false);
+
+  const location = useLocation();
+  const activeTab = location.pathname.includes("/changes") ? "changes" : "overview";
 
   return (
     <>
       <PageHeader prNumber={prNumber}>
         <div className="flex flex-wrap items-center gap-3">
           <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
-          <Badge variant={statusBadgeVariant(snapshot.status)}>{snapshot.status}</Badge>
-          <Badge variant={diffsJobBadgeVariant(diffsJob.status)} className="font-mono uppercase">
-            diffs: {diffsJob.status}
-          </Badge>
+          <StatusBadge status={snapshot.status} />
+          <DiffsBadge status={diffsJob.status} />
           <span className="text-2xs text-text-tertiary">{formatDate(snapshot.createdAt)}</span>
-          {isAdmin && diffsJob.temporalWorkflow != null && (
-            <>
-              <TemporalLink workflowId={diffsJob.temporalWorkflow.workflowId} runId={diffsJob.temporalWorkflow.runId} />
+          {isAdmin && (
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPipelineOpen((prev) => !prev)}
+                aria-expanded={pipelineOpen}
+              >
+                <GearSixIcon size={14} />
+                {pipelineOpen ? "Hide pipeline" : "Show pipeline"}
+              </Button>
+              {diffsJob.temporalWorkflow != null && (
+                <TemporalLink
+                  workflowId={diffsJob.temporalWorkflow.workflowId}
+                  runId={diffsJob.temporalWorkflow.runId}
+                />
+              )}
               <SentryLogsLink filterField="snapshotId" filterValue={snapshot.id} />
-            </>
+            </div>
           )}
         </div>
       </PageHeader>
 
-      <QuarantinedTestsSection quarantinedTests={quarantinedTests} />
+      <Tabs value={activeTab} className="gap-4">
+        <TabsList variant="line">
+          <TabsTrigger
+            value="overview"
+            render={
+              <Link
+                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/overview"
+                params={{ appSlug, prNumber, snapshotId }}
+              />
+            }
+          >
+            Overview
+          </TabsTrigger>
+          <TabsTrigger
+            value="changes"
+            render={
+              <Link
+                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes"
+                params={{ appSlug, prNumber, snapshotId }}
+              />
+            }
+          >
+            Test suite changes
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      <DiffsTimeline diffsJob={diffsJob} changes={changes} />
+      <Outlet />
+
+      {isAdmin && pipelineOpen && (
+        <PipelineStrip diffsJob={diffsJob} changes={changes} refinementLoop={refinementLoop} snapshotId={snapshot.id} />
+      )}
     </>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const variant = statusBadgeVariant(status);
+  if (status !== "active") {
+    return <Badge variant={variant}>{status}</Badge>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Badge variant={variant}>{status}</Badge>} />
+      <TooltipContent>The snapshot currently used to evaluate this PR&apos;s test suite.</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function DiffsBadge({ status }: { status: DiffsJobStatus }) {
+  return (
+    <Badge variant={diffsJobBadgeVariant(status)} className="font-mono uppercase">
+      diffs: {status}
+    </Badge>
   );
 }
 
@@ -94,11 +171,9 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
       <PageHeader prNumber={prNumber}>
         <Skeleton className="h-5 w-72" />
       </PageHeader>
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
+      <Skeleton className="h-8 w-64" />
+      <Skeleton className="h-48 w-full" />
+      <Skeleton className="h-48 w-full" />
     </>
   );
 }

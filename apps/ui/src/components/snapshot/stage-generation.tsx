@@ -1,12 +1,20 @@
 import { GenerationCard } from "components/generation/generation-card";
 import type { DiffsJob } from "./diffs-timeline-types";
+import { RefinementLoopBlock } from "./refinement-loop-block";
+import type { RefinementLoop } from "./refinement-types";
 import { StageEmpty } from "./stage-empty";
 
 interface StageGenerationProps {
   job: DiffsJob;
+  refinementLoop: RefinementLoop | undefined;
+  snapshotId: string;
 }
 
-export function StageGeneration({ job }: StageGenerationProps) {
+export function StageGeneration({ job, refinementLoop, snapshotId }: StageGenerationProps) {
+  if (refinementLoop !== undefined) {
+    return <RefinementLoopBlock loop={refinementLoop} snapshotId={snapshotId} />;
+  }
+
   const items: Array<{ id: string; status: GenerationCardStatusInput; testCaseName: string }> = [];
 
   for (const t of job.affectedTests) {

@@ -28,6 +28,10 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
     const branch = await ensureBranchByPrData(context.queryClient, app.id, prNumber);
     await ensureActiveSnapshotData(context.queryClient, branch.id);
   },
+  validateSearch: (search: Record<string, unknown>): { testSlug?: string } => {
+    if (typeof search.testSlug === "string") return { testSlug: search.testSlug };
+    return {};
+  },
   component: ActiveSuitePage,
 });
 
@@ -47,8 +51,11 @@ function ActiveSuiteContent({ prNumber }: { prNumber: number }) {
   const app = useCurrentApplication();
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: active } = useActiveSnapshot(branch.id);
+  const { testSlug } = Route.useSearch();
 
-  const [selectedTestId, setSelectedTestId] = useState<string | undefined>();
+  const initialSelectedId =
+    testSlug != null ? active.testSuite.testCases.find((tc) => tc.slug === testSlug)?.id : undefined;
+  const [selectedTestId, setSelectedTestId] = useState<string | undefined>(initialSelectedId);
 
   const changesByTestCaseId = new Map(active.changes.map((c) => [c.testCaseId, c.type] as const));
   const removedChangesByTestCaseId = new Map(
