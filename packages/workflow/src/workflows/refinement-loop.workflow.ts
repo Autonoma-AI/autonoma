@@ -1,4 +1,5 @@
 import { executeChild, log, proxyActivities } from "@temporalio/workflow";
+import type { DiffsActivities } from "../activities/diffs-activities";
 import type { GeneralActivities } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -10,11 +11,11 @@ const general = proxyActivities<GeneralActivities>({
     taskQueue: TaskQueue.GENERAL,
 });
 
-const longRunning = proxyActivities<GeneralActivities>({
+const diffs = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface RefinementLoopInput {
@@ -132,7 +133,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             }
 
             log.info("Running healing agent for iteration failures", iterIds);
-            const triage = await longRunning.runHealingAgentForRefinement({
+            const triage = await diffs.runHealingAgentForRefinement({
                 iterationId: currentIterationId,
                 iteration: currentIterationNumber,
                 snapshotId: input.snapshotId,

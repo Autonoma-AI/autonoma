@@ -1,5 +1,5 @@
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
-import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
+import type { DiffsActivities, GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 
@@ -15,6 +15,13 @@ const general = proxyActivities<GeneralActivities>({
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
+});
+
+const diffs = proxyActivities<DiffsActivities>({
+    startToCloseTimeout: "15m",
+    heartbeatTimeout: "2m",
+    retry: { maximumAttempts: 1 },
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface RunReplayInput {
@@ -61,7 +68,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
             const postSteps: Promise<unknown>[] = [];
 
             if (!cancelled) {
-                postSteps.push(general.reviewReplay({ runId }));
+                postSteps.push(diffs.reviewReplay({ runId }));
             }
 
             if (scenarioInstanceId != null) {

@@ -2,7 +2,7 @@ import type { BillingService } from "@autonoma/billing";
 import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AffectedReason } from "../tools/mark-affected-test-tool";
+import type { AffectedReason } from "../agents/diffs/affected-test";
 
 export interface PrepareRunsParams {
     db: PrismaClient;

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { QuarantineTest, type TestSuiteUpdater } from "@autonoma/test-updates";
-import type { ReportedBug } from "../tools/report-bug-tool";
+import type { ReportedBug } from "../agents/resolution/tools/report-bug-tool";
 
 interface ReportBugDeps {
     db: PrismaClient;

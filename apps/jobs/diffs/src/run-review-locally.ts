@@ -1,5 +1,5 @@
 import type { LanguageModel } from "@autonoma/ai";
-import { ReplayReviewer, type RunContext, type RunStepData } from "@autonoma/diffs";
+import { Codebase, ReplayReviewer, type RunContext, type RunStepData } from "@autonoma/diffs";
 import { LocalStorageProvider } from "@autonoma/storage/local";
 import type { ReplayVerdict } from "@autonoma/types";
 
@@ -12,6 +12,8 @@ export interface LocalReviewInput {
     testName: string;
     /** Path to the artifact directory from test execution */
     artifactDir: string;
+    /** Path to the source tree the reviewer should inspect alongside the visual evidence. */
+    repoDir: string;
     /** Steps from the execution result */
     steps: RunStepData[];
 }
@@ -29,6 +31,7 @@ export async function runReviewLocally(model: LanguageModel, input: LocalReviewI
     };
 
     const reviewer = new ReplayReviewer({ model, evidenceLoader });
+    const codebase = new Codebase(input.repoDir);
 
     const lastStep = input.steps[input.steps.length - 1];
     const finalScreenshotKey = lastStep?.screenshotAfterKey ?? lastStep?.screenshotBeforeKey;
@@ -42,7 +45,15 @@ export async function runReviewLocally(model: LanguageModel, input: LocalReviewI
         finalScreenshotKey,
     };
 
-    const result = await reviewer.review(context);
-
-    return { testSlug: input.testSlug, verdict: result.verdict };
+    try {
+        const { result: verdict } = await reviewer.run({ context, codebase });
+        return { testSlug: input.testSlug, verdict };
+    } catch (err) {
+        // The reviewer throws when the agent reaches max steps without submitting a verdict.
+        // Locally we surface that as `undefined` so the CLI can report "no verdict" without aborting.
+        console.warn(
+            `[run-review-locally] reviewer did not produce a verdict for ${input.testSlug}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return { testSlug: input.testSlug, verdict: undefined };
+    }
 }

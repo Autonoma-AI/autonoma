@@ -14,7 +14,7 @@ export async function triggerGenerationReviewWorkflow(generationId: string): Pro
     await client.workflow.start(WORKFLOW_TYPE.GENERATION_REVIEW, {
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.GENERAL,
+        taskQueue: TaskQueue.DIFFS,
         searchAttributes: getWorkflowSearchAttributes(),
         args: [{ generationId }],
     });

@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildBashTool, validateCommand } from "../src/tools";
-import { executeTool } from "./execute-tool";
+import { BashTool, validateCommand } from "../src/agents/tools/codebase/bash-tool";
+import { type ToolEnvelope, executeTool } from "./execute-tool";
 import { type TestFixture, createTestFixture } from "./setup-fixture";
+import { makeDiffsLoop } from "./test-loops";
 
-interface BashResult {
+interface BashOutput {
     exitCode: number;
     stdout: string;
     stderr: string;
@@ -76,13 +77,19 @@ describe("validateCommand", () => {
     });
 });
 
+async function runBash(loop: ReturnType<typeof makeDiffsLoop>, command: string): Promise<BashOutput> {
+    const result = await executeTool<ToolEnvelope<BashOutput>>(new BashTool(), { command }, loop);
+    if (!result.success) throw new Error(`tool failed: ${result.error}`);
+    return result.result;
+}
+
 describe("bash tool", () => {
     let fixture: TestFixture;
-    let bash: ReturnType<typeof buildBashTool>;
+    let loop: ReturnType<typeof makeDiffsLoop>;
 
     beforeAll(async () => {
         fixture = await createTestFixture();
-        bash = buildBashTool(fixture.workingDirectory);
+        loop = makeDiffsLoop({ workingDirectory: fixture.workingDirectory });
     });
 
     afterAll(async () => {
@@ -91,91 +98,75 @@ describe("bash tool", () => {
 
     describe("allowed commands", () => {
         it("runs git init", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git init" });
-
+            const result = await runBash(loop, "git init");
             expect(result.exitCode).toBe(0);
         });
 
         it("runs git status after init", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status --short" });
-
+            const result = await runBash(loop, "git status --short");
             expect(result.exitCode).toBe(0);
             expect(result.stdout).toContain("src/");
         });
 
         it("runs git log on empty repo", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git log --oneline" });
-
+            const result = await runBash(loop, "git log --oneline");
             // git log on a repo with no commits exits with 128
             expect(result.exitCode).not.toBe(0);
         });
 
         it("runs git diff", async () => {
-            // Stage and commit first so diff works
-            await executeTool<BashResult>(bash, { command: "git add -A" });
-            await executeTool<BashResult>(bash, {
-                command: 'git -c user.name="test" -c user.email="test@test.com" commit -m "init"',
-            });
-
-            const result = await executeTool<BashResult>(bash, { command: "git diff HEAD" });
-
+            await runBash(loop, "git add -A");
+            await runBash(loop, 'git -c user.name="test" -c user.email="test@test.com" commit -m "init"');
+            const result = await runBash(loop, "git diff HEAD");
             expect(result.exitCode).toBe(0);
         });
 
         it("runs ls", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "ls" });
-
+            const result = await runBash(loop, "ls");
             expect(result.exitCode).toBe(0);
             expect(result.stdout).toContain("src");
             expect(result.stdout).toContain("README.md");
         });
 
         it("runs wc", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "wc -l src/math.ts" });
-
+            const result = await runBash(loop, "wc -l src/math.ts");
             expect(result.exitCode).toBe(0);
             expect(result.stdout).toContain("src/math.ts");
         });
 
         it("runs head", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "head -n 2 src/math.ts" });
-
+            const result = await runBash(loop, "head -n 2 src/math.ts");
             expect(result.exitCode).toBe(0);
             expect(result.stdout).toContain("export function add");
         });
 
         it("runs piped commands when all commands are allowed", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status --short | head -n 5" });
-
+            const result = await runBash(loop, "git status --short | head -n 5");
             expect(result.exitCode).toBe(0);
         });
     });
 
     describe("blocked commands", () => {
         it("rejects rm", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "rm -rf /" });
-
+            const result = await runBash(loop, "rm -rf /");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("not allowed");
         });
 
         it("rejects curl", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "curl https://example.com" });
-
+            const result = await runBash(loop, "curl https://example.com");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("not allowed");
         });
 
         it("rejects node", async () => {
-            const result = await executeTool<BashResult>(bash, { command: 'node -e "process.exit(0)"' });
-
+            const result = await runBash(loop, 'node -e "process.exit(0)"');
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("not allowed");
         });
 
         it("rejects empty command", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "" });
-
+            const result = await runBash(loop, "");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("not allowed");
         });
@@ -183,50 +174,43 @@ describe("bash tool", () => {
 
     describe("command injection prevention", () => {
         it("rejects semicolon chaining with disallowed command", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status; rm -rf /" });
-
+            const result = await runBash(loop, "git status; rm -rf /");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
 
         it("rejects && chaining with disallowed command", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status && rm -rf /" });
-
+            const result = await runBash(loop, "git status && rm -rf /");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
 
         it("rejects || chaining with disallowed command", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status || rm -rf /" });
-
+            const result = await runBash(loop, "git status || rm -rf /");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
 
         it("rejects $() subshell injection", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git log $(rm -rf /)" });
-
+            const result = await runBash(loop, "git log $(rm -rf /)");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
 
         it("rejects backtick subshell injection", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git log `rm -rf /`" });
-
+            const result = await runBash(loop, "git log `rm -rf /`");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
 
         it("rejects disallowed command in pipe", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git log | rm -rf /" });
-
+            const result = await runBash(loop, "git log | rm -rf /");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("not allowed");
         });
 
         it("rejects background execution", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git status &" });
-
+            const result = await runBash(loop, "git status &");
             expect(result.exitCode).toBe(1);
             expect(result.stderr).toContain("chaining");
         });
@@ -234,15 +218,13 @@ describe("bash tool", () => {
 
     describe("error handling", () => {
         it("returns non-zero exit code on failure", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "git log --oneline nonexistent-ref" });
-
+            const result = await runBash(loop, "git log --oneline nonexistent-ref");
             expect(result.exitCode).not.toBe(0);
             expect(result.stderr.length).toBeGreaterThan(0);
         });
 
         it("runs in the working directory", async () => {
-            const result = await executeTool<BashResult>(bash, { command: "find . -name 'math.ts' -type f" });
-
+            const result = await runBash(loop, "find . -name 'math.ts' -type f");
             expect(result.exitCode).toBe(0);
             expect(result.stdout).toContain("math.ts");
         });

@@ -3,16 +3,16 @@ import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
+import { ReplayReviewer } from "../../agents/reviewers/replay/replay-reviewer";
 import type { Codebase } from "../../codebase";
 import { RunContextLoader } from "./context-loader";
 import { RunReviewPersister } from "./persister";
-import { ReplayReviewer } from "./replay-reviewer";
 
 export interface RunReplayReviewDeps {
+    codebase: Codebase;
     model?: LanguageModel;
     costCollector?: CostCollector;
     videoProcessor?: VideoProcessor;
-    codebase?: Codebase;
 }
 
 export interface RunReplayReviewResult {
@@ -34,7 +34,7 @@ export interface RunReplayReviewResult {
  * `ReplayReviewer`) so the reviewer implementations stay free of
  * persistence-policy flags.
  */
-export async function runReplayReview(runId: string, deps: RunReplayReviewDeps = {}): Promise<RunReplayReviewResult> {
+export async function runReplayReview(runId: string, deps: RunReplayReviewDeps): Promise<RunReplayReviewResult> {
     logger.info("Starting replay review", { runId });
 
     const run = await db.run.findUniqueOrThrow({
@@ -72,9 +72,17 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps =
         model,
         evidenceLoader: contextLoader,
         videoProcessor,
-        codebase: deps.codebase,
     });
-    const { verdict } = await reviewer.review(context);
+    let verdict: ReplayVerdict | undefined;
+    try {
+        const runOutcome = await reviewer.run({ context, codebase: deps.codebase });
+        verdict = runOutcome.result;
+    } catch (err) {
+        logger.warn("Replay review did not produce a verdict", {
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
 
     const persister = new RunReviewPersister();
 

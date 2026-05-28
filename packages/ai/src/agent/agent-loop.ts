@@ -69,6 +69,13 @@ export class MultipleResultCalls extends FatalToolError {
     }
 }
 
+/** What {@link AgentLoop.runLoop} (and therefore {@link Agent.run}) returns. */
+export interface AgentRunResult<TResult> {
+    result: TResult;
+    /** Every message the model emitted during the run: text, tool calls, tool results. */
+    conversation: ModelMessage[];
+}
+
 /**
  * Per-run state holder for an agent.
  *
@@ -143,7 +150,7 @@ export class AgentLoop<TResult = unknown> {
      */
     private readonly hasProducedResult: StopCondition<GenericToolSet> = () => this.result !== undefined;
 
-    public async runLoop(userPrompt: ModelMessage[]): Promise<TResult> {
+    public async runLoop(userPrompt: ModelMessage[]): Promise<AgentRunResult<TResult>> {
         this.logger.info("Starting agent loop", { tools: this.tools.map((t) => t.name) });
 
         const tools: GenericToolSet = Object.fromEntries(
@@ -174,6 +181,6 @@ export class AgentLoop<TResult = unknown> {
 
         this.logger.info("Agent loop finished successfully", { result: this.result });
 
-        return this.result;
+        return { result: this.result, conversation };
     }
 }

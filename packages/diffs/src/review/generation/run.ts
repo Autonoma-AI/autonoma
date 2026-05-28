@@ -4,18 +4,18 @@ import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { GenerationVerdict } from "@autonoma/types";
+import { GenerationReviewer } from "../../agents/reviewers/generation/generation-reviewer";
 import type { Codebase } from "../../codebase";
 import { GenerationContextLoader } from "./context-loader";
-import { GenerationReviewer } from "./generation-reviewer";
 import { GenerationReviewPersister } from "./persister";
 
 export interface RunGenerationReviewDeps {
+    codebase: Codebase;
     /** Optional pre-built model to reuse cost collector / monitoring callbacks. */
     model?: LanguageModel;
     /** Cost collector tied to `model`. Pass when `model` is provided. */
     costCollector?: CostCollector;
     videoProcessor?: VideoProcessor;
-    codebase?: Codebase;
 }
 
 export interface RunGenerationReviewResult {
@@ -40,7 +40,7 @@ export interface RunGenerationReviewResult {
  */
 export async function runGenerationReview(
     generationId: string,
-    deps: RunGenerationReviewDeps = {},
+    deps: RunGenerationReviewDeps,
 ): Promise<RunGenerationReviewResult> {
     logger.info("Starting generation review", { generationId });
 
@@ -73,9 +73,17 @@ export async function runGenerationReview(
         model,
         evidenceLoader: contextLoader,
         videoProcessor,
-        codebase: deps.codebase,
     });
-    const { verdict } = await reviewer.review(context);
+    let verdict: GenerationVerdict | undefined;
+    try {
+        const runOutcome = await reviewer.run({ context, codebase: deps.codebase });
+        verdict = runOutcome.result;
+    } catch (err) {
+        logger.warn("Generation review did not produce a verdict", {
+            generationId,
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
 
     const persister = new GenerationReviewPersister();
 

@@ -1,7 +1,6 @@
 import type { GeneralActivities } from "@autonoma/workflow/activities";
 
 export { scenarioUp, scenarioDown } from "./scenario";
-export { reviewGeneration, reviewReplay } from "./review";
 export { assignGenerationResults } from "./assign-generation-results";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { markGenerationFailed } from "./mark-generation-failed";
@@ -15,7 +14,6 @@ export {
     markRefinementIterationRunning,
     prepareGenerationQueue,
     prepareRunsForGenerations,
-    runHealingAgentForRefinement,
     finalizePendingSnapshot,
 } from "./refinement";
 
@@ -33,17 +31,13 @@ import {
     markRefinementIterationRunning,
     prepareGenerationQueue,
     prepareRunsForGenerations,
-    runHealingAgentForRefinement,
 } from "./refinement";
-import { reviewGeneration, reviewReplay } from "./review";
 import { scenarioDown, scenarioUp } from "./scenario";
 
 // Compile-time check: ensure exported activities match the GeneralActivities contract.
 ({
     scenarioUp,
     scenarioDown,
-    reviewGeneration,
-    reviewReplay,
     assignGenerationResults,
     notifyGenerationExit,
     markGenerationFailed,
@@ -56,6 +50,5 @@ import { scenarioDown, scenarioUp } from "./scenario";
     finishRefinementLoop,
     prepareGenerationQueue,
     prepareRunsForGenerations,
-    runHealingAgentForRefinement,
     finalizePendingSnapshot,
 }) satisfies GeneralActivities;

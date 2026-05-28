@@ -1,6 +1,6 @@
 import { logger } from "@autonoma/logger";
 import { AddTest as AddTestChange, type TestSuiteUpdater } from "@autonoma/test-updates";
-import type { GeneratedTest } from "../tools/add-test-tool";
+import type { GeneratedTest } from "../agents/resolution/tools/add-test-tool";
 
 interface AddTestDeps {
     updater: TestSuiteUpdater;

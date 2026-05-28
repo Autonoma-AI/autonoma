@@ -29,7 +29,7 @@ function fakeInstance(overrides: Partial<ScenarioInstance> = {}): ScenarioInstan
 function fakeDb(): PrismaClient {
     return {
         testGeneration: {
-            findUniqueOrThrow: vi.fn().mockResolvedValue({ testPlan: { scenarioId: "scen-1" } }),
+            findUniqueOrThrow: vi.fn().mockResolvedValue({ snapshotId: "snap-1", testPlan: { scenarioId: "scen-1" } }),
         },
     } as unknown as PrismaClient;
 }
@@ -41,7 +41,7 @@ describe("scenarioUp", () => {
 
         await scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager });
 
-        expect(manager.up).toHaveBeenCalledWith(expect.anything(), "scen-1");
+        expect(manager.up).toHaveBeenCalledWith(expect.anything(), "scen-1", { snapshotId: "snap-1" });
     });
 
     it("throws when instance status is UP_FAILED", async () => {

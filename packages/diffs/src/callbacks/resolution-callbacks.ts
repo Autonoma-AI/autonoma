@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
-import type { ReportedBug } from "../tools/report-bug-tool";
+import type { ReportedBug } from "../agents/resolution/tools/report-bug-tool";
 import { addTest, type AddTestInput } from "./add-test";
 import { modifyTest } from "./modify-test";
 import { removeTest } from "./remove-test";

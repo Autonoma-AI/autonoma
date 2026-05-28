@@ -18,7 +18,7 @@ export function buildExecutionPrompt(
 
     if (recipeVariables != null && Object.keys(recipeVariables).length > 0) {
         const variableLines = Object.entries(recipeVariables)
-            .map(([key, _]) => `- ${key} (reference as {{${key}}})`)
+            .map(([key, value]) => `- ${key}: ${JSON.stringify(value)} (reference as {{${key}}})`)
             .join("\n");
 
         parts.push(

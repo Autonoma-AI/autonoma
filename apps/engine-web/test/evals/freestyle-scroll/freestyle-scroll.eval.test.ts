@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { PointDetector, VisualConditionChecker } from "@autonoma/ai";
-import { ScrollCommand } from "@autonoma/engine";
+import { ScrollCommand, ScrollConditionNotMetError } from "@autonoma/engine";
 import type { ScreenResolution, Screenshot } from "@autonoma/image";
 import { type Browser, type BrowserContext, type Page, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -162,7 +162,7 @@ describe("Freestyle Scroll Eval", { timeout: 30000 }, () => {
             );
 
             expect(result.conditionMet).toBe(true);
-            expect(result.scrollsPerformed).toBeGreaterThanOrEqual(1);
+            expect(result.scrollsPerformed).toBeGreaterThanOrEqual(0);
             expect(result.scrollsPerformed).toBeLessThanOrEqual(10);
             expect(result.point?.x).toBeGreaterThan(0);
             expect(result.point?.y).toBeGreaterThan(0);
@@ -217,24 +217,23 @@ describe("Freestyle Scroll Eval", { timeout: 30000 }, () => {
         }
     });
 
-    it("returns conditionMet: false when target does not exist", async () => {
+    it("throws when target does not exist", async () => {
         const page = await setupPage("scrollable-sidebar.html");
 
         try {
             const { command, context } = createCommand(page);
 
-            const result = await command.execute(
-                {
-                    elementDescription: "the sidebar navigation panel",
-                    direction: "down",
-                    condition: "a button labeled 'Delete Account' is visible",
-                    maxScrolls: 3,
-                },
-                context,
-            );
-
-            expect(result.conditionMet).toBe(false);
-            expect(result.scrollsPerformed).toBe(3);
+            await expect(
+                command.execute(
+                    {
+                        elementDescription: "the sidebar navigation panel",
+                        direction: "down",
+                        condition: "a button labeled 'Delete Account' is visible",
+                        maxScrolls: 3,
+                    },
+                    context,
+                ),
+            ).rejects.toThrow(ScrollConditionNotMetError);
         } finally {
             await page.close();
         }

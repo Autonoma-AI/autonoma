@@ -1,5 +1,4 @@
-export { HealingAgent, type HealingAgentConfig } from "./healing-agent";
-export type { HealingInput, HealingResult, FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./types";
+export type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "./types";
 export {
     healingActionSchema,
     type HealingAction,

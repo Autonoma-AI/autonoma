@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { ReadTestsTool } from "../src/agents/tools/lookup/read-tests-tool";
 import type { ExistingTestInfo, QuarantineInfo } from "../src/diffs-agent";
-import { buildReadTestTool } from "../src/tools";
-import { executeTool } from "./execute-tool";
+import { type ToolEnvelope, executeTool } from "./execute-tool";
+import { makeDiffsLoop } from "./test-loops";
 
 const tests: ExistingTestInfo[] = [
     { id: "t1", slug: "login", name: "Login", prompt: "Log in." },
@@ -21,12 +22,19 @@ type ReadResult = {
 
 describe("read_tests tool", () => {
     it("returns the instructions for one or more known slugs in a single call", async () => {
-        const tool = buildReadTestTool(tests);
+        const loop = makeDiffsLoop({ existingTests: tests });
+        const tool = new ReadTestsTool();
 
-        const result = await executeTool<ReadResult>(tool, { slugs: ["login", "checkout"] });
+        const result = await executeTool<ToolEnvelope<ReadResult>>(tool, { slugs: ["login", "checkout"] }, loop);
 
-        expect(result.results.login).toEqual({ name: "Login", instruction: "Log in.", quarantine: undefined });
-        expect(result.results.checkout).toEqual({
+        expect(result.success).toBe(true);
+        if (!result.success) throw new Error("expected success");
+        expect(result.result.results.login).toEqual({
+            name: "Login",
+            instruction: "Log in.",
+            quarantine: undefined,
+        });
+        expect(result.result.results.checkout).toEqual({
             name: "Checkout",
             instruction: "Buy something.",
             quarantine: undefined,
@@ -34,21 +42,29 @@ describe("read_tests tool", () => {
     });
 
     it("includes quarantine info when set", async () => {
-        const tool = buildReadTestTool(tests);
+        const loop = makeDiffsLoop({ existingTests: tests });
+        const tool = new ReadTestsTool();
 
-        const result = await executeTool<ReadResult>(tool, { slugs: ["broken-engine-flow"] });
+        const result = await executeTool<ToolEnvelope<ReadResult>>(tool, { slugs: ["broken-engine-flow"] }, loop);
 
-        const entry = result.results["broken-engine-flow"];
-        expect(entry).toMatchObject({ quarantine: { reason: "engine_limitation", issueId: "issue_42" } });
+        expect(result.success).toBe(true);
+        if (!result.success) throw new Error("expected success");
+        expect(result.result.results["broken-engine-flow"]).toMatchObject({
+            quarantine: { reason: "engine_limitation", issueId: "issue_42" },
+        });
     });
 
     it("reports a per-slug error for unknown slugs while still returning known ones", async () => {
-        const tool = buildReadTestTool(tests);
+        const loop = makeDiffsLoop({ existingTests: tests });
+        const tool = new ReadTestsTool();
 
-        const result = await executeTool<ReadResult>(tool, { slugs: ["login", "made-up"] });
+        const result = await executeTool<ToolEnvelope<ReadResult>>(tool, { slugs: ["login", "made-up"] }, loop);
 
-        expect(result.results.login).toMatchObject({ name: "Login" });
-        const missing = result.results["made-up"] as { error: string };
+        expect(result.success).toBe(true);
+        if (!result.success) throw new Error("expected success");
+        expect(result.result.results.login).toMatchObject({ name: "Login" });
+        const missing = result.result.results["made-up"];
+        if (missing == null || !("error" in missing)) throw new Error("expected error entry");
         expect(missing.error).toContain("not found");
     });
 });

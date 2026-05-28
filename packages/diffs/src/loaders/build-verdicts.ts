@@ -1,6 +1,6 @@
 import type { Logger } from "@autonoma/logger";
-import type { RunReviewVerdict } from "../resolution-agent";
-import type { AffectedReason } from "../tools/mark-affected-test-tool";
+import type { AffectedReason } from "../agents/diffs/affected-test";
+import type { RunReviewVerdict } from "../agents/resolution/resolution-agent";
 
 /**
  * Shape of an {@link db.affectedTest} row joined with its test case, run, and

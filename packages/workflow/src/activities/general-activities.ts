@@ -306,8 +306,6 @@ export interface RunHealingAgentForRefinementOutput {
 export interface GeneralActivities {
     scenarioUp(input: ScenarioUpInput): Promise<ScenarioUpOutput>;
     scenarioDown(input: ScenarioDownInput): Promise<void>;
-    reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput>;
-    reviewReplay(input: ReviewReplayInput): Promise<ReviewReplayOutput>;
     assignGenerationResults(input: AssignGenerationResultsInput): Promise<void>;
     markGenerationFailed(input: MarkGenerationFailedInput): Promise<void>;
     markRunFailed(input: MarkRunFailedInput): Promise<void>;
@@ -320,6 +318,5 @@ export interface GeneralActivities {
     finishRefinementLoop(input: FinishRefinementLoopInput): Promise<void>;
     prepareGenerationQueue(input: PrepareGenerationQueueInput): Promise<PrepareGenerationQueueOutput>;
     prepareRunsForGenerations(input: PrepareRunsForGenerationsInput): Promise<PrepareRunsForGenerationsOutput>;
-    runHealingAgentForRefinement(input: RunHealingAgentForRefinementInput): Promise<RunHealingAgentForRefinementOutput>;
     finalizePendingSnapshot(input: FinalizePendingSnapshotInput): Promise<void>;
 }

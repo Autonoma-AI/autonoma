@@ -63,10 +63,10 @@ async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisR
         });
 
         const suiteInfo = await updater.currentTestSuiteInfo();
-        const { input, flowIndex } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
+        const { metadata } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
         logger.info("Loaded diffs context", {
             extra: {
-                existingTests: input.existingTests.length,
+                existingTests: metadata.existingTests.length,
             },
         });
 
@@ -82,23 +82,22 @@ async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisR
         const importedSlugs = new Set(mergeResult.importedAffectedTests.map((t) => t.slug));
 
         const agentInput = {
-            ...input,
-            existingTests: input.existingTests.filter((t) => !importedSlugs.has(t.slug)),
+            ...metadata,
+            existingTests: metadata.existingTests.filter((t) => !importedSlugs.has(t.slug)),
             merges: mergeResult.merges,
             preClassifiedConflicts: mergeResult.preClassifiedConflicts,
         };
 
-        const agentResult = await runDiffsAgent({
+        const { result: agentResult, conversation } = await runDiffsAgent({
             input: agentInput,
             repoDir,
-            flowIndex,
         });
 
         const conversationUrl = await uploadConversation({
             storage: S3Storage.createFromEnv(),
             snapshotId,
             phase: "analysis",
-            conversation: agentResult.conversation,
+            conversation,
             logger: logger.child({ name: "uploadConversation" }),
         });
 

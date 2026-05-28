@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
+import type { LanguageModel } from "@autonoma/ai";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { LanguageModel } from "ai";
-import type { ExistingTestInfo } from "./diffs-agent";
-import { FlowIndex } from "./flow-index";
 import {
     ResolutionAgent,
     type ResolutionAgentResult,
     type RunReviewVerdict,
     type TestCandidateInput,
-} from "./resolution-agent";
+} from "./agents/resolution/resolution-agent";
+import { Codebase } from "./codebase";
+import type { ExistingTestInfo } from "./diffs-agent";
+import { FlowIndex } from "./flow-index";
 import { ScenarioIndex, type ScenarioInfo } from "./scenario-index";
 
 export type LocalTestCandidateInput = Omit<TestCandidateInput, "candidateId"> & { candidateId?: string };
@@ -22,13 +23,14 @@ export interface LocalResolutionRunnerParams {
     testCandidates: LocalTestCandidateInput[];
     scenarios?: ScenarioInfo[];
     /**
-     * Real per-flow index from {@link loadFlows}. When omitted the runner
-     * falls back to a flat single-flow index containing every test, which is
-     * fine for ad-hoc local runs but does not mirror production fidelity.
+     * Real per-flow index from {@link loadFlows}. When omitted the runner falls
+     * back to a flat single-flow index containing every test, which is fine for
+     * ad-hoc local runs but does not mirror production fidelity.
      */
     flowIndex?: FlowIndex;
 }
 
+/** Local-dev runner for {@link ResolutionAgent}. Symmetric to {@link runDiffsAgentLocally}. */
 export async function runResolutionAgentLocally(params: LocalResolutionRunnerParams): Promise<ResolutionAgentResult> {
     const logger = rootLogger.child({ name: "runResolutionAgentLocally", repoDir: params.repoDir });
     const {
@@ -60,12 +62,9 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
             },
         ]);
 
-    const agent = new ResolutionAgent({
-        model,
-        workingDirectory: repoDir,
-        flowIndex,
-        scenarioIndex: new ScenarioIndex(scenarios ?? []),
-    });
+    const codebase = new Codebase(repoDir);
+    const scenarioIndex = new ScenarioIndex(scenarios ?? []);
+    const agent = new ResolutionAgent({ model });
 
     const candidatesWithIds: TestCandidateInput[] = testCandidates.map((c) => ({
         candidateId: c.candidateId ?? randomUUID(),
@@ -74,11 +73,14 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         reasoning: c.reasoning,
     }));
 
-    const result = await agent.resolve({
+    const { result } = await agent.run({
+        codebase,
+        flowIndex,
+        scenarioIndex,
+        existingTests,
         verdicts,
         step1Reasoning,
         testCandidates: candidatesWithIds,
-        existingTests,
     });
 
     logger.info("Resolution complete", {

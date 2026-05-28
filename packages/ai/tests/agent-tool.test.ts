@@ -40,11 +40,42 @@ class TestTool extends AgentTool<{ value: number }, { doubled: number }> {
     }
 }
 
+class ModelOutputTool extends AgentTool<{ value: number }, { doubled: number }> {
+    constructor(private readonly behavior: "ok" | "fixable") {
+        super({
+            name: "model_output_tool",
+            description: "test model output",
+            inputSchema: z.object({ value: z.number() }),
+        });
+    }
+
+    protected async execute({ value }: { value: number }): Promise<{ doubled: number }> {
+        if (this.behavior === "fixable") throw new FixableToolError("bad input");
+        return { doubled: value * 2 };
+    }
+
+    protected override toModelOutput({
+        output,
+    }: Parameters<NonNullable<ReturnType<this["toTool"]>["toModelOutput"]>>[0]) {
+        if (!output.success) return { type: "error-json" as const, value: { success: false, error: output.error } };
+        return { type: "text" as const, value: `doubled=${output.result.doubled}` };
+    }
+}
+
 interface ExecutableTool {
     execute: (input: unknown, options: { toolCallId: string; messages: unknown[] }) => Promise<unknown>;
 }
 
+interface ExecutableModelOutputTool extends ExecutableTool {
+    toModelOutput: (options: { toolCallId: string; input: unknown; output: unknown }) => unknown;
+}
+
 async function callTool(toolInstance: AgentTool<unknown, unknown>, input: unknown): Promise<unknown> {
+    const wrapped = wrapTool(toolInstance);
+    return await wrapped.execute(input, { toolCallId: "tc1", messages: [] });
+}
+
+function wrapTool(toolInstance: AgentTool<unknown, unknown>): ExecutableTool {
     const loop = new AgentLoop({
         name: "test",
         // these fields are not exercised when we only call execute()
@@ -53,8 +84,7 @@ async function callTool(toolInstance: AgentTool<unknown, unknown>, input: unknow
         tools: [],
         reportTool: undefined as never,
     });
-    const wrapped = toolInstance.toTool(loop) as unknown as ExecutableTool;
-    return await wrapped.execute(input, { toolCallId: "tc1", messages: [] });
+    return toolInstance.toTool(loop) as unknown as ExecutableTool;
 }
 
 describe("AgentTool", () => {
@@ -86,5 +116,27 @@ describe("AgentTool", () => {
         await expect(callTool(new TestTool("unknown", "stop_unless_fixable"), { value: 3 })).rejects.toThrow(
             "unclassified",
         );
+    });
+
+    it("keeps shared error handling when a tool customises model output", async () => {
+        const wrapped = wrapTool(new ModelOutputTool("fixable")) as ExecutableModelOutputTool;
+
+        const output = await wrapped.execute({ value: 3 }, { toolCallId: "tc1", messages: [] });
+        expect(output).toEqual({ success: false, error: "bad input", fixSuggestion: undefined });
+        expect(wrapped.toModelOutput({ toolCallId: "tc1", input: { value: 3 }, output })).toEqual({
+            type: "error-json",
+            value: { success: false, error: "bad input" },
+        });
+    });
+
+    it("lets custom model output transform successful tool envelopes", async () => {
+        const wrapped = wrapTool(new ModelOutputTool("ok")) as ExecutableModelOutputTool;
+
+        const output = await wrapped.execute({ value: 3 }, { toolCallId: "tc1", messages: [] });
+        expect(output).toEqual({ success: true, result: { doubled: 6 } });
+        expect(wrapped.toModelOutput({ toolCallId: "tc1", input: { value: 3 }, output })).toEqual({
+            type: "text",
+            value: "doubled=6",
+        });
     });
 });

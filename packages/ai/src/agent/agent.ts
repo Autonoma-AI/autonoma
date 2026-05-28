@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import type { AgentLoop } from "./agent-loop";
+import type { AgentLoop, AgentRunResult } from "./agent-loop";
 
 /**
  * Factory for {@link AgentLoop} instances, holding the immutable configuration and dependencies
@@ -26,8 +26,8 @@ export abstract class Agent<TGenerationInput, TResult, TLoop extends AgentLoop<T
      */
     protected abstract createLoop(input: TGenerationInput): Promise<TLoop>;
 
-    /** Runs the agent loop end-to-end and returns the result. */
-    public async run(input: TGenerationInput): Promise<TResult> {
+    /** Runs the agent loop end-to-end and returns the result plus the captured conversation. */
+    public async run(input: TGenerationInput): Promise<AgentRunResult<TResult>> {
         const userPrompt = await this.buildUserPrompt(input);
         const loop = await this.createLoop(input);
         return await loop.runLoop(userPrompt);

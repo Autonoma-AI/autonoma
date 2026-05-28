@@ -1,12 +1,12 @@
 import { proxyActivities } from "@temporalio/workflow";
-import type { GeneralActivities } from "../activities";
+import type { DiffsActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 
-const general = proxyActivities<GeneralActivities>({
+const diffs = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "15m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface ReplayReviewInput {
@@ -14,5 +14,5 @@ export interface ReplayReviewInput {
 }
 
 export async function replayReviewWorkflow(input: ReplayReviewInput): Promise<void> {
-    await general.reviewReplay({ runId: input.runId });
+    await diffs.reviewReplay({ runId: input.runId });
 }

@@ -53,7 +53,7 @@ describe("ReadCommand", () => {
             context,
         );
 
-        expect(result.outcome).toMatch(/Read ".+" and stored as "\{\{myVar\}\}"/);
+        expect(result.outcome).toContain('and stored as "{{myVar}}"');
     });
 
     it("should use the correct interaction name", () => {

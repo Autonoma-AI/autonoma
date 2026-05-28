@@ -1,0 +1,103 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { Agent, FinishTool, type LanguageModel, type VideoProcessor } from "@autonoma/ai";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { type GenerationVerdict, generationVerdictSchema } from "@autonoma/types";
+import type { ModelMessage } from "ai";
+import type { Codebase } from "../../../codebase";
+import { buildGenerationReviewMessages } from "../../../review/generation/message-builder";
+import type { GenerationContext } from "../../../review/generation/types";
+import { type VideoDownloader, tryUploadVideo } from "../../../review/kernel/video-upload";
+import {
+    BashTool,
+    GrepTool,
+    ListDirectoryTool,
+    ReadFilesTool,
+    ViewFinalScreenshotTool,
+    ViewStepScreenshotTool,
+} from "../../tools";
+import type { ScreenshotLoader } from "../../tools/screenshot/screenshot-types";
+import { ReviewerLoop } from "../reviewer-loop";
+
+const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "../../../review/generation/review-prompt.md"), "utf-8");
+
+export interface GenerationReviewerConfig {
+    model: LanguageModel;
+    evidenceLoader: ScreenshotLoader & VideoDownloader;
+    videoProcessor?: VideoProcessor;
+}
+
+export interface GenerationReviewInput {
+    context: GenerationContext;
+    codebase: Codebase;
+}
+
+/**
+ * Reviews a single generation: watches the video, walks the steps, inspects
+ * the source tree, then submits a verdict via {@link FinishTool}. On a
+ * no-verdict outcome the underlying agent loop throws `NoAgentResultError` /
+ * `MaxStepsReached`; callers wrap and translate that into a "review failed"
+ * persistence state.
+ */
+export class GenerationReviewer extends Agent<
+    GenerationReviewInput,
+    GenerationVerdict,
+    ReviewerLoop<GenerationVerdict>
+> {
+    private readonly logger: Logger;
+    private readonly model: LanguageModel;
+    private readonly evidenceLoader: ScreenshotLoader & VideoDownloader;
+    private readonly videoProcessor?: VideoProcessor;
+
+    private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
+    private readonly viewFinalScreenshotTool = new ViewFinalScreenshotTool();
+    private readonly readFilesTool = new ReadFilesTool();
+    private readonly grepTool = new GrepTool();
+    private readonly listDirectoryTool = new ListDirectoryTool();
+    private readonly bashTool = new BashTool();
+    private readonly resultTool = new FinishTool<GenerationVerdict>({
+        name: "submit_verdict",
+        description:
+            "Submit your final classification of this generation. Call this exactly once when you're ready to commit to a verdict.",
+        resultSchema: generationVerdictSchema,
+    });
+
+    constructor({ model, evidenceLoader, videoProcessor }: GenerationReviewerConfig) {
+        super();
+        this.model = model;
+        this.evidenceLoader = evidenceLoader;
+        this.videoProcessor = videoProcessor;
+        this.logger = rootLogger.child({ name: this.constructor.name });
+    }
+
+    protected async buildUserPrompt(input: GenerationReviewInput): Promise<ModelMessage[]> {
+        this.logger.info("Starting generation review", {
+            generationId: input.context.generationId,
+            stepCount: input.context.steps.length,
+            selfReportedStatus: input.context.selfReportedStatus,
+        });
+        const video = await tryUploadVideo(input.context.videoUrl, this.evidenceLoader, this.videoProcessor);
+        return buildGenerationReviewMessages(input.context, video);
+    }
+
+    protected async createLoop(input: GenerationReviewInput): Promise<ReviewerLoop<GenerationVerdict>> {
+        return new ReviewerLoop<GenerationVerdict>({
+            name: "GenerationReviewer",
+            model: this.model,
+            systemPrompt: SYSTEM_PROMPT,
+            tools: [
+                this.viewStepScreenshotTool,
+                this.viewFinalScreenshotTool,
+                this.readFilesTool,
+                this.grepTool,
+                this.listDirectoryTool,
+                this.bashTool,
+            ],
+            reportTool: this.resultTool,
+            codebase: input.codebase,
+            screenshotLoader: this.evidenceLoader,
+            steps: input.context.steps,
+            finalScreenshotKey: input.context.finalScreenshotKey,
+        });
+    }
+}

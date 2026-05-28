@@ -1,6 +1,7 @@
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { PrismaClient } from "@autonoma/db";
 import {
+    Codebase,
     ResolutionAgent,
     type ResolutionAgentInput,
     type ResolutionAgentResult,
@@ -11,9 +12,11 @@ import {
 import type { FlowIndex } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
+import type { ModelMessage } from "ai";
 
 export interface RunResolutionAgentParams {
-    input: ResolutionAgentInput;
+    /** Everything the ResolutionAgent needs except the codebase clone and scenario index, which the runner builds. */
+    input: Omit<ResolutionAgentInput, "codebase" | "scenarioIndex" | "flowIndex">;
     db: PrismaClient;
     updater: TestSuiteUpdater;
     repoDir: string;
@@ -27,6 +30,7 @@ export interface AcceptedCandidateLink {
 
 export interface RunResolutionAgentResult extends ResolutionAgentResult {
     accepted: AcceptedCandidateLink[];
+    conversation: ModelMessage[];
 }
 
 export async function runResolutionAgent({
@@ -43,15 +47,11 @@ export async function runResolutionAgent({
 
     const scenarioIndex = await loadScenarioIndex(db, updater.applicationId);
 
-    const agent = new ResolutionAgent({
-        model,
-        workingDirectory: repoDir,
-        flowIndex,
-        scenarioIndex,
-    });
+    const agent = new ResolutionAgent({ model });
+    const codebase = new Codebase(repoDir);
 
     const startTime = Date.now();
-    const result = await agent.resolve(input);
+    const { result, conversation } = await agent.run({ ...input, codebase, flowIndex, scenarioIndex });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
     const callbacks = createResolutionCallbacks({ db, updater });
@@ -63,10 +63,9 @@ export async function runResolutionAgent({
         ...result.removedTests.map((t) => callbacks.removeTest(t.slug)),
         ...result.reportedBugs.map((b) => callbacks.reportBug(b)),
         ...result.newTests.map(async (t) => {
-            const { testCaseId } = await callbacks.addTest({
-                ...t,
-                folderId: flowIndex.getFlow(t.folderName)!.id,
-            });
+            const folder = flowIndex.getFlow(t.folderName);
+            if (folder == null) throw new Error(`Folder "${t.folderName}" not found for new test "${t.name}"`);
+            const { testCaseId } = await callbacks.addTest({ ...t, folderId: folder.id });
             if (t.acceptingCandidateId != null) {
                 accepted.push({ candidateId: t.acceptingCandidateId, testCaseId });
             }
@@ -84,7 +83,7 @@ export async function runResolutionAgent({
         modelUsage: registry.modelUsage,
     });
 
-    return { ...result, accepted };
+    return { ...result, accepted, conversation };
 }
 
 async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {

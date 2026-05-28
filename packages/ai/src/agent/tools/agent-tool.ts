@@ -1,5 +1,5 @@
 import { logger, type Logger } from "@autonoma/logger";
-import { tool } from "ai";
+import { tool, type Tool } from "ai";
 import type z from "zod";
 import type { AgentLoop } from "../agent-loop";
 import { FatalToolError, FixableToolError } from "./tool-errors";
@@ -38,11 +38,24 @@ export interface AgentToolParameters<TInput> {
     errorHandling?: ToolErrorHandling;
 }
 
-function toolFailure(error: Error, fixSuggestion?: string) {
+/** The wrapped envelope an {@link AgentTool} emits before the AI SDK serialises it. */
+export type ToolEnvelope<TOutput> =
+    | { success: true; result: TOutput }
+    | { success: false; error: string; fixSuggestion?: string };
+
+export type AgentToolModelOutputOptions<TInput, TOutput> = Parameters<
+    NonNullable<Tool<TInput, ToolEnvelope<TOutput>>["toModelOutput"]>
+>[0];
+
+export type AgentToolModelOutput<TInput, TOutput> = ReturnType<
+    NonNullable<Tool<TInput, ToolEnvelope<TOutput>>["toModelOutput"]>
+>;
+
+function toolFailure(error: Error, fixSuggestion?: string): ToolEnvelope<never> {
     return { success: false, error: error.message, fixSuggestion };
 }
 
-function toolSuccess<TOutput>(result: TOutput) {
+function toolSuccess<TOutput>(result: TOutput): ToolEnvelope<TOutput> {
     return { success: true, result };
 }
 
@@ -72,15 +85,21 @@ export abstract class AgentTool<TInput, TOutput, TLoop extends AgentLoop = Agent
     protected abstract execute(input: TInput, loop: TLoop): Promise<TOutput>;
 
     /**
-     * Convert this tool into an AI-SDK `Tool`. The return type is intentionally inferred (rather
-     * than annotated with the broad `Tool` from the SDK) so callers can recover the precise
-     * `Tool<TInput, ...>` shape via {@link AgentToolSdkTool}.
+     * Optional hook for tools that need to send non-JSON output back to the model while preserving
+     * the base execution/error-handling wrapper.
      */
-    public toTool(loop: TLoop) {
+    protected toModelOutput?(
+        options: AgentToolModelOutputOptions<TInput, TOutput>,
+    ): AgentToolModelOutput<TInput, TOutput>;
+
+    /** Convert this tool into a {@link Tool} compatible with the AI SDK. */
+    public toTool(loop: TLoop): Tool {
+        const toModelOutput = this.toModelOutput?.bind(this);
+
         return tool({
             description: this.description,
             inputSchema: this.inputSchema,
-            execute: async (input: TInput) => {
+            execute: async (input: TInput): Promise<ToolEnvelope<TOutput>> => {
                 try {
                     this.logger.info("Executing tool", { input });
                     const result = await this.execute(input, loop);
@@ -108,6 +127,7 @@ export abstract class AgentTool<TInput, TOutput, TLoop extends AgentLoop = Agent
                     throw error instanceof Error ? error : new Error(String(error));
                 }
             },
+            ...(toModelOutput == null ? {} : { toModelOutput }),
         });
     }
 }

@@ -12,17 +12,21 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/diffs": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/job-diffs": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
+        "ai": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {

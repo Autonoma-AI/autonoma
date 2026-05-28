@@ -1,159 +1,77 @@
 # @autonoma/diffs
 
-AI agent that analyzes code diffs on pull requests. It reviews changes, runs affected tests, reports bugs, suggests test modifications, and identifies test coverage gaps - all autonomously using LLM tool-calling.
+AI agents that drive the diff-analysis, resolution, healing, and review pipeline. Every agent is a subclass of `Agent` from `@autonoma/ai`, built on the same abstraction: an immutable agent class holds tools + system prompt, each call constructs a fresh `AgentLoop` subclass that carries the per-run state.
 
-## How It Works
+## Pipeline at a glance
 
-The `DiffsAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Given a diff summary and existing tests, it:
+| Agent | Trigger | Decides |
+|---|---|---|
+| `DiffsAgent` | PR diffs | Which existing tests might be affected; what new tests are missing |
+| `ResolutionAgent` | After replay | How to handle each failed test (modify, remove, report bug) + which candidates to graduate |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration |
+| `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug) |
+| `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug) |
 
-1. Explores the actual patch using git commands (`bash`, `glob`, `grep`, `read_files`)
-2. Runs potentially affected tests via `run_test`
-3. Takes post-run actions per test: `modify_test`, `remove_test`, or `bug_found`
-4. Identifies new functionality with no test coverage and suggests new tests via `add_test`
-5. Calls `finish` with an overall reasoning summary
+All five extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
 
-The agent retries up to 3 times if it produces no actions.
-
-## Exports
-
-```ts
-// Core agent
-import {
-  DiffsAgent,
-  type DiffsAgentConfig,
-  type DiffsAgentInput,
-  type DiffAnalysis,
-  type ExistingTestInfo,
-  type TestRunResult,
-} from "@autonoma/diffs";
-
-// Result types
-import type {
-  DiffsAgentResult,
-  TestAction,
-  ResultCollector,
-  BugReport,
-  GeneratedTest,
-} from "@autonoma/diffs";
-
-// Callbacks (wiring agent actions to real side effects)
-import {
-  createCallbacks,
-  type CreateCallbacksParams,
-  type DiffsAgentCallbacks,
-} from "@autonoma/diffs";
-```
-
-## Usage
-
-```ts
-import { DiffsAgent } from "@autonoma/diffs";
-import { createCallbacks } from "@autonoma/diffs";
-
-// 1. Create callbacks that wire agent actions to real side effects
-const callbacks = createCallbacks({
-  db,               // PrismaClient
-  updater,          // TestSuiteUpdater from @autonoma/test-updates
-  applicationId,
-  workingDirectory, // repo checkout path
-  repoId,           // GitHub repository ID
-  headSha,
-  octokit,          // GitHub installation client
-});
-
-// 2. Create the agent
-const agent = new DiffsAgent({
-  model,              // Vercel AI SDK LanguageModel
-  workingDirectory,   // repo checkout path
-  callbacks,
-});
-
-// 3. Run analysis
-const result = await agent.analyze({
-  analysis: {
-    affectedFiles: ["src/auth/login.ts", "src/auth/login.test.ts"],
-    summary: "Refactored login flow to use OAuth2 instead of basic auth",
-  },
-  existingTests: [
-    { id: "t1", name: "Login flow", slug: "login-flow", prompt: "Navigate to login..." },
-  ],
-});
-
-// 4. Use results
-console.log(result.reasoning);
-console.log(result.testActions);    // modify or remove actions taken
-console.log(result.bugReports);     // bugs introduced by the PR
-console.log(result.newTests);       // suggested new tests
-```
-
-## Tools
-
-The agent has two categories of tools:
-
-### Codebase Exploration
-
-| Tool | Description |
-|------|-------------|
-| `bash` | Shell commands (git diff, git show, etc.) scoped to the working directory |
-| `glob` | Find files by pattern |
-| `grep` | Search file contents |
-| `read_files` | Read one or more files in a single call (batch all paths into one array) |
-| `subagent` | Spawn a focused research subagent for parallel investigation |
-
-### Actions
-
-| Tool | Description | Prerequisite |
-|------|-------------|--------------|
-| `run_test` | Trigger test execution and wait for results | None |
-| `modify_test` | Update a test instruction to match new behavior | `run_test` |
-| `remove_test` | Remove a test from the suite when its flow was deleted | `run_test` |
-| `bug_found` | Report a bug introduced by the PR with a fix prompt | `run_test` |
-| `add_test` | Suggest a new test for uncovered functionality | None |
-| `finish` | End analysis with overall reasoning | None |
-
-Post-run tools (`modify_test`, `remove_test`, `bug_found`) enforce that `run_test` was called first for the given test slug.
-
-## Callbacks
-
-The `DiffsAgentCallbacks` interface decouples agent decisions from side effects. The `createCallbacks` factory wires them to real implementations:
-
-- `triggerTestsAndWait` - Triggers parallel test execution via Temporal workflows, polls for completion, returns results
-- `removeTest` - Removes obsolete tests from the suite
-- `modifyTest` - Updates test instruction in the database via `TestSuiteUpdater`
-- `reportBug` - Creates a GitHub issue on the repository via Octokit
-
-## Architecture
+## Code layout
 
 ```
-src/
-  index.ts                  # Package re-exports
-  diffs-agent.ts            # DiffsAgent class, prompt construction, system prompt
-  callbacks.ts              # Re-exports from callbacks/
-  callbacks/
-    create-callbacks.ts     # Factory wiring DiffsAgentCallbacks to real implementations
-    modify-test.ts          # Database update for test modifications
-    report-bug.ts           # GitHub issue creation via Octokit
-  tools/
-    index.ts                # Re-exports all tool builders
-    codebase-tools.ts       # Groups exploration and action tools
-    bash-tool.ts            # Sandboxed shell execution
-    glob-tool.ts            # File pattern matching
-    grep-tool.ts            # Content search
-    read-file-tool.ts       # File reading
-    subagent-tool.ts        # Spawns focused research subagents
-    run-test-tool.ts        # Triggers test execution
-    modify-test-tool.ts     # Modifies test instructions
-    remove-test-tool.ts     # Removes tests whose flow no longer exists
-    bug-found-tool.ts       # Reports bugs with fix prompts
-    add-test-tool.ts        # Suggests new tests
-    finish-tool.ts          # Ends analysis, collects results
+src/agents/
+├── capabilities.ts          Loop capability interfaces (CodebaseLoop, TestLookupLoop, …)
+├── tools/                   Shared tools - typed against the narrowest capability they need
+│   ├── codebase/            bash, glob, grep, list_directory, read_files (CodebaseLoop)
+│   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
+│   ├── screenshot/          view_step_screenshot, view_final_screenshot
+│   └── subagent/            Nested research agent + tool wrapper
+├── diffs/                   DiffsAgent + its action tools + result tool + prompt
+├── resolution/              ResolutionAgent + tools + prompt
+├── healing/                 HealingAgent + tools + result tool
+└── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
 ```
 
-## Testing
+Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that implements the capability interfaces the agent's tools depend on, the per-agent action/result tools, and the prompt source.
 
-```bash
-pnpm test          # run unit tests
-pnpm eval          # run evals (sets RUN_EVALS=true)
-```
+## Adding a new tool
 
-Tests cover individual tools in isolation using a fixture repo (`test/fixtures.tar.gz`). Evals run the full agent against real diffs.
+1. Decide which capability interface(s) the tool reads off the loop. If it needs the codebase, type it against `CodebaseLoop`; if it needs the test list, `TestLookupLoop`; etc.
+2. Create a file under `agents/tools/<category>/<name>-tool.ts` that exports a class extending `AgentTool<TInput, TOutput, TLoop>`.
+3. Register the tool in the relevant agent's constructor (or in multiple agents if it's shared).
+
+For action tools, push to the loop's public mutable fields directly (`loop.affectedTests.push(...)`); for cross-tool invariants, either inline the check or extract a free helper alongside the tool. The loop subclasses expose their state as `public readonly` fields - there is no separate "collector" abstraction.
+
+## Adding a new agent
+
+1. Create `Loop` subclass that `extends AgentLoop<TResult>` and `implements` the capability interfaces the agent's tools need.
+2. Create `Agent` subclass that `extends Agent<TInput, TResult, TLoop>`. Implement `buildUserPrompt(input)` and `createLoop(input)`. Construct all tools as `private readonly` fields in the constructor.
+3. If the agent has a finish tool that needs to merge collector state into the result, extend `ReportResultTool<TInput, TResult, TLoop>` and implement `buildResult(input, loop)`. Otherwise use `FinishTool<TResult>` directly.
+
+## Error handling
+
+Tools classify their failures explicitly:
+
+- **Bad input the model can retry** → throw `FixableToolError` with an optional `suggestFix()` message.
+- **Operation didn't succeed but the tool ran fine** (bash exit ≠ 0, file not found, no grep matches) → return success-shaped data; let the model interpret it.
+- **Infra failure** → throw `FatalToolError`; the loop terminates.
+- **Anything else** → caught by the default `continue_unless_fatal` policy and surfaced to the model as a fixable failure.
+
+## Entry points
+
+| Script | What it does |
+|---|---|
+| `pnpm local-diff-analysis` | Run DiffsAgent locally against a checked-out repo |
+| `pnpm local-resolution` | Run ResolutionAgent locally with hand-built verdicts |
+| `pnpm review:generation <generationId>` | Run GenerationReviewer read-only against a real generation |
+| `pnpm review:replay <runId>` | Run ReplayReviewer read-only against a real run |
+
+The production entry points (`runGenerationReview`, `runReplayReview`, etc.) live alongside their reviewer in `src/review/generation/run.ts` and `src/review/replay/run.ts` - they handle DB persistence + idempotency on top of the agent.
+
+## Sub-packages
+
+| Path | Purpose |
+|---|---|
+| `./` | Public surface listed above |
+| `./run-diffs-locally` | Local dev runner for DiffsAgent |
+| `./run-resolution-locally` | Local dev runner for ResolutionAgent |
+| `./prepare-runs` | `prepareRuns` callback that fires replays once the agent has marked tests affected |
+| `./env` | `@t3-oss/env-core` schema for required env vars |

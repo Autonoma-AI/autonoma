@@ -5,6 +5,9 @@ import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
 
+/** The metadata pieces of {@link DiffsAgentInput} that load-context produces - everything except the codebase clone. */
+export type DiffsAgentMetadata = Omit<DiffsAgentInput, "codebase">;
+
 export interface BranchData {
     applicationId: string;
     organizationId: string;
@@ -63,7 +66,7 @@ export async function loadDiffsContext(
     suiteInfo: TestSuiteInfo,
     headSha: string,
     baseSha: string,
-): Promise<{ input: DiffsAgentInput; flowIndex: FlowIndex }> {
+): Promise<{ metadata: DiffsAgentMetadata }> {
     const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
     const [flows, application] = await Promise.all([
@@ -85,12 +88,12 @@ export async function loadDiffsContext(
     });
 
     return {
-        input: {
+        metadata: {
             headSha,
             baseSha,
             existingTests,
+            flowIndex,
             testScopeGuidelines: application.testScopeGuidelines ?? undefined,
         },
-        flowIndex,
     };
 }

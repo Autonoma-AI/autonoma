@@ -10,9 +10,9 @@ import { env as storageEnv } from "@autonoma/storage/env";
 import { GoogleGenAI } from "@google/genai";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { ReplayReviewer } from "../../agents/reviewers/replay/replay-reviewer";
 import { Codebase } from "../../codebase";
 import { RunContextLoader } from "./context-loader";
-import { ReplayReviewer } from "./replay-reviewer";
 
 const env = createEnv({
     extends: [loggerEnv, storageEnv, aiEnv],
@@ -63,17 +63,17 @@ try {
         model,
         evidenceLoader: contextLoader,
         videoProcessor,
-        codebase,
     });
-    const { verdict } = await reviewer.review(context);
-
-    if (verdict == null) {
-        logger.warn("No verdict produced - the agent reached its step limit without submitting one");
+    try {
+        const { result: verdict } = await reviewer.run({ context, codebase });
+        printVerdict(verdict);
+        process.exit(0);
+    } catch (err) {
+        logger.warn("No verdict produced - the agent reached its step limit without submitting one", {
+            error: err instanceof Error ? err.message : String(err),
+        });
         process.exit(0);
     }
-
-    printVerdict(verdict);
-    process.exit(0);
 } catch (error) {
     logger.fatal("Local replay reviewer failed", error);
     process.exit(1);

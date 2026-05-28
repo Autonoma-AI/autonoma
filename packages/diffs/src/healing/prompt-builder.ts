@@ -1,5 +1,7 @@
+import type { HealingInput } from "../agents/healing/healing-agent";
+import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
-import type { FailureRecord, HealingAction, HealingInput } from "./types";
+import type { FailureRecord } from "./types";
 
 /**
  * Builds the user-facing prompt that goes into HealingAgent. The system prompt

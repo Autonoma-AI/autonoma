@@ -1,12 +1,12 @@
 import { proxyActivities } from "@temporalio/workflow";
-import type { GeneralActivities } from "../activities";
+import type { DiffsActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 
-const general = proxyActivities<GeneralActivities>({
+const diffs = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "15m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.GENERAL,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface GenerationReviewInput {
@@ -14,5 +14,5 @@ export interface GenerationReviewInput {
 }
 
 export async function generationReviewWorkflow(input: GenerationReviewInput): Promise<void> {
-    await general.reviewGeneration({ generationId: input.generationId });
+    await diffs.reviewGeneration({ generationId: input.generationId });
 }

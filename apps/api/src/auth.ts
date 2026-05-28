@@ -61,7 +61,21 @@ export interface BuildAuthParams {
     platformEvents?: PlatformEventEmitter;
 }
 
-export type Auth = ReturnType<typeof buildAuth>;
+export interface Auth {
+    handler(request: Request): Promise<Response>;
+    api: {
+        getSession(params: { headers: Headers }): Promise<{ user: AuthUser; session: AuthSession } | null>;
+    };
+    $context: Promise<{
+        secondaryStorage?: {
+            get(key: string): unknown;
+            set(key: string, value: string, ttl?: number): unknown;
+        };
+        internalAdapter: {
+            listSessions(userId: string): Promise<AuthSession[]>;
+        };
+    }>;
+}
 
 export type AuthUser = {
     id: string;
@@ -81,7 +95,7 @@ export type AuthSession = {
     token: string;
     ipAddress?: string | null;
     userAgent?: string | null;
-    activeOrganizationId?: string;
+    activeOrganizationId?: string | null;
 };
 
 const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com"]);
@@ -164,7 +178,7 @@ async function ensureOrgMembership(
     return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
 }
 
-export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformEvents }: BuildAuthParams) {
+export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformEvents }: BuildAuthParams): Auth {
     const signupHooks = new SignupHooks({
         resendApiKey: env.RESEND_API_KEY,
         resendAudienceId: env.RESEND_AUDIENCE_ID,

@@ -1,11 +1,6 @@
 import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
-import type { ModelMessage } from "ai";
-import type { Codebase } from "../codebase";
 import type { ScenarioIndex } from "../scenario-index";
-import type { HealingAction } from "./actions";
 import type { FlowSummary } from "./plan-authoring/types";
-
-export type { HealingAction } from "./actions";
 
 /**
  * One failing plan or run, summarised for the agent. Includes the reviewer's
@@ -43,27 +38,4 @@ export interface PlanAuthoringInput {
     flows: FlowSummary[];
     /** Free-text guidelines from the application owner about what to / not to test. */
     testScopeGuidelines?: string;
-}
-
-export interface HealingInput extends SnapshotInfo {
-    /** 1-indexed iteration number within the refinement loop. */
-    iteration: number;
-    /** Actions emitted in earlier iterations of the same loop. */
-    priorActions: HealingAction[];
-    failures: FailureRecord[];
-    /**
-     * Subset of failures' testCaseIds that may be targeted by report_bug
-     * or report_engine_limitation - i.e. those whose failure carries a
-     * source review the apply layer can link evidence to.
-     */
-    reportableTestCaseIds: Set<string>;
-    codebase: Codebase;
-    planAuthoring: PlanAuthoringInput;
-}
-
-export interface HealingResult {
-    actions: HealingAction[];
-    reasoning: string;
-    /** Full LLM conversation produced by the agent. Captured so it can be persisted for debugging. */
-    conversation: ModelMessage[];
 }

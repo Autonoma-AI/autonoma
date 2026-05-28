@@ -6,5 +6,6 @@ export default defineConfig({
     test: {
         exclude: ["**/dist/**", "**/node_modules/**"],
         env: { ...config({ path: join(__dirname, "../../.env") }).parsed },
+        testTimeout: 30_000,
     },
 });

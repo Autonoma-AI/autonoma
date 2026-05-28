@@ -1,42 +1,91 @@
+// Data types - shared shapes that flow between the pipeline stages.
 export {
-    DiffsAgent,
-    type DiffsAgentConfig,
     type DiffAnalysis,
-    type DiffsAgentInput,
     type ExistingTestInfo,
     type MergeContextInfo,
     type PreClassifiedConflictInfo,
     type PreClassifiedConflictVersion,
     type QuarantineInfo,
 } from "./diffs-agent";
-export type { DiffsAgentResult, ResultCollector } from "./tools/finish-tool";
+
+// Agents - the Agent-abstraction adoption surface.
 export {
+    AFFECTED_REASONS,
     affectedReasonSchema,
     affectedTestSchema,
-    AFFECTED_REASONS,
+    BashTool,
     type AffectedReason,
     type AffectedTest,
-} from "./tools/mark-affected-test-tool";
-export type { TestCandidate } from "./tools/suggest-test-tool";
-export { FlowIndex, type FlowInfo } from "./flow-index";
-export { ScenarioIndex, type ScenarioInfo, type ScenarioRecipe } from "./scenario-index";
-export {
+    type CodebaseLoop,
+    DiffsAgent,
+    DiffsAgentLoop,
+    type DiffsAgentConfig,
+    type DiffsAgentInput,
+    type DiffsAgentResult,
+    type GeneratedTest,
+    GenerationReviewer,
+    type GenerationReviewerConfig,
+    type GenerationReviewInput,
+    GlobTool,
+    GrepTool,
+    HealingAgent,
+    HealingAgentLoop,
+    type HealingAgentConfig,
+    type HealingInput,
+    type HealingResult,
+    ListDirectoryTool,
+    ListFlowsTool,
+    ListScenariosTool,
+    ListTestsTool,
+    type ModifiedTest,
+    ReadFilesTool,
+    ReadScenarioTool,
+    ReadTestsTool,
+    type RemovedTest,
+    ReplayReviewer,
+    type ReplayReviewerConfig,
+    type ReplayReviewInput,
+    type ReportedBug,
     ResolutionAgent,
+    ResolutionAgentLoop,
     type ResolutionAgentConfig,
     type ResolutionAgentInput,
     type ResolutionAgentResult,
+    type ReviewStepScreenshots,
+    ReviewerLoop,
     type RunReviewVerdict,
+    type ScenarioLookupLoop,
+    type ScreenshotInspectionLoop,
+    type ScreenshotLoader,
+    Subagent,
+    SubagentLoop,
+    SubagentTool,
+    type SubagentConfig,
+    type SubagentInput,
+    type SubagentResult,
+    type TestCandidate,
     type TestCandidateInput,
-} from "./resolution-agent";
+    type TestLookupLoop,
+    ViewFinalScreenshotTool,
+    ViewStepScreenshotTool,
+    generatedTestSchema,
+    modifyTestSchema,
+    removedTestSchema,
+    reportBugSchema,
+    testCandidateSchema,
+    validateCommand,
+} from "./agents";
+
+// Callbacks (resolution / report-bug etc.)
 export {
     createResolutionCallbacks,
     type CreateResolutionCallbacksParams,
     type ResolutionCallbacks,
 } from "./callbacks/resolution-callbacks";
-export type { ModifiedTest } from "./tools/modify-test-tool";
-export type { RemovedTest } from "./tools/remove-test-tool";
-export type { ReportedBug } from "./tools/report-bug-tool";
-export type { GeneratedTest } from "./tools/add-test-tool";
+
+export { FlowIndex, type FlowInfo } from "./flow-index";
+export { ScenarioIndex, type ScenarioInfo, type ScenarioRecipe } from "./scenario-index";
+
 export {
     classifyTestsForMerge,
     type AssignmentRef,
@@ -63,7 +112,6 @@ export {
 
 export {
     Codebase,
-    buildRepoTools,
     type DirectoryEntry,
     type GlobOptions,
     type GrepHit,
@@ -71,10 +119,7 @@ export {
     type ReadFileOptions,
 } from "./codebase";
 
-export type { CodebaseLoop, TestLookupLoop, ScenarioLookupLoop, ScreenshotInspectionLoop } from "./agents";
-
-export { HealingAgent, type HealingAgentConfig } from "./healing/healing-agent";
-export type { HealingInput, HealingResult, FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
+export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export {
     healingActionSchema,
     type HealingAction,
@@ -94,29 +139,12 @@ export {
     type ScenarioSummary,
 } from "./healing/plan-authoring";
 
-export {
-    extractVerdict,
-    tryUploadVideo,
-    buildScreenshotTools,
-    buildVerdictTool,
-    runReviewAgent,
-    MessageBuilder,
-    sanitizeConversation,
-    type VideoDownloader,
-    type ScreenshotLoader,
-    type ReviewStepScreenshots,
-    type BuildScreenshotToolsParams,
-    type ReviewAgentResult,
-    type RunReviewAgentParams,
-} from "./review/kernel";
+export { tryUploadVideo, MessageBuilder, sanitizeConversation, type VideoDownloader } from "./review/kernel";
 export {
     GenerationContextLoader,
-    GenerationReviewer,
     GenerationReviewPersister,
     buildGenerationReviewMessages,
     runGenerationReview,
-    type GenerationReviewerDeps,
-    type GenerationReviewResult,
     type PersistGenerationReviewParams,
     type RunGenerationReviewDeps,
     type RunGenerationReviewResult,
@@ -125,12 +153,9 @@ export {
 } from "./review/generation";
 export {
     RunContextLoader,
-    ReplayReviewer,
     RunReviewPersister,
     buildReplayReviewMessages,
     runReplayReview,
-    type ReplayReviewerDeps,
-    type ReplayReviewResult,
     type PersistRunReviewParams,
     type RunReplayReviewDeps,
     type RunReplayReviewResult,

@@ -14,7 +14,7 @@ export async function triggerReplayReviewWorkflow(runId: string): Promise<void> 
     await client.workflow.start(WORKFLOW_TYPE.REPLAY_REVIEW, {
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-        taskQueue: TaskQueue.GENERAL,
+        taskQueue: TaskQueue.DIFFS,
         searchAttributes: getWorkflowSearchAttributes(),
         args: [{ runId }],
     });

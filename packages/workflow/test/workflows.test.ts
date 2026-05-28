@@ -108,7 +108,7 @@ describe("trigger functions", () => {
 
         const call = vi.mocked(client.workflow.start).mock.calls[0];
         const options = call?.[1];
-        expect(options?.taskQueue).toBe("general");
+        expect(options?.taskQueue).toBe("diffs");
         expect(options?.args?.[0]).toEqual({ generationId: "gen-1" });
     });
 
@@ -123,7 +123,7 @@ describe("trigger functions", () => {
 
         const call = vi.mocked(client.workflow.start).mock.calls[0];
         const options = call?.[1];
-        expect(options?.taskQueue).toBe("general");
+        expect(options?.taskQueue).toBe("diffs");
         expect(options?.args?.[0]).toEqual({ runId: "run-1" });
     });
 

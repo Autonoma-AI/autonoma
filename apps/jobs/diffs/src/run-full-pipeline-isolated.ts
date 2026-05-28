@@ -186,6 +186,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
                 testInstruction: test.prompt,
                 testName: test.name,
                 artifactDir: replayResult.artifactDir,
+                repoDir,
                 steps: replayResult.steps,
             });
 
@@ -266,6 +267,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
                             testInstruction: test.instruction,
                             testName: test.name,
                             artifactDir: genResult.artifactDir,
+                            repoDir,
                             steps: genResult.steps,
                         });
                         if (genReview.verdict != null) {
