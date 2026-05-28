@@ -3,21 +3,32 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { previewConfigSchema, type PreviewConfig } from "./schema";
 
-const CONFIG_FILE = ".preview.yaml";
+const CONFIG_FILES = [".preview.yaml", ".preview.yml"];
 
 /**
- * Returns the parsed `.preview.yaml`, or `undefined` when the repo doesn't
- * have one at this ref. A missing file is a normal opt-out signal (most repos
- * under an installed GitHub App will never have one) — only an invalid file
- * throws, since that's a user mistake worth surfacing.
+ * Returns the parsed config file, or `undefined` when the repo doesn't
+ * have one at this ref. Tries `.preview.yaml` first, then `.preview.yml`.
+ * A missing file is a normal opt-out signal (most repos under an installed
+ * GitHub App will never have one) - only an invalid file throws, since that's
+ * a user mistake worth surfacing.
  */
 export async function loadPreviewConfig(
     provider: GitProvider,
     repoFullName: string,
     ref: string,
 ): Promise<PreviewConfig | undefined> {
-    const raw = await provider.fetchFileContent(repoFullName, CONFIG_FILE, ref);
-    if (!raw) {
+    let raw: string | undefined;
+    let configFile: string | undefined;
+
+    for (const candidate of CONFIG_FILES) {
+        raw = await provider.fetchFileContent(repoFullName, candidate, ref);
+        if (raw != null) {
+            configFile = candidate;
+            break;
+        }
+    }
+
+    if (raw == null || configFile == null) {
         return undefined;
     }
 
@@ -25,9 +36,9 @@ export async function loadPreviewConfig(
     const result = previewConfigSchema.safeParse(parsed);
 
     if (!result.success) {
-        logger.error(`Invalid ${CONFIG_FILE} in ${repoFullName}`, { errors: result.error.flatten() });
+        logger.error(`Invalid ${configFile} in ${repoFullName}`, { errors: result.error.flatten() });
         throw new Error(
-            `Invalid ${CONFIG_FILE}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+            `Invalid ${configFile}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
         );
     }
 
