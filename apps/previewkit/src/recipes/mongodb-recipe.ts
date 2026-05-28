@@ -14,8 +14,22 @@ const REPLICA_SET = "rs0";
  * because HA is not a goal in preview environments; fast spin-up and
  * minimal resource cost are.
  *
- * Apps connect via `mongodb://<name>:27017/?replicaSet=rs0`. The Mongo
- * driver topology-discovers the pod's stable DNS through the seed host.
+ * The single member advertises `localhost:27017` (not the pod's external
+ * DNS name). This sidesteps a bootstrap deadlock: a pod cannot reliably
+ * resolve its OWN `<pod>.<service>` DNS name during startup (the address
+ * isn't in the EndpointSlice yet, and CoreDNS negative-caches the early
+ * miss), so `rs.initiate()` with an external host either hangs or fails
+ * its `isSelf` check. `localhost` always resolves and `isSelf` passes
+ * immediately. MongoDB permits localhost member hosts only when every
+ * member is localhost - true for a single-node set.
+ *
+ * Apps MUST connect with `directConnection=true`, e.g.
+ * `mongodb://<name>:27017/?directConnection=true`. directConnection talks
+ * straight to the seed host and ignores the advertised member host, so
+ * `localhost` never leaks to clients. Change Streams still work because
+ * the server is a genuine replicaset member. (Replica-set DISCOVERY
+ * clients - those omitting directConnection - are intentionally not
+ * supported; they'd try to dial the advertised `localhost` and fail.)
  *
  * Replicaset init runs as a postStart lifecycle hook so it can call
  * `rs.initiate()` once mongod is accepting connections. The standard
@@ -86,7 +100,7 @@ export class MongoDbRecipe extends BaseRecipe {
                                 lifecycle: {
                                     postStart: {
                                         exec: {
-                                            command: ["sh", "-c", buildReplicaSetInitScript(config.name)],
+                                            command: ["sh", "-c", buildReplicaSetInitScript()],
                                         },
                                     },
                                 },
@@ -108,18 +122,16 @@ export class MongoDbRecipe extends BaseRecipe {
             kind: "Service",
             metadata: { name: config.name, namespace, labels },
             spec: {
-                // Headless so each StatefulSet pod gets a stable DNS entry
-                // (`<name>-0.<name>`). The replicaset member host string must
-                // resolve identically from inside the pod and from any app
-                // pod in the namespace; clusterIP-backed Services do not
-                // guarantee that.
+                // Headless so the service name resolves directly to the pod
+                // IP, which is what clients connect to with
+                // `directConnection=true`.
                 clusterIP: "None",
-                // Publish pod DNS as soon as the pod has an IP, not waiting
-                // for readiness. Required so `postStart` can resolve its own
-                // `<pod>.<service>` hostname when it calls `rs.initiate()` -
-                // without this, readiness waits on rs.initiate, rs.initiate
-                // waits on DNS, DNS waits on readiness, and the container
-                // CrashLoopBackOffs.
+                // Publish the pod's address before it's Ready so a client
+                // (db-api, temporal-worker) that connects during mongod
+                // startup gets a routable IP and lets its driver retry,
+                // rather than an NXDOMAIN. Bootstrap no longer depends on
+                // this (the member host is `localhost`), so it's purely
+                // defensive for client connect timing.
                 publishNotReadyAddresses: true,
                 selector: { app: config.name },
                 ports: [{ port: PORT, targetPort: PORT, name: "mongo" }],
@@ -137,32 +149,21 @@ export class MongoDbRecipe extends BaseRecipe {
 }
 
 /**
- * Idempotent replicaset init. Waits for mongod to accept pings AND for
- * the pod's own DNS entry (`<pod>.<service>`) to resolve, then calls
+ * Idempotent replicaset init. Waits for mongod to accept pings, then calls
  * `rs.initiate()` only if the replicaset is not yet initialized. On a pod
  * restart `rs.status()` succeeds and we skip the init.
  *
- * The DNS wait is critical: `rs.initiate()` validates that the configured
- * member host resolves to "this node", which requires the headless Service
- * to have already published this pod's DNS A record. Pairs with
- * `publishNotReadyAddresses: true` on the Service - without that flag, the
- * pod's DNS is gated on readiness, which is gated on this script
- * succeeding (circular). With the flag, DNS appears within a second or
- * two of the pod getting its IP, so this loop almost always exits on the
- * first iteration.
+ * The member host is `localhost:27017` - no dependency on external DNS, so
+ * there's no bootstrap deadlock and `isSelf` passes immediately. See the
+ * class doc for why clients must use `directConnection=true`.
  *
- * Quoting note: `mongosh --eval` takes its JS argument inside shell single
- * quotes; we break out of the single quotes around `"$HOSTNAME"` so bash
- * expands it to the pod's hostname before mongosh sees the final string.
+ * No shell variables or single-quote gymnastics are needed since the host
+ * is a literal; the whole mongosh program is a single-quoted string.
  */
-function buildReplicaSetInitScript(serviceName: string): string {
+function buildReplicaSetInitScript(): string {
     return [
         "set -e",
-        `MEMBER_HOST="\${HOSTNAME}.${serviceName}"`,
         `until mongosh --quiet --port ${PORT} --eval "db.adminCommand({ping:1}).ok" 2>/dev/null | grep -q 1; do`,
-        "  sleep 1",
-        "done",
-        `until getent hosts "$MEMBER_HOST" >/dev/null 2>&1; do`,
         "  sleep 1",
         "done",
         `mongosh --quiet --port ${PORT} --eval '`,
@@ -170,7 +171,7 @@ function buildReplicaSetInitScript(serviceName: string): string {
         "    rs.status();",
         "  } catch (e) {",
         '    if (e.codeName === "NotYetInitialized") {',
-        `      rs.initiate({ _id: "${REPLICA_SET}", members: [{ _id: 0, host: "'"$MEMBER_HOST:${PORT}"'" }] });`,
+        `      rs.initiate({ _id: "${REPLICA_SET}", members: [{ _id: 0, host: "localhost:${PORT}" }] });`,
         "    }",
         "  }",
         "'",

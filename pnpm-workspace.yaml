@@ -89,3 +89,14 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
   - '@prisma/engines'
   - prisma
+
+overrides:
+  '@hono/node-server@<1.19.13': ^1.19.13
+  fast-xml-parser@<5.7.0: ^5.7.0
+  fast-xml-parser@>=5.0.0 <5.3.8: ^5.3.8
+  fast-xml-parser@>=5.0.0 <5.5.6: ^5.5.6
+  fast-xml-parser@>=5.0.0 <5.5.7: ^5.5.7
+  ip-address@<=10.1.0: ^10.1.1
+  serialize-javascript@<=7.0.2: ^7.0.3
+  serialize-javascript@>=5.0.0 <7.0.5: ^7.0.5
+  uuid@<11.1.1: ^11.1.1
