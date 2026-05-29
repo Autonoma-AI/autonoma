@@ -35,7 +35,7 @@ export async function runHookJob(
         metadata: {
             name: jobName,
             namespace,
-            labels: { "previewkit.dev/managed-by": "previewkit", "previewkit.dev/hook": "pre-deploy" },
+            labels: { "previewkit.dev/managed-by": "previewkit", "previewkit.dev/hook": "deploy" },
         },
         spec: {
             backoffLimit: 0,
@@ -44,11 +44,20 @@ export async function runHookJob(
             template: {
                 spec: {
                     restartPolicy: "Never",
+                    securityContext: { runAsUser: 0 },
                     containers: [
                         {
                             name: "hook",
                             image,
-                            command: ["/bin/sh", "-c", command],
+                            // Some Dockerfiles strip all execute bits from node_modules
+                            // (chmod 444 on all files) for security hardening. Since the
+                            // job runs as root, restore +x on .bin executables before
+                            // running the hook command so tools like npx/prisma work.
+                            command: [
+                                "/bin/sh",
+                                "-c",
+                                `find /app/node_modules/.bin -type f -o -type l 2>/dev/null | xargs chmod +x 2>/dev/null; ${command}`,
+                            ],
                             env: envVars,
                             resources: {
                                 requests: { cpu: "100m", memory: "512Mi" },
@@ -73,21 +82,21 @@ export async function runHookJob(
 
         const succeeded = conditions.find((c) => c.type === "Complete" && c.status === "True");
         if (succeeded != null) {
-            logger.info("Pre-deploy hook Job succeeded", { jobName });
+            logger.info("Hook Job succeeded", { jobName });
             return;
         }
 
         const failed = conditions.find((c) => c.type === "Failed" && c.status === "True");
         if (failed != null) {
             const logs = await captureJobLogs(coreApi, namespace, jobName);
-            logger.error("Pre-deploy hook Job failed", { jobName, logs });
-            throw new Error(`Pre-deploy hook Job "${jobName}" failed.\n${logs}`);
+            logger.error("Hook Job failed", { jobName, logs });
+            throw new Error(`Hook Job "${jobName}" failed.\n${logs}`);
         }
 
-        logger.info("Pre-deploy hook Job running", { jobName });
+        logger.info("Hook Job running", { jobName });
     }
 
-    throw new Error(`Pre-deploy hook Job "${jobName}" timed out after ${timeoutMs}ms`);
+    throw new Error(`Hook Job "${jobName}" timed out after ${timeoutMs}ms`);
 }
 
 async function captureJobLogs(coreApi: k8s.CoreV1Api, namespace: string, jobName: string): Promise<string> {

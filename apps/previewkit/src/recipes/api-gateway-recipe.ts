@@ -47,7 +47,7 @@ export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
             apiVersion: "v1",
             kind: "ConfigMap",
             metadata: { name: `${config.name}-nginx`, namespace, labels },
-            data: { "default.conf": buildNginxConfig(options) },
+            data: { "default.conf": buildNginxConfig(options, namespace) },
         };
 
         // Override the default entrypoint to inject the cluster DNS resolver IP
@@ -138,9 +138,9 @@ export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
     }
 }
 
-function buildNginxConfig(options: ApiGatewayOptions): string {
+function buildNginxConfig(options: ApiGatewayOptions, namespace: string): string {
     const locationBlocks = sortByPathSpecificity(options.routes).map((route, index) => {
-        const target = normalizeTarget(route.target);
+        const target = normalizeTarget(route.target, namespace);
         const rewrite = buildRewrite(route);
         // Use a numbered variable per route so nginx defers DNS resolution to
         // request time rather than startup. Variable names cannot contain hyphens,
@@ -148,8 +148,13 @@ function buildNginxConfig(options: ApiGatewayOptions): string {
         const varName = `$upstream_${index}`;
         return [
             `    location ${route.path} {`,
-            rewrite,
+            // set must come before any rewrite...break directive. rewrite's break flag
+            // stops further rewrite-module processing (which includes set), so if set
+            // came after the rewrite the variable would stay empty and proxy_pass would
+            // fail with "invalid URL prefix". proxy_pass is in a different module and
+            // runs correctly after break as long as the variable was already set.
             `        set ${varName} ${target};`,
+            rewrite,
             `        proxy_pass ${varName};`,
             `        proxy_http_version 1.1;`,
             `        proxy_set_header Host $host;`,
@@ -196,9 +201,18 @@ function buildRewrite(route: z.infer<typeof routeSchema>): string {
     return "";
 }
 
-function normalizeTarget(target: string): string {
-    if (target.startsWith("http://") || target.startsWith("https://")) return target;
-    return `http://${target}`;
+function normalizeTarget(target: string, namespace: string): string {
+    const withScheme = target.startsWith("http://") || target.startsWith("https://") ? target : `http://${target}`;
+    const url = new URL(withScheme);
+    // nginx's resolver directive queries kube-dns directly without applying the
+    // pod's /etc/resolv.conf search domains, so short names like "my-service"
+    // are sent to kube-dns as-is and return NXDOMAIN. Append the full K8s FQDN
+    // so kube-dns can resolve them unconditionally.
+    if (!url.hostname.includes(".")) {
+        url.hostname = `${url.hostname}.${namespace}.svc.cluster.local`;
+    }
+    // origin = scheme + hostname + port, no trailing path
+    return url.origin;
 }
 
 function sortByPathSpecificity(routes: ApiGatewayOptions["routes"]): ApiGatewayOptions["routes"] {
