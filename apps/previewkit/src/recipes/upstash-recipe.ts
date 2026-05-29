@@ -36,17 +36,21 @@ export type UpstashOptions = z.infer<typeof optionsSchema>;
  * The recipe deploys two containers in a single Pod:
  *   1. `redis:7-alpine` - the actual data store, bound to 127.0.0.1:6379
  *      so it is reachable only by the sidecar in the same Pod.
- *   2. `darthbenro008/upstash-redis-local` - the REST proxy listening on
- *      :8000 and forwarding to `localhost:6379`.
+ *   2. `hiett/serverless-redis-http` (SRH) - the Upstash-compatible REST
+ *      proxy, listening on :8000 (via SRH_PORT) and forwarding to
+ *      `localhost:6379`.
  *
- * Source for the proxy: https://github.com/aine1100/Upstash-Redis-Local-server
+ * Source for the proxy: https://github.com/hiett/serverless-redis-http
+ * SRH is published multi-arch (amd64 + arm64); the previously-used
+ * `darthbenro008/upstash-redis-local` was arm64-only and produced
+ * "exec format error" on amd64 preview nodes.
  *
  * Only the REST port (8000) is exposed via the K8s Service; the raw RESP
  * port is intra-Pod only since the @upstash/redis SDK talks REST.
  *
- * Auth: the proxy uses a shared bearer token. Default `local-dev-token`
- * matches the upstream docker-compose so the standard example just works;
- * override via `options.token` if you want a different value.
+ * Auth: SRH uses a shared bearer token (SRH_TOKEN). Default `local-dev-token`
+ * so a standard `@upstash/redis` client config just works; override via
+ * `options.token` if you want a different value.
  */
 export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
     readonly name = "upstash";
@@ -58,7 +62,7 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
 
     typedGenerate(config: ServiceConfig<UpstashOptions>, namespace: string): RecipeResources {
         const proxyVersion = config.version ?? DEFAULT_PROXY_VERSION;
-        const proxyImage = `darthbenro008/upstash-redis-local:${proxyVersion}`;
+        const proxyImage = `hiett/serverless-redis-http:${proxyVersion}`;
         const redisImage = `redis:${config.options.redis_version}`;
         const token = config.options.token;
         const labels = {
@@ -86,8 +90,13 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
             name: "proxy",
             image: proxyImage,
             env: [
-                { name: "UPSTASH_TOKEN", value: token },
-                { name: "REDIS_ADDR", value: `127.0.0.1:${REDIS_LOCAL_PORT}` },
+                // SRH "env" mode: single backing Redis from SRH_CONNECTION_STRING,
+                // bearer token from SRH_TOKEN. SRH_PORT overrides the default 80
+                // so the container keeps the recipe's 8000 contract.
+                { name: "SRH_MODE", value: "env" },
+                { name: "SRH_TOKEN", value: token },
+                { name: "SRH_CONNECTION_STRING", value: `redis://127.0.0.1:${REDIS_LOCAL_PORT}` },
+                { name: "SRH_PORT", value: String(PROXY_PORT) },
                 ...Object.entries(config.env).map(([name, value]) => ({ name, value })),
             ],
             ports: [{ name: "http", containerPort: PROXY_PORT }],
@@ -100,12 +109,12 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
                     memory: config.resources.memory,
                 },
             },
+            // SRH serves an unauthenticated 200 at GET / ("Welcome to
+            // Serverless Redis HTTP!"). Prefer it over a TCP probe: SRH is a
+            // BEAM app whose port binds before the app is actually serving,
+            // so an HTTP check avoids marking the pod ready too early.
             readinessProbe: {
-                httpGet: {
-                    path: "/PING",
-                    port: PROXY_PORT,
-                    httpHeaders: [{ name: "Authorization", value: `Bearer ${token}` }],
-                },
+                httpGet: { path: "/", port: PROXY_PORT },
                 initialDelaySeconds: 3,
                 periodSeconds: 5,
             },

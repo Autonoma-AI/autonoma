@@ -38,19 +38,20 @@ describe("UpstashRecipe", () => {
         expect(names).toEqual(["redis", "proxy"]);
     });
 
-    it("defaults to the latest proxy image and redis:7-alpine backend", () => {
+    it("defaults to the latest SRH proxy image and redis:7-alpine backend", () => {
         const result = recipe.generate(baseService(), "ns");
         const containers = result.deployments[0]?.spec?.template?.spec?.containers ?? [];
         const redis = containers.find((c) => c.name === "redis");
         const proxy = containers.find((c) => c.name === "proxy");
         expect(redis?.image).toBe("redis:7-alpine");
-        expect(proxy?.image).toBe("darthbenro008/upstash-redis-local:latest");
+        // SRH is multi-arch; the old darthbenro008 image was arm64-only.
+        expect(proxy?.image).toBe("hiett/serverless-redis-http:latest");
     });
 
     it("honors an explicit version on the proxy image", () => {
-        const result = recipe.generate(baseService({ version: "v0.2.0" }), "ns");
+        const result = recipe.generate(baseService({ version: "v1.0.7" }), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.image).toBe("darthbenro008/upstash-redis-local:v0.2.0");
+        expect(proxy?.image).toBe("hiett/serverless-redis-http:v1.0.7");
     });
 
     it("honors options.redis_version on the backing Redis image", () => {
@@ -65,22 +66,29 @@ describe("UpstashRecipe", () => {
         expect(redis?.args).toEqual(["--bind", "127.0.0.1", "--port", "6379"]);
     });
 
-    it("points the proxy at localhost:6379 via REDIS_ADDR", () => {
+    it("runs SRH in env mode pointed at localhost:6379", () => {
         const result = recipe.generate(baseService(), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.env).toContainEqual({ name: "REDIS_ADDR", value: "127.0.0.1:6379" });
+        expect(proxy?.env).toContainEqual({ name: "SRH_MODE", value: "env" });
+        expect(proxy?.env).toContainEqual({ name: "SRH_CONNECTION_STRING", value: "redis://127.0.0.1:6379" });
     });
 
-    it("defaults UPSTASH_TOKEN to 'local-dev-token' (matches upstream docker-compose)", () => {
+    it("overrides SRH_PORT to keep the 8000 contract", () => {
         const result = recipe.generate(baseService(), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.env).toContainEqual({ name: "UPSTASH_TOKEN", value: "local-dev-token" });
+        expect(proxy?.env).toContainEqual({ name: "SRH_PORT", value: "8000" });
     });
 
-    it("uses options.token when set", () => {
+    it("defaults SRH_TOKEN to 'local-dev-token'", () => {
+        const result = recipe.generate(baseService(), "ns");
+        const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
+        expect(proxy?.env).toContainEqual({ name: "SRH_TOKEN", value: "local-dev-token" });
+    });
+
+    it("uses options.token as SRH_TOKEN when set", () => {
         const result = recipe.generate(baseService({ options: { token: "super-secret-abc" } }), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.env).toContainEqual({ name: "UPSTASH_TOKEN", value: "super-secret-abc" });
+        expect(proxy?.env).toContainEqual({ name: "SRH_TOKEN", value: "super-secret-abc" });
     });
 
     it("exposes only the REST port on the Service (not the raw Redis port)", () => {
@@ -89,14 +97,14 @@ describe("UpstashRecipe", () => {
         expect(service?.spec?.ports).toEqual([{ name: "http", port: 8000, targetPort: 8000 }]);
     });
 
-    it("includes the bearer token in the readiness probe so /PING succeeds when auth is required", () => {
-        const result = recipe.generate(baseService({ options: { token: "tok-xyz" } }), "ns");
+    it("uses an unauthenticated GET / readiness probe on the REST port", () => {
+        // SRH serves a 200 at GET / with no auth; deeper than a TCP probe
+        // since the BEAM port binds before the app is serving.
+        const result = recipe.generate(baseService(), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.readinessProbe?.httpGet?.path).toBe("/PING");
+        expect(proxy?.readinessProbe?.httpGet?.path).toBe("/");
         expect(proxy?.readinessProbe?.httpGet?.port).toBe(8000);
-        expect(proxy?.readinessProbe?.httpGet?.httpHeaders).toEqual([
-            { name: "Authorization", value: "Bearer tok-xyz" },
-        ]);
+        expect(proxy?.readinessProbe?.tcpSocket).toBeUndefined();
     });
 
     it("forwards env vars from the service config into the proxy container only", () => {
