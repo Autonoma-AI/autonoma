@@ -13,6 +13,7 @@ export class BugsService extends Service {
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
         private readonly analytics: PostHogAnalytics,
+        private readonly appUrl: string,
     ) {
         super();
     }
@@ -199,10 +200,18 @@ export class BugsService extends Service {
 
         const bug = await this.db.bug.findFirst({
             where: { id: bugId, organizationId },
-            select: { id: true, severity: true, status: true, applicationId: true },
+            select: {
+                id: true,
+                severity: true,
+                status: true,
+                applicationId: true,
+                application: { select: { slug: true } },
+            },
         });
 
         if (bug == null) throw new NotFoundError();
+
+        const bugUrl = `${this.appUrl}/app/${bug.application.slug}/bugs/${bug.id}`;
 
         this.analytics.capture(userId, "bug.classified", {
             bugId: bug.id,
@@ -211,6 +220,7 @@ export class BugsService extends Service {
             organizationId,
             severity: bug.severity,
             status: bug.status,
+            bugUrl,
         });
 
         this.logger.info("Bug classified", { bugId, verdict });

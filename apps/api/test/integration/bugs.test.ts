@@ -25,6 +25,8 @@ class RecordingAnalytics extends PostHogAnalytics {
     }
 }
 
+const APP_URL = "https://app.test";
+
 apiTestSuite({
     name: "bugs.classify",
     seed: async ({ harness }) => {
@@ -47,12 +49,12 @@ apiTestSuite({
             },
         });
 
-        return { applicationId: application.id, bugId: bug.id };
+        return { applicationId: application.id, appSlug: application.slug, bugId: bug.id };
     },
     cases: (test) => {
         test("emits bug.classified with the verdict and bug context", async ({ harness, seedResult }) => {
             const analytics = new RecordingAnalytics();
-            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics);
+            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics, APP_URL);
 
             await service.classifyBug(seedResult.bugId, harness.organizationId, harness.userId, "false_positive");
 
@@ -68,12 +70,13 @@ apiTestSuite({
                 organizationId: harness.organizationId,
                 severity: "high",
                 status: "open",
+                bugUrl: `${APP_URL}/app/${seedResult.appSlug}/bugs/${seedResult.bugId}`,
             });
         });
 
         test("throws NotFoundError for a bug that does not exist", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
-            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics);
+            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics, APP_URL);
 
             await expect(
                 service.classifyBug("non-existent-bug-id", harness.organizationId, harness.userId, "true_positive"),
@@ -87,7 +90,7 @@ apiTestSuite({
                 data: { name: "Other Org", slug: `other-org-${seedResult.bugId.slice(0, 8)}` },
             });
             const analytics = new RecordingAnalytics();
-            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics);
+            const service = new BugsService(harness.db, new LocalStorageProvider(tmpdir()), analytics, APP_URL);
 
             await expect(
                 service.classifyBug(seedResult.bugId, otherOrg.id, harness.userId, "true_positive"),

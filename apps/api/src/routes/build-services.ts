@@ -95,7 +95,7 @@ export function buildServices({
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn),
-        bugs: new BugsService(conn, storageProvider, analytics),
+        bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn, encryptionHelper),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
