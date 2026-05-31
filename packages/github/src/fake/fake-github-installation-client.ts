@@ -136,6 +136,11 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         return [...this.repositories.values()].map((r) => r.metadata);
     }
 
+    async getRepositoryArchiveUrl(repoId: number, ref = "HEAD"): Promise<string> {
+        const repo = await this.getRepository(repoId);
+        return `https://example.test/${repo.fullName}/tarball/${ref}`;
+    }
+
     async getPullRequest(repoId: number, prNumber: number): Promise<PullRequest> {
         const repoData = this.requireRepoById(repoId);
         const pr = repoData.pullRequests.get(prNumber);

@@ -19,7 +19,9 @@ import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
+import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
@@ -30,12 +32,14 @@ import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
   type AdminPromoCodesInput,
+  useAdminGitHubRepositories,
   useAdminOrganizations,
   useAdminPendingOrgs,
   useApproveOrg,
   useAdminPromoCodes,
   useCreatePromoCodeAdmin,
   useCreateOrg,
+  useDownloadAdminGitHubRepository,
   useRejectOrg,
   useSetPromoCodeActiveAdmin,
   useSwitchToOrg,
@@ -46,7 +50,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/admin/")({
   component: AdminPage,
 });
 
-type Tab = "organizations" | "pending" | "promoCodes";
+type Tab = "organizations" | "pending" | "promoCodes" | "githubRepos";
 
 // ─── Guard ────────────────────────────────────────────────────────────────────
 
@@ -442,6 +446,137 @@ function PromoCodeListSkeleton() {
   return <Skeleton className="h-[380px] w-full rounded-md" />;
 }
 
+// ─── GitHub repositories ─────────────────────────────────────────────────────
+
+function GitHubRepositoriesAdmin() {
+  const [search, setSearch] = useState("");
+  const [downloadingKey, setDownloadingKey] = useState<string | undefined>();
+  const { data: repos } = useAdminGitHubRepositories();
+  const downloadRepository = useDownloadAdminGitHubRepository();
+
+  const q = search.toLowerCase().trim();
+  const filteredRepos =
+    q === ""
+      ? repos
+      : repos.filter((repo) =>
+          [
+            repo.name,
+            repo.repositoryName,
+            repo.id.toString(),
+            repo.installationId.toString(),
+            repo.installationAccountLogin,
+          ].some((value) => value.toLowerCase().includes(q)),
+        );
+
+  function handleDownload(repo: (typeof repos)[number]) {
+    const key = `${repo.installationId}:${repo.id}`;
+    setDownloadingKey(key);
+    downloadRepository.mutate(
+      { installationId: repo.installationId, repositoryId: repo.id },
+      {
+        onSuccess: ({ downloadUrl, fileName }) => {
+          const anchor = document.createElement("a");
+          anchor.href = downloadUrl;
+          anchor.download = fileName;
+          anchor.rel = "noopener noreferrer";
+          document.body.append(anchor);
+          anchor.click();
+          anchor.remove();
+        },
+        onSettled: () => setDownloadingKey(undefined),
+      },
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border-dim bg-surface-base">
+      <div className="flex flex-col gap-3 border-b border-border-dim p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-medium text-text-primary">GitHub App repositories</h2>
+          <p className="mt-0.5 text-2xs text-text-tertiary">{repos.length} repositories across installations</p>
+        </div>
+        <Input
+          placeholder="Filter repositories..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-9 sm:max-w-xs"
+          aria-label="admin-github-repositories-filter"
+        />
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-border-dim bg-surface-raised/50">
+            <tr>
+              <th className="px-4 py-2 text-2xs font-medium uppercase text-text-tertiary">Name</th>
+              <th className="px-4 py-2 text-2xs font-medium uppercase text-text-tertiary">Installation ID</th>
+              <th className="px-4 py-2 text-2xs font-medium uppercase text-text-tertiary">Repository ID</th>
+              <th className="px-4 py-2 text-right text-2xs font-medium uppercase text-text-tertiary">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-dim">
+            {filteredRepos.map((repo) => {
+              const rowKey = `${repo.installationId}:${repo.id}`;
+              const isDownloading = downloadRepository.isPending && downloadingKey === rowKey;
+
+              return (
+                <tr key={rowKey} className="hover:bg-surface-raised/50">
+                  <td className="max-w-[360px] px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <GithubLogoIcon size={16} className="shrink-0 text-text-tertiary" />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-text-primary">{repo.name}</p>
+                        <p className="truncate font-mono text-3xs text-text-tertiary">
+                          {repo.installationAccountLogin} · {repo.installationAccountType}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-2xs text-text-secondary">{repo.installationId}</td>
+                  <td className="px-4 py-3 font-mono text-2xs text-text-secondary">{repo.id}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={downloadRepository.isPending}
+                      onClick={() => handleDownload(repo)}
+                      aria-label={`download-${repo.name}`}
+                    >
+                      {isDownloading ? (
+                        <BrailleSpinner animation="braille" size="sm" />
+                      ) : (
+                        <DownloadSimpleIcon size={14} />
+                      )}
+                      Download
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+
+            {filteredRepos.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-14 text-center">
+                  <div className="flex flex-col items-center justify-center gap-2 text-text-tertiary">
+                    <GithubLogoIcon size={24} />
+                    <p className="text-sm">
+                      {search !== "" ? `No repositories matching "${search}"` : "No repositories found"}
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function GitHubRepositoriesSkeleton() {
+  return <Skeleton className="h-[420px] w-full rounded-md" />;
+}
+
 // ─── Pending Approvals ────────────────────────────────────────────────────────
 
 interface PendingOrgRowProps {
@@ -637,17 +772,17 @@ function AdminContent() {
 
   return (
     <section className="flex-1 overflow-auto p-6 lg:p-8">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-6xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-medium tracking-tight text-text-primary">Admin</h1>
+              <h1 className="text-xl font-medium text-text-primary">Admin</h1>
             </div>
             <p className="mt-1 text-xs text-text-secondary">
               Manage organizations, approve access requests, and debug accounts.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
             <Button variant="outline" size="sm" render={<Link to="/admin/issues" />}>
               <ShieldWarningIcon size={14} />
               Engine limitations
@@ -656,7 +791,7 @@ function AdminContent() {
               <PlusIcon size={14} />
               Create organization
             </Button>
-            <div className="flex rounded-md border border-border-dim">
+            <div className="flex max-w-full overflow-x-auto rounded-md border border-border-dim">
               <button
                 type="button"
                 onClick={() => setTab("organizations")}
@@ -684,7 +819,7 @@ function AdminContent() {
               <button
                 type="button"
                 onClick={() => setTab("promoCodes")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-2xs font-medium transition-colors rounded-r-md ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-2xs font-medium transition-colors ${
                   tab === "promoCodes"
                     ? "bg-surface-raised text-text-primary"
                     : "text-text-tertiary hover:text-text-primary"
@@ -692,6 +827,18 @@ function AdminContent() {
               >
                 <GiftIcon size={14} />
                 Promo codes
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("githubRepos")}
+                className={`flex items-center gap-1.5 rounded-r-md px-3 py-1.5 text-2xs font-medium transition-colors ${
+                  tab === "githubRepos"
+                    ? "bg-surface-raised text-text-primary"
+                    : "text-text-tertiary hover:text-text-primary"
+                }`}
+              >
+                <GithubLogoIcon size={14} />
+                GitHub repos
               </button>
             </div>
           </div>
@@ -712,6 +859,12 @@ function AdminContent() {
         {tab === "promoCodes" && (
           <Suspense fallback={<OrgListSkeleton />}>
             <PromoCodesAdmin />
+          </Suspense>
+        )}
+
+        {tab === "githubRepos" && (
+          <Suspense fallback={<GitHubRepositoriesSkeleton />}>
+            <GitHubRepositoriesAdmin />
           </Suspense>
         )}
       </div>

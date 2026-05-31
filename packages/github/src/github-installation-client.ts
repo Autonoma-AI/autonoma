@@ -4,6 +4,7 @@ import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
 
 const execFileAsync = promisify(execFile);
+const GITHUB_API = "https://api.github.com";
 
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
@@ -63,6 +64,7 @@ export interface GitHubInstallationClient {
     getInstallationToken(): Promise<string>;
     cloneRepository(params: CloneRepositoryParams): Promise<string>;
     getRepository(repoId: number): Promise<Repository>;
+    getRepositoryArchiveUrl(repoId: number, ref?: string): Promise<string>;
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
     listPullRequests(repoId: number): Promise<PullRequest[]>;
@@ -205,18 +207,57 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         return repo;
     }
 
+    async getRepositoryArchiveUrl(repoId: number, ref = "HEAD"): Promise<string> {
+        const repository = await this.getRepository(repoId);
+        const { owner, repo } = splitFullName(repository.fullName);
+        const token = await this.getInstallationToken();
+
+        this.logger.info("Resolving repository archive URL", { repoId, fullName: repository.fullName, ref });
+
+        const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/tarball/${encodeURIComponent(ref)}`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            redirect: "manual",
+        });
+
+        const location = res.headers.get("location");
+        if (res.status >= 300 && res.status < 400 && location != null) {
+            this.logger.info("Resolved repository archive URL", { repoId, fullName: repository.fullName });
+            return location;
+        }
+
+        if (res.ok) {
+            throw new Error("repository archive URL failed: GitHub returned an archive response without a redirect");
+        }
+
+        throw new Error(`repository archive URL failed: ${res.status} ${await res.text()}`);
+    }
+
     async listInstallationRepos(): Promise<Repository[]> {
         this.logger.info("Listing installation repositories");
 
-        const response = await this.octokit.request("GET /installation/repositories", { per_page: 100 });
+        const repos: Repository[] = [];
+        let page = 1;
 
-        const repos = response.data.repositories.map((r) => ({
-            id: r.id,
-            name: r.name,
-            fullName: r.full_name,
-            defaultBranch: r.default_branch,
-            private: r.private,
-        }));
+        while (true) {
+            const response = await this.octokit.request("GET /installation/repositories", { per_page: 100, page });
+
+            repos.push(
+                ...response.data.repositories.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    fullName: r.full_name,
+                    defaultBranch: r.default_branch,
+                    private: r.private,
+                })),
+            );
+
+            if (response.data.repositories.length < 100) break;
+            page++;
+        }
 
         this.logger.info("Listed installation repositories", { count: repos.length });
 
@@ -344,10 +385,14 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
 
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {
         const repository = await this.getRepository(repoId);
-        const [owner, repo] = repository.fullName.split("/");
-        if (owner == null || repo == null) {
-            throw new Error(`Invalid repository fullName format: ${repository.fullName}`);
-        }
-        return { owner, repo };
+        return splitFullName(repository.fullName);
     }
+}
+
+function splitFullName(fullName: string): { owner: string; repo: string } {
+    const [owner, repo] = fullName.split("/");
+    if (owner == null || repo == null) {
+        throw new Error(`Invalid repository fullName format: ${fullName}`);
+    }
+    return { owner, repo };
 }

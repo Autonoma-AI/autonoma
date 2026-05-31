@@ -1,4 +1,4 @@
-export { OctokitGitHubApp, type GitHubApp, type GitHubAppCredentials } from "./github-app";
+export { OctokitGitHubApp, type GitHubApp, type GitHubAppCredentials, type GitHubAppInstallation } from "./github-app";
 export {
     OctokitGitHubInstallationClient,
     type GitHubInstallationClient,

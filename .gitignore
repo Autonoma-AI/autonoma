@@ -41,3 +41,6 @@ step2-result.json
 
 # Docs
 .astro/
+
+# AI Plan files
+plan/

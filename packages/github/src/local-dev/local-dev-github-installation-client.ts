@@ -61,6 +61,12 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
         return LOCAL_REPOS;
     }
 
+    async getRepositoryArchiveUrl(repoId: number, ref = "HEAD"): Promise<string> {
+        this.logger.info("Returning local-dev repository archive URL", { repoId, ref });
+        const repo = await this.getRepository(repoId);
+        return `https://github.com/${repo.fullName}/archive/${ref}.tar.gz`;
+    }
+
     async getPullRequest(repoId: number, prNumber: number): Promise<PullRequest> {
         this.logger.info("Returning local-dev pull request", { repoId, prNumber });
         const preset = PRS_PER_REPO.find((pr) => pr.number === prNumber);

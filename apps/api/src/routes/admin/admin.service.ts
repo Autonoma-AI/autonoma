@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { GitHubApp } from "@autonoma/github";
 import type { Auth } from "../../auth";
 import { Service } from "../service";
 
@@ -7,10 +8,20 @@ type SessionPayload = {
     user: Record<string, unknown>;
 };
 
+type AdminGitHubRepository = {
+    id: number;
+    name: string;
+    repositoryName: string;
+    installationId: number;
+    installationAccountLogin: string;
+    installationAccountType: string;
+};
+
 export class AdminService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly auth: Auth,
+        private readonly githubApp: GitHubApp,
     ) {
         super();
     }
@@ -138,5 +149,54 @@ export class AdminService extends Service {
         await this.updateSessionOrgInRedis(sessionToken, orgId);
 
         this.logger.info("Admin switched to org", { userId, orgId });
+    }
+
+    async listGitHubRepositories() {
+        this.logger.info("Admin listing all GitHub App repositories");
+
+        const installations = await this.githubApp.listInstallations();
+        const repositories: AdminGitHubRepository[] = [];
+
+        for (const installation of installations) {
+            const client = await this.githubApp.getInstallationClient(installation.id);
+            const repos = await client.listInstallationRepos();
+
+            for (const repo of repos) {
+                repositories.push({
+                    id: repo.id,
+                    name: repo.fullName,
+                    repositoryName: repo.name,
+                    installationId: installation.id,
+                    installationAccountLogin: installation.accountLogin,
+                    installationAccountType: installation.accountType,
+                });
+            }
+        }
+
+        repositories.sort((a, b) => a.name.localeCompare(b.name));
+
+        this.logger.info("Admin listed all GitHub App repositories", {
+            installationCount: installations.length,
+            repositoryCount: repositories.length,
+        });
+
+        return repositories;
+    }
+
+    async getGitHubRepositoryArchiveUrl(input: { installationId: number; repositoryId: number; ref?: string }) {
+        this.logger.info("Admin resolving GitHub repository archive URL", {
+            installationId: input.installationId,
+            repositoryId: input.repositoryId,
+            ref: input.ref,
+        });
+
+        const client = await this.githubApp.getInstallationClient(input.installationId);
+        const repo = await client.getRepository(input.repositoryId);
+        const downloadUrl = await client.getRepositoryArchiveUrl(input.repositoryId, input.ref);
+
+        return {
+            downloadUrl,
+            fileName: `${repo.fullName.replace("/", "-")}.tar.gz`,
+        };
     }
 }

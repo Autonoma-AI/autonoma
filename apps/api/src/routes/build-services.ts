@@ -91,7 +91,7 @@ export function buildServices({
     const githubService = new GitHubInstallationService(conn, githubApp);
 
     return {
-        admin: new AdminService(conn, auth),
+        admin: new AdminService(conn, auth, githubApp),
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn),

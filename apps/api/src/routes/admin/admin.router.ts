@@ -39,6 +39,18 @@ export const adminRouter = router({
     switchToOrg: adminProcedure
         .input(z.object({ orgId: z.string() }))
         .mutation(({ ctx, input }) => ctx.services.admin.switchToOrg(ctx.user.id, ctx.session.token, input.orgId)),
+    github: router({
+        listRepositories: adminProcedure.query(({ ctx: { services } }) => services.admin.listGitHubRepositories()),
+        getRepositoryArchiveUrl: adminProcedure
+            .input(
+                z.object({
+                    installationId: z.number().int().positive(),
+                    repositoryId: z.number().int().positive(),
+                    ref: z.string().trim().min(1).optional(),
+                }),
+            )
+            .mutation(({ ctx: { services }, input }) => services.admin.getGitHubRepositoryArchiveUrl(input)),
+    }),
     billing: router({
         listPromoCodes: adminProcedure
             .input(

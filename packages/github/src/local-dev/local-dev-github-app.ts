@@ -1,5 +1,5 @@
 import { type Logger, logger } from "@autonoma/logger";
-import type { GitHubApp } from "../github-app";
+import type { GitHubApp, GitHubAppInstallation } from "../github-app";
 import type { GitHubInstallationClient } from "../github-installation-client";
 import { LocalDevGitHubInstallationClient } from "./local-dev-github-installation-client";
 
@@ -13,6 +13,11 @@ export class LocalDevGitHubApp implements GitHubApp {
         this.logger = logger.child({ name: this.constructor.name });
         this.client = new LocalDevGitHubInstallationClient();
         this.logger.info("Initialized local-dev GitHub app", { slug: this.slug });
+    }
+
+    async listInstallations(): Promise<GitHubAppInstallation[]> {
+        this.logger.info("Returning local-dev installations");
+        return [{ id: 1, accountLogin: "local-org", accountType: "Organization" }];
     }
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {

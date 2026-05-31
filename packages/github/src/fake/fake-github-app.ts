@@ -1,4 +1,4 @@
-import type { GitHubApp } from "../github-app";
+import type { GitHubApp, GitHubAppInstallation } from "../github-app";
 import type { GitHubInstallationClient } from "../github-installation-client";
 import { FakeGitHubInstallationClient } from "./fake-github-installation-client";
 
@@ -8,9 +8,16 @@ export class FakeGitHubApp implements GitHubApp {
     readonly deletedInstallations: number[] = [];
 
     private clients: Map<number, FakeGitHubInstallationClient> = new Map();
+    private installations: Map<number, GitHubAppInstallation> = new Map([
+        [1, { id: 1, accountLogin: "fake-org", accountType: "Organization" }],
+    ]);
 
     constructor(defaultClient?: FakeGitHubInstallationClient) {
         this.defaultClient = defaultClient ?? new FakeGitHubInstallationClient();
+    }
+
+    async listInstallations(): Promise<GitHubAppInstallation[]> {
+        return [...this.installations.values()].sort((a, b) => a.id - b.id);
     }
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {
@@ -27,5 +34,12 @@ export class FakeGitHubApp implements GitHubApp {
 
     setClient(installationId: number, client: FakeGitHubInstallationClient): void {
         this.clients.set(installationId, client);
+        if (!this.installations.has(installationId)) {
+            this.installations.set(installationId, {
+                id: installationId,
+                accountLogin: `fake-org-${installationId}`,
+                accountType: "Organization",
+            });
+        }
     }
 }

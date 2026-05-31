@@ -9,8 +9,15 @@ export interface GitHubAppCredentials {
     appSlug: string;
 }
 
+export interface GitHubAppInstallation {
+    id: number;
+    accountLogin: string;
+    accountType: string;
+}
+
 export interface GitHubApp {
     readonly slug: string;
+    listInstallations(): Promise<GitHubAppInstallation[]>;
     getInstallationClient(installationId: number): Promise<GitHubInstallationClient>;
     deleteInstallation(installationId: number): Promise<void>;
     verifyWebhook(body: string, signature: string): Promise<boolean>;
@@ -28,6 +35,31 @@ export class OctokitGitHubApp implements GitHubApp {
             privateKey: credentials.privateKey,
             webhooks: { secret: credentials.webhookSecret },
         });
+    }
+
+    async listInstallations(): Promise<GitHubAppInstallation[]> {
+        const installations: GitHubAppInstallation[] = [];
+        let page = 1;
+
+        while (true) {
+            const { data } = await this.app.octokit.request("GET /app/installations", { per_page: 100, page });
+
+            installations.push(
+                ...data.map((installation) => {
+                    const account = installation.account as { login?: string; type?: string } | null;
+                    return {
+                        id: installation.id,
+                        accountLogin: account?.login ?? "unknown",
+                        accountType: account?.type ?? "unknown",
+                    };
+                }),
+            );
+
+            if (data.length < 100) break;
+            page++;
+        }
+
+        return installations;
     }
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {

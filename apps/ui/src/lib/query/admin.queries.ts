@@ -19,6 +19,17 @@ export function useAdminPendingOrgs() {
     return useSuspenseQuery(trpc.admin.listPendingOrgs.queryOptions());
 }
 
+export function useAdminGitHubRepositories() {
+    return useSuspenseQuery(trpc.admin.github.listRepositories.queryOptions());
+}
+
+export function useDownloadAdminGitHubRepository() {
+    return useAPIMutation({
+        ...trpc.admin.github.getRepositoryArchiveUrl.mutationOptions(),
+        errorToast: { title: "Failed to download repository" },
+    });
+}
+
 export function useSwitchToOrg() {
     return useAPIMutation({
         ...trpc.admin.switchToOrg.mutationOptions(),
