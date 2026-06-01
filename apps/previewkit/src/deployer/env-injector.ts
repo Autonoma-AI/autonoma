@@ -24,9 +24,8 @@ export type AddonOutputs = Record<string, Record<string, string>>;
 interface ServiceEntry {
     host: string;
     port: number;
-    // Only present for apps — services aren't publicly exposed. Accessing
-    // `.url` on a service-only entry raises a clear error.
     url?: string;
+    hostname?: string;
 }
 
 interface ServiceMap {
@@ -144,6 +143,15 @@ export class EnvInjector {
                 }
                 return svc.url;
             }
+            if (field === "hostname") {
+                if (svc.hostname == null) {
+                    throw new Error(
+                        `{{${name}.hostname}} is only available for apps. ` +
+                            `"${name}" is a service (no public hostname). Use {{${name}.host}} for in-cluster access.`,
+                    );
+                }
+                return svc.hostname;
+            }
             if (field === "host") return svc.host;
             if (field === "port") return String(svc.port);
             throw new Error(
@@ -186,6 +194,7 @@ export class EnvInjector {
                 host: app.name,
                 port: app.port,
                 url: `https://${hostname}`,
+                hostname,
             };
         }
 
