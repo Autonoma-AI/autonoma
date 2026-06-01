@@ -21,12 +21,16 @@ interface SnapshotLocation {
     organizationId: string;
     githubRepositoryId: number | null;
     headSha: string | null;
+    /** Optional base SHA to additionally fetch into the clone (e.g. for diffing head against base). */
+    baseSha?: string | null;
 }
 
 interface ResolvedClone {
     githubClient: GitHubInstallationClient;
     repoName: string;
     commitSha: string;
+    /** Base SHA the clone also fetches, when the location carries one. */
+    baseSha?: string;
 }
 
 async function resolveClone(location: SnapshotLocation, label: string): Promise<ResolvedClone> {
@@ -39,12 +43,26 @@ async function resolveClone(location: SnapshotLocation, label: string): Promise<
     });
     const githubClient = await getGithubApp().getInstallationClient(installation.installationId);
     const repo = await githubClient.getRepository(location.githubRepositoryId);
-    return { githubClient, repoName: repo.fullName, commitSha: location.headSha };
+    return {
+        githubClient,
+        repoName: repo.fullName,
+        commitSha: location.headSha,
+        baseSha: location.baseSha ?? undefined,
+    };
 }
 
 interface WithCodebaseHandlers<T> {
     body: (codebase: Codebase) => Promise<T>;
     targetDirSeed: string;
+}
+
+async function cloneResolved(resolved: ResolvedClone, targetDirSeed: string): Promise<Codebase> {
+    const opts: { repoName: string; commitSha: string; baseSha?: string } = {
+        repoName: resolved.repoName,
+        commitSha: resolved.commitSha,
+    };
+    if (resolved.baseSha != null) opts.baseSha = resolved.baseSha;
+    return await Codebase.clone(resolved.githubClient, `/tmp/codebase/${targetDirSeed}`, opts);
 }
 
 /**
@@ -84,10 +102,7 @@ export async function withCodebaseForGeneration<T>(
         },
         `Generation ${generationId}`,
     );
-    const codebase = await Codebase.clone(resolved.githubClient, `/tmp/codebase/${handlers.targetDirSeed}`, {
-        repoName: resolved.repoName,
-        commitSha: resolved.commitSha,
-    });
+    const codebase = await cloneResolved(resolved, handlers.targetDirSeed);
     try {
         return await handlers.body(codebase);
     } finally {
@@ -100,6 +115,7 @@ export async function withCodebaseForSnapshot<T>(snapshotId: string, handlers: W
         where: { id: snapshotId },
         select: {
             headSha: true,
+            baseSha: true,
             branch: {
                 select: {
                     application: { select: { organizationId: true, githubRepositoryId: true } },
@@ -112,13 +128,11 @@ export async function withCodebaseForSnapshot<T>(snapshotId: string, handlers: W
             organizationId: snapshot.branch.application.organizationId,
             githubRepositoryId: snapshot.branch.application.githubRepositoryId,
             headSha: snapshot.headSha,
+            baseSha: snapshot.baseSha,
         },
         `Snapshot ${snapshotId}`,
     );
-    const codebase = await Codebase.clone(resolved.githubClient, `/tmp/codebase/${handlers.targetDirSeed}`, {
-        repoName: resolved.repoName,
-        commitSha: resolved.commitSha,
-    });
+    const codebase = await cloneResolved(resolved, handlers.targetDirSeed);
     try {
         return await handlers.body(codebase);
     } finally {
@@ -156,10 +170,7 @@ export async function withCodebaseForRun<T>(runId: string, handlers: WithCodebas
         },
         `Run ${runId}`,
     );
-    const codebase = await Codebase.clone(resolved.githubClient, `/tmp/codebase/${handlers.targetDirSeed}`, {
-        repoName: resolved.repoName,
-        commitSha: resolved.commitSha,
-    });
+    const codebase = await cloneResolved(resolved, handlers.targetDirSeed);
     try {
         return await handlers.body(codebase);
     } finally {

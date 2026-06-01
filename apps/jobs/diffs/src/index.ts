@@ -1,22 +1,9 @@
-import { logger, withObservabilityContext } from "@autonoma/logger";
-import { jobEnv } from "./job-env";
-import { runDiffsAnalysis } from "./run";
+/**
+ * The standalone diffs analysis job entry is no longer wired: analysis now runs
+ * as the `analyzeDiffs` Temporal activity in `@autonoma/worker-diffs`. This stub
+ * keeps the package's bundler entry valid until the package is removed in #744.
+ */
+import { logger } from "@autonoma/logger";
 
-await withObservabilityContext({ job: { jobName: "diffs" } }, async () => {
-    logger.info("Starting diffs analysis job");
-
-    try {
-        const result = await runDiffsAnalysis(jobEnv.BRANCH_ID);
-        logger.info("Diffs analysis complete", {
-            extra: {
-                affectedTests: result.affectedTests.length,
-                testCandidates: result.testCandidates.length,
-                reasoning: result.reasoning.slice(0, 500),
-            },
-        });
-        process.exit(0);
-    } catch (error) {
-        logger.error("Diffs analysis failed", error);
-        process.exit(1);
-    }
-});
+logger.error("The standalone diffs job entry has been removed; analysis runs as the analyzeDiffs Temporal activity.");
+process.exit(1);

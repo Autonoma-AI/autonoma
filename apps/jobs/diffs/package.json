@@ -5,9 +5,10 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
-        "./run": "./src/run.ts",
         "./run-resolution": "./src/run-resolution.ts",
-        "./load-context": "./src/load-context.ts"
+        "./create-services": "./src/create-services.ts",
+        "./load-context": "./src/load-context.ts",
+        "./upload-conversation": "./src/upload-conversation.ts"
     },
     "scripts": {
         "build": "tsup",
