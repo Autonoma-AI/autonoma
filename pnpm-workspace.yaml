@@ -85,6 +85,7 @@ minimumReleaseAgeExclude:
   - turbo@2.9.14
   - qs@6.15.2
   - tmp@0.2.6
+  - axios@1.16.0
 
 onlyBuiltDependencies:
   - '@prisma/engines'
