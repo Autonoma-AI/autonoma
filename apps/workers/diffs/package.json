@@ -9,7 +9,9 @@
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
         "start": "tsx --import ./src/preload.ts src/index.ts",
-        "test": "vitest run --passWithNoTests"
+        "test": "vitest run --passWithNoTests",
+        "review:generation": "tsx --env-file=../../../.env src/review/generation/run-generation-review.ts",
+        "review:replay": "tsx --env-file=../../../.env src/review/replay/run-replay-review.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
@@ -21,7 +23,9 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
+        "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
+        "@google/genai": "^1.42.0",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",

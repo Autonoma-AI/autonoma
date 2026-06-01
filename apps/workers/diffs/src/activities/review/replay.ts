@@ -1,9 +1,9 @@
 import { db } from "@autonoma/db";
-import { runReplayReview } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ReviewReplayInput, ReviewReplayOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { withCodebaseForRun } from "../../codebase/resolve";
+import { runReplayReview } from "../../review/replay/run";
 
 export async function reviewReplay(input: ReviewReplayInput): Promise<ReviewReplayOutput> {
     const logger = rootLogger.child({ name: "reviewReplay", runId: input.runId });

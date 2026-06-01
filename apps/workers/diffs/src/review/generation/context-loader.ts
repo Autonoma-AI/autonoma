@@ -1,8 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { GenerationContext, GenerationStepData } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
-import type { GenerationContext, GenerationStepData } from "./types";
 
 /**
  * Loads everything the reviewer needs from Postgres + S3, and projects it into

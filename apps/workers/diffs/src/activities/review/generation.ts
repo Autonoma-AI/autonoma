@@ -1,9 +1,9 @@
 import { db } from "@autonoma/db";
-import { runGenerationReview } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ReviewGenerationInput, ReviewGenerationOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { withCodebaseForGeneration } from "../../codebase/resolve";
+import { runGenerationReview } from "../../review/generation/run";
 
 export async function reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput> {
     const logger = rootLogger.child({ name: "reviewGeneration", generationId: input.generationId });

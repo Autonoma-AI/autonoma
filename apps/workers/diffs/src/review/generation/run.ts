@@ -1,20 +1,14 @@
-import type { LanguageModel, VideoProcessor } from "@autonoma/ai";
-import { CostCollector, MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
+import type { VideoProcessor } from "@autonoma/ai";
 import { db } from "@autonoma/db";
+import { type Codebase, GenerationReviewer, openModelSession } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { GenerationVerdict } from "@autonoma/types";
-import { GenerationReviewer } from "../../agents/reviewers/generation/generation-reviewer";
-import type { Codebase } from "../../codebase";
 import { GenerationContextLoader } from "./context-loader";
 import { GenerationReviewPersister } from "./persister";
 
 export interface RunGenerationReviewDeps {
     codebase: Codebase;
-    /** Optional pre-built model to reuse cost collector / monitoring callbacks. */
-    model?: LanguageModel;
-    /** Cost collector tied to `model`. Pass when `model` is provided. */
-    costCollector?: CostCollector;
     videoProcessor?: VideoProcessor;
 }
 
@@ -63,7 +57,8 @@ export async function runGenerationReview(
         });
     }
 
-    const { model, costCollector, videoProcessor } = resolveAiDeps(deps);
+    const session = openModelSession();
+    const model = session.getModel({ model: "smart-visual", tag: "analysis" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new GenerationContextLoader(db, storage);
@@ -72,7 +67,7 @@ export async function runGenerationReview(
     const reviewer = new GenerationReviewer({
         model,
         evidenceLoader: contextLoader,
-        videoProcessor,
+        videoProcessor: deps.videoProcessor,
     });
     let verdict: GenerationVerdict | undefined;
     try {
@@ -97,7 +92,7 @@ export async function runGenerationReview(
         verdict,
         finalScreenshotKey: context.finalScreenshotKey,
         videoKey: context.videoUrl,
-        costCollector,
+        costCollector: session.costCollector,
     });
 
     return {
@@ -108,22 +103,4 @@ export async function runGenerationReview(
         finalScreenshotKey: context.finalScreenshotKey,
         videoKey: context.videoUrl,
     };
-}
-
-function resolveAiDeps(deps: RunGenerationReviewDeps): {
-    model: LanguageModel;
-    costCollector: CostCollector;
-    videoProcessor?: VideoProcessor;
-} {
-    if (deps.model != null && deps.costCollector != null) {
-        return { model: deps.model, costCollector: deps.costCollector, videoProcessor: deps.videoProcessor };
-    }
-
-    const costCollector = deps.costCollector ?? new CostCollector();
-    const registry = new ModelRegistry({
-        models: { GEMINI_3_FLASH_PREVIEW: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-        monitoring: costCollector.createMonitoringCallbacks(),
-    });
-    const model = registry.getModel({ model: "GEMINI_3_FLASH_PREVIEW", tag: "analysis" });
-    return { model, costCollector, videoProcessor: deps.videoProcessor };
 }

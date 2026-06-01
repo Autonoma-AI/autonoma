@@ -19,9 +19,7 @@
         "build": "tsc",
         "typecheck": "tsc --noEmit",
         "local-diff-analysis": "tsx --env-file=../../.env scripts/local-diff-analysis.ts",
-        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts",
-        "review:generation": "tsx --env-file=../../.env src/review/generation/run-generation-review.ts",
-        "review:replay": "tsx --env-file=../../.env src/review/replay/run-replay-review.ts"
+        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
@@ -32,7 +30,6 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
-        "@google/genai": "^1.42.0",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "glob": "^11.1.0",

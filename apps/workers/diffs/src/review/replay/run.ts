@@ -1,17 +1,14 @@
-import { CostCollector, type LanguageModel, MODEL_ENTRIES, ModelRegistry, type VideoProcessor } from "@autonoma/ai";
+import type { VideoProcessor } from "@autonoma/ai";
 import { db } from "@autonoma/db";
+import { type Codebase, ReplayReviewer, openModelSession } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
-import { ReplayReviewer } from "../../agents/reviewers/replay/replay-reviewer";
-import type { Codebase } from "../../codebase";
 import { RunContextLoader } from "./context-loader";
 import { RunReviewPersister } from "./persister";
 
 export interface RunReplayReviewDeps {
     codebase: Codebase;
-    model?: LanguageModel;
-    costCollector?: CostCollector;
     videoProcessor?: VideoProcessor;
 }
 
@@ -62,7 +59,8 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
         });
     }
 
-    const { model, costCollector, videoProcessor } = resolveAiDeps(deps);
+    const session = openModelSession();
+    const model = session.getModel({ model: "smart-visual", tag: "analysis" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new RunContextLoader(db, storage);
@@ -71,7 +69,7 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
     const reviewer = new ReplayReviewer({
         model,
         evidenceLoader: contextLoader,
-        videoProcessor,
+        videoProcessor: deps.videoProcessor,
     });
     let verdict: ReplayVerdict | undefined;
     try {
@@ -96,7 +94,7 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
         verdict,
         finalScreenshotKey: context.finalScreenshotKey,
         videoKey: context.videoS3Key,
-        costCollector,
+        costCollector: session.costCollector,
     });
 
     return {
@@ -107,21 +105,4 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
         finalScreenshotKey: context.finalScreenshotKey,
         videoKey: context.videoS3Key,
     };
-}
-
-function resolveAiDeps(deps: RunReplayReviewDeps): {
-    model: LanguageModel;
-    costCollector: CostCollector;
-    videoProcessor?: VideoProcessor;
-} {
-    if (deps.model != null && deps.costCollector != null) {
-        return { model: deps.model, costCollector: deps.costCollector, videoProcessor: deps.videoProcessor };
-    }
-    const costCollector = deps.costCollector ?? new CostCollector();
-    const registry = new ModelRegistry({
-        models: { GEMINI_3_FLASH_PREVIEW: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-        monitoring: costCollector.createMonitoringCallbacks(),
-    });
-    const model = registry.getModel({ model: "GEMINI_3_FLASH_PREVIEW", tag: "analysis" });
-    return { model, costCollector, videoProcessor: deps.videoProcessor };
 }

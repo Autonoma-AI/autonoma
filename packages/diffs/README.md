@@ -61,10 +61,8 @@ Tools classify their failures explicitly:
 |---|---|
 | `pnpm local-diff-analysis` | Run DiffsAgent locally against a checked-out repo |
 | `pnpm local-resolution` | Run ResolutionAgent locally with hand-built verdicts |
-| `pnpm review:generation <generationId>` | Run GenerationReviewer read-only against a real generation |
-| `pnpm review:replay <runId>` | Run ReplayReviewer read-only against a real run |
 
-The production entry points (`runGenerationReview`, `runReplayReview`, etc.) live alongside their reviewer in `src/review/generation/run.ts` and `src/review/replay/run.ts` - they handle DB persistence + idempotency on top of the agent.
+`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` / `ReplayReviewer` agent classes and the loader interfaces they consume (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`, `buildReplayReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runners (`runGenerationReview` / `runReplayReview`), the concrete context loaders, the persisters, and the read-only local CLIs (`review:generation` / `review:replay`) - lives in `apps/workers/diffs`.
 
 ## Sub-packages
 

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { RunContext, RunStepData } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
-import type { RunContext, RunStepData } from "./types";
 
 export class RunContextLoader {
     private readonly logger: Logger;

@@ -46,7 +46,7 @@ cd apps/jobs/scenario
 pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
 ```
 
-For local generation/replay reviewer inspection, see `@autonoma/diffs` (`pnpm --filter @autonoma/diffs review:generation <generationId>` / `review:replay <runId>`).
+For local generation/replay reviewer inspection, see `@autonoma/worker-diffs` (`pnpm --filter @autonoma/worker-diffs review:generation <generationId>` / `review:replay <runId>`).
 
 ## Environment Variables
 

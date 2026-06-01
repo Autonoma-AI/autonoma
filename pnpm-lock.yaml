@@ -880,9 +880,15 @@ importers:
       '@autonoma/test-updates':
         specifier: workspace:*
         version: link:../../../packages/test-updates
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../../../packages/types
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
+      '@google/genai':
+        specifier: ^1.42.0
+        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -1346,9 +1352,6 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
-      '@google/genai':
-        specifier: ^1.42.0
-        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
