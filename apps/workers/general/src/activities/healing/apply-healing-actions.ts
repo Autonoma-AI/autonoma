@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { BugMatcher } from "@autonoma/diffs";
+import { BugMatcher, openModelSession } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
@@ -139,5 +139,8 @@ async function buildBugMatcher(input: ApplyHealingActionsInput): Promise<BugMatc
         snapshotId: input.snapshotId,
         organizationId: input.organizationId,
     });
-    return new BugMatcher(db, updater.applicationId);
+
+    const session = openModelSession();
+    const model = session.getModel({ model: "smart-visual", tag: "bug-matcher" });
+    return new BugMatcher(db, updater.applicationId, model);
 }

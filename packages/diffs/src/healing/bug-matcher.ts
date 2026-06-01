@@ -1,4 +1,4 @@
-import { MODEL_ENTRIES, ModelRegistry, ObjectGenerator } from "@autonoma/ai";
+import { type LanguageModel, ObjectGenerator } from "@autonoma/ai";
 import type { BugStatus, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { z } from "zod";
@@ -53,11 +53,11 @@ export class BugMatcher {
     constructor(
         private readonly db: PrismaClient,
         private readonly applicationId: string,
+        model: LanguageModel,
     ) {
         this.logger = rootLogger.child({ name: this.constructor.name, applicationId });
-        const registry = new ModelRegistry({ models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW } });
         this.objectGenerator = new ObjectGenerator({
-            model: registry.getModel({ model: "flash", tag: "bug-matcher" }),
+            model,
             systemPrompt: SYSTEM_PROMPT,
             schema: matchResultSchema,
             retry: { maxRetries: 3, initialDelayInMs: 200, backoffFactor: 2 },

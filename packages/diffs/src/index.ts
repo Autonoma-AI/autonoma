@@ -83,6 +83,8 @@ export {
     type ResolutionCallbacks,
 } from "./callbacks/resolution-callbacks";
 
+export { openModelSession, type DiffsModelName, type ModelSession } from "./ai/model-session";
+
 export { FlowIndex, type FlowInfo } from "./flow-index";
 export { ScenarioIndex, type ScenarioInfo, type ScenarioRecipe } from "./scenario-index";
 
