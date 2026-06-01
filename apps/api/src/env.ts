@@ -31,6 +31,10 @@ export const env = createEnv({
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
         GITHUB_APP_SLUG: z.string().min(1).optional(),
 
+        // AES-256-GCM key (64 hex chars / 32 bytes) used to decrypt bypass tokens
+        // read from the database before returning them to the browser. Must match BYPASS_TOKEN_KEY in Previewkit.
+        PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
+
         // Internal Previewkit service URL. When set, pull_request webhooks are forwarded
         // to Previewkit's REST endpoints. Leave unset to disable preview environments.
         PREVIEWKIT_URL: z.string().url().optional(),
@@ -54,6 +58,7 @@ export const env = createEnv({
         // AWS Secrets Manager — used by the secrets service to store per-app secrets.
         // AWS_REGION is required when any app has secrets; the SDK also reads it from the environment.
         AWS_REGION: z.string().optional(),
+
         RESEND_API_KEY: z.string().min(1).optional(),
         RESEND_AUDIENCE_ID: z.string().min(1).optional(),
         RESEND_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <hello@autonoma.app>"),

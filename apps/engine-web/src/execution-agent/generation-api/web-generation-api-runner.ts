@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { db } from "@autonoma/db";
 import { GenerationAPIRunner, type PlanData, type TestCase, buildExecutionPrompt } from "@autonoma/engine";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
@@ -83,12 +84,15 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
             })),
         });
 
+        const bypassToken = await resolvePreviewkitBypassToken(webDeployment.url);
+        const headers: Record<string, string> | undefined =
+            bypassToken != null ? { ...(auth?.headers ?? {}), "x-previewkit-bypass": bypassToken } : auth?.headers;
         const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
 
         this.parseLogger.info("Final WebApplicationData auth summary", {
             hasCookies: cookies != null,
             cookieCount: cookies?.length ?? 0,
-            hasHeaders: auth?.headers != null && Object.keys(auth.headers).length > 0,
+            hasHeaders: headers != null && Object.keys(headers).length > 0,
             hasCredentials: auth?.credentials != null,
         });
 
@@ -103,7 +107,7 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
             file,
             url: webDeployment.url,
             cookies,
-            headers: auth?.headers,
+            headers,
             credentials: auth?.credentials,
             recipeVariables,
         };
@@ -136,4 +140,12 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
 
         return tmpPath;
     }
+}
+
+async function resolvePreviewkitBypassToken(url: string): Promise<string | undefined> {
+    const instance = await db.previewkitAppInstance.findFirst({
+        where: { url },
+        select: { environment: { select: { bypassToken: true } } },
+    });
+    return instance?.environment.bypassToken ?? undefined;
 }

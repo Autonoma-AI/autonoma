@@ -40,6 +40,7 @@ COPY . .
 
 ENV NODE_ENV=production
 USER node
+
 EXPOSE 3000
 
 CMD ["node", "--enable-source-maps", "dist/index.js"]

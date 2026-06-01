@@ -1644,6 +1644,8 @@ model PreviewkitEnvironment {
   /// ![Record<string, string>]
   urls Json @default("{}")
 
+  bypassToken String? @map("bypass_token")
+
   deployedAt DateTime? @map("deployed_at")
   tornDownAt DateTime? @map("torn_down_at")
 

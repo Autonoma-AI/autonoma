@@ -638,6 +638,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@aws-crypto/sha256-js':
         specifier: ^5.2.0
         version: 5.2.0
@@ -1579,6 +1582,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       zod:
         specifier: 'catalog:'
         version: 4.3.6

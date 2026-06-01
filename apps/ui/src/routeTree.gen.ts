@@ -55,7 +55,13 @@ import { Route as BlacklightOnboardingCompleteRouteImport } from "./routes/_blac
 import { Route as BlacklightOnboardingGithubRouteImport } from "./routes/_blacklight/onboarding/github";
 import { Route as BlacklightOnboardingRouteRouteImport } from "./routes/_blacklight/onboarding/route";
 import { Route as BlacklightOnboardingScenarioDryRunRouteImport } from "./routes/_blacklight/onboarding/scenario-dry-run";
+import { Route as PreviewAuthRouteImport } from "./routes/preview-auth";
 
+const PreviewAuthRoute = PreviewAuthRouteImport.update({
+    id: "/preview-auth",
+    path: "/preview-auth",
+    getParentRoute: () => rootRouteImport,
+} as any);
 const BlacklightRoute = BlacklightRouteImport.update({
     id: "/_blacklight",
     getParentRoute: () => rootRouteImport,
@@ -300,6 +306,7 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChanges
 
 export interface FileRoutesByFullPath {
     "/": typeof BlacklightAppShellIndexRoute;
+    "/preview-auth": typeof PreviewAuthRoute;
     "/onboarding": typeof BlacklightOnboardingRouteRouteWithChildren;
     "/login": typeof BlacklightauthLoginRouteRouteWithChildren;
     "/pending": typeof BlacklightauthPendingRoute;
@@ -346,6 +353,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
     "/": typeof BlacklightAppShellIndexRoute;
+    "/preview-auth": typeof PreviewAuthRoute;
     "/onboarding": typeof BlacklightOnboardingRouteRouteWithChildren;
     "/pending": typeof BlacklightauthPendingRoute;
     "/rejected": typeof BlacklightauthRejectedRoute;
@@ -386,6 +394,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
     __root__: typeof rootRouteImport;
     "/_blacklight": typeof BlacklightRouteWithChildren;
+    "/preview-auth": typeof PreviewAuthRoute;
     "/_blacklight/_app-shell": typeof BlacklightAppShellRouteRouteWithChildren;
     "/_blacklight/onboarding": typeof BlacklightOnboardingRouteRouteWithChildren;
     "/_blacklight/(auth)/login": typeof BlacklightauthLoginRouteRouteWithChildren;
@@ -436,6 +445,7 @@ export interface FileRouteTypes {
     fileRoutesByFullPath: FileRoutesByFullPath;
     fullPaths:
         | "/"
+        | "/preview-auth"
         | "/onboarding"
         | "/login"
         | "/pending"
@@ -482,6 +492,7 @@ export interface FileRouteTypes {
     fileRoutesByTo: FileRoutesByTo;
     to:
         | "/"
+        | "/preview-auth"
         | "/onboarding"
         | "/pending"
         | "/rejected"
@@ -521,6 +532,7 @@ export interface FileRouteTypes {
     id:
         | "__root__"
         | "/_blacklight"
+        | "/preview-auth"
         | "/_blacklight/_app-shell"
         | "/_blacklight/onboarding"
         | "/_blacklight/(auth)/login"
@@ -570,10 +582,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
     BlacklightRoute: typeof BlacklightRouteWithChildren;
+    PreviewAuthRoute: typeof PreviewAuthRoute;
 }
 
 declare module "@tanstack/react-router" {
     interface FileRoutesByPath {
+        "/preview-auth": {
+            id: "/preview-auth";
+            path: "/preview-auth";
+            fullPath: "/preview-auth";
+            preLoaderRoute: typeof PreviewAuthRouteImport;
+            parentRoute: typeof rootRouteImport;
+        };
         "/_blacklight": {
             id: "/_blacklight";
             path: "";
@@ -1103,5 +1123,6 @@ const BlacklightRouteWithChildren = BlacklightRoute._addFileChildren(BlacklightR
 
 const rootRouteChildren: RootRouteChildren = {
     BlacklightRoute: BlacklightRouteWithChildren,
+    PreviewAuthRoute: PreviewAuthRoute,
 };
 export const routeTree = rootRouteImport._addFileChildren(rootRouteChildren)._addFileTypes<FileRouteTypes>();

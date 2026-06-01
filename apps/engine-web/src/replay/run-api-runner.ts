@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { db } from "@autonoma/db";
 import { RunAPIRunner, type RunData } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -38,7 +39,9 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
         const authParsed = AuthPayloadSchema.safeParse(data.scenarioInstance?.auth);
         const auth = authParsed.success ? authParsed.data : undefined;
         const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, webDeployment.url) : undefined;
-        const headers = auth?.headers;
+        const bypassToken = await resolvePreviewkitBypassToken(webDeployment.url);
+        const headers: Record<string, string> | undefined =
+            bypassToken != null ? { ...(auth?.headers ?? {}), "x-previewkit-bypass": bypassToken } : auth?.headers;
         const credentials = auth?.credentials;
 
         if (credentials != null) {
@@ -91,4 +94,12 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
 
         return tmpPath;
     }
+}
+
+async function resolvePreviewkitBypassToken(url: string): Promise<string | undefined> {
+    const instance = await db.previewkitAppInstance.findFirst({
+        where: { url },
+        select: { environment: { select: { bypassToken: true } } },
+    });
+    return instance?.environment.bypassToken ?? undefined;
 }

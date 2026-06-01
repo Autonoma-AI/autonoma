@@ -1,5 +1,7 @@
 import { db } from "@autonoma/db";
+import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { AppConfig } from "../config/schema";
+import { env } from "../env";
 import { logger as rootLogger } from "../logger";
 
 export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "torn_down";
@@ -49,6 +51,7 @@ export interface EnvironmentReadyInput {
     namespace: string;
     urls: Record<string, string>;
     apps: Array<{ appName: string; imageTag: string; port: number }>;
+    bypassToken?: string;
 }
 
 export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): Promise<void> {
@@ -144,14 +147,14 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
 
 export async function recordEnvironmentReady(input: EnvironmentReadyInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordEnvironmentReady" });
-    const { namespace, urls, apps } = input;
+    const { namespace, urls, apps, bypassToken } = input;
     logger.info("Recording environment ready", { namespace, appCount: apps.length });
 
-    const env = await db.previewkitEnvironment.findUnique({
+    const envRow = await db.previewkitEnvironment.findUnique({
         where: { namespace },
         select: { id: true },
     });
-    if (env == null) {
+    if (envRow == null) {
         logger.warn("Environment ready but no environment row found", { namespace });
         return;
     }
@@ -165,14 +168,17 @@ export async function recordEnvironmentReady(input: EnvironmentReadyInput): Prom
                 error: null,
                 urls,
                 deployedAt: new Date(),
+                ...(bypassToken != null
+                    ? { bypassToken: encryptPreviewkitBypassToken(bypassToken, env.BYPASS_TOKEN_KEY) }
+                    : {}),
             },
         });
 
         for (const app of apps) {
             await tx.previewkitAppInstance.upsert({
-                where: { environmentId_appName: { environmentId: env.id, appName: app.appName } },
+                where: { environmentId_appName: { environmentId: envRow.id, appName: app.appName } },
                 create: {
-                    environmentId: env.id,
+                    environmentId: envRow.id,
                     appName: app.appName,
                     imageTag: app.imageTag,
                     url: urls[app.appName],

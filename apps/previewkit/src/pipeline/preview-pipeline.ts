@@ -436,6 +436,7 @@ export class PreviewPipeline {
                     namespace,
                     urls: result.urls,
                     apps: toAppInstances(mergedConfig.apps, imageTags),
+                    bypassToken: result.bypassToken,
                 }),
             );
 
@@ -978,9 +979,9 @@ export class PreviewPipeline {
         const rows = outcomes
             .map((o) => {
                 const status = o.status === "ok" ? "Ready" : "Failed";
-                const url = o.url != null ? o.url : "-";
+                const urlCell = o.url != null ? `[${o.url}](${o.url})` : "-";
                 const logs = o.buildLogUrl != null ? `[view](${o.buildLogUrl})` : "-";
-                return `| ${o.name} | ${status} | ${url} | ${logs} |`;
+                return `| ${o.name} | ${status} | ${urlCell} | ${logs} |`;
             })
             .join("\n");
 

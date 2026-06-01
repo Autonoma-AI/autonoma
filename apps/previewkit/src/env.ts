@@ -68,7 +68,15 @@ export const env = createEnv({
         // Required only when AWS secret registrations are present for any organization.
         CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
 
+        // nginx auth proxy image. Each preview namespace gets an nginx deployment
+        // that gates access via bypass token header or pk_session cookie.
+        // The config is injected via ConfigMap so the default plain nginx:alpine works.
+        NGINX_IMAGE: z.string().default("nginx:alpine"),
+        APP_URL: z.string().url().default("https://app.autonoma.app"),
         AUTONOMA_SERVICE_SECRET: z.string().min(1).optional(),
+        // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens
+        // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
+        BYPASS_TOKEN_KEY: z.string().min(64).optional(),
     },
     runtimeEnv: process.env,
 });

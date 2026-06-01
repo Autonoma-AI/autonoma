@@ -57,13 +57,11 @@ describe("EncryptionHelper", () => {
 
     it("throws if key is not 32 bytes", () => {
         expect(() => new EncryptionHelper("aabbcc")).toThrow(
-            "SCENARIO_ENCRYPTION_KEY must be at least 64 hex characters (32 bytes)",
+            "Encryption key must be at least 64 hex characters (32 bytes)",
         );
     });
 
     it("throws if key is empty", () => {
-        expect(() => new EncryptionHelper("")).toThrow(
-            "SCENARIO_ENCRYPTION_KEY must be at least 64 hex characters (32 bytes)",
-        );
+        expect(() => new EncryptionHelper("")).toThrow("Encryption key must be at least 64 hex characters (32 bytes)");
     });
 });

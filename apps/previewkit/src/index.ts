@@ -126,6 +126,8 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         env.PREVIEW_URL_SECRET,
         gatewaySubnetCidrs,
         awsExternalSecretManager,
+        env.NGINX_IMAGE,
+        env.APP_URL,
     );
 
     // Addon plugin registry + manager. Built-in providers are registered

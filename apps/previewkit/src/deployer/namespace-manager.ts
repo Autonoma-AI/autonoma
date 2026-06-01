@@ -17,6 +17,7 @@ const ANN_PHASE = "previewkit.dev/phase";
 const ANN_UPDATED_AT = "previewkit.dev/updated-at";
 const ANN_ERROR = "previewkit.dev/error";
 const ANN_URLS = "previewkit.dev/urls";
+const ANN_BYPASS_TOKEN = "previewkit.dev/bypass-token";
 
 export type DeploymentStatus = "pending" | "building" | "deploying" | "ready" | "failed";
 
@@ -29,6 +30,7 @@ export interface NamespaceAnnotations {
     updatedAt?: string;
     error?: string;
     urls?: Record<string, string>;
+    bypassToken?: string;
 }
 
 export class NamespaceManager {
@@ -113,6 +115,7 @@ export class NamespaceManager {
                 updatedAt: a[ANN_UPDATED_AT],
                 error: a[ANN_ERROR],
                 urls: a[ANN_URLS] ? (JSON.parse(a[ANN_URLS]) as Record<string, string>) : undefined,
+                bypassToken: a[ANN_BYPASS_TOKEN],
             };
         } catch {
             return undefined;
@@ -161,6 +164,7 @@ export class NamespaceManager {
         if (annotations?.phase) result[ANN_PHASE] = annotations.phase;
         if (annotations?.error) result[ANN_ERROR] = annotations.error;
         if (annotations?.urls) result[ANN_URLS] = JSON.stringify(annotations.urls);
+        if (annotations?.bypassToken) result[ANN_BYPASS_TOKEN] = annotations.bypassToken;
         return result;
     }
 }

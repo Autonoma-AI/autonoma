@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import * as k8s from "@kubernetes/client-node";
 import type { AppConfig, PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
@@ -15,6 +15,9 @@ import {
     buildAppHttpRoute,
     buildAppService,
     buildAppTargetGroupConfig,
+    buildNginxConfigMap,
+    buildNginxDeployment,
+    buildNginxService,
     HTTP_ROUTE_GROUP,
     HTTP_ROUTE_PLURAL,
     HTTP_ROUTE_VERSION,
@@ -49,6 +52,7 @@ export interface DeployResult {
     namespace: string;
     urls: Record<string, string>;
     appOutcomes: Record<string, AppDeployOutcome>;
+    bypassToken: string;
 }
 
 /**
@@ -59,6 +63,7 @@ export interface DeployResult {
 export interface InfraDeployResult {
     namespace: string;
     awsSecretsByApp: Map<string, string>;
+    bypassToken: string;
 }
 
 interface AppDeployContext {
@@ -104,6 +109,8 @@ export class Deployer {
         private secret: string,
         private gatewaySubnetCidrs: string[] = [],
         private awsExternalSecretManager?: AwsExternalSecretManager,
+        private nginxImage: string = "nginx:alpine",
+        private appUrl: string = "https://app.autonoma.app",
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
@@ -135,10 +142,17 @@ export class Deployer {
     async deployInfra(opts: DeployOptions): Promise<InfraDeployResult> {
         const { repoFullName, prNumber, headSha, organizationId, config, commentId } = opts;
 
+        // Reuse the existing bypass token across redeployments so PR comment
+        // access links stay valid. Only generate a new token for brand-new environments.
+        const existingNamespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
+        const existingAnnotations = await this.namespaceManager.getAnnotations(existingNamespace);
+        const bypassToken = existingAnnotations?.bypassToken ?? randomBytes(32).toString("hex");
+
         // 1. Create namespace
         const namespace = await this.namespaceManager.create(repoFullName, prNumber, organizationId, {
             commentId,
             lastDeployedSha: headSha,
+            bypassToken,
         });
 
         logger.info("Deploying preview environment", { namespace, prNumber, organizationId });
@@ -185,7 +199,37 @@ export class Deployer {
         // 6. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        return { namespace, awsSecretsByApp };
+        // 6. Deploy nginx reverse proxy (handles auth + per-app routing per hostname)
+        const domain = config.domain ?? this.domain;
+        const nginxApps = config.apps.map((a) => ({
+            name: a.name,
+            port: a.port,
+            hostname: buildAppHostname(a.name, prNumber, repoFullName, domain, this.secret),
+        }));
+        const nginxConfigMap = buildNginxConfigMap({
+            apps: nginxApps,
+            namespace,
+            prNumber,
+            bypassToken,
+            domain,
+            appUrl: this.appUrl,
+            nginxImage: this.nginxImage,
+        });
+        const nginxDeployment = buildNginxDeployment(namespace, prNumber, this.nginxImage);
+        const nginxService = buildNginxService(namespace, prNumber);
+        await this.applyCoreResource(namespace, nginxConfigMap, "configmaps");
+        await this.applyDeployment(namespace, nginxDeployment);
+        await this.applyService(namespace, nginxService);
+        logger.info("Deployed nginx proxy", { namespace });
+
+        // 7. Deploy apps wave by wave; apps within each wave are deployed in parallel.
+        //    Each app is its own failure domain — one app's failure (build skip
+        //    or K8s apply error) does not stop other apps from deploying. Wave
+        //    ordering is preserved purely as a hint: depends_on still controls
+        //    *when* an app is attempted, but a downstream app is attempted even
+        //    if its upstream failed (the user prefers a partial preview over
+        //    none — see the per-app independence design discussion).
+        return { namespace, awsSecretsByApp, bypassToken };
     }
 
     /**
@@ -195,7 +239,7 @@ export class Deployer {
      */
     async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
         const { repoFullName, prNumber, config, imageTags, addonOutputs = {} } = opts;
-        const { namespace, awsSecretsByApp } = infraResult;
+        const { namespace, awsSecretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
 
         const owner = repoFullName.split("/")[0]!;
@@ -247,7 +291,7 @@ export class Deployer {
             }
         }
 
-        return { namespace, urls, appOutcomes };
+        return { namespace, urls, appOutcomes, bypassToken };
     }
 
     /**
