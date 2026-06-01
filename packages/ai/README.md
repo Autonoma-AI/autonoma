@@ -56,6 +56,10 @@ Cross-provider reasoning configuration: `"none" | "low" | "medium" | "high"`. Au
 
 `CostCollector` hooks into registry monitoring callbacks to capture per-call token usage and cost in microdollars.
 
+There are two ways to attach a collector:
+
+**Construction-time** - bind a collector to every call the registry issues. Use this when the registry is built per run:
+
 ```ts
 import { CostCollector } from "@autonoma/ai";
 
@@ -69,6 +73,19 @@ const registry = new ModelRegistry({
 
 const records = costCollector.getRecords();
 // [{ model, tag, inputTokens, outputTokens, reasoningTokens, cacheReadTokens, costMicrodollars }]
+```
+
+**Per-call** - pass a collector to `getModel` so a single, shared (construct-once) registry can attribute cost to a per-run collector without being rebuilt. This composes with (does not replace) any construction-time `monitoring`:
+
+```ts
+const registry = new ModelRegistry({ models: MODEL_ENTRIES });
+
+const costCollector = new CostCollector();
+const model = registry.getModel({ model: "GEMINI_3_FLASH_PREVIEW", tag: "my-feature" }, costCollector);
+
+// ... run AI calls with `model` ...
+
+const records = costCollector.getRecords();
 ```
 
 ## ObjectGenerator

@@ -4,9 +4,10 @@ import {
     defaultSettingsMiddleware,
     wrapLanguageModel,
 } from "ai";
+import type { CostCollector } from "./cost-collector";
 import type { CostFunction } from "./costs";
 import type { ModelEntry } from "./model-entries";
-import { type MonitoringCallbacks, createLoggingMiddleware } from "./monitoring";
+import { type MonitoringCallbacks, createLoggingMiddleware, mergeMonitoringCallbacks } from "./monitoring";
 import { type ModelOptions, type ModelSettings, buildSettings } from "./options";
 import { type ModelUsage, updateModelUsage } from "./usage";
 
@@ -83,22 +84,46 @@ export class ModelRegistry<TModel extends string> {
         };
     }
 
-    public getModel(options: ModelOptions<TModel>): LanguageModel {
+    /**
+     * Acquire a wrapped {@link LanguageModel} for the given options.
+     *
+     * When a per-call {@link CostCollector} is supplied, its monitoring callbacks are merged with
+     * (not replacing) any registry-level `monitoring` set at construction, and both are driven by a
+     * single logging middleware. This lets a shared, construct-once registry attribute cost to a
+     * per-run collector without rebuilding the registry.
+     */
+    public getModel(options: ModelOptions<TModel>, costCollector?: CostCollector): LanguageModel {
         const settings = buildSettings({ ...this.defaultSettings, ...options });
         const model = this.models[options.model];
         // biome-ignore lint/style/noNonNullAssertion: This is guaranteed by construction
         const pricing = this.pricing[model.modelId]!;
 
+        const monitoringMiddleware = this.buildMonitoringMiddleware(options, pricing, costCollector);
+
         return wrapLanguageModel({
             model,
             middleware: [
-                ...(this.monitoring
-                    ? [createLoggingMiddleware(options, () => this.extraContext, this.monitoring, pricing)]
-                    : []),
+                ...(monitoringMiddleware != null ? [monitoringMiddleware] : []),
                 this.usageTrackingMiddleware,
                 defaultSettingsMiddleware({ settings }),
             ],
         });
+    }
+
+    private buildMonitoringMiddleware(
+        options: ModelOptions<TModel>,
+        pricing: CostFunction,
+        costCollector?: CostCollector,
+    ): LanguageModelMiddleware | undefined {
+        const callbacks: MonitoringCallbacks[] = [];
+
+        if (this.monitoring != null) callbacks.push(this.monitoring);
+        if (costCollector != null) callbacks.push(costCollector.createMonitoringCallbacks());
+
+        if (callbacks.length === 0) return undefined;
+
+        const merged = mergeMonitoringCallbacks(callbacks);
+        return createLoggingMiddleware(options, () => this.extraContext, merged, pricing);
     }
 
     public resetContext(): void {

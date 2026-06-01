@@ -37,6 +37,25 @@ export interface MonitoringCallbacks {
     onError: (information: ErrorInformation) => void;
 }
 
+/**
+ * Combine several {@link MonitoringCallbacks} into one, fanning out each hook to every
+ * callback set in order. Lets a single logging middleware drive multiple consumers (e.g. a
+ * registry-level monitor plus a per-call cost collector) without wrapping the model twice.
+ */
+export function mergeMonitoringCallbacks(callbacks: MonitoringCallbacks[]): MonitoringCallbacks {
+    return {
+        onRequest: (information) => {
+            for (const callback of callbacks) callback.onRequest(information);
+        },
+        onResponse: (information) => {
+            for (const callback of callbacks) callback.onResponse(information);
+        },
+        onError: (information) => {
+            for (const callback of callbacks) callback.onError(information);
+        },
+    };
+}
+
 export function createLoggingMiddleware(
     options: ModelOptions,
     getContext: () => Record<string, unknown>,
