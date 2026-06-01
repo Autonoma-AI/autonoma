@@ -6,6 +6,9 @@ import {
     buildAppHttpRoute,
     buildAppService,
     buildAppTargetGroupConfig,
+    NGINX_HEALTH_PATH,
+    NGINX_SERVICE_NAME,
+    NGINX_SERVICE_PORT,
     type GatewayRef,
 } from "../../src/deployer/resource-factory";
 
@@ -160,14 +163,14 @@ describe("buildAppHttpRoute", () => {
         ]);
     });
 
-    it("routes / to the app Service on its configured port", () => {
+    it("routes / to the shared nginx Service", () => {
         const route = buildAppHttpRoute(baseRouteOpts);
         const rule = route.spec.rules[0]!;
         expect(rule.matches[0]!.path).toEqual({ type: "PathPrefix", value: "/" });
         const backend = rule.backendRefs[0]!;
         expect(backend.kind).toBe("Service");
-        expect(backend.name).toBe("web");
-        expect(backend.port).toBe(3000);
+        expect(backend.name).toBe(NGINX_SERVICE_NAME);
+        expect(backend.port).toBe(NGINX_SERVICE_PORT);
     });
 });
 
@@ -179,25 +182,28 @@ describe("buildAppTargetGroupConfig", () => {
         expect(tgc.spec.defaultConfiguration.targetType).toBe("ip");
     });
 
-    it("references the app's Service by name", () => {
+    it("references the shared nginx Service by name", () => {
         const tgc = buildAppTargetGroupConfig(baseRouteOpts);
         expect(tgc.spec.targetReference.kind).toBe("Service");
-        expect(tgc.spec.targetReference.name).toBe("web");
+        expect(tgc.spec.targetReference.name).toBe(NGINX_SERVICE_NAME);
     });
 
-    it("includes health check config when the app declares one", () => {
+    it("uses the nginx health check even when the app declares one", () => {
         const tgc = buildAppTargetGroupConfig({
             ...baseRouteOpts,
             app: { ...baseApp, health_check: "/health" },
         });
         expect(tgc.spec.defaultConfiguration.healthCheckConfig).toEqual({
-            healthCheckPath: "/health",
+            healthCheckPath: NGINX_HEALTH_PATH,
             healthCheckProtocol: "HTTP",
         });
     });
 
-    it("omits health check config when the app declares none", () => {
+    it("uses the nginx health check when the app declares none", () => {
         const tgc = buildAppTargetGroupConfig(baseRouteOpts);
-        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toBeUndefined();
+        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toEqual({
+            healthCheckPath: NGINX_HEALTH_PATH,
+            healthCheckProtocol: "HTTP",
+        });
     });
 });
