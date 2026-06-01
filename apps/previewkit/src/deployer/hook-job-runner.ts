@@ -58,6 +58,7 @@ export async function runHookJob(
                                 "-c",
                                 `find /app/node_modules/.bin -type f -o -type l 2>/dev/null | xargs chmod +x 2>/dev/null; ${command}`,
                             ],
+                            envFrom: [{ secretRef: { name: `${appName}-secrets`, optional: true } }],
                             env: envVars,
                             resources: {
                                 requests: { cpu: "100m", memory: "512Mi" },
