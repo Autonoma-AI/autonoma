@@ -64,9 +64,8 @@ function BugsTable() {
           <thead className="sticky top-0 z-10 border-b border-border-dim bg-surface-base">
             <tr>
               <th className={`${TH} w-1/12`}>Status</th>
-              <th className={`${TH} w-3/12`}>Title</th>
+              <th className={`${TH} w-4/12`}>Title</th>
               <th className={`${TH} w-3/12`}>Test cases</th>
-              <th className={`${TH} w-1/12`}>Severity</th>
               <th className={`${TH} w-2/12`}>First seen</th>
               <th className={`${TH} w-2/12`}>Last seen</th>
               <th className={`${TH} w-1/12`}>Occurrences</th>
@@ -75,7 +74,7 @@ function BugsTable() {
           <tbody>
             {bugs.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-text-tertiary">
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-text-tertiary">
                   No bugs tracked yet
                 </td>
               </tr>
@@ -90,7 +89,10 @@ function BugsTable() {
                   <Badge variant={STATUS_BADGE[bug.status] ?? "secondary"}>{bug.status}</Badge>
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className="block truncate text-sm font-medium text-text-primary">{bug.title}</span>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="block truncate text-sm font-medium text-text-primary">{bug.title}</span>
+                    <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
+                  </div>
                 </td>
                 <td className="px-4 py-2.5">
                   <span className="block truncate text-sm text-text-secondary">
@@ -100,9 +102,6 @@ function BugsTable() {
                         ? bug.testCases[0]?.name
                         : `${bug.testCases[0]?.name} +${bug.testCases.length - 1} more`}
                   </span>
-                </td>
-                <td className="px-4 py-2.5">
-                  <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
                 </td>
                 <td className="px-4 py-2.5">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(bug.firstSeenAt)}</span>

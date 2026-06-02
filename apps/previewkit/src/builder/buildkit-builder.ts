@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
-import { BuildError, type Builder, type BuildRequest, type BuildResult } from "./builder";
+import { BuildError, type Builder, type BuildRequest, type BuildResult, type BuildRuntime } from "./builder";
 import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
@@ -46,6 +46,11 @@ interface BuildKitBuilderOptions {
     jobManager: BuildKitJobManager;
     buildTimeoutMs: number;
     storage: S3Storage;
+}
+
+interface BuildDispatchResult {
+    imageTag: string;
+    runtime: BuildRuntime;
 }
 
 /**
@@ -100,11 +105,17 @@ export class BuildKitBuilder implements Builder {
 
             try {
                 instance = await this.jobManager.provision();
-                const imageTag = await this.dispatchBuild(request, instance.host, logStream);
+                const build = await this.dispatchBuild(request, instance.host, logStream);
                 const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
                 const durationMs = Date.now() - start;
-                logger.info("Build complete", { app: request.appName, imageTag, durationMs, logUrl });
-                return { imageTag, durationMs, logUrl };
+                logger.info("Build complete", {
+                    app: request.appName,
+                    imageTag: build.imageTag,
+                    runtime: build.runtime,
+                    durationMs,
+                    logUrl,
+                });
+                return { imageTag: build.imageTag, durationMs, logUrl, runtime: build.runtime };
             } catch (err) {
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
                     await this.onTransientError(err, attempt, request.appName, logStream, logPath, request.imageTag);
@@ -132,7 +143,11 @@ export class BuildKitBuilder implements Builder {
         throw new BuildError("buildkit build loop exited without returning");
     }
 
-    private dispatchBuild(request: BuildRequest, buildkitHost: string, logStream: WriteStream): Promise<string> {
+    private dispatchBuild(
+        request: BuildRequest,
+        buildkitHost: string,
+        logStream: WriteStream,
+    ): Promise<BuildDispatchResult> {
         const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
         if (dockerfilePath != null) {
             return this.buildWithBuildctl(request, dockerfilePath, buildkitHost, logStream);
@@ -215,7 +230,7 @@ export class BuildKitBuilder implements Builder {
         dockerfilePath: string,
         buildkitHost: string,
         logStream: WriteStream,
-    ): Promise<string> {
+    ): Promise<BuildDispatchResult> {
         const dockerfileDir = dirname(dockerfilePath);
         const dockerfileName = basename(dockerfilePath);
 
@@ -262,7 +277,7 @@ export class BuildKitBuilder implements Builder {
             }
 
             await this.exec("buildctl", args, extraEnv, logStream);
-            return request.imageTag;
+            return { imageTag: request.imageTag, runtime: "docker-image" };
         } finally {
             if (dockerConfigDir != null) {
                 await rm(dockerConfigDir, { recursive: true }).catch(() => {});
@@ -274,7 +289,7 @@ export class BuildKitBuilder implements Builder {
         request: BuildRequest,
         buildkitHost: string,
         logStream: WriteStream,
-    ): Promise<string> {
+    ): Promise<BuildDispatchResult> {
         logger.info("Building with railpack (auto-detect)", {
             app: request.appName,
             contextPath: request.contextPath,
@@ -289,12 +304,14 @@ export class BuildKitBuilder implements Builder {
 
         try {
             const envArgs = Object.entries(request.buildArgs).flatMap(([k, v]) => ["--env", `${k}=${v}`]);
+            const planPath = join(planDir, "railpack-plan.json");
             await this.exec(
                 "railpack",
-                ["prepare", request.contextPath, "--plan-out", join(planDir, "railpack-plan.json"), ...envArgs],
+                ["prepare", request.contextPath, "--plan-out", planPath, ...envArgs],
                 {},
                 logStream,
             );
+            const runtime = await detectRailpackRuntime(planPath);
 
             const buildContext = request.buildContext ?? request.contextPath;
             const args = [
@@ -330,7 +347,7 @@ export class BuildKitBuilder implements Builder {
             }
 
             await this.exec("buildctl", args, extraEnv, logStream);
-            return request.imageTag;
+            return { imageTag: request.imageTag, runtime };
         } finally {
             await rm(planDir, { recursive: true }).catch(() => {});
             if (dockerConfigDir != null) {
@@ -351,7 +368,7 @@ export class BuildKitBuilder implements Builder {
         buildContext: string,
         buildkitHost: string,
         logStream: WriteStream,
-    ): Promise<string> {
+    ): Promise<BuildDispatchResult> {
         const plan = planTurboMonorepoBuild({
             buildContext,
             contextPath: request.contextPath,
@@ -433,7 +450,7 @@ export class BuildKitBuilder implements Builder {
             }
 
             await this.exec("buildctl", args, extraEnv, logStream);
-            return request.imageTag;
+            return { imageTag: request.imageTag, runtime: "node" };
         } finally {
             await rm(planDir, { recursive: true }).catch((err) => {
                 logger.warn("Failed to clean up railpack plan dir", { planDir, err });
@@ -539,4 +556,30 @@ export class BuildKitBuilder implements Builder {
         const path = withoutRegistry.replace(":", "/");
         return `${LOG_KEY_PREFIX}/${path}-${Date.now()}.log`;
     }
+}
+
+async function detectRailpackRuntime(planPath: string): Promise<BuildRuntime> {
+    try {
+        const raw = await readFile(planPath, "utf8");
+        const plan: unknown = JSON.parse(raw);
+        if (containsNodeRuntimeSignal(plan)) return "node";
+        return "unknown";
+    } catch (err) {
+        logger.warn("Failed to detect Railpack runtime", { planPath, err });
+        return "unknown";
+    }
+}
+
+function containsNodeRuntimeSignal(value: unknown): boolean {
+    if (typeof value === "string") return value.toLowerCase() === "node";
+    if (Array.isArray(value)) return value.some((entry) => containsNodeRuntimeSignal(entry));
+    if (value == null || typeof value !== "object") return false;
+
+    return Object.entries(value).some(([key, nested]) => {
+        const normalizedKey = key.toLowerCase();
+        const isRuntimeField =
+            normalizedKey === "provider" || normalizedKey === "runtime" || normalizedKey === "language";
+        if (isRuntimeField && typeof nested === "string" && nested.toLowerCase() === "node") return true;
+        return containsNodeRuntimeSignal(nested);
+    });
 }

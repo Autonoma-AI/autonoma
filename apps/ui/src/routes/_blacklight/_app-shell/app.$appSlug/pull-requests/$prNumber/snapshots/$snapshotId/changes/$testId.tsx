@@ -28,7 +28,7 @@ function ChangesDetailRoute() {
   if (entry == null) {
     return (
       <div className="flex h-full items-center justify-center px-5 py-10">
-        <p className="text-xs text-text-tertiary">Test not found in this snapshot&apos;s changes.</p>
+        <p className="text-xs text-text-tertiary">Test not found in this checkpoint&apos;s changes.</p>
       </div>
     );
   }

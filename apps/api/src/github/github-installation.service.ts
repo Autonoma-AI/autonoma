@@ -123,6 +123,29 @@ export class GitHubInstallationService extends Service {
         return client.getRepository(repoId);
     }
 
+    async getApplicationRepository(organizationId: string, applicationId: string): Promise<Repository | null> {
+        this.logger.info("Fetching application repository", { organizationId, applicationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) return null;
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const repository = await client.getRepository(app.githubRepositoryId);
+
+        this.logger.info("Fetched application repository", {
+            applicationId,
+            githubRepositoryId: app.githubRepositoryId,
+            fullName: repository.fullName,
+        });
+
+        return repository;
+    }
+
     async getPullRequest(orgId: string, repoId: number, prNumber: number): Promise<PullRequest> {
         this.logger.info("Fetching pull request", { orgId, repoId, prNumber });
 

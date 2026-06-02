@@ -27,10 +27,13 @@ export interface BuildRequest {
     monorepoTool?: "turbo";
 }
 
+export type BuildRuntime = "node" | "docker-image" | "unknown";
+
 export interface BuildResult {
     imageTag: string;
     durationMs: number;
     logUrl: string;
+    runtime: BuildRuntime;
 }
 
 /**

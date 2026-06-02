@@ -9,6 +9,17 @@ export function useBugs(status?: "open" | "resolved" | "regressed") {
     return useSuspenseQuery(trpc.bugs.list.queryOptions({ applicationId: currentApp.id, status }));
 }
 
+export function useBugsListByPr(
+    applicationId: string,
+    branchId: string,
+    status: "open" | "resolved" | "regressed" = "open",
+    snapshotId?: string,
+) {
+    const input =
+        snapshotId != null ? { applicationId, branchId, status, snapshotId } : { applicationId, branchId, status };
+    return useSuspenseQuery(trpc.bugs.listByPr.queryOptions(input));
+}
+
 export function useBugDetail(bugId: string) {
     return useSuspenseQuery(trpc.bugs.detail.queryOptions({ bugId }));
 }

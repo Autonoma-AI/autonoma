@@ -40,7 +40,7 @@ function ChangesLayout() {
       <PanelBody className="p-0">
         {total === 0 ? (
           <div className="px-5 py-8">
-            <p className="text-xs text-text-tertiary">No test suite changes recorded for this snapshot.</p>
+            <p className="text-xs text-text-tertiary">No test suite changes recorded for this checkpoint.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-px bg-border-dim lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">

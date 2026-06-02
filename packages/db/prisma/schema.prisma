@@ -1646,6 +1646,9 @@ model PreviewkitEnvironment {
 
   bypassToken String? @map("bypass_token")
 
+  /// [PreviewkitManifest]
+  manifest Json @default("{}")
+
   deployedAt DateTime? @map("deployed_at")
   tornDownAt DateTime? @map("torn_down_at")
 

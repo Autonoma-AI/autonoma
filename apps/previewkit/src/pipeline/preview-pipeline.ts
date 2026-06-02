@@ -12,6 +12,7 @@ import {
     isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
     recordEnvironmentCreated,
+    recordEnvironmentManifest,
     recordEnvironmentReady,
     recordPhaseChanged,
     toAppInstances,
@@ -237,6 +238,7 @@ export class PreviewPipeline {
 
             // 6. Merge all configs into a single config for building and deploying.
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
+            await recordSafe(() => recordEnvironmentManifest(namespace, mergedConfig));
 
             // 7. Build appRepoDirs: maps each app name to the directory it should be built from.
             const appRepoDirs = new Map<string, string>();
@@ -433,7 +435,7 @@ export class PreviewPipeline {
                 recordEnvironmentReady({
                     namespace,
                     urls: result.urls,
-                    apps: toAppInstances(mergedConfig.apps, imageTags),
+                    apps: toAppInstances(mergedConfig.apps, imageTags, readyAppNames),
                     bypassToken: result.bypassToken,
                 }),
             );
@@ -747,7 +749,13 @@ export class PreviewPipeline {
                 ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
             });
 
-            return { status: "ok", imageTag: result.imageTag, durationMs: result.durationMs, logUrl: result.logUrl };
+            return {
+                status: "ok",
+                imageTag: result.imageTag,
+                durationMs: result.durationMs,
+                logUrl: result.logUrl,
+                runtime: result.runtime,
+            };
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const logUrl = err instanceof BuildError ? err.logUrl : undefined;

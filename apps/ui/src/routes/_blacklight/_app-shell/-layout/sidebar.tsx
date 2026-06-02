@@ -8,6 +8,7 @@ import { CrownSimpleIcon } from "@phosphor-icons/react/CrownSimple";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { GridFourIcon } from "@phosphor-icons/react/GridFour";
+import { HouseIcon } from "@phosphor-icons/react/House";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
@@ -64,10 +65,10 @@ function useAppNav() {
   const base = `/app/${params.appSlug}`;
 
   const items: NavItem[] = [
-    { icon: GridFourIcon, label: "Home", href: base, exact: true },
+    { icon: HouseIcon, label: "Home", href: base, exact: true },
+    { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
     { icon: BugBeetleIcon, label: "Bugs", href: `${base}/bugs` },
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
-    { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
   ];
 
   const tools: NavItem[] = [{ icon: GearSixIcon, label: "Settings", href: `${base}/settings` }];

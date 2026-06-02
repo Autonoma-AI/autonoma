@@ -8,15 +8,13 @@ import {
 } from "@autonoma/test-updates";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { Service } from "../service";
+import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
+import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
 import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
+import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
 
-export interface TestSuiteChangeRow {
-    testCase: { id: string; name: string; slug: string };
-    latestSnapshotId: string;
-    latestSnapshotShortSha: string;
-    quarantined: boolean;
-}
+export type { TestSuiteChangeRow } from "./test-suite-changes";
 
 export class BranchesService extends Service {
     constructor(private readonly db: PrismaClient) {
@@ -382,11 +380,10 @@ export class BranchesService extends Service {
             })),
         };
 
-        const healthMap = await aggregateSnapshotHealth(
-            this.db,
-            [{ id: snapshot.id, status: snapshot.status }],
-            this.logger,
-        );
+        const [healthMap, executedTests] = await Promise.all([
+            aggregateSnapshotHealth(this.db, [{ id: snapshot.id, status: snapshot.status }], this.logger),
+            listExecutedTestsForSnapshot(this.db, snapshotId),
+        ]);
         const healthEntry = healthMap.get(snapshot.id);
         const counts = healthEntry?.counts ?? {
             failing: 0,
@@ -406,6 +403,7 @@ export class BranchesService extends Service {
             refinementLoop,
             health,
             healthCounts: counts,
+            executedTests,
         };
     }
 
@@ -484,12 +482,7 @@ export class BranchesService extends Service {
 
         if (branch == null) throw new NotFoundError("Branch not found");
 
-        const emptyResult: {
-            added: TestSuiteChangeRow[];
-            modified: TestSuiteChangeRow[];
-            removed: TestSuiteChangeRow[];
-            newlyQuarantined: TestSuiteChangeRow[];
-        } = { added: [], modified: [], removed: [], newlyQuarantined: [] };
+        const emptyResult = emptyTestSuiteChanges();
 
         const prSnapshots = branch.snapshots;
         if (prSnapshots.length === 0) {
@@ -529,114 +522,17 @@ export class BranchesService extends Service {
             activeAssignmentCount: activeSnap.testCaseAssignments.length,
         });
 
-        type Assignment = (typeof prSnapshots)[number]["testCaseAssignments"][number];
-        type SnapshotEntry = (typeof prSnapshots)[number];
-
-        function indexByTestCase(snap: SnapshotEntry): Map<string, Assignment> {
-            return new Map(snap.testCaseAssignments.map((a) => [a.testCaseId, a]));
-        }
-
-        function shortShaOf(snap: SnapshotEntry): string {
-            return snap.headSha != null ? snap.headSha.slice(0, 8) : "?";
-        }
-
-        const baseMap = indexByTestCase(baseSnap);
-        const activeMap = indexByTestCase(activeSnap);
-        const prIndex: Map<string, Assignment>[] = prSnapshots.map((s) => indexByTestCase(s));
-
-        function prevAssignmentFor(testCaseId: string, prIdx: number): Assignment | undefined {
-            const prevIndex = prIdx === 0 ? baseMap : prIndex[prIdx - 1];
-            return prevIndex?.get(testCaseId);
-        }
-
-        function findLatestPlanChange(testCaseId: string): SnapshotEntry {
-            for (let i = prSnapshots.length - 1; i >= 0; i -= 1) {
-                const snap = prSnapshots[i];
-                if (snap == null) continue;
-                const cur = prIndex[i]?.get(testCaseId);
-                const prev = prevAssignmentFor(testCaseId, i);
-                if ((cur?.planId ?? null) !== (prev?.planId ?? null)) return snap;
-            }
-            return activeSnap;
-        }
-
-        function findLatestQuarantine(testCaseId: string): SnapshotEntry {
-            for (let i = prSnapshots.length - 1; i >= 0; i -= 1) {
-                const snap = prSnapshots[i];
-                if (snap == null) continue;
-                const cur = prIndex[i]?.get(testCaseId);
-                const prev = prevAssignmentFor(testCaseId, i);
-                const curQ = cur?.quarantineIssueId ?? null;
-                const prevQ = prev?.quarantineIssueId ?? null;
-                if (curQ != null && curQ !== prevQ) return snap;
-            }
-            return activeSnap;
-        }
-
-        const added: TestSuiteChangeRow[] = [];
-        const modified: TestSuiteChangeRow[] = [];
-        const removed: TestSuiteChangeRow[] = [];
-        const newlyQuarantined: TestSuiteChangeRow[] = [];
-
-        for (const [testCaseId, ass] of activeMap) {
-            const baseAss = baseMap.get(testCaseId);
-            const isQuarantined = ass.quarantineIssueId != null;
-            const wasQuarantined = baseAss?.quarantineIssueId != null;
-
-            if (baseAss == null) {
-                const snap = findLatestPlanChange(testCaseId);
-                added.push({
-                    testCase: ass.testCase,
-                    latestSnapshotId: snap.id,
-                    latestSnapshotShortSha: shortShaOf(snap),
-                    quarantined: isQuarantined,
-                });
-                continue;
-            }
-
-            if (baseAss.planId !== ass.planId) {
-                const snap = findLatestPlanChange(testCaseId);
-                modified.push({
-                    testCase: ass.testCase,
-                    latestSnapshotId: snap.id,
-                    latestSnapshotShortSha: shortShaOf(snap),
-                    quarantined: isQuarantined,
-                });
-                continue;
-            }
-
-            // Not structurally changed by this PR, but newly quarantined - usually surfaced by replay.
-            if (isQuarantined && !wasQuarantined) {
-                const snap = findLatestQuarantine(testCaseId);
-                newlyQuarantined.push({
-                    testCase: ass.testCase,
-                    latestSnapshotId: snap.id,
-                    latestSnapshotShortSha: shortShaOf(snap),
-                    quarantined: true,
-                });
-            }
-        }
-
-        for (const [testCaseId, baseAss] of baseMap) {
-            if (activeMap.has(testCaseId)) continue;
-            const snap = findLatestPlanChange(testCaseId);
-            removed.push({
-                testCase: baseAss.testCase,
-                latestSnapshotId: snap.id,
-                latestSnapshotShortSha: shortShaOf(snap),
-                quarantined: false,
-            });
-        }
+        const changes = computeTestSuiteChanges({ prSnapshots, baseSnap, activeSnap });
 
         this.logger.info("PR-wide test suite changes computed", {
             branchId,
-            added: added.length,
-            modified: modified.length,
-            removed: removed.length,
-            newlyQuarantined: newlyQuarantined.length,
+            added: changes.added.length,
+            modified: changes.modified.length,
+            removed: changes.removed.length,
+            newlyQuarantined: changes.newlyQuarantined.length,
         });
 
-        return { added, modified, removed, newlyQuarantined };
+        return changes;
     }
 
     async deleteBranch(branchId: string, organizationId: string) {
@@ -661,16 +557,4 @@ export class BranchesService extends Service {
 
         this.logger.info("Branch deleted", { branchId });
     }
-}
-
-async function loadPreviouslyQuarantinedTestCaseIds(
-    db: PrismaClient,
-    prevSnapshotId: string | null,
-): Promise<Set<string>> {
-    if (prevSnapshotId == null) return new Set();
-    const rows = await db.testCaseAssignment.findMany({
-        where: { snapshotId: prevSnapshotId, quarantineIssueId: { not: null } },
-        select: { testCaseId: true },
-    });
-    return new Set(rows.map((r) => r.testCaseId));
 }

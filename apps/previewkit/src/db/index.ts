@@ -1,6 +1,7 @@
 import { db } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
-import type { AppConfig } from "../config/schema";
+import type { BuildRuntime } from "../builder/builder";
+import type { AddonConfig, AppConfig, PreviewConfig, ServiceConfig } from "../config/schema";
 import { env } from "../env";
 import { logger as rootLogger } from "../logger";
 
@@ -15,6 +16,12 @@ export interface EnvironmentCreatedInput {
     organizationId: string;
     githubRepositoryId?: number;
     commentId?: string;
+}
+
+export interface PreviewkitManifest {
+    apps: Array<Pick<AppConfig, "name" | "port" | "primary">>;
+    services: Array<Pick<ServiceConfig, "name" | "recipe" | "version">>;
+    addons: Array<Pick<AddonConfig, "name" | "provider">>;
 }
 
 export interface PhaseChangedInput {
@@ -35,8 +42,8 @@ export interface PhaseChangedInput {
  *   is empty, both of which are rare).
  */
 export type AppBuildOutcome =
-    | { status: "ok"; imageTag: string; durationMs: number; logUrl: string }
-    | { status: "failed"; durationMs: number; error: string; logUrl?: string };
+    | { status: "ok"; imageTag: string; durationMs: number; logUrl: string; runtime?: BuildRuntime }
+    | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: BuildRuntime };
 
 export interface BuildFinishedInput {
     namespace: string;
@@ -90,6 +97,38 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             error: null,
             tornDownAt: null,
         },
+    });
+}
+
+export async function recordEnvironmentManifest(namespace: string, config: PreviewConfig): Promise<void> {
+    const logger = rootLogger.child({ name: "recordEnvironmentManifest" });
+    const manifest: PreviewkitManifest = {
+        apps: config.apps.map((app) => ({
+            name: app.name,
+            port: app.port,
+            primary: app.primary,
+        })),
+        services: config.services.map((service) => ({
+            name: service.name,
+            recipe: service.recipe,
+            version: service.version,
+        })),
+        addons: config.addons.map((addon) => ({
+            name: addon.name,
+            provider: addon.provider,
+        })),
+    };
+
+    logger.info("Recording environment manifest", {
+        namespace,
+        apps: manifest.apps.length,
+        services: manifest.services.length,
+        addons: manifest.addons.length,
+    });
+
+    await db.previewkitEnvironment.update({
+        where: { namespace },
+        data: { manifest },
     });
 }
 
@@ -210,14 +249,19 @@ export async function recordEnvironmentTornDown(namespace: string): Promise<void
     });
 }
 
-export function toAppInstances(apps: AppConfig[], imageTags: Record<string, string>): EnvironmentReadyInput["apps"] {
-    // Only record instances for apps that actually built. Apps whose build
-    // failed have no imageTag and never produced a Deployment, so emitting
-    // a row for them would just lie about cluster state.
+export function toAppInstances(
+    apps: AppConfig[],
+    imageTags: Record<string, string>,
+    readyAppNames: ReadonlySet<string>,
+): EnvironmentReadyInput["apps"] {
+    // Only record instances for apps that actually deployed. Apps that built
+    // successfully but failed readiness should not get persisted instance rows,
+    // otherwise consumers cannot distinguish a partial preview from a fully
+    // ready one.
     return apps
         .filter((app) => {
             const tag = imageTags[app.name];
-            return tag != null && tag !== "";
+            return readyAppNames.has(app.name) && tag != null && tag !== "";
         })
         .map((app) => ({
             appName: app.name,

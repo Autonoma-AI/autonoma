@@ -95,6 +95,14 @@ export {
     MetricTrend,
     metricTrendVariants,
 } from "./components/ui/metric-card";
+export {
+    describeSnapshotHealth,
+    HealthBreakdown,
+    HealthStat,
+    PrHealthPill,
+    type SnapshotHealth,
+    type SnapshotHealthCounts,
+} from "./components/ui/health-summary";
 export { Panel, PanelHeader, PanelTitle, PanelBody } from "./components/ui/panel";
 export { Progress, ProgressTrack, ProgressIndicator, ProgressLabel, ProgressValue } from "./components/ui/progress";
 export { ScrollArea } from "./components/ui/scroll-area";
@@ -115,6 +123,7 @@ export { StatusDot, statusDotVariants } from "./components/ui/status-dot";
 export { Switch } from "./components/ui/switch";
 export { SortableTable, type SortableTableProps, type ColumnDef } from "./components/ui/table";
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants } from "./components/ui/tabs";
+export { VerdictHero, type VerdictHeroCta, type VerdictHeroProps } from "./components/ui/verdict-hero";
 export {
     createToastManager,
     ToastProvider,

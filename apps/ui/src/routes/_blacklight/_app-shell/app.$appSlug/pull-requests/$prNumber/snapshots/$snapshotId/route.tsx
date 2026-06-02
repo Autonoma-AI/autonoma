@@ -131,7 +131,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <Tooltip>
       <TooltipTrigger render={<Badge variant={variant}>{status}</Badge>} />
-      <TooltipContent>The snapshot currently used to evaluate this PR&apos;s test suite.</TooltipContent>
+      <TooltipContent>The checkpoint currently used to evaluate this PR&apos;s test suite.</TooltipContent>
     </Tooltip>
   );
 }
@@ -157,9 +157,9 @@ function PageHeader({ prNumber, children }: { prNumber: number; children: React.
           <ArrowLeftIcon size={12} />
         </AppLink>
         <CameraIcon size={14} />
-        <span className="font-mono text-2xs uppercase tracking-widest">Snapshot</span>
+        <span className="font-mono text-2xs uppercase tracking-widest">Checkpoint</span>
       </div>
-      <h1 className="text-2xl font-medium tracking-tight text-text-primary">Snapshot detail</h1>
+      <h1 className="text-2xl font-medium tracking-tight text-text-primary">Checkpoint report</h1>
       {children}
     </header>
   );

@@ -34,6 +34,12 @@ export const githubRouter = router({
         services.github.listRepositories(organizationId),
     ),
 
+    getApplicationRepository: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.github.getApplicationRepository(organizationId, input.applicationId),
+        ),
+
     linkRepository: protectedProcedure
         .input(
             z.object({

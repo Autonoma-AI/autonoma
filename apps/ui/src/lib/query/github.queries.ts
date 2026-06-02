@@ -4,6 +4,7 @@ import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
 const GITHUB_PR_STALE_TIME_MS = 5 * 60_000;
+const GITHUB_REPOSITORY_STALE_TIME_MS = 5 * 60_000;
 const GITHUB_COMMIT_STALE_TIME_MS = 60 * 60_000;
 
 export function useGithubConfig(returnPath: string) {
@@ -16,6 +17,15 @@ export function useGithubInstallation() {
 
 export function useGithubRepositories() {
     return useSuspenseQuery(trpc.github.listRepositories.queryOptions());
+}
+
+export function useApplicationRepositoryFromGitHub(applicationId: string) {
+    return useQuery({
+        ...trpc.github.getApplicationRepository.queryOptions({ applicationId }),
+        staleTime: GITHUB_REPOSITORY_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        retry: false,
+    });
 }
 
 export function useLinkRepository() {
