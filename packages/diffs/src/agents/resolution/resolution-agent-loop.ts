@@ -21,11 +21,20 @@ interface ResolutionAgentLoopParams extends AgentConfig<ResolutionAgentResult> {
     quarantinedSlugs: ReadonlySet<string>;
 }
 
+/** The per-failure action kinds that share the "one action per failed slug" invariant. */
+export type ResolutionActionKind = "modify_test" | "remove_test" | "report_bug";
+
 /**
  * Per-run state for the {@link ResolutionAgent}. Exposes the codebase, test
  * and scenario indices, the failed/quarantined slug sets, and the four action
  * arrays directly as public fields. Action tools push into the arrays and
  * consult the slug sets; the result tool reads from the arrays.
+ *
+ * Invariant: each failed slug receives exactly one of `modify_test`,
+ * `remove_test`, or `report_bug` per run. {@link handledSlugs} tracks which
+ * slugs have already been acted on so per-failure tools can reject duplicates
+ * at the boundary. `add_test` does not participate (new tests have no
+ * pre-existing slug to clash with).
  */
 export class ResolutionAgentLoop
     extends AgentLoop<ResolutionAgentResult>
@@ -45,6 +54,9 @@ export class ResolutionAgentLoop
     public readonly removedTests: RemovedTest[] = [];
     public readonly reportedBugs: ReportedBug[] = [];
     public readonly newTests: GeneratedTest[] = [];
+
+    /** slug → kind of the per-failure action that already claimed this slug this run. */
+    public readonly handledSlugs = new Map<string, ResolutionActionKind>();
 
     constructor({
         codebase,

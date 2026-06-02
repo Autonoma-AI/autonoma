@@ -1,6 +1,7 @@
 import { AgentTool } from "@autonoma/ai";
 import { z } from "zod";
 import type { ResolutionAgentLoop } from "../resolution-agent-loop";
+import { recordResolutionAction } from "./record-action";
 
 export const reportBugSchema = z.object({
     runId: z.string().describe("The ID of the run whose review surfaced this bug"),
@@ -32,6 +33,7 @@ export class ReportBugTool extends AgentTool<ReportedBug, ReportBugOutput, Resol
     }
 
     protected async execute(input: ReportedBug, loop: ResolutionAgentLoop): Promise<ReportBugOutput> {
+        recordResolutionAction(loop, input.slug, "report_bug");
         loop.reportedBugs.push(input);
         return { slug: input.slug, summary: input.summary };
     }

@@ -1,6 +1,7 @@
 import { AgentTool, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
 import type { ResolutionAgentLoop } from "../resolution-agent-loop";
+import { recordResolutionAction } from "./record-action";
 
 export const removedTestSchema = z.object({
     slug: z.string().describe("The exact slug of the test to remove"),
@@ -41,6 +42,7 @@ export class RemoveTestTool extends AgentTool<RemovedTest, RemoveTestOutput, Res
 
     protected async execute(input: RemovedTest, loop: ResolutionAgentLoop): Promise<RemoveTestOutput> {
         if (!loop.failedSlugs.has(input.slug)) throw new InvalidRemovalSlugError(input.slug, [...loop.failedSlugs]);
+        recordResolutionAction(loop, input.slug, "remove_test");
         loop.removedTests.push(input);
         return { slug: input.slug };
     }

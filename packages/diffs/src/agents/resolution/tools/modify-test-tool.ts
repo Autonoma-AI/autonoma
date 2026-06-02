@@ -1,6 +1,7 @@
 import { AgentTool, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
 import type { ResolutionAgentLoop } from "../resolution-agent-loop";
+import { recordResolutionAction } from "./record-action";
 
 export const modifyTestSchema = z.object({
     slug: z.string().describe("The exact slug of the test to modify (must match a slug from the verdicts)"),
@@ -55,6 +56,7 @@ export class ModifyTestTool extends AgentTool<ModifiedTest, ModifyTestOutput, Re
     protected async execute(input: ModifiedTest, loop: ResolutionAgentLoop): Promise<ModifyTestOutput> {
         if (!loop.failedSlugs.has(input.slug)) throw new UnknownSlugError(input.slug, [...loop.failedSlugs]);
         if (loop.quarantinedSlugs.has(input.slug)) throw new QuarantinedSlugError(input.slug);
+        recordResolutionAction(loop, input.slug, "modify_test");
         loop.modifiedTests.push(input);
         return { slug: input.slug };
     }
