@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { db } from "@autonoma/db";
+import { db, type PrismaClient } from "@autonoma/db";
+import { type GitHubCommentStore, payloadBuilder, postOrUpdateCommentOnGithub } from "@autonoma/github/comment";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
@@ -161,34 +162,29 @@ export class PreviewPipeline {
         //    to postComment; on subsequent deploys it updates in place.
         let commentId = "";
         if (feedbackEnabled) {
-            const pendingBody = this.buildPendingComment(prNumber);
-            const existing = await db.previewkitEnvironment.findUnique({
-                where: { repoFullName_prNumber: { repoFullName, prNumber } },
-                select: { commentId: true },
+            const result = await postOrUpdateCommentOnGithub({
+                client: this.provider,
+                store: createPreviewkitCommentStore(db),
+                repoFullName,
+                prNumber,
+                lastCommitSha: headSha,
+                staleGuard: "allow-new-head",
+                payload: payloadBuilder({
+                    state: "running",
+                    prNumber,
+                    commitSha: headSha,
+                    message: "Autonoma received this commit and is building the preview environment.",
+                }),
+            }).catch((err) => {
+                logger.warn("Failed to post or update initial PR comment", {
+                    repo: repoFullName,
+                    pr: prNumber,
+                    err: err instanceof Error ? err.message : String(err),
+                });
+                return null;
             });
 
-            if (existing?.commentId != null && existing.commentId !== "") {
-                commentId = existing.commentId;
-                await this.provider.updateComment(repoFullName, commentId, pendingBody).catch((err) => {
-                    // Existing comment was deleted on GitHub (or we lack
-                    // permissions). Drop the stale id; the block below will
-                    // post a fresh one and overwrite the stored value.
-                    logger.warn("Failed to update existing PR comment; posting a fresh one", {
-                        repo: repoFullName,
-                        pr: prNumber,
-                        commentId,
-                        err: err instanceof Error ? err.message : String(err),
-                    });
-                    commentId = "";
-                });
-            }
-
-            if (commentId === "") {
-                commentId = await this.provider.postComment(repoFullName, prNumber, pendingBody).catch((_e) => {
-                    logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
-                    return "";
-                });
-            }
+            commentId = result?.status === "posted" || result?.status === "updated" ? result.commentId : "";
         }
 
         // 4. Ensure namespace exists so status can be polled from the first moment
@@ -445,11 +441,16 @@ export class PreviewPipeline {
             // 14. Update PR comment with per-app status table.
             if (feedbackEnabled && commentId !== "") {
                 const fallbackDeps = dependencyEntries.filter((e) => e.usedFallback);
-                await this.provider.updateComment(
+                await postOrUpdateCommentOnGithub({
+                    client: this.provider,
+                    store: createPreviewkitCommentStore(db),
                     repoFullName,
+                    prNumber,
+                    lastCommitSha: headSha,
                     commentId,
-                    this.buildResultComment(
+                    payload: this.buildPreviewResultPayload(
                         prNumber,
+                        headSha,
                         finalOutcomes,
                         mergedConfig,
                         readyCount,
@@ -457,7 +458,7 @@ export class PreviewPipeline {
                         fallbackDeps,
                         addonOutcomes,
                     ),
-                );
+                });
             }
 
             const allReady = readyCount === totalCount;
@@ -534,9 +535,26 @@ export class PreviewPipeline {
             );
 
             if (feedbackEnabled && commentId !== "") {
-                await this.provider
-                    .updateComment(repoFullName, commentId, this.buildFailureComment(prNumber, err))
-                    .catch((e) => logger.error("Failed to update failure comment", e));
+                await postOrUpdateCommentOnGithub({
+                    client: this.provider,
+                    store: createPreviewkitCommentStore(db),
+                    repoFullName,
+                    prNumber,
+                    lastCommitSha: headSha,
+                    commentId,
+                    payload: payloadBuilder({
+                        state: "critical",
+                        prNumber,
+                        commitSha: headSha,
+                        message: "Autonoma could not finish building the preview environment.",
+                        details: [
+                            {
+                                summary: "Preview deployment error",
+                                body: err instanceof Error ? err.message : "Unknown error occurred",
+                            },
+                        ],
+                    }),
+                }).catch((e) => logger.error("Failed to update failure comment", e));
             }
 
             if (feedbackEnabled) {
@@ -948,125 +966,63 @@ export class PreviewPipeline {
         });
     }
 
-    private buildPendingComment(prNumber: number): string {
-        return [
-            `## Preview Environment #${prNumber}`,
-            "",
-            "**Status:** Building...",
-            "",
-            "Your preview environment is being built and deployed. This may take a few minutes.",
-        ].join("\n");
-    }
-
-    /**
-     * Renders the per-app status table after the pipeline has completed. Shows
-     * one row per app with status, URL (when the deploy actually applied
-     * resources), and a link to the build log when one was captured.
-     *
-     * Per-app error messages are emitted as collapsed `<details>` blocks under
-     * the table so the comment stays readable when several apps fail.
-     */
-    private buildResultComment(
+    private buildPreviewResultPayload(
         prNumber: number,
+        headSha: string,
         outcomes: AppFinalOutcome[],
         config: PreviewConfig,
         readyCount: number,
         totalCount: number,
         fallbackDeps: DependencyEntry[],
         addonOutcomes: AddonProvisionOutcome[],
-    ): string {
-        const statusLine =
-            readyCount === totalCount ? "**Status:** Ready" : `**Status:** ${readyCount}/${totalCount} apps ready`;
+    ) {
+        const allReady = readyCount === totalCount;
+        const services = outcomes.map((outcome) => ({
+            name: outcome.name,
+            status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
+            url: outcome.url,
+            logsUrl: outcome.buildLogUrl,
+            error: outcome.error,
+        }));
 
-        const rows = outcomes
-            .map((o) => {
-                const status = o.status === "ok" ? "Ready" : "Failed";
-                const urlCell = o.url != null ? `[${o.url}](${o.url})` : "-";
-                const logs = o.buildLogUrl != null ? `[view](${o.buildLogUrl})` : "-";
-                return `| ${o.name} | ${status} | ${urlCell} | ${logs} |`;
-            })
-            .join("\n");
+        const addons = addonOutcomes.map((outcome) => {
+            const addon = config.addons.find((candidate) => candidate.name === outcome.name);
+            return {
+                name: outcome.name,
+                provider: addon?.provider ?? "unknown",
+                status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
+            };
+        });
 
-        const errorBlocks = outcomes
-            .filter((o) => o.status === "failed" && o.error != null)
-            .map((o) =>
-                ["<details>", `<summary>${o.name} - error</summary>`, "", "```", o.error, "```", "</details>"].join(
-                    "\n",
-                ),
-            );
+        // Plain text; markdown.ts escapes these when rendering the warnings callout.
+        const warnings = fallbackDeps.map(
+            (entry) =>
+                `${entry.dep.repo} branch ${entry.targetBranch} not found; used ${entry.dep.fallback_branch} instead.`,
+        );
 
-        const serviceLines = config.services
-            .map((s) => `- ${s.name} (${s.recipe}${s.version ? `:${s.version}` : ""})`)
-            .join("\n");
+        const serviceErrorDetails = services
+            .filter((service) => service.error != null && service.error !== "")
+            .map((service) => ({ summary: `${service.name} - error`, body: service.error! }));
+        const addonErrorDetails = addonOutcomes
+            .filter(
+                (outcome): outcome is Extract<AddonProvisionOutcome, { status: "failed" }> =>
+                    outcome.status === "failed",
+            )
+            .map((outcome) => ({ summary: `${outcome.name} (addon) - error`, body: outcome.error }));
 
-        // Compact one-line-per-addon summary. The provider name carries the
-        // most useful context ("neon" + Ready tells the operator everything
-        // they need). Errors get a `<details>` block below, same shape as
-        // the per-app error rendering.
-        const addonByName = new Map(config.addons.map((a) => [a.name, a]));
-        const addonLines = addonOutcomes
-            .map((o) => {
-                const provider = addonByName.get(o.name)?.provider ?? "unknown";
-                const status = o.status === "ok" ? "Ready" : "Failed";
-                return `- ${o.name} (${provider}) - ${status}`;
-            })
-            .join("\n");
-        const addonErrorBlocks = addonOutcomes
-            .filter((o): o is Extract<AddonProvisionOutcome, { status: "failed" }> => o.status === "failed")
-            .map((o) =>
-                [
-                    "<details>",
-                    `<summary>${o.name} (addon) - error</summary>`,
-                    "",
-                    "```",
-                    o.error,
-                    "```",
-                    "</details>",
-                ].join("\n"),
-            );
-
-        const sections: string[] = [
-            `## Preview Environment #${prNumber}`,
-            "",
-            statusLine,
-            "",
-            "| App | Status | URL | Build logs |",
-            "|-----|--------|-----|------------|",
-            rows,
-        ];
-
-        if (errorBlocks.length > 0) {
-            sections.push("", ...errorBlocks);
-        }
-
-        if (serviceLines.length > 0) {
-            sections.push("", "**Services:**", serviceLines);
-        }
-
-        if (addonLines.length > 0) {
-            sections.push("", "**Addons:**", addonLines);
-            if (addonErrorBlocks.length > 0) {
-                sections.push("", ...addonErrorBlocks);
-            }
-        }
-
-        if (fallbackDeps.length > 0) {
-            sections.push(
-                "",
-                "> **Note:** Some backend branches were not found. The fallback branch was used instead:",
-                ...fallbackDeps.map(
-                    (e) =>
-                        `> - \`${e.dep.repo}\` - branch \`${e.targetBranch}\` not found, using \`${e.dep.fallback_branch}\``,
-                ),
-            );
-        }
-
-        return sections.join("\n");
-    }
-
-    private buildFailureComment(prNumber: number, err: unknown): string {
-        const message = err instanceof Error ? err.message : "Unknown error occurred";
-        return [`## Preview Environment #${prNumber}`, "", "**Status:** Failed", "", "```", message, "```"].join("\n");
+        return payloadBuilder({
+            state: allReady ? "running" : "critical",
+            prNumber,
+            commitSha: headSha,
+            previewUrl: outcomes.find((outcome) => outcome.status === "ok")?.url,
+            message: allReady
+                ? "Preview is ready. Autonoma can run the selected tests against this commit."
+                : `${readyCount}/${totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,
+            services,
+            addons,
+            warnings,
+            details: [...serviceErrorDetails, ...addonErrorDetails],
+        });
     }
 }
 
@@ -1076,4 +1032,25 @@ async function recordSafe(fn: () => Promise<void>): Promise<void> {
     } catch (err) {
         logger.error("Failed to record Previewkit DB event", err);
     }
+}
+
+// This DB adapter is intentionally duplicated in apps/jobs/run-completion-notification.
+// The @autonoma/github package must stay free of an @autonoma/db dependency, so each
+// caller owns its store.
+function createPreviewkitCommentStore(db: PrismaClient): GitHubCommentStore {
+    return {
+        async getState(repoFullName, prNumber) {
+            const env = await db.previewkitEnvironment.findUnique({
+                where: { repoFullName_prNumber: { repoFullName, prNumber } },
+                select: { commentId: true, headSha: true },
+            });
+            return env ?? null;
+        },
+        async setCommentId(repoFullName, prNumber, commentId) {
+            await db.previewkitEnvironment.updateMany({
+                where: { repoFullName, prNumber },
+                data: { commentId },
+            });
+        },
+    };
 }

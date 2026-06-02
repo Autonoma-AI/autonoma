@@ -62,7 +62,7 @@ export class TeardownPipeline {
         //      and persistence of failed states.
         const envRow = await db.previewkitEnvironment
             .findUnique({ where: { namespace }, select: { id: true } })
-            .catch((err) => {
+            .catch((err: unknown) => {
                 logger.warn("Failed to look up env row for addon deprovisioning; skipping", { namespace, err });
                 return null;
             });

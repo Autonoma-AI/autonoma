@@ -140,4 +140,13 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
         this.logger.info("Returning local-dev branch head", { repoId, branchName });
         return `head-${repoId}-${branchName}`;
     }
+
+    async postComment(repoFullName: string, prNumber: number, _body: string): Promise<string> {
+        this.logger.info("Skipping local-dev PR comment post", { repoFullName, prNumber });
+        return `local-dev-comment-${repoFullName}-${prNumber}`;
+    }
+
+    async updateComment(repoFullName: string, commentId: string, _body: string): Promise<void> {
+        this.logger.info("Skipping local-dev PR comment update", { repoFullName, commentId });
+    }
 }

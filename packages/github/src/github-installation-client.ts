@@ -72,6 +72,8 @@ export interface GitHubInstallationClient {
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
     getBranchHead(repoId: number, branchName: string): Promise<string>;
+    postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
+    updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
 }
 
 interface RawPullRequestLike {
@@ -89,6 +91,19 @@ interface RawPullRequestLike {
     merged?: boolean;
     merged_at: string | null;
     merge_commit_sha: string | null;
+}
+
+export function parseRepoFullName(repoFullName: string): { owner: string; repo: string } {
+    const parts = repoFullName.split("/");
+    if (parts.length !== 2) {
+        throw new Error(`Invalid repository fullName format: ${repoFullName}`);
+    }
+    const owner = parts[0];
+    const repo = parts[1];
+    if (owner == null || repo == null || owner === "" || repo === "") {
+        throw new Error(`Invalid repository fullName format: ${repoFullName}`);
+    }
+    return { owner, repo };
 }
 
 function mapPullRequest(pr: RawPullRequestLike): PullRequest {
@@ -209,7 +224,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
 
     async getRepositoryArchiveUrl(repoId: number, ref = "HEAD"): Promise<string> {
         const repository = await this.getRepository(repoId);
-        const { owner, repo } = splitFullName(repository.fullName);
+        const { owner, repo } = parseRepoFullName(repository.fullName);
         const token = await this.getInstallationToken();
 
         this.logger.info("Resolving repository archive URL", { repoId, fullName: repository.fullName, ref });
@@ -383,16 +398,38 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         return sha;
     }
 
+    async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Posting PR comment", { repoFullName, prNumber });
+
+        const { data } = await this.octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+            owner,
+            repo,
+            issue_number: prNumber,
+            body,
+        });
+
+        const commentId = String(data.id);
+        this.logger.info("Posted PR comment", { repoFullName, prNumber, commentId });
+        return commentId;
+    }
+
+    async updateComment(repoFullName: string, commentId: string, body: string): Promise<void> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Updating PR comment", { repoFullName, commentId });
+
+        await this.octokit.request("PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}", {
+            owner,
+            repo,
+            comment_id: Number(commentId),
+            body,
+        });
+
+        this.logger.info("Updated PR comment", { repoFullName, commentId });
+    }
+
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {
         const repository = await this.getRepository(repoId);
-        return splitFullName(repository.fullName);
+        return parseRepoFullName(repository.fullName);
     }
-}
-
-function splitFullName(fullName: string): { owner: string; repo: string } {
-    const [owner, repo] = fullName.split("/");
-    if (owner == null || repo == null) {
-        throw new Error(`Invalid repository fullName format: ${fullName}`);
-    }
-    return { owner, repo };
 }

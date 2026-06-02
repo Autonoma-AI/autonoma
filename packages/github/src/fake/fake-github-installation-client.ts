@@ -60,9 +60,16 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         body: string;
         labels?: string[];
     }> = [];
+    readonly comments: Array<{
+        id: string;
+        repoFullName: string;
+        prNumber: number;
+        body: string;
+    }> = [];
 
     private readonly repositories: Map<string, InternalRepo> = new Map();
     private readonly repoById: Map<number, InternalRepo> = new Map();
+    private nextCommentId = 1;
 
     addRepository(setup: RepositorySetup): void {
         const metadata: Repository = {
@@ -254,6 +261,23 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
 
     async cloneRepository(_params: CloneRepositoryParams): Promise<string> {
         throw new Error("FakeGitHubInstallationClient.cloneRepository is not implemented");
+    }
+
+    async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {
+        this.requireRepo(repoFullName);
+        const id = String(this.nextCommentId++);
+        this.comments.push({ id, repoFullName, prNumber, body });
+        return id;
+    }
+
+    async updateComment(repoFullName: string, commentId: string, body: string): Promise<void> {
+        this.requireRepo(repoFullName);
+        const comment = this.comments.find((candidate) => candidate.id === commentId);
+        if (comment == null) throw new Error(`Comment "${commentId}" not found`);
+        if (comment.repoFullName !== repoFullName) {
+            throw new Error(`Comment "${commentId}" does not belong to ${repoFullName}`);
+        }
+        comment.body = body;
     }
 
     private requireRepo(fullName: string): InternalRepo {

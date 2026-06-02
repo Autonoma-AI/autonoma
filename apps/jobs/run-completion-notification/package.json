@@ -15,6 +15,7 @@
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",

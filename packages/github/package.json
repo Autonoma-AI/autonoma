@@ -5,6 +5,7 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
+        "./comment": "./src/comment/index.ts",
         "./schemas": "./src/schemas.ts"
     },
     "scripts": {

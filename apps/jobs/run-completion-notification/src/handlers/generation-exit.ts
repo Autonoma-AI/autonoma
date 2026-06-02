@@ -1,9 +1,14 @@
 import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { env } from "../env";
+import { updatePrCommentForGeneration } from "../pr-comment";
 
 export async function handleGenerationExit(generationId: string): Promise<void> {
     const log = logger.child({ name: "handleGenerationExit", generationId });
+
+    await updatePrCommentForGeneration(generationId).catch((error) => {
+        log.error("GitHub PR comment update failed", error);
+    });
 
     const generation = await db.testGeneration.findUnique({
         where: { id: generationId },

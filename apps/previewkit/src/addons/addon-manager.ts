@@ -1,4 +1,4 @@
-import { db, type PrismaClient } from "@autonoma/db";
+import { db, type PreviewkitAddon, type PrismaClient } from "@autonoma/db";
 import type { AddonConfig } from "../config/schema";
 import { logger as rootLogger, type Logger } from "../logger";
 import type { OrgSecretResolver } from "./org-secret-resolver";
@@ -93,7 +93,7 @@ export class AddonManager {
         this.logger.info("Deprovisioning addons", { environmentId, organizationId, count: live.length });
 
         await Promise.allSettled(
-            live.map(async (row) => {
+            live.map(async (row: PreviewkitAddon) => {
                 try {
                     const provider = this.registry.get(row.provider);
                     // Look up the addon's auth_secret from the most recent
