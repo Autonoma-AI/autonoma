@@ -125,9 +125,6 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`suggest_test\`: suggest a new test for uncovered functionality
 - \`finish\`: call when done with your analysis
 
-## File System Layout
-Test files exist on disk at \`autonoma/qa-tests/{slug}.md\`. These files are for reference only - prefer using \`read_tests\` to inspect them. When calling tools, always use plain slug identifiers (e.g. \`login-flow\`), never file paths.
-
 ## Workflow
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
 2. Read relevant source files to understand the changes in context - batch every file you need to read into one \`read_files\` call
