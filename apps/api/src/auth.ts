@@ -214,8 +214,10 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
         trustedOrigins: (request) => {
             const origin = request?.headers.get("origin") ?? "";
             const domainEscaped = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
-            const dynamicPattern = new RegExp(`^https://alpha-[a-f0-9]+\\.(?:alpha\\.)?${domainEscaped}$`);
-            return [...STATIC_ORIGINS, ...(dynamicPattern.test(origin) ? [origin] : [])];
+            const alphaPattern = new RegExp(`^https://alpha-[a-f0-9]+\\.(?:alpha\\.)?${domainEscaped}$`);
+            const previewPattern = new RegExp(`^https://[a-f0-9]+\\.preview\\.${domainEscaped}$`);
+            const isDynamic = alphaPattern.test(origin) || previewPattern.test(origin);
+            return [...STATIC_ORIGINS, ...(isDynamic ? [origin] : [])];
         },
         advanced: {
             crossSubDomainCookies: {

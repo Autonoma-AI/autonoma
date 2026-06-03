@@ -16,11 +16,15 @@ import { stripeHttpRouter } from "./stripe/stripe-http.router";
 const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS;
 const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook"]);
 
+const INTERNAL_DOMAIN_ESCAPED = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
+const PREVIEW_ORIGIN_PATTERN = new RegExp(`^https://[a-f0-9]+\\.preview\\.${INTERNAL_DOMAIN_ESCAPED}$`);
+
 const corsOptions = {
     origin: (origin: string) => {
         if (ALLOWED_ORIGINS.includes(origin)) return origin;
         if (/^https:\/\/alpha-[a-f0-9]+\.alpha\.agent\.autonoma\.app$/.test(origin)) return origin;
         if (/^https:\/\/alpha-[a-f0-9]+\.agent\.autonoma\.app$/.test(origin)) return origin;
+        if (PREVIEW_ORIGIN_PATTERN.test(origin)) return origin;
         return null;
     },
     credentials: true,
