@@ -29,7 +29,7 @@
         "oxfmt": "0.42.0",
         "oxlint": "1.57.0",
         "tsx": "catalog:",
-        "turbo": "^2.9.14",
+        "turbo": "^2.9.16",
         "typescript": "catalog:"
     },
     "lint-staged": {

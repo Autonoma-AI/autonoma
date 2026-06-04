@@ -55,7 +55,7 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "^8.0.8",
-        "vite-plugin-pwa": "^1.2.0",
+        "vite-plugin-pwa": "^1.3.0",
         "vite-tsconfig-paths": "^6.1.1",
         "vitest": "catalog:"
     }

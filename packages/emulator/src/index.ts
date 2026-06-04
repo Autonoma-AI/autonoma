@@ -10,12 +10,7 @@ export type {
 } from "./types";
 export { DaemonClient } from "./daemon/client";
 export type { DaemonLockInfo } from "./daemon/client";
-export {
-    buildLockOwner,
-    parseLockOwner,
-    isValidLockOwner,
-    LockOwnerParamsSchema,
-} from "./lock-owner";
+export { buildLockOwner, parseLockOwner, isValidLockOwner, LockOwnerParamsSchema } from "./lock-owner";
 export type { LockOwnerParams } from "./lock-owner";
 export { buildIosCapabilities, buildAndroidCapabilities } from "./capabilities";
 

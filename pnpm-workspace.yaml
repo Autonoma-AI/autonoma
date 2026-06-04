@@ -93,7 +93,6 @@ onlyBuiltDependencies:
   - prisma
 
 overrides:
-  kysely: '0.28.17'
   '@hono/node-server@<1.19.13': ^1.19.13
   fast-xml-parser@<5.7.0: ^5.7.0
   fast-xml-parser@>=5.0.0 <5.3.8: ^5.3.8

@@ -103,16 +103,15 @@ point, no hallucinated steps, correct engine-vs-app attribution?
 ---
 description: "what this case exercises"
 skip: false
-expectedActions:               # one entry per failing test case in input.json
-  tc-abc: update_plan          # the kind the agent must emit for this test case
-  tc-def: report_bug
-  tc-ghi: remove_test
+expectedActions: # one entry per failing test case in input.json
+    tc-abc: update_plan # the kind the agent must emit for this test case
+    tc-def: report_bug
+    tc-ghi: remove_test
 ---
-
 Free-text judge rubric. Grade qualities the deterministic check cannot:
-  - For each update_plan: does the newPrompt actually address the cited failure?
-  - For each report_bug / report_engine_limitation: is the triage correct?
-  - For each remove_test: is the cited reason plausible given the failure context?
+    - For each update_plan: does the newPrompt actually address the cited failure?
+    - For each report_bug / report_engine_limitation: is the triage correct?
+    - For each remove_test: is the cited reason plausible given the failure context?
 ```
 
 Healing's runtime invariant is that every input failure is handled by exactly one
@@ -172,10 +171,10 @@ mirroring production.) After capture, fill in the frontmatter checks and the rub
 in `expected.md`, then flip `skip: false`.
 
 **Baseline snapshot state (Analysis + Resolution).** Both steps grade against the snapshot as it
-stood *before* this snapshot's pipeline ran. At production time the snapshot's own assignments
+stood _before_ this snapshot's pipeline ran. At production time the snapshot's own assignments
 are still that baseline (analysis does not write to the suite; resolution reads it once at the
 start, before its own callbacks mutate it), so the runner reads them directly. Capture, however,
-runs *after* the pipeline has rewritten those assignments, so it loads the baseline from the
+runs _after_ the pipeline has rewritten those assignments, so it loads the baseline from the
 snapshot's **previous** snapshot - the unmutated copy - to reproduce exactly what the step saw.
 This is controlled by the `testSuiteSource` option on the shared `assembleDiffsAgentInput` /
 `assembleResolutionAgentInput` loaders (`"current"` for the runner, `"previous"` for capture).
@@ -191,14 +190,14 @@ candidate `id`/`name`/`instruction`/`reasoning` fields are immutable.
 **Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
 `bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
 time). Those reads only touch rows that the rest of the pipeline never mutates by id
-(`TestGeneration`, `Run`, their reviews; `update_plan` creates a *new* `TestPlan` rather than
+(`TestGeneration`, `Run`, their reviews; `update_plan` creates a _new_ `TestPlan` rather than
 mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
 filtered out). The bucketing reproduces exactly.
 
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
 schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -
-`assignment.plan` is *not* used, because `updatePlan` re-points the assignment to a new TestPlan
+`assignment.plan` is _not_ used, because `updatePlan` re-points the assignment to a new TestPlan
 row). The remaining fields that capture re-reads live and can in principle drift between capture
 and what production saw:
 
@@ -220,7 +219,7 @@ snapshot-scoped and are read live from the application at capture time:
 - `scenarioIndex` (resolution + healing) - the application's enabled scenarios. Scenarios are
   referenced by id, so if one is deleted between capture and eval run the frozen ids become stale.
 - `folder list + names/descriptions` (analysis + healing, via `loadFlows` / the healing
-  `planAuthoring` block) - the per-folder *test slugs* are snapshot-scoped, but the folder
+  `planAuthoring` block) - the per-folder _test slugs_ are snapshot-scoped, but the folder
   metadata itself is read live. Folders cannot currently be product-edited, so this rarely drifts.
 
 A capture against a freshly-finished snapshot is always faithful; an older snapshot may pick up

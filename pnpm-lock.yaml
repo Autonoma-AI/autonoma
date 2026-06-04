@@ -110,7 +110,6 @@ catalogs:
       version: 4.3.6
 
 overrides:
-  kysely: 0.28.17
   '@hono/node-server@<1.19.13': ^1.19.13
   fast-xml-parser@<5.7.0: ^5.7.0
   fast-xml-parser@>=5.0.0 <5.3.8: ^5.3.8
@@ -144,8 +143,8 @@ importers:
         specifier: 'catalog:'
         version: 4.21.0
       turbo:
-        specifier: ^2.9.14
-        version: 2.9.14
+        specifier: ^2.9.16
+        version: 2.9.16
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -201,8 +200,8 @@ importers:
         specifier: 'catalog:'
         version: 1.6.14(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.4.1)(better-auth@1.6.14(@opentelemetry/api@1.9.0)(@prisma/client@7.7.0(prisma@7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3))(mysql2@3.15.3)(pg@8.18.0)(prisma@7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vitest@4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(msw@2.12.10(@types/node@25.2.3)(typescript@5.9.3))(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.3)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))))(better-call@1.3.5(zod@4.3.6))
       '@better-auth/redis-storage':
-        specifier: ^1.5.3
-        version: 1.5.3(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)
+        specifier: ^1.6.14
+        version: 1.6.14(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.23)
@@ -779,8 +778,8 @@ importers:
         specifier: ^8.0.8
         version: 8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)
       vite-plugin-pwa:
-        specifier: ^1.2.0
-        version: 1.2.0(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))(workbox-build@7.4.0(@types/babel__core@7.20.5))(workbox-window@7.4.0)
+        specifier: ^1.3.0
+        version: 1.3.0(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))(workbox-build@7.4.0(@types/babel__core@7.20.5))(workbox-window@7.4.0)
       vite-tsconfig-paths:
         specifier: ^6.1.1
         version: 6.1.1(typescript@5.9.3)(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
@@ -2908,7 +2907,7 @@ packages:
       '@opentelemetry/api': ^1.9.0
       better-call: 1.3.5
       jose: ^6.1.0
-      kysely: 0.28.17
+      kysely: ^0.28.5 || ^0.29.0
       nanostores: ^1.0.1
     peerDependenciesMeta:
       '@cloudflare/workers-types':
@@ -2931,7 +2930,7 @@ packages:
     peerDependencies:
       '@better-auth/core': ^1.6.14
       '@better-auth/utils': 0.4.1
-      kysely: 0.28.17
+      kysely: ^0.28.17 || ^0.29.0
     peerDependenciesMeta:
       kysely:
         optional: true
@@ -2965,10 +2964,10 @@ packages:
       prisma:
         optional: true
 
-  '@better-auth/redis-storage@1.5.3':
-    resolution: {integrity: sha512-UmCGGezeYTxMLgxo55mee2T2zg2shV6tJqxHZS04YFH+YgO5wHcA/YLERfAOXpqpoLO5UGyoLzWXHs2+2VYgfA==}
+  '@better-auth/redis-storage@1.6.14':
+    resolution: {integrity: sha512-lw0eYWEEL0ImB9YyDxSNpWCTsfl/tB/Bb7LB1Mp/hyW+getIVssTFfz5iz4YG0Zc6nqYPHmpyhI7kR2/cOGwug==}
     peerDependencies:
-      '@better-auth/core': 1.5.3
+      '@better-auth/core': ^1.6.14
       ioredis: ^5.0.0
 
   '@better-auth/telemetry@1.6.14':
@@ -6392,33 +6391,33 @@ packages:
   '@ts-morph/common@0.27.0':
     resolution: {integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==}
 
-  '@turbo/darwin-64@2.9.14':
-    resolution: {integrity: sha512-t7QiPflaEyBE4oayeZtSmu4mEfjgIrcNlNNl1z1dmIVPqEdtA7+CfTf8d7KXsOGPh6aNgWjKxyvQg9uGfDQF+A==}
+  '@turbo/darwin-64@2.9.16':
+    resolution: {integrity: sha512-jLjApWTSNd7JZ5JaLYfelW1ytnGQOvB7ivl+2RD1xQvJTbi8I9gBjzcga7tDZVPyaxpl10YTfJt3BrYXR18KDw==}
     cpu: [x64]
     os: [darwin]
 
-  '@turbo/darwin-arm64@2.9.14':
-    resolution: {integrity: sha512-d23147mC9BsCPA9mJ0h/ubcpbRgcJBXbcG3+Vq7YLhjz3IXuvQsJ1UXH8f4MD76ZjJ4m/E4aRdJV+MW88CDfbw==}
+  '@turbo/darwin-arm64@2.9.16':
+    resolution: {integrity: sha512-YPgrn+5HIGzrx0O2a631SV4MBQUe4W/DafMFUuBVgaU32PW9/OTT0ehviF0QSxTXuRJlHvW2eUTemddF5/spmw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@turbo/linux-64@2.9.14':
-    resolution: {integrity: sha512-P3ZKB5tuUDdDQWuAsACGUR1qv9W7BNWxdxqVJ0kZNuNNPRaVYTPPikLcp79+GiEcW3npsR+KyP38lnQiBc5aSA==}
+  '@turbo/linux-64@2.9.16':
+    resolution: {integrity: sha512-vAEf1H6l26lTpl9FJ/peQo1NUB8RC0sbEJJz5mPcUhHA2bPDup2x3CZPgo/bH8S4cUcBLm4FN3UHd5iUO2RAew==}
     cpu: [x64]
     os: [linux]
 
-  '@turbo/linux-arm64@2.9.14':
-    resolution: {integrity: sha512-ZRTlzcUMrrPv9ZuDzRF9n60Ym13bKeG9jDB8WjxyLhWNzV+AJQN+zdpIk3NJYf2zQsGUm1mNar2P0elRzLw25g==}
+  '@turbo/linux-arm64@2.9.16':
+    resolution: {integrity: sha512-xDBLR2PZg4BrQOchfG6svgpv5FCNJ2TOtT2psLdEJcdKo1BH+pnPs9Xj6pvUjgfkHbuvBOfeE4R6tvxMoQKDHQ==}
     cpu: [arm64]
     os: [linux]
 
-  '@turbo/windows-64@2.9.14':
-    resolution: {integrity: sha512-exanwN6sIduZwykYeiTQj8kCmOhazP5WOz3bvXMcYtjhL6Z3iRWLewKrXCBq0bqwSP3iBMb/AerRCnHI4lx46A==}
+  '@turbo/windows-64@2.9.16':
+    resolution: {integrity: sha512-NBAJnaUiGdgkSzQwUIdOvkCkcpTSu58G/sBGa0mvBtzfvFOOgrQwepKOOQ8cp6sWM6OcKDNFj2p1dsZA1OWjPg==}
     cpu: [x64]
     os: [win32]
 
-  '@turbo/windows-arm64@2.9.14':
-    resolution: {integrity: sha512-fVdCsnmYoKICsycbWuuGp6Jvi51/3G/UluFWuAUCvR8PIW5IJkAk5BM9UF8PSm0Q2IphWHFZjYEgjHsh3B9y/g==}
+  '@turbo/windows-arm64@2.9.16':
+    resolution: {integrity: sha512-Y7SJppD0Z8wjO3Ec0ZGd9KQ4Yv0BMnA8CIowj5Vp+OEVsosXDG2weK6/t1RRLfJmc2Ozrnd6y4DOgQys+mn3WQ==}
     cpu: [arm64]
     os: [win32]
 
@@ -11091,8 +11090,8 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  turbo@2.9.14:
-    resolution: {integrity: sha512-BQqXRr4UoWI3UPFrtznCLykYHxwxWh53iCB57x092jPMjIlW1wnm3N895g5irpiXmnxUhREBB0n6+y8BHhs4nw==}
+  turbo@2.9.16:
+    resolution: {integrity: sha512-NqgRQy6j6dPYcdSdv0q1g9QsZg7SWg87RERM8otw/1AtKU2yTFVClOM7cbwKzOonZr/Ek1blTBucw64L9H0Bwg==}
     hasBin: true
 
   tw-animate-css@1.4.0:
@@ -11401,14 +11400,14 @@ packages:
   victory-vendor@36.9.2:
     resolution: {integrity: sha512-PnpQQMuxlwYdocC8fIJqVXvkeViHYzotI+NJrCuav0ZYFoq912ZHBk3mCeuj+5/VpodOjPe1z0Fk2ihgzlXqjQ==}
 
-  vite-plugin-pwa@1.2.0:
-    resolution: {integrity: sha512-a2xld+SJshT9Lgcv8Ji4+srFJL4k/1bVbd1x06JIkvecpQkwkvCncD1+gSzcdm3s+owWLpMJerG3aN5jupJEVw==}
+  vite-plugin-pwa@1.3.0:
+    resolution: {integrity: sha512-c5kMgN+ITrOtHXp8PAtk2uOIEea6XjP/unCGxOWWBzQ6qa65qj/awHg0wf+QF9E/2u9vh86LqxPwzEPNbM2r5A==}
     engines: {node: '>=16.0.0'}
     peerDependencies:
       '@vite-pwa/assets-generator': ^1.0.0
-      vite: ^3.1.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
-      workbox-build: ^7.4.0
-      workbox-window: ^7.4.0
+      vite: ^3.1.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
+      workbox-build: ^7.4.1
+      workbox-window: ^7.4.1
     peerDependenciesMeta:
       '@vite-pwa/assets-generator':
         optional: true
@@ -14144,7 +14143,7 @@ snapshots:
       '@prisma/client': 7.7.0(prisma@7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)
       prisma: 7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
 
-  '@better-auth/redis-storage@1.5.3(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)':
+  '@better-auth/redis-storage@1.6.14(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)':
     dependencies:
       '@better-auth/core': 1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       ioredis: 5.9.3
@@ -17608,22 +17607,22 @@ snapshots:
       minimatch: 10.2.4
       path-browserify: 1.0.1
 
-  '@turbo/darwin-64@2.9.14':
+  '@turbo/darwin-64@2.9.16':
     optional: true
 
-  '@turbo/darwin-arm64@2.9.14':
+  '@turbo/darwin-arm64@2.9.16':
     optional: true
 
-  '@turbo/linux-64@2.9.14':
+  '@turbo/linux-64@2.9.16':
     optional: true
 
-  '@turbo/linux-arm64@2.9.14':
+  '@turbo/linux-arm64@2.9.16':
     optional: true
 
-  '@turbo/windows-64@2.9.14':
+  '@turbo/windows-64@2.9.16':
     optional: true
 
-  '@turbo/windows-arm64@2.9.14':
+  '@turbo/windows-arm64@2.9.16':
     optional: true
 
   '@tybys/wasm-util@0.10.1':
@@ -23473,14 +23472,14 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  turbo@2.9.14:
+  turbo@2.9.16:
     optionalDependencies:
-      '@turbo/darwin-64': 2.9.14
-      '@turbo/darwin-arm64': 2.9.14
-      '@turbo/linux-64': 2.9.14
-      '@turbo/linux-arm64': 2.9.14
-      '@turbo/windows-64': 2.9.14
-      '@turbo/windows-arm64': 2.9.14
+      '@turbo/darwin-64': 2.9.16
+      '@turbo/darwin-arm64': 2.9.16
+      '@turbo/linux-64': 2.9.16
+      '@turbo/linux-arm64': 2.9.16
+      '@turbo/windows-64': 2.9.16
+      '@turbo/windows-arm64': 2.9.16
 
   tw-animate-css@1.4.0: {}
 
@@ -23762,11 +23761,11 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite-plugin-pwa@1.2.0(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))(workbox-build@7.4.0(@types/babel__core@7.20.5))(workbox-window@7.4.0):
+  vite-plugin-pwa@1.3.0(vite@8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))(workbox-build@7.4.0(@types/babel__core@7.20.5))(workbox-window@7.4.0):
     dependencies:
       debug: 4.4.3
       pretty-bytes: 6.1.1
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.16
       vite: 8.0.8(@types/node@25.2.3)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)
       workbox-build: 7.4.0(@types/babel__core@7.20.5)
       workbox-window: 7.4.0

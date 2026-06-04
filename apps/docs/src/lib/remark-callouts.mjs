@@ -1,6 +1,6 @@
-import { visit } from "unist-util-visit"
+import { visit } from "unist-util-visit";
 
-const CALLOUT_TYPES = new Set(["note", "tip", "caution", "danger"])
+const CALLOUT_TYPES = new Set(["note", "tip", "caution", "danger"]);
 
 /**
  * Remark plugin that transforms :::note / :::tip / :::caution / :::danger
@@ -21,26 +21,24 @@ const CALLOUT_TYPES = new Set(["note", "tip", "caution", "danger"])
 export function remarkCallouts() {
     return (tree) => {
         visit(tree, "containerDirective", (node) => {
-            if (!CALLOUT_TYPES.has(node.name)) return
+            if (!CALLOUT_TYPES.has(node.name)) return;
 
-            const variant = node.name
+            const variant = node.name;
 
-            const hasLabel = node.children[0]?.data?.directiveLabel
-            const title = hasLabel
-                ? node.children[0].children[0]?.value ?? variant
-                : variant
+            const hasLabel = node.children[0]?.data?.directiveLabel;
+            const title = hasLabel ? (node.children[0].children[0]?.value ?? variant) : variant;
 
             if (hasLabel) {
-                node.children.splice(0, 1)
+                node.children.splice(0, 1);
             }
 
-            const data = node.data ?? (node.data = {})
-            data.hName = "aside"
+            const data = node.data ?? (node.data = {});
+            data.hName = "aside";
             data.hProperties = {
                 class: `callout callout-${variant}`,
                 "data-variant": variant,
                 "data-title": title,
-            }
-        })
-    }
+            };
+        });
+    };
 }

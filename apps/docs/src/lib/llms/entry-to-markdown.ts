@@ -1,6 +1,6 @@
-import { type CollectionEntry, render } from "astro:content";
 // @ts-nocheck - unified pipeline types are complex and don't play well with strict TS
 import type { APIContext } from "astro";
+import { type CollectionEntry, render } from "astro:content";
 import type { RootContent } from "hast";
 import { matches, select, selectAll } from "hast-util-select";
 import rehypeParse from "rehype-parse";

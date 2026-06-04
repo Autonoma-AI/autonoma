@@ -1,5 +1,4 @@
 import "dotenv/config";
-
 import { CostCollector } from "@autonoma/ai";
 import { LocalRunner, createEngineModelRegistry, printCostSummary } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";

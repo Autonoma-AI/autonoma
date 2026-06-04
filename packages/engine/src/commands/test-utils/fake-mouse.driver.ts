@@ -11,9 +11,9 @@ export interface FakeDrag {
     endPoint: Point;
 }
 
-export class FakeMouseDriver<TClickOptions extends object = Record<string, never>>
-    implements MouseDriver<TClickOptions>
-{
+export class FakeMouseDriver<
+    TClickOptions extends object = Record<string, never>,
+> implements MouseDriver<TClickOptions> {
     /** The clicks performed by the driver. */
     public readonly clicks: FakeClick<TClickOptions>[] = [];
 

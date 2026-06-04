@@ -32,7 +32,8 @@ export const bugsRouter = router({
                 branchId: input.branchId,
                 status: input.status,
             };
-            if (input.snapshotId != null) return services.bugs.listBugsByPr({ ...params, snapshotId: input.snapshotId });
+            if (input.snapshotId != null)
+                return services.bugs.listBugsByPr({ ...params, snapshotId: input.snapshotId });
             return services.bugs.listBugsByPr(params);
         }),
 

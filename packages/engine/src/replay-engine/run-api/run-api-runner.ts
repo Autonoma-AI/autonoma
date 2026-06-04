@@ -5,8 +5,11 @@ import type { ReplayStep } from "../engine/replay-step";
 import { ReplayRunner, type ReplayRunnerConfig } from "../runner/replay-runner";
 import type { RunData, RunPersister } from "./run-persister";
 
-export interface RunAPIRunnerConfig<TSpec extends CommandSpec, TApplicationData, TContext extends BaseCommandContext>
-    extends Omit<ReplayRunnerConfig<TSpec, TApplicationData, TContext>, "eventHandlers"> {
+export interface RunAPIRunnerConfig<
+    TSpec extends CommandSpec,
+    TApplicationData,
+    TContext extends BaseCommandContext,
+> extends Omit<ReplayRunnerConfig<TSpec, TApplicationData, TContext>, "eventHandlers"> {
     videoExtension: string;
     runPersister: RunPersister<TSpec>;
 }

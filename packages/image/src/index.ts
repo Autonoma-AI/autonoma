@@ -1,10 +1,5 @@
 // Config
-export {
-    setScreenshotConfig,
-    getScreenshotConfig,
-    type ScreenResolution,
-    type ScreenshotConfig,
-} from "./config";
+export { setScreenshotConfig, getScreenshotConfig, type ScreenResolution, type ScreenshotConfig } from "./config";
 
 // Screenshot
 export { Screenshot } from "./screenshot";
