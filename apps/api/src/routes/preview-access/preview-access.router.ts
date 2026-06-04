@@ -8,9 +8,10 @@ export const previewAccessRouter = router({
     issueToken: protectedProcedure
         .input(z.object({ redirectUrl: z.string().url() }))
         .mutation(async ({ input, ctx: { user } }) => {
+            const url = input.redirectUrl.replace(/\/$/, "");
             const instance = await db.previewkitAppInstance.findFirst({
                 where: {
-                    url: input.redirectUrl,
+                    url,
                     environment: {
                         organization: {
                             members: { some: { userId: user.id } },
