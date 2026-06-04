@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { db, type PrismaClient } from "@autonoma/db";
 import { type GitHubCommentStore, payloadBuilder, postOrUpdateCommentOnGithub } from "@autonoma/github/comment";
+import type { StorageProvider } from "@autonoma/storage";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
@@ -27,6 +28,15 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
+
+/**
+ * How long the "view logs" links in the PR comment stay valid. Build logs live
+ * in a private S3 bucket, so the comment links must be presigned to open from a
+ * browser without AWS credentials. 7 days is the maximum a SigV4 presigned URL
+ * can last; we use the full window so the link survives a PR sitting open for a
+ * while. The link is re-signed every time the comment is updated (each push).
+ */
+const BUILD_LOG_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Combined per-app outcome rendered in the PR comment. Bundles the build and
@@ -79,6 +89,7 @@ interface PreviewPipelineOptions {
     awsSecretsFetcher: AwsSecretsFetcher;
     addonManager: AddonManager;
     registryUrl: string;
+    storage: StorageProvider;
 }
 
 export class PreviewPipeline {
@@ -88,6 +99,7 @@ export class PreviewPipeline {
     private readonly awsSecretsFetcher: AwsSecretsFetcher;
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
+    private readonly storage: StorageProvider;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -96,6 +108,7 @@ export class PreviewPipeline {
         this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
+        this.storage = options.storage;
     }
 
     async deploy(event: PullRequestEvent): Promise<void> {
@@ -450,7 +463,7 @@ export class PreviewPipeline {
                     prNumber,
                     lastCommitSha: headSha,
                     commentId,
-                    payload: this.buildPreviewResultPayload(
+                    payload: await this.buildPreviewResultPayload(
                         prNumber,
                         headSha,
                         finalOutcomes,
@@ -974,7 +987,25 @@ export class PreviewPipeline {
         });
     }
 
-    private buildPreviewResultPayload(
+    /**
+     * Presign a build log's S3 URL so the "view logs" link in the PR comment
+     * opens in a browser without AWS credentials. Build logs are stored as
+     * `s3://bucket/key`, which is not browser-openable on its own. Signing is
+     * best-effort: a failure drops just that one link rather than failing the
+     * whole comment update.
+     */
+    private async signBuildLogUrl(buildLogUrl: string | undefined, appName: string): Promise<string | undefined> {
+        if (buildLogUrl == null || buildLogUrl === "") return undefined;
+
+        try {
+            return await this.storage.getSignedUrl(buildLogUrl, BUILD_LOG_URL_TTL_SECONDS);
+        } catch (err) {
+            logger.warn("Failed to presign build log URL for PR comment", { app: appName, buildLogUrl, err });
+            return undefined;
+        }
+    }
+
+    private async buildPreviewResultPayload(
         prNumber: number,
         headSha: string,
         outcomes: AppFinalOutcome[],
@@ -985,13 +1016,15 @@ export class PreviewPipeline {
         addonOutcomes: AddonProvisionOutcome[],
     ) {
         const allReady = readyCount === totalCount;
-        const services = outcomes.map((outcome) => ({
-            name: outcome.name,
-            status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
-            url: outcome.url,
-            logsUrl: outcome.buildLogUrl,
-            error: outcome.error,
-        }));
+        const services = await Promise.all(
+            outcomes.map(async (outcome) => ({
+                name: outcome.name,
+                status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
+                url: outcome.url,
+                logsUrl: await this.signBuildLogUrl(outcome.buildLogUrl, outcome.name),
+                error: outcome.error,
+            })),
+        );
 
         const addons = addonOutcomes.map((outcome) => {
             const addon = config.addons.find((candidate) => candidate.name === outcome.name);

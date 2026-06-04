@@ -148,6 +148,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         awsSecretsFetcher,
         addonManager,
         registryUrl: env.REGISTRY_URL,
+        storage,
     });
 
     const teardownPipeline = new TeardownPipeline({
