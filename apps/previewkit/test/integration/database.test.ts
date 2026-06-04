@@ -164,13 +164,13 @@ integrationTestSuite({
                 durationMs: 42_000,
                 appBuilds: {
                     web: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "ghcr.io/acme/web:pr-7-abc1234",
                         durationMs: 30_000,
                         logUrl: "s3://logs/web.log",
                     },
                     api: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "ghcr.io/acme/api:pr-7-abc1234",
                         durationMs: 12_000,
                         logUrl: "s3://logs/api.log",
@@ -180,7 +180,7 @@ integrationTestSuite({
 
             const env = await harness.db.previewkitEnvironment.findUnique({
                 where: { namespace: "preview-acme-web-pr-7" },
-                include: { builds: true },
+                include: { builds: { include: { appBuilds: true } } },
             });
             expect(env!.builds).toHaveLength(1);
             const build = env!.builds[0]!;
@@ -188,9 +188,17 @@ integrationTestSuite({
             expect(build.durationMs).toBe(42_000);
             expect(build.status).toBe("building");
             expect(build.finishedAt).not.toBeNull();
-            expect(build.appBuilds).toMatchObject({
-                web: { status: "ok", imageTag: "ghcr.io/acme/web:pr-7-abc1234", durationMs: 30_000 },
-                api: { status: "ok", imageTag: "ghcr.io/acme/api:pr-7-abc1234", durationMs: 12_000 },
+
+            const appBuildsByName = new Map(build.appBuilds.map((appBuild) => [appBuild.appName, appBuild]));
+            expect(appBuildsByName.get("web")).toMatchObject({
+                status: "success",
+                imageTag: "ghcr.io/acme/web:pr-7-abc1234",
+                durationMs: 30_000,
+            });
+            expect(appBuildsByName.get("api")).toMatchObject({
+                status: "success",
+                imageTag: "ghcr.io/acme/api:pr-7-abc1234",
+                durationMs: 12_000,
             });
         });
 

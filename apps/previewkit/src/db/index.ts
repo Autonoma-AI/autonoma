@@ -35,14 +35,14 @@ export interface PhaseChangedInput {
  * Per-app outcome of the build phase. Each app is recorded independently so
  * that one failed build doesn't erase the others from the history.
  *
- * - `ok`: the image was built and pushed; `imageTag` + `logUrl` are set.
+ * - `success`: the image was built and pushed; `imageTag` + `logUrl` are set.
  * - `failed`: the build threw. `error` carries the message; `logUrl` is set
  *   when the builder managed to upload the captured log (it usually does —
  *   the log upload only fails if S3 itself is unreachable or the log file
  *   is empty, both of which are rare).
  */
 export type AppBuildOutcome =
-    | { status: "ok"; imageTag: string; durationMs: number; logUrl: string; runtime?: BuildRuntime }
+    | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: BuildRuntime }
     | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: BuildRuntime };
 
 export interface BuildFinishedInput {
@@ -178,10 +178,29 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
             status,
             durationMs,
             finishedAt: new Date(),
-            appBuilds,
             error: error ?? null,
+            appBuilds: {
+                create: Object.entries(appBuilds).map(([appName, outcome]) => toAppBuildRow(appName, outcome)),
+            },
         },
     });
+}
+
+/**
+ * Flattens a per-app build outcome into a `PreviewkitAppBuild` create row.
+ * `imageTag` is only present on success and `error` only on failure, so each
+ * is null for the other variant.
+ */
+function toAppBuildRow(appName: string, outcome: AppBuildOutcome) {
+    return {
+        appName,
+        status: outcome.status,
+        durationMs: outcome.durationMs,
+        imageTag: outcome.status === "success" ? outcome.imageTag : null,
+        error: outcome.status === "failed" ? outcome.error : null,
+        logUrl: outcome.logUrl ?? null,
+        runtime: outcome.runtime ?? null,
+    };
 }
 
 export async function recordEnvironmentReady(input: EnvironmentReadyInput): Promise<void> {

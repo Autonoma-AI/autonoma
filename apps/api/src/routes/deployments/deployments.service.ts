@@ -7,10 +7,10 @@ import {
     legacyPreviewSummary,
     mapBuildStatus,
     missingPreviewSummary,
-    parseAppBuilds,
     parseManifest,
     parseStringRecord,
     resolvePrimaryUrl,
+    toAppBuildOutcomeMap,
 } from "./preview-summary";
 
 export class DeploymentsService extends Service {
@@ -134,7 +134,17 @@ export class DeploymentsService extends Service {
                         startedAt: true,
                         finishedAt: true,
                         durationMs: true,
-                        appBuilds: true,
+                        appBuilds: {
+                            select: {
+                                appName: true,
+                                status: true,
+                                imageTag: true,
+                                durationMs: true,
+                                logUrl: true,
+                                error: true,
+                                runtime: true,
+                            },
+                        },
                     },
                     orderBy: { startedAt: "desc" },
                     take: 1,
@@ -177,7 +187,7 @@ export class DeploymentsService extends Service {
         const manifest = parseManifest(environment.manifest);
         const urls = parseStringRecord(environment.urls);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
-        const appBuilds = parseAppBuilds(latestBuild?.appBuilds);
+        const appBuilds = toAppBuildOutcomeMap(latestBuild?.appBuilds ?? []);
         const services = buildServiceSummaries({
             branchName: branch.name,
             environment,

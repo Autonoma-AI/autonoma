@@ -72,15 +72,6 @@ declare global {
         export type ScenarioLastError = { message: string };
         export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
         export type GitHubWebhookPayload = EmitterWebhookEvent["payload"];
-        // Per-app outcome of a Previewkit build phase. Apps are built
-        // independently — one app's failure doesn't drop the others from the
-        // history, so the JSON column carries a discriminated union per app.
-        // `logUrl` is present on failed builds whenever the build-log upload
-        // succeeded (the common case), so the PR comment can render a link.
-        export type PreviewkitAppBuildOutcome =
-            | { status: "ok"; imageTag: string; durationMs: number; logUrl: string }
-            | { status: "failed"; durationMs: number; error: string; logUrl?: string };
-        export type PreviewkitAppBuilds = Record<string, PreviewkitAppBuildOutcome>;
         export type PreviewkitManifest = {
             apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
             services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;

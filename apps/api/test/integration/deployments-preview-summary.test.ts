@@ -19,7 +19,7 @@ apiTestSuite({
                 urls: { web: "https://web-pr201.preview.example.com" },
                 appBuilds: {
                     web: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "web:sha-ready",
                         durationMs: 1000,
                         logUrl: "https://logs.example.com/web",
@@ -85,21 +85,21 @@ apiTestSuite({
                 },
                 urls: { web: "https://web-pr207.preview.example.com" },
                 appBuilds: {
-                    api: { status: "ok", imageTag: "api:sha-icons", durationMs: 1000, logUrl: "https://logs/api" },
+                    api: { status: "success", imageTag: "api:sha-icons", durationMs: 1000, logUrl: "https://logs/api" },
                     backend: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "backend:sha-icons",
                         durationMs: 1000,
                         logUrl: "https://logs/backend",
                         runtime: "node",
                     },
                     worker: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "worker:sha-icons",
                         durationMs: 1000,
                         logUrl: "https://logs/worker",
                     },
-                    web: { status: "ok", imageTag: "web:sha-icons", durationMs: 1000, logUrl: "https://logs/web" },
+                    web: { status: "success", imageTag: "web:sha-icons", durationMs: 1000, logUrl: "https://logs/web" },
                 },
                 appInstances: [
                     {
@@ -218,7 +218,7 @@ apiTestSuite({
                 urls: { web: "https://web-pr204.preview.example.com" },
                 appBuilds: {
                     web: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "web:sha-degraded",
                         durationMs: 1000,
                         logUrl: "https://logs.example.com/web",
@@ -261,7 +261,7 @@ apiTestSuite({
                 urls: { web: "https://web-pr205.preview.example.com" },
                 appBuilds: {
                     web: {
-                        status: "ok",
+                        status: "success",
                         imageTag: "web:sha-old",
                         durationMs: 1000,
                         logUrl: "https://logs.example.com/web",
@@ -367,7 +367,7 @@ async function createPreviewEnvironment(
         urls: Record<string, string>;
         appBuilds: Record<
             string,
-            | { status: "ok"; imageTag: string; durationMs: number; logUrl: string; runtime?: string }
+            | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: string }
             | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: string }
         >;
         appInstances?: Array<{ appName: string; imageTag: string; url: string; port: number }>;
@@ -405,8 +405,18 @@ async function createPreviewEnvironment(
             status: input.status === "ready" ? "ready" : input.status === "failed" ? "failed" : "building",
             durationMs: 1000,
             finishedAt: new Date(),
-            appBuilds: input.appBuilds,
             error: input.status === "failed" ? "Preview build failed" : null,
+            appBuilds: {
+                create: Object.entries(input.appBuilds).map(([appName, outcome]) => ({
+                    appName,
+                    status: outcome.status,
+                    durationMs: outcome.durationMs,
+                    imageTag: outcome.status === "success" ? outcome.imageTag : null,
+                    error: outcome.status === "failed" ? outcome.error : null,
+                    logUrl: outcome.logUrl ?? null,
+                    runtime: outcome.runtime ?? null,
+                })),
+            },
         },
     });
 

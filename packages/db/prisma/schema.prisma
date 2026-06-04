@@ -1624,6 +1624,13 @@ enum PreviewkitStatus {
   @@map("previewkit_status")
 }
 
+enum PreviewkitAppBuildStatus {
+  success
+  failed
+
+  @@map("previewkit_app_build_status")
+}
+
 model PreviewkitEnvironment {
   id String @id @default(cuid())
 
@@ -1681,11 +1688,39 @@ model PreviewkitBuild {
   finishedAt DateTime?        @map("finished_at")
   durationMs Int?             @map("duration_ms")
 
-  /// [PreviewkitAppBuilds]
-  appBuilds Json @default("{}") @map("app_builds")
+  appBuilds PreviewkitAppBuild[]
 
   @@index([environmentId, startedAt])
   @@map("previewkit_build")
+}
+
+// One row per app built within a PreviewkitBuild. Normalized out of what used
+// to be the `app_builds` JSON column so each app's outcome is a typed,
+// queryable row. Apps build independently, so one app's failure leaves the
+// others' rows intact. `imageTag` is set on success; `error` on failure;
+// `logUrl` is present whenever the build-log upload succeeded (the common
+// case) so the PR comment can render a link.
+model PreviewkitAppBuild {
+  id String @id @default(cuid())
+
+  buildId String          @map("build_id")
+  build   PreviewkitBuild @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  appName    String                   @map("app_name")
+  status     PreviewkitAppBuildStatus
+  imageTag   String?                  @map("image_tag")
+  durationMs Int                      @map("duration_ms")
+  logUrl     String?                  @map("log_url")
+  error      String?
+  // Build strategy that produced the image: "node" | "docker-image" | "unknown".
+  // Stored as text (not an enum) because the value has a hyphen and the reader
+  // treats it loosely when picking a service icon.
+  runtime String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([buildId, appName])
+  @@map("previewkit_app_build")
 }
 
 model PreviewkitAppInstance {

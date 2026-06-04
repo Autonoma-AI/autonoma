@@ -335,7 +335,7 @@ export class PreviewPipeline {
 
             const imageTags: Record<string, string> = {};
             for (const [name, outcome] of Object.entries(appBuilds)) {
-                if (outcome.status === "ok") imageTags[name] = outcome.imageTag;
+                if (outcome.status === "success") imageTags[name] = outcome.imageTag;
             }
             const allBuildsFailed = Object.values(appBuilds).every((o) => o.status === "failed");
 
@@ -771,7 +771,7 @@ export class PreviewPipeline {
             });
 
             return {
-                status: "ok",
+                status: "success",
                 imageTag: result.imageTag,
                 durationMs: result.durationMs,
                 logUrl: result.logUrl,

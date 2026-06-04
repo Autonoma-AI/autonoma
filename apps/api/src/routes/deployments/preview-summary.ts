@@ -31,7 +31,7 @@ type PreviewServiceIconKey =
     | "unknown";
 
 type PreviewkitAppBuildOutcome =
-    | { status: "ok"; imageTag: string; durationMs: number; logUrl: string; runtime?: PreviewServiceIconKey }
+    | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: PreviewServiceIconKey }
     | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: PreviewServiceIconKey };
 
 type PreviewkitManifest = {
@@ -156,7 +156,6 @@ export function buildServiceSummaries({
     manifest: PreviewkitManifest;
     latestBuild: {
         finishedAt: Date | null;
-        appBuilds: Prisma.JsonValue;
     } | null;
     appBuilds: Record<string, PreviewkitAppBuildOutcome>;
 }): PreviewServiceSummary[] {
@@ -182,7 +181,7 @@ export function buildServiceSummaries({
             branchHint: "matched PR branch",
             endpoint: instance?.url ?? null,
             port: instance?.port ?? manifestApp?.port ?? null,
-            imageTag: instance?.imageTag ?? (build?.status === "ok" ? build.imageTag : null),
+            imageTag: instance?.imageTag ?? (build?.status === "success" ? build.imageTag : null),
             buildLogUrl: build?.logUrl ?? null,
             statusReason: build?.status === "failed" ? build.error : null,
             lastBuiltAt: latestBuild?.finishedAt ?? null,
@@ -338,34 +337,40 @@ export function parseStringRecord(value: Prisma.JsonValue): Record<string, strin
     );
 }
 
-export function parseAppBuilds(value: Prisma.JsonValue | undefined): Record<string, PreviewkitAppBuildOutcome> {
-    if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
+/** One persisted `PreviewkitAppBuild` row, as selected by the deployments query. */
+type AppBuildRow = {
+    appName: string;
+    status: "success" | "failed";
+    imageTag: string | null;
+    durationMs: number;
+    logUrl: string | null;
+    error: string | null;
+    runtime: string | null;
+};
+
+export function toAppBuildOutcomeMap(rows: AppBuildRow[]): Record<string, PreviewkitAppBuildOutcome> {
     const result: Record<string, PreviewkitAppBuildOutcome> = {};
-    for (const [name, raw] of Object.entries(value)) {
-        if (raw == null || typeof raw !== "object" || Array.isArray(raw)) continue;
-        const record = raw as Record<string, unknown>;
-        if (record.status === "ok" && typeof record.imageTag === "string") {
-            const runtime = toIconKeyOrUndefined(record.runtime);
+    for (const row of rows) {
+        const runtime = toIconKeyOrUndefined(row.runtime);
+        if (row.status === "success") {
             const outcome: PreviewkitAppBuildOutcome = {
-                status: "ok",
-                imageTag: record.imageTag,
-                durationMs: toNumber(record.durationMs) ?? 0,
-                logUrl: toStringOrNull(record.logUrl) ?? "",
+                status: "success",
+                imageTag: row.imageTag ?? "",
+                durationMs: row.durationMs,
+                logUrl: row.logUrl ?? "",
             };
             if (runtime != null) outcome.runtime = runtime;
-            result[name] = outcome;
-        } else if (record.status === "failed") {
-            const runtime = toIconKeyOrUndefined(record.runtime);
-            const logUrl = toStringOrNull(record.logUrl);
-            const outcome: PreviewkitAppBuildOutcome = {
-                status: "failed",
-                durationMs: toNumber(record.durationMs) ?? 0,
-                error: toStringOrNull(record.error) ?? "Build failed",
-            };
-            if (logUrl != null) outcome.logUrl = logUrl;
-            if (runtime != null) outcome.runtime = runtime;
-            result[name] = outcome;
+            result[row.appName] = outcome;
+            continue;
         }
+        const outcome: PreviewkitAppBuildOutcome = {
+            status: "failed",
+            durationMs: row.durationMs,
+            error: row.error ?? "Build failed",
+        };
+        if (row.logUrl != null) outcome.logUrl = row.logUrl;
+        if (runtime != null) outcome.runtime = runtime;
+        result[row.appName] = outcome;
     }
     return result;
 }
