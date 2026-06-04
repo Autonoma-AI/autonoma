@@ -1,5 +1,12 @@
-// Kernel: video upload helper and message-builder utilities.
-export { tryUploadVideo, MessageBuilder, sanitizeConversation, type VideoDownloader } from "./kernel";
+// Kernel: video upload helper, message-builder utilities, evidence loader.
+export {
+    tryUploadVideo,
+    MessageBuilder,
+    sanitizeConversation,
+    StorageEvidenceLoader,
+    type VideoDownloader,
+    type EvidenceLoader,
+} from "./kernel";
 
 // Generation reviewer prompt-building blocks. Orchestration (the runner, the
 // context loader, the persister) lives in `apps/workers/diffs`.

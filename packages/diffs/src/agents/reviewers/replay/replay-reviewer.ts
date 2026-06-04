@@ -5,7 +5,8 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type ReplayVerdict, replayVerdictSchema } from "@autonoma/types";
 import type { ModelMessage } from "ai";
 import type { Codebase } from "../../../codebase";
-import { type VideoDownloader, tryUploadVideo } from "../../../review/kernel/video-upload";
+import type { EvidenceLoader } from "../../../review/kernel/evidence-loader";
+import { tryUploadVideo } from "../../../review/kernel/video-upload";
 import { buildReplayReviewMessages } from "../../../review/replay/message-builder";
 import type { RunContext } from "../../../review/replay/types";
 import {
@@ -16,14 +17,13 @@ import {
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,
 } from "../../tools";
-import type { ScreenshotLoader } from "../../tools/screenshot/screenshot-types";
 import { ReviewerLoop } from "../reviewer-loop";
 
 const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "../../../review/replay/review-prompt.md"), "utf-8");
 
 export interface ReplayReviewerConfig {
     model: LanguageModel;
-    evidenceLoader: ScreenshotLoader & VideoDownloader;
+    evidenceLoader: EvidenceLoader;
     videoProcessor?: VideoProcessor;
 }
 
@@ -41,7 +41,7 @@ export interface ReplayReviewInput {
 export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, ReviewerLoop<ReplayVerdict>> {
     private readonly logger: Logger;
     private readonly model: LanguageModel;
-    private readonly evidenceLoader: ScreenshotLoader & VideoDownloader;
+    private readonly evidenceLoader: EvidenceLoader;
     private readonly videoProcessor?: VideoProcessor;
 
     private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();

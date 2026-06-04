@@ -21,10 +21,16 @@ export class RunContextLoader {
             select: {
                 id: true,
                 organizationId: true,
+                // `run.plan` is the snapshot of the plan this run actually executed,
+                // captured at run creation time. Reading it from `assignment.plan`
+                // instead would be wrong after any `updatePlan` call (e.g. healing),
+                // which re-points `assignment.planId` to a *new* TestPlan row -
+                // so the reviewer would otherwise grade the run against a prompt
+                // it never saw.
+                plan: { select: { prompt: true } },
                 assignment: {
                     select: {
                         testCase: { select: { name: true } },
-                        plan: { select: { prompt: true } },
                     },
                 },
                 outputs: {
@@ -63,7 +69,7 @@ export class RunContextLoader {
         return {
             runId: run.id,
             organizationId: run.organizationId,
-            testPlanPrompt: run.assignment.plan?.prompt ?? "No test plan prompt available",
+            testPlanPrompt: run.plan?.prompt ?? "No test plan prompt available",
             testCaseName: run.assignment.testCase.name,
             steps,
             videoS3Key: `run/${runId}/video.webm`,

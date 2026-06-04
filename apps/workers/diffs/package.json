@@ -13,6 +13,8 @@
         "eval": "RUN_EVALS=true vitest run --passWithNoTests",
         "capture:analysis": "tsx --env-file=../../../.env evals/capture/capture-analysis-cli.ts",
         "capture:resolution": "tsx --env-file=../../../.env evals/capture/capture-resolution-cli.ts",
+        "capture:generation-review": "tsx --env-file=../../../.env evals/capture/capture-generation-review.ts",
+        "capture:replay-review": "tsx --env-file=../../../.env evals/capture/capture-replay-review.ts",
         "review:generation": "tsx --env-file=../../../.env src/review/generation/run-generation-review.ts",
         "review:replay": "tsx --env-file=../../../.env src/review/replay/run-replay-review.ts",
         "diffs-agent": "tsx --env-file=../../../.env src/local-dev/run-diffs-isolated.ts",

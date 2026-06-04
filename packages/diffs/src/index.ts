@@ -143,6 +143,13 @@ export {
     type ScenarioSummary,
 } from "./healing/plan-authoring";
 
-export { tryUploadVideo, MessageBuilder, sanitizeConversation, type VideoDownloader } from "./review/kernel";
+export {
+    tryUploadVideo,
+    MessageBuilder,
+    sanitizeConversation,
+    StorageEvidenceLoader,
+    type VideoDownloader,
+    type EvidenceLoader,
+} from "./review/kernel";
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
 export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./review/replay";

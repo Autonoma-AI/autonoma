@@ -10,8 +10,9 @@ import type { CodebaseCoords } from "../framework/codebase-cache";
  * mint a clone token. Throws when any of those fields are missing - capture
  * refuses to write a case it cannot rehydrate later.
  *
- * Shared between the analysis and resolution capture commands: both freeze the
- * same codebase coordinates, so they share the same lookup.
+ * Shared by every `capture:*` command (analysis, resolution, generation
+ * review, replay review) so every frozen input agrees on how a snapshot
+ * maps to a clone.
  */
 export async function resolveSnapshotCoords(snapshotId: string, githubApp: GitHubApp): Promise<CodebaseCoords> {
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({

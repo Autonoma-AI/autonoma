@@ -1,0 +1,50 @@
+{
+    "codebase": {
+        "owner": "Autonoma-Labs",
+        "repo": "v0-kanban-board-creation-2",
+        "installationId": 136418389,
+        "baseSha": "87bce86fe113d45086b8f4bf9b40a9505ce3ecb9",
+        "headSha": "92c399312a234891b4603269bcebc6d8801b8b6f"
+    },
+    "context": {
+        "runId": "cmpx18cpa000d0nx0vh8mc7ks",
+        "organizationId": "cmmkw3zp00000019gzl1x04ql",
+        "testPlanPrompt": "# Test: Delete a task via card dropdown menu\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Locate the card titled \"Review PR #42\" in the \"Done\" column\n2. Hover over the \"Review PR #42\" card to reveal the three-dot menu icon\n3. Click the three-dot menu icon on the \"Review PR #42\" card\n4. Assert that a dropdown menu appears with a \"Delete\" option shown in red/destructive style\n5. Click \"Delete\"\n6. Assert that the card titled \"Review PR #42\" is no longer visible on the board\n7. Assert that the \"Done\" column card count badge shows \"1\"\n\n## Expected result\n\nThe task is immediately removed from the board. The column count decrements by one.\n\n## What bug this might catch\n\nBroken deleteTodo server action, failed optimistic removal, or the delete option not appearing in the dropdown menu.",
+        "testCaseName": "001-delete-task-from-column.md",
+        "steps": [
+            {
+                "order": 1,
+                "interaction": "hover",
+                "params": {
+                    "description": "the card titled \"Review PR #42\" in the \"Done\" column"
+                },
+                "output": {
+                    "point": {
+                        "x": 1394,
+                        "y": 491.5
+                    },
+                    "outcome": "Hovered at (1394, 491.5)"
+                },
+                "screenshotBeforeKey": "s3://autonoma-assets/run/cmpx18cpa000d0nx0vh8mc7ks/step-1-before.png",
+                "screenshotAfterKey": "s3://autonoma-assets/run/cmpx18cpa000d0nx0vh8mc7ks/step-1-after.png"
+            },
+            {
+                "order": 2,
+                "interaction": "click",
+                "params": {
+                    "options": {
+                        "button": "left",
+                        "clickCount": 1
+                    },
+                    "description": "the three-dot menu icon on the \"Review PR #42\" card"
+                },
+                "output": {
+                    "outcome": "Wait condition timed out after 30000ms: \"the three-dot menu icon on the 'Review PR #42' card in the 'Done' column is visible and clickable\""
+                },
+                "screenshotAfterKey": "s3://autonoma-assets/run/cmpx18cpa000d0nx0vh8mc7ks/step-2-after.png"
+            }
+        ],
+        "videoS3Key": "run/cmpx18cpa000d0nx0vh8mc7ks/video.webm",
+        "finalScreenshotKey": "s3://autonoma-assets/run/cmpx18cpa000d0nx0vh8mc7ks/step-2-after.png"
+    }
+}

@@ -1,0 +1,76 @@
+import { type GenerationContext, sanitizeConversation } from "@autonoma/diffs";
+import type { ModelMessage } from "ai";
+import { z } from "zod";
+import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
+
+/**
+ * Frozen on-disk shape of a captured generation review case (`input.json`).
+ *
+ * Mirrors {@link GenerationContext} with two substitutions per the eval-case
+ * contract: a live `Codebase` becomes {@link CodebaseCoords}, and the
+ * `ModelMessage[]` conversation is stored verbatim *after* having been
+ * sanitized at capture time (image parts + provider options stripped, so the
+ * fixture stays text-only). All multimedia (screenshots + video) remains as
+ * S3 keys - never bytes - and is rehydrated by the production evidence loader
+ * at run time.
+ */
+export const generationReviewCaseInputSchema = z.object({
+    codebase: codebaseCoordsSchema,
+    context: z.object({
+        generationId: z.string(),
+        organizationId: z.string(),
+        selfReportedStatus: z.enum(["success", "failed", "running", "queued", "pending"]),
+        testPlanPrompt: z.string(),
+        conversation: z.array(z.custom<ModelMessage>()),
+        reasoning: z.string().optional(),
+        videoUrl: z.string().optional(),
+        finalScreenshotKey: z.string().optional(),
+        steps: z.array(
+            z.object({
+                order: z.number().int().nonnegative(),
+                interaction: z.string(),
+                params: z.unknown(),
+                output: z.unknown(),
+                screenshotBeforeKey: z.string().optional(),
+                screenshotAfterKey: z.string().optional(),
+            }),
+        ),
+    }),
+});
+
+export type GenerationReviewCaseInput = z.infer<typeof generationReviewCaseInputSchema>;
+
+export interface RehydratedGenerationReviewInput {
+    coords: CodebaseCoords;
+    context: GenerationContext;
+}
+
+/**
+ * Reconstruct the reviewer input from a parsed case. The codebase is returned
+ * separately as coords for the caller to rehydrate via `ensureCachedCheckout`;
+ * the context is otherwise the live shape the agent expects.
+ */
+export function rehydrateGenerationReviewInput(parsed: GenerationReviewCaseInput): RehydratedGenerationReviewInput {
+    return { coords: parsed.codebase, context: parsed.context };
+}
+
+/**
+ * Freeze a live {@link GenerationContext} into the on-disk case shape: replace
+ * the live codebase reference with the given coords, and sanitize the
+ * conversation so no inline image bytes are persisted. The reviewer's
+ * `buildGenerationReviewMessages` calls `sanitizeConversation` again at
+ * prompt-build time - idempotent, so sanitizing here keeps the fixture small
+ * without changing what the agent eventually sees.
+ */
+export function serializeGenerationReviewInput(
+    coords: CodebaseCoords,
+    context: GenerationContext,
+): GenerationReviewCaseInput {
+    return generationReviewCaseInputSchema.parse({
+        codebase: coords,
+        context: {
+            ...context,
+            conversation: sanitizeConversation(context.conversation),
+        },
+    });
+}

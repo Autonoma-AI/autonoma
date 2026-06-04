@@ -21,3 +21,4 @@ export {
     identifierSetCheckSchema,
 } from "./frontmatter";
 export { DiffsJudge, type JudgeParams, type JudgeResult, type JudgeVerdict, judgeVerdictSchema } from "./judge";
+export { type EvidenceKeys, MissingEvidenceError, probeEvidence } from "./evidence-probe";

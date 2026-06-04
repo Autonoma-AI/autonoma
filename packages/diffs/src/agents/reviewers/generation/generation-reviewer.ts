@@ -7,7 +7,8 @@ import type { ModelMessage } from "ai";
 import type { Codebase } from "../../../codebase";
 import { buildGenerationReviewMessages } from "../../../review/generation/message-builder";
 import type { GenerationContext } from "../../../review/generation/types";
-import { type VideoDownloader, tryUploadVideo } from "../../../review/kernel/video-upload";
+import type { EvidenceLoader } from "../../../review/kernel/evidence-loader";
+import { tryUploadVideo } from "../../../review/kernel/video-upload";
 import {
     BashTool,
     GrepTool,
@@ -16,14 +17,13 @@ import {
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,
 } from "../../tools";
-import type { ScreenshotLoader } from "../../tools/screenshot/screenshot-types";
 import { ReviewerLoop } from "../reviewer-loop";
 
 const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "../../../review/generation/review-prompt.md"), "utf-8");
 
 export interface GenerationReviewerConfig {
     model: LanguageModel;
-    evidenceLoader: ScreenshotLoader & VideoDownloader;
+    evidenceLoader: EvidenceLoader;
     videoProcessor?: VideoProcessor;
 }
 
@@ -46,7 +46,7 @@ export class GenerationReviewer extends Agent<
 > {
     private readonly logger: Logger;
     private readonly model: LanguageModel;
-    private readonly evidenceLoader: ScreenshotLoader & VideoDownloader;
+    private readonly evidenceLoader: EvidenceLoader;
     private readonly videoProcessor?: VideoProcessor;
 
     private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
