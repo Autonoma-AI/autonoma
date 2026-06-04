@@ -2,7 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { db, type PrismaClient } from "@autonoma/db";
-import { type GitHubCommentStore, payloadBuilder, postOrUpdateCommentOnGithub } from "@autonoma/github/comment";
+import {
+    type GitHubCommentStore,
+    payloadBuilder,
+    postOrUpdateCommentOnGithub,
+    resolveCommentAssetBaseUrl,
+} from "@autonoma/github/comment";
 import type { StorageProvider } from "@autonoma/storage";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
@@ -23,6 +28,7 @@ import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../depl
 import { runHookJob } from "../deployer/hook-job-runner";
 import { execInDeploymentPod } from "../deployer/pod-exec";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
+import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
@@ -187,6 +193,7 @@ export class PreviewPipeline {
                     state: "running",
                     prNumber,
                     commitSha: headSha,
+                    assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
                     message: "Autonoma received this commit and is building the preview environment.",
                 }),
             }).catch((err) => {
@@ -561,6 +568,7 @@ export class PreviewPipeline {
                         state: "critical",
                         prNumber,
                         commitSha: headSha,
+                        assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
                         message: "Autonoma could not finish building the preview environment.",
                         details: [
                             {
@@ -1055,6 +1063,7 @@ export class PreviewPipeline {
             state: allReady ? "running" : "critical",
             prNumber,
             commitSha: headSha,
+            assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
             previewUrl: outcomes.find((outcome) => outcome.status === "ok")?.url,
             message: allReady
                 ? "Preview is ready. Autonoma can run the selected tests against this commit."
@@ -1065,6 +1074,13 @@ export class PreviewPipeline {
             details: [...serviceErrorDetails, ...addonErrorDetails],
         });
     }
+}
+
+function resolvePreviewkitCommentAssetBaseUrl(): string {
+    return resolveCommentAssetBaseUrl({
+        explicitAssetBaseUrl: env.GITHUB_COMMENT_ASSET_BASE_URL,
+        appUrl: env.APP_URL,
+    });
 }
 
 async function recordSafe(fn: () => Promise<void>): Promise<void> {

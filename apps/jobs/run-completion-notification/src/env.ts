@@ -8,7 +8,7 @@ export const env = createEnv({
     server: {
         DATABASE_URL: z.string().min(1),
         API_URL: z.string().optional(),
-        APP_URL: z.string().optional(),
+        GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
         ENGINE_BILLING_SECRET: z.string().optional(),
         STRIPE_ENABLED: z.stringbool().default(false),
         GITHUB_APP_ID: z.string().min(1).optional(),

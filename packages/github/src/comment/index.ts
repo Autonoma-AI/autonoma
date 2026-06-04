@@ -1,5 +1,6 @@
 export { renderMarkdown } from "./markdown";
 export { payloadBuilder } from "./payload";
+export { resolveCommentAssetBaseUrl } from "./assets";
 export { postOrUpdateCommentOnGithub } from "./updater";
 export type {
     AutonomaCommentAddon,

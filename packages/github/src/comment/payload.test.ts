@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { resolveCommentAssetBaseUrl } from "./assets";
 import { renderMarkdown } from "./markdown";
 import { payloadBuilder } from "./payload";
+
+describe("resolveCommentAssetBaseUrl", () => {
+    it("uses the explicit asset base URL when configured", () => {
+        expect(
+            resolveCommentAssetBaseUrl({
+                explicitAssetBaseUrl: "https://cdn.autonoma.app/github-comment/",
+                appUrl: "https://agent.autonoma.app",
+            }),
+        ).toBe("https://cdn.autonoma.app/github-comment/");
+    });
+
+    it("defaults to the app URL github-comment directory", () => {
+        expect(resolveCommentAssetBaseUrl({ appUrl: "https://agent.autonoma.app" })).toBe(
+            "https://agent.autonoma.app/github-comment/",
+        );
+    });
+});
 
 describe("payloadBuilder", () => {
     it("orders the primary CTAs as Open in Autonoma, See preview", () => {

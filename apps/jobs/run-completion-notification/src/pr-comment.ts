@@ -6,6 +6,7 @@ import {
     type PayloadBuilderInput,
     payloadBuilder,
     postOrUpdateCommentOnGithub,
+    resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { z } from "zod";
@@ -23,6 +24,11 @@ const generationForCommentSelect = {
                 select: {
                     prInfo: { select: { prNumber: true } },
                     application: { select: { githubRepositoryId: true, slug: true } },
+                    deployment: {
+                        select: {
+                            webDeployment: { select: { url: true } },
+                        },
+                    },
                     organization: {
                         select: {
                             id: true,
@@ -63,6 +69,7 @@ type GenerationForComment = {
         branch: {
             prInfo: { prNumber: number } | null;
             application: { githubRepositoryId: number | null; slug: string };
+            deployment: { webDeployment: { url: string } | null } | null;
             organization: {
                 id: string;
                 previewkitGithubFeedbackEnabled: boolean;
@@ -154,17 +161,22 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
     });
 
     const repoFullName = previewEnvironment?.repoFullName ?? repository.fullName;
-    const previewUrl = resolvePrimaryUrl(previewEnvironment?.urls);
+    const previewUrl = branch.deployment?.webDeployment?.url ?? resolvePrimaryUrl(previewEnvironment?.urls);
     const summaryUrl = buildSnapshotSummaryUrl({
         appSlug: branch.application.slug,
         prNumber,
         snapshotId: snapshot.id,
+    });
+    const assetBaseUrl = resolveCommentAssetBaseUrl({
+        explicitAssetBaseUrl: env.GITHUB_COMMENT_ASSET_BASE_URL,
+        appUrl: resolveAppUrl(),
     });
     const payloadInput = buildPayloadInput({
         snapshot,
         prNumber,
         previewUrl,
         summaryUrl,
+        assetBaseUrl,
     });
 
     await postOrUpdateCommentOnGithub({
@@ -182,11 +194,13 @@ function buildPayloadInput({
     prNumber,
     previewUrl,
     summaryUrl,
+    assetBaseUrl,
 }: {
     snapshot: GenerationForComment["snapshot"];
     prNumber: number;
     previewUrl: string | undefined;
     summaryUrl: string | undefined;
+    assetBaseUrl: string | undefined;
 }): PayloadBuilderInput {
     const selected = snapshot.testGenerations.length;
     const failed = snapshot.testGenerations.filter((testGeneration) => testGeneration.status === "failed").length;
@@ -204,6 +218,7 @@ function buildPayloadInput({
         state,
         prNumber,
         commitSha: snapshot.headSha ?? undefined,
+        assetBaseUrl,
         previewUrl,
         summaryUrl,
         bugs,
@@ -225,31 +240,28 @@ function buildSnapshotSummaryUrl({
     appSlug: string;
     prNumber: number;
     snapshotId: string;
-}): string | undefined {
+}): string {
     const appUrl = resolveAppUrl();
-    if (appUrl == null) return undefined;
-
     const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/snapshots/${encodeURIComponent(
         snapshotId,
-    )}`;
+    )}/overview`;
     return new URL(path, appUrl).toString();
 }
 
-function resolveAppUrl(): string | undefined {
-    if (env.APP_URL != null && env.APP_URL !== "") return env.APP_URL;
-    if (env.API_URL == null || env.API_URL === "") return undefined;
+function resolveAppUrl(): string {
+    if (env.SENTRY_ENV === "beta") return "https://beta.agent.autonoma.app";
+    if (env.SENTRY_ENV.startsWith("alpha-")) return `https://${env.SENTRY_ENV}.alpha.agent.autonoma.app`;
+    return "https://agent.autonoma.app";
+}
 
-    try {
-        const url = new URL(env.API_URL);
-        if (url.hostname.startsWith("api.")) {
-            url.hostname = url.hostname.slice("api.".length);
-        }
-        return url.toString();
-    } catch (err) {
-        const log = logger.child({ name: "resolveAppUrl" });
-        log.warn("Failed to derive APP_URL from API_URL", { apiUrl: env.API_URL, err });
-        return undefined;
-    }
+const UrlsRecordSchema = z.record(z.string(), z.unknown());
+
+function resolvePrimaryUrl(urls: unknown): string | undefined {
+    const parsed = UrlsRecordSchema.safeParse(urls);
+    if (!parsed.success) return undefined;
+    const record = parsed.data;
+    const candidate = record.primary ?? record.web ?? Object.values(record).find((value) => typeof value === "string");
+    return typeof candidate === "string" && candidate !== "" ? candidate : undefined;
 }
 
 function getGitHubCommentAppConfig(log: Logger): GitHubAppCredentials | null {
@@ -270,16 +282,6 @@ function getGitHubCommentAppConfig(log: Logger): GitHubAppCredentials | null {
     }
 
     return { appId, privateKey, webhookSecret, appSlug };
-}
-
-const UrlsRecordSchema = z.record(z.string(), z.unknown());
-
-function resolvePrimaryUrl(urls: unknown): string | undefined {
-    const parsed = UrlsRecordSchema.safeParse(urls);
-    if (!parsed.success) return undefined;
-    const record = parsed.data;
-    const candidate = record.primary ?? record.web ?? Object.values(record).find((value) => typeof value === "string");
-    return typeof candidate === "string" && candidate !== "" ? candidate : undefined;
 }
 
 // This DB adapter is intentionally duplicated in apps/previewkit. The @autonoma/github
