@@ -4,7 +4,7 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-This slice ships the shared framework and the first step: **Diff Analysis**.
+This slice ships the shared framework and two steps: **Diff Analysis** and **Diff Resolution**.
 
 ```
 evals/
@@ -19,8 +19,18 @@ evals/
 │   ├── analysis-evaluation.ts   # the Evaluation subclass
 │   ├── analysis.eval.ts         # vitest entry (gated by RUN_EVALS)
 │   └── cases/<name>/            # one folder per case: input.json + expected.md
+├── resolution/           # the Diff Resolution step
+│   ├── resolution-input.ts        # frozen-input schema (coords + flow + scenario arrays + verdicts + candidates)
+│   ├── resolution-frontmatter.ts  # modified / removed / newTests / reportedBugs / acceptsCandidate checks
+│   ├── resolution-evaluation.ts   # the Evaluation subclass
+│   ├── resolution.eval.ts         # vitest entry (gated by RUN_EVALS)
+│   └── cases/<name>/              # one folder per case: input.json + expected.md
 └── capture/              # DB -> fixture capture
-    └── capture.ts        #   `capture:analysis <snapshotId>`
+    ├── snapshot-coords.ts        #   shared `resolveSnapshotCoords(snapshotId)`
+    ├── capture-analysis.ts       #   captureAnalysis(params)
+    ├── capture-analysis-cli.ts   #   `capture:analysis <snapshotId>`
+    ├── capture-resolution.ts     #   captureResolution(params)
+    └── capture-resolution-cli.ts #   `capture:resolution <snapshotId>`
 ```
 
 ## The eval-case contract
@@ -54,6 +64,33 @@ body - never the codebase or screenshots. Write it ADDITIVE to the frontmatter: 
 qualities the deterministic checks cannot (sound reasoning, sensible candidates).
 ```
 
+### Resolution frontmatter
+
+```yaml
+---
+description: "what this case exercises"
+skip: false
+modified:                                  # set check over modifiedTests[].slug
+  include: [slug-a]
+  exclude: [slug-b]
+  exact: [slug-a, slug-c]
+removed:                                   # set check over removedTests[].slug
+  include: []
+  exclude: []
+  exact: []
+newTests:                                  # bounds on newTests.length
+  minCount: 1
+  maxCount: 3
+reportedBugs:                              # bounds on reportedBugs.length
+  minCount: 0
+  maxCount: 2
+acceptsCandidate: [candidate-id-x]         # each id MUST appear in some newTests[].acceptingCandidateId
+---
+
+Judge rubric: grade qualities the deterministic checks cannot - e.g. new-test instruction quality,
+modification correctness, and bug-report accuracy.
+```
+
 ## Running the evals
 
 Evals are gated behind `RUN_EVALS` and need real model credentials
@@ -74,19 +111,41 @@ pnpm --filter @autonoma/worker-diffs eval
 ## Capturing a case from a snapshot
 
 ```bash
-pnpm --filter @autonoma/worker-diffs capture:analysis <snapshotId> [--name <case-name>] [--force]
+pnpm --filter @autonoma/worker-diffs capture:analysis   <snapshotId> [--name <case-name>] [--force]
+pnpm --filter @autonoma/worker-diffs capture:resolution <snapshotId> [--name <case-name>] [--force]
 ```
 
-This resolves the snapshot's git coordinates, **validates both SHAs are fetchable** (refusing to
-write a case with a dead SHA), runs the production Analysis loaders against a real clone, freezes the
-assembled input to `input.json`, and scaffolds a blank `expected.md` (`skip: true`). Fill in the
-frontmatter checks and the rubric, then flip `skip: false`. Capture reads the DB; eval runs never
-touch it.
+Each command resolves the snapshot's git coordinates, **validates both SHAs are fetchable**
+(refusing to write a case with a dead SHA), runs the production side-input loaders for the step,
+freezes the assembled input to `input.json`, and scaffolds a blank `expected.md` (`skip: true`).
+Fill in the frontmatter checks and the rubric, then flip `skip: false`. Capture reads the DB; eval
+runs never touch it.
 
-**Baseline test suite.** Analysis grades the diff against the suite as it stood *before* this
-snapshot's pipeline ran. At production analysis time the snapshot's own assignments are still a
-fresh copy of that baseline, so the runner reads them directly. Capture, however, runs *after* the
-pipeline has rewritten those assignments, so it loads the suite from the snapshot's **previous**
-snapshot - the unmutated baseline - to reproduce exactly what analysis saw. This is controlled by
-the `testSuiteSource` option on the shared `assembleDiffsAgentInput` loader (`"current"` for the
-runner, `"previous"` for capture).
+**Baseline snapshot state.** Both steps grade against the snapshot as it stood *before* this
+snapshot's pipeline ran. At production time the snapshot's own assignments are still that baseline
+(analysis does not write to the suite; resolution reads it once at the start, before its own
+callbacks mutate it), so the runner reads them directly. Capture, however, runs *after* the
+pipeline has rewritten those assignments, so it loads the baseline from the snapshot's **previous**
+snapshot - the unmutated copy - to reproduce exactly what the step saw. This is controlled by the
+`testSuiteSource` option on the shared `assembleDiffsAgentInput` / `assembleResolutionAgentInput`
+loaders (`"current"` for the runner, `"previous"` for capture). For resolution the switch covers
+two fields: `existingTests` (the suite) and the quarantine flag that `buildVerdicts` uses to filter
+out runs - both must travel together, otherwise capture would silently drop the verdicts that
+resolution itself quarantined via `reportBug`.
+
+**Test candidates (resolution only).** At production resolution time candidates carry
+`status: "pending"`; afterwards they become `"accepted"` or `"rejected"`. The shared loader reads
+candidates regardless of status so capture recovers the same input shape the agent saw - the
+candidate `id`/`name`/`instruction`/`reasoning` fields are immutable.
+
+**Live application-level reads.** A few fields are not snapshot-scoped and are read live from the
+application at capture time:
+
+- `testScopeGuidelines` (both steps) - free-text guidelines on the `Application` row. If the owner
+  edits them between capture and eval run, the captured value will diverge from what production
+  saw at the time.
+- `scenarioIndex` (resolution only) - the application's enabled scenarios. Scenarios are
+  referenced by id, so if one is deleted between capture and eval run the frozen ids become stale.
+
+Treat both the same way you treat flow / test ids in analysis cases: stable enough in practice,
+but a re-capture is the fix if an eval starts drifting for reasons unrelated to the agent.

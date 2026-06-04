@@ -1,12 +1,9 @@
 import type { PrismaClient } from "@autonoma/db";
 import {
     type Codebase,
-    type FlowIndex,
     ResolutionAgent,
     type ResolutionAgentInput,
     type ResolutionAgentResult,
-    ScenarioIndex,
-    type ScenarioInfo,
     createResolutionCallbacks,
     openModelSession,
     summarizeSessionCost,
@@ -14,15 +11,15 @@ import {
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ModelMessage } from "ai";
+import type { ResolutionAgentInputWithoutCodebase } from "./assemble-input";
 
 export interface RunResolutionAgentParams {
-    /** Everything the ResolutionAgent needs except the codebase clone and scenario index, which the runner builds. */
-    input: Omit<ResolutionAgentInput, "codebase" | "scenarioIndex" | "flowIndex">;
+    /** Everything the ResolutionAgent needs except the codebase clone, which the runner builds. */
+    input: ResolutionAgentInputWithoutCodebase;
     db: PrismaClient;
     updater: TestSuiteUpdater;
     /** The on-disk clone (at base + head SHAs), acquired by the activity via `withCodebaseForSnapshot`. */
     codebase: Codebase;
-    flowIndex: FlowIndex;
 }
 
 export interface AcceptedCandidateLink {
@@ -47,16 +44,14 @@ export async function runResolutionAgent({
     db,
     updater,
     codebase,
-    flowIndex,
 }: RunResolutionAgentParams): Promise<RunResolutionAgentResult> {
     const session = openModelSession();
     const model = session.getModel({ model: "smart-visual", tag: "diffs-resolution" });
 
-    const scenarioIndex = await loadScenarioIndex(db, updater.applicationId);
-
     const agent = new ResolutionAgent({ model });
 
-    const { result, conversation } = await agent.run({ ...input, codebase, flowIndex, scenarioIndex });
+    const fullInput: ResolutionAgentInput = { ...input, codebase };
+    const { result, conversation } = await agent.run(fullInput);
 
     const callbacks = createResolutionCallbacks({ db, updater });
 
@@ -67,7 +62,7 @@ export async function runResolutionAgent({
         ...result.removedTests.map((t) => callbacks.removeTest(t.slug)),
         ...result.reportedBugs.map((b) => callbacks.reportBug(b)),
         ...result.newTests.map(async (t) => {
-            const folder = flowIndex.getFlow(t.folderName);
+            const folder = input.flowIndex.getFlow(t.folderName);
             if (folder == null) throw new Error(`Folder "${t.folderName}" not found for new test "${t.name}"`);
             const { testCaseId } = await callbacks.addTest({ ...t, folderId: folder.id });
             if (t.acceptingCandidateId != null) {
@@ -90,47 +85,4 @@ export async function runResolutionAgent({
     });
 
     return { ...result, accepted, conversation };
-}
-
-async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
-    logger.info("Loading scenarios for resolution agent", { extra: { applicationId } });
-
-    const scenarios = await db.scenario.findMany({
-        where: { applicationId, isDisabled: false },
-        select: {
-            id: true,
-            name: true,
-            description: true,
-            activeRecipeVersion: {
-                select: { fingerprint: true, fixtureJson: true, validationStatus: true },
-            },
-            instances: {
-                where: { status: "UP_SUCCESS" },
-                orderBy: { upAt: "desc" },
-                take: 3,
-                select: { metadata: true },
-            },
-        },
-    });
-
-    const infos: ScenarioInfo[] = scenarios.map((s) => {
-        const sample = s.instances.find((i) => i.metadata != null);
-        return {
-            id: s.id,
-            name: s.name,
-            description: s.description ?? undefined,
-            activeRecipe:
-                s.activeRecipeVersion != null
-                    ? {
-                          fingerprint: s.activeRecipeVersion.fingerprint,
-                          fixtureJson: s.activeRecipeVersion.fixtureJson,
-                          validationStatus: s.activeRecipeVersion.validationStatus,
-                      }
-                    : undefined,
-            sampleMetadata: sample?.metadata ?? undefined,
-        };
-    });
-
-    logger.info("Loaded scenarios", { extra: { count: infos.length } });
-    return new ScenarioIndex(infos);
 }

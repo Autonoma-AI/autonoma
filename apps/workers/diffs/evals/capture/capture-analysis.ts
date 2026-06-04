@@ -2,13 +2,12 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { db } from "@autonoma/db";
-import { type GitHubApp, parseRepoFullName } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
 import { assembleDiffsAgentInput } from "../../src/analysis/assemble-input";
 import { createGithubApp } from "../../src/create-services";
 import { serializeAnalysisInput } from "../analysis/analysis-input";
-import { type CodebaseCoords, ensureCachedCheckout } from "../framework/codebase-cache";
+import { ensureCachedCheckout } from "../framework/codebase-cache";
+import { resolveSnapshotCoords } from "./snapshot-coords";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,37 +76,6 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     });
 
     return caseDir;
-}
-
-async function resolveSnapshotCoords(snapshotId: string, githubApp: GitHubApp): Promise<CodebaseCoords> {
-    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
-        where: { id: snapshotId },
-        select: {
-            headSha: true,
-            baseSha: true,
-            branch: {
-                select: {
-                    application: { select: { organizationId: true, githubRepositoryId: true } },
-                },
-            },
-        },
-    });
-
-    const { headSha, baseSha } = snapshot;
-    const { organizationId, githubRepositoryId } = snapshot.branch.application;
-
-    if (headSha == null) throw new Error(`Snapshot ${snapshotId} has no headSha`);
-    if (baseSha == null) throw new Error(`Snapshot ${snapshotId} has no baseSha`);
-    if (githubRepositoryId == null) {
-        throw new Error(`Application for snapshot ${snapshotId} has no githubRepositoryId`);
-    }
-
-    const installation = await db.gitHubInstallation.findUniqueOrThrow({ where: { organizationId } });
-    const client = await githubApp.getInstallationClient(installation.installationId);
-    const repo = await client.getRepository(githubRepositoryId);
-    const { owner, repo: repoName } = parseRepoFullName(repo.fullName);
-
-    return { owner, repo: repoName, installationId: installation.installationId, baseSha, headSha };
 }
 
 function blankExpected(snapshotId: string): string {

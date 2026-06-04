@@ -1,11 +1,11 @@
 import { db } from "@autonoma/db";
-import type { Codebase, TestCandidateInput } from "@autonoma/diffs";
-import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
+import type { Codebase } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
 import { createDiffsServices } from "../create-services";
 import { uploadConversation } from "../upload-conversation";
+import { assembleResolutionAgentInput } from "./assemble-input";
 import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
 
 export interface RunDiffsResolutionParams {
@@ -36,72 +36,11 @@ export async function runDiffsResolution({
     const logger = rootLogger.child({ name: "runDiffsResolution" });
     logger.info("Starting diffs resolution");
 
-    const diffsJob = await db.diffsJob.findUniqueOrThrow({
-        where: { snapshotId },
-        select: { analysisReasoning: true },
-    });
+    const { agentInput } = await assembleResolutionAgentInput({ snapshotId });
 
-    const [affectedTests, testCandidates] = await Promise.all([
-        db.affectedTest.findMany({
-            where: { snapshotId },
-            select: {
-                snapshotId: true,
-                testCaseId: true,
-                affectedReason: true,
-                runId: true,
-                testCase: {
-                    select: {
-                        id: true,
-                        name: true,
-                        slug: true,
-                        assignments: {
-                            where: { snapshotId },
-                            select: { quarantineIssueId: true },
-                        },
-                    },
-                },
-                run: {
-                    select: {
-                        id: true,
-                        status: true,
-                        assignment: { select: { plan: { select: { prompt: true } } } },
-                        runReview: {
-                            select: {
-                                status: true,
-                                verdict: true,
-                                reasoning: true,
-                                issue: { select: { title: true, description: true } },
-                            },
-                        },
-                    },
-                },
-            },
-        }),
-        db.testCandidate.findMany({
-            where: { snapshotId },
-            select: { id: true, name: true, instruction: true, reasoning: true },
-        }),
-    ]);
-
-    const runIdsCount = affectedTests.filter((t) => t.runId != null).length;
-    logger.info("Loaded resolution inputs", {
-        extra: {
-            affectedTestsCount: affectedTests.length,
-            runIdsCount,
-            testCandidatesCount: testCandidates.length,
-        },
-    });
-
-    const { updater } = await createDiffsServices(snapshotId);
-
-    const candidateInputs: TestCandidateInput[] = testCandidates.map((c) => ({
-        candidateId: c.id,
-        name: c.name,
-        instruction: c.instruction,
-        reasoning: c.reasoning,
-    }));
-
-    const shouldRunAgent = runIdsCount > 0 || candidateInputs.length > 0;
+    const verdictCount = agentInput.verdicts.length;
+    const candidateCount = agentInput.testCandidates.length;
+    const shouldRunAgent = verdictCount > 0 || candidateCount > 0;
 
     let resolutionReasoning = "";
     let modifiedSlugs: string[] = [];
@@ -112,37 +51,13 @@ export async function runDiffsResolution({
     if (!shouldRunAgent) {
         logger.info("Resolution skipped - no runs and no candidates");
     } else {
-        const verdicts = buildVerdicts(affectedTests, logger);
+        const { updater } = await createDiffsServices(snapshotId);
 
         logger.info("Running resolution agent", {
-            extra: { verdictCount: verdicts.length, candidateCount: candidateInputs.length },
+            extra: { verdictCount, candidateCount },
         });
 
-        const suiteInfo = await updater.currentTestSuiteInfo();
-        const { existingTests } = mapTestSuiteToContext(suiteInfo);
-
-        const [flows, application] = await Promise.all([
-            loadFlows(db, updater.applicationId, suiteInfo),
-            db.application.findUniqueOrThrow({
-                where: { id: updater.applicationId },
-                select: { testScopeGuidelines: true },
-            }),
-        ]);
-        const flowIndex = new FlowIndex(flows);
-
-        const agentResult = await runResolutionAgent({
-            input: {
-                verdicts,
-                step1Reasoning: diffsJob.analysisReasoning ?? "",
-                testCandidates: candidateInputs,
-                existingTests,
-                testScopeGuidelines: application.testScopeGuidelines ?? undefined,
-            },
-            db,
-            updater,
-            codebase,
-            flowIndex,
-        });
+        const agentResult = await runResolutionAgent({ input: agentInput, db, updater, codebase });
 
         resolutionReasoning = agentResult.reasoning;
         modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);

@@ -1,0 +1,438 @@
+{
+    "codebase": {
+        "owner": "Autonoma-Labs",
+        "repo": "v0-kanban-board-creation-2",
+        "installationId": 136418389,
+        "baseSha": "87bce86fe113d45086b8f4bf9b40a9505ce3ecb9",
+        "headSha": "92c399312a234891b4603269bcebc6d8801b8b6f"
+    },
+    "existingTests": [
+        {
+            "id": "cmod3m8u102gc01c1cpclzk3b",
+            "name": "001-move-task-right-button.md",
+            "slug": "001-move-task-right-button-md",
+            "prompt": "# Test: Move a task from To Do to In Progress via Move Right\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board with 3 tasks in \"To Do\" and 3 tasks in \"In Progress\".\n\n## Steps\n\n1. Locate the card titled \"Write unit tests\" in the \"To Do\" column\n2. Click the \"Move Right\" button on the \"Write unit tests\" card\n3. Assert that the card titled \"Write unit tests\" is no longer in the \"To Do\" column\n4. Assert that the card titled \"Write unit tests\" is now visible in the \"In Progress\" column\n5. Assert that the \"To Do\" column card count badge shows \"2\"\n6. Assert that the \"In Progress\" column card count badge shows \"4\"\n\n## Expected result\n\nThe task moves from the \"To Do\" column to the \"In Progress\" column. Both column counts update accordingly.\n\n## What bug this might catch\n\nBroken moveTodo server action, failed optimistic UI update, or incorrect status transition logic."
+        },
+        {
+            "id": "cmod3m8uq02gg01c111qntomi",
+            "name": "002-move-task-via-dropdown.md",
+            "slug": "002-move-task-via-dropdown-md",
+            "prompt": "# Test: Move a task via the dropdown menu option\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Locate the card titled \"Fix login bug\" in the \"In Progress\" column\n2. Hover over the \"Fix login bug\" card to reveal the three-dot menu icon\n3. Click the three-dot menu icon on the \"Fix login bug\" card\n4. Assert that a dropdown menu appears with move options\n5. Click \"Move to Done\" in the dropdown menu\n6. Assert that the card titled \"Fix login bug\" is no longer in the \"In Progress\" column\n7. Assert that the card titled \"Fix login bug\" is now visible in the \"Done\" column\n8. Assert that the \"In Progress\" column card count badge shows \"2\"\n9. Assert that the \"Done\" column card count badge shows \"3\"\n\n## Expected result\n\nThe task moves from \"In Progress\" to \"Done\" via the dropdown menu. Column counts update correctly.\n\n## What bug this might catch\n\nDropdown menu move action not triggering the moveTodo server action, or the dropdown showing incorrect destination options based on current column."
+        },
+        {
+            "id": "cmod3m8vc02gl01c1aajthiw2",
+            "name": "001-delete-task-from-column.md",
+            "slug": "001-delete-task-from-column-md",
+            "prompt": "# Test: Delete a task via card dropdown menu\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Locate the card titled \"Review PR #42\" in the \"Done\" column\n2. Hover over the \"Review PR #42\" card to reveal the three-dot menu icon\n3. Click the three-dot menu icon on the \"Review PR #42\" card\n4. Assert that a dropdown menu appears with a \"Delete\" option shown in red/destructive style\n5. Click \"Delete\"\n6. Assert that the card titled \"Review PR #42\" is no longer visible on the board\n7. Assert that the \"Done\" column card count badge shows \"1\"\n\n## Expected result\n\nThe task is immediately removed from the board. The column count decrements by one.\n\n## What bug this might catch\n\nBroken deleteTodo server action, failed optimistic removal, or the delete option not appearing in the dropdown menu."
+        },
+        {
+            "id": "cmod3m8vs02gp01c1h11olojy",
+            "name": "002-delete-last-task-shows-empty-state.md",
+            "slug": "002-delete-last-task-shows-empty-state-md",
+            "prompt": "# Test: Deleting the last task in a column shows empty placeholder\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board. The \"Done\" column should contain 2 tasks: \"Deploy staging build\" and \"Review PR #42\".\n\n## Steps\n\n1. Assert that the \"Done\" column card count badge shows \"2\"\n2. Hover over the card titled \"Deploy staging build\" in the \"Done\" column to reveal the three-dot menu icon\n3. Click the three-dot menu icon on the \"Deploy staging build\" card\n4. Click \"Delete\"\n5. Assert that the card titled \"Deploy staging build\" is no longer visible on the board\n6. Assert that the \"Done\" column card count badge shows \"1\"\n7. Hover over the card titled \"Review PR #42\" in the \"Done\" column to reveal the three-dot menu icon\n8. Click the three-dot menu icon on the \"Review PR #42\" card\n9. Click \"Delete\"\n10. Assert that the card titled \"Review PR #42\" is no longer visible on the board\n11. Assert that the \"Done\" column card count badge shows \"0\"\n12. Assert that the \"Done\" column displays the \"No tasks yet\" placeholder text\n\n## Expected result\n\nAfter both tasks in the \"Done\" column are deleted, the column shows the \"No tasks yet\" empty state placeholder and a count of 0.\n\n## What bug this might catch\n\nMissing empty state rendering when all cards are removed from a column, or a stale card count badge that does not decrement to zero."
+        },
+        {
+            "id": "cmod3m8wb02gu01c1jrpb97vn",
+            "name": "001-logout-redirects-to-login.md",
+            "slug": "001-logout-redirects-to-login-md",
+            "prompt": "# Test: Clicking logout redirects to login page\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing \"Signed in as {{username_alice}}\".\n\n## Steps\n\n1. Click the logout icon button in the header\n2. Assert that the page navigates to `/login`\n3. Assert that the login page is visible with the heading \"Project Board\" and subtitle \"Enter your username to continue\"\n4. Assert that the \"Username\" input field is visible and empty\n\n## Expected result\n\nThe user is signed out and redirected to the login page. The login form is displayed in its default empty state.\n\n## What bug this might catch\n\nBroken logout server action that fails to clear the session cookie or redirect, leaving the user on the board with a stale session."
+        },
+        {
+            "id": "cmod3m8wq02gy01c1rwci5xob",
+            "name": "002-logout-clears-session.md",
+            "slug": "002-logout-clears-session-md",
+            "prompt": "# Test: After logout, navigating to board redirects to login\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing \"Signed in as {{username_alice}}\".\n\n## Steps\n\n1. Click the logout icon button in the header\n2. Assert that the page navigates to `/login`\n3. Assert that the login page is visible with the heading \"Project Board\"\n4. Navigate to `/`\n5. Assert that the page redirects to `/login`\n6. Assert that the \"Username\" input field is visible and empty\n7. Assert that no text \"Signed in as {{username_alice}}\" is visible\n\n## Expected result\n\nAfter logging out, the session is fully cleared. Navigating directly to the board page at `/` redirects back to `/login`, confirming that the session cookie was properly deleted.\n\n## What bug this might catch\n\nIncomplete session clearing where the logout action deletes the cookie client-side but fails to invalidate the server-side session, allowing unauthenticated access to the board."
+        },
+        {
+            "id": "cmod3m8x902h301c19ha6xb0e",
+            "name": "001-full-task-lifecycle.md",
+            "slug": "001-full-task-lifecycle-md",
+            "prompt": "# Test: Full task lifecycle from login to delete\n\n## Setup\n\nUsing scenario: `standard`\n\nNavigate to `/login`.\n\nYou should see the login page with the heading \"Project Board\" and the subtitle \"Enter your username to continue\".\n\n## Steps\n\n1. Click on the input field labeled \"Username\"\n2. Type `{{username_alice}}`\n3. Click the \"Sign in\" button\n4. Assert that the page navigates to `/`\n5. Assert that the text \"Signed in as {{username_alice}}\" is visible in the header\n6. Assert that three columns are visible: \"To Do\", \"In Progress\", and \"Done\"\n7. Click the \"New Task\" button in the header\n8. Assert that the \"Create New Task\" dialog is visible\n9. Click on the \"Task Title\" input field\n10. Type \"Journey test task\"\n11. Click on the \"Assignee\" input field\n12. Type \"Alice\"\n13. Click on the \"Priority\" select and select \"High\"\n14. Click the \"Create Task\" button\n15. Assert that the \"Create New Task\" dialog is no longer visible\n16. Assert that a card with the title \"Journey test task\" is visible in the \"To Do\" column\n17. Locate the card titled \"Journey test task\" in the \"To Do\" column\n18. Click the \"Move Right\" button on the \"Journey test task\" card\n19. Assert that the card titled \"Journey test task\" is now visible in the \"In Progress\" column\n20. Assert that the card titled \"Journey test task\" is no longer in the \"To Do\" column\n21. Click the \"Move Right\" button on the \"Journey test task\" card\n22. Assert that the card titled \"Journey test task\" is now visible in the \"Done\" column\n23. Assert that the card titled \"Journey test task\" is no longer in the \"In Progress\" column\n24. Hover over the card titled \"Journey test task\" in the \"Done\" column to reveal the three-dot menu icon\n25. Click the three-dot menu icon on the \"Journey test task\" card\n26. Click \"Delete\"\n27. Assert that the card titled \"Journey test task\" is no longer visible on the board\n\n## Expected result\n\nThe user completes the full task lifecycle: logging in, creating a new task in \"To Do\", moving it through \"In Progress\" to \"Done\", and deleting it. Each transition is reflected correctly in the UI.\n\n## What bug this might catch\n\nIntegration issues between features that work individually but break when chained together, such as a newly created task that cannot be moved, or a moved task whose dropdown menu fails to appear for deletion."
+        },
+        {
+            "id": "cmod3m8xu02h801c1wub4epjx",
+            "name": "001-create-task-happy-path.md",
+            "slug": "001-create-task-happy-path-md",
+            "prompt": "# Test: Create a new task with all fields filled\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Click the \"New Task\" button in the header\n2. Assert that the \"Create New Task\" dialog is visible\n3. Click on the \"Task Title\" input field\n4. Type \"Implement dark mode\"\n5. Click on the \"Description\" textarea\n6. Type \"Add a toggle for dark theme support\"\n7. Click on the \"Assignee\" input field\n8. Type \"Alice\"\n9. Click on the \"Priority\" select and select \"High\"\n10. Click the \"Create Task\" button\n11. Assert that the \"Create New Task\" dialog is no longer visible\n12. Assert that a card with the title \"Implement dark mode\" is visible in the \"To Do\" column\n13. Assert that the \"Implement dark mode\" card shows a \"High\" priority badge\n14. Assert that the \"Implement dark mode\" card shows assignee \"Alice\"\n15. Assert that the \"To Do\" column card count badge shows \"4\"\n\n## Expected result\n\nThe new task is created and appears in the \"To Do\" column with the correct title, description, assignee, and priority. The dialog closes and the column count increments.\n\n## What bug this might catch\n\nBroken addTodo server action, failed optimistic update, or incorrect default column assignment for new tasks."
+        },
+        {
+            "id": "cmod3m8yc02hc01c126xb0y4f",
+            "name": "002-create-task-required-field-validation.md",
+            "slug": "002-create-task-required-field-validation-md",
+            "prompt": "# Test: Task form rejects submission with empty required fields\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Click the \"New Task\" button in the header\n2. Assert that the \"Create New Task\" dialog is visible\n3. Assert that the \"Task Title\" input field is empty\n4. Assert that the \"Assignee\" input field is empty\n5. Click the \"Create Task\" button\n6. Assert that the \"Create New Task\" dialog is still visible\n7. Assert that the \"To Do\" column card count badge still shows \"3\"\n\n## Expected result\n\nThe form does not submit and the dialog remains open. No new task card is added to the \"To Do\" column. The card count remains unchanged at 3.\n\n## What bug this might catch\n\nMissing or broken required field validation on the Create New Task form, allowing empty tasks to be created and polluting the board with titleless or unassigned cards."
+        },
+        {
+            "id": "cmod3m8yu02hg01c1fli6dza9",
+            "name": "003-create-task-cancel-dialog.md",
+            "slug": "003-create-task-cancel-dialog-md",
+            "prompt": "# Test: Cancel button closes dialog without creating task\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board.\n\n## Steps\n\n1. Assert that the \"To Do\" column card count badge shows \"3\"\n2. Click the \"New Task\" button in the header\n3. Assert that the \"Create New Task\" dialog is visible\n4. Click on the \"Task Title\" input field\n5. Type \"This task should not be created\"\n6. Click on the \"Assignee\" input field\n7. Type \"Alice\"\n8. Click the \"Cancel\" button in the dialog\n9. Assert that the \"Create New Task\" dialog is no longer visible\n10. Assert that no card titled \"This task should not be created\" is visible on the board\n11. Assert that the \"To Do\" column card count badge still shows \"3\"\n\n## Expected result\n\nThe dialog closes without creating a task. The board remains unchanged with the original card count in the \"To Do\" column.\n\n## What bug this might catch\n\nCancel button that fails to close the dialog, or a bug where partially filled form data gets submitted when Cancel is clicked."
+        },
+        {
+            "id": "cmod3m8zd02hl01c1k4xy3rxl",
+            "name": "001-board-displays-tasks-in-columns.md",
+            "slug": "001-board-displays-tasks-in-columns-md",
+            "prompt": "# Test: Board displays seeded tasks in correct columns\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board with three columns.\n\n## Steps\n\n1. Assert that the \"To Do\" column is visible with a card count badge showing \"3\"\n2. Assert that a card with the title \"Design landing page\" is visible in the \"To Do\" column\n3. Assert that the \"Design landing page\" card shows a \"High\" priority badge\n4. Assert that the \"Design landing page\" card shows assignee \"Alice\"\n5. Assert that a card with the title \"Write unit tests\" is visible in the \"To Do\" column\n6. Assert that the \"In Progress\" column is visible with a card count badge showing \"3\"\n7. Assert that a card with the title \"Fix login bug\" is visible in the \"In Progress\" column\n8. Assert that the \"Done\" column is visible with a card count badge showing \"2\"\n9. Assert that a card with the title \"Deploy staging build\" is visible in the \"Done\" column\n\n## Expected result\n\nAll seeded tasks appear in their correct columns with accurate titles, priority badges, and assignee names. Column card count badges reflect the correct number of tasks.\n\n## What bug this might catch\n\nIncorrect status-to-column mapping, missing cards due to query filtering bugs, or wrong card count calculations."
+        },
+        {
+            "id": "cmod3m8zu02hp01c18ahn0r11",
+            "name": "002-empty-board-shows-placeholders.md",
+            "slug": "002-empty-board-shows-placeholders-md",
+            "prompt": "# Test: Empty board shows no-tasks-yet placeholders\n\n## Setup\n\nUsing scenario: `empty`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_empty}}`\n\nAfter setup, you should be on the board page at `/` showing the Kanban board with three empty columns.\n\n## Steps\n\n1. Assert that the \"To Do\" column is visible\n2. Assert that the \"To Do\" column displays the text \"No tasks yet\"\n3. Assert that the \"In Progress\" column is visible\n4. Assert that the \"In Progress\" column displays the text \"No tasks yet\"\n5. Assert that the \"Done\" column is visible\n6. Assert that the \"Done\" column displays the text \"No tasks yet\"\n\n## Expected result\n\nAll three columns show the \"No tasks yet\" empty state placeholder when the user has no tasks.\n\n## What bug this might catch\n\nMissing or broken empty state rendering when the todo list is empty, or conditional rendering logic that hides columns when they have no cards."
+        },
+        {
+            "id": "cmod3m90e02hu01c1wbev2b2k",
+            "name": "001-login-happy-path.md",
+            "slug": "001-login-happy-path-md",
+            "prompt": "# Test: Login with valid username and reach the board\n\n## Setup\n\nUsing scenario: `standard`\n\nNavigate to `/login`.\n\nYou should see the login page with the heading \"Project Board\" and the subtitle \"Enter your username to continue\".\n\n## Steps\n\n1. Click on the input field labeled \"Username\"\n2. Type `{{username_alice}}`\n3. Click the \"Sign in\" button\n4. Assert that the page navigates to `/`\n5. Assert that the header displays \"Project Board\"\n6. Assert that the text \"Signed in as {{username_alice}}\" is visible in the header\n7. Assert that three columns are visible: \"To Do\", \"In Progress\", and \"Done\"\n\n## Expected result\n\nThe user is authenticated and redirected to the Kanban board at `/`. The header shows the signed-in username and all three Kanban columns are displayed.\n\n## What bug this might catch\n\nBroken login flow where the server action fails to upsert the user, set the session cookie, or redirect to the board."
+        },
+        {
+            "id": "cmod3m90s02hy01c1edqi62oq",
+            "name": "002-login-redirect-when-authenticated.md",
+            "slug": "002-login-redirect-when-authenticated-md",
+            "prompt": "# Test: Authenticated user visiting /login redirects to board\n\n## Setup\n\nUsing scenario: `standard`\n\nFollow these skills in order:\n1. `skills/login.md` - Log in as `{{username_alice}}`\n\nAfter setup, you should be on the board page at `/` showing \"Signed in as {{username_alice}}\".\n\n## Steps\n\n1. Navigate to `/login`\n2. Assert that the page automatically redirects to `/`\n3. Assert that the header displays \"Project Board\"\n4. Assert that the text \"Signed in as {{username_alice}}\" is visible in the header\n5. Assert that three columns are visible: \"To Do\", \"In Progress\", and \"Done\"\n\n## Expected result\n\nThe authenticated user is redirected from `/login` back to the Kanban board at `/`. The session remains active and the board is displayed with all three columns.\n\n## What bug this might catch\n\nBroken redirect logic for authenticated users visiting the login page, which could cause an infinite redirect loop or force the user to see the login form while already signed in."
+        }
+    ],
+    "flowIndex": [
+        {
+            "id": "cmod3m8tr02gb01c1bfmue5ka",
+            "name": "move-task",
+            "testSlugs": ["001-move-task-right-button-md", "002-move-task-via-dropdown-md"]
+        },
+        {
+            "id": "cmod3m8v802gk01c1xh48e46i",
+            "name": "delete-task",
+            "testSlugs": ["001-delete-task-from-column-md", "002-delete-last-task-shows-empty-state-md"]
+        },
+        {
+            "id": "cmod3m8w702gt01c1lq0e5jqa",
+            "name": "logout",
+            "testSlugs": ["001-logout-redirects-to-login-md", "002-logout-clears-session-md"]
+        },
+        {
+            "id": "cmod3m8x502h201c171y3x3f8",
+            "name": "journey",
+            "testSlugs": ["001-full-task-lifecycle-md"]
+        },
+        {
+            "id": "cmod3m8xq02h701c1apmybo1n",
+            "name": "create-task",
+            "testSlugs": [
+                "001-create-task-happy-path-md",
+                "002-create-task-required-field-validation-md",
+                "003-create-task-cancel-dialog-md"
+            ]
+        },
+        {
+            "id": "cmod3m8z902hk01c1pecuuqqp",
+            "name": "kanban-board",
+            "testSlugs": ["001-board-displays-tasks-in-columns-md", "002-empty-board-shows-placeholders-md"]
+        },
+        {
+            "id": "cmod3m90902ht01c1kog4jqyk",
+            "name": "login",
+            "testSlugs": ["001-login-happy-path-md", "002-login-redirect-when-authenticated-md"]
+        }
+    ],
+    "scenarioIndex": [
+        {
+            "id": "cmod38rfa02e501c1evz87b5f",
+            "name": "standard",
+            "description": "Realistic Kanban board with tasks across all statuses and priorities for core workflow testing",
+            "activeRecipe": {
+                "fingerprint": "c9a6408b31729ec6cc1ad0f2341b036808cbf255c8b151f52f4253b61675451a",
+                "fixtureJson": {
+                    "name": "standard",
+                    "create": {
+                        "User": [
+                            {
+                                "todos": [
+                                    {
+                                        "title": "Design landing page",
+                                        "status": "todo",
+                                        "assignee": "Alice",
+                                        "priority": "high",
+                                        "description": "Create mockups for the new landing page"
+                                    },
+                                    {
+                                        "title": "Write unit tests",
+                                        "status": "todo",
+                                        "assignee": "Bob",
+                                        "priority": "medium",
+                                        "description": "Add test coverage for auth module"
+                                    },
+                                    {
+                                        "title": "Set up CI pipeline",
+                                        "status": "todo",
+                                        "assignee": "Bob",
+                                        "priority": "high",
+                                        "description": "Configure GitHub Actions for automated tests"
+                                    },
+                                    {
+                                        "title": "Fix login bug",
+                                        "status": "in-progress",
+                                        "assignee": "Alice",
+                                        "priority": "high",
+                                        "description": "Session cookie not persisting on Safari"
+                                    },
+                                    {
+                                        "title": "Update dependencies",
+                                        "status": "in-progress",
+                                        "assignee": "Charlie",
+                                        "priority": "low",
+                                        "description": "Bump Next.js and Drizzle to latest"
+                                    },
+                                    {
+                                        "title": "Database migration",
+                                        "status": "in-progress",
+                                        "assignee": "Alice",
+                                        "priority": "medium",
+                                        "description": "Add index on todos.user_id column"
+                                    },
+                                    {
+                                        "title": "Deploy staging build",
+                                        "status": "done",
+                                        "assignee": "Alice",
+                                        "priority": "medium",
+                                        "description": "Push current branch to staging environment"
+                                    },
+                                    {
+                                        "title": "Review PR #42",
+                                        "status": "done",
+                                        "assignee": "Bob",
+                                        "priority": "low",
+                                        "description": "Code review for the dashboard refactor"
+                                    }
+                                ],
+                                "_alias": "alice",
+                                "username": "{{username_alice}}"
+                            }
+                        ]
+                    },
+                    "variables": {
+                        "username_alice": {
+                            "format": "alice-{testRunId}",
+                            "source": "testRunId",
+                            "strategy": "derived"
+                        }
+                    },
+                    "validation": {
+                        "phase": "ok",
+                        "up_ms": 45,
+                        "method": "endpoint-up-down",
+                        "status": "validated",
+                        "down_ms": 15
+                    },
+                    "description": "Realistic Kanban board with tasks across all statuses and priorities for core workflow testing"
+                },
+                "validationStatus": "validated"
+            }
+        },
+        {
+            "id": "cmod38rfh02e701c1s7k2ltc6",
+            "name": "empty",
+            "description": "Single authenticated user with no tasks for empty state and onboarding testing",
+            "activeRecipe": {
+                "fingerprint": "c5e99366824f478d20fbdef6ea9ae6068576adb754b9eb27905c639bb2d8e336",
+                "fixtureJson": {
+                    "name": "empty",
+                    "create": {
+                        "User": [
+                            {
+                                "_alias": "emptyuser",
+                                "username": "{{username_empty}}"
+                            }
+                        ]
+                    },
+                    "variables": {
+                        "username_empty": {
+                            "format": "emptyuser-{testRunId}",
+                            "source": "testRunId",
+                            "strategy": "derived"
+                        }
+                    },
+                    "validation": {
+                        "phase": "ok",
+                        "up_ms": 12,
+                        "method": "endpoint-up-down",
+                        "status": "validated",
+                        "down_ms": 8
+                    },
+                    "description": "Single authenticated user with no tasks for empty state and onboarding testing"
+                },
+                "validationStatus": "validated"
+            }
+        },
+        {
+            "id": "cmod38rfl02e901c15az9j9m3",
+            "name": "large",
+            "description": "Moderately loaded board with 12 tasks to verify column rendering with more content",
+            "activeRecipe": {
+                "fingerprint": "61559355f19bf2fff2bcd96a75446d2c71680ace928baaccc2122c83394749e7",
+                "fixtureJson": {
+                    "name": "large",
+                    "create": {
+                        "User": [
+                            {
+                                "todos": [
+                                    {
+                                        "title": "Task 1",
+                                        "status": "todo",
+                                        "assignee": "Alice",
+                                        "priority": "low",
+                                        "description": "Description for task 1"
+                                    },
+                                    {
+                                        "title": "Task 2",
+                                        "status": "todo",
+                                        "assignee": "Bob",
+                                        "priority": "medium",
+                                        "description": "Description for task 2"
+                                    },
+                                    {
+                                        "title": "Task 3",
+                                        "status": "todo",
+                                        "assignee": "Charlie",
+                                        "priority": "high",
+                                        "description": "Description for task 3"
+                                    },
+                                    {
+                                        "title": "Task 4",
+                                        "status": "todo",
+                                        "assignee": "Dana",
+                                        "priority": "low",
+                                        "description": "Description for task 4"
+                                    },
+                                    {
+                                        "title": "Task 5",
+                                        "status": "in-progress",
+                                        "assignee": "Alice",
+                                        "priority": "medium",
+                                        "description": "Description for task 5"
+                                    },
+                                    {
+                                        "title": "Task 6",
+                                        "status": "in-progress",
+                                        "assignee": "Bob",
+                                        "priority": "high",
+                                        "description": "Description for task 6"
+                                    },
+                                    {
+                                        "title": "Task 7",
+                                        "status": "in-progress",
+                                        "assignee": "Charlie",
+                                        "priority": "low",
+                                        "description": "Description for task 7"
+                                    },
+                                    {
+                                        "title": "Task 8",
+                                        "status": "in-progress",
+                                        "assignee": "Dana",
+                                        "priority": "medium",
+                                        "description": "Description for task 8"
+                                    },
+                                    {
+                                        "title": "Task 9",
+                                        "status": "done",
+                                        "assignee": "Alice",
+                                        "priority": "high",
+                                        "description": "Description for task 9"
+                                    },
+                                    {
+                                        "title": "Task 10",
+                                        "status": "done",
+                                        "assignee": "Bob",
+                                        "priority": "low",
+                                        "description": "Description for task 10"
+                                    },
+                                    {
+                                        "title": "Task 11",
+                                        "status": "done",
+                                        "assignee": "Charlie",
+                                        "priority": "medium",
+                                        "description": "Description for task 11"
+                                    },
+                                    {
+                                        "title": "Task 12",
+                                        "status": "done",
+                                        "assignee": "Dana",
+                                        "priority": "high",
+                                        "description": "Description for task 12"
+                                    }
+                                ],
+                                "_alias": "largeuser",
+                                "username": "{{username_large}}"
+                            }
+                        ]
+                    },
+                    "variables": {
+                        "username_large": {
+                            "format": "largeuser-{testRunId}",
+                            "source": "testRunId",
+                            "strategy": "derived"
+                        }
+                    },
+                    "validation": {
+                        "phase": "ok",
+                        "up_ms": 85,
+                        "method": "endpoint-up-down",
+                        "status": "validated",
+                        "down_ms": 20
+                    },
+                    "description": "Moderately loaded board with 12 tasks to verify column rendering with more content"
+                },
+                "validationStatus": "validated"
+            }
+        }
+    ],
+    "verdicts": [
+        {
+            "runId": "cmpx18cqm000g0nx0205l9mgr",
+            "testSlug": "002-move-task-via-dropdown-md",
+            "testName": "002-move-task-via-dropdown.md",
+            "originalPrompt": "# Test: Move a task from In Progress to Done\n\n## Setup\n\nUsing scenario: `standard`\n\nThe user starts on the board page at `/`.\n\n## Steps\n\n1. Locate the card titled \"Fix login bug\" in the \"In Progress\" column\n2. click: the \"Move Right\" button on the \"Fix login bug\" card\n3. assert: text \"Fix login bug\" is no longer in the \"In Progress\" column\n4. assert: text \"Fix login bug\" is now visible in the \"Done\" column\n5. assert: text \"2\" is visible in the \"In Progress\" column card count badge\n6. assert: text \"3\" is visible in the \"Done\" column card count badge\n\n## Expected result\n\nThe task moves from \"In Progress\" to \"Done\" via the \"Move Right\" button. Column counts update correctly.",
+            "runStatus": "failed",
+            "verdict": "engine_error",
+            "reviewReasoning": "The test plan and recorded steps assume the existence of a three-dot menu icon on Kanban cards to move tasks via a dropdown. However, the current application UI (as seen in screenshots and source code) uses explicit 'Move Left' and 'Move Right' buttons for this functionality. The recorded steps are stale and do not match the current application UI.",
+            "affectedReason": "code_change"
+        },
+        {
+            "runId": "cmpx18cpa000d0nx0vh8mc7ks",
+            "testSlug": "001-delete-task-from-column-md",
+            "testName": "001-delete-task-from-column.md",
+            "originalPrompt": "# Test: Delete a task via card action button\n\n## Setup\n\nUsing scenario: `standard`\n\nThe user starts on the board page at `/`.\n\n## Steps\n\n1. Locate the card titled \"Review PR #42\" in the \"Done\" column\n2. hover: over the \"Review PR #42\" card to reveal the \"Delete card\" button\n3. click: the \"Delete card\" button on the \"Review PR #42\" card\n4. assert: text \"Review PR #42\" is no longer visible on the board\n5. assert: text \"1\" is visible in the \"Done\" column card count badge\n\n## Expected result\n\nThe task is immediately removed from the board. The column count decrements by one.",
+            "runStatus": "failed",
+            "verdict": "engine_error",
+            "reviewReasoning": "The test plan describes a UI flow where a 'three-dot menu' icon must be hovered/clicked to reveal a dropdown menu containing a 'Delete' option. However, the application UI (as seen in screenshots and confirmed by the source code in `kanban-card.tsx`) now displays 'Rename' (Pencil) and 'Delete' (Trash) icons directly on the card when hovered. The 'three-dot menu' icon and the subsequent dropdown menu no longer exist in the implementation. Therefore, the test failed because it was looking for stale UI elements that have been replaced by a different interaction pattern. This is an engine_error (stale test definitions).",
+            "affectedReason": "code_change"
+        },
+        {
+            "runId": "cmpx18cps000e0nx0voy5yvbb",
+            "testSlug": "002-delete-last-task-shows-empty-state-md",
+            "testName": "002-delete-last-task-shows-empty-state.md",
+            "originalPrompt": "# Test: Deleting the last task in a column shows empty placeholder\n\n## Setup\n\nUsing scenario: `standard`\n\nThe user starts on the board page at `/`. The \"Done\" column should contain 2 tasks: \"Deploy staging build\" and \"Review PR #42\".\n\n## Steps\n\n1. assert: text \"2\" is visible in the \"Done\" column card count badge\n2. hover: over the card titled \"Deploy staging build\" in the \"Done\" column to reveal the \"Delete card\" button\n3. click: the \"Delete card\" button on the \"Deploy staging build\" card\n4. assert: text \"Deploy staging build\" is no longer visible on the board\n5. assert: text \"1\" is visible in the \"Done\" column card count badge\n6. hover: over the card titled \"Review PR #42\" in the \"Done\" column to reveal the \"Delete card\" button\n7. click: the \"Delete card\" button on the \"Review PR #42\" card\n8. assert: text \"Review PR #42\" is no longer visible on the board\n9. assert: text \"0\" is visible in the \"Done\" column card count badge\n10. assert: text \"No tasks yet\" is visible in the \"Done\" column\n\n## Expected result\n\nAfter both tasks in the \"Done\" column are deleted, the column shows the \"No tasks yet\" empty state placeholder and a count of 0.",
+            "runStatus": "failed",
+            "verdict": "engine_error",
+            "reviewReasoning": "The replay failed with 'No steps were executed', and no screenshots were captured at any point. This typically occurs when the replay engine or test environment fails to start properly, rather than when the application has a specific bug. If the application had crashed or failed to load elements, at least the first step would have been attempted and recorded as a failure with a corresponding screenshot. The source code for the relevant components (KanbanColumn, KanbanBoard) shows that the empty state logic and task management are handled correctly according to the test plan.",
+            "affectedReason": "code_change"
+        },
+        {
+            "runId": "cmpx18cq8000f0nx009fsj79f",
+            "testSlug": "001-full-task-lifecycle-md",
+            "testName": "001-full-task-lifecycle.md",
+            "originalPrompt": "# Test: Full task lifecycle from login to delete\n\n## Setup\n\nThe user starts on the login page at `/login`.\n\n## Steps\n\n1. type: \"alice\" into the \"Username\" input field\n2. click: the \"Sign in\" button\n3. assert: text \"Signed in as alice\" is visible in the header\n4. assert: heading \"To Do\" is visible\n5. assert: heading \"In Progress\" is visible\n6. assert: heading \"Done\" is visible\n7. click: the \"New Task\" button in the header\n8. assert: heading \"Create New Task\" is visible in the dialog\n9. type: \"Journey test task\" into the \"Task Title\" input field\n10. type: \"Alice\" into the \"Assignee\" input field\n11. click: the \"Priority\" dropdown\n12. click: \"High\" in the priority options\n13. click: the \"Create Task\" button\n14. assert: heading \"Create New Task\" is no longer visible\n15. assert: text \"Journey test task\" is visible in the \"To Do\" column\n16. click: the \"Move Right\" button on the \"Journey test task\" card\n17. assert: text \"Journey test task\" is visible in the \"In Progress\" column\n18. assert: text \"Journey test task\" is not visible in the \"To Do\" column\n19. click: the \"Move Right\" button on the \"Journey test task\" card\n20. assert: text \"Journey test task\" is visible in the \"Done\" column\n21. assert: text \"Journey test task\" is not visible in the \"In Progress\" column\n22. hover: over the card titled \"Journey test task\" in the \"Done\" column to reveal the \"Delete card\" button\n23. click: the \"Delete card\" button on the \"Journey test task\" card\n24. assert: text \"Journey test task\" is no longer visible on the board\n\n## Expected result\n\nThe user completes the full task lifecycle: logging in, creating a new task, moving it through columns, and deleting it.\n\n## What bug this might catch\n\nIntegration issues between features, such as a newly created task failing to move or be deleted.",
+            "runStatus": "failed",
+            "verdict": "engine_error",
+            "reviewReasoning": "The failure is due to stale step definitions. The test recording expects a 'three-dot menu icon' to appear when hovering over a card in the Kanban board, which then contains a 'Delete' option. However, the application's current implementation of the KanbanCard component (found in components/kanban-card.tsx) uses direct action buttons for 'Rename' (Pencil icon) and 'Delete' (Trash icon) that appear on hover. There is no three-dot menu icon or dropdown menu present in the component's code. Consequently, the replay engine timed out waiting for an element that no longer exists in the application's UI. The test needs to be updated to match the current UI pattern of clicking the trash can icon directly to delete a task.",
+            "affectedReason": "code_change"
+        }
+    ],
+    "step1Reasoning": "The code changes introduce a new 'Rename task' feature to the Kanban board. \n\n1. **Test Impact Analysis**:\n   - I identified four tests (`001-delete-task-from-column-md`, `002-delete-last-task-shows-empty-state-md`, `001-full-task-lifecycle-md`, and `002-move-task-via-dropdown-md`) as affected. These tests interact with the Kanban card header to perform deletions or move actions. The PR restructures this header by wrapping the delete button in a new container and adding a 'Rename' button (pencil icon) next to it. This change in layout and button composition might affect the execution agent's ability to find or click the correct buttons, especially since some tests already seem misaligned with the current UI (mentioning a 'three-dot menu' that isn't present).\n\n2. **Test Gap Detection**:\n   - The 'Rename' feature is entirely new and lacks test coverage. I suggested a new test, `003-rename-task-inline`, to verify the end-to-end flow of renaming a task: entering edit mode via the pencil icon, updating the title, submitting with Enter, and verifying persistence after a refresh.\n\n3. **Other observations**:\n   - The \"Move Left\" and \"Move Right\" buttons at the bottom of the card were not modified, so tests focusing solely on those (like `001-move-task-right-button-md`) are not marked as affected.\n   - CI workflow changes in `.github/workflows/trigger-diffs.yml` do not impact application behavior and require no test updates.",
+    "testCandidates": [
+        {
+            "candidateId": "cmpx18cnw000c0nx04pmgcglp",
+            "name": "003-rename-task-inline",
+            "instruction": "Setup:\nLog in as Alice. Reach the board page.\n\nSteps:\n1. Locate the card titled \"Design landing page\" in the \"To Do\" column.\n2. Hover over the \"Design landing page\" card to reveal the \"Rename card\" button (pencil icon).\n3. Click the \"Rename card\" button.\n4. Assert that an input field appears containing the text \"Design landing page\".\n5. Type \"Updated landing page design\" into the input field.\n6. Press the Enter key to submit the rename.\n7. Assert that the card title has updated to \"Updated landing page design\" and the input field is no longer visible.\n8. Refresh the page.\n9. Assert that the card title remains \"Updated landing page design\" in the \"To Do\" column.\n\nExpected Result:\nThe task is successfully renamed inline, the UI updates immediately, and the change persists after a page refresh.",
+            "reasoning": "The PR introduces a new 'Rename task' feature that allows users to edit a task's title directly on the Kanban card. This functionality is currently uncovered by existing tests. The suggested test verifies the full flow: triggering edit mode, submitting a change, and confirming persistence."
+        }
+    ]
+}

@@ -23,6 +23,17 @@ export class ScenarioIndex {
         this.scenariosById = new Map(scenarios.map((s) => [s.id, s]));
     }
 
+    /**
+     * The underlying scenario array this index was built from.
+     *
+     * Used to serialize the index back to its raw form (e.g. when freezing a
+     * `ResolutionAgentInput` into an on-disk eval fixture) so it can be
+     * reconstructed later via `new ScenarioIndex(array)`.
+     */
+    toArray(): ScenarioInfo[] {
+        return this.scenarios;
+    }
+
     /** Lightweight summary of all scenarios for the agent to choose from. */
     listScenarios() {
         return this.scenarios.map((s) => ({
