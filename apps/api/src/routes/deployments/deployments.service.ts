@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import { env } from "../../env";
 import { Service } from "../service";
 import {
     buildServiceSummaries,
@@ -58,6 +59,63 @@ export class DeploymentsService extends Service {
             updatedAt: environment.updatedAt,
             apps: Object.entries(parseStringRecord(environment.urls)).map(([appName, url]) => ({ appName, url })),
         }));
+    }
+
+    /**
+     * Triggers a redeploy of a preview environment by calling Previewkit's
+     * redeploy endpoint, which re-runs the full pipeline (all apps) for the PR
+     * at its current head SHA. Admin-only. Surfaces Previewkit's own error
+     * detail (e.g. a torn-down environment returns 409) so the caller learns
+     * why it was rejected.
+     */
+    async redeployEnvironment(environmentId: string): Promise<void> {
+        this.logger.info("Redeploying previewkit environment", { environmentId });
+
+        const environment = await this.db.previewkitEnvironment.findUnique({
+            where: { id: environmentId },
+            select: { repoFullName: true, prNumber: true },
+        });
+        if (environment == null) {
+            throw new NotFoundError("Preview environment not found");
+        }
+
+        if (env.PREVIEWKIT_URL == null || env.PREVIEWKIT_SERVICE_SECRET == null) {
+            throw new Error(
+                "Preview environments are not configured: PREVIEWKIT_URL and PREVIEWKIT_SERVICE_SECRET must be set.",
+            );
+        }
+
+        const base = env.PREVIEWKIT_URL.replace(/\/$/, "");
+        const [owner, repo] = environment.repoFullName.split("/");
+        const url = `${base}/v1/environments/${owner}/${repo}/${environment.prNumber}/redeploy`;
+
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { authorization: `Bearer ${env.PREVIEWKIT_SERVICE_SECRET}` },
+            signal: AbortSignal.timeout(10_000),
+        });
+
+        if (!response.ok) {
+            const payload: unknown = await response.json().catch(() => undefined);
+            const detail =
+                typeof payload === "object" &&
+                payload != null &&
+                "error" in payload &&
+                typeof payload.error === "string"
+                    ? payload.error
+                    : undefined;
+            this.logger.warn("Previewkit redeploy returned non-OK", {
+                status: response.status,
+                repoFullName: environment.repoFullName,
+                prNumber: environment.prNumber,
+            });
+            throw new Error(detail ?? `Previewkit redeploy failed with status ${response.status}.`);
+        }
+
+        this.logger.info("Triggered previewkit redeploy", {
+            repoFullName: environment.repoFullName,
+            prNumber: environment.prNumber,
+        });
     }
 
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {

@@ -19,6 +19,19 @@ export function useAdminPreviewkitEnvironments() {
     return useSuspenseQuery(trpc.admin.listPreviewkitEnvironments.queryOptions());
 }
 
+export function useRedeployPreviewkitEnvironment() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.redeployPreviewkitEnvironment.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.listPreviewkitEnvironments.queryKey() });
+            },
+        }),
+        successToast: { title: "Redeploy triggered" },
+        errorToast: { title: "Failed to trigger redeploy" },
+    });
+}
+
 export function useAdminPendingOrgs() {
     return useSuspenseQuery(trpc.admin.listPendingOrgs.queryOptions());
 }

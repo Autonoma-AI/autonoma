@@ -33,6 +33,14 @@ export const adminRouter = router({
     listPreviewkitEnvironments: adminProcedure.query(({ ctx: { services } }) =>
         services.deployments.listActiveEnvironments(),
     ),
+    /**
+     * Re-runs the Previewkit pipeline for a preview environment (all apps, at
+     * the PR's current head SHA). Admin-gated; delegates to the deployments
+     * service, which calls Previewkit's redeploy endpoint.
+     */
+    redeployPreviewkitEnvironment: adminProcedure
+        .input(z.object({ environmentId: z.string().min(1) }))
+        .mutation(({ ctx: { services }, input }) => services.deployments.redeployEnvironment(input.environmentId)),
     listOrganizations: adminProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
     listPendingOrgs: adminProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: adminProcedure

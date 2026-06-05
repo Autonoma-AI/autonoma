@@ -1,11 +1,12 @@
-import { Badge, Skeleton } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { useAdminPreviewkitEnvironments } from "lib/query/admin.queries";
+import { useAdminPreviewkitEnvironments, useRedeployPreviewkitEnvironment } from "lib/query/admin.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 
@@ -128,6 +129,22 @@ function EnvironmentsTable() {
   );
 }
 
+function RedeployButton({ environmentId }: { environmentId: string }) {
+  const redeploy = useRedeployPreviewkitEnvironment();
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      disabled={redeploy.isPending}
+      onClick={() => redeploy.mutate({ environmentId })}
+      aria-label="Redeploy environment"
+    >
+      {redeploy.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <ArrowsClockwiseIcon size={12} />}
+      Redeploy
+    </Button>
+  );
+}
+
 function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
   return (
     <div className="overflow-hidden rounded-md border border-border-dim">
@@ -142,6 +159,7 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
           <Badge variant={STATUS_VARIANT[environment.status]} className="text-3xs">
             {environment.phase ?? environment.status}
           </Badge>
+          <RedeployButton environmentId={environment.id} />
         </div>
       </div>
 
