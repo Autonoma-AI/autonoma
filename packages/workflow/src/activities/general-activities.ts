@@ -105,6 +105,10 @@ export interface FinishRefinementIterationInput {
     iterationId: string;
 }
 
+export interface FinishErroredRefinementIterationsInput {
+    loopId: string;
+}
+
 export interface FinishRefinementLoopInput {
     loopId: string;
     status: "converged" | "max_iterations" | "error";
@@ -321,6 +325,7 @@ export interface GeneralActivities {
     markRefinementIterationRunning(input: MarkRefinementIterationRunningInput): Promise<void>;
     analyzeResults(input: AnalyzeResultsInput): Promise<AnalyzeResultsOutput>;
     finishRefinementIteration(input: FinishRefinementIterationInput): Promise<void>;
+    finishErroredRefinementIterations(input: FinishErroredRefinementIterationsInput): Promise<void>;
     finishRefinementLoop(input: FinishRefinementLoopInput): Promise<void>;
     prepareGenerationQueue(input: PrepareGenerationQueueInput): Promise<PrepareGenerationQueueOutput>;
     prepareRunsForGenerations(input: PrepareRunsForGenerationsInput): Promise<PrepareRunsForGenerationsOutput>;

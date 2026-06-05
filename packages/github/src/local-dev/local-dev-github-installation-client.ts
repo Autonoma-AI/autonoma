@@ -133,6 +133,11 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             sha,
             message: `Local dev commit ${sha}`,
             authorLogin: "local-dev-user",
+            files: [
+                { filename: "apps/web/hero/HeroCta.tsx", status: "modified", additions: 24, deletions: 6 },
+                { filename: "apps/web/hero/hero.css", status: "modified", additions: 8, deletions: 2 },
+                { filename: "apps/api/experiments/assign.ts", status: "added", additions: 41, deletions: 0 },
+            ],
         };
     }
 

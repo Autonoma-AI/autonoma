@@ -3,6 +3,7 @@ import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { useAuth } from "lib/auth";
 import { IterationCard } from "./iteration-card";
 import { IterationStep } from "./iteration-step";
+import { PipelineIds } from "./pipeline-ids";
 import { iterationVisualState, type RefinementLoop } from "./refinement-types";
 
 interface RefinementLoopBlockProps {
@@ -49,6 +50,12 @@ export function RefinementLoopBlock({ loop, snapshotId }: RefinementLoopBlockPro
           {loop.iterations.length} iteration{loop.iterations.length === 1 ? "" : "s"}
         </span>
         {duration != null && <span className="text-2xs text-text-tertiary">· {duration}</span>}
+        <PipelineIds
+          ids={[
+            { label: "loop", value: loop.id },
+            { label: "snapshot", value: snapshotId },
+          ]}
+        />
         {isAdmin && (
           <div className="ml-auto flex items-center gap-2">
             <TemporalLink workflowId={`refinement-loop-${snapshotId}`} />
@@ -58,16 +65,15 @@ export function RefinementLoopBlock({ loop, snapshotId }: RefinementLoopBlockPro
       </div>
 
       <div className="flex flex-col">
-        {loop.iterations.map((iter, idx) => (
-          <IterationStep
-            key={iter.id}
-            number={iter.number}
-            state={iterationVisualState(iter)}
-            isLast={idx === loop.iterations.length - 1}
-          >
-            <IterationCard iteration={iter} />
-          </IterationStep>
-        ))}
+        {loop.iterations.map((iter, idx) => {
+          const isLast = idx === loop.iterations.length - 1;
+          const state = iterationVisualState(iter, { loopStatus: loop.status, isLast });
+          return (
+            <IterationStep key={iter.id} number={iter.number} state={state} isLast={isLast}>
+              <IterationCard iteration={iter} displayFinishedAt={state === "failed" ? loop.finishedAt : undefined} />
+            </IterationStep>
+          );
+        })}
       </div>
     </div>
   );

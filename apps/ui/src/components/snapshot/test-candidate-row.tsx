@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import type { TestCandidate } from "./diffs-timeline-types";
+import { PipelineIds } from "./pipeline-ids";
 
 const STATUS_BADGE: Record<
   TestCandidate["status"],
@@ -77,6 +78,15 @@ export function TestCandidateRow({ candidate, prNumber }: TestCandidateRowProps)
           )}
         </div>
       </div>
+      <PipelineIds
+        ids={[
+          { label: "candidate", value: candidate.id },
+          { label: "test", value: candidate.acceptedTestCase?.id },
+          { label: "generation", value: candidate.generation?.id },
+          { label: "run", value: candidate.run?.id },
+        ]}
+        className="border-t border-border-dim bg-surface-base px-4 py-2"
+      />
       {hasDetails && (
         <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
           {instruction.length > 0 && <ReasoningSection label="Proposal" content={instruction} />}

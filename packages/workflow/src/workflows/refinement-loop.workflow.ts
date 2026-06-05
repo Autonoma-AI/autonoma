@@ -1,4 +1,4 @@
-import { executeChild, log, proxyActivities } from "@temporalio/workflow";
+import { CancellationScope, executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities/diffs-activities";
 import type { GeneralActivities } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
@@ -74,25 +74,6 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
         extra: { hasPendingWork },
     });
 
-    if (hasPendingWork) {
-        log.info("Firing iteration 1 generation pipeline", {
-            ...loopIds,
-            refinementIteration: { iterationId: firstIterationId, iterationNumber: 1 },
-        });
-        await executeChild(WORKFLOW_TYPE.RUN_GENERATION_PIPELINE, {
-            workflowId: `gen-pipeline-${loopId}-iter-1`,
-            taskQueue: TaskQueue.GENERAL,
-            args: [
-                {
-                    snapshotId: input.snapshotId,
-                    organizationId,
-                    loopId,
-                    iterationNumber: 1,
-                },
-            ],
-        });
-    }
-
     // --- Iteration loop: analyze, heal, fire next ---
     const validatedTestCaseIds = new Set<string>();
     let finalStatus: "converged" | "max_iterations" | "error" = "max_iterations";
@@ -101,6 +82,25 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
     let currentIterationNumber = 1;
 
     try {
+        if (hasPendingWork) {
+            log.info("Firing iteration 1 generation pipeline", {
+                ...loopIds,
+                refinementIteration: { iterationId: firstIterationId, iterationNumber: 1 },
+            });
+            await executeChild(WORKFLOW_TYPE.RUN_GENERATION_PIPELINE, {
+                workflowId: `gen-pipeline-${loopId}-iter-1`,
+                taskQueue: TaskQueue.GENERAL,
+                args: [
+                    {
+                        snapshotId: input.snapshotId,
+                        organizationId,
+                        loopId,
+                        iterationNumber: 1,
+                    },
+                ],
+            });
+        }
+
         while (currentIterationNumber <= maxIterations) {
             iterationsRun = currentIterationNumber;
             const iterIds = {
@@ -186,7 +186,24 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             ...loopIds,
             extra: { reason: e instanceof Error ? e.message : String(e) },
         });
-        await general.finishRefinementLoop({ loopId, status: "error" });
+        await CancellationScope.nonCancellable(async () => {
+            try {
+                await general.finishErroredRefinementIterations({ loopId });
+            } catch (cleanupError) {
+                log.error("Failed to close errored refinement iterations", {
+                    ...loopIds,
+                    extra: { reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+                });
+            }
+            try {
+                await general.finishRefinementLoop({ loopId, status: "error" });
+            } catch (cleanupError) {
+                log.error("Failed to mark refinement loop as errored", {
+                    ...loopIds,
+                    extra: { reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+                });
+            }
+        });
         throw e;
     }
 

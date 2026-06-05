@@ -9,6 +9,7 @@ export {
     type PullRequestState,
     type PullRequestCommit,
     type Commit,
+    type CommitFile,
 } from "./github-installation-client";
 export { FakeGitHubApp } from "./fake/fake-github-app";
 export { FakeGitHubInstallationClient } from "./fake/fake-github-installation-client";

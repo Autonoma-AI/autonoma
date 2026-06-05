@@ -2,6 +2,7 @@ import { Badge, cn } from "@autonoma/blacklight";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { PipelineIds } from "./pipeline-ids";
 import { ReasoningBlock } from "./reasoning-block";
 import type { RefinementAction } from "./refinement-types";
 
@@ -43,6 +44,14 @@ export function RefinementActionRow({ action }: RefinementActionRowProps) {
           )}
         </div>
       </div>
+      <PipelineIds
+        ids={[
+          { label: "action", value: action.id },
+          { label: "plan", value: action.plan?.id },
+          { label: "test", value: action.testCase?.id ?? action.plan?.testCaseId },
+        ]}
+        className="border-t border-border-dim bg-surface-base px-4 py-2"
+      />
       <div className="border-t border-border-dim bg-surface-base px-4 py-3">
         <ActionDetail action={action} />
         {action.reasoning.trim().length > 0 && (

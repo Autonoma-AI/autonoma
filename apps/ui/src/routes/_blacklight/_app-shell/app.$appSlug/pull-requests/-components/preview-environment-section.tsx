@@ -1,5 +1,4 @@
-import { Badge, Button, Panel, PanelBody, StatusDot, cn } from "@autonoma/blacklight";
-import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { Badge, Panel, PanelBody, StatusDot, cn } from "@autonoma/blacklight";
 import { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CloudIcon } from "@phosphor-icons/react/Cloud";
@@ -15,7 +14,7 @@ import { WarningDiamondIcon } from "@phosphor-icons/react/WarningDiamond";
 import { formatDate } from "lib/format";
 import { usePreviewEnvironmentSummary } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryByPr"];
 type PreviewService = PreviewSummary["services"][number];
@@ -25,6 +24,10 @@ export function PreviewEnvironmentSection({ applicationId, prNumber }: { applica
   const { data: summary } = usePreviewEnvironmentSummary(applicationId, prNumber);
   const statusMeta = PREVIEW_STATUS_META[summary.status] ?? PREVIEW_STATUS_META.unknown;
   const primaryHost = summary.primaryUrl != null ? hostname(summary.primaryUrl) : null;
+  const previewHref =
+    summary.actions.openPreview.enabled && summary.actions.openPreview.href != null
+      ? summary.actions.openPreview.href
+      : undefined;
   const hasServiceDetails = summary.serviceCount > 0;
 
   return (
@@ -55,19 +58,10 @@ export function PreviewEnvironmentSection({ applicationId, prNumber }: { applica
         )}
 
         <div className="ml-auto flex min-w-0 items-center gap-3">
-          {primaryHost != null && <span className="truncate font-mono text-xs text-text-secondary">{primaryHost}</span>}
-          {summary.actions.openPreview.enabled && summary.actions.openPreview.href != null && (
-            <a
-              href={summary.actions.openPreview.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Button size="sm" aria-label="Open preview">
-                <ArrowSquareOutIcon size={13} />
-                Open preview
-              </Button>
-            </a>
+          {primaryHost != null && (
+            <PreviewUrl href={previewHref} className="truncate font-mono text-xs text-text-primary">
+              {primaryHost}
+            </PreviewUrl>
           )}
         </div>
       </button>
@@ -80,7 +74,9 @@ export function PreviewEnvironmentSection({ applicationId, prNumber }: { applica
                 {statusMeta.label}
               </Badge>
               {summary.primaryUrl != null && (
-                <span className="truncate font-mono text-xs text-text-secondary">{summary.primaryUrl}</span>
+                <PreviewUrl href={previewHref} className="truncate font-mono text-xs text-text-secondary">
+                  {summary.primaryUrl}
+                </PreviewUrl>
               )}
               <span className="ml-auto font-mono text-2xs uppercase tracking-wider text-text-tertiary">
                 Auto-redeploy on push
@@ -111,6 +107,30 @@ function CountPill({ dot, value, label }: { dot: "success" | "warn" | "critical"
       <StatusDot status={dot} />
       {value} {label}
     </span>
+  );
+}
+
+function PreviewUrl({
+  href,
+  className,
+  children,
+}: {
+  href: string | undefined;
+  className: string;
+  children: ReactNode;
+}) {
+  if (href == null) return <span className={className}>{children}</span>;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className={cn(className, "transition-colors hover:text-text-primary hover:underline")}
+    >
+      {children}
+    </a>
   );
 }
 

@@ -2,6 +2,7 @@ import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type {
+    FinishErroredRefinementIterationsInput,
     FinishRefinementIterationInput,
     FinishRefinementLoopInput,
     InitRefinementLoopInput,
@@ -129,6 +130,17 @@ export async function markRefinementIterationRunning(input: MarkRefinementIterat
 export async function finishRefinementIteration(input: FinishRefinementIterationInput): Promise<void> {
     await db.refinementIteration.update({
         where: { id: input.iterationId },
+        data: { status: "completed", finishedAt: new Date() },
+    });
+}
+
+export async function finishErroredRefinementIterations(input: FinishErroredRefinementIterationsInput): Promise<void> {
+    await db.refinementIteration.updateMany({
+        where: {
+            loopId: input.loopId,
+            status: { in: ["pending", "running"] },
+            finishedAt: null,
+        },
         data: { status: "completed", finishedAt: new Date() },
     });
 }

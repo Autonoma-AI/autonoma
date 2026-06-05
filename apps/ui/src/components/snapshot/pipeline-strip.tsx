@@ -11,6 +11,7 @@ import {
   type StageKey,
   type StageStatus,
 } from "./diffs-timeline-types";
+import { PipelineIds } from "./pipeline-ids";
 import type { RefinementLoop } from "./refinement-types";
 import { StageAnalysis } from "./stage-analysis";
 import { StageFinalization } from "./stage-finalization";
@@ -44,6 +45,7 @@ export function PipelineStrip({ diffsJob, changes, refinementLoop, snapshotId }:
     <Panel>
       <PanelHeader>
         <PanelTitle>Pipeline</PanelTitle>
+        <PipelineIds ids={[{ label: "snapshot", value: snapshotId }]} className="ml-auto" />
         {duration != null && (
           <span className="font-mono text-2xs text-text-tertiary">
             <span className="uppercase tracking-widest">Duration </span>

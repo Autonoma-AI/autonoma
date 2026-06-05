@@ -16,3 +16,5 @@ export * from "./api-key";
 export * from "./secrets";
 export * from "./org-secrets";
 export * from "./healing-actions";
+export * from "./snapshot-report";
+export * from "./bug-detail";

@@ -1,0 +1,125 @@
+import type { PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
+import type { Logger } from "@autonoma/logger";
+import type { StorageProvider } from "@autonoma/storage";
+import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
+import type { GitHubInstallationService } from "../../github/github-installation.service";
+import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
+import { loadBugsForSnapshot } from "./snapshot-report-bugs";
+import { buildResultsBlock } from "./snapshot-report-results";
+import { buildTriggerBlock } from "./snapshot-report-trigger";
+
+export async function loadSnapshotReport({
+    db,
+    github,
+    storageProvider,
+    snapshotId,
+    organizationId,
+    parentLogger,
+}: {
+    db: PrismaClient;
+    github: GitHubInstallationService;
+    storageProvider: StorageProvider;
+    snapshotId: string;
+    organizationId: string;
+    parentLogger: Logger;
+}): Promise<SnapshotReport> {
+    const logger = parentLogger.child({ name: "loadSnapshotReport" });
+    logger.info("Loading snapshot report", { snapshotId });
+
+    const snapshot = await db.branchSnapshot.findUnique({
+        where: { id: snapshotId, branch: { organizationId } },
+        select: {
+            id: true,
+            status: true,
+            source: true,
+            headSha: true,
+            baseSha: true,
+            createdAt: true,
+            branch: {
+                select: {
+                    id: true,
+                    name: true,
+                    applicationId: true,
+                    prInfo: { select: { prNumber: true } },
+                },
+            },
+            diffsJob: {
+                select: {
+                    analysisReasoning: true,
+                    resolutionReasoning: true,
+                    affectedTests: {
+                        select: {
+                            affectedReason: true,
+                            reasoning: true,
+                            testCase: { select: { id: true, name: true, slug: true } },
+                        },
+                        orderBy: { createdAt: "asc" },
+                    },
+                },
+            },
+        },
+    });
+
+    if (snapshot == null) throw new NotFoundError("Snapshot not found");
+
+    const healthMap = await aggregateSnapshotHealth(db, [{ id: snapshot.id, status: snapshot.status }], logger);
+    const healthEntry = healthMap.get(snapshot.id);
+    const healthCounts = healthEntry?.counts ?? {
+        failing: 0,
+        passing: 0,
+        running: 0,
+        quarantined: 0,
+        notAffected: 0,
+        totalTests: 0,
+    };
+    const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts);
+
+    const [trigger, results, bugs] = await Promise.all([
+        buildTriggerBlock({ snapshot, github, organizationId, logger }),
+        buildResultsBlock(db, snapshotId, logger),
+        loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
+    ]);
+
+    const selected: SnapshotReportSelectedTest[] = (snapshot.diffsJob?.affectedTests ?? []).map((t) => ({
+        testCaseId: t.testCase.id,
+        name: t.testCase.name,
+        slug: t.testCase.slug,
+        affectedReason: t.affectedReason ?? undefined,
+        reasoning: t.reasoning ?? undefined,
+    }));
+
+    logger.info("Snapshot report assembled", {
+        snapshotId,
+        selectedTests: selected.length,
+        bugs: bugs.length,
+        filesChanged: trigger.filesChanged.length,
+    });
+
+    return {
+        snapshot: {
+            id: snapshot.id,
+            status: snapshot.status,
+            source: snapshot.source,
+            headSha: snapshot.headSha ?? undefined,
+            baseSha: snapshot.baseSha ?? undefined,
+            createdAt: snapshot.createdAt,
+            branch: {
+                id: snapshot.branch.id,
+                name: snapshot.branch.name,
+                prNumber: snapshot.branch.prInfo?.prNumber,
+            },
+        },
+        trigger,
+        selection: {
+            totalSuiteTests: healthCounts.totalTests,
+            selected,
+            analysisReasoning: snapshot.diffsJob?.analysisReasoning ?? undefined,
+        },
+        results,
+        bugs,
+        resolutionReasoning: snapshot.diffsJob?.resolutionReasoning ?? undefined,
+        health,
+        healthCounts,
+    };
+}

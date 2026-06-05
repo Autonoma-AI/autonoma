@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
 
 export type SnapshotHealth = "healthy" | "critical" | "running" | "unknown";
 
@@ -39,42 +40,19 @@ export async function aggregateSnapshotHealth(
     const snapshotIds = snapshotsWithStatus.map((s) => s.id);
     logger.info("Aggregating snapshot health", { count: snapshotIds.length });
 
-    const [assignments, runs] = await Promise.all([
+    const [assignments, executedTestsBySnapshotEntries] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId: { in: snapshotIds } },
             select: { snapshotId: true, testCaseId: true, quarantineIssueId: true },
         }),
-        db.run.findMany({
-            where: { assignment: { snapshotId: { in: snapshotIds } } },
-            select: {
-                status: true,
-                startedAt: true,
-                createdAt: true,
-                assignment: { select: { snapshotId: true, testCaseId: true } },
-            },
-        }),
+        Promise.all(
+            snapshotIds.map(
+                async (snapshotId) => [snapshotId, await listExecutedTestsForSnapshot(db, snapshotId)] as const,
+            ),
+        ),
     ]);
 
-    type RunRow = (typeof runs)[number];
-    const latestRunByTest = new Map<string, Map<string, RunRow>>();
-
-    function timeOf(run: RunRow): number {
-        return run.startedAt?.getTime() ?? run.createdAt.getTime();
-    }
-
-    for (const run of runs) {
-        const snapId = run.assignment.snapshotId;
-        const testId = run.assignment.testCaseId;
-        let perSnap = latestRunByTest.get(snapId);
-        if (perSnap == null) {
-            perSnap = new Map();
-            latestRunByTest.set(snapId, perSnap);
-        }
-        const existing = perSnap.get(testId);
-        if (existing == null || timeOf(run) > timeOf(existing)) {
-            perSnap.set(testId, run);
-        }
-    }
+    const executedTestsBySnapshot = new Map(executedTestsBySnapshotEntries);
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {
@@ -89,14 +67,12 @@ export async function aggregateSnapshotHealth(
         let failing = 0;
         let passing = 0;
         let running = 0;
-        const perSnapRuns = latestRunByTest.get(snapshot.id);
-        if (perSnapRuns != null) {
-            for (const [testId, run] of perSnapRuns) {
-                if (quarantinedSet.has(testId)) continue;
-                if (run.status === "failed") failing += 1;
-                else if (run.status === "success") passing += 1;
-                else if (run.status === "running" || run.status === "pending") running += 1;
-            }
+        const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
+        for (const test of executedTests) {
+            if (quarantinedSet.has(test.testCase.id)) continue;
+            if (test.finalOutcome === "failed") failing += 1;
+            else if (test.finalOutcome === "passed") passing += 1;
+            else running += 1;
         }
 
         const quarantined = quarantinedSet.size;

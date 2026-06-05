@@ -6,8 +6,9 @@ import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 type ExecutedTest = RouterOutputs["branches"]["snapshotDetail"]["executedTests"][number];
 type RunStatus = ExecutedTest["status"];
+type FinalOutcome = ExecutedTest["finalOutcome"];
 type StatusBadgeVariant = "status-pending" | "status-running" | "status-passed" | "status-failed";
-type VerdictBadgeVariant = "warn" | "critical";
+type VerdictBadgeVariant = "success" | "warn" | "critical";
 
 interface CheckpointTestsRunProps {
   executedTests: ExecutedTest[];
@@ -26,7 +27,7 @@ export function CheckpointTestsRun({ executedTests, totalTests, maxRows, classNa
   }
 
   const orderedTests = TEST_GROUPS.flatMap((group) =>
-    executedTests.filter((test) => group.statuses.includes(test.status)),
+    executedTests.filter((test) => group.outcomes.includes(test.finalOutcome)),
   );
   const visibleTests = orderedTests.slice(0, maxRows ?? orderedTests.length);
   const hiddenCount = executedTests.length - visibleTests.length;
@@ -34,14 +35,14 @@ export function CheckpointTestsRun({ executedTests, totalTests, maxRows, classNa
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {TEST_GROUPS.map((group) => {
-        const tests = visibleTests.filter((test) => group.statuses.includes(test.status));
+        const tests = visibleTests.filter((test) => group.outcomes.includes(test.finalOutcome));
         if (tests.length === 0) return null;
         return (
           <div key={group.label} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">
               <span>{group.label}</span>
               <span>·</span>
-              <span>{executedTests.filter((test) => group.statuses.includes(test.status)).length}</span>
+              <span>{executedTests.filter((test) => group.outcomes.includes(test.finalOutcome)).length}</span>
             </div>
             <div className="flex flex-col gap-1.5">
               {tests.map((test) => (
@@ -68,7 +69,7 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
       <div className="flex flex-wrap items-center gap-3">
         <TestNameLink test={test} className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary" />
         <div className="flex shrink-0 items-center gap-1.5">
-          <Badge variant={RUN_STATUS_BADGE[test.status]}>{RUN_STATUS_LABEL[test.status]}</Badge>
+          <Badge variant={FINAL_OUTCOME_BADGE[test.finalOutcome]}>{finalOutcomeLabel(test)}</Badge>
           {test.verdict != null && (
             <Badge variant={VERDICT_BADGE[test.verdict].variant}>{VERDICT_BADGE[test.verdict].label}</Badge>
           )}
@@ -92,6 +93,18 @@ function TestNameLink({ test, className }: { test: ExecutedTest; className: stri
     );
   }
 
+  if (test.generationId != null) {
+    return (
+      <AppLink
+        to="/app/$appSlug/generations/$generationId"
+        params={{ generationId: test.generationId }}
+        className={className}
+      >
+        {content}
+      </AppLink>
+    );
+  }
+
   return (
     <AppLink to="/app/$appSlug/tests/$testSlug" params={{ testSlug: test.testCase.slug }} className={className}>
       {content}
@@ -99,27 +112,36 @@ function TestNameLink({ test, className }: { test: ExecutedTest; className: stri
   );
 }
 
-const TEST_GROUPS: Array<{ label: string; statuses: RunStatus[] }> = [
-  { label: "Failed", statuses: ["failed"] },
-  { label: "Running", statuses: ["running", "pending"] },
-  { label: "Passed", statuses: ["success"] },
+const TEST_GROUPS: Array<{ label: string; outcomes: FinalOutcome[] }> = [
+  { label: "Failed", outcomes: ["failed"] },
+  { label: "Running", outcomes: ["unresolved"] },
+  { label: "Passed", outcomes: ["passed"] },
 ];
 
-const RUN_STATUS_BADGE: Record<RunStatus, StatusBadgeVariant> = {
-  pending: "status-pending",
-  running: "status-running",
-  success: "status-passed",
+const FINAL_OUTCOME_BADGE: Record<FinalOutcome, StatusBadgeVariant> = {
+  unresolved: "status-running",
+  passed: "status-passed",
   failed: "status-failed",
 };
 
 const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   pending: "pending",
+  queued: "queued",
   running: "running",
   success: "passed",
   failed: "failed",
 };
 
+function finalOutcomeLabel(test: ExecutedTest): string {
+  if (test.finalOutcome === "passed") return "passed";
+  if (test.finalOutcome === "failed") return "failed";
+  return RUN_STATUS_LABEL[test.status];
+}
+
 const VERDICT_BADGE: Record<NonNullable<ExecutedTest["verdict"]>, { label: string; variant: VerdictBadgeVariant }> = {
+  success: { label: "verified", variant: "success" },
   engine_error: { label: "engine issue", variant: "warn" },
   application_bug: { label: "app bug", variant: "critical" },
+  agent_limitation: { label: "agent limitation", variant: "warn" },
+  plan_mismatch: { label: "plan mismatch", variant: "warn" },
 };

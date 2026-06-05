@@ -46,7 +46,7 @@ function StepMarker({ state, number }: { state: IterationVisualState; number: nu
     );
   }
 
-  if (state === "no_actions") {
+  if (state === "failed" || state === "no_actions") {
     return (
       <div className="flex size-7 items-center justify-center rounded-full bg-status-failed/20 text-status-failed">
         <WarningIcon size={14} weight="bold" />
@@ -81,6 +81,12 @@ function StateBadge({ state }: { state: IterationVisualState }) {
           running
         </Badge>
       );
+    case "failed":
+      return (
+        <Badge variant="status-failed" className="px-1.5 py-0 text-3xs">
+          failed
+        </Badge>
+      );
     case "no_actions":
       return (
         <Badge variant="status-failed" className="px-1.5 py-0 text-3xs">
@@ -98,6 +104,6 @@ function StateBadge({ state }: { state: IterationVisualState }) {
 
 function railColor(state: IterationVisualState): string {
   if (state === "validated" || state === "healed") return "bg-status-passed/40";
-  if (state === "no_actions") return "bg-status-failed/40";
+  if (state === "failed" || state === "no_actions") return "bg-status-failed/40";
   return "bg-border-dim";
 }

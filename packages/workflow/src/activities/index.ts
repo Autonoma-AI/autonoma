@@ -24,6 +24,7 @@ export type {
     HealingReviewLink,
     WorkflowArchitecture,
     FinishRefinementIterationInput,
+    FinishErroredRefinementIterationsInput,
     FinishRefinementLoopInput,
     PreparedGeneration,
     PrepareGenerationQueueInput,

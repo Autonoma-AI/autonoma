@@ -71,6 +71,84 @@ apiTestSuite({
             });
             expect(detail.executedTests).toEqual([]);
         });
+
+        test("uses the final refinement loop outcome instead of earlier failed attempts", async ({ harness }) => {
+            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
+            const assignment = fixture.assignments.checkout;
+            const plan = await harness.db.testPlan.create({
+                data: {
+                    testCaseId: assignment.testCaseId,
+                    prompt: "Complete checkout",
+                    organizationId: harness.organizationId,
+                },
+            });
+            await harness.db.testCaseAssignment.update({
+                where: { id: assignment.id },
+                data: { planId: plan.id },
+            });
+
+            const loop = await harness.db.refinementLoop.create({
+                data: {
+                    snapshotId: fixture.snapshotId,
+                    triggeredBy: "diffs",
+                    status: "converged",
+                    startedAt: new Date("2026-01-01T10:00:00Z"),
+                    finishedAt: new Date("2026-01-01T10:30:00Z"),
+                    organizationId: harness.organizationId,
+                },
+            });
+            const iterationOne = await createRefinementIteration(harness, loop.id, plan.id, 1, {
+                startedAt: new Date("2026-01-01T10:00:00Z"),
+                finishedAt: new Date("2026-01-01T10:10:00Z"),
+            });
+            const iterationTwo = await createRefinementIteration(harness, loop.id, plan.id, 2, {
+                startedAt: new Date("2026-01-01T10:20:00Z"),
+                finishedAt: new Date("2026-01-01T10:30:00Z"),
+            });
+
+            const firstGeneration = await createSuccessfulGeneration(
+                harness,
+                fixture.snapshotId,
+                plan.id,
+                new Date("2026-01-01T10:02:00Z"),
+            );
+            const failedRun = await createRun(harness, assignment.id, "failed", new Date("2026-01-01T10:05:00Z"), {
+                planId: plan.id,
+            });
+            await harness.db.runReview.create({
+                data: {
+                    runId: failedRun.id,
+                    status: "completed",
+                    verdict: "application_bug",
+                    reasoning: "Checkout failed before the fix.",
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            await createSuccessfulGeneration(harness, fixture.snapshotId, plan.id, new Date("2026-01-01T10:22:00Z"));
+            const passingRun = await createRun(harness, assignment.id, "success", new Date("2026-01-01T10:25:00Z"), {
+                planId: plan.id,
+            });
+
+            expect(iterationOne.number).toBe(1);
+            expect(iterationTwo.number).toBe(2);
+            expect(firstGeneration.status).toBe("success");
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.healthCounts).toMatchObject({
+                passing: 1,
+                failing: 0,
+                running: 0,
+                totalTests: 1,
+            });
+            expect(detail.executedTests).toHaveLength(1);
+            expect(detail.executedTests[0]).toMatchObject({
+                runId: passingRun.id,
+                status: "success",
+                finalOutcome: "passed",
+            });
+        });
     },
 });
 
@@ -109,7 +187,7 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
     });
 
     const names = input.testNames ?? ["Passing check", "Failing check", "Running check", "Quarantined check"];
-    const assignments: Record<string, { id: string }> = {};
+    const assignments: Record<string, { id: string; testCaseId: string }> = {};
     for (const name of names) {
         const slug = name.toLowerCase().replaceAll(" ", "-");
         const testCase = await harness.db.testCase.create({
@@ -127,7 +205,7 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
                 testCaseId: testCase.id,
             },
         });
-        assignments[slug.replace("-check", "")] = { id: assignment.id };
+        assignments[slug.replace("-check", "")] = { id: assignment.id, testCaseId: testCase.id };
     }
 
     if (assignments.quarantined != null) {
@@ -158,14 +236,65 @@ async function createRun(
     assignmentId: string,
     status: "pending" | "running" | "success" | "failed",
     at: Date,
+    input: { planId?: string } = {},
 ) {
     return harness.db.run.create({
         data: {
             assignmentId,
+            planId: input.planId,
             status,
             startedAt: at,
             createdAt: at,
             organizationId: harness.organizationId,
         },
     });
+}
+
+async function createRefinementIteration(
+    harness: APITestHarness,
+    loopId: string,
+    planId: string,
+    number: number,
+    input: { startedAt: Date; finishedAt: Date },
+) {
+    const iteration = await harness.db.refinementIteration.create({
+        data: {
+            loopId,
+            number,
+            status: "completed",
+            startedAt: input.startedAt,
+            finishedAt: input.finishedAt,
+        },
+    });
+    await harness.db.refinementIterationInput.create({
+        data: {
+            iterationId: iteration.id,
+            planId,
+            createdAt: input.startedAt,
+        },
+    });
+    return iteration;
+}
+
+async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {
+    const generation = await harness.db.testGeneration.create({
+        data: {
+            snapshotId,
+            testPlanId,
+            status: "success",
+            createdAt: at,
+            updatedAt: at,
+            organizationId: harness.organizationId,
+        },
+    });
+    await harness.db.generationReview.create({
+        data: {
+            generationId: generation.id,
+            status: "completed",
+            verdict: "success",
+            reasoning: "Generation passed review.",
+            organizationId: harness.organizationId,
+        },
+    });
+    return generation;
 }

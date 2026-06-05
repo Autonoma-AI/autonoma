@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import type { AffectedTest } from "./diffs-timeline-types";
+import { PipelineIds } from "./pipeline-ids";
 
 const REASON_BADGE: Record<AffectedTest["affectedReason"], { label: string; variant: "warn" | "critical" | "high" }> = {
   code_change: { label: "code change", variant: "warn" },
@@ -75,6 +76,14 @@ export function AffectedTestRow({
         {nameNode}
         {rightSlot}
       </div>
+      <PipelineIds
+        ids={[
+          { label: "test", value: test.testCase.id },
+          { label: "run", value: test.run?.id },
+          { label: "generation", value: test.generation?.id },
+        ]}
+        className="border-t border-border-dim bg-surface-base px-4 py-2"
+      />
       {hasDetails && (
         <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
           {whyAffected.length > 0 && <ReasoningSection label="Why this test is affected" content={whyAffected} />}

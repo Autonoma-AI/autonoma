@@ -1,4 +1,5 @@
 export {
+    finishErroredRefinementIterations,
     finishRefinementIteration,
     finishRefinementLoop,
     initRefinementLoop,

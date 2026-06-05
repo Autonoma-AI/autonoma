@@ -2,6 +2,7 @@ import { Badge } from "@autonoma/blacklight";
 import { SentryLogsLink } from "components/observability-links";
 import { useAuth } from "lib/auth";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { PipelineIds } from "./pipeline-ids";
 import { ReasoningBlock } from "./reasoning-block";
 import { RefinementActionRow } from "./refinement-action-row";
 import type {
@@ -14,13 +15,14 @@ import { StageEmpty } from "./stage-empty";
 
 interface IterationCardProps {
   iteration: RefinementIteration;
+  displayFinishedAt?: Date | string;
 }
 
-export function IterationCard({ iteration }: IterationCardProps) {
+export function IterationCard({ iteration, displayFinishedAt }: IterationCardProps) {
   const { isAdmin } = useAuth();
   const { inputs, outcomes, actions } = iteration;
 
-  const duration = formatDuration(iteration.startedAt, iteration.finishedAt);
+  const duration = formatDuration(iteration.startedAt, iteration.finishedAt ?? displayFinishedAt);
 
   return (
     <div className="flex flex-col gap-4">
@@ -35,6 +37,7 @@ export function IterationCard({ iteration }: IterationCardProps) {
           </span>
         )}
       </div>
+      <PipelineIds ids={[{ label: "iteration", value: iteration.id }]} />
 
       <InputsSection inputs={inputs} />
       <OutcomesSection outcomes={outcomes} />
@@ -56,7 +59,7 @@ function InputsSection({ inputs }: { inputs: RefinementIteration["inputs"] }) {
     <Section title="Inputs" count={inputs.length}>
       <div className="flex flex-col gap-1.5">
         {inputs.map((input) => (
-          <PlanInputRow key={input.planId} testCase={input.testCase} />
+          <PlanInputRow key={input.planId} planId={input.planId} testCase={input.testCase} />
         ))}
       </div>
     </Section>
@@ -105,7 +108,7 @@ function OutcomesSection({ outcomes }: { outcomes: RefinementIteration["outcomes
         {outcomes.awaiting.length > 0 && (
           <Bucket label="Awaiting" count={outcomes.awaiting.length} variant="outline">
             {outcomes.awaiting.map((row) => (
-              <PlanInputRow key={row.planId} testCase={row.testCase} />
+              <PlanInputRow key={row.planId} planId={row.planId} testCase={row.testCase} />
             ))}
           </Bucket>
         )}
@@ -167,30 +170,50 @@ function Bucket({
   );
 }
 
-function PlanInputRow({ testCase }: { testCase: { id: string; name: string; slug: string } }) {
+function PlanInputRow({ planId, testCase }: { planId: string; testCase: { id: string; name: string; slug: string } }) {
   return (
-    <div className="flex items-center gap-3 border border-border-dim bg-surface-raised px-4 py-2">
-      <AppLink
-        to="/app/$appSlug/tests/$testSlug"
-        params={{ testSlug: testCase.slug }}
-        className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline"
-      >
-        {testCase.name}
-      </AppLink>
+    <div className="border border-border-dim bg-surface-raised">
+      <div className="flex items-center gap-3 px-4 py-2">
+        <AppLink
+          to="/app/$appSlug/tests/$testSlug"
+          params={{ testSlug: testCase.slug }}
+          className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline"
+        >
+          {testCase.name}
+        </AppLink>
+      </div>
+      <PipelineIds
+        ids={[
+          { label: "plan", value: planId },
+          { label: "test", value: testCase.id },
+        ]}
+        className="border-t border-border-dim bg-surface-base px-4 py-2"
+      />
     </div>
   );
 }
 
 function ValidatedRow({ row }: { row: IterationValidated }) {
   return (
-    <div className="flex items-center gap-3 border border-border-dim bg-surface-raised px-4 py-2">
-      <AppLink
-        to="/app/$appSlug/runs/$runId"
-        params={{ runId: row.runId }}
-        className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline"
-      >
-        {row.testCase.name}
-      </AppLink>
+    <div className="border border-border-dim bg-surface-raised">
+      <div className="flex items-center gap-3 px-4 py-2">
+        <AppLink
+          to="/app/$appSlug/runs/$runId"
+          params={{ runId: row.runId }}
+          className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline"
+        >
+          {row.testCase.name}
+        </AppLink>
+      </div>
+      <PipelineIds
+        ids={[
+          { label: "plan", value: row.planId },
+          { label: "test", value: row.testCase.id },
+          { label: "generation", value: row.generationId },
+          { label: "run", value: row.runId },
+        ]}
+        className="border-t border-border-dim bg-surface-base px-4 py-2"
+      />
     </div>
   );
 }
@@ -202,6 +225,11 @@ function FailedGenRow({ row }: { row: IterationFailedAtGeneration }) {
       link={{ kind: "generation", id: row.generationId }}
       verdictLabel={row.verdictKind ?? row.generationStatus}
       reasoning={row.reviewReasoning}
+      ids={[
+        { label: "plan", value: row.planId },
+        { label: "test", value: row.testCase.id },
+        { label: "generation", value: row.generationId },
+      ]}
     />
   );
 }
@@ -213,6 +241,11 @@ function FailedReplayRow({ row }: { row: IterationFailedAtReplay }) {
       link={{ kind: "run", id: row.runId }}
       verdictLabel={row.verdictKind ?? row.runStatus}
       reasoning={row.reviewReasoning}
+      ids={[
+        { label: "plan", value: row.planId },
+        { label: "test", value: row.testCase.id },
+        { label: "run", value: row.runId },
+      ]}
     />
   );
 }
@@ -222,11 +255,13 @@ function FailedRow({
   link,
   verdictLabel,
   reasoning,
+  ids,
 }: {
   testCaseName: string;
   link: { kind: "generation" | "run"; id: string };
   verdictLabel: string;
   reasoning?: string;
+  ids: React.ComponentProps<typeof PipelineIds>["ids"];
 }) {
   const nameClassName = "min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline";
   const nameNode =
@@ -252,6 +287,7 @@ function FailedRow({
         </Badge>
         {nameNode}
       </div>
+      <PipelineIds ids={ids} className="border-t border-border-dim bg-surface-base px-4 py-2" />
       {reasoning != null && reasoning.trim().length > 0 && (
         <div className="border-t border-border-dim bg-surface-base px-4 py-2">
           <ReasoningBlock label="Review reasoning" content={reasoning} />

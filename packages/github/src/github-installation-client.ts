@@ -16,10 +16,18 @@ export interface Repository {
     private: boolean;
 }
 
+export interface CommitFile {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+}
+
 export interface Commit {
     sha: string;
     message: string;
     authorLogin?: string;
+    files: CommitFile[];
 }
 
 export type PullRequestState = "open" | "closed" | "merged";
@@ -372,13 +380,21 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             ref: sha,
         });
 
+        const files: CommitFile[] = (data.files ?? []).map((file) => ({
+            filename: file.filename,
+            status: file.status,
+            additions: file.additions,
+            deletions: file.deletions,
+        }));
+
         const commit: Commit = {
             sha: data.sha,
             message: data.commit.message,
             authorLogin: data.author?.login,
+            files,
         };
 
-        this.logger.info("Fetched commit", { repoId, sha: commit.sha });
+        this.logger.info("Fetched commit", { repoId, sha: commit.sha, fileCount: files.length });
 
         return commit;
     }

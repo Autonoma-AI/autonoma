@@ -71,6 +71,21 @@ export async function ensureSnapshotDetailData(queryClient: QueryClient, snapsho
     await ensureAPIQueryData(queryClient, trpc.branches.snapshotDetail.queryOptions({ snapshotId }));
 }
 
+export function useSnapshotReport(snapshotId: string) {
+    return useSuspenseQuery({
+        ...trpc.branches.snapshotReport.queryOptions({ snapshotId }),
+        refetchInterval: (query) => {
+            const data = query.state.data;
+            if (data == null) return false;
+            return data.results.running > 0 || data.health === "running" ? 5000 : false;
+        },
+    });
+}
+
+export async function ensureSnapshotReportData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.snapshotReport.queryOptions({ snapshotId }));
+}
+
 export function useActiveSnapshot(branchId: string) {
     return useSuspenseQuery(trpc.branches.activeSnapshot.queryOptions({ branchId }));
 }

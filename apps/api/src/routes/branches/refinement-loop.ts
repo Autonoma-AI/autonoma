@@ -124,7 +124,7 @@ type LoopRow = Prisma.RefinementLoopGetPayload<{ select: typeof loopSelect }>;
 type IterationRow = LoopRow["iterations"][number];
 type ActionRow = IterationRow["actions"][number];
 
-interface GenerationRow {
+export interface RefinementGenerationRow {
     id: string;
     testPlanId: string;
     status: GenerationStatus;
@@ -132,7 +132,7 @@ interface GenerationRow {
     generationReview: { verdict: GenerationReviewVerdict | null; reasoning: string | null; status: string } | null;
 }
 
-interface RunRow {
+export interface RefinementRunRow {
     id: string;
     planId: string | null;
     status: RunStatus;
@@ -252,7 +252,11 @@ function buildActionView(row: ActionRow, refs: ActionRefLookups, logger: Logger)
     ];
 }
 
-async function loadGenerations(db: PrismaClient, snapshotId: string, planIds: Set<string>): Promise<GenerationRow[]> {
+async function loadGenerations(
+    db: PrismaClient,
+    snapshotId: string,
+    planIds: Set<string>,
+): Promise<RefinementGenerationRow[]> {
     if (planIds.size === 0) return [];
     return await db.testGeneration.findMany({
         where: { snapshotId, testPlanId: { in: [...planIds] } },
@@ -267,7 +271,7 @@ async function loadGenerations(db: PrismaClient, snapshotId: string, planIds: Se
     });
 }
 
-async function loadRuns(db: PrismaClient, snapshotId: string, planIds: Set<string>): Promise<RunRow[]> {
+async function loadRuns(db: PrismaClient, snapshotId: string, planIds: Set<string>): Promise<RefinementRunRow[]> {
     if (planIds.size === 0) return [];
     return await db.run.findMany({
         where: { planId: { in: [...planIds] }, assignment: { snapshotId } },
@@ -319,7 +323,7 @@ async function resolveActionRefs(db: PrismaClient, iterations: IterationRow[]): 
     };
 }
 
-function computeIterationOutcomes({
+export function computeIterationOutcomes({
     inputs,
     cutoff,
     generations,
@@ -327,8 +331,8 @@ function computeIterationOutcomes({
 }: {
     inputs: Array<{ planId: string; testCase: TestCaseLite }>;
     cutoff: Date;
-    generations: GenerationRow[];
-    runs: RunRow[];
+    generations: RefinementGenerationRow[];
+    runs: RefinementRunRow[];
 }): RefinementIterationOutcomes {
     const outcomes: RefinementIterationOutcomes = {
         validated: [],

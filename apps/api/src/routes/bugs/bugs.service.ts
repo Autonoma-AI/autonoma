@@ -6,6 +6,7 @@ import type { BugVerdict } from "@autonoma/types";
 import { z } from "zod";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
+import { buildBugDetailBlocks } from "./bug-detail-blocks";
 
 type EvidenceItem = { type: string; description: string; s3Key?: string };
 type BugStatus = "open" | "resolved" | "regressed";
@@ -39,6 +40,174 @@ interface ListBugsByPrParams {
     status: BugStatus;
     snapshotId?: string;
 }
+
+export const bugDetailIssueSummarySelect = {
+    id: true,
+    title: true,
+    severity: true,
+    createdAt: true,
+    generationReview: {
+        select: {
+            analysis: true,
+            generation: {
+                select: {
+                    id: true,
+                    status: true,
+                    snapshot: {
+                        select: {
+                            id: true,
+                            headSha: true,
+                            createdAt: true,
+                            branch: {
+                                select: {
+                                    name: true,
+                                    prInfo: { select: { prNumber: true } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    runReview: {
+        select: {
+            analysis: true,
+            run: {
+                select: {
+                    id: true,
+                    status: true,
+                    assignment: {
+                        select: {
+                            testCase: { select: { slug: true } },
+                            snapshot: {
+                                select: {
+                                    id: true,
+                                    headSha: true,
+                                    createdAt: true,
+                                    branch: {
+                                        select: {
+                                            name: true,
+                                            prInfo: { select: { prNumber: true } },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+} satisfies Prisma.IssueSelect;
+
+export const bugDetailLatestOccurrenceIssueSelect = {
+    id: true,
+    title: true,
+    severity: true,
+    createdAt: true,
+    generationReview: {
+        select: {
+            analysis: true,
+            reasoning: true,
+            generation: {
+                select: {
+                    id: true,
+                    status: true,
+                    finalScreenshot: true,
+                    videoUrl: true,
+                    createdAt: true,
+                    testPlan: {
+                        select: {
+                            testCase: { select: { id: true, slug: true } },
+                        },
+                    },
+                    snapshot: {
+                        select: {
+                            id: true,
+                            headSha: true,
+                            createdAt: true,
+                            branch: {
+                                select: {
+                                    name: true,
+                                    prInfo: { select: { prNumber: true } },
+                                },
+                            },
+                        },
+                    },
+                    outputs: {
+                        select: {
+                            list: {
+                                orderBy: { order: "asc" },
+                                select: {
+                                    order: true,
+                                    output: true,
+                                    screenshotBefore: true,
+                                    screenshotAfter: true,
+                                    stepInput: {
+                                        select: { interaction: true, params: true },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    runReview: {
+        select: {
+            analysis: true,
+            reasoning: true,
+            run: {
+                select: {
+                    id: true,
+                    status: true,
+                    createdAt: true,
+                    assignment: {
+                        select: {
+                            testCase: { select: { id: true, slug: true } },
+                            snapshot: {
+                                select: {
+                                    id: true,
+                                    headSha: true,
+                                    createdAt: true,
+                                    branch: {
+                                        select: {
+                                            name: true,
+                                            prInfo: { select: { prNumber: true } },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    outputs: {
+                        select: {
+                            list: {
+                                orderBy: { order: "asc" },
+                                select: {
+                                    order: true,
+                                    output: true,
+                                    screenshotBefore: true,
+                                    screenshotAfter: true,
+                                    stepInput: {
+                                        select: { interaction: true, params: true },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+} satisfies Prisma.IssueSelect;
+
+export type BugIssueRow = Prisma.IssueGetPayload<{ select: typeof bugDetailIssueSummarySelect }>;
+export type BugLatestOccurrenceIssueRow = Prisma.IssueGetPayload<{
+    select: typeof bugDetailLatestOccurrenceIssueSelect;
+}>;
 
 function isImageEvidence(item: SignedEvidenceItem): boolean {
     return item.url != null && (item.type === "screenshot" || item.type === "image");
@@ -118,6 +287,7 @@ export class BugsService extends Service {
                 id: true,
                 status: true,
                 title: true,
+                description: true,
                 severity: true,
                 firstSeenAt: true,
                 lastSeenAt: true,
@@ -147,6 +317,7 @@ export class BugsService extends Service {
                 id: bug.id,
                 status: bug.status,
                 title: bug.title,
+                description: bug.description,
                 severity: bug.severity,
                 firstSeenAt: bug.firstSeenAt,
                 lastSeenAt: bug.lastSeenAt,
@@ -287,24 +458,7 @@ export class BugsService extends Service {
                     orderBy: { lastSeenAt: "desc" },
                 },
                 issues: {
-                    select: {
-                        id: true,
-                        title: true,
-                        severity: true,
-                        createdAt: true,
-                        generationReview: {
-                            select: {
-                                analysis: true,
-                                generation: { select: { id: true, status: true } },
-                            },
-                        },
-                        runReview: {
-                            select: {
-                                analysis: true,
-                                run: { select: { id: true, status: true } },
-                            },
-                        },
-                    },
+                    select: bugDetailIssueSummarySelect,
                     orderBy: { createdAt: "desc" },
                 },
             },
@@ -312,25 +466,16 @@ export class BugsService extends Service {
 
         if (bug == null) throw new NotFoundError();
 
-        type AnalysisJson = { evidence?: EvidenceItem[] } | undefined;
+        const latestEvidenceIssue = await this.db.issue.findFirst({
+            where: {
+                bugId: bug.id,
+                OR: [{ runReview: { isNot: null } }, { generationReview: { isNot: null } }],
+            },
+            select: bugDetailLatestOccurrenceIssueSelect,
+            orderBy: { createdAt: "desc" },
+        });
 
-        const issues = await Promise.all(
-            bug.issues.map(async (issue) => {
-                const analysis = (issue.generationReview?.analysis ?? issue.runReview?.analysis) as AnalysisJson;
-                const evidence = await signEvidenceUrls(analysis?.evidence ?? [], this.storageProvider);
-
-                return {
-                    id: issue.id,
-                    title: issue.title,
-                    severity: issue.severity,
-                    createdAt: issue.createdAt,
-                    source: issue.generationReview != null ? ("generation" as const) : ("run" as const),
-                    sourceId: issue.generationReview?.generation.id ?? issue.runReview?.run.id,
-                    sourceStatus: issue.generationReview?.generation.status ?? issue.runReview?.run.status,
-                    evidence,
-                };
-            }),
-        );
+        const blocks = await buildBugDetailBlocks(this.db, bug.issues, latestEvidenceIssue, this.storageProvider);
 
         return {
             id: bug.id,
@@ -347,7 +492,9 @@ export class BugsService extends Service {
                 firstSeenAt: e.firstSeenAt,
                 lastSeenAt: e.lastSeenAt,
             })),
-            issues,
+            latestOccurrence: blocks.latestOccurrence,
+            occurrences: blocks.occurrences,
+            issues: blocks.issues,
         };
     }
 

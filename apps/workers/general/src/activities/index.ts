@@ -9,6 +9,7 @@ export { applyHealingActions } from "./healing";
 export {
     analyzeResults,
     finishRefinementIteration,
+    finishErroredRefinementIterations,
     finishRefinementLoop,
     initRefinementLoop,
     markRefinementIterationRunning,
@@ -25,6 +26,7 @@ import { notifyGenerationExit } from "./notify-generation-exit";
 import {
     analyzeResults,
     finalizePendingSnapshot,
+    finishErroredRefinementIterations,
     finishRefinementIteration,
     finishRefinementLoop,
     initRefinementLoop,
@@ -47,6 +49,7 @@ import { scenarioDown, scenarioUp } from "./scenario";
     initRefinementLoop,
     markRefinementIterationRunning,
     finishRefinementIteration,
+    finishErroredRefinementIterations,
     finishRefinementLoop,
     prepareGenerationQueue,
     prepareRunsForGenerations,

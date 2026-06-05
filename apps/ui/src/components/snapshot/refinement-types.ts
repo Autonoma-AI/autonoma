@@ -8,9 +8,13 @@ export type IterationValidated = IterationOutcomes["validated"][number];
 export type IterationFailedAtGeneration = IterationOutcomes["failedAtGeneration"][number];
 export type IterationFailedAtReplay = IterationOutcomes["failedAtReplay"][number];
 
-export type IterationVisualState = "pending" | "running" | "validated" | "healed" | "no_actions";
+export type IterationVisualState = "pending" | "running" | "validated" | "healed" | "failed" | "no_actions";
 
-export function iterationVisualState(iter: RefinementIteration): IterationVisualState {
+export function iterationVisualState(
+    iter: RefinementIteration,
+    context: { loopStatus?: RefinementLoop["status"]; isLast?: boolean } = {},
+): IterationVisualState {
+    if (context.loopStatus === "error" && context.isLast === true) return "failed";
     if (iter.status === "pending") return "pending";
     if (iter.status === "running") return "running";
     const hasFailures = iter.outcomes.failedAtGeneration.length > 0 || iter.outcomes.failedAtReplay.length > 0;

@@ -1,23 +1,31 @@
 import type { GenerationStatus, PrismaClient, RunReviewVerdict, RunStatus } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
+import type { StorageProvider } from "@autonoma/storage";
 import {
     getChangesForSnapshot,
     summarizeChangesForSnapshot,
     fetchTestSuiteInfo,
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
+import type { SnapshotReport } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
+import type { GitHubInstallationService } from "../../github/github-installation.service";
 import { Service } from "../service";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
 import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
-import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
+import { aggregateSnapshotHealth, computeSnapshotHealth, type SnapshotHealthCounts } from "./snapshot-health";
+import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
 
 export type { TestSuiteChangeRow } from "./test-suite-changes";
 
 export class BranchesService extends Service {
-    constructor(private readonly db: PrismaClient) {
+    constructor(
+        private readonly db: PrismaClient,
+        private readonly github: GitHubInstallationService,
+        private readonly storageProvider: StorageProvider,
+    ) {
         super();
     }
 
@@ -154,14 +162,68 @@ export class BranchesService extends Service {
             orderBy: { createdAt: "desc" },
         });
 
-        const changeSummaries = await Promise.all(
-            snapshots.map((s) => summarizeChangesForSnapshot(this.db, s.id, s.prevSnapshotId, this.logger)),
-        );
+        const snapshotIds = snapshots.map((s) => s.id);
+        const [changeSummaries, healthBySnapshot, bugCountBySnapshot] = await Promise.all([
+            Promise.all(
+                snapshots.map((s) => summarizeChangesForSnapshot(this.db, s.id, s.prevSnapshotId, this.logger)),
+            ),
+            aggregateSnapshotHealth(
+                this.db,
+                snapshots.map((s) => ({ id: s.id, status: s.status })),
+                this.logger,
+            ),
+            this.countOpenBugsBySnapshot(snapshotIds),
+        ]);
 
         return snapshots.map((snapshot, index) => ({
             ...snapshot,
             changeSummary: changeSummaries[index] as SnapshotChangeSummary,
+            health: healthBySnapshot.get(snapshot.id)?.health ?? "unknown",
+            healthCounts: healthBySnapshot.get(snapshot.id)?.counts ?? {
+                failing: 0,
+                passing: 0,
+                running: 0,
+                quarantined: 0,
+                notAffected: snapshot._count.testCaseAssignments,
+                totalTests: snapshot._count.testCaseAssignments,
+            },
+            bugCount: bugCountBySnapshot.get(snapshot.id) ?? 0,
         }));
+    }
+
+    private async countOpenBugsBySnapshot(snapshotIds: string[]): Promise<Map<string, number>> {
+        if (snapshotIds.length === 0) return new Map();
+
+        const issues = await this.db.issue.findMany({
+            where: {
+                bug: { status: "open" },
+                OR: [
+                    { generationReview: { is: { generation: { snapshotId: { in: snapshotIds } } } } },
+                    { runReview: { is: { run: { assignment: { snapshotId: { in: snapshotIds } } } } } },
+                ],
+            },
+            select: {
+                bugId: true,
+                generationReview: { select: { generation: { select: { snapshotId: true } } } },
+                runReview: { select: { run: { select: { assignment: { select: { snapshotId: true } } } } } },
+            },
+        });
+
+        const bugIdsBySnapshot = new Map<string, Set<string>>();
+        for (const issue of issues) {
+            if (issue.bugId == null) continue;
+            const snapshotId =
+                issue.generationReview?.generation.snapshotId ?? issue.runReview?.run.assignment.snapshotId;
+            if (snapshotId == null) continue;
+            let bugIds = bugIdsBySnapshot.get(snapshotId);
+            if (bugIds == null) {
+                bugIds = new Set();
+                bugIdsBySnapshot.set(snapshotId, bugIds);
+            }
+            bugIds.add(issue.bugId);
+        }
+
+        return new Map([...bugIdsBySnapshot].map(([snapshotId, bugIds]) => [snapshotId, bugIds.size]));
     }
 
     async getBranchByPr(applicationId: string, prNumber: number, organizationId: string) {
@@ -382,20 +444,15 @@ export class BranchesService extends Service {
             })),
         };
 
-        const [healthMap, executedTests] = await Promise.all([
-            aggregateSnapshotHealth(this.db, [{ id: snapshot.id, status: snapshot.status }], this.logger),
+        const [executedTests, assignmentsForHealth] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
+            this.db.testCaseAssignment.findMany({
+                where: { snapshotId },
+                select: { testCaseId: true, quarantineIssueId: true },
+            }),
         ]);
-        const healthEntry = healthMap.get(snapshot.id);
-        const counts = healthEntry?.counts ?? {
-            failing: 0,
-            passing: 0,
-            running: 0,
-            quarantined: 0,
-            notAffected: 0,
-            totalTests: 0,
-        };
-        const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, counts);
+        const counts = this.computeHealthCounts(assignmentsForHealth, executedTests);
+        const health = computeSnapshotHealth(snapshot.status, counts);
 
         return {
             snapshot: flatSnapshot,
@@ -407,6 +464,45 @@ export class BranchesService extends Service {
             healthCounts: counts,
             executedTests,
         };
+    }
+
+    private computeHealthCounts(
+        assignments: Array<{ testCaseId: string; quarantineIssueId: string | null }>,
+        executedTests: Array<{ testCase: { id: string }; finalOutcome: "passed" | "failed" | "unresolved" }>,
+    ): SnapshotHealthCounts {
+        const quarantinedSet = new Set(assignments.filter((a) => a.quarantineIssueId != null).map((a) => a.testCaseId));
+        let failing = 0;
+        let passing = 0;
+        let running = 0;
+
+        for (const test of executedTests) {
+            if (quarantinedSet.has(test.testCase.id)) continue;
+            if (test.finalOutcome === "failed") failing += 1;
+            else if (test.finalOutcome === "passed") passing += 1;
+            else running += 1;
+        }
+
+        const quarantined = quarantinedSet.size;
+        const replayed = failing + passing + running;
+        const totalTests = assignments.length;
+        const notAffected = Math.max(totalTests - quarantined - replayed, 0);
+
+        return { failing, passing, running, quarantined, notAffected, totalTests };
+    }
+
+    async getSnapshotReport(snapshotId: string, organizationId: string): Promise<SnapshotReport> {
+        this.logger.info("Getting snapshot report", {
+            snapshotId,
+        });
+
+        return loadSnapshotReport({
+            db: this.db,
+            github: this.github,
+            storageProvider: this.storageProvider,
+            snapshotId,
+            organizationId,
+            parentLogger: this.logger,
+        });
     }
 
     async getActiveSnapshot(branchId: string, organizationId: string) {

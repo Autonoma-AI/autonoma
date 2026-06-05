@@ -1,6 +1,7 @@
 import type {
     CloneRepositoryParams,
     Commit,
+    CommitFile,
     GitHubInstallationClient,
     PullRequest,
     PullRequestCommit,
@@ -10,6 +11,7 @@ import type {
 export interface CommitDetails {
     message: string;
     authorLogin?: string;
+    files?: CommitFile[];
 }
 
 export interface RepositorySetup {
@@ -227,6 +229,7 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             sha,
             message: details?.message ?? "",
             authorLogin: details?.authorLogin,
+            files: details?.files ?? [],
         };
     }
 

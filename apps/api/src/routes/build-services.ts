@@ -94,7 +94,7 @@ export function buildServices({
         admin: new AdminService(conn, auth, githubApp),
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
-        branches: new BranchesService(conn),
+        branches: new BranchesService(conn, githubService, storageProvider),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn, encryptionHelper),

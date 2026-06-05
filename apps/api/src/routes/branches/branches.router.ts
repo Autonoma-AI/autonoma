@@ -38,6 +38,12 @@ export const branchesRouter = router({
             services.branches.getSnapshotDetail(input.snapshotId, organizationId),
         ),
 
+    snapshotReport: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getSnapshotReport(input.snapshotId, organizationId),
+        ),
+
     activeSnapshot: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
