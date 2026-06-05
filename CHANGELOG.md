@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.2.0](https://github.com/Autonoma-AI/agent/compare/v1.1.0...v1.2.0) (2026-06-05)
+
+
+### Features
+
+* add auth previewkit agent ([#774](https://github.com/Autonoma-AI/agent/issues/774)) ([11c7e66](https://github.com/Autonoma-AI/agent/commit/11c7e6672f967c123e40328321812aebeb6cb6aa))
+* diffs analysis eval framework, codebase cache, judge, and capture ([#770](https://github.com/Autonoma-AI/agent/issues/770)) ([58220cc](https://github.com/Autonoma-AI/agent/commit/58220cc3721204fe19f20ca3e86aee1873de5121))
+* diffs healing eval framework, capture, and shared loaders ([#779](https://github.com/Autonoma-AI/agent/issues/779)) ([7b3de31](https://github.com/Autonoma-AI/agent/commit/7b3de31461fb1754ee3f018a179b128a691d652a))
+* diffs resolution eval framework and capture ([#777](https://github.com/Autonoma-AI/agent/issues/777)) ([5cbf986](https://github.com/Autonoma-AI/agent/commit/5cbf9861e66b163f76cf70595e3f71ebf0109094))
+* **github:** add PR comment orchestrator ([#713](https://github.com/Autonoma-AI/agent/issues/713)) ([943f3f4](https://github.com/Autonoma-AI/agent/commit/943f3f4947d81f4faef6654e4845a90b94b821a8))
+* improve logging for hook jobs ([#790](https://github.com/Autonoma-AI/agent/issues/790)) ([12596f9](https://github.com/Autonoma-AI/agent/commit/12596f96f420379c8a63f647582d20480f64fab6))
+* move diffs eval cases to a private repo (configurable cases root) ([#793](https://github.com/Autonoma-AI/agent/issues/793)) ([aec25e7](https://github.com/Autonoma-AI/agent/commit/aec25e7e0dde85e0bb5ef90901fa9faaf5a2c935))
+* preserve interrupted diffs snapshots instead of deleting them ([#771](https://github.com/Autonoma-AI/agent/issues/771)) ([8d69c99](https://github.com/Autonoma-AI/agent/commit/8d69c99a4a21897bc07db1c4ebc00fadb62729b0))
+* **previewkit:** add signed URL to build logs PR comment ([#784](https://github.com/Autonoma-AI/agent/issues/784)) ([3bab7c0](https://github.com/Autonoma-AI/agent/commit/3bab7c0eec9af2a5f7485e592a1e36144b62e67e))
+* reviewer evals (generation + replay) with multimedia rehydration ([#778](https://github.com/Autonoma-AI/agent/issues/778)) ([c26faa6](https://github.com/Autonoma-AI/agent/commit/c26faa6c688227435825d800e8c870fd3bfd0760))
+* **ui:** redesign PR detail verdict layout ([#725](https://github.com/Autonoma-AI/agent/issues/725)) ([2b058fd](https://github.com/Autonoma-AI/agent/commit/2b058fd0f6abcd5b863ea40e85a447393fa796ed))
+
+
+### Bug Fixes
+
+* admin scenario recipe editing ([#760](https://github.com/Autonoma-AI/agent/issues/760)) ([5ade172](https://github.com/Autonoma-AI/agent/commit/5ade172616f6ec8731c8ba21339f457ddd1b0441))
+* build better auth bump ([#786](https://github.com/Autonoma-AI/agent/issues/786)) ([d7374cf](https://github.com/Autonoma-AI/agent/commit/d7374cf111a22c85ace9dbdd9a06beb35171d77e))
+* default to beta.autonoma.app for app url auth ([#800](https://github.com/Autonoma-AI/agent/issues/800)) ([c70f921](https://github.com/Autonoma-AI/agent/commit/c70f9215900c7c40197f0e6dc638943880558bf1))
+* modify better-auth kysely dependency install ([e130df7](https://github.com/Autonoma-AI/agent/commit/e130df76d33123f71eb547fcfa7aa456f03ccc8e))
+* PR comment assets and deployment links ([#775](https://github.com/Autonoma-AI/agent/issues/775)) ([bfc4b0b](https://github.com/Autonoma-AI/agent/commit/bfc4b0b9b9c1694327bc5ee65a869f8f7260af7a))
+* prevent resolution agent from acting twice on the same failed slug ([#761](https://github.com/Autonoma-AI/agent/issues/761)) ([94c2ffd](https://github.com/Autonoma-AI/agent/commit/94c2ffdade1784e787c1aeefb113b28dd0cba024))
+* previewkit auth check membership for org switch ([#781](https://github.com/Autonoma-AI/agent/issues/781)) ([503465d](https://github.com/Autonoma-AI/agent/commit/503465d44e5c90ddf1e8815801d809db5c3ded36))
+* **previewkit:** inject bypass header into webhook headers on deployment ([#801](https://github.com/Autonoma-AI/agent/issues/801)) ([746934e](https://github.com/Autonoma-AI/agent/commit/746934e60e8f795709ce4e326842643ab68a4fc9))
+* **previewkit:** log deployment payload sent to GitHub ([#799](https://github.com/Autonoma-AI/agent/issues/799)) ([1c42e18](https://github.com/Autonoma-AI/agent/commit/1c42e18f428701928500093c4ecc66a31c1cd895))
+* **previewkit:** replace HTTPRoute with nginx ingress for each namespace ([#797](https://github.com/Autonoma-AI/agent/issues/797)) ([25c1901](https://github.com/Autonoma-AI/agent/commit/25c1901a3ce4bbc0308cde9cce888288298cdf26))
+* redirect url ([#785](https://github.com/Autonoma-AI/agent/issues/785)) ([1802cf2](https://github.com/Autonoma-AI/agent/commit/1802cf247d97723e3ebdf910c0993220f7c6493f))
+* remove stale 'qa-tests' mention from system prompt ([#773](https://github.com/Autonoma-AI/agent/issues/773)) ([2d518a1](https://github.com/Autonoma-AI/agent/commit/2d518a11395b643c92660a5bb7b016928b72e947))
+
 ## [1.1.0](https://github.com/Autonoma-AI/agent/compare/v1.0.0...v1.1.0) (2026-06-02)
 
 
