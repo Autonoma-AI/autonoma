@@ -149,23 +149,7 @@ integrationTestSuite({
             });
         });
 
-        test("retries on server error and succeeds", async ({ harness, seedResult: { client } }) => {
-            let callCount = 0;
-            harness.webhookServer.onRequest(() => {
-                callCount++;
-                if (callCount === 1) {
-                    return { status: 500, body: { error: "internal" } };
-                }
-                return { status: 200, body: DISCOVER_BODY };
-            });
-
-            const result = await client.discover();
-
-            expect(result.schema.models).toEqual([]);
-            expect(callCount).toBe(2);
-        });
-
-        test("throws after exhausting retries", async ({ harness, seedResult: { client } }) => {
+        test("throws on server error", async ({ harness, seedResult: { client } }) => {
             harness.webhookServer.onRequest(() => ({
                 status: 500,
                 body: { error: "down" },
@@ -183,25 +167,17 @@ integrationTestSuite({
             await expect(client.discover()).rejects.toThrow("response validation failed");
         });
 
-        test("logs failed attempts to database", async ({ harness, seedResult: { appId, client } }) => {
-            let callCount = 0;
-            harness.webhookServer.onRequest(() => {
-                callCount++;
-                if (callCount <= 1) {
-                    return { status: 500, body: { error: "boom" } };
-                }
-                return { status: 200, body: DISCOVER_BODY };
-            });
+        test("logs failed attempt to database", async ({ harness, seedResult: { appId, client } }) => {
+            harness.webhookServer.onRequest(() => ({ status: 500, body: { error: "boom" } }));
 
-            await client.discover();
+            await expect(client.discover()).rejects.toThrow("Webhook returned HTTP 500");
 
             const calls = await harness.db.webhookCall.findMany({
                 where: { applicationId: appId },
                 orderBy: { createdAt: "asc" },
             });
-            expect(calls).toHaveLength(2);
+            expect(calls).toHaveLength(1);
             expect(calls[0]?.statusCode).toBe(500);
-            expect(calls[1]?.statusCode).toBe(200);
         });
     },
 });

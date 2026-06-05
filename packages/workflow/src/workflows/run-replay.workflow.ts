@@ -3,13 +3,6 @@ import type { DiffsActivities, GeneralActivities, MobileActivities, WebActivitie
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 
-const scenario = proxyActivities<GeneralActivities>({
-    startToCloseTimeout: "10m",
-    heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 3 },
-    taskQueue: TaskQueue.GENERAL,
-});
-
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
@@ -41,7 +34,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
         // Step 1: Scenario up (if needed)
         if (scenarioId != null) {
             log.info("Starting scenario setup", { runId, scenarioId });
-            const result = await scenario.scenarioUp({
+            const result = await general.scenarioUp({
                 scenarioJobType: "run",
                 entityId: runId,
                 scenarioId,
@@ -72,7 +65,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
             }
 
             if (scenarioInstanceId != null) {
-                postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
+                postSteps.push(general.scenarioDown({ scenarioInstanceId }));
             }
 
             await Promise.allSettled(postSteps);

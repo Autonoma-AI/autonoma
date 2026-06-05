@@ -8,7 +8,6 @@ import type { z } from "zod";
 
 export interface WebhookCallOptions {
     timeoutMs?: number;
-    maxRetries?: number;
 }
 
 interface WebhookCallParams<T> {
@@ -16,7 +15,6 @@ interface WebhookCallParams<T> {
     action: WebhookAction;
     body: unknown;
     responseSchema: z.ZodType<T>;
-    maxRetries: number;
     timeoutMs: number;
 }
 
@@ -59,7 +57,6 @@ export class WebhookClient {
             action: "DISCOVER",
             body: { action: "discover" },
             responseSchema: DiscoverResponseSchema,
-            maxRetries: options?.maxRetries ?? 2,
             timeoutMs: options?.timeoutMs ?? 90_000,
         });
     }
@@ -70,7 +67,6 @@ export class WebhookClient {
             action: "UP",
             body: { action: "up", create, testRunId: instanceId },
             responseSchema: UpResponseSchema,
-            maxRetries: options?.maxRetries ?? 2,
             timeoutMs: options?.timeoutMs ?? 90_000,
         });
     }
@@ -81,80 +77,66 @@ export class WebhookClient {
             action: "DOWN",
             body: { action: "down", refs, refsToken, testRunId: instanceId },
             responseSchema: DownResponseSchema,
-            maxRetries: options?.maxRetries ?? 5,
             timeoutMs: options?.timeoutMs ?? 60_000,
         });
     }
 
     private async call<T>(params: WebhookCallParams<T>): Promise<T> {
-        const { instanceId, action, body, responseSchema, maxRetries, timeoutMs } = params;
+        const { instanceId, action, body, responseSchema, timeoutMs } = params;
 
-        let lastError: Error | undefined;
+        const startTime = Date.now();
+        const [result, error] = await fx.runAsync(() => this.executeRequest(body, timeoutMs));
+        const durationMs = Date.now() - startTime;
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            if (attempt > 0) {
-                const backoffMs = Math.min(1000 * 2 ** (attempt - 1), 30_000);
-                await new Promise((resolve) => setTimeout(resolve, backoffMs));
-            }
-
-            const startTime = Date.now();
-            const [result, error] = await fx.runAsync(() => this.executeRequest(body, timeoutMs));
-            const durationMs = Date.now() - startTime;
-
-            if (error != null) {
-                const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
-                const message = isTimeout
-                    ? `Webhook timed out after ${timeoutMs / 1000}s - ensure your endpoint is reachable and responds quickly`
-                    : error.message;
-                lastError = new Error(message);
-                await this.logWebhookCall({
-                    instanceId,
-                    action,
-                    requestBody: body,
-                    durationMs,
-                    error: message,
-                });
-                this.logger.warn(`Webhook ${action} attempt ${attempt + 1} failed`, {
-                    error: message,
-                    applicationId: this.applicationId,
-                });
-                continue;
-            }
-
-            const { status, responseBody } = result;
+        if (error != null) {
+            const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
+            const message = isTimeout
+                ? `Webhook timed out after ${timeoutMs / 1000}s - ensure your endpoint is reachable and responds quickly`
+                : error.message;
             await this.logWebhookCall({
                 instanceId,
                 action,
                 requestBody: body,
-                responseBody,
-                statusCode: status,
                 durationMs,
+                error: message,
             });
-
-            if (status < 200 || status >= 300) {
-                const responseDetail = this.extractResponseDetail(responseBody);
-                const message =
-                    responseDetail != null
-                        ? `Webhook returned HTTP ${status}: ${responseDetail}`
-                        : `Webhook returned HTTP ${status}`;
-                lastError = new Error(message);
-                this.logger.warn(`Webhook ${action} returned ${status}`, {
-                    applicationId: this.applicationId,
-                    status,
-                    responseBody,
-                });
-                continue;
-            }
-
-            const [parsed, parseError] = fx.run(() => responseSchema.parse(responseBody));
-            if (parseError != null) {
-                throw new Error(`Webhook ${action} response validation failed: ${parseError.message}`);
-            }
-
-            return parsed;
+            this.logger.warn(`Webhook ${action} failed`, {
+                error: message,
+                applicationId: this.applicationId,
+            });
+            throw new Error(message);
         }
 
-        throw lastError ?? new Error(`Webhook ${action} failed after ${maxRetries + 1} attempts`);
+        const { status, responseBody } = result;
+        await this.logWebhookCall({
+            instanceId,
+            action,
+            requestBody: body,
+            responseBody,
+            statusCode: status,
+            durationMs,
+        });
+
+        if (status < 200 || status >= 300) {
+            const responseDetail = this.extractResponseDetail(responseBody);
+            const message =
+                responseDetail != null
+                    ? `Webhook returned HTTP ${status}: ${responseDetail}`
+                    : `Webhook returned HTTP ${status}`;
+            this.logger.warn(`Webhook ${action} returned ${status}`, {
+                applicationId: this.applicationId,
+                status,
+                responseBody,
+            });
+            throw new Error(message);
+        }
+
+        const [parsed, parseError] = fx.run(() => responseSchema.parse(responseBody));
+        if (parseError != null) {
+            throw new Error(`Webhook ${action} response validation failed: ${parseError.message}`);
+        }
+
+        return parsed;
     }
 
     private async executeRequest(body: unknown, timeoutMs: number): Promise<{ status: number; responseBody: unknown }> {

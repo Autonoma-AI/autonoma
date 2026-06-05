@@ -4,7 +4,6 @@ import { OnboardingState, type ScenarioDryRunResult } from "./onboarding-state";
 
 const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
     timeoutMs: 90_000,
-    maxRetries: 1,
 };
 
 /**

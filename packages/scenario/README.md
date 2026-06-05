@@ -7,7 +7,7 @@ Manages scenario lifecycle (sync from recipes, up, down) for test environments p
 | Export              | Description                                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `ScenarioManager`   | Core orchestrator - ingests recipe files into the `scenario` table, provisions instances (up), and tears them down (down) |
-| `WebhookClient`     | HMAC-signed HTTP client that calls customer SDK endpoints with retry and response validation                              |
+| `WebhookClient`     | HMAC-signed HTTP client that calls customer SDK endpoints with response validation                                        |
 | `EncryptionHelper`  | AES-256-GCM encryption/decryption for endpoint shared secrets stored in the database                                      |
 | `ScenarioSubject`   | Interface representing the entity (run or generation) that needs a scenario                                               |
 | `GenerationSubject` | `ScenarioSubject` implementation backed by a test generation                                                              |
@@ -46,12 +46,6 @@ await manager.down(instance.id);
 ### Endpoint signing
 
 All SDK endpoint requests are signed with HMAC-SHA256 using a per-application shared secret. The secret is stored encrypted (AES-256-GCM) in the database and decrypted at call time via `EncryptionHelper`. The signature is sent in the `x-signature` header.
-
-### Retry behavior
-
-- **up**: 2 retries, 30s timeout
-- **down**: 5 retries, 60s timeout
-- Exponential backoff between retries (1s, 2s, 4s, ..., capped at 30s)
 
 ### ScenarioSubject pattern
 

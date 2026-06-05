@@ -5,12 +5,11 @@ import { OnboardingApplicationNotFoundError, OnboardingState } from "./onboardin
  * The user is entering webhook URL + shared secret. `configureAndDiscoverScenarios`
  * validates the supplied config by calling the discover webhook *before* any
  * persistence — so a failed call can never leave the DB with a half-configured
- * webhook that poisons downstream state. Raised timeout + one retry handle
- * typical cold-start latency.
+ * webhook that poisons downstream state. Raised timeout handles typical
+ * cold-start latency.
  */
 const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
     timeoutMs: 90_000,
-    maxRetries: 1,
 };
 
 export class WebhookConfiguringState extends OnboardingState {
