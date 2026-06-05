@@ -18,6 +18,48 @@ export class DeploymentsService extends Service {
         super();
     }
 
+    /**
+     * Lists every Previewkit environment that has not been torn down, across all
+     * organizations. An admin-only operational view answering "which preview
+     * environments are currently live, and at what URLs". Ordered most-recently
+     * updated first. `apps` is the per-app name -> URL map flattened for display.
+     */
+    async listActiveEnvironments() {
+        this.logger.info("Listing active previewkit environments");
+
+        const environments = await this.db.previewkitEnvironment.findMany({
+            where: { status: { not: "torn_down" } },
+            orderBy: { updatedAt: "desc" },
+            select: {
+                id: true,
+                namespace: true,
+                repoFullName: true,
+                prNumber: true,
+                headRef: true,
+                status: true,
+                phase: true,
+                urls: true,
+                deployedAt: true,
+                updatedAt: true,
+                organization: { select: { id: true, name: true, slug: true } },
+            },
+        });
+
+        return environments.map((environment) => ({
+            id: environment.id,
+            namespace: environment.namespace,
+            repoFullName: environment.repoFullName,
+            prNumber: environment.prNumber,
+            headRef: environment.headRef,
+            status: environment.status,
+            phase: environment.phase,
+            organization: environment.organization,
+            deployedAt: environment.deployedAt,
+            updatedAt: environment.updatedAt,
+            apps: Object.entries(parseStringRecord(environment.urls)).map(([appName, url]) => ({ appName, url })),
+        }));
+    }
+
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {
         this.logger.info("Listing web deployments for PR", { applicationId, prNumber, organizationId });
 

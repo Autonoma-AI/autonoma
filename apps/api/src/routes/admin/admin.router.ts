@@ -25,6 +25,14 @@ export const adminRouter = router({
     deploymentConfig: adminProcedure.query(() => ({
         environment: env.SENTRY_ENV,
     })),
+    /**
+     * Active Previewkit environments across all organizations, with their URLs.
+     * Admin-gated operational view. Delegates to the deployments service, which
+     * owns Previewkit environment queries.
+     */
+    listPreviewkitEnvironments: adminProcedure.query(({ ctx: { services } }) =>
+        services.deployments.listActiveEnvironments(),
+    ),
     listOrganizations: adminProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
     listPendingOrgs: adminProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: adminProcedure

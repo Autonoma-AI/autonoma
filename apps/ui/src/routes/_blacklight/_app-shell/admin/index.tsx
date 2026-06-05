@@ -787,6 +787,10 @@ function AdminContent() {
               <ShieldWarningIcon size={14} />
               Engine limitations
             </Button>
+            <Button variant="outline" size="sm" render={<Link to="/admin/previewkit" />}>
+              <CubeTransparentIcon size={14} />
+              Preview environments
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
               <PlusIcon size={14} />
               Create organization
