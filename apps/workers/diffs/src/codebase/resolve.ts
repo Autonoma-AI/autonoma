@@ -83,6 +83,7 @@ export async function withCodebaseForGeneration<T>(
             snapshot: {
                 select: {
                     headSha: true,
+                    baseSha: true,
                     branch: {
                         select: {
                             application: {
@@ -99,6 +100,7 @@ export async function withCodebaseForGeneration<T>(
             organizationId: generation.snapshot.branch.application.organizationId,
             githubRepositoryId: generation.snapshot.branch.application.githubRepositoryId,
             headSha: generation.snapshot.headSha,
+            baseSha: generation.snapshot.baseSha,
         },
         `Generation ${generationId}`,
     );
@@ -149,6 +151,7 @@ export async function withCodebaseForRun<T>(runId: string, handlers: WithCodebas
                     snapshot: {
                         select: {
                             headSha: true,
+                            baseSha: true,
                             branch: {
                                 select: {
                                     application: {
@@ -167,6 +170,7 @@ export async function withCodebaseForRun<T>(runId: string, handlers: WithCodebas
             organizationId: run.assignment.snapshot.branch.application.organizationId,
             githubRepositoryId: run.assignment.snapshot.branch.application.githubRepositoryId,
             headSha: run.assignment.snapshot.headSha,
+            baseSha: run.assignment.snapshot.baseSha,
         },
         `Run ${runId}`,
     );
