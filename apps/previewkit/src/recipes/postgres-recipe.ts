@@ -4,7 +4,7 @@ import type { ServiceConfig } from "../config/schema";
 import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 // Allowlist of accepted image prefixes for options.image.
-const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:"];
+const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:", "pgvector/pgvector:"];
 
 const optionsSchema = z.object({
     databases: z.array(z.string()).default([]),
@@ -74,6 +74,7 @@ export class PostgresRecipe extends BaseRecipe {
                                 name: config.name,
                                 image,
                                 ports: [{ containerPort: PORT }],
+                                args: ["-c", "max_connections=300"],
                                 env: [
                                     { name: "POSTGRES_USER", value: "preview" },
                                     { name: "POSTGRES_PASSWORD", value: "preview" },
@@ -108,7 +109,11 @@ export class PostgresRecipe extends BaseRecipe {
                                 ],
                                 readinessProbe: {
                                     exec: {
-                                        command: ["pg_isready", "-U", "preview"],
+                                        // Use -h 127.0.0.1 to force TCP rather than a unix
+                                        // socket. The postgres Docker image runs init scripts
+                                        // in socket-only mode; without -h the probe succeeds
+                                        // during init while external TCP connections still fail.
+                                        command: ["pg_isready", "-U", "preview", "-h", "127.0.0.1"],
                                     },
                                     initialDelaySeconds: 5,
                                     periodSeconds: 5,

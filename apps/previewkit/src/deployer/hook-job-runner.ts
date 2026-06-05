@@ -19,9 +19,38 @@ export async function runHookJob(
     command: string,
     env: Record<string, string>,
     timeoutMs = 300_000,
+    maxAttempts = 3,
 ): Promise<void> {
     const logger = rootLogger.child({ name: "runHookJob", namespace, app: appName });
 
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+            const delayMs = 15_000 * (attempt - 1);
+            logger.warn("Hook Job failed, retrying", { attempt, maxAttempts, delayMs });
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        }
+        try {
+            await runHookJobOnce(kc, namespace, appName, image, command, env, logger, timeoutMs);
+            return;
+        } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            logger.error("Hook Job attempt failed", { attempt, maxAttempts, error: lastError.message });
+        }
+    }
+    throw lastError!;
+}
+
+async function runHookJobOnce(
+    kc: k8s.KubeConfig,
+    namespace: string,
+    appName: string,
+    image: string,
+    command: string,
+    env: Record<string, string>,
+    logger: ReturnType<typeof rootLogger.child>,
+    timeoutMs: number,
+): Promise<void> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const jobName = `${appName.slice(0, 48)}-hook-${suffix}`;
 
@@ -101,17 +130,58 @@ export async function runHookJob(
 }
 
 async function captureJobLogs(coreApi: k8s.CoreV1Api, namespace: string, jobName: string): Promise<string> {
+    const pod = await findJobPod(coreApi, namespace, jobName);
+    if (pod == null) {
+        const events = await captureJobEvents(coreApi, namespace, jobName);
+        return `(no pod found)${events !== "" ? `\nk8s events: ${events}` : ""}`;
+    }
+    const podName = pod.metadata?.name;
+    if (podName == null) return "(pod has no name)";
+    const podPhase = pod.status?.phase;
+    const containerState = pod.status?.containerStatuses?.[0]?.state;
+    const terminated = containerState?.terminated;
+    const prefix =
+        terminated != null
+            ? `[exit ${terminated.exitCode ?? "?"}] ${terminated.reason ?? ""} ${terminated.message ?? ""}`.trim()
+            : `[phase: ${podPhase ?? "unknown"}]`;
     try {
-        const pods = await coreApi.listNamespacedPod({
-            namespace,
-            labelSelector: `job-name=${jobName}`,
-        });
-        const pod = pods.items[0];
-        if (pod == null) return "(no pod found)";
-        const podName = pod.metadata?.name;
-        if (podName == null) return "(pod has no name)";
-        return await coreApi.readNamespacedPodLog({ name: podName, namespace, container: "hook" });
+        const logs = await coreApi.readNamespacedPodLog({ name: podName, namespace, container: "hook" });
+        return `${prefix}\n${logs}`;
     } catch {
-        return "(failed to retrieve logs)";
+        return `${prefix} (logs unavailable)`;
+    }
+}
+
+async function findJobPod(
+    coreApi: k8s.CoreV1Api,
+    namespace: string,
+    jobName: string,
+    attempts = 4,
+    delayMs = 2_000,
+): Promise<k8s.V1Pod | undefined> {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            const { items } = await coreApi.listNamespacedPod({
+                namespace,
+                labelSelector: `job-name=${jobName}`,
+            });
+            if (items.length > 0) return items[0];
+        } catch {
+            // ignore transient list errors and retry
+        }
+        if (i < attempts - 1) await new Promise<void>((r) => setTimeout(r, delayMs));
+    }
+    return undefined;
+}
+
+async function captureJobEvents(coreApi: k8s.CoreV1Api, namespace: string, jobName: string): Promise<string> {
+    try {
+        const { items } = await coreApi.listNamespacedEvent({
+            namespace,
+            fieldSelector: `involvedObject.name=${jobName}`,
+        });
+        return items.map((e) => `${e.reason ?? "?"}: ${e.message ?? ""}`).join(" | ");
+    } catch {
+        return "";
     }
 }
