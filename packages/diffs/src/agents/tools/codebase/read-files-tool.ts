@@ -3,6 +3,13 @@ import { z } from "zod";
 import type { CodebaseLoop } from "./codebase-loop";
 
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
+/**
+ * Aggregate content budget across all files in a single call. Per-file content is capped
+ * separately at {@link MAX_TOOL_OUTPUT_CHARS}; this caps the sum. Once the budget is exhausted,
+ * remaining files are returned as a truncation marker so the agent can re-request them
+ * individually.
+ */
+const MAX_TOTAL_OUTPUT_CHARS = 200_000;
 
 const fileRequestSchema = z.object({
     path: z.string().describe("Path relative to the repository root, e.g. 'src/components/Login.tsx'"),
@@ -40,7 +47,9 @@ export class ReadFilesTool extends AgentTool<ReadFilesInput, ReadFilesOutput, Co
                 "Read one or more files from the application's source tree in a single call. " +
                 "Pass every file you need in the `files` array - do not call this tool repeatedly for individual paths. " +
                 "Each entry takes a path relative to the repository root and optional startLine/endLine (1-indexed, inclusive) to fetch a slice. " +
-                "Returns a `results` object keyed by the requested path.",
+                "Returns a `results` object keyed by the requested path. " +
+                `Per-file content is capped at ${MAX_TOOL_OUTPUT_CHARS} chars and total content across all files at ${MAX_TOTAL_OUTPUT_CHARS} chars; ` +
+                "anything beyond the cap is replaced with a truncation marker.",
             inputSchema: readFilesInputSchema,
         });
     }
@@ -49,10 +58,39 @@ export class ReadFilesTool extends AgentTool<ReadFilesInput, ReadFilesOutput, Co
         const entries = await Promise.all(
             files.map(async (req): Promise<readonly [string, FileResult]> => [req.path, await readOne(loop, req)]),
         );
+
         const results: Record<string, FileResult> = {};
-        for (const [path, result] of entries) results[path] = result;
+        let cumulativeChars = 0;
+        for (const [path, result] of entries) {
+            if (!result.ok) {
+                results[path] = result;
+                continue;
+            }
+            const remainingBudget = MAX_TOTAL_OUTPUT_CHARS - cumulativeChars;
+            if (remainingBudget <= 0) {
+                results[path] = aggregateBudgetExhausted();
+                continue;
+            }
+            if (result.content.length > remainingBudget) {
+                results[path] = {
+                    ok: true,
+                    content: `${result.content.slice(0, remainingBudget)}\n\n[...truncated by aggregate budget: only the first ${remainingBudget} chars of this file are returned because earlier files in the same call had already consumed most of the ${MAX_TOTAL_OUTPUT_CHARS}-char total budget. Re-request this path on its own to see the rest.]`,
+                };
+                cumulativeChars = MAX_TOTAL_OUTPUT_CHARS;
+                continue;
+            }
+            results[path] = result;
+            cumulativeChars += result.content.length;
+        }
         return { results };
     }
+}
+
+function aggregateBudgetExhausted(): FileResult {
+    return {
+        ok: true,
+        content: `[omitted: aggregate output budget of ${MAX_TOTAL_OUTPUT_CHARS} chars was already exhausted by earlier files in this call. Re-request this path on its own.]`,
+    };
 }
 
 async function readOne(loop: CodebaseLoop, req: FileRequest): Promise<FileResult> {

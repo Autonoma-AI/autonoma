@@ -8,6 +8,7 @@ import {
     type StopCondition,
     type Tool,
 } from "ai";
+import type { MessageCompactor } from "../compaction/types";
 import type { LanguageModel } from "../registry/model-registry";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
@@ -43,6 +44,19 @@ export interface AgentConfig<TResult> {
 
     /** Tools that may be used during the execution of the agent loop. */
     tools: AgentTool<unknown, unknown>[];
+
+    /**
+     * Optional message-compaction configuration. When set, the loop calls `strategy.compact`
+     * before each step whose previous step's reported input-token count meets or exceeds
+     * `threshold`; the strategy's output replaces the messages sent to the model. The raw,
+     * uncompacted message stream produced by the agent is what {@link AgentLoop.runLoop}
+     * returns - compaction only affects what's sent to the model, never what's persisted.
+     */
+    compactor?: {
+        strategy: MessageCompactor;
+        /** Token budget for the previous step's input before the strategy runs. */
+        threshold: number;
+    };
 }
 
 export class NoAgentResultError extends FatalToolError {
@@ -94,14 +108,24 @@ export class AgentLoop<TResult = unknown> {
     private readonly tools: AgentTool<unknown, unknown>[];
     private readonly resultTool: ReportResultTool<unknown, TResult>;
     private readonly maxSteps: number | undefined;
+    private readonly compactor: { strategy: MessageCompactor; threshold: number } | undefined;
 
-    constructor({ name, model, systemPrompt, tools, reportTool: resultTool, maxSteps }: AgentConfig<TResult>) {
+    constructor({
+        name,
+        model,
+        systemPrompt,
+        tools,
+        reportTool: resultTool,
+        maxSteps,
+        compactor,
+    }: AgentConfig<TResult>) {
         this.name = name;
         this.model = model;
         this.systemPrompt = systemPrompt;
         this.tools = tools;
         this.resultTool = resultTool;
         this.maxSteps = maxSteps;
+        this.compactor = compactor;
 
         this.logger = logger.child({ name: this.name });
     }
@@ -162,7 +186,8 @@ export class AgentLoop<TResult = unknown> {
             instructions: this.systemPrompt,
             tools,
             stopWhen: [this.hasProducedResult, ...(this.maxSteps != null ? [stepCountIs(this.maxSteps)] : [])],
-            prepareStep: (args) => this.prepareStep(args),
+            prepareStep: async (args) =>
+                applyCompactor(await this.prepareStep(args), args, this.compactor, this.logger),
             onStepFinish: (result) => this.onStepFinish(result),
         });
 
@@ -182,5 +207,41 @@ export class AgentLoop<TResult = unknown> {
         this.logger.info("Agent loop finished successfully", { result: this.result });
 
         return { result: this.result, conversation };
+    }
+}
+
+async function applyCompactor(
+    innerResult: PrepareStepReturn,
+    args: PrepareStepArgs,
+    compactor: { strategy: MessageCompactor; threshold: number } | undefined,
+    logger: Logger,
+): Promise<PrepareStepReturn> {
+    if (compactor == null) return innerResult;
+
+    const previousStepInputTokens = args.steps.at(-1)?.usage?.inputTokens ?? 0;
+    const tripped = previousStepInputTokens >= compactor.threshold;
+    logger.info("Compaction gate evaluated", {
+        extra: { threshold: compactor.threshold, previousStepInputTokens, tripped },
+    });
+    if (!tripped) return innerResult;
+
+    const messages = innerResult?.messages ?? args.messages;
+    try {
+        const compacted = await compactor.strategy.compact(messages);
+        if (compacted.messagesAffected === 0) return innerResult;
+
+        logger.info("Compaction strategy applied", {
+            compaction: { strategy: compactor.strategy.name, messagesAffected: compacted.messagesAffected },
+        });
+        return { ...innerResult, messages: compacted.messages };
+    } catch (error) {
+        // Compaction is a safety net, not load-bearing for correctness: a strategy bug should not
+        // take down a step that might otherwise succeed. Log and continue with uncompacted messages.
+        logger.error(
+            "Compaction strategy threw - continuing with uncompacted messages",
+            error instanceof Error ? error : new Error(String(error)),
+            { compaction: { strategy: compactor.strategy.name } },
+        );
+        return innerResult;
     }
 }

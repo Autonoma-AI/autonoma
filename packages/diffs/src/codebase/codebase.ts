@@ -37,7 +37,7 @@ export interface DirectoryEntry {
     type: "file" | "directory";
 }
 
-const DEFAULT_GREP_LIMIT = 200;
+const DEFAULT_GREP_LIMIT = 100;
 const DEFAULT_GLOB_IGNORES = ["**/node_modules/**", "**/dist/**", "**/.git/**"];
 
 let ripgrepChecked = false;

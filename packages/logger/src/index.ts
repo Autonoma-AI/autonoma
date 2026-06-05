@@ -5,6 +5,7 @@ export { rootLogger as logger } from "./logger-backend";
 export {
     type ApplicationContext,
     type BranchContext,
+    type CompactionContext,
     type JobContext,
     type LogExtra,
     type ObservabilityContext,

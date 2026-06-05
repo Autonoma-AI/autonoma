@@ -80,6 +80,11 @@ const JobContextSchema = z.object({
     executionMode: z.enum(["job", "service"]).optional(),
 });
 
+const CompactionContextSchema = z.object({
+    strategy: z.string().min(1),
+    messagesAffected: z.number().int().nonnegative().optional(),
+});
+
 export const ObservabilityContextSchema = z.object({
     temporal: TemporalContextSchema.optional(),
     organization: OrganizationContextSchema.optional(),
@@ -92,6 +97,7 @@ export const ObservabilityContextSchema = z.object({
     testGeneration: TestGenerationContextSchema.optional(),
     run: RunContextSchema.optional(),
     job: JobContextSchema.optional(),
+    compaction: CompactionContextSchema.optional(),
 });
 
 export type ObservabilityContext = z.infer<typeof ObservabilityContextSchema>;
@@ -106,6 +112,7 @@ export type TestCaseContext = z.infer<typeof TestCaseContextSchema>;
 export type TestGenerationContext = z.infer<typeof TestGenerationContextSchema>;
 export type RunContext = z.infer<typeof RunContextSchema>;
 export type JobContext = z.infer<typeof JobContextSchema>;
+export type CompactionContext = z.infer<typeof CompactionContextSchema>;
 
 /**
  * Any structured payload passed to a log call. Canonical groups go at the top
@@ -229,6 +236,7 @@ const GROUP_SCHEMAS = [
     ["testGeneration", TestGenerationContextSchema],
     ["run", RunContextSchema],
     ["job", JobContextSchema],
+    ["compaction", CompactionContextSchema],
 ] as const;
 
 const GROUP_FIELDS = {
@@ -243,4 +251,5 @@ const GROUP_FIELDS = {
     testGeneration: TestGenerationContextSchema.keyof().options,
     run: RunContextSchema.keyof().options,
     job: JobContextSchema.keyof().options,
+    compaction: CompactionContextSchema.keyof().options,
 } as const;
