@@ -72,7 +72,7 @@ export const env = createEnv({
         // that gates access via bypass token header or pk_session cookie.
         // The config is injected via ConfigMap so the default plain nginx:alpine works.
         NGINX_IMAGE: z.string().default("nginx:alpine"),
-        APP_URL: z.string().url().default("https://app.autonoma.app"),
+        APP_URL: z.string().url().default("https://beta.autonoma.app"),
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
         AUTONOMA_SERVICE_SECRET: z.string().min(1).optional(),
         // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens
