@@ -5,6 +5,7 @@ import {
     buildAppHostname,
     buildAppIngress,
     buildAppService,
+    buildNginxConfig,
     NGINX_SERVICE_NAME,
     NGINX_SERVICE_PORT,
 } from "../../src/deployer/resource-factory";
@@ -37,6 +38,30 @@ const baseRouteOpts = {
     secret: "test-secret",
     ingressClassName: "nginx",
 };
+
+describe("buildNginxConfig", () => {
+    const apps = [
+        { name: "web", port: 3000, hostname: "web.preview.autonoma.app" },
+        { name: "api", port: 4000, hostname: "api.preview.autonoma.app" },
+    ];
+    const namespace = "preview-my-org-my-repo-pr-42";
+
+    it("proxies every app straight through to its in-cluster service", () => {
+        const conf = buildNginxConfig({ apps, namespace });
+        expect(conf).toContain(`proxy_pass http://web.${namespace}.svc.cluster.local:3000;`);
+        expect(conf).toContain(`proxy_pass http://api.${namespace}.svc.cluster.local:4000;`);
+    });
+
+    it("has no access gate - previews are intentionally public", () => {
+        const conf = buildNginxConfig({ apps, namespace });
+        // None of the auth-gate machinery should be emitted: no bypass-token /
+        // pk_session check, no auth page, no redirect away from the app.
+        expect(conf).not.toContain("$is_auth");
+        expect(conf).not.toContain("pk_session");
+        expect(conf).not.toContain("preview-auth");
+        expect(conf).not.toContain("return 302");
+    });
+});
 
 describe("buildAppDeployment", () => {
     it("creates a deployment with correct metadata", () => {

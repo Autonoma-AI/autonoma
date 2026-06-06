@@ -206,17 +206,8 @@ interface NginxOptions {
 export function buildNginxConfig(opts: {
     apps: Array<{ name: string; port: number; hostname: string }>;
     namespace: string;
-    bypassToken: string;
-    domain: string;
-    appUrl: string;
 }): string {
-    const { apps, namespace, bypassToken, domain, appUrl } = opts;
-
-    // Inline auth page: reads ?session + ?next, sets cookie on the parent domain,
-    // redirects. Embedded in nginx return 200 '...', so JS must use only double
-    // quotes — no single quotes allowed inside the nginx single-quoted string.
-    const authScript = `(function(){var p=new URLSearchParams(location.search);var s=p.get("session");var n=p.get("next")||"/";if(s){document.cookie="pk_session="+encodeURIComponent(s)+"; path=/; domain=.${domain}; max-age=86400; secure; samesite=lax"}location.replace(n)})()`;
-    const authHtml = `<html><body><script>${authScript}</script></body></html>`;
+    const { apps, namespace } = opts;
 
     const serverBlocks = apps
         .map(
@@ -230,16 +221,7 @@ export function buildNginxConfig(opts: {
             add_header Content-Type text/plain;
         }
 
-        location = /preview-auth {
-            add_header Cache-Control "no-store";
-            return 200 '${authHtml}';
-            default_type text/html;
-        }
-
         location / {
-            if ($is_auth = "0") {
-                return 302 ${appUrl}/preview-auth?redirect=https://$host$request_uri;
-            }
             proxy_pass http://${name}.${namespace}.svc.cluster.local:${port};
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -254,30 +236,17 @@ export function buildNginxConfig(opts: {
         )
         .join("\n");
 
+    // Access control is intentionally disabled: the proxy forwards every request
+    // straight to the app. There is no bypass-token / pk_session gate, so preview
+    // environments are publicly reachable by anyone who has the URL. The bypass
+    // token is still generated and stored upstream, so re-enabling the gate later
+    // is purely a change to this generated config.
     return `events {}
 
 http {
-    # bypass token is a 64-char hex string; default bucket size of 64 is too small
-    map_hash_bucket_size 128;
-
     map $http_upgrade $connection_upgrade {
         default upgrade;
         ""      close;
-    }
-
-    map $http_x_previewkit_bypass $bypass_ok {
-        "${bypassToken}" "1";
-        default "0";
-    }
-
-    map $cookie_pk_session $session_ok {
-        "${bypassToken}" "1";
-        default "0";
-    }
-
-    map "$bypass_ok:$session_ok" $is_auth {
-        "~1" "1";
-        default "0";
     }
 ${serverBlocks}
 }
@@ -293,9 +262,6 @@ export function buildNginxConfigMap(opts: NginxOptions): k8s.V1ConfigMap {
     const nginxConf = buildNginxConfig({
         apps: opts.apps,
         namespace: opts.namespace,
-        bypassToken: opts.bypassToken,
-        domain: opts.domain,
-        appUrl: opts.appUrl,
     });
     return {
         apiVersion: "v1",
