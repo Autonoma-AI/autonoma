@@ -11,7 +11,8 @@ import {
 import type { StorageProvider } from "@autonoma/storage";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
-import { loadPreviewConfig } from "../config/config-loader";
+import { loadPreviewConfig } from "../config/file";
+import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
 import {
     type AppBuildOutcome,
@@ -21,6 +22,7 @@ import {
     recordEnvironmentManifest,
     recordEnvironmentReady,
     recordPhaseChanged,
+    recordResolvedConfig,
     toAppInstances,
 } from "../db";
 import type { AppDeployOutcome, DeployResult, Deployer } from "../deployer/deployer";
@@ -98,6 +100,15 @@ interface PreviewPipelineOptions {
     storage: StorageProvider;
 }
 
+/** Per-deploy options layered on top of the GitHub event. */
+export interface DeployOptions {
+    /** Pin the primary app's config to a specific revision (e.g. redeploy reproducing
+     *  the topology a PR was originally deployed with) instead of the Application's
+     *  current active revision. A pinned id that no longer resolves degrades to the
+     *  current config. */
+    configRevisionId?: string | undefined;
+}
+
 export class PreviewPipeline {
     private readonly provider: GitProvider;
     private readonly builder: Builder;
@@ -117,7 +128,46 @@ export class PreviewPipeline {
         this.storage = options.storage;
     }
 
-    async deploy(event: PullRequestEvent): Promise<void> {
+    /**
+     * Resolves the primary app's config: the Application's active DB config revision
+     * if it has one, otherwise a fallback to the repo's `.preview.yaml` at the
+     * deployed commit (so repos that haven't adopted server-side config keep working).
+     * Returns undefined when neither exists - the opt-out signal. `revisionId` is
+     * undefined for the file fallback: there is no stored revision to pin the snapshot to.
+     */
+    private async resolvePrimaryConfig(
+        applicationId: string,
+        repoFullName: string,
+        ref: string,
+        pinnedRevisionId: string | undefined,
+    ): Promise<{ config: PreviewConfig; revisionId: string | undefined } | undefined> {
+        // Redeploy pins the revision the environment was originally deployed with, so a
+        // change to the Application's active config afterwards doesn't alter a redeploy's
+        // topology. A pinned id that no longer resolves degrades to the current config.
+        if (pinnedRevisionId != null) {
+            const pinned = await loadConfigRevision(applicationId, pinnedRevisionId);
+            if (pinned != null) {
+                return { config: pinned.config, revisionId: pinned.revisionId };
+            }
+            logger.warn("Pinned config revision not found; resolving current config", {
+                applicationId,
+                pinnedRevisionId,
+            });
+        }
+
+        const active = await loadActiveConfig(applicationId);
+        if (active != null) {
+            return { config: active.config, revisionId: active.revisionId };
+        }
+
+        const fileConfig = await loadPreviewConfig(this.provider, repoFullName, ref);
+        if (fileConfig == null) return undefined;
+
+        logger.info("No active config revision; falling back to .preview.yaml", { applicationId, repoFullName, ref });
+        return { config: fileConfig, revisionId: undefined };
+    }
+
+    async deploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
@@ -145,18 +195,26 @@ export class PreviewPipeline {
             return;
         }
 
-        // 2. Check that the repo opted in to Previewkit before we touch anything.
-        //    A missing `.preview.yaml` is the second normal opt-out signal — repos
-        //    linked to an Application but not yet using Previewkit skip cleanly.
-        const primaryConfig = await loadPreviewConfig(this.provider, repoFullName, headSha);
-        if (primaryConfig == null) {
-            logger.warn("No .preview.yaml found at ref; skipping deployment", {
+        // 2. Resolve the primary app's config: the Application's active DB config
+        //    revision if it has one, else a fallback to the repo's `.preview.yaml`
+        //    at the deployed commit (for repos that haven't adopted server-side
+        //    config yet). Neither present is the opt-out signal: skip cleanly.
+        const resolved = await this.resolvePrimaryConfig(
+            application.id,
+            repoFullName,
+            headSha,
+            options?.configRevisionId,
+        );
+        if (resolved == null) {
+            logger.warn("No active config revision and no .preview.yaml; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
             });
             return;
         }
+        const primaryConfig = resolved.config;
+        const configRevisionId = resolved.revisionId;
 
         // 1c. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
         // Synthetic non-PR environments (currently prNumber 0 for an Application's main branch)
@@ -259,6 +317,11 @@ export class PreviewPipeline {
             // 6. Merge all configs into a single config for building and deploying.
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
             await recordSafe(() => recordEnvironmentManifest(namespace, mergedConfig));
+
+            // Snapshot the effective (merged) config onto the environment so a
+            // re-deploy of this PR reproduces the same topology. configRevisionId
+            // records which primary revision fed it.
+            await recordSafe(() => recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId }));
 
             // 7. Build appRepoDirs: maps each app name to the directory it should be built from.
             const appRepoDirs = new Map<string, string>();

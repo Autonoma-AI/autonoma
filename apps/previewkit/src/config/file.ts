@@ -1,7 +1,9 @@
 import yaml from "js-yaml";
+import { ZodError } from "zod";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
-import { previewConfigSchema, type PreviewConfig } from "./schema";
+import { resolveConfig } from "./resolver";
+import { type PreviewConfig } from "./schema";
 
 const CONFIG_FILES = [".preview.yaml", ".preview.yml"];
 
@@ -33,14 +35,18 @@ export async function loadPreviewConfig(
     }
 
     const parsed = yaml.load(raw);
-    const result = previewConfigSchema.safeParse(parsed);
 
-    if (!result.success) {
-        logger.error(`Invalid ${configFile} in ${repoFullName}`, { errors: result.error.flatten() });
-        throw new Error(
-            `Invalid ${configFile}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
-        );
+    // Route through the shared resolver so the file path and the (future)
+    // DB-backed revision path apply the same schema-upgrade + validation.
+    try {
+        return resolveConfig({ document: parsed });
+    } catch (err) {
+        if (err instanceof ZodError) {
+            logger.error(`Invalid ${configFile} in ${repoFullName}`, { errors: err.flatten() });
+            throw new Error(
+                `Invalid ${configFile}: ${err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+            );
+        }
+        throw err;
     }
-
-    return result.data;
 }

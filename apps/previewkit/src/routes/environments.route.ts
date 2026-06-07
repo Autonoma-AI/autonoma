@@ -230,6 +230,7 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, git
                     organizationId: true,
                     githubRepositoryId: true,
                     status: true,
+                    configRevisionId: true,
                 },
             });
 
@@ -258,7 +259,10 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, git
                 cloneUrl: "",
             };
 
-            previewPipeline.deploy(event).catch((err) => {
+            // Pin the config revision this environment was originally deployed with so the
+            // redeploy reproduces the same topology even if the Application's active config
+            // changed since. Undefined (a .preview.yaml-sourced deploy) re-resolves normally.
+            previewPipeline.deploy(event, { configRevisionId: env.configRevisionId ?? undefined }).catch((err) => {
                 logger.error("Redeploy failed", err, { repo: repoFullName, pr });
             });
 

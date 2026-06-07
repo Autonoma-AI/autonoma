@@ -315,8 +315,14 @@ model Application {
   mainBranchInfo          MainBranchInfo?
   onboardingState         OnboardingState?
   applicationSetups       ApplicationSetup[]
-  bugs                    Bug[]
-  previewkitSecrets       PreviewkitSecret[]
+  bugs                      Bug[]
+  previewkitSecrets         PreviewkitSecret[]
+  previewkitConfigRevisions PreviewkitConfigRevision[]
+
+  // Revision currently in effect for this Application's previews. Stored as a
+  // plain id (not a relation) to avoid a second relation edge on this central
+  // model; the revision is fetched by id when resolving config.
+  activeConfigRevisionId String? @map("active_config_revision_id")
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1654,6 +1660,15 @@ model PreviewkitEnvironment {
 
   bypassToken String? @map("bypass_token")
 
+  // Fully-resolved config used for this deploy (the primary config merged with
+  // any multirepo dependencies, validated by previewConfigSchema). Immutable
+  // snapshot so a re-deploy of this PR reproduces the same topology even if
+  // the Application's active revision changes later. `configRevisionId` records
+  // which revision fed it.
+  /// ![object]
+  resolvedConfig   Json?   @map("resolved_config")
+  configRevisionId String? @map("config_revision_id")
+
   /// [PreviewkitManifest]
   manifest Json @default("{}")
 
@@ -1776,6 +1791,43 @@ model PreviewkitOrgSecret {
   @@unique([organizationId, name])
   @@index([organizationId])
   @@map("previewkit_org_secret")
+}
+
+enum PreviewkitConfigSource {
+  dashboard
+  api
+  imported_yaml
+
+  @@map("previewkit_config_source")
+}
+
+// Immutable, versioned snapshots of an Application's preview config document.
+// `document` is the same shape as `.preview.yaml` and validates against
+// `previewConfigSchema`; it is stored as opaque JSON and validated on read by
+// the resolver (boundary validation), so the DB never constrains a churning
+// config format. `schemaVersion` lets the resolver upgrade older documents
+// server-side. The Application's `activeConfigRevisionId` points at the
+// revision currently in effect.
+model PreviewkitConfigRevision {
+  id            String @id @default(cuid())
+  applicationId String @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Monotonically increasing per application. (applicationId, revision) unique.
+  revision      Int
+  schemaVersion Int                    @default(1) @map("schema_version")
+  source        PreviewkitConfigSource @default(api)
+
+  // Opaque config document; validated by previewConfigSchema on read.
+  /// ![object]
+  document Json
+
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([applicationId, revision])
+  @@index([applicationId])
+  @@map("previewkit_config_revision")
 }
 
 enum PreviewkitAddonStatus {

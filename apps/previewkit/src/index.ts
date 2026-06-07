@@ -9,6 +9,7 @@ import { AddonProviderRegistry } from "./addons/registry";
 import { createApp } from "./app";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { BuildKitJobManager } from "./builder/buildkit-job-manager";
+import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
 import { env } from "./env";
@@ -72,6 +73,11 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
     const storage = S3Storage.createFromEnv();
 
+    // Platform-owned defaults applied to every preview (registry, domain,
+    // build timeout, standard resources). Single source of truth; all
+    // consumers below read from this rather than env directly.
+    const previewkitDefaults = createPreviewkitDefaults(env);
+
     // Per-build buildkitd lifecycle. The manager spins up an ephemeral Job +
     // Service per app build in cluster A, and the builder dials it via
     // in-cluster DNS. `activeDeadlineSeconds` is a K8s-level kill switch in
@@ -82,14 +88,14 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         namespace: env.BUILDKIT_BUILD_NAMESPACE,
         image: env.BUILDKIT_IMAGE,
         serviceAccountName: env.BUILDKIT_BUILDER_SERVICE_ACCOUNT,
-        activeDeadlineSeconds: Math.ceil(env.BUILD_TIMEOUT_MS / 1000) + 60,
+        activeDeadlineSeconds: Math.ceil(previewkitDefaults.defaults.buildTimeoutMs / 1000) + 60,
     });
 
     // Builder. The BuildKit layer cache shares the storage bucket with build logs;
     // each writes under a distinct top-level key prefix so they can coexist.
     const builder = new BuildKitBuilder({
         jobManager: buildkitJobManager,
-        buildTimeoutMs: env.BUILD_TIMEOUT_MS,
+        buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         storage,
     });
 
@@ -109,7 +115,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // Deployer
     const deployer = new Deployer(
         kc,
-        env.PREVIEW_DOMAIN,
+        previewkitDefaults.defaults.domain,
         env.PREVIEW_URL_SECRET,
         awsExternalSecretManager,
         env.NGINX_IMAGE,
@@ -135,7 +141,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         deployer,
         awsSecretsFetcher,
         addonManager,
-        registryUrl: env.REGISTRY_URL,
+        registryUrl: previewkitDefaults.defaults.registry,
         storage,
     });
 

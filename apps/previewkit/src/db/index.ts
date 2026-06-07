@@ -1,4 +1,4 @@
-import { db } from "@autonoma/db";
+import { db, Prisma } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
 import type { AddonConfig, AppConfig, PreviewConfig, ServiceConfig } from "../config/schema";
@@ -96,6 +96,52 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             phase: "initializing",
             error: null,
             tornDownAt: null,
+            // Clear the previous attempt's config snapshot; recordResolvedConfig rewrites it
+            // once this attempt resolves its config. Without this, a deploy that fails before
+            // that write leaves the row describing the new head/status but the prior config.
+            resolvedConfig: Prisma.DbNull,
+            configRevisionId: null,
+        },
+    });
+}
+
+export interface ResolvedConfigSnapshotInput {
+    namespace: string;
+    resolvedConfig: PreviewConfig;
+    configRevisionId?: string;
+}
+
+/**
+ * Snapshots the fully-resolved config used for a deploy onto the environment
+ * row. Immutable per deploy: a re-deploy of the same PR reproduces the same
+ * topology even if the Application's active revision changes afterwards.
+ * `configRevisionId` records which primary revision fed the snapshot (absent
+ * when the config came straight from a `.preview.yaml` and the best-effort
+ * import didn't yield a revision id).
+ */
+export async function recordResolvedConfig(input: ResolvedConfigSnapshotInput): Promise<void> {
+    const logger = rootLogger.child({ name: "recordResolvedConfig" });
+    const { namespace, resolvedConfig, configRevisionId } = input;
+    logger.info("Recording resolved config snapshot", {
+        namespace,
+        configRevisionId,
+        appCount: resolvedConfig.apps.length,
+    });
+
+    const existing = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { id: true },
+    });
+    if (existing == null) {
+        logger.warn("Skipping resolved config snapshot: no environment row found", { namespace });
+        return;
+    }
+
+    await db.previewkitEnvironment.update({
+        where: { namespace },
+        data: {
+            resolvedConfig,
+            configRevisionId: configRevisionId ?? null,
         },
     });
 }

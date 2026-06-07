@@ -41,7 +41,9 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
         });
 
-        test("recordEnvironmentCreated is idempotent on namespace (resets error, tornDownAt)", async ({ harness }) => {
+        test("recordEnvironmentCreated is idempotent on namespace (resets error, tornDownAt, config snapshot)", async ({
+            harness,
+        }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
@@ -53,10 +55,17 @@ integrationTestSuite({
                 namespace: "preview-acme-web-pr-7",
             });
 
-            // Simulate a prior failed+torn-down state being overwritten by a fresh deploy.
+            // Simulate a prior failed+torn-down state (with a stale config snapshot)
+            // being overwritten by a fresh deploy.
             await harness.db.previewkitEnvironment.update({
                 where: { namespace: "preview-acme-web-pr-7" },
-                data: { status: "failed", error: "boom", tornDownAt: new Date() },
+                data: {
+                    status: "failed",
+                    error: "boom",
+                    tornDownAt: new Date(),
+                    resolvedConfig: { version: 1, apps: [{ name: "web", port: 3000 }] },
+                    configRevisionId: "rev_prior",
+                },
             });
 
             await recordEnvironmentCreated({
@@ -79,6 +88,10 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
             expect(env!.error).toBeNull();
             expect(env!.tornDownAt).toBeNull();
+            // A fresh attempt clears the prior config snapshot; it is rewritten once
+            // this attempt resolves its config.
+            expect(env!.resolvedConfig).toBeNull();
+            expect(env!.configRevisionId).toBeNull();
         });
 
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {

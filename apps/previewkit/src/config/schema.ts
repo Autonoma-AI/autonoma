@@ -1,13 +1,12 @@
 import { z } from "zod";
+import { STANDARD_RESOURCES } from "./index";
+
+// Re-exported so existing importers can keep getting it from the schema
+// module; the canonical definition now lives in the config index alongside the
+// other platform-owned settings.
+export { STANDARD_RESOURCES };
 
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
-
-/**
- * Standard resource allocation applied to every app and service container.
- * CPU is requested but not limited (CPU limits cause throttling at the
- * boundary); memory is both requested and limited.
- */
-export const STANDARD_RESOURCES = { cpu: "1000m", memory: "1Gi" } as const;
 
 /**
  * @deprecated Per-app/service resource sizing is no longer configurable -

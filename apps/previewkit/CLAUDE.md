@@ -40,7 +40,12 @@ On `pull_request.closed`, `TeardownPipeline` deletes the namespace.
   per-app build loop (`buildOneApp`), final-outcome computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts`.
-- `config/` - `.preview.yaml` Zod schema (`config/schema.ts`, `previewConfigSchema`) + loader.
+- `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
+  validate), `file.ts` (`loadPreviewConfig` reads a repo's `.preview.yaml`), `revisions.ts`
+  (`loadActiveConfig` reads the Application's active DB config revision), `index.ts`
+  (`createPreviewkitDefaults`), `migrate-yaml-to-revisions.ts` (one-off `.preview.yaml` -> DB import).
+  The pipeline prefers the active DB revision and falls back to the repo's `.preview.yaml`
+  (`PreviewPipeline.resolvePrimaryConfig`).
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (Deployments/Services/Ingress/ConfigMaps, incl. the nginx proxy), `env-injector.ts`
   (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
@@ -155,6 +160,9 @@ generated config (previews are public) - read `buildNginxConfig` for the current
     and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
 - DB schema changes: edit `packages/db/prisma/schema.prisma` -> `pnpm db:migrate` -> `pnpm db:generate`.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
+- `pnpm --filter @autonoma/previewkit migrate:config [--dry-run] [--force]` - one-off: import every linked
+  Application's `.preview.yaml` (at its main-branch head) into a `PreviewkitConfigRevision` and activate it.
+  Idempotent (skips Applications that already have an active revision unless `--force`); needs the previewkit env.
 
 ## Gotchas
 
