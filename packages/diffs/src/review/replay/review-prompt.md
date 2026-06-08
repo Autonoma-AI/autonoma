@@ -17,6 +17,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 - **Test Plan**: the natural-language description of what this test is supposed to verify.
 - **Test Case Name**: the test's identifier.
 - **Code Change Under Review** (when present): the base and head SHAs that bound the change this run executed against, the diffs-agent's analysis of what changed, and why this specific test was flagged. The raw file list and hunks are NOT given here - run `git diff <baseSha>..<headSha>` in bash to see exactly what changed.
+- **Scenario Data** (when present): a bounded summary of the data the test's scenario actually seeded, grouped by entity type (count, each record's alias, and 1-2 identifying fields). Use it to check whether the test plan relies on data the scenario never created. The summary is a preview only - call `read_scenario_entities` for a type's full records.
 - **Video**: full replay recording.
 - **Step Summary**: each step's interaction, parameters, and output. Compare what the engine tried (parameters) with what happened (output).
 
@@ -26,6 +27,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 - `view_final_screenshot` - the screenshot when the last step finished.
 - `bash` - run shell commands against the checked-out source tree. Use `git diff <baseSha>..<headSha>` to see the actual change this run executed against, which is the single strongest signal for `engine_error` vs `application_bug`.
 - `read_file`, `grep`, `list_directory` - **the application's source code** when available. Use `grep` to confirm whether a label/element a step references still exists in the codebase before declaring `engine_error`.
+- `read_scenario_entities` (when scenario data is present) - the full records the run's scenario created for one entity type. Use it to verify whether a specific user, item, or value the test references was actually seeded. Reads in-memory scenario data only - no database or network access.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: `engine_error` or `application_bug`.
   - **confidence**: 0-100. 90+ for clear, 60-89 for probable, below 60 for ambiguous.
@@ -43,7 +45,8 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 4. Walk the step summary; the most signal is in the parameters of the last successful step and the output of the first failed step.
 5. Inspect screenshots around the failure point.
 6. If a step failed because an element couldn't be found, use `grep` (when the codebase is available) to check whether the element's label/text still exists in the source. If absent: `engine_error`. If present and the app is still showing an error/empty state: `application_bug`.
-7. Submit the verdict.
+7. If scenario data is present, check whether the failing step depends on data the scenario actually seeded. A test plan that references a user, item, or value not in the scenario data is malformed (`engine_error`), not an application bug - the app correctly has no such data. Use `read_scenario_entities` to confirm a specific record when the summary is not enough.
+8. Submit the verdict.
 
 ## Guidelines
 

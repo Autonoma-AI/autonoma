@@ -3,9 +3,11 @@ import { z } from "zod";
 import type { DiffsAgentResult } from "../src/agents/diffs/diffs-agent";
 import { DiffsAgentLoop } from "../src/agents/diffs/diffs-agent-loop";
 import { ResolutionAgentLoop } from "../src/agents/resolution/resolution-agent-loop";
+import { ReviewerLoop } from "../src/agents/reviewers/reviewer-loop";
 import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
+import type { ScenarioData } from "../src/scenario-data";
 import { ScenarioIndex } from "../src/scenario-index";
 
 /**
@@ -57,6 +59,25 @@ export interface ResolutionLoopOverrides {
     existingTests?: ExistingTestInfo[];
     failedSlugs?: ReadonlySet<string>;
     quarantinedSlugs?: ReadonlySet<string>;
+}
+
+export interface ReviewerLoopOverrides {
+    workingDirectory?: string;
+    scenarioData?: ScenarioData;
+}
+
+export function makeReviewerLoop(overrides: ReviewerLoopOverrides = {}): ReviewerLoop<never> {
+    return new ReviewerLoop<never>({
+        name: "ReviewerTest",
+        model: FAKE_MODEL,
+        systemPrompt: "",
+        tools: [],
+        reportTool: FAKE_RESULT_TOOL as never,
+        codebase: new Codebase(overrides.workingDirectory ?? process.cwd()),
+        screenshotLoader: { loadScreenshot: async () => Buffer.alloc(0) },
+        steps: [],
+        scenarioData: overrides.scenarioData,
+    });
 }
 
 export function makeResolutionLoop(overrides: ResolutionLoopOverrides = {}): ResolutionAgentLoop {

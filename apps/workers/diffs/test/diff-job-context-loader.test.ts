@@ -97,6 +97,59 @@ replayContextSuite({
             expect(context.change).toBeUndefined();
         });
 
+        test("materializes the run's scenario generated-data graph into the context", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { runId } = await harness.seedFailedRun({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "base777",
+                headSha: "head888",
+                steps: [{ order: 0, interaction: "click", params: { target: "project" }, output: { outcome: "fail" } }],
+                scenario: {
+                    name: "Org with one user and project",
+                    generatedData: {
+                        User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                        Project: [{ _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } }],
+                    },
+                },
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(runId);
+
+            expect(context.scenario?.scenarioName).toBe("Org with one user and project");
+            expect(context.scenario?.entities).toEqual({
+                User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                Project: [{ _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } }],
+            });
+        });
+
+        test("omits scenario context when UP failed and no data was generated", async ({ harness, seedResult }) => {
+            const { runId } = await harness.seedFailedRun({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { outcome: "fail" } }],
+                scenario: { name: "Failed scenario", status: "UP_FAILED" },
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(runId);
+
+            expect(context.scenario).toBeUndefined();
+        });
+
+        test("omits scenario context when the run has no scenario instance", async ({ harness, seedResult }) => {
+            const { runId } = await harness.seedFailedRun({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { outcome: "fail" } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(runId);
+
+            expect(context.scenario).toBeUndefined();
+        });
+
         test("reads the run's own plan prompt, not the assignment's later-repointed plan (point-in-time)", async ({
             harness,
             seedResult,

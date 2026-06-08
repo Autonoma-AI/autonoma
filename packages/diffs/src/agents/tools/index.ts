@@ -21,3 +21,6 @@ export { ViewStepScreenshotTool } from "./screenshot/view-step-screenshot-tool";
 export { ViewFinalScreenshotTool } from "./screenshot/view-final-screenshot-tool";
 export type { ScreenshotInspectionLoop } from "./screenshot/screenshot-inspection-loop";
 export { type ScreenshotLoader, type ReviewStepScreenshots } from "./screenshot/screenshot-types";
+
+export { ReadScenarioEntitiesTool } from "./scenario/read-scenario-entities-tool";
+export type { ScenarioDataLoop } from "./scenario/scenario-data-loop";

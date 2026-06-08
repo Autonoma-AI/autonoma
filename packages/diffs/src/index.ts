@@ -39,6 +39,7 @@ export {
     ListTestsTool,
     type ModifiedTest,
     ReadFilesTool,
+    ReadScenarioEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
     type RemovedTest,
@@ -54,6 +55,7 @@ export {
     type ReviewStepScreenshots,
     ReviewerLoop,
     type RunReviewVerdict,
+    type ScenarioDataLoop,
     type ScenarioLookupLoop,
     type ScreenshotInspectionLoop,
     type ScreenshotLoader,
@@ -159,3 +161,17 @@ export {
     type RunContext,
     type RunStepData,
 } from "./review/replay";
+
+// Scenario-data capability - reusable, agent-agnostic resolution + presentation
+// + in-memory disclosure of the data a run's scenario actually created.
+export {
+    materializeScenarioData,
+    resolveScenarioDataForRun,
+    summarizeScenarioData,
+    type ScenarioData,
+    type ScenarioEntities,
+    type ScenarioEntityRecord,
+    scenarioDataSchema,
+    scenarioEntitiesSchema,
+    scenarioEntityRecordSchema,
+} from "./scenario-data";

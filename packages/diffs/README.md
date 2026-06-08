@@ -22,12 +22,18 @@ src/agents/
 ├── tools/                   Shared tools - typed against the narrowest capability they need
 │   ├── codebase/            bash, glob, grep, list_directory, read_files (CodebaseLoop)
 │   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
+│   ├── scenario/            read_scenario_entities (ScenarioDataLoop)
 │   ├── screenshot/          view_step_screenshot, view_final_screenshot
 │   └── subagent/            Nested research agent + tool wrapper
 ├── diffs/                   DiffsAgent + its action tools + result tool + prompt
 ├── resolution/              ResolutionAgent + tools + prompt
 ├── healing/                 HealingAgent + tools + result tool
 └── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
+
+src/scenario-data/           Reusable, agent-agnostic scenario-data capability:
+                             resolveScenarioDataForRun (DB) + materializeScenarioData (pure)
+                             + summarizeScenarioData (bounded prompt summary). The
+                             read_scenario_entities tool discloses full records on demand.
 ```
 
 Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that implements the capability interfaces the agent's tools depend on, the per-agent action/result tools, and the prompt source.

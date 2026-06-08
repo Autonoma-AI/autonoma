@@ -2,6 +2,7 @@ export type { CodebaseLoop } from "./tools/codebase/codebase-loop";
 export type { TestLookupLoop } from "./tools/lookup/test-lookup-loop";
 export type { ScenarioLookupLoop } from "./tools/lookup/scenario-lookup-loop";
 export type { ScreenshotInspectionLoop } from "./tools/screenshot/screenshot-inspection-loop";
+export type { ScenarioDataLoop } from "./tools/scenario/scenario-data-loop";
 
 export { DiffsAgent, type DiffsAgentConfig, type DiffsAgentInput, type DiffsAgentResult } from "./diffs/diffs-agent";
 export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
@@ -48,6 +49,7 @@ export {
     ListScenariosTool,
     ListTestsTool,
     ReadFilesTool,
+    ReadScenarioEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
     Subagent,

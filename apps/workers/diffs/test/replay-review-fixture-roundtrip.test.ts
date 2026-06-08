@@ -51,6 +51,32 @@ describe("replay review fixture round-trip", () => {
         expect(rehydrated).toEqual(context);
     });
 
+    it("round-trips a context carrying materialized scenario data unchanged", () => {
+        const context: RunContext = {
+            runId: "run-2",
+            organizationId: "org-1",
+            testPlanPrompt: "Open the first project and verify its name",
+            testCaseName: "Project view",
+            steps: [],
+            scenario: {
+                scenarioName: "Single org with one project",
+                entities: {
+                    User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                    Project: [
+                        { _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } },
+                        { _alias: "proj2", name: "Gemini", ownerId: { _ref: "owner" } },
+                    ],
+                },
+            },
+        };
+
+        const frozen = serializeReplayReviewInput(coords, context);
+        const reparsed = replayReviewCaseInputSchema.parse(JSON.parse(JSON.stringify(frozen)));
+        const { context: rehydrated } = rehydrateReplayReviewInput(reparsed);
+
+        expect(rehydrated).toEqual(context);
+    });
+
     it("still parses a legacy fixture captured before change context existed", () => {
         const legacy: unknown = {
             codebase: coords,

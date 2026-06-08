@@ -1,5 +1,5 @@
 import { AffectedReason } from "@autonoma/db";
-import type { RunContext } from "@autonoma/diffs";
+import { type RunContext, scenarioDataSchema } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
@@ -14,9 +14,10 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * sanitize: the context is purely the executed steps + the test case + the
  * DB-sourced change facts.
  *
- * `change` is optional so cases captured before change context existed still
- * parse; the changed-file list and diff hunks are never frozen here - the
- * reviewer derives them from the rehydrated codebase via `git diff`.
+ * `change` and `scenario` are optional so cases captured before each existed
+ * still parse; the changed-file list and diff hunks are never frozen here - the
+ * reviewer derives them from the rehydrated codebase via `git diff`. The
+ * `scenario` payload is the materialized generated-data graph, frozen verbatim.
  */
 export const replayReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -46,6 +47,7 @@ export const replayReviewCaseInputSchema = z.object({
                 affectedReasoning: z.string().optional(),
             })
             .optional(),
+        scenario: scenarioDataSchema.optional(),
     }),
 });
 

@@ -1,5 +1,6 @@
 import type { UploadedVideo } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
+import { summarizeScenarioData } from "../../scenario-data";
 import { MessageBuilder } from "../kernel";
 import type { ReplayChangeContext, RunContext } from "./types";
 
@@ -10,6 +11,10 @@ export function buildReplayReviewMessages(context: RunContext, video: UploadedVi
 
     if (context.change != null) {
         builder.section("Code Change Under Review", buildChangeContextSection(context.change));
+    }
+
+    if (context.scenario != null) {
+        builder.section("Scenario Data", summarizeScenarioData(context.scenario));
     }
 
     return builder

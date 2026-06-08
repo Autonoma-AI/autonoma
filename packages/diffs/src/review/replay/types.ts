@@ -1,4 +1,5 @@
 import type { AffectedReason } from "@autonoma/db";
+import type { ScenarioData } from "../../scenario-data";
 
 export interface RunStepData {
     order: number;
@@ -48,4 +49,12 @@ export interface RunContext {
      * always populates it via `DiffJobContextLoader`.
      */
     change?: ReplayChangeContext;
+    /**
+     * Materialized snapshot of the data the run's scenario actually created.
+     * Omitted when the run has no scenario instance, UP never succeeded, or the
+     * generated-data graph is empty (e.g. historical instances predating #815).
+     * A bounded summary is inlined into the prompt; full records are surfaced
+     * on demand via the `read_scenario_entities` tool.
+     */
+    scenario?: ScenarioData;
 }

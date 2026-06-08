@@ -1,12 +1,18 @@
 import type { PrismaClient } from "@autonoma/db";
-import type { ReplayChangeContext, RunContext, RunStepData } from "@autonoma/diffs";
+import {
+    type ReplayChangeContext,
+    type RunContext,
+    type RunStepData,
+    resolveScenarioDataForRun,
+} from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 
 /**
  * Gathers everything the replay reviewer needs for a single failed run, sourced
- * **entirely from Postgres**: the executed steps + test metadata, plus the
+ * **entirely from Postgres**: the executed steps + test metadata, the
  * subject-scoped change context (base/head SHAs, the diffs-agent's analysis
- * reasoning, and why this test was flagged).
+ * reasoning, and why this test was flagged), and the materialized scenario data
+ * the run executed against.
  *
  * This is the only piece of the replay-review path with DB access. It performs
  * no git or filesystem work - the reviewer derives the changed files and diff
@@ -86,7 +92,18 @@ export class DiffJobContextLoader {
 
         const change = this.buildChangeContext(runId, run.assignment.snapshot, run.affectedTest);
 
-        this.logger.info("Replay review context loaded", { runId, stepCount: steps.length, hasChange: change != null });
+        // Resolved + materialized via the shared, agent-agnostic helper so the
+        // loader stays DB-only and resolution/healing reuse the same path.
+        // Returns undefined (and we omit it) when the run has no scenario, UP
+        // never succeeded, or the graph is empty.
+        const scenario = await resolveScenarioDataForRun(this.db, runId);
+
+        this.logger.info("Replay review context loaded", {
+            runId,
+            stepCount: steps.length,
+            hasChange: change != null,
+            hasScenario: scenario != null,
+        });
 
         const context: RunContext = {
             runId: run.id,
@@ -98,6 +115,7 @@ export class DiffJobContextLoader {
             finalScreenshotKey,
         };
         if (change != null) context.change = change;
+        if (scenario != null) context.scenario = scenario;
         return context;
     }
 

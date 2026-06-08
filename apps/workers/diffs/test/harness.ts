@@ -1,4 +1,10 @@
-import { type AffectedReason, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import {
+    type AffectedReason,
+    type PrismaClient,
+    type ScenarioInstanceStatus,
+    applyMigrations,
+    createClient,
+} from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestAPI } from "vitest";
@@ -28,6 +34,13 @@ export interface SeedFailedRunParams {
     testName?: string;
     testPlanPrompt?: string;
     steps?: SeedStep[];
+    /**
+     * When provided, a Scenario + ScenarioInstance is created and the run is
+     * linked to it. `status` defaults to `UP_SUCCESS`; `generatedData` is the
+     * resolved create graph persisted at UP (omit it to exercise the
+     * absent-data path).
+     */
+    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
 }
 
 export interface SeededRun {
@@ -36,6 +49,7 @@ export interface SeededRun {
     testCaseId: string;
     assignmentId: string;
     planId: string;
+    scenarioInstanceId?: string;
 }
 
 let testSeq = 0;
@@ -145,8 +159,19 @@ export class ReplayContextHarness implements IntegrationHarness {
             data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: plan.id },
         });
 
+        const scenarioInstanceId =
+            params.scenario != null
+                ? await this.createScenarioInstance(organizationId, applicationId, params.scenario)
+                : undefined;
+
         const run = await this.db.run.create({
-            data: { assignmentId: assignment.id, planId: plan.id, organizationId, status: "failed" },
+            data: {
+                assignmentId: assignment.id,
+                planId: plan.id,
+                organizationId,
+                status: "failed",
+                scenarioInstanceId,
+            },
         });
 
         await this.attachSteps(run.id, plan.id, organizationId, params.steps ?? []);
@@ -170,7 +195,33 @@ export class ReplayContextHarness implements IntegrationHarness {
             testCaseId: testCase.id,
             assignmentId: assignment.id,
             planId: plan.id,
+            scenarioInstanceId,
         };
+    }
+
+    /**
+     * Create a Scenario + ScenarioInstance the way the scenario manager does at
+     * UP success: the resolved create graph lands on `generatedData`. Returns
+     * the instance id so the caller can link a run to it.
+     */
+    private async createScenarioInstance(
+        organizationId: string,
+        applicationId: string,
+        scenario: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown },
+    ): Promise<string> {
+        const created = await this.db.scenario.create({
+            data: { name: scenario.name, applicationId, organizationId },
+        });
+        const instance = await this.db.scenarioInstance.create({
+            data: {
+                scenarioId: created.id,
+                applicationId,
+                organizationId,
+                status: scenario.status ?? "UP_SUCCESS",
+                generatedData: scenario.generatedData ?? undefined,
+            },
+        });
+        return instance.id;
     }
 
     /**

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Agent, FinishTool, type LanguageModel, type VideoProcessor } from "@autonoma/ai";
+import { Agent, type AgentTool, FinishTool, type LanguageModel, type VideoProcessor } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type ReplayVerdict, replayVerdictSchema } from "@autonoma/types";
 import type { ModelMessage } from "ai";
@@ -14,6 +14,7 @@ import {
     GrepTool,
     ListDirectoryTool,
     ReadFilesTool,
+    ReadScenarioEntitiesTool,
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,
 } from "../../tools";
@@ -50,6 +51,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
     private readonly grepTool = new GrepTool();
     private readonly listDirectoryTool = new ListDirectoryTool();
     private readonly bashTool = new BashTool();
+    private readonly readScenarioEntitiesTool = new ReadScenarioEntitiesTool();
     private readonly resultTool = new FinishTool<ReplayVerdict>({
         name: "submit_verdict",
         resultSchema: replayVerdictSchema,
@@ -73,23 +75,32 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
     }
 
     protected async createLoop(input: ReplayReviewInput): Promise<ReviewerLoop<ReplayVerdict>> {
+        const scenario = input.context.scenario;
+
+        // The disclosure tool is only offered when a scenario was actually
+        // resolved - advertising a tool with no data to read just wastes a
+        // turn. The summary section in the prompt is gated the same way.
+        const tools: AgentTool<unknown, unknown>[] = [
+            this.viewStepScreenshotTool,
+            this.viewFinalScreenshotTool,
+            this.readFilesTool,
+            this.grepTool,
+            this.listDirectoryTool,
+            this.bashTool,
+        ];
+        if (scenario != null) tools.push(this.readScenarioEntitiesTool);
+
         return new ReviewerLoop<ReplayVerdict>({
             name: "ReplayReviewer",
             model: this.model,
             systemPrompt: SYSTEM_PROMPT,
-            tools: [
-                this.viewStepScreenshotTool,
-                this.viewFinalScreenshotTool,
-                this.readFilesTool,
-                this.grepTool,
-                this.listDirectoryTool,
-                this.bashTool,
-            ],
+            tools,
             reportTool: this.resultTool,
             codebase: input.codebase,
             screenshotLoader: this.evidenceLoader,
             steps: input.context.steps,
             finalScreenshotKey: input.context.finalScreenshotKey,
+            scenarioData: scenario,
         });
     }
 }
