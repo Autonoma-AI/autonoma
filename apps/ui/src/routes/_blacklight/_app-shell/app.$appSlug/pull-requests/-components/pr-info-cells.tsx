@@ -16,9 +16,9 @@ export function PRNameCell({
 
   if (isPending) return <Skeleton className="h-4 w-64" />;
   if (isError || data == null) {
-    return <span className="truncate text-sm text-text-primary">{branchName}</span>;
+    return <span className="block truncate text-sm text-text-primary">{branchName}</span>;
   }
-  return <span className="truncate text-sm font-medium text-text-primary">{data.title}</span>;
+  return <span className="block truncate text-sm font-medium text-text-primary">{data.title}</span>;
 }
 
 export function PRAuthorCell({ applicationId, prNumber }: { applicationId: string; prNumber: number }) {
@@ -29,13 +29,13 @@ export function PRAuthorCell({ applicationId, prNumber }: { applicationId: strin
     return <span className="text-sm text-text-tertiary">-</span>;
   }
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2">
       <img
         src={`https://github.com/${data.authorLogin}.png?size=40`}
         alt=""
         className="size-5 shrink-0 border border-border-dim bg-surface-raised object-cover"
       />
-      <span className="truncate text-sm text-text-secondary">{data.authorLogin}</span>
+      <span className="min-w-0 truncate text-sm text-text-secondary">{data.authorLogin}</span>
     </span>
   );
 }
