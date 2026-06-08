@@ -412,6 +412,7 @@ analytics.capture(userId, "test_generation.completed", {
 - Use Lucide React for icons
 - Path alias `@/*` maps to `packages/blacklight/src/*` inside the package
 - Components follow shadcn/ui patterns (Radix primitives + Tailwind styling)
+- **Never use `text-text-tertiary`.** This text color token is deprecated and no longer available. Use `text-text-secondary` as the lightest text tone instead, in all new and edited UI code.
 
 For React development patterns, data fetching, mutations, and analytics, see the `ui-conventions` skill.
 

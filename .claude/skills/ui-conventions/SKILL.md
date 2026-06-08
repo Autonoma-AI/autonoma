@@ -215,10 +215,12 @@ Below `text-xs` (12px), use theme tokens defined in `@autonoma/blacklight`:
 Use semantic color tokens from the theme, not raw colors:
 
 - **Surfaces:** `bg-surface-void`, `bg-surface-base`, `bg-surface-raised`, `bg-card`
-- **Text:** `text-text-primary`, `text-text-secondary`, `text-text-tertiary`, `text-foreground`
+- **Text:** `text-text-primary`, `text-text-secondary`, `text-foreground`
 - **Borders:** `border-border-dim`, `border-border-mid`, `border-border-highlight`
 - **Accent:** `text-primary`, `bg-primary`, `border-primary`
 - **Status:** `text-status-success`, `text-status-critical`, `text-status-high`, `text-status-warn`
+
+**Do not use `text-text-tertiary`.** This token is deprecated and no longer available. Use `text-text-secondary` as the lightest text tone instead. This applies to all new and edited UI code.
 
 ### Icons - Phosphor Icons
 

@@ -128,7 +128,7 @@ function OnboardingLayout() {
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-tertiary">New Application</h3>
-          <StepProgress currentStepId={currentStepId} />
+          <StepProgress currentStepId={currentStepId} appId={appId} />
         </div>
 
         <div className="border-t border-border-dim px-8 py-6">
