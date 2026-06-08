@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0](https://github.com/Autonoma-AI/agent/compare/v1.3.0...v1.4.0) (2026-06-08)
+
+
+### Features
+
+* add command UIs for read and save-clipboard steps ([#844](https://github.com/Autonoma-AI/agent/issues/844)) ([3e8acb3](https://github.com/Autonoma-AI/agent/commit/3e8acb38c146c709202132814d8d540cbb8b0c45))
+* add previewkit file config ([#718](https://github.com/Autonoma-AI/agent/issues/718)) ([e260142](https://github.com/Autonoma-AI/agent/commit/e260142aa1c594956de6c71b94cd1d8939dce581))
+* add StepAttempt model + backfill ([#833](https://github.com/Autonoma-AI/agent/issues/833)) ([9f524b8](https://github.com/Autonoma-AI/agent/commit/9f524b8805a0f6da8502a5793836f05d43893598))
+* fill-height snapshot changes layout with collapsible plan ([#838](https://github.com/Autonoma-AI/agent/issues/838)) ([b5eb887](https://github.com/Autonoma-AI/agent/commit/b5eb88722b33ea19f67d92636699262018caa0ee))
+* increase deploy timeout ([#832](https://github.com/Autonoma-AI/agent/issues/832)) ([f7d0442](https://github.com/Autonoma-AI/agent/commit/f7d04421d4315bfa9bf8c22a7b337de4837f9912))
+* **onboarding:** auto-upload planner artifacts with waiting state ([#794](https://github.com/Autonoma-AI/agent/issues/794)) ([d42248c](https://github.com/Autonoma-AI/agent/commit/d42248c918400c4fe2d8d0bc8aee46ac2f6ac0c7))
+* replay review lineage + anchoring guard ([#835](https://github.com/Autonoma-AI/agent/issues/835)) ([5646efb](https://github.com/Autonoma-AI/agent/commit/5646efbdb38ad9a7a9136798e255575257b2a361))
+* shared scenario-data capability for the replay reviewer ([#836](https://github.com/Autonoma-AI/agent/issues/836)) ([552ca53](https://github.com/Autonoma-AI/agent/commit/552ca531fd64c7527680dbf69d53de5475430df7))
+
+
+### Bug Fixes
+
+* exclude generated files from oxfmt to stop routetree churn ([#841](https://github.com/Autonoma-AI/agent/issues/841)) ([04d5f26](https://github.com/Autonoma-AI/agent/commit/04d5f2647626401f7162d283d89af69e1a467021))
+
 ## [1.3.0](https://github.com/Autonoma-AI/agent/compare/v1.2.0...v1.3.0) (2026-06-08)
 
 
