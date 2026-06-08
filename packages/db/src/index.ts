@@ -69,6 +69,15 @@ declare global {
         };
         export type ScenarioRefs = unknown;
         export type ScenarioMetadata = unknown;
+        /**
+         * The resolved scenario "create" graph sent to the environment factory at
+         * UP - resolved variable values plus the `_alias`/`_ref` structure and any
+         * semantic event-tokens. Persisted at UP success as a durable source of
+         * truth for the data a test actually ran against. Absent on historical
+         * instances created before this field existed; consumers must degrade
+         * gracefully when it is null.
+         */
+        export type ScenarioGeneratedData = unknown;
         export type ScenarioLastError = { message: string };
         export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
         export type GitHubWebhookPayload = EmitterWebhookEvent["payload"];

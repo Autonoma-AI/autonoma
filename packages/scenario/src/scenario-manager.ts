@@ -199,6 +199,7 @@ export class ScenarioManager {
                 refs: response.refs,
                 refsToken: response.refsToken,
                 metadata: response.metadata,
+                generatedData: createPayload,
                 ...(hasResolvedVariables ? { resolvedVariables } : {}),
             },
         });

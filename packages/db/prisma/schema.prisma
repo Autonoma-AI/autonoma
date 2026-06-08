@@ -1364,6 +1364,8 @@ model ScenarioInstance {
   refsToken         String? @map("refs_token")
   /// [ScenarioMetadata]
   metadata          Json?
+  /// [ScenarioGeneratedData]
+  generatedData     Json?   @map("generated_data")
   /// [ScenarioLastError]
   lastError         Json?   @map("last_error")
   /// [ScenarioResolvedVariables]

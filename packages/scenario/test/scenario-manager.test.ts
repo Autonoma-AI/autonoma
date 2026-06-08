@@ -528,6 +528,64 @@ integrationTestSuite({
             expect(vars.user_email).toContain(`user+${instance.id}@example.com`);
         });
 
+        test("up: persists resolved create-spec as generatedData after successful up", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            harness.webhookServer.onRequest(() => ({
+                status: 200,
+                body: { auth: {}, refs: {}, refsToken: "tok" },
+            }));
+
+            const snapshotId = await harness.getMainBranchSnapshotId(appId);
+            await manager.ingestScenarioRecipes(
+                snapshotId,
+                appId,
+                makeRecipesFile([
+                    {
+                        name: "generated-data",
+                        description: "Generated data",
+                        create: {
+                            Organization: [{ _alias: "org1", name: "{{org_name}}" }],
+                            User: [{ email: "{{owner_email}}", organizationId: { _ref: "org1" } }],
+                        },
+                        variables: {
+                            org_name: { strategy: "literal", value: "Acme Corp" },
+                            owner_email: {
+                                strategy: "derived",
+                                source: "testRunId",
+                                format: "owner+{testRunId}@example.com",
+                            },
+                        },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                    makeRecipe("empty", "Empty state", "Empty Org"),
+                    makeRecipe("large", "Large state", "Large Org"),
+                ]),
+            );
+
+            const scenario = await harness.db.scenario.findUniqueOrThrow({
+                where: { applicationId_name: { applicationId: appId, name: "generated-data" } },
+                select: { id: true },
+            });
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+
+            const instance = await manager.up(subject, scenario.id);
+
+            expect(instance.status).toBe("UP_SUCCESS");
+
+            // Re-read from the DB to confirm the field was persisted, not just returned.
+            const persisted = await harness.db.scenarioInstance.findUniqueOrThrow({
+                where: { id: instance.id },
+                select: { generatedData: true },
+            });
+            expect(persisted.generatedData).toEqual({
+                Organization: [{ _alias: "org1", name: "Acme Corp" }],
+                User: [{ email: `owner+${instance.id}@example.com`, organizationId: { _ref: "org1" } }],
+            });
+        });
+
         test("up: resolvedVariables is null when recipe has no variables", async ({
             harness,
             seedResult: { orgId, appId, deploymentId, manager },
