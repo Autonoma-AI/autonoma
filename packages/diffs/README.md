@@ -63,19 +63,12 @@ Tools classify their failures explicitly:
 
 ## Entry points
 
-| Script | What it does |
-|---|---|
-| `pnpm local-diff-analysis` | Run DiffsAgent locally against a checked-out repo |
-| `pnpm local-resolution` | Run ResolutionAgent locally with hand-built verdicts |
-
-`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` / `ReplayReviewer` agent classes and the loader interfaces they consume (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`, `buildReplayReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runners (`runGenerationReview` / `runReplayReview`), the concrete context loaders, the persisters, and the read-only local CLIs (`review:generation` / `review:replay`) - lives in `apps/workers/diffs`.
+`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` / `ReplayReviewer` agent classes and the loader interfaces they consume (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`, `buildReplayReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runners (`runGenerationReview` / `runReplayReview`), the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
 
 ## Sub-packages
 
 | Path | Purpose |
 |---|---|
 | `./` | Public surface listed above |
-| `./run-diffs-locally` | Local dev runner for DiffsAgent |
-| `./run-resolution-locally` | Local dev runner for ResolutionAgent |
 | `./prepare-runs` | `prepareRuns` callback that fires replays once the agent has marked tests affected |
 | `./env` | `@t3-oss/env-core` schema for required env vars |

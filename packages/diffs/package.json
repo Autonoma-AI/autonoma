@@ -6,20 +6,15 @@
     "exports": {
         ".": "./src/index.ts",
         "./env": "./src/env.ts",
-        "./prepare-runs": "./src/callbacks/trigger-tests.ts",
-        "./run-diffs-locally": "./src/run-diffs-locally.ts",
-        "./run-resolution-locally": "./src/run-resolution-locally.ts"
+        "./prepare-runs": "./src/callbacks/trigger-tests.ts"
     },
     "scripts": {
         "test": "vitest",
-        "eval": "RUN_EVALS=true vitest",
         "lint-files": "oxlint --fix",
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
         "build": "tsc",
-        "typecheck": "tsc --noEmit",
-        "local-diff-analysis": "tsx --env-file=../../.env scripts/local-diff-analysis.ts",
-        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts"
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",

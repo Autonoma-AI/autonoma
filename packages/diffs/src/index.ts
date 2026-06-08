@@ -108,12 +108,6 @@ export {
 export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
 export { loadFlows } from "./loaders/load-flows";
 export { buildVerdicts, type AffectedTestWithRun } from "./loaders/build-verdicts";
-export { runDiffsAgentLocally, type LocalDiffsRunnerParams } from "./run-diffs-locally";
-export {
-    runResolutionAgentLocally,
-    type LocalResolutionRunnerParams,
-    type LocalTestCandidateInput,
-} from "./run-resolution-locally";
 
 export {
     Codebase,

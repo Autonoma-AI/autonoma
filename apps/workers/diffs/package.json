@@ -15,13 +15,7 @@
         "capture:resolution": "tsx --env-file=../../../.env evals/capture/capture-resolution-cli.ts",
         "capture:generation-review": "tsx --env-file=../../../.env evals/capture/capture-generation-review.ts",
         "capture:replay-review": "tsx --env-file=../../../.env evals/capture/capture-replay-review.ts",
-        "capture:healing": "tsx --env-file=../../../.env evals/capture/capture-healing-cli.ts",
-        "review:generation": "tsx --env-file=../../../.env src/review/generation/run-generation-review.ts",
-        "review:replay": "tsx --env-file=../../../.env src/review/replay/run-replay-review.ts",
-        "diffs-agent": "tsx --env-file=../../../.env src/local-dev/run-diffs-isolated.ts",
-        "resolution-agent": "tsx --env-file=../../../.env src/local-dev/run-resolution-isolated.ts",
-        "full-pipeline": "tsx --env-file=../../../.env src/local-dev/run-full-pipeline-isolated.ts",
-        "generate-fixtures": "tsx --env-file=../../../.env src/local-dev/run-generate-fixtures.ts"
+        "capture:healing": "tsx --env-file=../../../.env evals/capture/capture-healing-cli.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
