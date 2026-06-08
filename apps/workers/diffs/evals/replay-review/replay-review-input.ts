@@ -1,4 +1,4 @@
-import { AffectedReason } from "@autonoma/db";
+import { AffectedReason, RunReviewVerdict } from "@autonoma/db";
 import { type RunContext, scenarioDataSchema } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
@@ -14,10 +14,12 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * sanitize: the context is purely the executed steps + the test case + the
  * DB-sourced change facts.
  *
- * `change` and `scenario` are optional so cases captured before each existed
- * still parse; the changed-file list and diff hunks are never frozen here - the
- * reviewer derives them from the rehydrated codebase via `git diff`. The
+ * `change`, `lineage`, and `scenario` are optional so cases captured before each
+ * existed still parse; the changed-file list and diff hunks are never frozen here
+ * - the reviewer derives them from the rehydrated codebase via `git diff`. The
  * `scenario` payload is the materialized generated-data graph, frozen verbatim.
+ * `lineage` is present only for iteration-2+ cases (the refinement-loop runs this
+ * fix targets) and absent for first-iteration and pre-lineage cases.
  */
 export const replayReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -45,6 +47,24 @@ export const replayReviewCaseInputSchema = z.object({
                 analysisReasoning: z.string().optional(),
                 affectedReason: z.enum(AffectedReason).optional(),
                 affectedReasoning: z.string().optional(),
+            })
+            .optional(),
+        lineage: z
+            .object({
+                priorVerdicts: z.array(
+                    z.object({
+                        iterationNumber: z.number().int().positive(),
+                        verdict: z.enum(RunReviewVerdict),
+                        reasoning: z.string(),
+                    }),
+                ),
+                planHistory: z.array(
+                    z.object({
+                        iterationNumber: z.number().int().positive(),
+                        prompt: z.string(),
+                        healingReasoning: z.string().optional(),
+                    }),
+                ),
             })
             .optional(),
         scenario: scenarioDataSchema.optional(),

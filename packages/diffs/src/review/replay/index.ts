@@ -1,2 +1,2 @@
 export { buildReplayReviewMessages } from "./message-builder";
-export type { ReplayChangeContext, RunContext, RunStepData } from "./types";
+export type { PlanRevision, PriorVerdict, ReplayChangeContext, ReviewLineage, RunContext, RunStepData } from "./types";

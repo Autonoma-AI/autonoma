@@ -150,6 +150,116 @@ replayContextSuite({
             expect(context.scenario).toBeUndefined();
         });
 
+        test("carries no lineage for a run outside any refinement loop", async ({ harness, seedResult }) => {
+            const { runId } = await harness.seedFailedRun({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { outcome: "fail" } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(runId);
+
+            expect(context.lineage).toBeUndefined();
+        });
+
+        test("carries no lineage for a first-iteration run inside a refinement loop", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { subjectRunId } = await harness.seedRefinementLineage({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                iterations: [{ number: 1, planPrompt: "Seed plan", subject: true }],
+                steps: [{ order: 0, interaction: "click", params: {}, output: { outcome: "fail" } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
+
+            expect(context.lineage).toBeUndefined();
+        });
+
+        test("gathers point-in-time prior verdicts and plan history for an iteration-2 run", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { subjectRunId } = await harness.seedRefinementLineage({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                iterations: [
+                    {
+                        number: 1,
+                        planPrompt: "Click the old Submit button",
+                        verdict: { verdict: "engine_error", reasoning: "Submit button selector looked stale." },
+                    },
+                    {
+                        number: 2,
+                        planPrompt: "Click the renamed Confirm button",
+                        healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                        subject: true,
+                    },
+                ],
+                steps: [{ order: 0, interaction: "click", params: { target: "confirm" }, output: { outcome: "fail" } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
+
+            expect(context.lineage).toBeDefined();
+            expect(context.lineage?.priorVerdicts).toEqual([
+                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit button selector looked stale." },
+            ]);
+            expect(context.lineage?.planHistory).toEqual([
+                { iterationNumber: 1, prompt: "Click the old Submit button" },
+                {
+                    iterationNumber: 2,
+                    prompt: "Click the renamed Confirm button",
+                    healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                },
+            ]);
+        });
+
+        test("excludes later iterations and uncompleted reviews from a mid-loop run's lineage (point-in-time)", async ({
+            harness,
+            seedResult,
+        }) => {
+            // Three iterations exist in the DB, but the subject ran in iteration 2.
+            // Its lineage must see iteration 1 only - iteration 3 did not exist when
+            // the subject executed.
+            const { subjectRunId } = await harness.seedRefinementLineage({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                iterations: [
+                    {
+                        number: 1,
+                        planPrompt: "v1",
+                        verdict: { verdict: "engine_error", reasoning: "iter1 verdict" },
+                    },
+                    {
+                        number: 2,
+                        planPrompt: "v2",
+                        healingReasoning: "rewrite for v2",
+                        verdict: { verdict: "application_bug", reasoning: "iter2 verdict (later)" },
+                        subject: true,
+                    },
+                    {
+                        number: 3,
+                        planPrompt: "v3",
+                        healingReasoning: "rewrite for v3",
+                    },
+                ],
+                steps: [{ order: 0, interaction: "click", params: {}, output: { outcome: "fail" } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
+
+            // History stops at the subject's own iteration (2); iteration 3 is excluded.
+            expect(context.lineage?.planHistory.map((p) => p.iterationNumber)).toEqual([1, 2]);
+            // Only the earlier iteration's verdict; the subject's own iteration-2
+            // verdict is the review-in-progress and must not appear.
+            expect(context.lineage?.priorVerdicts).toEqual([
+                { iterationNumber: 1, verdict: "engine_error", reasoning: "iter1 verdict" },
+            ]);
+        });
+
         test("reads the run's own plan prompt, not the assignment's later-repointed plan (point-in-time)", async ({
             harness,
             seedResult,

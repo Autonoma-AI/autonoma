@@ -1,6 +1,7 @@
 import {
     type AffectedReason,
     type PrismaClient,
+    type RunReviewVerdict,
     type ScenarioInstanceStatus,
     applyMigrations,
     createClient,
@@ -50,6 +51,45 @@ export interface SeededRun {
     assignmentId: string;
     planId: string;
     scenarioInstanceId?: string;
+}
+
+/** One refinement iteration to materialize in a lineage graph. */
+export interface SeedIteration {
+    /** 1-based iteration number; iteration 1 is the seed iteration. */
+    number: number;
+    /** The plan prompt this iteration's run executed. */
+    planPrompt: string;
+    /**
+     * The healing agent's reasoning that produced *this* iteration's plan. Maps
+     * to an `update_plan` action attached to the previous iteration. Omit for the
+     * seed iteration (1), whose plan no healing agent authored.
+     */
+    healingReasoning?: string;
+    /**
+     * A completed review verdict for this iteration's run. Omit to leave the run
+     * without a completed review (so it contributes no prior verdict).
+     */
+    verdict?: { verdict: RunReviewVerdict; reasoning: string };
+    /** Marks this iteration's run as the subject under review. Exactly one required. */
+    subject?: boolean;
+}
+
+export interface SeedRefinementLineageParams {
+    organizationId: string;
+    applicationId: string;
+    baseSha?: string;
+    headSha?: string;
+    testName?: string;
+    iterations: SeedIteration[];
+    /** Steps attached to the subject run. */
+    steps?: SeedStep[];
+}
+
+export interface SeededLineage {
+    subjectRunId: string;
+    snapshotId: string;
+    testCaseId: string;
+    loopId: string;
 }
 
 let testSeq = 0;
@@ -240,6 +280,121 @@ export class ReplayContextHarness implements IntegrationHarness {
         });
         await this.db.testCaseAssignment.update({ where: { id: assignmentId }, data: { planId: newPlan.id } });
         return newPlan.id;
+    }
+
+    /**
+     * Materialize a full refinement-loop lineage graph for a single test: a
+     * snapshot, a loop, and one iteration per entry in `params.iterations`, each
+     * with its own plan, run, optional completed review, and (for non-seed
+     * iterations) an `update_plan` action carrying the healing reasoning. Returns
+     * the subject run id (the iteration flagged `subject: true`).
+     */
+    async seedRefinementLineage(params: SeedRefinementLineageParams): Promise<SeededLineage> {
+        const { organizationId, applicationId } = params;
+        const suffix = uniqueSuffix();
+
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${suffix}`, organizationId, applicationId },
+        });
+        const folder = await this.db.folder.create({
+            data: { name: `folder-${suffix}`, applicationId, organizationId },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId: branch.id,
+                source: "MANUAL",
+                baseSha: params.baseSha ?? null,
+                headSha: params.headSha ?? null,
+            },
+        });
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: params.testName ?? `Test ${suffix}`,
+                slug: `test-${suffix}`,
+                applicationId,
+                folderId: folder.id,
+                organizationId,
+            },
+        });
+        const loop = await this.db.refinementLoop.create({
+            data: { snapshotId: snapshot.id, triggeredBy: "diffs", organizationId },
+        });
+
+        // One assignment per snapshot+test; its plan is re-pointed each iteration,
+        // mirroring how healing updates the assignment while each run keeps its own
+        // executed plan via run.planId.
+        const firstPlan = await this.createPlan(
+            testCase.id,
+            params.iterations[0]?.planPrompt ?? "seed",
+            organizationId,
+        );
+        const assignment = await this.db.testCaseAssignment.create({
+            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: firstPlan.id },
+        });
+
+        const created: Array<{ id: string; planId: string }> = [];
+        let subjectRunId: string | undefined;
+
+        for (const [index, spec] of params.iterations.entries()) {
+            const plan = index === 0 ? firstPlan : await this.createPlan(testCase.id, spec.planPrompt, organizationId);
+
+            const iteration = await this.db.refinementIteration.create({
+                data: { loopId: loop.id, number: spec.number, status: "completed" },
+            });
+            await this.db.refinementIterationInput.create({
+                data: { iterationId: iteration.id, planId: plan.id },
+            });
+
+            // The action that produced this plan is attached to the *previous*
+            // iteration (the one whose healing run authored the rewrite).
+            const previous = created[index - 1];
+            if (spec.healingReasoning != null && previous != null) {
+                await this.db.refinementAction.create({
+                    data: {
+                        iterationId: previous.id,
+                        planId: plan.id,
+                        testCaseId: testCase.id,
+                        kind: "update_plan",
+                        payload: {},
+                        reasoning: spec.healingReasoning,
+                    },
+                });
+            }
+
+            await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
+            const run = await this.db.run.create({
+                data: { assignmentId: assignment.id, planId: plan.id, organizationId, status: "failed" },
+            });
+
+            if (spec.verdict != null) {
+                await this.db.runReview.create({
+                    data: {
+                        runId: run.id,
+                        organizationId,
+                        status: "completed",
+                        verdict: spec.verdict.verdict,
+                        reasoning: spec.verdict.reasoning,
+                    },
+                });
+            }
+
+            if (spec.subject === true) {
+                subjectRunId = run.id;
+                await this.attachSteps(run.id, plan.id, organizationId, params.steps ?? []);
+            }
+
+            created.push({ id: iteration.id, planId: plan.id });
+        }
+
+        if (subjectRunId == null) {
+            throw new Error("seedRefinementLineage requires exactly one iteration flagged subject: true");
+        }
+
+        return { subjectRunId, snapshotId: snapshot.id, testCaseId: testCase.id, loopId: loop.id };
+    }
+
+    private async createPlan(testCaseId: string, prompt: string, organizationId: string) {
+        return this.db.testPlan.create({ data: { testCaseId, prompt, organizationId } });
     }
 
     private async attachSteps(runId: string, planId: string, organizationId: string, steps: SeedStep[]): Promise<void> {

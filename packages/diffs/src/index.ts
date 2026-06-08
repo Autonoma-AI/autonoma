@@ -157,7 +157,10 @@ export {
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
 export {
     buildReplayReviewMessages,
+    type PlanRevision,
+    type PriorVerdict,
     type ReplayChangeContext,
+    type ReviewLineage,
     type RunContext,
     type RunStepData,
 } from "./review/replay";

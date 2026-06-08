@@ -41,6 +41,19 @@ describe("replay review fixture round-trip", () => {
                 affectedReason: "code_change",
                 affectedReasoning: "This test clicks the renamed submit button.",
             },
+            lineage: {
+                priorVerdicts: [
+                    { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit selector looked stale." },
+                ],
+                planHistory: [
+                    { iterationNumber: 1, prompt: "Click the old Submit button" },
+                    {
+                        iterationNumber: 2,
+                        prompt: "Click the renamed Confirm button",
+                        healingReasoning: "Renamed Submit to Confirm in the diff.",
+                    },
+                ],
+            },
         };
 
         const frozen = serializeReplayReviewInput(coords, context);
@@ -93,6 +106,7 @@ describe("replay review fixture round-trip", () => {
         const { context } = rehydrateReplayReviewInput(parsed);
 
         expect(context.change).toBeUndefined();
+        expect(context.lineage).toBeUndefined();
         expect(context.runId).toBe("run-legacy");
     });
 });
