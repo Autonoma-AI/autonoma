@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.3.0](https://github.com/Autonoma-AI/agent/compare/v1.2.0...v1.3.0) (2026-06-08)
+
+
+### Features
+
+* add checkpoint report and evidence bug detail, pr detail page retouches ([#750](https://github.com/Autonoma-AI/agent/issues/750)) ([ab814c1](https://github.com/Autonoma-AI/agent/commit/ab814c14d8b979d3c507a2e68f792eee3be2fe8c))
+* decrypt bypass token ([#823](https://github.com/Autonoma-AI/agent/issues/823)) ([f183dd0](https://github.com/Autonoma-AI/agent/commit/f183dd0f464473654210bf53d55ccb1aae1f2ae6))
+* DiffJobContextLoader + replay reviewer on widened change context ([#821](https://github.com/Autonoma-AI/agent/issues/821)) ([fc965a2](https://github.com/Autonoma-AI/agent/commit/fc965a28d0f2cefd0e9623cfc2db2d3beb25b8b5))
+* fetch baseSha in production reviewer codebase clones ([#808](https://github.com/Autonoma-AI/agent/issues/808)) ([363c8a9](https://github.com/Autonoma-AI/agent/commit/363c8a9496ce07a6f1e55174b9f61a619db9cef0))
+* message compaction + per-tool-result caps for agent loops ([#796](https://github.com/Autonoma-AI/agent/issues/796)) ([6813483](https://github.com/Autonoma-AI/agent/commit/6813483a70becc84a815f94aa4f42dabe277384d))
+* persist resolved scenario create-spec on ScenarioInstance ([#822](https://github.com/Autonoma-AI/agent/issues/822)) ([804329b](https://github.com/Autonoma-AI/agent/commit/804329b9a8eab384b8327dfa75877104a761d9b4))
+* **previewkit:** save previewkit repository configuration in db instead of file ([#737](https://github.com/Autonoma-AI/agent/issues/737)) ([ddec5f3](https://github.com/Autonoma-AI/agent/commit/ddec5f3bafdef9e958511259b9867c0aa9948841))
+* **ui:** add previewkit environment listing to admin page ([#814](https://github.com/Autonoma-AI/agent/issues/814)) ([6fdb24a](https://github.com/Autonoma-AI/agent/commit/6fdb24a89f58e479a94d6762de64a243642768fc))
+* **ui:** add redeploy button to preview envirioments ([#824](https://github.com/Autonoma-AI/agent/issues/824)) ([206efbd](https://github.com/Autonoma-AI/agent/commit/206efbdae8d2ba81e2875ef66a6ece6bb5dd7852))
+
+
+### Bug Fixes
+
+* **previewkit:** remove nginx envirioment auth ([#826](https://github.com/Autonoma-AI/agent/issues/826)) ([e4d01e2](https://github.com/Autonoma-AI/agent/commit/e4d01e24f2a85fb940bd228cdc90ea2e3747bef0))
+* **ui:** improve low-contrast text with a two-tier hierarchy ([#795](https://github.com/Autonoma-AI/agent/issues/795)) ([7a32166](https://github.com/Autonoma-AI/agent/commit/7a32166b9332ab367127c0a2b7c6ec6402ea0826))
+* **ui:** truncate long PR names in pull requests table ([#830](https://github.com/Autonoma-AI/agent/issues/830)) ([33294b5](https://github.com/Autonoma-AI/agent/commit/33294b5f0594d265f6a0c4eabc1755be8ec93849))
+* url lookup auth previewkit ([#825](https://github.com/Autonoma-AI/agent/issues/825)) ([1fe5f6e](https://github.com/Autonoma-AI/agent/commit/1fe5f6e25d6617dfedbafa39775cf37c0bbf2d93))
+
 ## [1.2.0](https://github.com/Autonoma-AI/agent/compare/v1.1.0...v1.2.0) (2026-06-05)
 
 
