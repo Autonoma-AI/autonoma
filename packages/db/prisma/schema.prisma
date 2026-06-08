@@ -119,6 +119,7 @@ model Organization {
   stepInputs             StepInput[]
   stepOutputLists        StepOutputList[]
   stepOutputs            StepOutput[]
+  stepAttempts           StepAttempt[]
   tags                   Tag[]
   runs                   Run[]
   scenarios              Scenario[]
@@ -749,6 +750,7 @@ model TestGeneration {
   testPlan         TestPlan          @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
   costRecords      AiCostRecord[]
   generationReview GenerationReview?
+  attempts         StepAttempt[]
 
   affectedTest AffectedTest?
 
@@ -1139,6 +1141,53 @@ model StepOutput {
   @@unique([listId, order])
   @@index([listId])
   @@map("step_output")
+}
+
+enum StepAttemptStatus {
+  success
+  failed
+
+  @@map("step_attempt_status")
+}
+
+// Records every command attempt a generation makes - successes and failures
+// alike - capturing the full attempt timeline. Unlike StepInput (the
+// successful-only replay list), StepAttempt.order counts failures too. There is
+// intentionally no FK linking a StepAttempt to its corresponding StepInput.
+model StepAttempt {
+  id    String @id @default(cuid())
+  // Position in the full attempt timeline, counting failures.
+  order Int
+
+  interaction String
+  // Command params, as provided to the command. Absent if param extraction threw.
+  /// ![object]
+  params      Json?
+
+  status StepAttemptStatus
+
+  // Command result, present on success.
+  /// ![object]
+  output    Json?
+  // error.message, present on failure.
+  error     String?
+  // error class name, present on failure (attribution signal).
+  errorName String? @map("error_name")
+
+  screenshotBefore String? @map("screenshot_before")
+  screenshotAfter  String? @map("screenshot_after")
+
+  generationId String         @map("generation_id")
+  generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, order])
+  @@index([generationId])
+  @@map("step_attempt")
 }
 
 // ─── Tag ──────────────────────────────────────────────────────────────────────
