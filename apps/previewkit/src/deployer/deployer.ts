@@ -105,6 +105,7 @@ export class Deployer {
         // NetworkPolicy ingress source allowed to reach preview pods.
         private ingressClassName: string = "nginx",
         private ingressNamespace: string = "system",
+        private deployTimeoutMs: number = 600_000,
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
@@ -491,7 +492,11 @@ export class Deployer {
         return { name: app.name, url };
     }
 
-    private async waitForDeploymentReady(namespace: string, appName: string, timeoutMs = 300_000): Promise<void> {
+    private async waitForDeploymentReady(
+        namespace: string,
+        appName: string,
+        timeoutMs = this.deployTimeoutMs,
+    ): Promise<void> {
         const start = Date.now();
         logger.info("Waiting for deployment to be ready", { namespace, app: appName });
 
@@ -539,7 +544,11 @@ export class Deployer {
         throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}`);
     }
 
-    private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 300_000): Promise<void> {
+    private async waitForServicesReady(
+        namespace: string,
+        config: PreviewConfig,
+        timeoutMs = this.deployTimeoutMs,
+    ): Promise<void> {
         if (config.services.length === 0) return;
 
         // Only wait on services that actually generated a K8s Service resource.

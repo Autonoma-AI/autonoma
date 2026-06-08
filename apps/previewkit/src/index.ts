@@ -122,6 +122,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         env.APP_URL,
         env.INGRESS_CLASS_NAME,
         env.INGRESS_NAMESPACE,
+        env.DEPLOY_TIMEOUT_MS,
     );
 
     // Addon plugin registry + manager. Built-in providers are registered
