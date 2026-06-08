@@ -153,4 +153,9 @@ export {
     type EvidenceLoader,
 } from "./review/kernel";
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
-export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./review/replay";
+export {
+    buildReplayReviewMessages,
+    type ReplayChangeContext,
+    type RunContext,
+    type RunStepData,
+} from "./review/replay";

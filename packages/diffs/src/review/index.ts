@@ -13,4 +13,4 @@ export {
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./generation";
 
 // Replay reviewer prompt-building blocks. Orchestration lives in `apps/workers/diffs`.
-export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./replay";
+export { buildReplayReviewMessages, type ReplayChangeContext, type RunContext, type RunStepData } from "./replay";

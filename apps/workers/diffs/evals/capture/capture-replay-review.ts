@@ -7,7 +7,7 @@ import { StorageEvidenceLoader } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
-import { RunContextLoader } from "../../src/review/replay/context-loader";
+import { DiffJobContextLoader } from "../../src/review/replay/diff-job-context-loader";
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
@@ -62,7 +62,7 @@ export async function captureReplayReview(params: CaptureReplayReviewParams): Pr
 
     const storage = S3Storage.createFromEnv();
     const evidenceLoader = new StorageEvidenceLoader(storage);
-    const contextLoader = new RunContextLoader(db, storage);
+    const contextLoader = new DiffJobContextLoader(db);
     const context = await contextLoader.load(runId);
 
     // Refuse to write a case whose media is no longer reachable.

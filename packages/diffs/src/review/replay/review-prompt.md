@@ -16,6 +16,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 
 - **Test Plan**: the natural-language description of what this test is supposed to verify.
 - **Test Case Name**: the test's identifier.
+- **Code Change Under Review** (when present): the base and head SHAs that bound the change this run executed against, the diffs-agent's analysis of what changed, and why this specific test was flagged. The raw file list and hunks are NOT given here - run `git diff <baseSha>..<headSha>` in bash to see exactly what changed.
 - **Video**: full replay recording.
 - **Step Summary**: each step's interaction, parameters, and output. Compare what the engine tried (parameters) with what happened (output).
 
@@ -23,6 +24,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 
 - `view_step_screenshot` - the before/after screenshot of a specific step.
 - `view_final_screenshot` - the screenshot when the last step finished.
+- `bash` - run shell commands against the checked-out source tree. Use `git diff <baseSha>..<headSha>` to see the actual change this run executed against, which is the single strongest signal for `engine_error` vs `application_bug`.
 - `read_file`, `grep`, `list_directory` - **the application's source code** when available. Use `grep` to confirm whether a label/element a step references still exists in the codebase before declaring `engine_error`.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: `engine_error` or `application_bug`.
@@ -36,11 +38,12 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 ## Decision Process
 
 1. Read the test plan; understand what behavior is being verified.
-2. Watch the video for the overall flow.
-3. Walk the step summary; the most signal is in the parameters of the last successful step and the output of the first failed step.
-4. Inspect screenshots around the failure point.
-5. If a step failed because an element couldn't be found, use `grep` (when the codebase is available) to check whether the element's label/text still exists in the source. If absent: `engine_error`. If present and the app is still showing an error/empty state: `application_bug`.
-6. Submit the verdict.
+2. If a code change is provided, run `git diff <baseSha>..<headSha>` to see what actually changed, and read the change analysis. A failure in a flow the change directly touched leans toward the change being responsible; a failure unrelated to anything in the diff leans toward stale step definitions.
+3. Watch the video for the overall flow.
+4. Walk the step summary; the most signal is in the parameters of the last successful step and the output of the first failed step.
+5. Inspect screenshots around the failure point.
+6. If a step failed because an element couldn't be found, use `grep` (when the codebase is available) to check whether the element's label/text still exists in the source. If absent: `engine_error`. If present and the app is still showing an error/empty state: `application_bug`.
+7. Submit the verdict.
 
 ## Guidelines
 

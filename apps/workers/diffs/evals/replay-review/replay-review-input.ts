@@ -1,3 +1,4 @@
+import { AffectedReason } from "@autonoma/db";
 import type { RunContext } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
@@ -10,7 +11,12 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * multimedia (step screenshots + final screenshot + run video) stays as S3
  * keys - never bytes - and is rehydrated by the production evidence loader
  * at run time. Unlike generation-review, replay has no agent conversation to
- * sanitize: the context is purely the executed steps + the test case.
+ * sanitize: the context is purely the executed steps + the test case + the
+ * DB-sourced change facts.
+ *
+ * `change` is optional so cases captured before change context existed still
+ * parse; the changed-file list and diff hunks are never frozen here - the
+ * reviewer derives them from the rehydrated codebase via `git diff`.
  */
 export const replayReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -31,6 +37,15 @@ export const replayReviewCaseInputSchema = z.object({
         ),
         videoS3Key: z.string().optional(),
         finalScreenshotKey: z.string().optional(),
+        change: z
+            .object({
+                baseSha: z.string(),
+                headSha: z.string(),
+                analysisReasoning: z.string().optional(),
+                affectedReason: z.enum(AffectedReason).optional(),
+                affectedReasoning: z.string().optional(),
+            })
+            .optional(),
     }),
 });
 

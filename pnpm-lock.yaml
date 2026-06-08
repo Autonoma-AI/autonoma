@@ -859,6 +859,12 @@ importers:
         specifier: 'catalog:'
         version: 4.3.6
     devDependencies:
+      '@autonoma/integration-test':
+        specifier: workspace:*
+        version: link:../../../packages/integration-test
+      '@testcontainers/postgresql':
+        specifier: ^11.12.0
+        version: 11.12.0
       '@types/node':
         specifier: 'catalog:'
         version: 25.2.3

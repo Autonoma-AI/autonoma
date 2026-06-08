@@ -1,12 +1,12 @@
 import { VideoProcessor } from "@autonoma/ai";
 import { env as aiEnv } from "@autonoma/ai/env";
 import { db } from "@autonoma/db";
-import { ReplayReviewer, openModelSession } from "@autonoma/diffs";
+import { ReplayReviewer, StorageEvidenceLoader, openModelSession } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { GoogleGenAI } from "@google/genai";
 import { withCodebaseForRun } from "../../codebase/resolve";
-import { RunContextLoader } from "./context-loader";
+import { DiffJobContextLoader } from "./diff-job-context-loader";
 
 const runIdArg = process.argv[2];
 if (runIdArg == null) {
@@ -28,7 +28,8 @@ if (run.status !== "failed") {
 }
 
 const storage = S3Storage.createFromEnv();
-const contextLoader = new RunContextLoader(db, storage);
+const contextLoader = new DiffJobContextLoader(db);
+const evidenceLoader = new StorageEvidenceLoader(storage);
 
 const session = openModelSession();
 const model = session.getModel({ model: "smart-visual", tag: "replay-review" });
@@ -41,7 +42,7 @@ try {
             const context = await contextLoader.load(runId);
             const reviewer = new ReplayReviewer({
                 model,
-                evidenceLoader: contextLoader,
+                evidenceLoader,
                 videoProcessor,
             });
             try {

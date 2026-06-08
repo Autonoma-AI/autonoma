@@ -6,8 +6,8 @@
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.eval.json",
-        "lint": "oxlint --fix src/ evals/",
-        "fmt": "oxfmt --write src/ evals/",
+        "lint": "oxlint --fix src/ evals/ test/",
+        "fmt": "oxfmt --write src/ evals/ test/",
         "start": "tsx --import ./src/preload.ts src/index.ts",
         "test": "vitest run --passWithNoTests",
         "eval": "RUN_EVALS=true vitest run --passWithNoTests",
@@ -48,6 +48,8 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "tsx": "catalog:",

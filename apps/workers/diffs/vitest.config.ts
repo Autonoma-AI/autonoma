@@ -9,7 +9,7 @@ const includeEvals = process.env.RUN_EVALS === "true";
 
 export default defineConfig({
     test: {
-        include: ["src/**/*.test.ts", ...(includeEvals ? ["evals/**/*.eval.ts"] : [])],
+        include: ["src/**/*.test.ts", "test/**/*.test.ts", ...(includeEvals ? ["evals/**/*.eval.ts"] : [])],
         exclude: ["**/dist/**", "**/node_modules/**"],
         env: { ...config({ path: join(__dirname, "../../../.env") }).parsed },
         watch: false,

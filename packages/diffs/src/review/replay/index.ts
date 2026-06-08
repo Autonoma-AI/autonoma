@@ -1,2 +1,2 @@
 export { buildReplayReviewMessages } from "./message-builder";
-export type { RunContext, RunStepData } from "./types";
+export type { ReplayChangeContext, RunContext, RunStepData } from "./types";
