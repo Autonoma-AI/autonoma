@@ -197,6 +197,42 @@ apiTestSuite({
             expect(detail?.steps[1]?.order).toBe(1);
             expect(detail?.steps[1]?.interaction).toBe("assert");
             expect(detail?.createdAt).toBeInstanceOf(Date);
+            // The seed snapshot belongs to the main branch, which has no PR.
+            expect(detail?.pullRequest).toBeUndefined();
+        });
+
+        test("detail exposes the pull request and snapshot when the generation's snapshot belongs to a PR", async ({
+            harness,
+            seedResult: { application, testPlan },
+        }) => {
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/checkout",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+            const snapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "deadbeef99999" },
+            });
+            await harness.db.featureBranchInfo.create({
+                data: { branchId: branch.id, applicationId: application.id, prNumber: 99 },
+            });
+            const generation = await harness.db.testGeneration.create({
+                data: {
+                    testPlanId: testPlan.id,
+                    snapshotId: snapshot.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            const detail = await harness.request().generations.detail({ generationId: generation.id });
+
+            expect(detail?.pullRequest).toEqual({
+                number: 99,
+                snapshotId: snapshot.id,
+                snapshotSha: "deadbeef99999",
+            });
         });
 
         test("returns generation detail with empty steps when no outputs exist", async ({

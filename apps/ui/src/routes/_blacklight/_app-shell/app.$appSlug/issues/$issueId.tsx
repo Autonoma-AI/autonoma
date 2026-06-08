@@ -7,6 +7,7 @@ import { CrosshairIcon } from "@phosphor-icons/react/Crosshair";
 import { ListChecksIcon } from "@phosphor-icons/react/ListChecks";
 import { ScalesIcon } from "@phosphor-icons/react/Scales";
 import { createFileRoute } from "@tanstack/react-router";
+import { DetailRow } from "components/detail-row";
 import { EvidenceLightbox } from "components/evidence-lightbox";
 import { formatDate } from "lib/format";
 import { ensureIssueDetailData, useIssueDetail } from "lib/query/issues.queries";
@@ -49,15 +50,6 @@ const EVIDENCE_TYPE_LABEL: Record<string, string> = {
   video: "Video",
   step_output: "Step Output",
 };
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-      <div className="text-sm text-text-secondary">{children}</div>
-    </div>
-  );
-}
 
 interface EvidenceMedia {
   type: "screenshot" | "video";

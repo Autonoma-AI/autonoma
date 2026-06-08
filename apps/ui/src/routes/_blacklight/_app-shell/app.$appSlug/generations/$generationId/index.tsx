@@ -22,7 +22,9 @@ import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
 import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
+import { DetailRow } from "components/detail-row";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
+import { type PullRequestRef, PullRequestDetailRows } from "components/pull-request-detail-rows";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
@@ -191,6 +193,7 @@ function GenerationDetailPage() {
               reasoningScreenshot={generation.finalScreenshot ?? undefined}
               videoUrl={generation.videoUrl ?? undefined}
               test={generation.testCase ?? undefined}
+              pullRequest={generation.pullRequest}
             />
           </div>
         )}
@@ -257,15 +260,7 @@ interface GenerationDetailSidebarProps {
   reasoningScreenshot?: string;
   videoUrl?: string;
   test?: { id: string; name: string; slug: string };
-}
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-      <div className="text-sm text-text-secondary">{children}</div>
-    </div>
-  );
+  pullRequest?: PullRequestRef;
 }
 
 function GenerationDetailSidebar({
@@ -276,6 +271,7 @@ function GenerationDetailSidebar({
   reasoningScreenshot,
   videoUrl,
   test,
+  pullRequest,
 }: GenerationDetailSidebarProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -308,6 +304,13 @@ function GenerationDetailSidebar({
                   {test.name}
                 </AppLink>
               </DetailRow>
+            </>
+          )}
+
+          {pullRequest != null && (
+            <>
+              <Separator />
+              <PullRequestDetailRows pullRequest={pullRequest} />
             </>
           )}
         </PanelBody>

@@ -4,6 +4,7 @@ import { Play } from "@phosphor-icons/react/Play";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import { DetailRow } from "components/detail-row";
 import { formatDate } from "lib/format";
 import { ensureBranchSnapshotId } from "lib/query/branches.queries";
 import { useRunTest } from "lib/query/runs.queries";
@@ -34,15 +35,6 @@ function TestSlugPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <TestDetailPanel key={testSlug} slug={testSlug} />
-    </div>
-  );
-}
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-      <div className="text-sm text-text-secondary">{children}</div>
     </div>
   );
 }

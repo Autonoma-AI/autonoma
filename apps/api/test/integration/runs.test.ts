@@ -291,6 +291,41 @@ apiTestSuite({
             expect(detail?.steps[0]?.order).toBe(0);
             expect(detail?.steps[1]?.interaction).toBe("click");
             expect(detail?.steps[1]?.order).toBe(1);
+            // The seed snapshot belongs to the main branch, which has no PR.
+            expect(detail?.pullRequest).toBeUndefined();
+        });
+
+        test("detail exposes the pull request and snapshot when the run's snapshot belongs to a PR", async ({
+            harness,
+            seedResult: { application, testCase },
+        }) => {
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/login",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+            const snapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "abcdef1234567" },
+            });
+            await harness.db.featureBranchInfo.create({
+                data: { branchId: branch.id, applicationId: application.id, prNumber: 42 },
+            });
+            const assignment = await harness.db.testCaseAssignment.create({
+                data: { testCaseId: testCase.id, snapshotId: snapshot.id },
+            });
+            const run = await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "success" },
+            });
+
+            const detail = await harness.request().runs.detail({ runId: run.id });
+
+            expect(detail?.pullRequest).toEqual({
+                number: 42,
+                snapshotId: snapshot.id,
+                snapshotSha: "abcdef1234567",
+            });
         });
 
         test("detail returns null for non-existent run", async ({ harness }) => {

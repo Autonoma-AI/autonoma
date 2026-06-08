@@ -98,7 +98,14 @@ export class TestGenerationsService extends Service {
                     select: {
                         id: true,
                         status: true,
-                        branch: { select: { id: true, name: true } },
+                        headSha: true,
+                        branch: {
+                            select: {
+                                id: true,
+                                name: true,
+                                prInfo: { select: { prNumber: true } },
+                            },
+                        },
                     },
                 },
             },
@@ -171,6 +178,9 @@ export class TestGenerationsService extends Service {
               })
             : undefined;
 
+        const snapshot = generation.snapshot;
+        const prNumber = snapshot.branch.prInfo?.prNumber;
+
         return {
             id: generation.id,
             shortId: generation.id.slice(0, 8),
@@ -206,6 +216,14 @@ export class TestGenerationsService extends Service {
                                         title: generation.generationReview.issue.title,
                                     }
                                   : undefined,
+                      }
+                    : undefined,
+            pullRequest:
+                prNumber != null
+                    ? {
+                          number: prNumber,
+                          snapshotId: snapshot.id,
+                          snapshotSha: snapshot.headSha ?? undefined,
                       }
                     : undefined,
             steps,

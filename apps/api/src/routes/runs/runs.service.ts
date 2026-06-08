@@ -135,7 +135,14 @@ export class RunsService extends Service {
                             select: {
                                 id: true,
                                 status: true,
-                                branch: { select: { id: true, name: true } },
+                                headSha: true,
+                                branch: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        prInfo: { select: { prNumber: true } },
+                                    },
+                                },
                             },
                         },
                     },
@@ -234,6 +241,9 @@ export class RunsService extends Service {
               })
             : undefined;
 
+        const snapshot = run.assignment.snapshot;
+        const prNumber = snapshot.branch.prInfo?.prNumber;
+
         return {
             id: run.id,
             shortId: run.id.slice(0, 8),
@@ -259,6 +269,14 @@ export class RunsService extends Service {
                                         title: run.runReview.issue.title,
                                     }
                                   : undefined,
+                      }
+                    : undefined,
+            pullRequest:
+                prNumber != null
+                    ? {
+                          number: prNumber,
+                          snapshotId: snapshot.id,
+                          snapshotSha: snapshot.headSha ?? undefined,
                       }
                     : undefined,
             debug,

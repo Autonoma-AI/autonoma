@@ -22,7 +22,9 @@ import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { createFileRoute } from "@tanstack/react-router";
 import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
+import { DetailRow } from "components/detail-row";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
+import { type PullRequestRef, PullRequestDetailRows } from "components/pull-request-detail-rows";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
@@ -272,6 +274,7 @@ function RunDetailPage() {
             reasoning={status === "failed" ? (run.reasoning ?? undefined) : undefined}
             testUrl={testUrl}
             testName={run.name}
+            pullRequest={run.pullRequest}
           />
         </div>
 
@@ -347,15 +350,7 @@ interface RunDetailSidebarProps {
   reasoning?: string;
   testUrl: string;
   testName: string;
-}
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-      <div className="text-sm text-text-secondary">{children}</div>
-    </div>
-  );
+  pullRequest?: PullRequestRef;
 }
 
 function RunDetailSidebar({
@@ -366,6 +361,7 @@ function RunDetailSidebar({
   reasoning,
   testUrl,
   testName,
+  pullRequest,
 }: RunDetailSidebarProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -379,29 +375,39 @@ function RunDetailSidebar({
 
           <Separator />
 
-          <DetailRow label="Status">
-            <Badge variant={toRunBadgeVariant(status)} className="mt-1">
-              {toRunStatusLabel(status)}
-            </Badge>
-          </DetailRow>
-
-          {startedAt != null && (
-            <DetailRow label="Started">
-              <span>{formatDate(startedAt)}</span>
+          <div className="grid grid-cols-2 gap-4">
+            <DetailRow label="Status">
+              <Badge variant={toRunBadgeVariant(status)} className="mt-1">
+                {toRunStatusLabel(status)}
+              </Badge>
             </DetailRow>
+
+            <DetailRow label="Steps">
+              <span className="font-medium">{stepCount}</span>
+              <span className="ml-1 text-text-tertiary">{stepCount === 1 ? "step" : "steps"}</span>
+            </DetailRow>
+          </div>
+
+          {(startedAt != null || duration != null) && (
+            <div className="grid grid-cols-2 gap-4">
+              {startedAt != null && (
+                <DetailRow label="Started">
+                  <span>{formatDate(startedAt)}</span>
+                </DetailRow>
+              )}
+
+              {duration != null && (
+                <DetailRow label="Duration">
+                  <span className="font-mono font-medium">{duration}</span>
+                </DetailRow>
+              )}
+            </div>
           )}
 
-          <DetailRow label="Steps">
-            <span className="font-medium">{stepCount}</span>
-            <span className="ml-1 text-text-tertiary">{stepCount === 1 ? "step" : "steps"}</span>
-          </DetailRow>
-
-          {duration != null && (
+          {pullRequest != null && (
             <>
               <Separator />
-              <DetailRow label="Duration">
-                <span className="font-mono font-medium">{duration}</span>
-              </DetailRow>
+              <PullRequestDetailRows pullRequest={pullRequest} />
             </>
           )}
         </PanelBody>
