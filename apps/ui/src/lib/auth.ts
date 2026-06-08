@@ -8,7 +8,10 @@ import { useSession } from "lib/query/auth.queries";
 function getBaseURL() {
     const host = window.location.hostname;
     const internalDomain = env.VITE_INTERNAL_DOMAIN;
-    if (host.startsWith("alpha-") || host.endsWith(`.preview.${internalDomain}`)) {
+    if (host.endsWith(`.preview.${internalDomain}`)) {
+        return env.VITE_API_URL;
+    }
+    if (host.startsWith("alpha-")) {
         return `https://beta.api.${internalDomain}`;
     }
     return undefined;

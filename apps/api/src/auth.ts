@@ -197,6 +197,9 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             client: redisClient,
             keyPrefix: "better-auth:",
         }),
+        emailAndPassword: {
+            enabled: env.PREVIEWKIT_ENV,
+        },
         user: {
             additionalFields: {
                 role: {

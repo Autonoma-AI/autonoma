@@ -1,0 +1,100 @@
+# Previewkit configuration for autonoma/agent.
+#
+# Two apps: Hono + tRPC API (apps/api, port 4000) and Vite + React SPA
+# (apps/ui, port 3000), backed by PostgreSQL, Redis, and Temporal.
+#
+# Monorepo build: both apps are built from the repo root (path: .) so that
+# workspace packages (packages/db, packages/ai, etc.) resolve correctly.
+# RAILPACK_APP_DIR tells Railpack which subdirectory is each app's entry point.
+# The existing Dockerfiles in apps/api and apps/ui are designed for CI pipelines
+# where dist/ is pre-built; Railpack handles the full build here instead.
+#
+# Workers / jobs: apps/workers/* and apps/jobs/* are not deployed in preview —
+# only the API and UI are needed to exercise core product flows. The API still
+# dispatches Temporal workflows; workers consume them from the shared Temporal service.
+#
+# Server-side secrets used only at runtime (PREVIEWKIT_SERVICE_SECRET,
+# RESEND_API_KEY, ENGINE_BILLING_SECRET, AWS_REGION, etc.) are not declared
+# in this file. Register them in the same Secrets Manager bundle so they are
+# mounted at runtime alongside the build_secrets defined below.
+#
+# Database: Prisma migrations run as a post-deploy hook on the api app.
+
+version: 1
+
+services:
+  # Ephemeral PostgreSQL — credentials hardcoded to preview/preview,
+  # injected via DATABASE_URL in the api env block.
+  - name: db
+    recipe: postgres
+    env:
+      POSTGRES_USER: preview
+      POSTGRES_PASSWORD: "preview"
+      POSTGRES_DB: preview
+      PGDATA: /var/lib/postgresql/data/pgdata
+    options:
+      image: postgres:17-alpine
+      storage: 10Gi
+      restore_from:
+        bucket: autonoma-database
+        key: backup/agent/dump.sql.gz
+        region: us-east-1
+
+  # Redis for job queues and cache stores.
+  - name: cache
+    recipe: redis
+
+  # Temporal for workflow orchestration. Workers are not deployed in preview
+  # but the API still connects to dispatch workflows.
+  - name: temporal
+    recipe: temporal
+
+apps:
+  - name: api
+    path: .
+    port: 4000
+    health_check: /health
+    command: "node --enable-source-maps apps/api/dist/index.js"
+
+    # Build-time env. Non-sensitive flags and Railpack configuration only.
+    build_args:
+      RAILPACK_APP_DIR: apps/api
+      NODE_ENV: production
+      API_PORT: "4000"
+      INTERNAL_DOMAIN: "autonoma.app"
+      STRIPE_ENABLED: "false"
+
+    # Runtime-only env.
+    env:
+      DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview"
+      REDIS_URL: "redis://{{cache.host}}:6379"
+      TEMPORAL_ADDRESS: "{{temporal.host}}:{{temporal.port}}"
+      TEMPORAL_NAMESPACE: "default"
+      APP_URL: "{{ui.url}}"
+      BETTER_AUTH_URL: "{{api.url}}"
+      ALLOWED_ORIGINS: "{{ui.url}}"
+      API_PORT: "4000"
+      NODE_ENV: production
+      INTERNAL_DOMAIN: "autonoma.app"
+      COOKIE_DOMAIN: ".preview.autonoma.app"
+      STRIPE_ENABLED: "false"
+      PREVIEWKIT_ENV: "true"
+
+  - name: ui
+    path: .
+    port: 3000
+    health_check: /
+
+    # Build-time env. VITE_API_URL is computed per-PR and resolves to the live
+    # API host once deployed. All other values are non-sensitive defaults baked
+    # into the static bundle.
+    build_args:
+      RAILPACK_APP_DIR: apps/ui
+      RAILPACK_SPA_OUTPUT_DIR: apps/ui/dist
+      VITE_API_URL: "{{api.url}}"
+      VITE_INTERNAL_DOMAIN: "autonoma.app"
+
+hooks:
+  post_deploy:
+    - app: api
+      command: "cd packages/db && pnpm exec prisma migrate deploy"

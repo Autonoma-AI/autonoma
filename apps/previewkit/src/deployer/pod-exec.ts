@@ -16,6 +16,7 @@ export async function execInDeploymentPod(
     namespace: string,
     appLabel: string,
     command: string,
+    stdinData?: Buffer,
 ): Promise<ExecResult> {
     const logger = rootLogger.child({ name: "execInDeploymentPod", namespace, appLabel });
 
@@ -37,6 +38,12 @@ export async function execInDeploymentPod(
     stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
+    let stdinStream: PassThrough | null = null;
+    if (stdinData != null) {
+        stdinStream = new PassThrough();
+        stdinStream.end(stdinData);
+    }
+
     // The status callback fires when the command exits, but stdout/stderr bytes
     // may still be in transit over the WebSocket. Store the failure and only
     // resolve/reject after ws.close so the buffers are fully drained.
@@ -50,7 +57,7 @@ export async function execInDeploymentPod(
             ["/bin/sh", "-c", command],
             stdout,
             stderr,
-            null,
+            stdinStream,
             false,
             (status) => {
                 if (status.status !== "Success") {

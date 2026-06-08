@@ -14,7 +14,22 @@ const optionsSchema = z.object({
             message: `Image is not allowed. Accepted prefixes: ${ALLOWED_IMAGE_PREFIXES.join(", ")}`,
         })
         .optional(),
+    restore_from: z
+        .object({
+            bucket: z.string(),
+            key: z.string(),
+            region: z.string().optional(),
+        })
+        .optional(),
+    storage: z.string().optional(),
 });
+
+export type PostgresRestoreOptions = {
+    serviceName: string;
+    bucket: string;
+    key: string;
+    region?: string;
+};
 
 const DEFAULT_VERSION = "16-alpine";
 const PORT = 5432;
@@ -49,7 +64,7 @@ export class PostgresRecipe extends BaseRecipe {
             spec: {
                 accessModes: ["ReadWriteOnce"],
                 resources: {
-                    requests: { storage: "1Gi" },
+                    requests: { storage: options.storage ?? "1Gi" },
                 },
             },
         };

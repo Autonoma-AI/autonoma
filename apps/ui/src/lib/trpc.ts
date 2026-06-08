@@ -4,6 +4,7 @@ import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import type { inferRouterOutputs } from "@trpc/server";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
+import { env } from "env";
 import posthog from "posthog-js";
 import superjson from "superjson";
 
@@ -59,7 +60,15 @@ export const queryClient = new QueryClient({
     }),
 });
 
-const linkOptions = { url: "/v1/trpc", transformer: superjson } as const;
+const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+
+const linkOptions = {
+    url: isPreviewEnvironment ? `${env.VITE_API_URL}/v1/trpc` : "/v1/trpc",
+    transformer: superjson,
+    ...(isPreviewEnvironment && {
+        fetch: (url: RequestInfo | URL, options?: RequestInit) => fetch(url, { ...options, credentials: "include" }),
+    }),
+} as const;
 
 export const trpcClient = createTRPCClient<AppRouter>({
     links: [

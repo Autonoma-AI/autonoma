@@ -9,6 +9,7 @@ import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
 import { buildNetworkPolicies } from "./network-policy-factory";
+import { PostgresRestorer } from "./postgres-restorer";
 import {
     buildAppDeployment,
     buildAppHostname,
@@ -193,7 +194,10 @@ export class Deployer {
         // 6. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
-        // 6. Deploy nginx reverse proxy (handles auth + per-app routing per hostname)
+        // 6.5 Restore postgres from backup if configured (runs before apps boot)
+        await this.restorePostgresDatabases(namespace, config);
+
+        // 7. Deploy nginx reverse proxy (handles auth + per-app routing per hostname)
         const domain = config.domain ?? this.domain;
         const nginxApps = config.apps.map((a) => ({
             name: a.name,
@@ -374,6 +378,33 @@ export class Deployer {
 
     getNamespaceName(repoFullName: string, prNumber: number): string {
         return this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
+    }
+
+    /**
+     * For each postgres service that declares `options.restore_from`, download
+     * the backup from S3 and restore it into the preview database. Runs after
+     * services are ready but before apps are deployed so apps boot on seeded data.
+     */
+    private async restorePostgresDatabases(namespace: string, config: PreviewConfig): Promise<void> {
+        for (const svc of config.services) {
+            if (svc.recipe !== "postgres") continue;
+
+            const restoreFrom = (svc.options as Record<string, unknown>).restore_from as
+                | { bucket: string; key: string; region?: string }
+                | undefined;
+
+            if (restoreFrom == null) continue;
+
+            const restorer = new PostgresRestorer(this.kc, namespace);
+            await restorer.restore({
+                serviceName: svc.name,
+                bucket: restoreFrom.bucket,
+                key: restoreFrom.key,
+                region: restoreFrom.region,
+                dbUser: svc.env.POSTGRES_USER ?? "preview",
+                dbName: svc.env.POSTGRES_DB ?? "preview",
+            });
+        }
     }
 
     getKubeConfig(): k8s.KubeConfig {
