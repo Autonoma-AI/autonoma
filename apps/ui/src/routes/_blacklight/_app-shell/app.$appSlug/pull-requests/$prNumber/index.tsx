@@ -537,12 +537,12 @@ function ExecutedTestRunRow({ test, appSlug, prNumber }: { test: PRExecutedTest;
         className="flex min-w-0 flex-col gap-1 py-2.5 transition-colors hover:text-primary-ink"
       >
         <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate font-mono text-xs text-text-primary">{test.testCase.name}</span>
           {test.category != null && (
             <Badge variant={categoryVariant(test.category)} className="shrink-0 text-3xs">
               {categoryLabel(test.category)}
             </Badge>
           )}
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-primary">{test.testCase.name}</span>
         </div>
         {test.reviewReasoning != null && test.reviewReasoning.trim().length > 0 && (
           <p className="line-clamp-2 text-xs leading-relaxed text-text-tertiary">{test.reviewReasoning}</p>
@@ -571,13 +571,9 @@ function buildTestRunSummary(sections: PRTestRunSection[]): SummaryItem[] {
   const entries = sections.flatMap((section) => section.entries);
   const finalOutcomeCount = (finalOutcome: ExecutedTest["finalOutcome"]) =>
     entries.filter((entry) => entry.finalOutcome === finalOutcome).length;
-  const categoryCount = (category: EntryCategory) => entries.filter((entry) => entry.category === category).length;
 
   const summary: SummaryItem[] = [
     { key: "failed", label: "failed", count: finalOutcomeCount("failed"), variant: "status-failed" },
-    { key: "edited", label: "edited", count: categoryCount("modified"), variant: "warn" },
-    { key: "added", label: "added", count: categoryCount("added"), variant: "outline" },
-    { key: "removed", label: "removed", count: categoryCount("removed"), variant: "critical" },
     { key: "running", label: "running", count: finalOutcomeCount("unresolved"), variant: "status-running" },
     { key: "passed", label: "passed", count: finalOutcomeCount("passed"), variant: "status-passed" },
   ];
@@ -600,7 +596,7 @@ function TestChangeSummary({ items }: { items: SummaryItem[] }) {
 }
 
 function categoryLabel(category: TestEntry["category"]): string {
-  if (category === "modified") return "modified";
+  if (category === "modified") return "edited";
   return CATEGORY[category].label;
 }
 
