@@ -5,7 +5,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
     test: {
         exclude: ["**/dist/**", "**/node_modules/**"],
-        env: { ...config({ path: join(__dirname, "../../.env") }).parsed },
+        env: {
+            DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder",
+            ...config({ path: join(__dirname, "../../.env") }).parsed,
+        },
         testTimeout: 30_000,
     },
 });

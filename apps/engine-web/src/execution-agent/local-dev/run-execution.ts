@@ -34,7 +34,7 @@ async function main(testCasePath: string) {
             executionAgentFactory: createWebAgentFactory(createEngineModelRegistry(costCollector)),
             eventHandlers: {
                 beforeStep: async () => {},
-                afterStep: async () => {},
+                attempt: async () => {},
                 frame: async () => {},
             },
             videoExtension: "webm",

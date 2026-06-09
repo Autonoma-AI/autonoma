@@ -34,12 +34,7 @@ export interface ExecutionAgentFactoryConfig<TSpec extends CommandSpec, TContext
     platformMetadata?: (args: BeforeCommandArgs<TSpec, TContext>) => Promise<Record<string, unknown>>;
 }
 
-type ExecutionAgentOptionalRunParams =
-    | "onFinish"
-    | "beforeCommand"
-    | "afterCommand"
-    | "beforeMetadata"
-    | "afterMetadata";
+type ExecutionAgentOptionalRunParams = "onFinish" | "beforeCommand" | "onAttempt" | "beforeMetadata" | "afterMetadata";
 
 export interface BuildAgentRunParams<TSpec extends CommandSpec, TContext extends BaseCommandContext>
     extends
@@ -82,7 +77,7 @@ export class ExecutionAgentFactory<TSpec extends CommandSpec, TContext extends B
         return new ExecutionAgent({
             onFinish: async () => {},
             beforeCommand: async () => {},
-            afterCommand: async () => {},
+            onAttempt: async () => {},
             afterMetadata: async () => ({}),
             ...runParams,
             beforeMetadata: composedBeforeMetadata,

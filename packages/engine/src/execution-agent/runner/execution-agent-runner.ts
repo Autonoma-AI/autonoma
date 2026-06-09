@@ -93,7 +93,7 @@ export class ExecutionAgentRunner<TSpec extends CommandSpec, TApplicationData, T
     private async buildAgent(context: TContext): Promise<ExecutionAgent<TSpec, TContext>> {
         const {
             executionAgentFactory,
-            eventHandlers: { beforeStep: beforeStepHandler, afterStep: afterStepHandler },
+            eventHandlers: { beforeStep: beforeStepHandler, attempt: attemptHandler },
         } = this.config;
         this.logger.info("Building execution agent...");
 
@@ -101,7 +101,7 @@ export class ExecutionAgentRunner<TSpec extends CommandSpec, TApplicationData, T
             const agent = await executionAgentFactory.buildAgent({
                 drivers: context,
                 beforeCommand: async ({ agent }) => beforeStepHandler({ state: agent.getState() }),
-                afterCommand: async ({ agent }) => afterStepHandler({ state: agent.getState() }),
+                onAttempt: async ({ attempt, order, replayOrder }) => attemptHandler({ attempt, order, replayOrder }),
             });
 
             this.logger.info("Execution agent built successfully");

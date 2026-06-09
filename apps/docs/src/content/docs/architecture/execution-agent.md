@@ -74,7 +74,7 @@ packages/engine/src/
 │   ├── runner/
 │   │   ├── execution-agent-runner.ts  # Main runner - ties installer + factory + recording
 │   │   ├── artifacts.ts               # Writes screenshots, steps, video to disk
-│   │   └── events.ts                  # Event hooks (beforeStep, afterStep, frame)
+│   │   └── events.ts                  # Event hooks (beforeStep, attempt, frame)
 │   └── local-dev/
 │       ├── local-runner.ts            # Local dev runner (loads markdown test files)
 │       └── load-test-case.ts          # Parses markdown frontmatter into test cases
@@ -328,17 +328,31 @@ artifacts/{timestamp}-{testName}/
 └── video.{ext}         # Recording
 ```
 
-## Result Types
+## Attempt Timeline
 
-**`GeneratedStep<TSpec>`** - one step of execution:
+The agent keeps a single in-memory timeline of **every** command attempt, modelled as a discriminated union on `status`:
+
+**`GeneratedStep<TSpec>`** (`status: "success"`) - a command whose parameter extraction and `execute()` both completed:
 - `executionOutput` - the command's step data (interaction + params) and result
 - `waitCondition` - an optional wait condition for replay
 - `beforeMetadata` / `afterMetadata` - screenshots and other metadata from before/after the step
 
+**`FailedStep<TSpec>`** (`status: "failed"`) - a command whose parameter extraction or `execute()` threw (e.g. a failed assertion, a point-detection miss, a driver error):
+- `interaction` / `input` / `params` - the command attempted, the raw tool input, and the extracted params (absent if extraction itself threw)
+- `error` / `errorName` - the thrown error's message and class name (attribution signal)
+- `beforeMetadata` - the screenshot the model saw when it chose the command
+- `afterMetadata` - a best-effort after-screenshot (absent if even that capture failed)
+
+**`StepAttempt<TSpec>`** - the union `GeneratedStep | FailedStep`. The replay subset is derived by filtering `status === "success"`; failed attempts are never replayed and never trigger wait-planning or memory writes.
+
+Each attempt fires the runner's `attempt` event as it happens, so the generation persister can live-persist it: successes write a `StepAttempt(success)` plus the `StepInput` / `StepOutput` replay rows; failures write only a `StepAttempt(failed)`.
+
+## Result Types
+
 **`ExecutionResult<TSpec>`** - the full test result:
-- `generatedSteps` - all steps
+- `generatedSteps` - the successful steps only (the replay-eligible subset of the attempt timeline)
 - `memory` - final state of extracted variables
-- `success` - whether the test passed
+- `success` - whether the test passed (computed over successful steps only - a failed assertion never counts as a passing assertion)
 - `finishReason` - `"success"`, `"max_steps"`, or `"error"`
 - `reasoning` - the model's explanation for finishing
 - `conversation` - the full AI message history

@@ -28,6 +28,8 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "typescript": "catalog:",

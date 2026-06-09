@@ -13,10 +13,10 @@ import {
 import type { CommandSpec } from "../../commands";
 import type { BaseCommandContext } from "../../platform";
 import type { WaitPlanner } from "./components/wait-planner";
-import type { ExecutionResult, GeneratedStep } from "./execution-result";
+import type { ExecutionResult, FailedStep, GeneratedStep, StepAttempt, StepMetadata } from "./execution-result";
 import { MemoryStore } from "./memory";
 import { type AskUserHandler, buildAskUserTool } from "./tools/ask-user-tool";
-import type { AgentExecutionOutput, CommandTool } from "./tools/command-tool";
+import type { AgentExecutionOutput, CommandFailure, CommandTool } from "./tools/command-tool";
 import { type ExecutionFinishedOutput, buildExecutionFinishedTool } from "./tools/execution-finished-tool";
 import { buildWaitTool } from "./tools/wait-tool";
 
@@ -33,6 +33,19 @@ interface AfterCommandArgs<TSpec extends CommandSpec, TContext extends BaseComma
     output: AgentExecutionOutput<TSpec>;
 }
 
+export interface OnAttemptArgs<TSpec extends CommandSpec, TContext extends BaseCommandContext> {
+    agent: ExecutionAgent<TSpec, TContext>;
+
+    /** The attempt that just happened (success or failure). */
+    attempt: StepAttempt<TSpec>;
+
+    /** 1-based position in the full attempt timeline (counts failures). */
+    order: number;
+
+    /** 1-based position in the successful-only replay list. Present only for successful attempts. */
+    replayOrder?: number;
+}
+
 export interface ExecutionAgentRunParams<TSpec extends CommandSpec, TContext extends BaseCommandContext> {
     /** The drivers to use for execution */
     drivers: TContext;
@@ -43,8 +56,12 @@ export interface ExecutionAgentRunParams<TSpec extends CommandSpec, TContext ext
     /** Callback for before a command is executed. */
     beforeCommand: (args: BeforeCommandArgs<TSpec, TContext>) => Promise<void>;
 
-    /** Callback for after a command is executed. */
-    afterCommand: (args: AfterCommandArgs<TSpec, TContext>) => Promise<void>;
+    /**
+     * Callback fired once per command attempt - both successes and failures.
+     * This is the single live persistence hook; consumers branch on
+     * `attempt.status`.
+     */
+    onAttempt: (args: OnAttemptArgs<TSpec, TContext>) => Promise<void>;
 
     /** Metadata to record before the execution */
     beforeMetadata: (args: BeforeCommandArgs<TSpec, TContext>) => Promise<Record<string, unknown>>;
@@ -80,13 +97,17 @@ export interface ExecutionAgentConfig<TSpec extends CommandSpec, TContext extend
     askUserHandler?: AskUserHandler;
 }
 
-/** Internal step type */
-type InternalAgentStep<TSpec extends CommandSpec> = Omit<GeneratedStep<TSpec>, "waitCondition"> & {
+/** Internal representation of a successful step, carrying the still-pending wait condition. */
+type InternalSuccessStep<TSpec extends CommandSpec> = Omit<GeneratedStep<TSpec>, "waitCondition"> & {
     waitConditionPromise: Promise<string | null>;
 };
 
+/** Internal representation of a single attempt in the full timeline. */
+type InternalAttempt<TSpec extends CommandSpec> = InternalSuccessStep<TSpec> | FailedStep<TSpec>;
+
 export interface ExecutionState<TSpec extends CommandSpec = CommandSpec> {
-    steps: GeneratedStep<TSpec>[];
+    /** The full attempt timeline, including failures. */
+    attempts: StepAttempt<TSpec>[];
     conversation: ModelMessage[];
 }
 
@@ -97,7 +118,7 @@ export class UnknownGenerationError extends Error {
 }
 
 export class InvalidStepError extends Error {
-    constructor(public readonly step: Partial<InternalAgentStep<CommandSpec>>) {
+    constructor(public readonly step: Partial<InternalSuccessStep<CommandSpec>>) {
         super("There was an error generating an execution step. This is probably a bug in the execution agent.");
     }
 }
@@ -107,8 +128,9 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
 
     private readonly agent: ReturnType<typeof this.buildAgent>;
 
-    private readonly generatedSteps: InternalAgentStep<TSpec>[] = [];
-    public currentStep: Partial<InternalAgentStep<TSpec>> = {};
+    /** The full attempt timeline (successes and failures), in order. */
+    private readonly attempts: InternalAttempt<TSpec>[] = [];
+    public currentStep: Partial<InternalSuccessStep<TSpec>> = {};
 
     private stepResults: AIStepResult<ReturnType<typeof this.buildTools>>[] = [];
 
@@ -154,10 +176,9 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
     }
 
     /** Get the current execution state. */
-    public getState() {
+    public getState(): ExecutionState<TSpec> {
         return {
-            // Omit the wait condition promise, it's an internal detail that should not be exposed to the client
-            steps: this.generatedSteps.map(({ waitConditionPromise: _waitConditionPromise, ...step }) => step),
+            attempts: this.attempts.map((attempt) => toPublicAttempt(attempt)),
             conversation: this.stepResults.flatMap((step) => step.response.messages),
         };
     }
@@ -209,6 +230,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                         beforeExecute: async (input, context) =>
                             this.beforeExecute(commandTool.interaction, input, context),
                         afterExecute: async (_input, output, context) => this.afterExecute(output, context),
+                        onFailure: async (failure) => this.recordFailure(failure),
                     }),
                 ]),
             ) as Record<string, unknown>),
@@ -244,18 +266,14 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         this.lastContextScreenshot = screenshot;
 
         // Start the current step
-        this.currentStep = { beforeMetadata: { screenshot } } as Partial<InternalAgentStep<TSpec>>;
+        this.currentStep = { status: "success", beforeMetadata: { screenshot } };
 
         if (this.currentInstruction == null) {
             throw new Error("Execution requires an instruction");
         }
         const instruction = this.currentInstruction;
-        const stepsSoFar = this.generatedSteps.map((agentStep, index) => ({
-            order: index + 1,
-            interaction: agentStep.executionOutput.stepData.interaction,
-            params: agentStep.executionOutput.stepData.params,
-            outcome: agentStep.executionOutput.result.outcome,
-        }));
+        // Include failed attempts so the model can see its own botched attempts inline.
+        const stepsSoFar = this.attempts.map((attempt, index) => summarizeAttempt(attempt, index + 1));
         const memoryEntries = this.memory.getAll();
         const memorySection =
             Object.keys(memoryEntries).length > 0
@@ -307,7 +325,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         this.currentStep.beforeMetadata = {
             ...this.currentStep.beforeMetadata,
             ...metadata,
-        } as InternalAgentStep<TSpec>["beforeMetadata"];
+        } as StepMetadata;
     }
 
     /** Called after a command is executed */
@@ -326,7 +344,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             ...this.currentStep.afterMetadata,
             ...metadata,
             screenshot,
-        } as InternalAgentStep<TSpec>["afterMetadata"];
+        } as StepMetadata;
         if (this.currentStep.beforeMetadata == null) this.logger.fatal("Missing before step screenshot");
 
         this.currentStep.executionOutput = output;
@@ -342,8 +360,9 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             });
         }
 
-        // Plan a wait if needed
-        const lastStepData = this.generatedSteps[this.generatedSteps.length - 1];
+        // Plan a wait if needed. The "previous step" for wait planning is the last
+        // *successful* step - failed attempts never get a wait condition.
+        const lastStepData = this.lastSuccessfulStep();
         const waitConditionPromise: Promise<string | null> =
             lastStepData == null
                 ? Promise.resolve(this.params.waitPlanner.planFirstWait(output.stepData))
@@ -355,17 +374,83 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                   });
 
         this.logger.info("Saving generated step", this.currentStep.executionOutput.stepData);
-        this.pushStep({ ...this.currentStep, waitConditionPromise });
+        const step = this.pushStep({ ...this.currentStep, waitConditionPromise });
 
-        await this.params.afterCommand({
+        await this.params.onAttempt({
             agent: this,
-            context,
-            output,
+            attempt: toPublicAttempt(step),
+            order: this.attempts.length,
+            replayOrder: this.successfulCount(),
         });
     }
 
-    /** Validates and adds a step to the generated steps */
-    private pushStep(agentStep: Partial<InternalAgentStep<TSpec>>): void {
+    /**
+     * Records a failed command attempt. Failed attempts never get a wait
+     * condition and never touch the memory store - a thrown command has no
+     * result. A best-effort after-screenshot is captured (absent if even that fails).
+     */
+    private async recordFailure(failure: CommandFailure<TSpec>): Promise<void> {
+        this.logger.warn("Recording failed command attempt", {
+            interaction: failure.interaction,
+            error: failure.error.message,
+            errorName: failure.error.constructor.name,
+        });
+
+        const beforeMetadata = this.currentStep.beforeMetadata;
+        if (beforeMetadata == null) {
+            this.logger.fatal("Missing before screenshot for failed attempt");
+            throw new InvalidStepError(this.currentStep);
+        }
+
+        const afterMetadata = await this.captureFailureAfterMetadata();
+
+        const failedStep: FailedStep<TSpec> = {
+            status: "failed",
+            interaction: failure.interaction,
+            input: failure.input,
+            params: failure.params,
+            error: failure.error.message,
+            errorName: failure.error.constructor.name,
+            beforeMetadata,
+            afterMetadata,
+        };
+
+        this.attempts.push(failedStep);
+
+        await this.params.onAttempt({
+            agent: this,
+            attempt: failedStep,
+            order: this.attempts.length,
+        });
+    }
+
+    /** Best-effort after-screenshot for a failed attempt; absent if the capture itself fails. */
+    private async captureFailureAfterMetadata(): Promise<StepMetadata | undefined> {
+        try {
+            const screenshot = await this.params.drivers.screen.screenshot();
+            return { screenshot };
+        } catch (error) {
+            this.logger.warn("Failed to capture after-screenshot for failed attempt", { error });
+            return undefined;
+        }
+    }
+
+    /** The most recent successful step, used as the reference for wait planning. */
+    private lastSuccessfulStep(): InternalSuccessStep<TSpec> | undefined {
+        for (let i = this.attempts.length - 1; i >= 0; i--) {
+            const attempt = this.attempts[i];
+            if (attempt?.status === "success") return attempt;
+        }
+        return undefined;
+    }
+
+    /** Number of successful attempts recorded so far. */
+    private successfulCount(): number {
+        return this.attempts.filter((attempt) => attempt.status === "success").length;
+    }
+
+    /** Validates and adds a successful step to the attempt timeline, returning it. */
+    private pushStep(agentStep: Partial<InternalSuccessStep<TSpec>>): InternalSuccessStep<TSpec> {
         const { beforeMetadata, afterMetadata, waitConditionPromise, executionOutput } = agentStep;
 
         if (beforeMetadata == null) {
@@ -388,22 +473,29 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             throw new InvalidStepError(agentStep);
         }
 
-        this.generatedSteps.push({
+        const step: InternalSuccessStep<TSpec> = {
+            status: "success",
             executionOutput,
             beforeMetadata,
             afterMetadata,
             waitConditionPromise,
-        } as InternalAgentStep<TSpec>);
+        };
+        this.attempts.push(step);
+        return step;
     }
 
     private async buildExecutionResult(
         steps: AIStepResult<ReturnType<typeof this.buildTools>>[],
     ): Promise<ExecutionResult<TSpec>> {
-        const generatedSteps = await Promise.all(
-            this.generatedSteps.map(async (agentStep) => {
+        // The replay subset is derived by filtering the full timeline to successes.
+        const successfulSteps = this.attempts.filter(
+            (attempt): attempt is InternalSuccessStep<TSpec> => attempt.status === "success",
+        );
+        const generatedSteps: GeneratedStep<TSpec>[] = await Promise.all(
+            successfulSteps.map(async ({ waitConditionPromise, ...agentStep }) => {
                 let waitCondition: string | null | undefined;
                 try {
-                    waitCondition = await agentStep.waitConditionPromise;
+                    waitCondition = await waitConditionPromise;
                 } catch (error) {
                     this.logger.fatal("Failed to generate wait condition for step", {
                         interaction: agentStep.executionOutput.stepData.interaction,
@@ -450,4 +542,32 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             conversation: this.stepResults.flatMap((step) => step.response.messages),
         };
     }
+}
+
+/** Strips the internal wait-condition promise from a successful step, leaving the public shape. */
+function toPublicAttempt<TSpec extends CommandSpec>(attempt: InternalAttempt<TSpec>): StepAttempt<TSpec> {
+    if (attempt.status === "failed") return attempt;
+    const { waitConditionPromise: _waitConditionPromise, ...step } = attempt;
+    return step;
+}
+
+/** Builds the compact, model-facing summary of an attempt for the "steps so far" context. */
+function summarizeAttempt<TSpec extends CommandSpec>(attempt: InternalAttempt<TSpec>, order: number) {
+    if (attempt.status === "failed") {
+        return {
+            order,
+            status: "failed" as const,
+            interaction: attempt.interaction,
+            params: attempt.params,
+            error: attempt.error,
+        };
+    }
+
+    return {
+        order,
+        status: "success" as const,
+        interaction: attempt.executionOutput.stepData.interaction,
+        params: attempt.executionOutput.stepData.params,
+        outcome: attempt.executionOutput.result.outcome,
+    };
 }

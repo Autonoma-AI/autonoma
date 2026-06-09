@@ -13,6 +13,21 @@ export type AgentExecutionOutput<TSpec extends CommandSpec> = {
     };
 }[TSpec["interaction"]];
 
+/** Details of a thrown command attempt, captured from the tool's catch path. */
+export interface CommandFailure<TSpec extends CommandSpec> {
+    /** The command that was attempted. */
+    interaction: TSpec["interaction"];
+
+    /** The raw tool input the model provided. */
+    input: unknown;
+
+    /** The extracted command params - absent if parameter extraction itself threw. */
+    params?: CommandParams<TSpec>;
+
+    /** The thrown error. */
+    error: Error;
+}
+
 interface CommandToolConfig<TSpec extends CommandSpec, TContext extends BaseCommandContext, TInput> {
     /** Get the context for the command. */
     getContext: () => TContext;
@@ -29,6 +44,14 @@ interface CommandToolConfig<TSpec extends CommandSpec, TContext extends BaseComm
     /** After the command has been executed. */
     // eslint-disable-next-line @typescript-eslint/method-signature-style
     afterExecute(input: TInput, output: AgentExecutionOutput<TSpec>, context: TContext): Promise<void>;
+
+    /**
+     * Called when parameter extraction or `execute()` throws. Records the failed
+     * attempt. Must be best-effort: it should never throw, so it cannot mask the
+     * original command error returned to the model.
+     */
+    // eslint-disable-next-line @typescript-eslint/method-signature-style
+    onFailure(failure: CommandFailure<TSpec>): Promise<void>;
 }
 
 function toolFailure(error: Error) {
@@ -71,11 +94,19 @@ export abstract class CommandTool<
     protected abstract extractParams(input: TInput, context: TContext): Promise<CommandParams<TSpec>>;
 
     /** Convert this command tool into a `Tool` compatible with the AI SDK. */
-    toTool({ getContext, getMemory, beforeExecute, afterExecute }: CommandToolConfig<TSpec, TContext, TInput>) {
+    toTool({
+        getContext,
+        getMemory,
+        beforeExecute,
+        afterExecute,
+        onFailure,
+    }: CommandToolConfig<TSpec, TContext, TInput>) {
         return tool({
             description: this.description(),
             inputSchema: this.inputSchema(),
             execute: async (input: TInput) => {
+                // Captured incrementally so the failure path can report how far execution got.
+                let params: CommandParams<TSpec> | undefined = undefined;
                 try {
                     this.logger.info("Reading context for command call...");
                     const context = getContext();
@@ -83,7 +114,7 @@ export abstract class CommandTool<
                     await beforeExecute(input, context);
 
                     this.logger.info("Extracting parameters for command...", { input });
-                    const params = await this.extractParams(input, context);
+                    params = await this.extractParams(input, context);
 
                     // Resolve {{variableName}} templates from the agent's memory.
                     // The unresolved `params` are stored for replay; the resolved values are used for execution.
@@ -104,8 +135,18 @@ export abstract class CommandTool<
 
                     return toolSuccess(executeOutput);
                 } catch (error) {
-                    this.logger.error("Error executing command", { error });
-                    return toolFailure(error instanceof Error ? error : new Error(String(error)));
+                    const failureError = error instanceof Error ? error : new Error(String(error));
+                    this.logger.error("Error executing command", { error: failureError });
+
+                    // Record the failed attempt. Best-effort: a failure here must not mask the
+                    // original command error that the model needs to see.
+                    try {
+                        await onFailure({ interaction: this.command.interaction, input, params, error: failureError });
+                    } catch (captureError) {
+                        this.logger.error("Failed to capture command failure", { captureError });
+                    }
+
+                    return toolFailure(failureError);
                 }
             },
         });

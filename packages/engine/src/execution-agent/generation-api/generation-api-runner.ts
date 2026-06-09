@@ -42,20 +42,8 @@ export abstract class GenerationAPIRunner<
             eventHandlers: {
                 frame: async () => {},
                 beforeStep: async () => {},
-                afterStep: async ({ state }) => {
-                    // biome-ignore lint/style/noNonNullAssertion: A step was ran, so there is a last step
-                    const lastStep = state.steps[state.steps.length - 1]!;
-                    const stepData = lastStep.executionOutput.stepData;
-                    await this.persister.recordStep(
-                        {
-                            interaction: stepData.interaction,
-                            params: stepData.params,
-                            output: lastStep.executionOutput.result,
-                            beforeScreenshot: lastStep.beforeMetadata.screenshot,
-                            afterScreenshot: lastStep.afterMetadata.screenshot,
-                        },
-                        state,
-                    );
+                attempt: async (attemptData) => {
+                    await this.persister.recordAttempt(attemptData);
                 },
             },
         });

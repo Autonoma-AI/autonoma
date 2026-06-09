@@ -25,7 +25,7 @@ async function main(testCasePath: string) {
             executionAgentFactory: createMobileAgentFactory(createEngineModelRegistry(costCollector)),
             eventHandlers: {
                 beforeStep: async () => {},
-                afterStep: async () => {},
+                attempt: async () => {},
                 frame: async () => {},
             },
             videoExtension: "mp4",

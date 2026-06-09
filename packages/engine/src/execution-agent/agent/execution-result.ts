@@ -1,16 +1,20 @@
 import type { Screenshot } from "@autonoma/image";
 import type { ModelMessage } from "ai";
-import type { CommandSpec } from "../../commands";
+import type { CommandParams, CommandSpec } from "../../commands";
 import type { AgentExecutionOutput } from "./tools/command-tool";
 
 export type StepMetadata = { screenshot: Screenshot } & Record<string, unknown>;
 
 /**
- * The result of a single step execution.
+ * A successful command attempt: parameter extraction and `execute()` both
+ * completed without throwing. These are the only attempts eligible for replay.
  *
  * ! WARNING: Avoid sending this object through the network, since it may contain screenshot data.
  */
 export type GeneratedStep<TSpec extends CommandSpec> = {
+    /** Discriminant for the {@link StepAttempt} union. */
+    status: "success";
+
     /** The output of the step execution */
     executionOutput: AgentExecutionOutput<TSpec>;
 
@@ -23,6 +27,49 @@ export type GeneratedStep<TSpec extends CommandSpec> = {
     /** The metadata from after the step execution */
     afterMetadata: StepMetadata;
 };
+
+/**
+ * A failed command attempt: parameter extraction or `execute()` threw (e.g. an
+ * assertion that did not hold, a point-detection miss, a driver error). Failed
+ * attempts are never replayed - they exist to make the agent's botched attempts
+ * visible to users and to review.
+ *
+ * ! WARNING: Avoid sending this object through the network, since it may contain screenshot data.
+ */
+export type FailedStep<TSpec extends CommandSpec> = {
+    /** Discriminant for the {@link StepAttempt} union. */
+    status: "failed";
+
+    /** The command that was attempted. */
+    interaction: TSpec["interaction"];
+
+    /** The raw tool input the model provided. */
+    input: unknown;
+
+    /** The extracted command params - absent if parameter extraction itself threw. */
+    params?: CommandParams<TSpec>;
+
+    /** The thrown error's message. */
+    error: string;
+
+    /** The thrown error's class name (attribution signal). */
+    errorName: string;
+
+    /** The screenshot captured before the attempt (the model's view when it chose the command). */
+    beforeMetadata: StepMetadata;
+
+    /**
+     * The screenshot captured after the failure. Best-effort: absent if even
+     * taking this screenshot failed.
+     */
+    afterMetadata?: StepMetadata;
+};
+
+/**
+ * A single command attempt in the full generation timeline, discriminated on
+ * `status`. The replay subset is derived by filtering `status === "success"`.
+ */
+export type StepAttempt<TSpec extends CommandSpec> = GeneratedStep<TSpec> | FailedStep<TSpec>;
 
 export interface ExecutionResult<TSpec extends CommandSpec> {
     /** The results of the steps that were executed */
