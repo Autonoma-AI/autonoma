@@ -1,53 +1,42 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ensureAPIQueryData } from "lib/query/api-queries";
-import { trpc } from "lib/trpc";
+import { ensureBugsListData } from "lib/query/bugs.queries";
+import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
 import { Suspense } from "react";
-import { BugsChart, BugsChartSkeleton } from "./-home/bugs-chart";
-import { LastGenerationsTable, LastGenerationsTableSkeleton } from "./-home/last-generations-table";
-import { Milestones, MilestonesSkeleton } from "./-home/milestones";
-import { RecentRunsTable, RecentRunsTableSkeleton } from "./-home/recent-runs-table";
-import { TopSection, TopSectionSkeleton } from "./-home/top-section";
+import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { HomeHeader } from "./-home/home-header";
+import { OpenPrsList, OpenPrsListSkeleton } from "./-home/open-prs-list";
+import { UnresolvedBugsRail, UnresolvedBugsRailSkeleton } from "./-home/unresolved-bugs-rail";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
   loader: async ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) return;
     await Promise.all([
-      ensureAPIQueryData(context.queryClient, trpc.tests.list.queryOptions({ applicationId: app.id })),
-      ensureAPIQueryData(context.queryClient, trpc.generations.list.queryOptions({ applicationId: app.id })),
-      ensureAPIQueryData(context.queryClient, trpc.runs.list.queryOptions({ applicationId: app.id })),
-      ensureAPIQueryData(context.queryClient, trpc.bugs.list.queryOptions({ applicationId: app.id })),
+      ensureLatestPullRequestsData(context.queryClient, app.id),
+      ensureBugsListData(context.queryClient, app.id),
     ]);
   },
-  component: OverviewPage,
+  component: HomePage,
 });
 
-function OverviewPage() {
+function HomePage() {
+  const app = useCurrentApplication();
+
+  // `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the
+  // viewport exactly; the columns scroll internally instead of the whole page.
   return (
-    <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-medium tracking-tight text-text-primary">Overview</h1>
-        <p className="mt-1 font-mono text-xs text-text-secondary">Real-time health across your test suite</p>
-      </header>
+    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">
+      <HomeHeader appName={app.name} architecture={app.architecture} />
 
-      <Suspense fallback={<MilestonesSkeleton />}>
-        <Milestones />
-      </Suspense>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-5">
+          <Suspense fallback={<OpenPrsListSkeleton />}>
+            <OpenPrsList />
+          </Suspense>
+        </div>
 
-      <Suspense fallback={<TopSectionSkeleton />}>
-        <TopSection />
-      </Suspense>
-
-      <Suspense fallback={<BugsChartSkeleton />}>
-        <BugsChart />
-      </Suspense>
-
-      <div className="grid min-h-75 grid-cols-1 gap-6 lg:grid-cols-2">
-        <Suspense fallback={<RecentRunsTableSkeleton />}>
-          <RecentRunsTable />
-        </Suspense>
-        <Suspense fallback={<LastGenerationsTableSkeleton />}>
-          <LastGenerationsTable />
+        <Suspense fallback={<UnresolvedBugsRailSkeleton />}>
+          <UnresolvedBugsRail />
         </Suspense>
       </div>
     </div>

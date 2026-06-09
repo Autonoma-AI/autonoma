@@ -4,13 +4,17 @@ import {
   PanelBody,
   PanelHeader,
   PanelTitle,
+  PrHealthPill,
   Skeleton,
   SortableTable,
 } from "@autonoma/blacklight";
+import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { createFileRoute } from "@tanstack/react-router";
-import { useBranches } from "lib/query/branches.queries";
+import { useBranchDetail, useBranches, useSnapshotHistory } from "lib/query/branches.queries";
 import { Suspense } from "react";
+import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { useAppNavigate } from "../../-use-app-navigate";
 import { PRHealthCell } from "./-components/pr-coverage-cell";
@@ -143,12 +147,37 @@ function ContentSkeleton() {
   );
 }
 
+function MainBranchChip() {
+  const app = useCurrentApplication();
+  const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
+  const { data: snapshots } = useSnapshotHistory(branch.id);
+  const latest = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const health = latest == null ? "unknown" : latest.bugCount > 0 ? "critical" : latest.health;
+
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/main"
+      className="inline-flex items-center gap-2 border border-border-dim bg-surface-base px-3 py-2 transition-colors hover:border-border-mid hover:bg-surface-raised"
+    >
+      <GitBranchIcon size={14} className="text-text-tertiary" />
+      <span className="font-mono text-2xs uppercase tracking-widest text-text-secondary">main</span>
+      <PrHealthPill health={health} />
+      <ArrowRightIcon size={12} className="text-text-tertiary" />
+    </AppLink>
+  );
+}
+
 function PullRequestsPage() {
   return (
     <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-medium tracking-tight text-text-primary">Pull Requests</h1>
-        <p className="mt-1 font-mono text-xs text-text-secondary">Branches tracked by Autonoma, one entry per PR</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-medium tracking-tight text-text-primary">Pull Requests</h1>
+          <p className="mt-1 font-mono text-xs text-text-secondary">Branches tracked by Autonoma, one entry per PR</p>
+        </div>
+        <Suspense fallback={<Skeleton className="h-9 w-44" />}>
+          <MainBranchChip />
+        </Suspense>
       </header>
 
       <Suspense fallback={<ContentSkeleton />}>

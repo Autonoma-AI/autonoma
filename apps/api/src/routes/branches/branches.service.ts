@@ -9,6 +9,7 @@ import {
 } from "@autonoma/test-updates";
 import type { SnapshotReport } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
+import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import { Service } from "../service";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
@@ -55,11 +56,21 @@ export class BranchesService extends Service {
             .filter((s): s is NonNullable<typeof s> => s != null)
             .map((s) => ({ id: s.id, status: s.status }));
 
-        const healthBySnapshot = await aggregateSnapshotHealth(this.db, activeSnapshots, this.logger);
+        const [healthBySnapshot, bugCountBySnapshot, previewUrlByPr] = await Promise.all([
+            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+            this.countOpenBugsBySnapshot(activeSnapshots.map((s) => s.id)),
+            this.loadPreviewUrlsByPr(
+                applicationId,
+                organizationId,
+                branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
+            ),
+        ]);
 
         return branches.map(({ prInfo, activeSnapshot, ...branch }) => ({
             ...branch,
             prNumber: prInfo!.prNumber,
+            bugCount: activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0,
+            previewUrl: previewUrlByPr.get(prInfo!.prNumber),
             activeSnapshot:
                 activeSnapshot != null
                     ? {
@@ -70,6 +81,72 @@ export class BranchesService extends Service {
                       }
                     : null,
         }));
+    }
+
+    /**
+     * Bulk-resolves a preview URL per PR number for an application, so the Home PR
+     * list can show a clickable preview link without an N+1 fanout. Mirrors the
+     * per-PR preview summary: prefer a Previewkit environment URL (any status with a
+     * URL except failed / torn_down), then fall back to the legacy branch webDeployment
+     * URL. Returns a map of prNumber -> URL.
+     */
+    private async loadPreviewUrlsByPr(
+        applicationId: string,
+        organizationId: string,
+        branches: Array<{ branchId: string; prNumber: number }>,
+    ): Promise<Map<number, string>> {
+        if (branches.length === 0) return new Map();
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        const githubRepositoryId = application?.githubRepositoryId;
+
+        const [previewkitEnvironments, legacyDeployments] = await Promise.all([
+            githubRepositoryId != null
+                ? this.db.previewkitEnvironment.findMany({
+                      where: {
+                          organizationId,
+                          githubRepositoryId,
+                          prNumber: { in: branches.map((b) => b.prNumber) },
+                          status: { notIn: ["torn_down", "failed"] },
+                      },
+                      select: { prNumber: true, urls: true },
+                      orderBy: { updatedAt: "desc" },
+                  })
+                : Promise.resolve([]),
+            this.db.branchDeployment.findMany({
+                where: {
+                    organizationId,
+                    branchId: { in: branches.map((b) => b.branchId) },
+                    webDeployment: { isNot: null },
+                },
+                select: { branchId: true, webDeployment: { select: { url: true } } },
+                orderBy: { updatedAt: "desc" },
+            }),
+        ]);
+
+        const previewkitUrlByPr = new Map<number, string>();
+        for (const environment of previewkitEnvironments) {
+            if (previewkitUrlByPr.has(environment.prNumber)) continue;
+            const url = firstPreviewUrl(environment.urls);
+            if (url != null) previewkitUrlByPr.set(environment.prNumber, url);
+        }
+
+        const legacyUrlByBranch = new Map<string, string>();
+        for (const deployment of legacyDeployments) {
+            if (legacyUrlByBranch.has(deployment.branchId)) continue;
+            const url = deployment.webDeployment?.url;
+            if (url != null && url !== "") legacyUrlByBranch.set(deployment.branchId, url);
+        }
+
+        const urlByPr = new Map<number, string>();
+        for (const branch of branches) {
+            const url = previewkitUrlByPr.get(branch.prNumber) ?? legacyUrlByBranch.get(branch.branchId);
+            if (url != null) urlByPr.set(branch.prNumber, url);
+        }
+        return urlByPr;
     }
 
     async getBranch(branchId: string, organizationId: string) {
@@ -658,4 +735,15 @@ export class BranchesService extends Service {
 
         this.logger.info("Branch deleted", { branchId });
     }
+}
+
+const PreviewUrlsSchema = z.record(z.string(), z.string());
+
+function firstPreviewUrl(urls: unknown): string | undefined {
+    const parsed = PreviewUrlsSchema.safeParse(urls);
+    if (!parsed.success) return undefined;
+    for (const url of Object.values(parsed.data)) {
+        if (url.length > 0) return url;
+    }
+    return undefined;
 }
