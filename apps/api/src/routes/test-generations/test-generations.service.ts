@@ -60,20 +60,19 @@ export class TestGenerationsService extends Service {
                         },
                     },
                 },
-                outputs: {
-                    include: {
-                        list: {
-                            orderBy: { order: "asc" },
-                            include: {
-                                stepInput: {
-                                    select: {
-                                        interaction: true,
-                                        params: true,
-                                        waitCondition: true,
-                                    },
-                                },
-                            },
-                        },
+                attempts: {
+                    orderBy: { order: "asc" },
+                    select: {
+                        id: true,
+                        order: true,
+                        interaction: true,
+                        params: true,
+                        status: true,
+                        output: true,
+                        error: true,
+                        errorName: true,
+                        screenshotBefore: true,
+                        screenshotAfter: true,
                     },
                 },
                 scenarioInstance: {
@@ -113,12 +112,12 @@ export class TestGenerationsService extends Service {
 
         if (generation == null) throw new NotFoundError();
 
-        const outputSteps = generation.outputs?.list ?? [];
+        const attempts = generation.attempts;
 
         this.logger.info("Generation detail retrieved", {
             generationId,
             status: generation.status,
-            stepCount: outputSteps.length,
+            stepCount: attempts.length,
         });
 
         const webhookCallsPromise =
@@ -131,13 +130,15 @@ export class TestGenerationsService extends Service {
 
         const [steps, videoUrl, finalScreenshotUrl, temporalWorkflow, webhookCalls] = await Promise.all([
             Promise.all(
-                outputSteps.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
+                attempts.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
                     id: rest.id,
                     order: rest.order,
-                    interaction: rest.stepInput.interaction,
-                    params: rest.stepInput.params,
-                    output: rest.output,
-                    waitCondition: rest.stepInput.waitCondition,
+                    interaction: rest.interaction,
+                    params: rest.params,
+                    status: rest.status,
+                    output: rest.output ?? undefined,
+                    error: rest.error ?? undefined,
+                    errorName: rest.errorName ?? undefined,
                     screenshotBefore: await (screenshotBefore &&
                         this.storageProvider.getSignedUrl(screenshotBefore, 3600)),
                     screenshotAfter: await (screenshotAfter &&

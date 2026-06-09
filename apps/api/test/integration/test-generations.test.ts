@@ -105,6 +105,43 @@ apiTestSuite({
             },
         });
 
+        // The full attempt timeline counts failures: a successful navigate, a
+        // failed assert (e.g. an assertion that did not hold), then a successful
+        // assert. The successful-only replay list (StepInput/StepOutput above)
+        // legitimately diverges from this timeline.
+        await harness.db.stepAttempt.createMany({
+            data: [
+                {
+                    generationId: generationWithSteps.id,
+                    organizationId: harness.organizationId,
+                    order: 0,
+                    interaction: "navigate",
+                    params: {},
+                    status: "success",
+                    output: {},
+                },
+                {
+                    generationId: generationWithSteps.id,
+                    organizationId: harness.organizationId,
+                    order: 1,
+                    interaction: "assert",
+                    params: {},
+                    status: "failed",
+                    error: "Expected the title to be visible, but it was not",
+                    errorName: "VerificationError",
+                },
+                {
+                    generationId: generationWithSteps.id,
+                    organizationId: harness.organizationId,
+                    order: 2,
+                    interaction: "assert",
+                    params: {},
+                    status: "success",
+                    output: {},
+                },
+            ],
+        });
+
         const testCase2 = await harness.db.testCase.create({
             data: {
                 name: "Empty test",
@@ -183,7 +220,10 @@ apiTestSuite({
             expect(item?.tags).toEqual([]);
         });
 
-        test("returns generation detail with steps", async ({ harness, seedResult: { generationWithSteps } }) => {
+        test("returns generation detail with the full attempt timeline", async ({
+            harness,
+            seedResult: { generationWithSteps },
+        }) => {
             const detail = await harness.request().generations.detail({
                 generationId: generationWithSteps.id,
             });
@@ -191,14 +231,33 @@ apiTestSuite({
             expect(detail).not.toBeNull();
             expect(detail?.id).toBe(generationWithSteps.id);
             expect(detail?.shortId).toBe(generationWithSteps.id.slice(0, 8));
-            expect(detail?.steps).toHaveLength(2);
+            // The timeline includes the failed attempt, unlike the successful-only replay list.
+            expect(detail?.steps).toHaveLength(3);
             expect(detail?.steps[0]?.order).toBe(0);
             expect(detail?.steps[0]?.interaction).toBe("navigate");
+            expect(detail?.steps[0]?.status).toBe("success");
             expect(detail?.steps[1]?.order).toBe(1);
             expect(detail?.steps[1]?.interaction).toBe("assert");
+            expect(detail?.steps[2]?.order).toBe(2);
+            expect(detail?.steps[2]?.interaction).toBe("assert");
             expect(detail?.createdAt).toBeInstanceOf(Date);
             // The seed snapshot belongs to the main branch, which has no PR.
             expect(detail?.pullRequest).toBeUndefined();
+        });
+
+        test("detail surfaces failed attempts with their error and error name", async ({
+            harness,
+            seedResult: { generationWithSteps },
+        }) => {
+            const detail = await harness.request().generations.detail({
+                generationId: generationWithSteps.id,
+            });
+
+            const failed = detail?.steps[1];
+            expect(failed?.status).toBe("failed");
+            expect(failed?.error).toBe("Expected the title to be visible, but it was not");
+            expect(failed?.errorName).toBe("VerificationError");
+            expect(failed?.output).toBeUndefined();
         });
 
         test("detail exposes the pull request and snapshot when the generation's snapshot belongs to a PR", async ({
@@ -235,7 +294,7 @@ apiTestSuite({
             });
         });
 
-        test("returns generation detail with empty steps when no outputs exist", async ({
+        test("returns generation detail with empty steps when no attempts exist", async ({
             harness,
             seedResult: { generationWithoutSteps },
         }) => {

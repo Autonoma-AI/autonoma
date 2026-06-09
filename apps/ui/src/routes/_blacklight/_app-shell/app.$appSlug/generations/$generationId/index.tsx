@@ -19,6 +19,7 @@ import { StackIcon } from "@phosphor-icons/react/Stack";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
+import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { createFileRoute } from "@tanstack/react-router";
 import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
@@ -52,8 +53,10 @@ interface GenerationStep {
   order: number;
   interaction: string;
   params: unknown;
+  status: "success" | "failed";
   output?: object;
-  waitCondition?: string | null;
+  error?: string;
+  errorName?: string;
   screenshotBefore: string | null | undefined;
   screenshotAfter: string | null | undefined;
 }
@@ -370,17 +373,30 @@ function StepCard({
 }) {
   const screenshot = step.screenshotBefore ?? step.screenshotAfter;
   const instruction = stepDescription(step);
+  const isFailed = step.status === "failed";
 
   return (
     <div className="flex gap-4">
       <div className="mt-0.5 flex flex-col items-center">
-        <div className="flex size-6 shrink-0 items-center justify-center border border-border-dim bg-surface-base">
-          <span className="font-mono text-3xs text-text-tertiary">{step.order}</span>
+        <div
+          className={`flex size-6 shrink-0 items-center justify-center border bg-surface-base ${
+            isFailed ? "border-status-critical/50" : "border-border-dim"
+          }`}
+        >
+          {isFailed ? (
+            <XCircleIcon size={14} weight="fill" className="text-status-critical" />
+          ) : (
+            <span className="font-mono text-3xs text-text-tertiary">{step.order}</span>
+          )}
         </div>
         {!isLast && <div className="mt-1 h-full w-px bg-border-dim" />}
       </div>
 
-      <div className="mb-3 flex-1 overflow-hidden border border-border-dim bg-surface-raised">
+      <div
+        className={`mb-3 flex-1 overflow-hidden border bg-surface-raised ${
+          isFailed ? "border-status-critical/40" : "border-border-dim"
+        }`}
+      >
         <div className="flex">
           {screenshot != null && (
             <div
@@ -400,9 +416,24 @@ function StepCard({
               <p className="text-sm font-medium leading-snug text-text-primary">{instruction}</p>
               <span className="shrink-0 font-mono text-2xs font-medium text-text-tertiary">#{step.order}</span>
             </div>
-            <Badge variant="outline" className="w-fit font-mono text-3xs uppercase">
-              {step.interaction}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" className="w-fit font-mono text-3xs uppercase">
+                {step.interaction}
+              </Badge>
+              {isFailed && (
+                <Badge variant="critical" className="w-fit gap-1 font-mono text-3xs uppercase">
+                  <XCircleIcon size={10} weight="fill" />
+                  {step.errorName ?? "Failed"}
+                </Badge>
+              )}
+            </div>
+            {isFailed && step.error != null && (
+              <div className="border-l-2 border-status-critical/50 bg-status-critical/5 px-2.5 py-1.5">
+                <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-status-critical">
+                  {step.error}
+                </p>
+              </div>
+            )}
             {step.output != null && <StepOutputDisplay output={step.output as Record<string, unknown>} />}
           </div>
         </div>
