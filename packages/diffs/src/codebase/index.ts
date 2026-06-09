@@ -6,4 +6,3 @@ export {
     type GrepOptions,
     type ReadFileOptions,
 } from "./codebase";
-export { buildRepoTools } from "./tools";

@@ -1,8 +1,8 @@
 import { resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import { expect } from "vitest";
-import { replayContextSuite } from "./harness";
+import { diffJobContextSuite } from "./harness";
 
-replayContextSuite({
+diffJobContextSuite({
     name: "resolveScenarioRecipesForSnapshot",
     cases: (test) => {
         test("materializes the point-in-time recipe template for the requested scenarios", async ({
