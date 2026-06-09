@@ -12,6 +12,7 @@ import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/work
 import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import { Service } from "../service";
+import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
 import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
@@ -609,7 +610,8 @@ export class BranchesService extends Service {
             comparisonSnapshotId = branch.activeSnapshot?.prevSnapshotId ?? null;
         }
 
-        const testSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
+        const rawTestSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
+        const testSuite = await signTestSuiteScreenshots(rawTestSuite, this.storageProvider);
         const changes = await getChangesForSnapshot(
             this.db,
             branch.activeSnapshotId,

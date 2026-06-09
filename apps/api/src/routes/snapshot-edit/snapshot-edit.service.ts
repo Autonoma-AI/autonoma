@@ -1,6 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import { ApplicationArchitecture, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import type { StorageProvider } from "@autonoma/storage";
 import {
     AddTest,
     ApplicationNotFoundError,
@@ -12,6 +13,7 @@ import {
     UpdateTest,
 } from "@autonoma/test-updates";
 import { Service } from "../service";
+import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 
 interface AddTestInput {
     name: string;
@@ -37,6 +39,7 @@ export class SnapshotEditService extends Service {
         private readonly db: PrismaClient,
         private readonly generationProvider: GenerationProvider,
         private readonly billingService: BillingService,
+        private readonly storageProvider: StorageProvider,
     ) {
         super();
     }
@@ -45,7 +48,8 @@ export class SnapshotEditService extends Service {
         this.logger.info("Starting edit session", { branchId });
 
         const updater = await this.startUpdate(branchId, organizationId);
-        const testSuite = await updater.currentTestSuiteInfo();
+        const rawTestSuite = await updater.currentTestSuiteInfo();
+        const testSuite = await signTestSuiteScreenshots(rawTestSuite, this.storageProvider);
 
         this.logger.info("Edit session started", {
             branchId,
@@ -59,11 +63,12 @@ export class SnapshotEditService extends Service {
         this.logger.info("Getting edit session", { branchId });
 
         const updater = await this.continueUpdate(branchId, organizationId);
-        const [testSuite, generationSummary, changes] = await Promise.all([
+        const [rawTestSuite, generationSummary, changes] = await Promise.all([
             updater.currentTestSuiteInfo(),
             updater.getGenerationSummary(),
             updater.getChanges(),
         ]);
+        const testSuite = await signTestSuiteScreenshots(rawTestSuite, this.storageProvider);
 
         return {
             snapshotId: updater.snapshotId,

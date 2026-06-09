@@ -108,7 +108,7 @@ export function buildServices({
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
         onboarding: new OnboardingService(onboardingManager),
-        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
+        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
         diffsTrigger: new DiffsTriggerService(conn, githubService, triggerDiffsJob, cancelDiffsJob),
