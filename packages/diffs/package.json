@@ -30,12 +30,14 @@
         "ai": "catalog:",
         "glob": "^11.1.0",
         "rimraf": "^6.1.3",
+        "shell-quote": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@autonoma/integration-test": "workspace:*",
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
+        "@types/shell-quote": "^1.7.5",
         "dotenv": "catalog:",
         "tsx": "catalog:",
         "typescript": "catalog:",
