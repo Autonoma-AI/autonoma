@@ -28,7 +28,7 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
             description:
                 "Spawn a subagent to research a specific part of the codebase in parallel. " +
                 "Use this to parallelize investigation - e.g. one subagent per affected file or area. " +
-                "Each subagent has bash, glob, grep, list_directory and read_files tools. " +
+                "Each subagent has a read-only bash tool to explore the source tree. " +
                 "Give each subagent a focused, specific instruction.",
             inputSchema: subagentInputSchema,
         });

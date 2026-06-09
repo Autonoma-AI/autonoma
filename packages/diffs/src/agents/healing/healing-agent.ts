@@ -8,16 +8,7 @@ import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import { buildHealingPrompt } from "../../healing/prompt-builder";
 import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
-import {
-    BashTool,
-    GlobTool,
-    GrepTool,
-    ListDirectoryTool,
-    ListScenariosTool,
-    ReadFilesTool,
-    ReadScenarioTool,
-    SubagentTool,
-} from "../tools";
+import { buildCodebaseTools, ListScenariosTool, ReadScenarioTool, SubagentTool } from "../tools";
 import { HealingAgentLoop } from "./healing-agent-loop";
 import { HealingResultTool } from "./healing-result-tool";
 import { HealingRemoveTestTool } from "./tools/remove-test-tool";
@@ -73,11 +64,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
     private readonly logger: Logger;
     private readonly model: LanguageModel;
 
-    private readonly bashTool = new BashTool();
-    private readonly globTool = new GlobTool();
-    private readonly grepTool = new GrepTool();
-    private readonly listDirectoryTool = new ListDirectoryTool();
-    private readonly readFilesTool = new ReadFilesTool();
+    private readonly codebaseTools = buildCodebaseTools();
     private readonly subagentTool: SubagentTool;
     private readonly listScenariosTool = new ListScenariosTool();
     private readonly readScenarioTool = new ReadScenarioTool();
@@ -109,11 +96,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
             model: this.model,
             systemPrompt: SYSTEM_PROMPT,
             tools: [
-                this.bashTool,
-                this.globTool,
-                this.grepTool,
-                this.listDirectoryTool,
-                this.readFilesTool,
+                ...this.codebaseTools,
                 this.subagentTool,
                 this.listScenariosTool,
                 this.readScenarioTool,

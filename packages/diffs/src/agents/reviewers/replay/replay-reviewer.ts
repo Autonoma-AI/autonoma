@@ -10,10 +10,7 @@ import { tryUploadVideo } from "../../../review/kernel/video-upload";
 import { buildReplayReviewMessages } from "../../../review/replay/message-builder";
 import type { RunContext } from "../../../review/replay/types";
 import {
-    BashTool,
-    GrepTool,
-    ListDirectoryTool,
-    ReadFilesTool,
+    buildCodebaseTools,
     ReadScenarioEntitiesTool,
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,
@@ -47,10 +44,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
 
     private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
     private readonly viewFinalScreenshotTool = new ViewFinalScreenshotTool();
-    private readonly readFilesTool = new ReadFilesTool();
-    private readonly grepTool = new GrepTool();
-    private readonly listDirectoryTool = new ListDirectoryTool();
-    private readonly bashTool = new BashTool();
+    private readonly codebaseTools = buildCodebaseTools();
     private readonly readScenarioEntitiesTool = new ReadScenarioEntitiesTool();
     private readonly resultTool = new FinishTool<ReplayVerdict>({
         name: "submit_verdict",
@@ -83,10 +77,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
         const tools: AgentTool<unknown, unknown>[] = [
             this.viewStepScreenshotTool,
             this.viewFinalScreenshotTool,
-            this.readFilesTool,
-            this.grepTool,
-            this.listDirectoryTool,
-            this.bashTool,
+            ...this.codebaseTools,
         ];
         if (scenario != null) tools.push(this.readScenarioEntitiesTool);
 

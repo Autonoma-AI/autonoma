@@ -14,6 +14,7 @@ export {
     affectedReasonSchema,
     affectedTestSchema,
     BashTool,
+    buildCodebaseTools,
     type AffectedReason,
     type AffectedTest,
     type CodebaseLoop,
@@ -26,19 +27,15 @@ export {
     GenerationReviewer,
     type GenerationReviewerConfig,
     type GenerationReviewInput,
-    GlobTool,
-    GrepTool,
     HealingAgent,
     HealingAgentLoop,
     type HealingAgentConfig,
     type HealingInput,
     type HealingResult,
-    ListDirectoryTool,
     ListFlowsTool,
     ListScenariosTool,
     ListTestsTool,
     type ModifiedTest,
-    ReadFilesTool,
     ReadScenarioEntitiesTool,
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
@@ -111,14 +108,7 @@ export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
 export { loadFlows } from "./loaders/load-flows";
 export { buildVerdicts, type AffectedTestWithRun } from "./loaders/build-verdicts";
 
-export {
-    Codebase,
-    type DirectoryEntry,
-    type GlobOptions,
-    type GrepHit,
-    type GrepOptions,
-    type ReadFileOptions,
-} from "./codebase";
+export { Codebase } from "./codebase";
 
 export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export { bucketIterationOutcomes, type BucketedIterationOutcomes } from "./refinement/bucket-iteration-outcomes";

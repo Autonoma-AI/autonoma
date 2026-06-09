@@ -8,12 +8,9 @@ import type { FlowIndex } from "../../flow-index";
 import { PLAN_AUTHORING_GUIDE } from "../../healing";
 import type { ScenarioRecipeData } from "../../scenario-recipe";
 import {
-    BashTool,
-    GlobTool,
-    GrepTool,
+    buildCodebaseTools,
     ListFlowsTool,
     ListTestsTool,
-    ReadFilesTool,
     ReadScenarioRecipeEntitiesTool,
     ReadTestsTool,
     SubagentTool,
@@ -78,10 +75,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
     private readonly logger: Logger;
     private readonly model: LanguageModel;
 
-    private readonly bashTool = new BashTool();
-    private readonly globTool = new GlobTool();
-    private readonly grepTool = new GrepTool();
-    private readonly readFilesTool = new ReadFilesTool();
+    private readonly codebaseTools = buildCodebaseTools();
     private readonly subagentTool: SubagentTool;
     private readonly listFlowsTool = new ListFlowsTool();
     private readonly listTestsTool = new ListTestsTool();
@@ -127,10 +121,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
         // just wastes a turn. The recipe summary section in the prompt is gated
         // the same way.
         const tools: AgentTool<unknown, unknown>[] = [
-            this.bashTool,
-            this.globTool,
-            this.grepTool,
-            this.readFilesTool,
+            ...this.codebaseTools,
             this.subagentTool,
             this.listFlowsTool,
             this.listTestsTool,

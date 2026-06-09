@@ -9,14 +9,7 @@ import { buildGenerationReviewMessages } from "../../../review/generation/messag
 import type { GenerationContext } from "../../../review/generation/types";
 import type { EvidenceLoader } from "../../../review/kernel/evidence-loader";
 import { tryUploadVideo } from "../../../review/kernel/video-upload";
-import {
-    BashTool,
-    GrepTool,
-    ListDirectoryTool,
-    ReadFilesTool,
-    ViewFinalScreenshotTool,
-    ViewStepScreenshotTool,
-} from "../../tools";
+import { buildCodebaseTools, ViewFinalScreenshotTool, ViewStepScreenshotTool } from "../../tools";
 import { ReviewerLoop } from "../reviewer-loop";
 
 const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "../../../review/generation/review-prompt.md"), "utf-8");
@@ -51,10 +44,7 @@ export class GenerationReviewer extends Agent<
 
     private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
     private readonly viewFinalScreenshotTool = new ViewFinalScreenshotTool();
-    private readonly readFilesTool = new ReadFilesTool();
-    private readonly grepTool = new GrepTool();
-    private readonly listDirectoryTool = new ListDirectoryTool();
-    private readonly bashTool = new BashTool();
+    private readonly codebaseTools = buildCodebaseTools();
     private readonly resultTool = new FinishTool<GenerationVerdict>({
         name: "submit_verdict",
         description:
@@ -85,14 +75,7 @@ export class GenerationReviewer extends Agent<
             name: "GenerationReviewer",
             model: this.model,
             systemPrompt: SYSTEM_PROMPT,
-            tools: [
-                this.viewStepScreenshotTool,
-                this.viewFinalScreenshotTool,
-                this.readFilesTool,
-                this.grepTool,
-                this.listDirectoryTool,
-                this.bashTool,
-            ],
+            tools: [this.viewStepScreenshotTool, this.viewFinalScreenshotTool, ...this.codebaseTools],
             reportTool: this.resultTool,
             codebase: input.codebase,
             screenshotLoader: this.evidenceLoader,

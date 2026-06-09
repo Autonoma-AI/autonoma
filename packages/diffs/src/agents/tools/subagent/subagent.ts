@@ -2,18 +2,14 @@ import { Agent, FinishTool, type LanguageModel } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { Codebase } from "../../../codebase";
-import { BashTool } from "../codebase/bash-tool";
-import { GlobTool } from "../codebase/glob-tool";
-import { GrepTool } from "../codebase/grep-tool";
-import { ListDirectoryTool } from "../codebase/list-directory-tool";
-import { ReadFilesTool } from "../codebase/read-files-tool";
+import { buildCodebaseTools } from "../codebase/build-codebase-tools";
 import { SubagentLoop, type SubagentResult } from "./subagent-loop";
 
 export type { SubagentResult } from "./subagent-loop";
 
-const SUBAGENT_SYSTEM_PROMPT = `You are a code research assistant. You have tools to explore a codebase: bash (shell commands, mainly git), glob (find files), grep (search content), list_directory (list directories), and read_files (read one or more files in a single call - always batch every path you need into one call).
+const SUBAGENT_SYSTEM_PROMPT = `You are a code research assistant. You explore a codebase through a single read-only \`bash\` tool - run shell commands (\`rg\`, \`sed -n\`, \`cat\`, \`find\`, \`git\`, pipes, sequencing) against the checked-out source tree. See the tool's description for the allowed verbs and grammar.
 
-Follow the instruction you're given. Explore the codebase using the tools, then call \`finish\` with a summary of your findings.
+Follow the instruction you're given. Explore the codebase using the tool, then call \`finish\` with a summary of your findings.
 
 Be thorough but focused - only investigate what's relevant to your instruction.`;
 
@@ -39,13 +35,7 @@ export interface SubagentConfig {
 export class Subagent extends Agent<SubagentInput, SubagentResult, SubagentLoop> {
     private readonly model: LanguageModel;
     private readonly maxSteps: number;
-    private readonly tools = [
-        new BashTool(),
-        new GlobTool(),
-        new GrepTool(),
-        new ListDirectoryTool(),
-        new ReadFilesTool(),
-    ];
+    private readonly tools = buildCodebaseTools();
     private readonly reportTool = new FinishTool<SubagentResult>({
         description: "Call this when you have completed your research.",
         resultSchema: subagentResultSchema,

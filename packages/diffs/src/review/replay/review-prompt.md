@@ -26,8 +26,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 
 - `view_step_screenshot` - the before/after screenshot of a specific step.
 - `view_final_screenshot` - the screenshot when the last step finished.
-- `bash` - run shell commands against the checked-out source tree. Use `git diff <baseSha>..<headSha>` to see the actual change this run executed against, which is the single strongest signal for `engine_error` vs `application_bug`.
-- `read_file`, `grep`, `list_directory` - **the application's source code** when available. Use `grep` to confirm whether a label/element a step references still exists in the codebase before declaring `engine_error`.
+- `bash` - read-only shell access to **the application's source code**, when available. Use `git diff <baseSha>..<headSha>` to see the actual change this run executed against, which is the single strongest signal for `engine_error` vs `application_bug`. Search with `rg` to confirm whether a label/element a step references still exists in the codebase before declaring `engine_error`; read files with `cat` or `sed -n '<start>,<end>p'` and list with `ls`/`find`. See the tool description for the allowed verbs and grammar.
 - `read_scenario_entities` (when scenario data is present) - the full records the run's scenario created for one entity type. Use it to verify whether a specific user, item, or value the test references was actually seeded. Reads in-memory scenario data only - no database or network access.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: `engine_error` or `application_bug`.
@@ -45,7 +44,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 3. Watch the video for the overall flow.
 4. Walk the step summary; the most signal is in the parameters of the last successful step and the output of the first failed step.
 5. Inspect screenshots around the failure point.
-6. If a step failed because an element couldn't be found, use `grep` (when the codebase is available) to check whether the element's label/text still exists in the source. If absent: `engine_error`. If present and the app is still showing an error/empty state: `application_bug`.
+6. If a step failed because an element couldn't be found, use `bash` with `rg` (when the codebase is available) to check whether the element's label/text still exists in the source. If absent: `engine_error`. If present and the app is still showing an error/empty state: `application_bug`.
 7. If scenario data is present, check whether the failing step depends on data the scenario actually seeded. A test plan that references a user, item, or value not in the scenario data is malformed (`engine_error`), not an application bug - the app correctly has no such data. Use `read_scenario_entities` to confirm a specific record when the summary is not enough.
 8. Submit the verdict.
 

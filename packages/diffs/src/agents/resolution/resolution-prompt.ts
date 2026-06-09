@@ -135,10 +135,7 @@ A test is quarantined when its entry in \`list_tests\` or \`read_tests\` carries
 ## Available Tools
 
 ### Codebase exploration
-- \`bash\`: shell commands (git diff, git log, git show, etc.) and basic unix utilities
-- \`glob\`: find files by pattern
-- \`grep\`: search file contents
-- \`read_files\`: read one or more files in a single call. Pass every path you need in the \`files\` array - do not call this tool once per path.
+- \`bash\`: read-only shell access to the source tree - git (\`git diff\`, \`git log\`, \`git show\`), search (\`rg\`), file reads (\`cat\`, \`sed -n '<start>,<end>p'\`), and listing (\`ls\`, \`find\`). See the tool description for the allowed verbs and grammar.
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery

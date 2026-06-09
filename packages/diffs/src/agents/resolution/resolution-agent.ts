@@ -8,13 +8,10 @@ import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { AffectedReason } from "../diffs/affected-test";
 import {
-    BashTool,
-    GlobTool,
-    GrepTool,
+    buildCodebaseTools,
     ListFlowsTool,
     ListScenariosTool,
     ListTestsTool,
-    ReadFilesTool,
     ReadScenarioTool,
     ReadTestsTool,
     SubagentTool,
@@ -87,10 +84,7 @@ export class ResolutionAgent extends Agent<ResolutionAgentInput, ResolutionAgent
     private readonly logger: Logger;
     private readonly model: LanguageModel;
 
-    private readonly bashTool = new BashTool();
-    private readonly globTool = new GlobTool();
-    private readonly grepTool = new GrepTool();
-    private readonly readFilesTool = new ReadFilesTool();
+    private readonly codebaseTools = buildCodebaseTools();
     private readonly subagentTool: SubagentTool;
     private readonly listFlowsTool = new ListFlowsTool();
     private readonly listTestsTool = new ListTestsTool();
@@ -125,10 +119,7 @@ export class ResolutionAgent extends Agent<ResolutionAgentInput, ResolutionAgent
             model: this.model,
             systemPrompt: SYSTEM_PROMPT,
             tools: [
-                this.bashTool,
-                this.globTool,
-                this.grepTool,
-                this.readFilesTool,
+                ...this.codebaseTools,
                 this.subagentTool,
                 this.listFlowsTool,
                 this.listTestsTool,

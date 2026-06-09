@@ -43,13 +43,10 @@ export { testCandidateSchema, type TestCandidate } from "./diffs/tools/suggest-t
 
 export {
     BashTool,
-    GlobTool,
-    GrepTool,
-    ListDirectoryTool,
+    buildCodebaseTools,
     ListFlowsTool,
     ListScenariosTool,
     ListTestsTool,
-    ReadFilesTool,
     ReadScenarioEntitiesTool,
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,

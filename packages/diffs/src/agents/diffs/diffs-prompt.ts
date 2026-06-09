@@ -117,10 +117,7 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 ## Available Tools
 
 ### Codebase exploration
-- \`bash\`: shell commands (git diff, git log, git show, etc.) and basic unix utilities
-- \`glob\`: find files by pattern
-- \`grep\`: search file contents
-- \`read_files\`: read one or more files in a single call. Pass every path you need in the \`files\` array - do not call this tool once per path.
+- \`bash\`: read-only shell access to the source tree - git (\`git diff\`, \`git log\`, \`git show\`), search (\`rg\`), file reads (\`cat\`, \`sed -n '<start>,<end>p'\`), and listing (\`ls\`, \`find\`). See the tool description for the allowed verbs and grammar.
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
@@ -138,7 +135,7 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 
 ## Workflow
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
-2. Read relevant source files to understand the changes in context - batch every file you need to read into one \`read_files\` call
+2. Read relevant source files to understand the changes in context - \`cat\` the paths you need (pass several at once) or \`sed -n '<start>,<end>p'\` for slices
 3. Browse the test flows using \`list_tests\` to understand what tests exist
 4. Identify potentially affected tests by passing every candidate slug to \`read_tests\` in one call, then \`mark_affected_test\` for each affected one
 5. Identify test gaps and suggest new tests with \`suggest_test\`

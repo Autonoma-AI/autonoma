@@ -5,8 +5,8 @@ import { boundRecords } from "./bound-records";
 import type { ScenarioDataLoop } from "./scenario-data-loop";
 
 /**
- * Aggregate output budget for a single call, mirroring the sibling disclosure
- * tools (`read_files`, `grep`). Realistic scenarios return every record well
+ * Aggregate output budget for a single call, mirroring the codebase `bash`
+ * tool's output cap. Realistic scenarios return every record well
  * under this; only a pathological type (thousands of records, or records with
  * large blob fields) is truncated, with a marker telling the model how many
  * records were dropped.

@@ -1,9 +1,6 @@
 export { BashTool, validateCommand } from "./codebase/bash-tool";
+export { buildCodebaseTools } from "./codebase/build-codebase-tools";
 export type { CodebaseLoop } from "./codebase/codebase-loop";
-export { GlobTool } from "./codebase/glob-tool";
-export { GrepTool } from "./codebase/grep-tool";
-export { ListDirectoryTool } from "./codebase/list-directory-tool";
-export { ReadFilesTool } from "./codebase/read-files-tool";
 
 export { Subagent, type SubagentInput, type SubagentConfig } from "./subagent/subagent";
 export { SubagentLoop, type SubagentResult } from "./subagent/subagent-loop";

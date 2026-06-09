@@ -30,8 +30,7 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
 
 - `view_step_screenshot` - the before/after screenshot of a specific step.
 - `view_final_screenshot` - the screenshot when the agent stopped.
-- `read_file`, `grep`, `list_directory` - **the application's source code**, when available. Use these when you need to confirm whether something the test plan describes actually exists in the app, or to ground a `plan_mismatch` vs `application_bug` distinction in code.
-- `bash` - run shell commands against the checked-out source tree. When a code change is provided, use `git diff <baseSha>..<headSha>` to see exactly what changed - a failure in a flow the change directly touched is strong signal for `application_bug` or `plan_mismatch` over `agent_limitation`.
+- `bash` - read-only shell access to **the application's source code**, when available. Search with `rg`, read files with `cat` or `sed -n '<start>,<end>p'`, and list with `ls`/`find` to confirm whether something the test plan describes actually exists in the app, or to ground a `plan_mismatch` vs `application_bug` distinction in code. When a code change is provided, use `git diff <baseSha>..<headSha>` to see exactly what changed - a failure in a flow the change directly touched is strong signal for `application_bug` or `plan_mismatch` over `agent_limitation`. See the tool description for the allowed verbs and grammar.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: one of `success`, `agent_limitation`, `application_bug`, `plan_mismatch`.
   - **confidence**: 0-100. Use 90+ for clear-cut cases, 60-89 when probable, below 60 for ambiguous.
@@ -50,7 +49,7 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
 5. **If failure, classify the cause**:
    - If a code change is provided, run `git diff <baseSha>..<headSha>` and read the change analysis. A failure in a flow the change directly touched leans toward `application_bug` (or `plan_mismatch`, if the change made the plan's described UI obsolete); a failure unrelated to anything in the diff leans toward `agent_limitation`.
    - Is the application visibly broken on screen? -> `application_bug`.
-   - Did the plan reference UI that's not there? Use `read_file` / `grep` if available to check. -> `plan_mismatch`.
+   - Did the plan reference UI that's not there? Use `bash` (`rg`, `cat`) if available to check. -> `plan_mismatch`.
    - Otherwise, the agent fumbled an executable plan against a working app. -> `agent_limitation`.
 6. Submit the verdict.
 
@@ -74,7 +73,7 @@ The execution agent often self-reports success too eagerly. Reject `success` if:
 
 - The plan tells the agent to click a button labeled "Pay now" but the actual UI has "Checkout" -> `plan_mismatch`.
 - The plan describes a pre-existing flow correctly, the agent just couldn't execute it -> `agent_limitation`.
-- When the codebase is available, use `grep` for the strings the plan mentions; their presence/absence is strong signal.
+- When the codebase is available, use `bash` with `rg` to search for the strings the plan mentions; their presence/absence is strong signal.
 
 ### When a Refinement-Loop History is present (anchoring guard)
 

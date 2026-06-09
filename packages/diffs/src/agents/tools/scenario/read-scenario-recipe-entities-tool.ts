@@ -6,8 +6,8 @@ import { boundRecords } from "./bound-records";
 import type { ScenarioRecipeLoop } from "./scenario-recipe-loop";
 
 /**
- * Aggregate output budget for a single call, mirroring the sibling disclosure
- * tools (`read_scenario_entities`, `read_files`). Realistic recipes return every
+ * Aggregate output budget for a single call, mirroring the sibling
+ * `read_scenario_entities` tool. Realistic recipes return every
  * record well under this; only a pathological type (thousands of declared rows,
  * or rows with large blob fields) is truncated, with a marker telling the model
  * how many records were dropped.

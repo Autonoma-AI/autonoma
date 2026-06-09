@@ -41,9 +41,10 @@ For each failure, pick exactly one of the following:
 
 ## Tools available
 
-- **`read_files`, `grep`, `list_directory`** - codebase exploration. `read_files` takes an
-  array of files in a single call - always batch every path you need into one call rather than
-  reading one file at a time. The codebase is checked out at the snapshot's head SHA.
+- **`bash`** - read-only shell access to the codebase for exploration: search with `rg`, read
+  files with `cat` or `sed -n '<start>,<end>p'`, list with `ls`/`find`, and inspect history with
+  `git`. See the tool description for the allowed verbs and grammar. The codebase is checked out
+  at the snapshot's head SHA.
 - **`screenshot`** - inspect screenshots from a failure's evidence list when you need to see
   what the engine saw.
 - **`list_scenarios`, `read_scenario`** - inspect the named test data environments available

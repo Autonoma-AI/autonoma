@@ -20,7 +20,7 @@ All five extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
 src/agents/
 ├── capabilities.ts          Loop capability interfaces (CodebaseLoop, TestLookupLoop, …)
 ├── tools/                   Shared tools - typed against the narrowest capability they need
-│   ├── codebase/            bash, glob, grep, list_directory, read_files (CodebaseLoop)
+│   ├── codebase/            bash - single read-only shell tool, via buildCodebaseTools() (CodebaseLoop)
 │   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
 │   ├── scenario/            read_scenario_entities (ScenarioDataLoop),
 │   │                        read_scenario_recipe_entities (ScenarioRecipeLoop)
