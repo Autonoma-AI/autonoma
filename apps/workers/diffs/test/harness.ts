@@ -1,5 +1,6 @@
 import {
     type AffectedReason,
+    type GenerationStatus,
     type PrismaClient,
     type RunReviewVerdict,
     type ScenarioInstanceStatus,
@@ -7,10 +8,46 @@ import {
     createClient,
 } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import type { StorageProvider } from "@autonoma/storage";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import type { ModelMessage } from "ai";
 import type { TestAPI } from "vitest";
 
 const POSTGRES_IMAGE = "postgres:17-alpine";
+
+/**
+ * Minimal in-memory {@link StorageProvider} for the loader's generation path:
+ * the generation conversation is the one piece of evidence the loader resolves
+ * eagerly (from S3 in production), so the integration test serves it from this
+ * map keyed by the `conversationUrl` the seeded generation points at. Every
+ * other method throws - the loader never touches them.
+ */
+export class InMemoryStorage implements StorageProvider {
+    private readonly objects = new Map<string, Buffer>();
+
+    put(key: string, data: Buffer): void {
+        this.objects.set(key, data);
+    }
+
+    async download(key: string): Promise<Buffer> {
+        const data = this.objects.get(key);
+        if (data == null) throw new Error(`InMemoryStorage: no object at key ${key}`);
+        return data;
+    }
+
+    upload(): Promise<string> {
+        throw new Error("InMemoryStorage.upload is not supported");
+    }
+    uploadStream(): Promise<string> {
+        throw new Error("InMemoryStorage.uploadStream is not supported");
+    }
+    delete(): Promise<void> {
+        throw new Error("InMemoryStorage.delete is not supported");
+    }
+    getSignedUrl(): Promise<string> {
+        throw new Error("InMemoryStorage.getSignedUrl is not supported");
+    }
+}
 
 /** One executed step to materialize as a StepInput + StepOutput pair on a run. */
 export interface SeedStep {
@@ -92,14 +129,85 @@ export interface SeededLineage {
     loopId: string;
 }
 
+/** One generation step: a StepInput (with screenshots) + its single StepOutput. */
+export interface SeedGenerationStep {
+    order: number;
+    interaction: string;
+    params: object;
+    output: object;
+    screenshotBefore?: string;
+    screenshotAfter?: string;
+}
+
+export interface SeedGenerationParams {
+    organizationId: string;
+    applicationId: string;
+    /** When omitted, the snapshot is created without SHAs (exercises the SHA-missing path). */
+    baseSha?: string;
+    headSha?: string;
+    /** When provided, a DiffsJob is created carrying this analysis reasoning. */
+    analysisReasoning?: string;
+    /** When provided, an AffectedTest row links this generation with the given reason + reasoning. */
+    affected?: { reason: AffectedReason; reasoning: string };
+    /** Defaults to "failed". */
+    status?: GenerationStatus;
+    reasoning?: string;
+    testName?: string;
+    testPlanPrompt?: string;
+    /** When provided, the conversation JSON is stored in the harness storage and `conversationUrl` points at it. */
+    conversation?: ModelMessage[];
+    videoUrl?: string;
+    finalScreenshot?: string;
+    steps?: SeedGenerationStep[];
+}
+
+export interface SeededGeneration {
+    generationId: string;
+    snapshotId: string;
+    testCaseId: string;
+    planId: string;
+}
+
+/** One refinement iteration in a generation-subject lineage graph. */
+export interface SeedGenerationIteration {
+    number: number;
+    planPrompt: string;
+    healingReasoning?: string;
+    /** A completed RunReview verdict for this iteration's run. Omit to contribute no prior verdict. */
+    verdict?: { verdict: RunReviewVerdict; reasoning: string };
+    /** Marks this iteration as the subject - it materializes a generation, not a run. Exactly one required. */
+    subject?: boolean;
+}
+
+export interface SeedGenerationLineageParams {
+    organizationId: string;
+    applicationId: string;
+    baseSha?: string;
+    headSha?: string;
+    testName?: string;
+    iterations: SeedGenerationIteration[];
+    /** Steps attached to the subject generation. */
+    steps?: SeedGenerationStep[];
+    conversation?: ModelMessage[];
+}
+
+export interface SeededGenerationLineage {
+    subjectGenerationId: string;
+    snapshotId: string;
+    testCaseId: string;
+    loopId: string;
+}
+
 let testSeq = 0;
 function uniqueSuffix(): string {
     testSeq += 1;
     return `${testSeq}-${Math.floor(performance.now())}`;
 }
 
-export class ReplayContextHarness implements IntegrationHarness {
+export class DiffJobContextHarness implements IntegrationHarness {
     public readonly db: PrismaClient;
+    /** Serves the seeded generation conversation the loader downloads eagerly. */
+    public readonly storage = new InMemoryStorage();
 
     private readonly pgContainer: StartedPostgreSqlContainer;
 
@@ -108,11 +216,11 @@ export class ReplayContextHarness implements IntegrationHarness {
         this.pgContainer = pgContainer;
     }
 
-    static async create(): Promise<ReplayContextHarness> {
+    static async create(): Promise<DiffJobContextHarness> {
         const pgContainer = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
         applyMigrations(pgContainer.getConnectionUri());
         const db = createClient(pgContainer.getConnectionUri());
-        return new ReplayContextHarness(db, pgContainer);
+        return new DiffJobContextHarness(db, pgContainer);
     }
 
     async beforeAll() {}
@@ -462,6 +570,277 @@ export class ReplayContextHarness implements IntegrationHarness {
         return { subjectRunId, snapshotId: snapshot.id, testCaseId: testCase.id, loopId: loop.id };
     }
 
+    /**
+     * Materialize a complete generation graph the loader reads from: a snapshot
+     * (optionally with SHAs + a DiffsJob), a test case + plan, the generation
+     * with its executed steps + (optional) conversation stored in the harness
+     * storage, and an optional AffectedTest linking the generation.
+     */
+    async seedGeneration(params: SeedGenerationParams): Promise<SeededGeneration> {
+        const { organizationId, applicationId } = params;
+        const suffix = uniqueSuffix();
+
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${suffix}`, organizationId, applicationId },
+        });
+        const folder = await this.db.folder.create({
+            data: { name: `folder-${suffix}`, applicationId, organizationId },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId: branch.id,
+                source: "MANUAL",
+                baseSha: params.baseSha ?? null,
+                headSha: params.headSha ?? null,
+            },
+        });
+
+        if (params.analysisReasoning != null || params.affected != null) {
+            await this.db.diffsJob.create({
+                data: {
+                    snapshotId: snapshot.id,
+                    organizationId,
+                    status: "completed",
+                    analysisReasoning: params.analysisReasoning ?? null,
+                },
+            });
+        }
+
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: params.testName ?? `Test ${suffix}`,
+                slug: `test-${suffix}`,
+                applicationId,
+                folderId: folder.id,
+                organizationId,
+            },
+        });
+        const plan = await this.createPlan(
+            testCase.id,
+            params.testPlanPrompt ?? "Original plan prompt",
+            organizationId,
+        );
+
+        const generation = await this.createGeneration({
+            organizationId,
+            snapshotId: snapshot.id,
+            planId: plan.id,
+            status: params.status ?? "failed",
+            reasoning: params.reasoning,
+            videoUrl: params.videoUrl,
+            finalScreenshot: params.finalScreenshot,
+            conversation: params.conversation,
+            steps: params.steps ?? [],
+        });
+
+        if (params.affected != null) {
+            await this.db.affectedTest.create({
+                data: {
+                    snapshotId: snapshot.id,
+                    testCaseId: testCase.id,
+                    affectedReason: params.affected.reason,
+                    reasoning: params.affected.reasoning,
+                    generationId: generation.id,
+                    organizationId,
+                },
+            });
+        }
+
+        return { generationId: generation.id, snapshotId: snapshot.id, testCaseId: testCase.id, planId: plan.id };
+    }
+
+    /**
+     * Materialize a refinement-loop lineage graph whose subject is a *generation*
+     * (not a run): earlier iterations execute runs with completed RunReviews, and
+     * the subject iteration materializes a generation against its healed plan.
+     * Mirrors {@link seedRefinementLineage} so the loader's lineage walk - which is
+     * subject-agnostic - can be exercised from the generation entry point.
+     */
+    async seedGenerationRefinementLineage(params: SeedGenerationLineageParams): Promise<SeededGenerationLineage> {
+        const { organizationId, applicationId } = params;
+        const suffix = uniqueSuffix();
+
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${suffix}`, organizationId, applicationId },
+        });
+        const folder = await this.db.folder.create({
+            data: { name: `folder-${suffix}`, applicationId, organizationId },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId: branch.id,
+                source: "MANUAL",
+                baseSha: params.baseSha ?? null,
+                headSha: params.headSha ?? null,
+            },
+        });
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: params.testName ?? `Test ${suffix}`,
+                slug: `test-${suffix}`,
+                applicationId,
+                folderId: folder.id,
+                organizationId,
+            },
+        });
+        const loop = await this.db.refinementLoop.create({
+            data: { snapshotId: snapshot.id, triggeredBy: "diffs", organizationId },
+        });
+
+        const firstPlan = await this.createPlan(
+            testCase.id,
+            params.iterations[0]?.planPrompt ?? "seed",
+            organizationId,
+        );
+        const assignment = await this.db.testCaseAssignment.create({
+            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: firstPlan.id },
+        });
+
+        const created: Array<{ id: string }> = [];
+        let subjectGenerationId: string | undefined;
+
+        for (const [index, spec] of params.iterations.entries()) {
+            const plan = index === 0 ? firstPlan : await this.createPlan(testCase.id, spec.planPrompt, organizationId);
+
+            const iteration = await this.db.refinementIteration.create({
+                data: { loopId: loop.id, number: spec.number, status: "completed" },
+            });
+            await this.db.refinementIterationInput.create({
+                data: { iterationId: iteration.id, planId: plan.id },
+            });
+
+            const previous = created[index - 1];
+            if (spec.healingReasoning != null && previous != null) {
+                await this.db.refinementAction.create({
+                    data: {
+                        iterationId: previous.id,
+                        planId: plan.id,
+                        testCaseId: testCase.id,
+                        kind: "update_plan",
+                        payload: {},
+                        reasoning: spec.healingReasoning,
+                    },
+                });
+            }
+
+            await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
+
+            if (spec.subject === true) {
+                const generation = await this.createGeneration({
+                    organizationId,
+                    snapshotId: snapshot.id,
+                    planId: plan.id,
+                    status: "failed",
+                    conversation: params.conversation,
+                    steps: params.steps ?? [],
+                });
+                subjectGenerationId = generation.id;
+            } else {
+                const run = await this.db.run.create({
+                    data: { assignmentId: assignment.id, planId: plan.id, organizationId, status: "failed" },
+                });
+                if (spec.verdict != null) {
+                    await this.db.runReview.create({
+                        data: {
+                            runId: run.id,
+                            organizationId,
+                            status: "completed",
+                            verdict: spec.verdict.verdict,
+                            reasoning: spec.verdict.reasoning,
+                        },
+                    });
+                }
+            }
+
+            created.push({ id: iteration.id });
+        }
+
+        if (subjectGenerationId == null) {
+            throw new Error("seedGenerationRefinementLineage requires exactly one iteration flagged subject: true");
+        }
+
+        return { subjectGenerationId, snapshotId: snapshot.id, testCaseId: testCase.id, loopId: loop.id };
+    }
+
+    private async createGeneration(args: {
+        organizationId: string;
+        snapshotId: string;
+        planId: string;
+        status: GenerationStatus;
+        reasoning?: string;
+        videoUrl?: string;
+        finalScreenshot?: string;
+        conversation?: ModelMessage[];
+        steps: SeedGenerationStep[];
+    }): Promise<{ id: string }> {
+        const conversationUrl = this.storeConversation(args.conversation);
+
+        const stepsId = await this.createGenerationSteps(args.planId, args.organizationId, args.steps);
+
+        return this.db.testGeneration.create({
+            data: {
+                testPlanId: args.planId,
+                snapshotId: args.snapshotId,
+                organizationId: args.organizationId,
+                status: args.status,
+                reasoning: args.reasoning ?? null,
+                videoUrl: args.videoUrl ?? null,
+                finalScreenshot: args.finalScreenshot ?? null,
+                conversationUrl: conversationUrl ?? null,
+                stepsId: stepsId ?? null,
+            },
+            select: { id: true },
+        });
+    }
+
+    private storeConversation(conversation: ModelMessage[] | undefined): string | undefined {
+        if (conversation == null) return undefined;
+        const key = `generation/${uniqueSuffix()}/conversation.json`;
+        this.storage.put(key, Buffer.from(JSON.stringify(conversation), "utf-8"));
+        return key;
+    }
+
+    /**
+     * Generation steps live on a StepInputList: each StepInput carries the
+     * interaction/params + screenshots, and its single StepOutput carries the
+     * command output - exactly the shape `loadGeneration` reads back.
+     */
+    private async createGenerationSteps(
+        planId: string,
+        organizationId: string,
+        steps: SeedGenerationStep[],
+    ): Promise<string | undefined> {
+        if (steps.length === 0) return undefined;
+
+        const inputList = await this.db.stepInputList.create({ data: { planId, organizationId } });
+        const outputList = await this.db.stepOutputList.create({ data: { organizationId } });
+
+        for (const step of steps) {
+            const stepInput = await this.db.stepInput.create({
+                data: {
+                    listId: inputList.id,
+                    order: step.order,
+                    interaction: step.interaction,
+                    params: step.params,
+                    screenshotBefore: step.screenshotBefore ?? null,
+                    screenshotAfter: step.screenshotAfter ?? null,
+                    organizationId,
+                },
+            });
+            await this.db.stepOutput.create({
+                data: {
+                    listId: outputList.id,
+                    order: step.order,
+                    output: step.output,
+                    stepInputId: stepInput.id,
+                    organizationId,
+                },
+            });
+        }
+
+        return inputList.id;
+    }
+
     private async createPlan(testCaseId: string, prompt: string, organizationId: string) {
         return this.db.testPlan.create({ data: { testCaseId, prompt, organizationId } });
     }
@@ -502,17 +881,17 @@ interface SeedResult {
     applicationId: string;
 }
 
-type SuiteContext = { harness: ReplayContextHarness; seedResult: SeedResult };
+type SuiteContext = { harness: DiffJobContextHarness; seedResult: SeedResult };
 
 interface SuiteParams {
     name: string;
     cases: (test: TestAPI<SuiteContext>) => void;
 }
 
-export function replayContextSuite({ name, cases }: SuiteParams) {
-    integrationTestSuite<ReplayContextHarness, SeedResult>({
+export function diffJobContextSuite({ name, cases }: SuiteParams) {
+    integrationTestSuite<DiffJobContextHarness, SeedResult>({
         name,
-        createHarness: () => ReplayContextHarness.create(),
+        createHarness: () => DiffJobContextHarness.create(),
         seed: async (harness) => {
             const organizationId = await harness.createOrg();
             const applicationId = await harness.createApp(organizationId);

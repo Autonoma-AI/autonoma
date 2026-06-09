@@ -1,7 +1,10 @@
 import type { UploadedVideo } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
-import { MessageBuilder, sanitizeConversation } from "../kernel";
+import { MessageBuilder, buildChangeContextSection, buildLineageSection, sanitizeConversation } from "../kernel";
 import type { GenerationContext } from "./types";
+
+const CHANGE_CONTEXT_INTRO =
+    "This generation executed against the head commit of a code change. To attribute the failure between `plan_mismatch`, `application_bug`, and `agent_limitation`, inspect what actually changed by running this in the bash tool:";
 
 /**
  * Builds the user-message script the reviewer agent sees. Pure function of the
@@ -17,7 +20,20 @@ export function buildGenerationReviewMessages(
             "Self-reported outcome",
             `The execution agent self-reported status: \`${context.selfReportedStatus}\`. ` +
                 "Treat this as a hint only - your verdict is the source of truth.",
-        )
+        );
+
+    if (context.change != null) {
+        builder.section("Code Change Under Review", buildChangeContextSection(context.change, CHANGE_CONTEXT_INTRO));
+    }
+
+    if (context.lineage != null) {
+        builder.section(
+            "Refinement-Loop History (fallible signal)",
+            buildLineageSection(context.lineage, "generation"),
+        );
+    }
+
+    builder
         .video(video, "The video above shows the complete execution recording.")
         .section("Step Summary", buildStepSummary(context));
 

@@ -4,7 +4,7 @@ import { type Codebase, ReplayReviewer, StorageEvidenceLoader, openModelSession 
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
-import { DiffJobContextLoader } from "./diff-job-context-loader";
+import { DiffJobContextLoader } from "../diff-job-context-loader";
 import { RunReviewPersister } from "./persister";
 
 export interface RunReplayReviewDeps {

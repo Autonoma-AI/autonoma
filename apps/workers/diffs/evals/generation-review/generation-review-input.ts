@@ -1,3 +1,4 @@
+import { AffectedReason, RunReviewVerdict } from "@autonoma/db";
 import { type GenerationContext, sanitizeConversation } from "@autonoma/diffs";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
@@ -13,6 +14,12 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * fixture stays text-only). All multimedia (screenshots + video) remains as
  * S3 keys - never bytes - and is rehydrated by the production evidence loader
  * at run time.
+ *
+ * `change` and `lineage` are optional so cases captured before each existed still
+ * parse; the changed-file list and diff hunks are never frozen here - the
+ * reviewer derives them from the rehydrated codebase via `git diff`. `lineage` is
+ * present only for iteration-2+ cases (the refinement-loop generations this fix
+ * targets) and absent for first-iteration and pre-lineage cases.
  */
 export const generationReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -35,6 +42,33 @@ export const generationReviewCaseInputSchema = z.object({
                 screenshotAfterKey: z.string().optional(),
             }),
         ),
+        change: z
+            .object({
+                baseSha: z.string(),
+                headSha: z.string(),
+                analysisReasoning: z.string().optional(),
+                affectedReason: z.enum(AffectedReason).optional(),
+                affectedReasoning: z.string().optional(),
+            })
+            .optional(),
+        lineage: z
+            .object({
+                priorVerdicts: z.array(
+                    z.object({
+                        iterationNumber: z.number().int().positive(),
+                        verdict: z.enum(RunReviewVerdict),
+                        reasoning: z.string(),
+                    }),
+                ),
+                planHistory: z.array(
+                    z.object({
+                        iterationNumber: z.number().int().positive(),
+                        prompt: z.string(),
+                        healingReasoning: z.string().optional(),
+                    }),
+                ),
+            })
+            .optional(),
     }),
 });
 

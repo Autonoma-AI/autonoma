@@ -7,7 +7,7 @@ import { StorageEvidenceLoader } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
-import { DiffJobContextLoader } from "../../src/review/replay/diff-job-context-loader";
+import { DiffJobContextLoader } from "../../src/review/diff-job-context-loader";
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";

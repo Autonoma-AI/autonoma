@@ -1,8 +1,8 @@
 import { expect } from "vitest";
-import { DiffJobContextLoader } from "../src/review/replay/diff-job-context-loader";
-import { replayContextSuite } from "./harness";
+import { DiffJobContextLoader } from "../src/review/diff-job-context-loader";
+import { diffJobContextSuite } from "./harness";
 
-replayContextSuite({
+diffJobContextSuite({
     name: "DiffJobContextLoader",
     cases: (test) => {
         test("gathers run steps plus the DB-sourced change context for a flagged run", async ({
@@ -284,6 +284,150 @@ replayContextSuite({
             const context = await new DiffJobContextLoader(harness.db).load(runId);
 
             expect(context.testPlanPrompt).toBe("Prompt as executed by the run");
+        });
+
+        test("gathers generation steps, conversation, and the DB-sourced change context for a flagged generation", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "genbase0",
+                headSha: "genhead1",
+                analysisReasoning: "Signup form validation was rewritten.",
+                affected: { reason: "code_change", reasoning: "This test fills out the signup form." },
+                testName: "Signup flow",
+                testPlanPrompt: "Sign up with a fresh email and land on the welcome screen.",
+                reasoning: "Stopped after the form rejected the email.",
+                videoUrl: "generation/x/video.webm",
+                conversation: [
+                    { role: "assistant", content: "I will fill the email field." },
+                    { role: "user", content: "continue" },
+                ],
+                steps: [
+                    {
+                        order: 0,
+                        interaction: "type",
+                        params: { target: "email", text: "new@test.com" },
+                        output: { success: true, result: "typed" },
+                        screenshotBefore: "generation/x/step-0-before.jpeg",
+                        screenshotAfter: "generation/x/step-0-after.jpeg",
+                    },
+                    {
+                        order: 1,
+                        interaction: "click",
+                        params: { target: "submit" },
+                        output: { success: false, error: "validation error shown" },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.generationId).toBe(generationId);
+            expect(context.organizationId).toBe(seedResult.organizationId);
+            expect(context.selfReportedStatus).toBe("failed");
+            expect(context.testPlanPrompt).toBe("Sign up with a fresh email and land on the welcome screen.");
+            expect(context.reasoning).toBe("Stopped after the form rejected the email.");
+            expect(context.videoUrl).toBe("generation/x/video.webm");
+
+            expect(context.steps.map((s) => s.order)).toEqual([0, 1]);
+            expect(context.steps[0]?.interaction).toBe("type");
+            expect(context.steps[0]?.params).toEqual({ target: "email", text: "new@test.com" });
+            expect(context.steps[0]?.screenshotBeforeKey).toBe("generation/x/step-0-before.jpeg");
+            expect(context.steps[1]?.output).toEqual({ success: false, error: "validation error shown" });
+
+            expect(context.conversation).toEqual([
+                { role: "assistant", content: "I will fill the email field." },
+                { role: "user", content: "continue" },
+            ]);
+
+            expect(context.change).toEqual({
+                baseSha: "genbase0",
+                headSha: "genhead1",
+                analysisReasoning: "Signup form validation was rewritten.",
+                affectedReason: "code_change",
+                affectedReasoning: "This test fills out the signup form.",
+            });
+            // First-iteration generation outside any loop carries no lineage.
+            expect(context.lineage).toBeUndefined();
+        });
+
+        test("returns an empty conversation for a generation with no conversation URL", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { success: false } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.conversation).toEqual([]);
+            // No SHAs were seeded, so the change context is omitted entirely.
+            expect(context.change).toBeUndefined();
+        });
+
+        test("gathers point-in-time prior verdicts and plan history for an iteration-2 generation", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { subjectGenerationId } = await harness.seedGenerationRefinementLineage({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                iterations: [
+                    {
+                        number: 1,
+                        planPrompt: "Click the old Submit button",
+                        verdict: { verdict: "engine_error", reasoning: "Submit button selector looked stale." },
+                    },
+                    {
+                        number: 2,
+                        planPrompt: "Click the renamed Confirm button",
+                        healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                        subject: true,
+                    },
+                ],
+                steps: [{ order: 0, interaction: "click", params: { target: "confirm" }, output: { success: false } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(
+                subjectGenerationId,
+            );
+
+            expect(context.lineage).toBeDefined();
+            expect(context.lineage?.priorVerdicts).toEqual([
+                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit button selector looked stale." },
+            ]);
+            expect(context.lineage?.planHistory).toEqual([
+                { iterationNumber: 1, prompt: "Click the old Submit button" },
+                {
+                    iterationNumber: 2,
+                    prompt: "Click the renamed Confirm button",
+                    healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                },
+            ]);
+        });
+
+        test("carries no lineage for a first-iteration generation inside a refinement loop", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { subjectGenerationId } = await harness.seedGenerationRefinementLineage({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                iterations: [{ number: 1, planPrompt: "Seed plan", subject: true }],
+                steps: [{ order: 0, interaction: "click", params: {}, output: { success: false } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(
+                subjectGenerationId,
+            );
+
+            expect(context.lineage).toBeUndefined();
         });
     },
 });

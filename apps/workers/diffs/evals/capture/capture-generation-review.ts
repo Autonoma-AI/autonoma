@@ -7,7 +7,7 @@ import { StorageEvidenceLoader } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
-import { GenerationContextLoader } from "../../src/review/generation/context-loader";
+import { DiffJobContextLoader } from "../../src/review/diff-job-context-loader";
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
@@ -54,8 +54,8 @@ export async function captureGenerationReview(params: CaptureGenerationReviewPar
 
     const storage = S3Storage.createFromEnv();
     const evidenceLoader = new StorageEvidenceLoader(storage);
-    const contextLoader = new GenerationContextLoader(db, storage);
-    const context = await contextLoader.load(generationId);
+    const contextLoader = new DiffJobContextLoader(db, storage);
+    const context = await contextLoader.loadGeneration(generationId);
 
     // Refuse to write a case whose media is no longer reachable - parallel to
     // refusing dead SHAs above.
