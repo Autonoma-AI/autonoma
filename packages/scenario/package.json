@@ -16,7 +16,6 @@
     "dependencies": {
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@autonoma/try": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "zod": "catalog:"

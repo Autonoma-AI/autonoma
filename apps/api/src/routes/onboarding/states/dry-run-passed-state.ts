@@ -1,13 +1,13 @@
-import type { WebhookCallOptions } from "@autonoma/scenario";
+import type { SdkCallOptions } from "@autonoma/scenario";
 import { DryRunSubject } from "../dry-run-subject";
 import { OnboardingState, type ScenarioDryRunResult } from "./onboarding-state";
 
-const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
+const DRY_RUN_SDK_OPTIONS: SdkCallOptions = {
     timeoutMs: 90_000,
 };
 
 /**
- * At least one dry-run has passed. User can re-run others, edit webhook config,
+ * At least one dry-run has passed. User can re-run others, edit SDK config,
  * or move on by supplying a production URL and advancing to `github`.
  */
 export class DryRunPassedState extends OnboardingState {
@@ -17,14 +17,14 @@ export class DryRunPassedState extends OnboardingState {
         this.logger.info("Re-running scenario dry run", { scenarioId });
         const subject = new DryRunSubject(this.db, this.applicationId);
         const instance = await this.deps.scenarioManager.up(subject, scenarioId, {
-            webhookOptions: DRY_RUN_WEBHOOK_OPTIONS,
+            sdkOptions: DRY_RUN_SDK_OPTIONS,
         });
 
         if (instance.status === "UP_FAILED") {
             return { success: false as const, phase: "up" as const, error: instance.lastError };
         }
 
-        const downResult = await this.deps.scenarioManager.down(instance.id, DRY_RUN_WEBHOOK_OPTIONS);
+        const downResult = await this.deps.scenarioManager.down(instance.id, DRY_RUN_SDK_OPTIONS);
         if (downResult?.status === "DOWN_FAILED") {
             return { success: false as const, phase: "down" as const, error: downResult.lastError };
         }

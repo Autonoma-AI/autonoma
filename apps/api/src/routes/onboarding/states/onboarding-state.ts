@@ -21,10 +21,10 @@ export class OnboardingApplicationNotFoundError extends Error {
     }
 }
 
-export class OnboardingWebhookNotConfiguredError extends Error {
+export class OnboardingSdkNotConfiguredError extends Error {
     constructor(applicationId: string) {
-        super(`Application "${applicationId}" does not have a webhook configured`);
-        this.name = "OnboardingWebhookNotConfiguredError";
+        super(`Application "${applicationId}" does not have an SDK endpoint configured`);
+        this.name = "OnboardingSdkNotConfiguredError";
     }
 }
 

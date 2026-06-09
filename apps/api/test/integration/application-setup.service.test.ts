@@ -1,6 +1,5 @@
-import { randomBytes } from "node:crypto";
 import { ApplicationArchitecture } from "@autonoma/db";
-import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import { ScenarioRecipeStore } from "@autonoma/scenario";
 import { TOTAL_SETUP_STEPS } from "@autonoma/types";
 import { expect } from "vitest";
 import { ApplicationSetupService } from "../../src/application-setup/application-setup.service";
@@ -16,13 +15,11 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
         file: "s3://bucket/file.png",
     });
 
-    const encryptionHelper = new EncryptionHelper(randomBytes(32).toString("hex"));
-    const scenarioManager = new ScenarioManager(harness.db, encryptionHelper);
     const service = new ApplicationSetupService(
         harness.db,
         harness.generationProvider,
         harness.services.onboarding,
-        scenarioManager,
+        new ScenarioRecipeStore(harness.db),
     );
     const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
 
@@ -41,13 +38,11 @@ apiTestSuite({
                 file: "s3://bucket/file.png",
             });
 
-            const encryptionHelper = new EncryptionHelper(randomBytes(32).toString("hex"));
-            const scenarioManager = new ScenarioManager(harness.db, encryptionHelper);
             const service = new ApplicationSetupService(
                 harness.db,
                 harness.generationProvider,
                 harness.services.onboarding,
-                scenarioManager,
+                new ScenarioRecipeStore(harness.db),
             );
 
             await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);

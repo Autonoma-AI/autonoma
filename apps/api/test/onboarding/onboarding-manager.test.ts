@@ -6,7 +6,7 @@ import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manage
 import {
     InvalidOnboardingStepError,
     OnboardingApplicationNotFoundError,
-    OnboardingWebhookNotConfiguredError,
+    OnboardingSdkNotConfiguredError,
 } from "../../src/routes/onboarding/states/onboarding-state";
 import { OnboardingTestHarness } from "./onboarding-harness";
 
@@ -160,13 +160,13 @@ integrationTestSuite({
             await expect(manager.runScenarioDryRun(appId, "some-scenario")).rejects.toThrow(InvalidOnboardingStepError);
         });
 
-        test("DryRunSubject.getApplicationData throws OnboardingWebhookNotConfiguredError when no webhook", async ({
+        test("DryRunSubject.resolveDeployment throws OnboardingSdkNotConfiguredError when SDK not configured", async ({
             seedResult: { createApp },
             harness,
         }) => {
             const appId = await createApp();
             const subject = new DryRunSubject(harness.db, appId);
-            await expect(subject.getApplicationData()).rejects.toThrow(OnboardingWebhookNotConfiguredError);
+            await expect(subject.resolveDeployment()).rejects.toThrow(OnboardingSdkNotConfiguredError);
         });
     },
 });

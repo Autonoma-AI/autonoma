@@ -1,14 +1,14 @@
-import type { WebhookCallOptions } from "@autonoma/scenario";
+import { type SdkCallOptions, SdkClient } from "@autonoma/scenario";
 import { OnboardingApplicationNotFoundError, OnboardingState } from "./onboarding-state";
 
 /**
- * The user is entering webhook URL + shared secret. `configureAndDiscoverScenarios`
- * validates the supplied config by calling the discover webhook *before* any
- * persistence — so a failed call can never leave the DB with a half-configured
- * webhook that poisons downstream state. Raised timeout handles typical
+ * The user is entering SDK URL + shared secret. `configureAndDiscoverScenarios`
+ * validates the supplied config by calling discover *before* any persistence -
+ * so a failed call can never leave the DB with a half-configured SDK endpoint
+ * that poisons downstream state. Raised timeout handles typical
  * cold-start latency.
  */
-const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
+const DRY_RUN_SDK_OPTIONS: SdkCallOptions = {
     timeoutMs: 90_000,
 };
 
@@ -21,7 +21,7 @@ export class WebhookConfiguringState extends OnboardingState {
         signingSecret: string,
         webhookHeaders?: Record<string, string>,
     ): Promise<void> {
-        this.logger.info("Validating webhook config via discover");
+        this.logger.info("Validating SDK config via discover");
 
         const app = await this.db.application.findFirst({
             where: { id: this.applicationId, organizationId },
@@ -53,13 +53,16 @@ export class WebhookConfiguringState extends OnboardingState {
         });
 
         try {
-            const response = await this.deps.scenarioManager.discoverWithConfig({
+            // Discover with the supplied (not-yet-persisted) config. No recorder:
+            // the application row isn't pointed at this config yet, so there's
+            // nothing meaningful to log against.
+            const sdkClient = new SdkClient({
                 applicationId: this.applicationId,
-                webhookUrl,
+                sdkUrl: webhookUrl,
                 signingSecret,
-                webhookHeaders,
-                options: DRY_RUN_WEBHOOK_OPTIONS,
+                customHeaders: webhookHeaders,
             });
+            const response = await sdkClient.discover(DRY_RUN_SDK_OPTIONS);
 
             const signingSecretEnc = this.deps.encryption.encrypt(signingSecret);
             await this.db.$transaction([
@@ -82,12 +85,12 @@ export class WebhookConfiguringState extends OnboardingState {
                     },
                 }),
             ]);
-            this.logger.info("Discovery succeeded; webhook config persisted", {
+            this.logger.info("Discovery succeeded; SDK config persisted", {
                 modelCount: response.schema.models.length,
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            this.logger.warn("Discovery failed; leaving webhook unconfigured", { error: message });
+            this.logger.warn("Discovery failed; leaving SDK unconfigured", { error: message });
             await this.db.onboardingState.update({
                 where: { applicationId: this.applicationId },
                 data: {

@@ -1,15 +1,15 @@
-import type { WebhookCallOptions } from "@autonoma/scenario";
+import type { SdkCallOptions } from "@autonoma/scenario";
 import { DryRunSubject } from "../dry-run-subject";
 import { OnboardingState, type ScenarioDryRunResult } from "./onboarding-state";
 
-const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
+const DRY_RUN_SDK_OPTIONS: SdkCallOptions = {
     timeoutMs: 90_000,
 };
 
 /**
- * Webhook is configured and at least one successful discovery has landed.
- * User can run dry-runs. First successful dry-run advances the state to
- * `dry_run_passed`. User can also go back to edit webhook config via
+ * The SDK endpoint is configured and at least one successful discovery has
+ * landed. User can run dry-runs. First successful dry-run advances the state to
+ * `dry_run_passed`. User can also go back to edit SDK config via
  * `reconfigureWebhook`, or re-run discovery directly (treated as a fresh
  * attempt; URL/secret are only overwritten on success).
  */
@@ -21,14 +21,14 @@ export class DiscoveredState extends OnboardingState {
 
         const subject = new DryRunSubject(this.db, this.applicationId);
         const instance = await this.deps.scenarioManager.up(subject, scenarioId, {
-            webhookOptions: DRY_RUN_WEBHOOK_OPTIONS,
+            sdkOptions: DRY_RUN_SDK_OPTIONS,
         });
 
         if (instance.status === "UP_FAILED") {
             return { success: false as const, phase: "up" as const, error: instance.lastError };
         }
 
-        const downResult = await this.deps.scenarioManager.down(instance.id, DRY_RUN_WEBHOOK_OPTIONS);
+        const downResult = await this.deps.scenarioManager.down(instance.id, DRY_RUN_SDK_OPTIONS);
 
         if (downResult?.status === "DOWN_FAILED") {
             return { success: false as const, phase: "down" as const, error: downResult.lastError };

@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
-import type { ScenarioApplicationData, ScenarioSubject } from "@autonoma/scenario";
-import { OnboardingWebhookNotConfiguredError } from "./states/onboarding-state";
+import type { ScenarioSubject } from "@autonoma/scenario";
+import { OnboardingSdkNotConfiguredError } from "./states/onboarding-state";
 
 export class DryRunSubject implements ScenarioSubject {
     constructor(
@@ -8,39 +8,23 @@ export class DryRunSubject implements ScenarioSubject {
         private readonly applicationId: string,
     ) {}
 
-    async getApplicationData(): Promise<ScenarioApplicationData> {
+    async resolveDeployment(): Promise<{ applicationId: string; deploymentId: string }> {
         const app = await this.db.application.findUniqueOrThrow({
             where: { id: this.applicationId },
             select: {
                 id: true,
-                organizationId: true,
                 signingSecretEnc: true,
                 mainBranch: {
-                    select: {
-                        deployment: {
-                            select: { id: true, webhookUrl: true, webhookHeaders: true },
-                        },
-                    },
+                    select: { deployment: { select: { id: true, webhookUrl: true } } },
                 },
             },
         });
 
         const deployment = app.mainBranch?.deployment;
         if (deployment?.webhookUrl == null || app.signingSecretEnc == null) {
-            throw new OnboardingWebhookNotConfiguredError(this.applicationId);
+            throw new OnboardingSdkNotConfiguredError(this.applicationId);
         }
 
-        return {
-            applicationId: app.id,
-            deploymentId: deployment.id,
-            organizationId: app.organizationId,
-            webhookUrl: deployment.webhookUrl,
-            signingSecretEnc: app.signingSecretEnc,
-            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
-        };
-    }
-
-    async linkInstance(_instanceId: string): Promise<void> {
-        // No-op for dry runs
+        return { applicationId: app.id, deploymentId: deployment.id };
     }
 }

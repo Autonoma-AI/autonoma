@@ -2,6 +2,7 @@ import { requireApiKey, type UserAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
+import { ScenarioRecipeStore } from "@autonoma/scenario";
 import {
     CreateSetupBodySchema,
     SetupEventBodySchema,
@@ -24,7 +25,8 @@ applicationSetupHttpRouter.use("*", cors({ origin: "*" }));
 applicationSetupHttpRouter.use("*", requireApiKey({ db }));
 
 const onboardingManager = new OnboardingManager(db, scenarioManager, encryptionHelper);
-const service = new ApplicationSetupService(db, generationProvider, onboardingManager, scenarioManager);
+const recipeStore = new ScenarioRecipeStore(db);
+const service = new ApplicationSetupService(db, generationProvider, onboardingManager, recipeStore);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
     const { userId, organizationId } = c.var.user;

@@ -19,7 +19,6 @@
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
-        "@autonoma/try": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"

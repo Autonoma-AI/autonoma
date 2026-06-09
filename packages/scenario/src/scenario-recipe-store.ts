@@ -1,43 +1,36 @@
-import { createHash } from "node:crypto";
 import { type PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
-import {
-    type ScenarioRecipe,
-    ScenarioRecipeSchema,
-    type ScenarioRecipeVariables,
-    type ScenarioRecipesFile,
-    type ScenarioStructureJson,
-    type ScenarioVariableDefinition,
-    type ScenarioVariableScalar,
-} from "@autonoma/types";
+import { type ScenarioRecipesFile, type ScenarioVariableScalar } from "@autonoma/types";
+import { extractStructure, hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
 
-const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_]+)\}\}/g;
-const FULL_TEMPLATE_PATTERN = /^\{\{([a-zA-Z0-9_]+)\}\}$/;
-const DERIVED_PLACEHOLDER_PATTERN = /\{([a-zA-Z0-9_]+)\}/g;
+interface ReplaceParams {
+    snapshotId: string;
+    applicationId: string;
+    recipesFile: ScenarioRecipesFile;
+}
 
-const FIRST_NAMES = ["Alex", "Jordan", "Taylor", "Morgan", "Riley", "Casey", "Avery", "Quinn"];
-const LAST_NAMES = ["Smith", "Johnson", "Lee", "Garcia", "Patel", "Nguyen", "Brown", "Wilson"];
-const COMPANY_PREFIXES = ["Acme", "Northstar", "Summit", "Atlas", "Pioneer", "Nimbus", "Beacon", "Harbor"];
-const COMPANY_SUFFIXES = ["Labs", "Systems", "Works", "Collective", "Cloud", "Dynamics", "Studio", "Partners"];
-const LOREM_WORDS = ["alpha", "beta", "gamma", "delta", "signal", "vector", "launch", "pixel", "orbit", "ember"];
+interface ReplaceResult {
+    scenarioCount: number;
+    scenarios: Array<{ id: string; name: string; recipeVersionId: string }>;
+}
 
-const FAKER_GENERATORS = {
-    "person.firstName": (seed: string) => pickFrom(seed, "first-name", FIRST_NAMES),
-    "person.lastName": (seed: string) => pickFrom(seed, "last-name", LAST_NAMES),
-    "internet.email": (seed: string) => {
-        const first = pickFrom(seed, "email-first", FIRST_NAMES).toLowerCase();
-        const last = pickFrom(seed, "email-last", LAST_NAMES).toLowerCase();
-        const suffix = shortHash(`${seed}:email-suffix`);
-        return `${first}.${last}.${suffix}@example.test`;
-    },
-    "company.name": (seed: string) => {
-        const prefix = pickFrom(seed, "company-prefix", COMPANY_PREFIXES);
-        const suffix = pickFrom(seed, "company-suffix", COMPANY_SUFFIXES);
-        return `${prefix} ${suffix}`;
-    },
-    "lorem.words": (seed: string) => [0, 1, 2].map((index) => pickFrom(seed, `lorem-${index}`, LOREM_WORDS)).join(" "),
-} satisfies Record<string, (seed: string) => string>;
+interface LoadParams {
+    scenarioId: string;
+    snapshotId?: string;
+    testRunId: string;
+}
 
+interface LoadResult {
+    createPayload: unknown;
+    resolvedVariables: Record<string, ScenarioVariableScalar>;
+}
+
+/**
+ * Persistence layer for scenario recipes.
+ *
+ * Owns ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`).
+ * Pure templating/structure logic lives in `scenario-recipe-resolver.ts`.
+ */
 export class ScenarioRecipeStore {
     private readonly logger: Logger;
 
@@ -45,21 +38,29 @@ export class ScenarioRecipeStore {
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async replaceScenarioRecipes(params: {
-        snapshotId: string;
-        applicationId: string;
-        organizationId: string;
-        recipesFile: ScenarioRecipesFile;
-    }): Promise<{
-        scenarioCount: number;
-        scenarios: Array<{ id: string; name: string; recipeVersionId: string }>;
-    }> {
-        const { snapshotId, applicationId, organizationId, recipesFile } = params;
+    /**
+     * Replace all recipe versions for `snapshotId` with the contents of `recipesFile`.
+     * Upserts the schema snapshot, creates new recipe versions, retargets the
+     * scenarios' active recipe pointer, and disables scenarios that no longer
+     * appear in the file. Throws when the application does not exist.
+     */
+    async replaceScenarioRecipes(params: ReplaceParams): Promise<ReplaceResult> {
+        const { snapshotId, applicationId, recipesFile } = params;
         this.logger.info("Replacing scenario recipes", {
             applicationId,
             snapshotId,
             recipeCount: recipesFile.recipes.length,
         });
+
+        const application = await this.db.application.findUnique({
+            where: { id: applicationId },
+            select: { organizationId: true },
+        });
+        if (application == null) {
+            throw new Error(`Application ${applicationId} not found`);
+        }
+        const { organizationId } = application;
+
         const recipeNames = recipesFile.recipes.map((recipe) => recipe.name);
         const now = new Date();
         const structureJson = extractStructure(recipesFile.recipes);
@@ -172,325 +173,43 @@ export class ScenarioRecipeStore {
         });
     }
 
-    async loadRecipeCreatePayloadForSnapshot(params: {
-        scenarioId: string;
-        snapshotId: string;
-        testRunId: string;
-    }): Promise<{ createPayload: unknown; resolvedVariables: Record<string, ScenarioVariableScalar> } | null> {
+    /**
+     * Load and resolve a scenario's recipe payload.
+     *
+     * When `snapshotId` is supplied, the recipe version pinned to that snapshot
+     * is used. When omitted, the scenario's currently-active recipe version is
+     * used. Returns `null` when no recipe version is found for the lookup.
+     */
+    async loadRecipePayload(params: LoadParams): Promise<LoadResult | null> {
         const { scenarioId, snapshotId, testRunId } = params;
-        this.logger.info("Loading recipe for snapshot", { scenarioId, snapshotId, testRunId });
+        this.logger.info("Loading recipe", { scenarioId, snapshotId, testRunId });
+
+        const fixtureJson =
+            snapshotId != null
+                ? await this.findFixtureForSnapshot(scenarioId, snapshotId)
+                : await this.findActiveFixture(scenarioId);
+
+        if (fixtureJson == null) {
+            this.logger.warn("No recipe version found", { scenarioId, snapshotId });
+            return null;
+        }
+
+        return resolveRecipePayload(fixtureJson, testRunId);
+    }
+
+    private async findFixtureForSnapshot(scenarioId: string, snapshotId: string): Promise<unknown | null> {
         const recipeVersion = await this.db.scenarioRecipeVersion.findUnique({
             where: { scenarioId_snapshotId: { scenarioId, snapshotId } },
             select: { fixtureJson: true },
         });
-
-        if (recipeVersion?.fixtureJson == null) {
-            this.logger.warn("No recipe version found for snapshot", { scenarioId, snapshotId });
-            return null;
-        }
-
-        return this.resolveRecipePayload(recipeVersion.fixtureJson, testRunId);
+        return recipeVersion?.fixtureJson ?? null;
     }
 
-    async loadActiveRecipeCreatePayload(params: {
-        scenarioId: string;
-        testRunId: string;
-    }): Promise<{ createPayload: unknown; resolvedVariables: Record<string, ScenarioVariableScalar> } | null> {
-        const { scenarioId, testRunId } = params;
-        this.logger.info("Loading active recipe", { scenarioId, testRunId });
+    private async findActiveFixture(scenarioId: string): Promise<unknown | null> {
         const scenario = await this.db.scenario.findUnique({
             where: { id: scenarioId },
-            select: {
-                activeRecipeVersion: {
-                    select: { fixtureJson: true },
-                },
-            },
+            select: { activeRecipeVersion: { select: { fixtureJson: true } } },
         });
-
-        if (scenario?.activeRecipeVersion?.fixtureJson == null) {
-            this.logger.warn("No active recipe version found", { scenarioId });
-            return null;
-        }
-
-        return this.resolveRecipePayload(scenario.activeRecipeVersion.fixtureJson, testRunId);
+        return scenario?.activeRecipeVersion?.fixtureJson ?? null;
     }
-
-    private resolveRecipePayload(
-        fixtureJson: unknown,
-        testRunId: string,
-    ): { createPayload: unknown; resolvedVariables: Record<string, ScenarioVariableScalar> } {
-        const parsed = ScenarioRecipeSchema.safeParse(fixtureJson);
-        if (!parsed.success) {
-            throw new Error(`Invalid recipe JSON: ${parsed.error.message}`);
-        }
-
-        const recipe = parsed.data;
-        const variables = recipe.variables ?? {};
-        const usedTokens = collectTemplateTokens(recipe.create);
-
-        validateRecipeVariables({ usedTokens, variables });
-
-        if (usedTokens.size === 0) {
-            return { createPayload: recipe.create, resolvedVariables: {} };
-        }
-
-        const resolvedVariables = resolveRecipeVariables(variables, { testRunId });
-        const populatedPayload = replaceTemplateTokens(recipe.create, resolvedVariables);
-
-        assertNoUnresolvedTokens(populatedPayload);
-        return { createPayload: populatedPayload, resolvedVariables };
-    }
-}
-
-type ScenarioGenerationContext = {
-    testRunId: string;
-};
-
-function collectTemplateTokens(value: unknown, tokens = new Set<string>()): Set<string> {
-    if (typeof value === "string") {
-        for (const match of value.matchAll(TEMPLATE_PATTERN)) {
-            const tokenName = match[1];
-            if (tokenName != null) {
-                tokens.add(tokenName);
-            }
-        }
-        return tokens;
-    }
-
-    if (Array.isArray(value)) {
-        for (const item of value) {
-            collectTemplateTokens(item, tokens);
-        }
-        return tokens;
-    }
-
-    if (isPlainObject(value)) {
-        for (const item of Object.values(value)) {
-            collectTemplateTokens(item, tokens);
-        }
-    }
-
-    return tokens;
-}
-
-function validateRecipeVariables(params: { usedTokens: Set<string>; variables: ScenarioRecipeVariables }): void {
-    for (const tokenName of params.usedTokens) {
-        if (!(tokenName in params.variables)) {
-            throw new Error(`Unknown recipe variable: ${tokenName}`);
-        }
-    }
-
-    for (const tokenName of Object.keys(params.variables)) {
-        if (!params.usedTokens.has(tokenName)) {
-            throw new Error(`Unused variable definition: ${tokenName}`);
-        }
-    }
-}
-
-function resolveRecipeVariables(
-    variables: ScenarioRecipeVariables,
-    context: ScenarioGenerationContext,
-): Record<string, ScenarioVariableScalar> {
-    return Object.fromEntries(
-        Object.entries(variables).map(([tokenName, definition]) => [
-            tokenName,
-            resolveRecipeVariable({ tokenName, definition, context }),
-        ]),
-    );
-}
-
-function resolveRecipeVariable(params: {
-    tokenName: string;
-    definition: ScenarioVariableDefinition;
-    context: ScenarioGenerationContext;
-}): ScenarioVariableScalar {
-    const { tokenName, definition, context } = params;
-
-    switch (definition.strategy) {
-        case "literal":
-            return definition.value;
-        case "derived":
-            return resolveDerivedValue(tokenName, definition, context);
-        case "faker":
-            return seededFakerValue(definition.generator, context.testRunId, tokenName);
-    }
-}
-
-function resolveDerivedValue(
-    tokenName: string,
-    definition: Extract<ScenarioVariableDefinition, { strategy: "derived" }>,
-    context: ScenarioGenerationContext,
-): string {
-    const placeholders = Array.from(definition.format.matchAll(DERIVED_PLACEHOLDER_PATTERN)).map((match) => match[1]);
-    const unsupportedPlaceholder = placeholders.find((placeholder) => placeholder !== "testRunId");
-    if (unsupportedPlaceholder != null) {
-        throw new Error(
-            `Invalid derived format for ${tokenName}: only {testRunId} is supported, found {${unsupportedPlaceholder}}`,
-        );
-    }
-
-    if (definition.source !== "testRunId") {
-        throw new Error(`Invalid derived source for ${tokenName}: ${definition.source}`);
-    }
-
-    return definition.format.replaceAll("{testRunId}", context.testRunId);
-}
-
-function replaceTemplateTokens(value: unknown, resolvedVariables: Record<string, ScenarioVariableScalar>): unknown {
-    if (typeof value === "string") {
-        const fullMatch = value.match(FULL_TEMPLATE_PATTERN);
-        if (fullMatch != null) {
-            const tokenName = fullMatch[1];
-            if (tokenName != null && tokenName in resolvedVariables) {
-                return resolvedVariables[tokenName];
-            }
-        }
-
-        return value.replace(TEMPLATE_PATTERN, (_match, tokenName: string) => {
-            if (!(tokenName in resolvedVariables)) {
-                throw new Error(`Unknown recipe variable: ${tokenName}`);
-            }
-            return String(resolvedVariables[tokenName]);
-        });
-    }
-
-    if (Array.isArray(value)) {
-        return value.map((item) => replaceTemplateTokens(item, resolvedVariables));
-    }
-
-    if (!isPlainObject(value)) {
-        return value;
-    }
-
-    return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => [key, replaceTemplateTokens(item, resolvedVariables)]),
-    );
-}
-
-function assertNoUnresolvedTokens(value: unknown): void {
-    const unresolvedTokens = collectTemplateTokens(value);
-    if (unresolvedTokens.size > 0) {
-        throw new Error(`Unresolved recipe variables remain: ${Array.from(unresolvedTokens).sort().join(", ")}`);
-    }
-}
-
-function seededFakerValue(generator: string, testRunId: string, tokenName: string): string {
-    const generate = FAKER_GENERATORS[generator as keyof typeof FAKER_GENERATORS];
-    if (generate == null) {
-        throw new Error(`Unsupported faker generator: ${generator}`);
-    }
-
-    return generate(`${testRunId}:${tokenName}`);
-}
-
-function pickFrom(seed: string, label: string, values: string[]): string {
-    return values[indexFromSeed(seed, label, values.length)] ?? values[0] ?? "";
-}
-
-function indexFromSeed(seed: string, label: string, length: number): number {
-    if (length <= 0) {
-        return 0;
-    }
-    const digest = createHash("sha256").update(`${seed}:${label}`).digest("hex");
-    const value = Number.parseInt(digest.slice(0, 8), 16);
-    return Number.isFinite(value) ? value % length : 0;
-}
-
-function shortHash(seed: string): string {
-    return createHash("sha256").update(seed).digest("hex").slice(0, 8);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value != null && !Array.isArray(value);
-}
-
-function extractStructure(recipes: ScenarioRecipe[]): ScenarioStructureJson {
-    const models: Record<string, { fields: string[]; refs: Record<string, string> }> = {};
-
-    for (const recipe of recipes) {
-        const aliasTargets = collectAliasTargets(recipe.create);
-
-        for (const [modelName, entities] of Object.entries(recipe.create)) {
-            if (!Array.isArray(entities)) {
-                continue;
-            }
-
-            const model = models[modelName] ?? { fields: [], refs: {} };
-            for (const entity of entities) {
-                if (!isPlainObject(entity)) {
-                    continue;
-                }
-
-                for (const [key, value] of Object.entries(entity)) {
-                    if (key === "_alias") {
-                        continue;
-                    }
-
-                    if (!model.fields.includes(key)) {
-                        model.fields.push(key);
-                    }
-
-                    if (isRef(value)) {
-                        const targetModel = resolveRefTarget(value, aliasTargets);
-                        if (targetModel != null) {
-                            model.refs[key] = targetModel;
-                        }
-                    }
-                }
-            }
-
-            models[modelName] = model;
-        }
-    }
-
-    return {
-        models: Object.fromEntries(
-            Object.entries(models)
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([modelName, model]) => [
-                    modelName,
-                    {
-                        fields: [...model.fields].sort((left, right) => left.localeCompare(right)),
-                        refs: Object.fromEntries(
-                            Object.entries(model.refs).sort(([left], [right]) => left.localeCompare(right)),
-                        ),
-                    },
-                ]),
-        ),
-    };
-}
-
-function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<string, string> {
-    const aliasTargets: Record<string, string> = {};
-
-    for (const [modelName, entities] of Object.entries(createPayload)) {
-        if (!Array.isArray(entities)) {
-            continue;
-        }
-
-        for (const entity of entities) {
-            if (!isPlainObject(entity)) {
-                continue;
-            }
-
-            const alias = entity._alias;
-            if (typeof alias === "string" && alias.length > 0) {
-                aliasTargets[alias] = modelName;
-            }
-        }
-    }
-
-    return aliasTargets;
-}
-
-function isRef(value: unknown): value is { _ref: string } {
-    return isPlainObject(value) && typeof value._ref === "string";
-}
-
-function resolveRefTarget(value: { _ref: string }, aliasTargets: Record<string, string>): string | null {
-    return aliasTargets[value._ref] ?? null;
-}
-
-function hashRecipe(recipe: unknown): string {
-    return createHash("sha256").update(JSON.stringify(recipe)).digest("hex");
 }

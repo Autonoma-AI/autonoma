@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
-import type { ScenarioManager } from "@autonoma/scenario";
+import type { ScenarioRecipeStore } from "@autonoma/scenario";
 import {
     AddTest,
     BranchAlreadyHasPendingSnapshotError,
@@ -46,7 +46,7 @@ export class ApplicationSetupService {
         private readonly db: PrismaClient,
         private readonly generationProvider: GenerationProvider,
         private readonly onboardingManager: OnboardingManager,
-        private readonly scenarioManager: ScenarioManager,
+        private readonly recipeStore: ScenarioRecipeStore,
     ) {}
 
     async createSetup(userId: string, organizationId: string, applicationId: string, repoName?: string) {
@@ -476,7 +476,11 @@ export class ApplicationSetupService {
             throw new BadRequestError("Application main branch has no active snapshot");
         }
 
-        const result = await this.scenarioManager.ingestScenarioRecipes(snapshotId, setup.applicationId, body);
+        const result = await this.recipeStore.replaceScenarioRecipes({
+            snapshotId,
+            applicationId: setup.applicationId,
+            recipesFile: body,
+        });
         log.info("Ingested scenario recipes", {
             setupId: setup.id,
             snapshotId,
@@ -491,7 +495,11 @@ export class ApplicationSetupService {
                 activeSnapshotId: snapshotId,
                 pendingSnapshotId,
             });
-            await this.scenarioManager.ingestScenarioRecipes(pendingSnapshotId, setup.applicationId, body);
+            await this.recipeStore.replaceScenarioRecipes({
+                snapshotId: pendingSnapshotId,
+                applicationId: setup.applicationId,
+                recipesFile: body,
+            });
 
             await this.db.$transaction(
                 result.scenarios.map((s) =>

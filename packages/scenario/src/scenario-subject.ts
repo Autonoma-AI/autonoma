@@ -1,17 +1,10 @@
 import type { PrismaClient } from "@autonoma/db";
 
-export interface ScenarioApplicationData {
-    applicationId: string;
-    deploymentId: string;
-    organizationId: string;
-    webhookUrl: string;
-    signingSecretEnc: string;
-    webhookHeaders?: Record<string, string>;
-}
-
 export interface ScenarioSubject {
-    getApplicationData(): Promise<ScenarioApplicationData>;
-    linkInstance(instanceId: string): Promise<void>;
+    /** Resolve the (applicationId, deploymentId) tuple this entity is associated with. */
+    resolveDeployment(): Promise<{ applicationId: string; deploymentId: string }>;
+    /** Optionally link the created scenario instance back to the entity. */
+    linkInstance?(instanceId: string): Promise<void>;
 }
 
 export class GenerationSubject implements ScenarioSubject {
@@ -20,52 +13,22 @@ export class GenerationSubject implements ScenarioSubject {
         private readonly generationId: string,
     ) {}
 
-    async getApplicationData(): Promise<ScenarioApplicationData> {
+    async resolveDeployment(): Promise<{ applicationId: string; deploymentId: string }> {
         const generation = await this.db.testGeneration.findUniqueOrThrow({
             where: { id: this.generationId },
             select: {
-                snapshot: {
-                    select: {
-                        branch: {
-                            select: {
-                                deployment: {
-                                    select: { id: true, webhookUrl: true, webhookHeaders: true },
-                                },
-                            },
-                        },
-                    },
-                },
-                testPlan: {
-                    select: {
-                        testCase: {
-                            select: {
-                                application: {
-                                    select: {
-                                        id: true,
-                                        organizationId: true,
-                                        signingSecretEnc: true,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
+                snapshot: { select: { branch: { select: { deployment: { select: { id: true } } } } } },
+                testPlan: { select: { testCase: { select: { applicationId: true } } } },
             },
         });
 
-        const { application } = generation.testPlan.testCase;
-        const deployment = generation.snapshot.branch.deployment;
-        if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
-            throw new Error(`Application ${application.id} does not have a webhook configured`);
+        const deploymentId = generation.snapshot.branch.deployment?.id;
+        if (deploymentId == null) {
+            throw new Error(`Generation ${this.generationId} has no deployment`);
         }
-
         return {
-            applicationId: application.id,
-            deploymentId: deployment.id,
-            organizationId: application.organizationId,
-            webhookUrl: deployment.webhookUrl,
-            signingSecretEnc: application.signingSecretEnc,
-            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
+            applicationId: generation.testPlan.testCase.applicationId,
+            deploymentId,
         };
     }
 
@@ -83,52 +46,26 @@ export class RunSubject implements ScenarioSubject {
         private readonly runId: string,
     ) {}
 
-    async getApplicationData(): Promise<ScenarioApplicationData> {
+    async resolveDeployment(): Promise<{ applicationId: string; deploymentId: string }> {
         const run = await this.db.run.findUniqueOrThrow({
             where: { id: this.runId },
             select: {
                 assignment: {
                     select: {
-                        snapshot: {
-                            select: {
-                                branch: {
-                                    select: {
-                                        deployment: {
-                                            select: { id: true, webhookUrl: true, webhookHeaders: true },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                        testCase: {
-                            select: {
-                                application: {
-                                    select: {
-                                        id: true,
-                                        organizationId: true,
-                                        signingSecretEnc: true,
-                                    },
-                                },
-                            },
-                        },
+                        snapshot: { select: { branch: { select: { deployment: { select: { id: true } } } } } },
+                        testCase: { select: { applicationId: true } },
                     },
                 },
             },
         });
 
-        const { application } = run.assignment.testCase;
-        const deployment = run.assignment.snapshot.branch.deployment;
-        if (deployment?.webhookUrl == null || application.signingSecretEnc == null) {
-            throw new Error(`Application ${application.id} does not have a webhook configured`);
+        const deploymentId = run.assignment.snapshot.branch.deployment?.id;
+        if (deploymentId == null) {
+            throw new Error(`Run ${this.runId} has no deployment`);
         }
-
         return {
-            applicationId: application.id,
-            deploymentId: deployment.id,
-            organizationId: application.organizationId,
-            webhookUrl: deployment.webhookUrl,
-            signingSecretEnc: application.signingSecretEnc,
-            webhookHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
+            applicationId: run.assignment.testCase.applicationId,
+            deploymentId,
         };
     }
 
