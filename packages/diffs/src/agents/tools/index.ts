@@ -24,3 +24,5 @@ export { type ScreenshotLoader, type ReviewStepScreenshots } from "./screenshot/
 
 export { ReadScenarioEntitiesTool } from "./scenario/read-scenario-entities-tool";
 export type { ScenarioDataLoop } from "./scenario/scenario-data-loop";
+export { ReadScenarioRecipeEntitiesTool } from "./scenario/read-scenario-recipe-entities-tool";
+export type { ScenarioRecipeLoop } from "./scenario/scenario-recipe-loop";

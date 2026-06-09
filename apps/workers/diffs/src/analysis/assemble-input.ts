@@ -1,5 +1,10 @@
 import { db } from "@autonoma/db";
-import type { AffectedTest, Codebase, DiffsAgentInput } from "@autonoma/diffs";
+import {
+    type AffectedTest,
+    type Codebase,
+    type DiffsAgentInput,
+    resolveScenarioRecipesForSnapshot,
+} from "@autonoma/diffs";
 import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { type TestSuiteInfo, fetchTestSuiteInfo } from "@autonoma/test-updates";
@@ -101,12 +106,25 @@ export async function assembleDiffsAgentInput({
     });
 
     const importedSlugs = new Set(mergeResult.importedAffectedTests.map((t) => t.slug));
+    const existingTests = metadata.existingTests.filter((t) => !importedSlugs.has(t.slug));
+
+    // Recipe templates for the scenarios the in-scope tests reference, sourced
+    // from each scenario's point-in-time recipe version for the *same* snapshot
+    // the suite came from. This is template data (what each scenario is designed
+    // to seed), not per-run instance data - analysis runs before any replay.
+    const baselineSnapshotId = resolveBaselineSnapshotId(snapshotId, prevSnapshotId, testSuiteSource);
+    const scenarioRecipes = await resolveScenarioRecipesForSnapshot(
+        db,
+        baselineSnapshotId,
+        collectInScopeScenarioIds(suiteInfo, existingTests),
+    );
 
     const agentInput: DiffsAgentInputWithoutCodebase = {
         ...metadata,
-        existingTests: metadata.existingTests.filter((t) => !importedSlugs.has(t.slug)),
+        existingTests,
         merges: mergeResult.merges,
         preClassifiedConflicts: mergeResult.preClassifiedConflicts,
+        scenarioRecipes,
     };
 
     return { agentInput, importedAffectedTests: mergeResult.importedAffectedTests, branchData };
@@ -140,6 +158,34 @@ async function loadBaselineSuiteInfo(
         extra: { snapshotId, prevSnapshotId },
     });
     return fetchTestSuiteInfo(db, prevSnapshotId);
+}
+
+/**
+ * The snapshot whose point-in-time recipe versions analysis should read - the
+ * same one its test suite came from. Mirrors {@link loadBaselineSuiteInfo}:
+ * "current" reads this snapshot; "previous" reads `prevSnapshotId` (what capture
+ * needs), falling back to the current snapshot when there is no previous one.
+ */
+function resolveBaselineSnapshotId(snapshotId: string, prevSnapshotId: string | null, source: TestSuiteSource): string {
+    if (source === "current") return snapshotId;
+    return prevSnapshotId ?? snapshotId;
+}
+
+/**
+ * Distinct scenario ids referenced by the tests actually in the agent's scope.
+ * Reads the slug -> scenario mapping off the raw suite (which carries the plan's
+ * `scenarioId`, dropped by `mapTestSuiteToContext`), restricted to the in-scope
+ * slugs so merge-imported tests don't drag in extra recipes.
+ */
+function collectInScopeScenarioIds(suiteInfo: TestSuiteInfo, inScopeTests: ReadonlyArray<{ slug: string }>): string[] {
+    const inScopeSlugs = new Set(inScopeTests.map((test) => test.slug));
+    const scenarioIds = new Set<string>();
+    for (const testCase of suiteInfo.testCases) {
+        if (!inScopeSlugs.has(testCase.slug)) continue;
+        const scenarioId = testCase.plan?.scenarioId;
+        if (scenarioId != null) scenarioIds.add(scenarioId);
+    }
+    return [...scenarioIds];
 }
 
 interface OptionalMergeFlowParams {

@@ -1,5 +1,5 @@
 import type { DiffsAgentInput, FlowInfo } from "@autonoma/diffs";
-import { FlowIndex } from "@autonoma/diffs";
+import { FlowIndex, scenarioRecipeDataSchema } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
@@ -66,6 +66,7 @@ export const analysisCaseInputSchema = z.object({
     merges: z.array(mergeContextInfoSchema).optional(),
     preClassifiedConflicts: z.array(preClassifiedConflictInfoSchema).optional(),
     testScopeGuidelines: z.string().optional(),
+    scenarioRecipes: z.array(scenarioRecipeDataSchema).optional(),
 });
 
 export type AnalysisCaseInput = z.infer<typeof analysisCaseInputSchema>;
@@ -91,6 +92,7 @@ export function rehydrateAnalysisInput(parsed: AnalysisCaseInput): RehydratedAna
         flowIndex: new FlowIndex(flows),
         merges: parsed.merges ?? [],
         preClassifiedConflicts: parsed.preClassifiedConflicts ?? [],
+        scenarioRecipes: parsed.scenarioRecipes ?? [],
     };
 
     if (parsed.testScopeGuidelines != null) {
@@ -118,5 +120,6 @@ export function serializeAnalysisInput(
         merges: agentInput.merges ?? [],
         preClassifiedConflicts: agentInput.preClassifiedConflicts ?? [],
         testScopeGuidelines: agentInput.testScopeGuidelines,
+        scenarioRecipes: agentInput.scenarioRecipes ?? [],
     });
 }

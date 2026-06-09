@@ -3,6 +3,7 @@ export type { TestLookupLoop } from "./tools/lookup/test-lookup-loop";
 export type { ScenarioLookupLoop } from "./tools/lookup/scenario-lookup-loop";
 export type { ScreenshotInspectionLoop } from "./tools/screenshot/screenshot-inspection-loop";
 export type { ScenarioDataLoop } from "./tools/scenario/scenario-data-loop";
+export type { ScenarioRecipeLoop } from "./tools/scenario/scenario-recipe-loop";
 
 export { DiffsAgent, type DiffsAgentConfig, type DiffsAgentInput, type DiffsAgentResult } from "./diffs/diffs-agent";
 export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
@@ -50,6 +51,7 @@ export {
     ListTestsTool,
     ReadFilesTool,
     ReadScenarioEntitiesTool,
+    ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
     Subagent,

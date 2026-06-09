@@ -43,4 +43,23 @@ describe("materializeScenarioData", () => {
     it("returns undefined when the graph is not an object", () => {
         expect(materializeScenarioData("Weird", ["a", "b"], testLogger)).toBeUndefined();
     });
+
+    it("drops prototype-polluting entity-type keys without corrupting the result", () => {
+        const result = materializeScenarioData(
+            "Sneaky",
+            {
+                ["__proto__"]: [{ polluted: true }],
+                constructor: [{ polluted: true }],
+                User: [{ _alias: "owner" }],
+            },
+            testLogger,
+        );
+
+        expect(result?.entities).toEqual({ User: [{ _alias: "owner" }] });
+        // The result is a plain object whose prototype was not reparented to the
+        // attacker-supplied array, and a fresh object is unpolluted.
+        expect(Object.getPrototypeOf(result?.entities)).toBe(Object.prototype);
+        const fresh: Record<string, unknown> = {};
+        expect(fresh.polluted).toBeUndefined();
+    });
 });

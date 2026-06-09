@@ -2,8 +2,10 @@ import { type AgentConfig, AgentLoop } from "@autonoma/ai";
 import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
+import type { ScenarioRecipeData } from "../../scenario-recipe";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
 import type { TestLookupLoop } from "../tools/lookup/test-lookup-loop";
+import type { ScenarioRecipeLoop } from "../tools/scenario/scenario-recipe-loop";
 import type { AffectedTest } from "./affected-test";
 import type { DiffsAgentResult } from "./diffs-agent";
 import type { TestCandidate } from "./tools/suggest-test-tool";
@@ -17,6 +19,8 @@ interface DiffsAgentLoopParams extends AgentConfig<DiffsAgentResult> {
     validSlugs: ReadonlySet<string>;
     quarantinedSlugs: ReadonlySet<string>;
     validConflictSlugs: ReadonlySet<string>;
+    /** Materialized recipe templates for the scenarios the tests in scope reference. Empty when none apply. */
+    scenarioRecipes: ScenarioRecipeData[];
 }
 
 /**
@@ -27,7 +31,10 @@ interface DiffsAgentLoopParams extends AgentConfig<DiffsAgentResult> {
  * directly; the validation sets ({@link validSlugs}, {@link quarantinedSlugs},
  * {@link validConflictSlugs}) are exposed for tools to guard against bad input.
  */
-export class DiffsAgentLoop extends AgentLoop<DiffsAgentResult> implements CodebaseLoop, TestLookupLoop {
+export class DiffsAgentLoop
+    extends AgentLoop<DiffsAgentResult>
+    implements CodebaseLoop, TestLookupLoop, ScenarioRecipeLoop
+{
     public readonly codebase: Codebase;
     public readonly flowIndex: FlowIndex;
     public readonly existingTests: ExistingTestInfo[];
@@ -44,6 +51,9 @@ export class DiffsAgentLoop extends AgentLoop<DiffsAgentResult> implements Codeb
     /** Slugs of pre-classified merge conflicts the agent must enrich. */
     public readonly validConflictSlugs: ReadonlySet<string>;
 
+    /** Recipe templates the `read_scenario_recipe_entities` tool discloses on demand. */
+    public readonly scenarioRecipes: ScenarioRecipeData[];
+
     constructor({
         codebase,
         flowIndex,
@@ -52,6 +62,7 @@ export class DiffsAgentLoop extends AgentLoop<DiffsAgentResult> implements Codeb
         validSlugs,
         quarantinedSlugs,
         validConflictSlugs,
+        scenarioRecipes,
         ...config
     }: DiffsAgentLoopParams) {
         super(config);
@@ -62,6 +73,7 @@ export class DiffsAgentLoop extends AgentLoop<DiffsAgentResult> implements Codeb
         this.validSlugs = validSlugs;
         this.quarantinedSlugs = quarantinedSlugs;
         this.validConflictSlugs = validConflictSlugs;
+        this.scenarioRecipes = scenarioRecipes;
     }
 
     protected override snapshotPartial(): { affectedTests: AffectedTest[]; testCandidates: TestCandidate[] } {

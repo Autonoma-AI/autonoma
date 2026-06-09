@@ -1,5 +1,6 @@
 import type { Logger } from "@autonoma/logger";
-import type { ScenarioData, ScenarioEntities, ScenarioEntityRecord } from "./types";
+import { normalizeEntities } from "./normalize-entities";
+import type { ScenarioData } from "./types";
 
 /**
  * Normalize a raw `ScenarioInstance.generatedData` graph into the serializable
@@ -28,27 +29,4 @@ export function materializeScenarioData(
         extra: { scenarioName, entityTypes: Object.keys(entities).length },
     });
     return { scenarioName, entities };
-}
-
-/**
- * Keep only entity types whose value is a non-empty array of object records,
- * filtering out non-object array members (e.g. stray scalars). Returns
- * `undefined` when nothing survives, which signals "no scenario data".
- */
-function normalizeEntities(raw: unknown): ScenarioEntities | undefined {
-    if (!isPlainObject(raw)) return undefined;
-
-    const entities: ScenarioEntities = {};
-    for (const [entityType, value] of Object.entries(raw)) {
-        if (!Array.isArray(value)) continue;
-        const records = value.filter(isPlainObject);
-        if (records.length === 0) continue;
-        entities[entityType] = records;
-    }
-
-    return Object.keys(entities).length > 0 ? entities : undefined;
-}
-
-function isPlainObject(value: unknown): value is ScenarioEntityRecord {
-    return typeof value === "object" && value != null && !Array.isArray(value);
 }

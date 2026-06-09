@@ -264,6 +264,75 @@ export class ReplayContextHarness implements IntegrationHarness {
         return instance.id;
     }
 
+    /** Create a bare branch + snapshot, returning the snapshot id. */
+    async createSnapshot(organizationId: string, applicationId: string): Promise<string> {
+        const suffix = uniqueSuffix();
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${suffix}`, organizationId, applicationId },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: { branchId: branch.id, source: "MANUAL" },
+        });
+        return snapshot.id;
+    }
+
+    /**
+     * Seed a Scenario plus its point-in-time `ScenarioRecipeVersion` for a
+     * snapshot - the artifact the recipe resolver reads. The recipe's declared
+     * `create` graph is passed verbatim as the fixture's `create` block. Returns
+     * the scenario id so the caller can request its recipe.
+     */
+    async seedScenarioRecipeVersion(params: {
+        organizationId: string;
+        applicationId: string;
+        snapshotId: string;
+        scenarioName: string;
+        description?: string;
+        create: Record<string, unknown>;
+    }): Promise<string> {
+        const { organizationId, applicationId, snapshotId, scenarioName, create } = params;
+
+        const scenario = await this.db.scenario.create({
+            data: { name: scenarioName, applicationId, organizationId },
+        });
+
+        // One schema snapshot per (application, snapshot); reused across scenarios.
+        const schemaSnapshot = await this.db.scenarioSchemaSnapshot.upsert({
+            where: { applicationId_snapshotId: { applicationId, snapshotId } },
+            create: {
+                applicationId,
+                snapshotId,
+                structureJson: { models: {} },
+                fingerprint: `schema-${uniqueSuffix()}`,
+            },
+            update: {},
+        });
+
+        await this.db.scenarioRecipeVersion.create({
+            data: {
+                scenarioId: scenario.id,
+                snapshotId,
+                schemaSnapshotId: schemaSnapshot.id,
+                applicationId,
+                organizationId,
+                scenarioNameSnapshot: scenarioName,
+                description: params.description ?? null,
+                fingerprint: `recipe-${uniqueSuffix()}`,
+                validationStatus: "validated",
+                validationMethod: "checkScenario",
+                validationPhase: "ok",
+                fixtureJson: {
+                    name: scenarioName,
+                    description: params.description ?? "",
+                    create,
+                    validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                },
+            },
+        });
+
+        return scenario.id;
+    }
+
     /**
      * Re-point an assignment's plan to a freshly created plan (simulating a
      * healing `updatePlan`). The run keeps its original `planId`, which is what

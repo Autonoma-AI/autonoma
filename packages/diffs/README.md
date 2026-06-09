@@ -22,7 +22,8 @@ src/agents/
 ├── tools/                   Shared tools - typed against the narrowest capability they need
 │   ├── codebase/            bash, glob, grep, list_directory, read_files (CodebaseLoop)
 │   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
-│   ├── scenario/            read_scenario_entities (ScenarioDataLoop)
+│   ├── scenario/            read_scenario_entities (ScenarioDataLoop),
+│   │                        read_scenario_recipe_entities (ScenarioRecipeLoop)
 │   ├── screenshot/          view_step_screenshot, view_final_screenshot
 │   └── subagent/            Nested research agent + tool wrapper
 ├── diffs/                   DiffsAgent + its action tools + result tool + prompt
@@ -34,7 +35,32 @@ src/scenario-data/           Reusable, agent-agnostic scenario-data capability:
                              resolveScenarioDataForRun (DB) + materializeScenarioData (pure)
                              + summarizeScenarioData (bounded prompt summary). The
                              read_scenario_entities tool discloses full records on demand.
+                             Shared entity-graph primitives (normalizeEntities,
+                             summarizeEntities) are reused by scenario-recipe.
+
+src/scenario-recipe/         Template-level sibling of scenario-data, for the diffs
+                             analysis agent (Step 1): resolveScenarioRecipesForSnapshot (DB)
+                             + materializeScenarioRecipe (pure) + summarizeScenarioRecipes
+                             (bounded, per-scenario prompt summary). The
+                             read_scenario_recipe_entities tool discloses full declared
+                             records on demand.
 ```
+
+### Recipe (template) data vs per-run (instance) data
+
+These two capabilities are deliberately distinct data shapes:
+
+- **`scenario-data`** is per-run **instance** data - the concrete rows a single run's
+  scenario instance *actually generated* (`ScenarioInstance.generatedData`). The replay
+  reviewer uses it to judge whether a run's plan referenced data the scenario really seeded.
+- **`scenario-recipe`** is **recipe template** data - what each scenario is *designed to
+  seed*, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
+  The diffs **analysis** agent uses it: analysis runs *before any replay*, so no instance
+  exists yet - the recipe is the only artifact describing each scenario's data. Field values
+  may still be unresolved variable placeholders (e.g. `{{testRunId}}`).
+
+Both resolve their payload at setup (the only DB-touching step), inline a bounded summary,
+and disclose full records on demand via an in-memory tool, keeping the agent run DB-free.
 
 Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that implements the capability interfaces the agent's tools depend on, the per-agent action/result tools, and the prompt source.
 

@@ -40,6 +40,7 @@ export {
     type ModifiedTest,
     ReadFilesTool,
     ReadScenarioEntitiesTool,
+    ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
     type RemovedTest,
@@ -57,6 +58,7 @@ export {
     type RunReviewVerdict,
     type ScenarioDataLoop,
     type ScenarioLookupLoop,
+    type ScenarioRecipeLoop,
     type ScreenshotInspectionLoop,
     type ScreenshotLoader,
     Subagent,
@@ -172,3 +174,17 @@ export {
     scenarioEntitiesSchema,
     scenarioEntityRecordSchema,
 } from "./scenario-data";
+
+// Scenario-recipe capability - the template-level sibling of scenario-data:
+// resolves + presents + discloses the data each scenario is *designed to seed*
+// (its recipe `create` graph), sourced from the point-in-time
+// ScenarioRecipeVersion.fixtureJson. Consumed by the diffs analysis agent, which
+// runs before any replay (so no per-run instance exists yet).
+export {
+    materializeScenarioRecipe,
+    resolveScenarioRecipesForSnapshot,
+    summarizeScenarioRecipes,
+    type ScenarioRecipeData,
+    type ScenarioRecipeIdentity,
+    scenarioRecipeDataSchema,
+} from "./scenario-recipe";

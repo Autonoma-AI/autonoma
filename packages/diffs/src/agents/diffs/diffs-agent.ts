@@ -1,4 +1,4 @@
-import { Agent, type LanguageModel } from "@autonoma/ai";
+import { Agent, type AgentTool, type LanguageModel } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { ModelMessage } from "ai";
 import type { Codebase } from "../../codebase";
@@ -6,6 +6,7 @@ import { buildDiffAnalysis } from "../../diff-analysis";
 import type { ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { PLAN_AUTHORING_GUIDE } from "../../healing";
+import type { ScenarioRecipeData } from "../../scenario-recipe";
 import {
     BashTool,
     GlobTool,
@@ -13,6 +14,7 @@ import {
     ListFlowsTool,
     ListTestsTool,
     ReadFilesTool,
+    ReadScenarioRecipeEntitiesTool,
     ReadTestsTool,
     SubagentTool,
 } from "../tools";
@@ -47,6 +49,15 @@ export interface DiffsAgentInput {
     preClassifiedConflicts?: PreClassifiedConflictInfo[];
     /** Free-text testing guidelines from the application owner. */
     testScopeGuidelines?: string;
+    /**
+     * Recipe **templates** for the scenarios the tests in scope reference,
+     * resolved at setup from each scenario's point-in-time
+     * `ScenarioRecipeVersion.fixtureJson`. This is template data (what each
+     * scenario is designed to seed), NOT per-run instance data - analysis runs
+     * before any replay, so no instance exists yet. Omitted/empty when no test in
+     * scope references a scenario with a usable recipe.
+     */
+    scenarioRecipes?: ScenarioRecipeData[];
 }
 
 export interface DiffsAgentResult {
@@ -78,6 +89,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
     private readonly markAffectedTestTool = new MarkAffectedTestTool();
     private readonly explainMergeConflictTool = new ExplainMergeConflictTool();
     private readonly suggestTestTool = new SuggestTestTool();
+    private readonly readScenarioRecipeEntitiesTool = new ReadScenarioRecipeEntitiesTool();
     private readonly resultTool = new DiffsResultTool();
 
     constructor({ model }: DiffsAgentConfig) {
@@ -95,6 +107,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             merges: input.merges ?? [],
             preClassifiedConflicts: input.preClassifiedConflicts ?? [],
             testScopeGuidelines: input.testScopeGuidelines,
+            scenarioRecipes: input.scenarioRecipes ?? [],
         });
         return [{ role: "user", content: prompt }];
     }
@@ -107,23 +120,32 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             reasoning: "",
         }));
 
+        const scenarioRecipes = input.scenarioRecipes ?? [];
+
+        // The recipe disclosure tool is only offered when at least one scenario
+        // recipe was actually resolved - advertising a tool with no data to read
+        // just wastes a turn. The recipe summary section in the prompt is gated
+        // the same way.
+        const tools: AgentTool<unknown, unknown>[] = [
+            this.bashTool,
+            this.globTool,
+            this.grepTool,
+            this.readFilesTool,
+            this.subagentTool,
+            this.listFlowsTool,
+            this.listTestsTool,
+            this.readTestsTool,
+            this.markAffectedTestTool,
+            this.explainMergeConflictTool,
+            this.suggestTestTool,
+        ];
+        if (scenarioRecipes.length > 0) tools.push(this.readScenarioRecipeEntitiesTool);
+
         return new DiffsAgentLoop({
             name: "DiffsAgent",
             model: this.model,
             systemPrompt: SYSTEM_PROMPT,
-            tools: [
-                this.bashTool,
-                this.globTool,
-                this.grepTool,
-                this.readFilesTool,
-                this.subagentTool,
-                this.listFlowsTool,
-                this.listTestsTool,
-                this.readTestsTool,
-                this.markAffectedTestTool,
-                this.explainMergeConflictTool,
-                this.suggestTestTool,
-            ],
+            tools,
             reportTool: this.resultTool,
             codebase: input.codebase,
             flowIndex: input.flowIndex,
@@ -132,6 +154,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             validSlugs: new Set(input.existingTests.map((t) => t.slug)),
             quarantinedSlugs: new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),
             validConflictSlugs: new Set((input.preClassifiedConflicts ?? []).map((c) => c.slug)),
+            scenarioRecipes,
         });
     }
 }

@@ -9,6 +9,7 @@ import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
 import type { ScenarioData } from "../src/scenario-data";
 import { ScenarioIndex } from "../src/scenario-index";
+import type { ScenarioRecipeData } from "../src/scenario-recipe";
 
 /**
  * Tests bypass the LanguageModel + system-prompt plumbing entirely: they
@@ -28,6 +29,7 @@ export interface DiffsLoopOverrides {
     validSlugs?: ReadonlySet<string>;
     quarantinedSlugs?: ReadonlySet<string>;
     validConflictSlugs?: ReadonlySet<string>;
+    scenarioRecipes?: ScenarioRecipeData[];
 }
 
 export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoop {
@@ -49,6 +51,7 @@ export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoo
         quarantinedSlugs:
             overrides.quarantinedSlugs ?? new Set(existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),
         validConflictSlugs: overrides.validConflictSlugs ?? new Set(),
+        scenarioRecipes: overrides.scenarioRecipes ?? [],
     });
 }
 

@@ -1,6 +1,7 @@
 import type { DiffAnalysis, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { buildPlanAuthoringContext } from "../../healing/plan-authoring";
+import { type ScenarioRecipeData, summarizeScenarioRecipes } from "../../scenario-recipe";
 
 export interface DiffsPromptInput {
     analysis: DiffAnalysis;
@@ -8,6 +9,8 @@ export interface DiffsPromptInput {
     merges: MergeContextInfo[];
     preClassifiedConflicts: PreClassifiedConflictInfo[];
     testScopeGuidelines?: string;
+    /** Recipe templates for the scenarios the tests in scope reference. Empty when none apply. */
+    scenarioRecipes: ScenarioRecipeData[];
 }
 
 /**
@@ -16,7 +19,7 @@ export interface DiffsPromptInput {
  * authoring context) goes through here.
  */
 export function buildDiffsUserPrompt(input: DiffsPromptInput): string {
-    const { analysis, flowIndex, merges, preClassifiedConflicts, testScopeGuidelines } = input;
+    const { analysis, flowIndex, merges, preClassifiedConflicts, testScopeGuidelines, scenarioRecipes } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         flows: flowIndex.listFlows().map((f) => ({
@@ -70,6 +73,11 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
         }
     }
 
+    const recipeSummary = summarizeScenarioRecipes(scenarioRecipes);
+    if (recipeSummary != null) {
+        prompt += `\n\n## Scenario Recipes (test data templates)\n${recipeSummary}`;
+    }
+
     if (flowIndex.listFlows().length > 0) {
         prompt +=
             "\n\nFlows are listed in the Plan Authoring Context above. Use `list_tests` to see tests in a flow and `read_tests` to inspect specific tests' instructions - always pass every slug you need to read in a single call.";
@@ -118,6 +126,9 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 ### Test discovery
 - \`list_tests\`: list tests in a specific flow (folder) - returns slug, name, and quarantine status
 - \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
+
+### Scenario recipes (test data templates)
+- \`read_scenario_recipe_entities\`: when the prompt includes a "Scenario Recipes" section, read the full records a scenario's recipe declares for one entity type. This is the data each scenario is *designed to seed* (a template), NOT the data of any single past run - analysis runs before any replay. Use it to judge whether a diff changes the shape of data a test depends on. Only available when the tests in scope reference scenarios with a recipe.
 
 ### Actions
 - \`mark_affected_test\`: flag a test as potentially affected by the changes (must use exact slug, records as \`code_change\`)

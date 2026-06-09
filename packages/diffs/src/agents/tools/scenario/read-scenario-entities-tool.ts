@@ -1,6 +1,7 @@
 import { AgentTool, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
 import type { ScenarioEntityRecord } from "../../../scenario-data";
+import { boundRecords } from "./bound-records";
 import type { ScenarioDataLoop } from "./scenario-data-loop";
 
 /**
@@ -98,35 +99,17 @@ export class ReadScenarioEntitiesTool extends AgentTool<
         const records = data.entities[entityType];
         if (records == null) throw new UnknownEntityTypeError(entityType, Object.keys(data.entities));
 
-        return boundRecords(entityType, records);
-    }
-}
+        const bounded = boundRecords(records, MAX_OUTPUT_CHARS);
+        if (!bounded.truncated) {
+            return { entityType, count: bounded.count, records: bounded.records };
+        }
 
-/**
- * Return as many whole records as fit within {@link MAX_OUTPUT_CHARS}. Always
- * includes at least the first record so the model gets something even when a
- * single record is itself oversized; never slices inside a record so the output
- * stays valid.
- */
-function boundRecords(entityType: string, records: ScenarioEntityRecord[]): ReadScenarioEntitiesOutput {
-    const kept: ScenarioEntityRecord[] = [];
-    let usedChars = 0;
-    for (const record of records) {
-        const recordChars = JSON.stringify(record).length;
-        if (kept.length > 0 && usedChars + recordChars > MAX_OUTPUT_CHARS) break;
-        kept.push(record);
-        usedChars += recordChars;
+        return {
+            entityType,
+            count: bounded.count,
+            records: bounded.records,
+            truncated: true,
+            note: `Returned the first ${bounded.records.length} of ${bounded.count} ${entityType} records; the rest were omitted because the full set exceeds the ${MAX_OUTPUT_CHARS}-char output budget.`,
+        };
     }
-
-    if (kept.length === records.length) {
-        return { entityType, count: records.length, records: kept };
-    }
-
-    return {
-        entityType,
-        count: records.length,
-        records: kept,
-        truncated: true,
-        note: `Returned the first ${kept.length} of ${records.length} ${entityType} records; the rest were omitted because the full set exceeds the ${MAX_OUTPUT_CHARS}-char output budget.`,
-    };
 }
