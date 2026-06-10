@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import type { ScenarioData } from "../../scenario-data";
 import type { ChangeContext, ReviewLineage } from "../kernel";
 
 export interface GenerationStepData {
@@ -38,4 +39,14 @@ export interface GenerationContext {
      * iterations) and for legacy fixtures captured before lineage existed.
      */
     lineage?: ReviewLineage;
+    /**
+     * Materialized snapshot of the data the generation's scenario actually
+     * created. Omitted when the generation has no scenario instance, UP never
+     * succeeded, or the generated-data graph is empty (e.g. historical instances
+     * predating #815). A bounded summary is inlined into the prompt; full records
+     * are surfaced on demand via the `read_scenario_entities` tool. Lets the
+     * reviewer catch plans that reference data the scenario never created - a
+     * strong `plan_mismatch` signal.
+     */
+    scenario?: ScenarioData;
 }

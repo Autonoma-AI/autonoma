@@ -32,11 +32,12 @@ src/agents/
 └── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
 
 src/scenario-data/           Reusable, agent-agnostic scenario-data capability:
-                             resolveScenarioDataForRun (DB) + materializeScenarioData (pure)
-                             + summarizeScenarioData (bounded prompt summary). The
-                             read_scenario_entities tool discloses full records on demand.
-                             Shared entity-graph primitives (normalizeEntities,
-                             summarizeEntities) are reused by scenario-recipe.
+                             resolveScenarioDataForRun / resolveScenarioDataForGeneration (DB)
+                             + materializeScenarioData (pure) + summarizeScenarioData (bounded
+                             prompt summary). The read_scenario_entities tool discloses full
+                             records on demand. Both resolvers share the instance-unwrap
+                             (materializeInstanceScenarioData). Shared entity-graph primitives
+                             (normalizeEntities, summarizeEntities) are reused by scenario-recipe.
 
 src/scenario-recipe/         Template-level sibling of scenario-data, for the diffs
                              analysis agent (Step 1): resolveScenarioRecipesForSnapshot (DB)
@@ -50,9 +51,10 @@ src/scenario-recipe/         Template-level sibling of scenario-data, for the di
 
 These two capabilities are deliberately distinct data shapes:
 
-- **`scenario-data`** is per-run **instance** data - the concrete rows a single run's
-  scenario instance *actually generated* (`ScenarioInstance.generatedData`). The replay
-  reviewer uses it to judge whether a run's plan referenced data the scenario really seeded.
+- **`scenario-data`** is per-subject **instance** data - the concrete rows a single run's
+  or generation's scenario instance *actually generated* (`ScenarioInstance.generatedData`).
+  The replay and generation reviewers use it to judge whether a subject's plan referenced
+  data the scenario really seeded (a strong `engine_error` / `plan_mismatch` signal).
 - **`scenario-recipe`** is **recipe template** data - what each scenario is *designed to
   seed*, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
   The diffs **analysis** agent uses it: analysis runs *before any replay*, so no instance

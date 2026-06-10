@@ -429,5 +429,61 @@ diffJobContextSuite({
 
             expect(context.lineage).toBeUndefined();
         });
+
+        test("materializes the generation's scenario generated-data graph into the context", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "genbase7",
+                headSha: "genhead8",
+                steps: [{ order: 0, interaction: "click", params: { target: "project" }, output: { success: false } }],
+                scenario: {
+                    name: "Generation org with one user and project",
+                    generatedData: {
+                        User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                        Project: [{ _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } }],
+                    },
+                },
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.scenario?.scenarioName).toBe("Generation org with one user and project");
+            expect(context.scenario?.entities).toEqual({
+                User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                Project: [{ _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } }],
+            });
+        });
+
+        test("omits scenario context for a generation when UP failed and no data was generated", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { success: false } }],
+                scenario: { name: "Generation failed scenario", status: "UP_FAILED" },
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.scenario).toBeUndefined();
+        });
+
+        test("omits scenario context when the generation has no scenario instance", async ({ harness, seedResult }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [{ order: 0, interaction: "click", params: {}, output: { success: false } }],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.scenario).toBeUndefined();
+        });
     },
 });

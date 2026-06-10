@@ -159,6 +159,13 @@ export interface SeedGenerationParams {
     videoUrl?: string;
     finalScreenshot?: string;
     steps?: SeedGenerationStep[];
+    /**
+     * When provided, a Scenario + ScenarioInstance is created and the generation
+     * is linked to it. `status` defaults to `UP_SUCCESS`; `generatedData` is the
+     * resolved create graph persisted at UP (omit it to exercise the
+     * absent-data path).
+     */
+    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
 }
 
 export interface SeededGeneration {
@@ -621,6 +628,11 @@ export class DiffJobContextHarness implements IntegrationHarness {
             organizationId,
         );
 
+        const scenarioInstanceId =
+            params.scenario != null
+                ? await this.createScenarioInstance(organizationId, applicationId, params.scenario)
+                : undefined;
+
         const generation = await this.createGeneration({
             organizationId,
             snapshotId: snapshot.id,
@@ -631,6 +643,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
             finalScreenshot: params.finalScreenshot,
             conversation: params.conversation,
             steps: params.steps ?? [],
+            scenarioInstanceId,
         });
 
         if (params.affected != null) {
@@ -772,6 +785,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
         finalScreenshot?: string;
         conversation?: ModelMessage[];
         steps: SeedGenerationStep[];
+        scenarioInstanceId?: string;
     }): Promise<{ id: string }> {
         const conversationUrl = this.storeConversation(args.conversation);
 
@@ -788,6 +802,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 finalScreenshot: args.finalScreenshot ?? null,
                 conversationUrl: conversationUrl ?? null,
                 stepsId: stepsId ?? null,
+                scenarioInstanceId: args.scenarioInstanceId ?? null,
             },
             select: { id: true },
         });

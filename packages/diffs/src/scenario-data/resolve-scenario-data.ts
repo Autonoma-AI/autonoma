@@ -1,15 +1,17 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { materializeScenarioData } from "./materialize-scenario-data";
+import { materializeInstanceScenarioData } from "./materialize-instance-scenario-data";
 import type { ScenarioData } from "./types";
 
 /**
  * Resolve the scenario instance a run executed against and materialize its
  * generated-data graph into the serializable {@link ScenarioData} payload.
  *
- * This is the single DB-touching step of the scenario-data capability, kept
+ * This is one of the two DB-touching steps of the scenario-data capability, kept
  * agent-agnostic so loaders (replay review today), resolution, and healing all
- * share one resolution path instead of re-querying the join themselves.
+ * share one resolution path instead of re-querying the join themselves. The
+ * generation sibling is `resolveScenarioDataForGeneration`; both unwrap the
+ * fetched instance through `materializeInstanceScenarioData`.
  *
  * Gracefully returns `undefined` - and the caller omits the scenario context -
  * when the run has no scenario instance, when UP never succeeded (so
@@ -32,19 +34,5 @@ export async function resolveScenarioDataForRun(db: PrismaClient, runId: string)
         },
     });
 
-    const instance = run?.scenarioInstance;
-    if (instance == null) {
-        logger.info("Run has no scenario instance - omitting scenario context", { runId });
-        return undefined;
-    }
-
-    if (instance.generatedData == null) {
-        logger.info("Scenario instance has no generated data - omitting scenario context", {
-            runId,
-            extra: { scenarioStatus: instance.status },
-        });
-        return undefined;
-    }
-
-    return materializeScenarioData(instance.scenario.name, instance.generatedData, logger);
+    return materializeInstanceScenarioData(run?.scenarioInstance, logger);
 }

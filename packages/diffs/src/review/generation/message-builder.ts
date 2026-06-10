@@ -1,5 +1,6 @@
 import type { UploadedVideo } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
+import { summarizeScenarioData } from "../../scenario-data";
 import { MessageBuilder, buildChangeContextSection, buildLineageSection, sanitizeConversation } from "../kernel";
 import type { GenerationContext } from "./types";
 
@@ -31,6 +32,10 @@ export function buildGenerationReviewMessages(
             "Refinement-Loop History (fallible signal)",
             buildLineageSection(context.lineage, "generation"),
         );
+    }
+
+    if (context.scenario != null) {
+        builder.section("Scenario Data", summarizeScenarioData(context.scenario));
     }
 
     builder

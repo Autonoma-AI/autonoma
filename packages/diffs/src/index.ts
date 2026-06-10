@@ -153,6 +153,7 @@ export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./
 // + in-memory disclosure of the data a run's scenario actually created.
 export {
     materializeScenarioData,
+    resolveScenarioDataForGeneration,
     resolveScenarioDataForRun,
     summarizeScenarioData,
     type ScenarioData,

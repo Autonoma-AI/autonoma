@@ -69,6 +69,33 @@ describe("generation review fixture round-trip", () => {
         expect(rehydrated).toEqual(context);
     });
 
+    it("round-trips a context carrying materialized scenario data unchanged", () => {
+        const context: GenerationContext = {
+            generationId: "gen-2",
+            organizationId: "org-1",
+            selfReportedStatus: "failed",
+            testPlanPrompt: "Open the first project and verify its name",
+            conversation: [{ role: "assistant", content: "I opened the project list" }],
+            steps: [],
+            scenario: {
+                scenarioName: "Single org with one project",
+                entities: {
+                    User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                    Project: [
+                        { _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } },
+                        { _alias: "proj2", name: "Gemini", ownerId: { _ref: "owner" } },
+                    ],
+                },
+            },
+        };
+
+        const frozen = serializeGenerationReviewInput(coords, context);
+        const reparsed = generationReviewCaseInputSchema.parse(JSON.parse(JSON.stringify(frozen)));
+        const { context: rehydrated } = rehydrateGenerationReviewInput(reparsed);
+
+        expect(rehydrated).toEqual(context);
+    });
+
     it("still parses a legacy fixture captured before change context and lineage existed", () => {
         const legacy: unknown = {
             codebase: coords,

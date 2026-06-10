@@ -104,6 +104,35 @@ describe("buildGenerationReviewMessages", () => {
         expect(text).not.toContain("## Refinement-Loop History");
     });
 
+    it("renders the bounded scenario-data summary when scenario data is present", () => {
+        const messages = buildGenerationReviewMessages(
+            baseContext({
+                scenario: {
+                    scenarioName: "Single org with one project",
+                    entities: {
+                        User: [{ _alias: "owner", email: "owner@example.test", name: "Pat Owner" }],
+                        Project: [{ _alias: "proj", name: "Apollo", ownerId: { _ref: "owner" } }],
+                    },
+                },
+            }),
+            undefined,
+        );
+
+        const text = leadingText(messages);
+        expect(text).toContain("## Scenario Data");
+        expect(text).toContain("Single org with one project");
+        // Entity types and their aliases surface in the bounded summary.
+        expect(text).toContain("User");
+        expect(text).toContain("owner");
+        expect(text).toContain("Project");
+        expect(text).toContain("Apollo");
+    });
+
+    it("omits the scenario-data section when scenario data is absent", () => {
+        const text = leadingText(buildGenerationReviewMessages(baseContext(), undefined));
+        expect(text).not.toContain("## Scenario Data");
+    });
+
     it("always splices the sanitized agent conversation after the context", () => {
         const messages = buildGenerationReviewMessages(baseContext(), undefined);
         // The conversation message follows the leading context message.

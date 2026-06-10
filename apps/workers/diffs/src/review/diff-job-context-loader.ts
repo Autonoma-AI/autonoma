@@ -8,6 +8,7 @@ import {
     type ReviewLineage,
     type RunContext,
     type RunStepData,
+    resolveScenarioDataForGeneration,
     resolveScenarioDataForRun,
 } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -227,12 +228,19 @@ export class DiffJobContextLoader {
         const change = this.buildChangeContext(generationId, generation.snapshot, generation.affectedTest);
         const lineage = await this.buildLineage(generationId, generation.testPlanId, generation.testPlan.testCaseId);
 
+        // Resolved + materialized via the shared, agent-agnostic helper so the
+        // loader stays DB-only and the generation reviewer reaches parity with
+        // replay. Returns undefined (and we omit it) when the generation has no
+        // scenario, UP never succeeded, or the graph is empty.
+        const scenario = await resolveScenarioDataForGeneration(this.db, generationId);
+
         this.logger.info("Generation review context loaded", {
             generationId,
             stepCount: steps.length,
             selfReportedStatus: generation.status,
             hasChange: change != null,
             hasLineage: lineage != null,
+            hasScenario: scenario != null,
         });
 
         const context: GenerationContext = {
@@ -248,6 +256,7 @@ export class DiffJobContextLoader {
         if (generation.finalScreenshot != null) context.finalScreenshotKey = generation.finalScreenshot;
         if (change != null) context.change = change;
         if (lineage != null) context.lineage = lineage;
+        if (scenario != null) context.scenario = scenario;
         return context;
     }
 

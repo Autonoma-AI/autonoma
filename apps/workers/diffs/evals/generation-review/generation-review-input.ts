@@ -1,5 +1,5 @@
 import { AffectedReason, RunReviewVerdict } from "@autonoma/db";
-import { type GenerationContext, sanitizeConversation } from "@autonoma/diffs";
+import { type GenerationContext, sanitizeConversation, scenarioDataSchema } from "@autonoma/diffs";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
@@ -15,11 +15,13 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * S3 keys - never bytes - and is rehydrated by the production evidence loader
  * at run time.
  *
- * `change` and `lineage` are optional so cases captured before each existed still
- * parse; the changed-file list and diff hunks are never frozen here - the
- * reviewer derives them from the rehydrated codebase via `git diff`. `lineage` is
- * present only for iteration-2+ cases (the refinement-loop generations this fix
- * targets) and absent for first-iteration and pre-lineage cases.
+ * `change`, `lineage`, and `scenario` are optional so cases captured before each
+ * existed still parse; the changed-file list and diff hunks are never frozen here
+ * - the reviewer derives them from the rehydrated codebase via `git diff`. The
+ * `scenario` payload is the materialized generated-data graph, frozen verbatim.
+ * `lineage` is present only for iteration-2+ cases (the refinement-loop
+ * generations this fix targets) and absent for first-iteration and pre-lineage
+ * cases.
  */
 export const generationReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -69,6 +71,7 @@ export const generationReviewCaseInputSchema = z.object({
                 ),
             })
             .optional(),
+        scenario: scenarioDataSchema.optional(),
     }),
 });
 

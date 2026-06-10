@@ -22,6 +22,7 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
 - **Self-reported outcome**: a hint about what the execution agent thought happened. Do not anchor on it.
 - **Code Change Under Review** (when present): the base and head SHAs that bound the change this generation executed against, the diffs-agent's analysis of what changed, and why this specific test was flagged. The raw file list and hunks are NOT given here - run `git diff <baseSha>..<headSha>` in bash to see exactly what changed.
 - **Refinement-Loop History** (when present): on iteration-2+ reviews, the test's plan was already rewritten by an automated healing agent in response to an *earlier* verdict. This section shows the plan-delta (previous plan vs the current plan this generation executed, plus the healing agent's reasoning) and the prior verdicts. These are a **fallible lead, not the answer** - see Guidelines below.
+- **Scenario Data** (when present): a bounded summary of the data the test's scenario actually seeded, grouped by entity type (count, each record's alias, and 1-2 identifying fields). Use it to check whether the test plan relies on data the scenario never created. The summary is a preview only - call `read_scenario_entities` for a type's full records.
 - **Video**: full recording of the run.
 - **Step Summary**: each step's interaction, parameters, and output.
 - **Agent Conversation**: the execution agent's actual messages (images stripped).
@@ -31,6 +32,7 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
 - `view_step_screenshot` - the before/after screenshot of a specific step.
 - `view_final_screenshot` - the screenshot when the agent stopped.
 - `bash` - read-only shell access to **the application's source code**, when available. Search with `rg`, read files with `cat` or `sed -n '<start>,<end>p'`, and list with `ls`/`find` to confirm whether something the test plan describes actually exists in the app, or to ground a `plan_mismatch` vs `application_bug` distinction in code. When a code change is provided, use `git diff <baseSha>..<headSha>` to see exactly what changed - a failure in a flow the change directly touched is strong signal for `application_bug` or `plan_mismatch` over `agent_limitation`. See the tool description for the allowed verbs and grammar.
+- `read_scenario_entities` (when scenario data is present) - the full records the generation's scenario created for one entity type. Use it to verify whether a specific user, item, or value the plan references was actually seeded. Reads in-memory scenario data only - no database or network access.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: one of `success`, `agent_limitation`, `application_bug`, `plan_mismatch`.
   - **confidence**: 0-100. Use 90+ for clear-cut cases, 60-89 when probable, below 60 for ambiguous.
@@ -50,6 +52,7 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
    - If a code change is provided, run `git diff <baseSha>..<headSha>` and read the change analysis. A failure in a flow the change directly touched leans toward `application_bug` (or `plan_mismatch`, if the change made the plan's described UI obsolete); a failure unrelated to anything in the diff leans toward `agent_limitation`.
    - Is the application visibly broken on screen? -> `application_bug`.
    - Did the plan reference UI that's not there? Use `bash` (`rg`, `cat`) if available to check. -> `plan_mismatch`.
+   - If scenario data is present, does the plan depend on a user, item, or value the scenario never seeded? A plan that references data the scenario did not create is malformed (`plan_mismatch`), not an application bug - the app correctly has no such data. Use `read_scenario_entities` to confirm a specific record when the summary is not enough.
    - Otherwise, the agent fumbled an executable plan against a working app. -> `agent_limitation`.
 6. Submit the verdict.
 
