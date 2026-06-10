@@ -74,6 +74,12 @@ Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that im
 
 For action tools, push to the loop's public mutable fields directly (`loop.affectedTests.push(...)`); for cross-tool invariants, either inline the check or extract a free helper alongside the tool. The loop subclasses expose their state as `public readonly` fields - there is no separate "collector" abstraction.
 
+## Bash tool process isolation
+
+The `bash` tool (`agents/tools/codebase/bash-tool.ts`) lets the research agents run shell commands against the clone. Its command allowlist + grammar validator is a first gate and ergonomic guidance, **not** the security boundary - several allowed verbs (`find -exec`, `sed -i`, `awk 'system()'`, `git` write subcommands) can still write or execute within a single validated invocation.
+
+The durable boundary is `CommandSandbox` (`agents/tools/codebase/command-sandbox.ts`), which wraps the child in [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) so it cannot write/delete files, reach the network, read host paths outside the clone, or see worker secrets. `bwrap` is installed in the diffs worker image. When it is absent (macOS / local eval) the wrapper **no-ops to a bare `sh -c` and logs a degraded-isolation warning** - isolation is never silently off in production. The four properties are verified by `test/command-sandbox.test.ts`, which spawns real `bwrap` and is skipped where it is unavailable.
+
 ## Adding a new agent
 
 1. Create `Loop` subclass that `extends AgentLoop<TResult>` and `implements` the capability interfaces the agent's tools need.

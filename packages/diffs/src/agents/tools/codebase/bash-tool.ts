@@ -4,6 +4,7 @@ import { AgentTool } from "@autonoma/ai";
 import { parse, type ParseEntry } from "shell-quote";
 import { z } from "zod";
 import type { CodebaseLoop } from "./codebase-loop";
+import { CommandSandbox } from "./command-sandbox";
 
 const execFileAsync = promisify(execFile);
 
@@ -217,8 +218,14 @@ function readExecFailure(error: unknown): ExecFailure {
  * decide what to do. Oversized output is truncated gracefully rather than thrown,
  * and the child runs with a scrubbed environment so worker secrets are never
  * visible to it.
+ *
+ * The durable security boundary is the {@link CommandSandbox}, which isolates the
+ * child process (no writes, no network, no host reads outside the clone). The
+ * allowlist validator is a first gate and ergonomic guidance, not the boundary.
  */
 export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
+    private readonly sandbox = new CommandSandbox();
+
     constructor() {
         super({
             name: "bash",
@@ -242,11 +249,12 @@ export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
         if (validationError != null) return blockResult(validationError);
 
         const env = buildSafeEnv(process.env);
+        const spec = this.sandbox.wrap(input.command, loop.codebase.root, env);
 
         try {
-            const { stdout, stderr } = await execFileAsync("sh", ["-c", input.command], {
+            const { stdout, stderr } = await execFileAsync(spec.file, spec.args, {
                 cwd: loop.codebase.root,
-                env,
+                env: spec.env,
                 maxBuffer: MAX_BUFFER_BYTES,
                 timeout: TIMEOUT_MS,
             });
