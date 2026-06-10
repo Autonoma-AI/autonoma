@@ -109,18 +109,30 @@ export class PullRequestCacheService extends Service {
     }
 
     async revalidate(applicationId: string, organizationId: string): Promise<void> {
-        // Throttle on the MOST RECENT refresh, not the oldest. Closed/merged PRs (and PRs
-        // tracked before this feature) keep prCachedAt = null forever - they are never
-        // covered by the open-PR list - so gating on "any uncached row" would make the gate
-        // never hold and fire a full revalidation on every read. Gating on max(prCachedAt)
-        // means once we refresh the open PRs we stay quiet for the whole window.
+        // Throttle the bulk open-PR refresh to ~once per window per app, gated on the OLDEST
+        // cache write across the app's tracked PRs. Every revalidation stamps prCachedAt on
+        // *every* tracked row (below), so the oldest advances each window. This is NOT
+        // defeated by webhooks: a webhook only bumps individual rows newer, while the oldest
+        // stays at the last full revalidation, so the gate releases once the window elapses.
+        // (Gating on the newest write was wrong - constant webhook traffic kept it "fresh"
+        // forever and the bulk refresh never ran, leaving open PRs on the branch-name
+        // fallback.)
         const windowMs = env.GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES * 60_000;
-        const { _max } = await this.db.featureBranchInfo.aggregate({
+        const cutoff = Date.now() - windowMs;
+
+        const tracked = await this.db.featureBranchInfo.findMany({
             where: { applicationId },
-            _max: { prCachedAt: true },
+            select: { prNumber: true, prCachedAt: true },
         });
-        const lastRefreshedAt = _max.prCachedAt;
-        if (lastRefreshedAt != null && lastRefreshedAt.getTime() > Date.now() - windowMs) {
+        if (tracked.length === 0) return;
+
+        const hasUncached = tracked.some((t) => t.prCachedAt == null);
+        const oldestCachedAt = tracked.reduce<Date | undefined>((min, t) => {
+            if (t.prCachedAt == null) return min;
+            return min == null || t.prCachedAt < min ? t.prCachedAt : min;
+        }, undefined);
+        const isFresh = !hasUncached && oldestCachedAt != null && oldestCachedAt.getTime() > cutoff;
+        if (isFresh) {
             this.logger.debug("PR cache fresh, skipping revalidation", { applicationId });
             return;
         }
@@ -131,38 +143,42 @@ export class PullRequestCacheService extends Service {
         const result = await this.github.listApplicationPullRequests(organizationId, applicationId);
 
         if (result.unchanged) {
-            // Open-PR list byte-identical to the last fetch; bump already-cached rows so the
-            // freshness gate resets without re-writing unchanged data.
+            // Open-PR list unchanged since the last fetch. Stamp EVERY tracked row so the
+            // gate (oldest prCachedAt) advances; otherwise uncached closed PRs would keep it
+            // open and we'd revalidate on every read.
             await this.db.featureBranchInfo.updateMany({
-                where: { applicationId, prCachedAt: { not: null } },
+                where: { applicationId },
                 data: { prCachedAt: now },
             });
             return;
         }
 
-        // Only refresh PRs that are currently OPEN (present in the list). Closed/merged PRs
-        // are terminal and were captured by the pull_request.closed webhook; we never poll
-        // them, which is what keeps this cheap. Historic closed PRs without a cache simply
-        // render the branch-name fallback.
-        const tracked = await this.db.featureBranchInfo.findMany({
-            where: { applicationId },
-            select: { prNumber: true },
-        });
+        // Refresh metadata for tracked PRs that are currently OPEN (present in the list).
         const trackedNumbers = new Set(tracked.map((t) => t.prNumber));
-        const updates = result.pullRequests
-            .filter((pr) => trackedNumbers.has(pr.number))
-            .map((pr) =>
-                this.db.featureBranchInfo.update({
-                    where: { applicationId_prNumber: { applicationId, prNumber: pr.number } },
-                    data: {
-                        prTitle: pr.title,
-                        prState: pr.state,
-                        prAuthorLogin: pr.authorLogin ?? null,
-                        prUpdatedAt: new Date(pr.updatedAt),
-                        prCachedAt: now,
-                    },
-                }),
-            );
-        if (updates.length > 0) await this.db.$transaction(updates);
+        const openPullRequests = result.pullRequests.filter((pr) => trackedNumbers.has(pr.number));
+        const openNumbers = openPullRequests.map((pr) => pr.number);
+        const openUpdates = openPullRequests.map((pr) =>
+            this.db.featureBranchInfo.update({
+                where: { applicationId_prNumber: { applicationId, prNumber: pr.number } },
+                data: {
+                    prTitle: pr.title,
+                    prState: pr.state,
+                    prAuthorLogin: pr.authorLogin ?? null,
+                    prUpdatedAt: new Date(pr.updatedAt),
+                    prCachedAt: now,
+                },
+            }),
+        );
+
+        // Stamp the remaining tracked rows (closed/merged, or open beyond the list page) so
+        // the freshness gate advances. We deliberately do NOT fetch their metadata - closed
+        // PRs are terminal and captured by the pull_request.closed webhook; this only marks
+        // them "checked" so they stop forcing a revalidation on every read.
+        const stampRest = this.db.featureBranchInfo.updateMany({
+            where: { applicationId, prNumber: { notIn: openNumbers } },
+            data: { prCachedAt: now },
+        });
+
+        await this.db.$transaction([...openUpdates, stampRest]);
     }
 }
