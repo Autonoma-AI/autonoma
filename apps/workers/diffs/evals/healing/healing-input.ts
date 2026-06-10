@@ -1,10 +1,13 @@
+import { RunReviewVerdict } from "@autonoma/db";
 import {
     type FlowSummary,
     type HealingReviewLink,
     type HealingInput as LiveHealingInput,
     ScenarioIndex,
     type ScenarioInfo,
+    affectedReasonSchema,
     healingActionSchema,
+    scenarioDataSchema,
 } from "@autonoma/diffs";
 import {
     generationVerdictKindSchema,
@@ -19,6 +22,29 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 /** The HealingAgent input minus the on-disk clone (rehydrated from codebase coords at run time). */
 type HealingInputWithoutCodebase = Omit<LiveHealingInput, "codebase">;
 
+/**
+ * The per-test refinement lineage frozen alongside a failure. Mirrors the
+ * reviewer fixtures' lineage shape (`@autonoma/diffs` `ReviewLineage`); optional
+ * so failures captured before lineage existed (and first-iteration failures,
+ * which have none) still rehydrate.
+ */
+const reviewLineageSchema = z.object({
+    priorVerdicts: z.array(
+        z.object({
+            iterationNumber: z.number().int().positive(),
+            verdict: z.enum(RunReviewVerdict),
+            reasoning: z.string(),
+        }),
+    ),
+    planHistory: z.array(
+        z.object({
+            iterationNumber: z.number().int().positive(),
+            prompt: z.string(),
+            healingReasoning: z.string().optional(),
+        }),
+    ),
+});
+
 const failureRecordSchema = z.object({
     key: z.string(),
     source: z.enum(["generation", "replay"]),
@@ -32,6 +58,13 @@ const failureRecordSchema = z.object({
     sourceId: z.string(),
     sourceStatus: z.string(),
     reviewReasoning: z.string().optional(),
+    // The unified diff-job context the loader gathers per failure. All optional
+    // so fixtures captured before each existed (and failures that legitimately
+    // lack them) still rehydrate.
+    affectedReason: affectedReasonSchema.optional(),
+    affectedReasoning: z.string().optional(),
+    lineage: reviewLineageSchema.optional(),
+    scenario: scenarioDataSchema.optional(),
 });
 
 const scenarioRecipeSchema = z.object({
@@ -68,6 +101,10 @@ const planAuthoringSchema = z.object({
  * contract: the live `Codebase` becomes {@link CodebaseCoords}, and the
  * `ScenarioIndex` instance becomes its underlying array. `reportableReviewLinks`
  * is stored as `[testCaseId, link][]` tuples (a `Map` is not JSON-native).
+ *
+ * `change` (the snapshot's base/head SHAs) and `analysisReasoning` are the
+ * snapshot-level diff-job context; both optional so fixtures captured before
+ * they existed (and SHA-less snapshots) still rehydrate.
  */
 export const healingCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -79,6 +116,8 @@ export const healingCaseInputSchema = z.object({
     failures: z.array(failureRecordSchema),
     reportableReviewLinks: z.array(z.tuple([z.string(), healingReviewLinkSchema])),
     planAuthoring: planAuthoringSchema,
+    change: z.object({ baseSha: z.string(), headSha: z.string() }).optional(),
+    analysisReasoning: z.string().optional(),
 });
 
 export type HealingCaseInput = z.infer<typeof healingCaseInputSchema>;
@@ -113,6 +152,8 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
             testScopeGuidelines: parsed.planAuthoring.testScopeGuidelines,
         },
     };
+    if (parsed.change != null) agentInput.change = parsed.change;
+    if (parsed.analysisReasoning != null) agentInput.analysisReasoning = parsed.analysisReasoning;
 
     return { coords: parsed.codebase, agentInput };
 }
@@ -142,5 +183,7 @@ export function serializeHealingInput(
             flows: agentInput.planAuthoring.flows,
             testScopeGuidelines: agentInput.planAuthoring.testScopeGuidelines,
         },
+        change: agentInput.change,
+        analysisReasoning: agentInput.analysisReasoning,
     });
 }

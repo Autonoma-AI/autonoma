@@ -3,11 +3,15 @@ import {
     type ChangeContext,
     type GenerationContext,
     type GenerationStepData,
+    type HealingContext,
+    type HealingFailureSubject,
+    type HealingSubjectContext,
     type PlanRevision,
     type PriorVerdict,
     type ReviewLineage,
     type RunContext,
     type RunStepData,
+    type ScenarioData,
     type SnapshotChangeContext,
     type SnapshotContext,
     type SnapshotRunContext,
@@ -50,7 +54,11 @@ interface ChangeSnapshot {
  *   scenario data.
  * - **Snapshot scope** (`loadSnapshot`): the same diff-job context gathered
  *   across *all* replayed runs in a snapshot, for agents that reason over the
- *   whole batch at once (resolution today, healing next) rather than one subject.
+ *   whole batch at once (resolution) rather than one subject.
+ * - **Healing scope** (`loadHealingContext`): the diff-job context for one
+ *   refinement iteration's failing subjects (failed generations *and* runs,
+ *   supplied by the caller), each carrying its full per-test lineage, the shared
+ *   change facts, and its materialized scenario data.
  *
  * This is the only piece of the diff-job path with DB access. It performs no git
  * or filesystem work - the agent derives the changed files and diff hunks itself
@@ -407,6 +415,108 @@ export class DiffJobContextLoader {
         // it is carried even when the SHAs (and thus `change`) are absent.
         if (analysisReasoning != null) context.analysisReasoning = analysisReasoning;
         return context;
+    }
+
+    /**
+     * Healing-scope sibling of {@link loadSnapshot}: gather the unified diff-job
+     * context for one refinement iteration's failing subjects. The healing agent
+     * runs over a batch of failures (some failed at generation, some at replay),
+     * so it consumes this instead of N per-subject {@link load} calls.
+     *
+     * Unlike {@link loadSnapshot}, the failing subjects are *supplied* by the
+     * caller rather than discovered from `AffectedTest`: a healing iteration's
+     * failures include generation-stage failures that have no run, and the
+     * workflow already bucketed exactly which subjects failed this iteration.
+     *
+     * Returns the snapshot-level facts once - the diff anchor (SHAs) and the
+     * diffs-agent's analysis reasoning (carried independently so it survives a
+     * SHA-less snapshot) - plus one {@link HealingSubjectContext} per supplied
+     * subject, keyed back by `failureKey`, carrying why the test was flagged, its
+     * point-in-time refinement lineage (the highest-value addition for the
+     * iterative agent), and its materialized scenario data. Each per-subject
+     * field is gathered with the same shared helpers the reviewers and resolution
+     * use, so healing consumes exactly the same context they do.
+     */
+    async loadHealingContext(params: {
+        snapshotId: string;
+        subjects: readonly HealingFailureSubject[];
+    }): Promise<HealingContext> {
+        const { snapshotId, subjects } = params;
+        this.logger.info("Loading healing-scope diff-job context", { snapshotId, subjectCount: subjects.length });
+
+        const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
+            where: { id: snapshotId },
+            select: {
+                headSha: true,
+                baseSha: true,
+                branch: { select: { organizationId: true, applicationId: true } },
+                diffsJob: { select: { analysisReasoning: true } },
+            },
+        });
+
+        const change = this.buildSnapshotChange(snapshotId, snapshot);
+        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? undefined;
+
+        // One AffectedTest per (snapshot, testCase), so the per-test flag facts
+        // are read in a single batched query keyed by the subjects' test cases.
+        const testCaseIds = [...new Set(subjects.map((subject) => subject.testCaseId))];
+        const affectedTests = await this.db.affectedTest.findMany({
+            where: { snapshotId, testCaseId: { in: testCaseIds } },
+            select: { testCaseId: true, affectedReason: true, reasoning: true },
+        });
+        const affectedByTestCase = new Map(affectedTests.map((affected) => [affected.testCaseId, affected]));
+
+        // Each subject's scenario + lineage are independent DB resolutions, so
+        // gather them concurrently across subjects (and within a subject).
+        const subjectContexts = await Promise.all(
+            subjects.map(async (subject): Promise<HealingSubjectContext> => {
+                const [scenario, lineage] = await Promise.all([
+                    this.resolveSubjectScenario(subject),
+                    this.buildLineage(subject.sourceId, subject.planId, subject.testCaseId),
+                ]);
+
+                const subjectContext: HealingSubjectContext = { failureKey: subject.failureKey };
+                const affected = affectedByTestCase.get(subject.testCaseId);
+                if (affected != null) {
+                    subjectContext.affectedReason = affected.affectedReason;
+                    subjectContext.affectedReasoning = affected.reasoning;
+                }
+                if (lineage != null) subjectContext.lineage = lineage;
+                if (scenario != null) subjectContext.scenario = scenario;
+                return subjectContext;
+            }),
+        );
+
+        this.logger.info("Healing-scope diff-job context loaded", {
+            snapshotId,
+            subjectCount: subjectContexts.length,
+            hasChange: change != null,
+            hasAnalysisReasoning: analysisReasoning != null,
+            subjectsWithLineage: subjectContexts.filter((subject) => subject.lineage != null).length,
+            subjectsWithScenario: subjectContexts.filter((subject) => subject.scenario != null).length,
+        });
+
+        const context: HealingContext = {
+            snapshotId,
+            organizationId: snapshot.branch.organizationId,
+            applicationId: snapshot.branch.applicationId,
+            subjects: subjectContexts,
+        };
+        if (change != null) context.change = change;
+        if (analysisReasoning != null) context.analysisReasoning = analysisReasoning;
+        return context;
+    }
+
+    /**
+     * Resolve the materialized scenario data for one healing subject via the
+     * source-appropriate shared helper: a generation failure resolves from its
+     * generation, a replay failure from its run.
+     */
+    private resolveSubjectScenario(subject: HealingFailureSubject): Promise<ScenarioData | undefined> {
+        if (subject.source === "generation") {
+            return resolveScenarioDataForGeneration(this.db, subject.sourceId);
+        }
+        return resolveScenarioDataForRun(this.db, subject.sourceId);
     }
 
     /**

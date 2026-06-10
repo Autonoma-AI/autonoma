@@ -3,14 +3,17 @@ import {
     type FailureRecord,
     type FlowSummary,
     type HealingAction,
+    type HealingFailureSubject,
     type HealingInput,
     type HealingReviewLink,
+    type HealingSubjectContext,
     type PlanAuthoringInput,
     ScenarioIndex,
     healingActionSchema,
 } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/workflow/activities";
+import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
 /** Everything {@link HealingAgent} needs except the on-disk codebase clone. */
 export type HealingInputWithoutCodebase = Omit<HealingInput, "codebase">;
@@ -48,6 +51,14 @@ export interface AssembledHealingInput {
  *    first, then feeds the result here; the resulting `agentInput` is frozen
  *    to disk for the eval to rehydrate later.
  *
+ * The per-failure diff-job context (the full per-test refinement lineage, the
+ * snapshot's change facts, and each failing subject's materialized scenario
+ * data) plus the snapshot's application/organization are sourced from the shared
+ * {@link DiffJobContextLoader} so healing consumes exactly what the reviewers and
+ * resolution do. The remaining side-inputs (prior actions, plan-authoring
+ * scenarios/flows/guidelines, reportable review links) are healing-specific and
+ * assembled here.
+ *
  * Loading scenarios + flows + scope guidelines reads the application's
  * *current* state. Eval cases captured by id are therefore snapshots of what
  * the agent would see at capture time, not literally what the live iteration
@@ -58,8 +69,6 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
     const logger = rootLogger.child({ name: "assembleHealingInput" });
     const { iterationId, iterationNumber, snapshotId, failuresAtGeneration, failuresAtReplay } = params;
 
-    const { applicationId, organizationId } = await loadSnapshotApplication(snapshotId);
-
     logger.info("Loading healing assembly inputs", {
         extra: {
             iterationId,
@@ -69,13 +78,24 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         },
     });
 
-    const [priorActions, planAuthoring] = await Promise.all([
+    const baseFailures = collectFailureRecords(failuresAtGeneration, failuresAtReplay);
+    const reportableReviewLinks = computeReportableReviewLinks(failuresAtGeneration, failuresAtReplay);
+
+    // The diff-job context (per-failure lineage + scenario + affected facts, and
+    // the snapshot's change facts + application/org) comes from the shared loader.
+    // Prior actions are independent of it, so gather them concurrently.
+    const [diffJobContext, priorActions] = await Promise.all([
+        new DiffJobContextLoader(db).loadHealingContext({
+            snapshotId,
+            subjects: baseFailures.map(toHealingSubject),
+        }),
         loadPriorActions(iterationId),
-        loadPlanAuthoringInput({ db, applicationId, snapshotId }),
     ]);
 
-    const failures = collectFailureRecords(failuresAtGeneration, failuresAtReplay);
-    const reportableReviewLinks = computeReportableReviewLinks(failuresAtGeneration, failuresAtReplay);
+    const { applicationId, organizationId } = diffJobContext;
+    const planAuthoring = await loadPlanAuthoringInput({ db, applicationId, snapshotId });
+
+    const failures = mergeDiffJobContext(baseFailures, diffJobContext.subjects);
 
     const agentInput: HealingInputWithoutCodebase = {
         iteration: iterationNumber,
@@ -87,25 +107,42 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         applicationId,
         organizationId,
     };
+    if (diffJobContext.change != null) agentInput.change = diffJobContext.change;
+    if (diffJobContext.analysisReasoning != null) agentInput.analysisReasoning = diffJobContext.analysisReasoning;
 
     return { agentInput, meta: { snapshotId, organizationId, applicationId, iterationNumber } };
 }
 
-async function loadSnapshotApplication(snapshotId: string): Promise<{ applicationId: string; organizationId: string }> {
-    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
-        where: { id: snapshotId },
-        select: {
-            branch: {
-                select: {
-                    application: { select: { id: true, organizationId: true } },
-                },
-            },
-        },
-    });
+/** Project a bucketed {@link FailureRecord} into the lean subject the loader gathers context for. */
+function toHealingSubject(failure: FailureRecord): HealingFailureSubject {
     return {
-        applicationId: snapshot.branch.application.id,
-        organizationId: snapshot.branch.application.organizationId,
+        failureKey: failure.key,
+        source: failure.source,
+        sourceId: failure.sourceId,
+        planId: failure.planId,
+        testCaseId: failure.testCaseId,
     };
+}
+
+/**
+ * Merge the loader's per-subject diff-job context (lineage, scenario, affected
+ * facts) back onto each {@link FailureRecord} by `failureKey`. A failure with no
+ * gathered context (none matched its key) passes through unchanged.
+ */
+function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: HealingSubjectContext[]): FailureRecord[] {
+    const contextByKey = new Map(subjectContexts.map((context) => [context.failureKey, context]));
+
+    return failures.map((failure) => {
+        const context = contextByKey.get(failure.key);
+        if (context == null) return failure;
+
+        const merged: FailureRecord = { ...failure };
+        if (context.affectedReason != null) merged.affectedReason = context.affectedReason;
+        if (context.affectedReasoning != null) merged.affectedReasoning = context.affectedReasoning;
+        if (context.lineage != null) merged.lineage = context.lineage;
+        if (context.scenario != null) merged.scenario = context.scenario;
+        return merged;
+    });
 }
 
 /** Read every action emitted by *earlier* iterations of the same loop, in emission order. */

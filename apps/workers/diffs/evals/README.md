@@ -256,6 +256,17 @@ time). Those reads only touch rows that the rest of the pipeline never mutates b
 mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
 filtered out). The bucketing reproduces exactly.
 
+**Per-failure diff-job context (Healing).** Healing assembles its input through the shared
+`DiffJobContextLoader` (`loadHealingContext`), the same path the reviewers and resolution use, so
+each failure now carries the full per-test refinement lineage (plan rewrites + earlier verdicts),
+the snapshot's change facts (frozen as the top-level `change` + `analysisReasoning`), and the data
+the failing subject's scenario actually seeded (`failures[].scenario`). Lineage and scenario are
+sourced from historic, immutable rows (`RefinementIterationInput` / `RefinementAction` / earlier
+`RunReview`s, and the `ScenarioInstance.generatedData` written once at UP success), so they never
+drift. Every added field (`failures[].affectedReason` / `affectedReasoning` / `lineage` /
+`scenario`, plus the top-level `change` / `analysisReasoning`) is optional, so fixtures captured
+before this still rehydrate.
+
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
 schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -

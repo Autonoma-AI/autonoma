@@ -149,6 +149,7 @@ export {
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
 export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./review/replay";
 export type { SnapshotChangeContext, SnapshotContext, SnapshotRunContext, SnapshotRunReview } from "./review/snapshot";
+export type { HealingContext, HealingFailureSubject, HealingSubjectContext } from "./review/snapshot";
 
 // Scenario-data capability - reusable, agent-agnostic resolution + presentation
 // + in-memory disclosure of the data a run's scenario actually created.

@@ -8,6 +8,7 @@ import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import { buildHealingPrompt } from "../../healing/prompt-builder";
 import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
+import type { SnapshotChangeContext } from "../../review/snapshot";
 import { buildCodebaseTools, ListScenariosTool, ReadScenarioTool, SubagentTool } from "../tools";
 import { HealingAgentLoop } from "./healing-agent-loop";
 import { HealingResultTool } from "./healing-result-tool";
@@ -39,6 +40,18 @@ export interface HealingInput extends SnapshotInfo {
     /** Actions emitted in earlier iterations of the same loop. */
     priorActions: HealingAction[];
     failures: FailureRecord[];
+    /**
+     * The diff anchor (base/head SHAs) shared by every failure - the codebase is
+     * checked out at head with base also fetched, so the agent can
+     * `git diff baseSha..headSha`. Absent when the snapshot has no SHAs.
+     */
+    change?: SnapshotChangeContext;
+    /**
+     * `DiffsJob.analysisReasoning` - the diffs-agent's natural-language summary of
+     * what changed across the snapshot. Carried independently of {@link change}
+     * so it survives a SHA-less snapshot.
+     */
+    analysisReasoning?: string;
     /**
      * Maps each reportable testCaseId (one whose failure carries a source
      * review the apply layer can link evidence to) to that review link. Only

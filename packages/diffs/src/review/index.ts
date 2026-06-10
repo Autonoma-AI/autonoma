@@ -24,6 +24,11 @@ export { buildGenerationReviewMessages, type GenerationContext, type GenerationS
 export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./replay";
 
 // Snapshot-scope context: the diff-job context gathered across all replayed
-// runs in a snapshot. Consumed by resolution today, healing next. The loader
-// that builds it lives in `apps/workers/diffs`.
+// runs in a snapshot. Consumed by resolution today. The loader that builds it
+// lives in `apps/workers/diffs`.
 export type { SnapshotChangeContext, SnapshotContext, SnapshotRunContext, SnapshotRunReview } from "./snapshot";
+
+// Healing-scope context: the diff-job context for one refinement iteration's
+// failing subjects (full per-test lineage + change facts + per-subject scenario).
+// Consumed by the healing agent; the loader that builds it lives in `apps/workers/diffs`.
+export type { HealingContext, HealingFailureSubject, HealingSubjectContext } from "./snapshot";

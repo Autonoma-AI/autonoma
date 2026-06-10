@@ -1,4 +1,6 @@
 import type { HealingInput } from "../agents/healing/healing-agent";
+import { type ChangeContext, type ReviewLineage, buildChangeContextSection } from "../review/kernel";
+import { type ScenarioData, summarizeEntities } from "../scenario-data";
 import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
 import type { FailureRecord } from "./types";
@@ -20,8 +22,11 @@ export function buildHealingPrompt(input: HealingInput): string {
 
     sections.push(`# Refinement iteration ${input.iteration}`);
     sections.push(
-        "You are inside a refinement loop. The codebase is checked out at the current snapshot's head SHA. There is no diff to query.",
+        "You are inside a refinement loop. The codebase is checked out at the current snapshot's head SHA, with the base SHA also fetched, so you can inspect what changed with `git diff`.",
     );
+
+    const changeFacts = buildChangeFactsSection(input);
+    if (changeFacts != null) sections.push(changeFacts);
 
     if (input.priorActions.length > 0) {
         sections.push(buildPriorActionsSection(input.priorActions));
@@ -38,6 +43,34 @@ export function buildHealingPrompt(input: HealingInput): string {
     sections.push(buildInstructionsSection(input));
 
     return sections.join("\n\n");
+}
+
+/**
+ * Render the snapshot-level change facts shared by every failure: the diff
+ * anchor (SHAs + the `git diff` to run) and the diffs-agent's analysis
+ * reasoning. Reuses the reviewers' change-facts presentation so healing reads
+ * the same context. The per-test affected reason/reasoning is rendered per
+ * failure instead, since it differs across tests.
+ *
+ * Returns `undefined` when neither SHAs nor analysis reasoning are available
+ * (e.g. a SHA-less snapshot with no recorded analysis). Falls back to rendering
+ * just the analysis reasoning when SHAs are absent but reasoning is present.
+ */
+function buildChangeFactsSection(input: HealingInput): string | undefined {
+    if (input.change != null) {
+        const change: ChangeContext = { baseSha: input.change.baseSha, headSha: input.change.headSha };
+        if (input.analysisReasoning != null) change.analysisReasoning = input.analysisReasoning;
+        return buildChangeContextSection(
+            change,
+            "# Code Change\n\nThe failing plans were authored against an earlier state of the app. Inspect the diff that triggered this loop to see what moved:",
+        );
+    }
+
+    if (input.analysisReasoning != null) {
+        return ["# Code Change", "### Change Analysis", input.analysisReasoning].join("\n\n");
+    }
+
+    return undefined;
 }
 
 function buildPriorActionsSection(actions: HealingAction[]): string {
@@ -109,8 +142,73 @@ function formatFailure(f: FailureRecord): string {
     if (f.verdict?.title != null) {
         lines.push(`- **Issue title (from review)**: ${f.verdict.title}`);
     }
+    if (f.affectedReason != null) {
+        const reasoning = f.affectedReasoning != null ? ` - ${f.affectedReasoning}` : "";
+        lines.push(`- **Why flagged**: \`${f.affectedReason}\`${reasoning}`);
+    }
+
     lines.push(`\n**Plan prompt**:\n\`\`\`\n${f.planPrompt}\n\`\`\``);
+
+    if (f.lineage != null) {
+        lines.push(`\n${buildFailureLineageSection(f.lineage)}`);
+    }
+    if (f.scenario != null) {
+        lines.push(`\n${buildFailureScenarioSection(f.scenario)}`);
+    }
+
     return lines.join("\n");
+}
+
+/**
+ * Render the per-test refinement lineage: the rewrites earlier iterations
+ * already applied (with their reasoning) and the verdicts those iterations
+ * received. This is what lets the iterative agent avoid re-trying a strategy
+ * that already failed - if a prior rewrite did not work, it should try a
+ * different angle or reconsider whether the failure is a real bug.
+ */
+function buildFailureLineageSection(lineage: ReviewLineage): string {
+    const parts = [
+        "**Refinement lineage for this test** - what earlier iterations already tried, so you do not repeat a strategy that already failed:",
+    ];
+
+    // planHistory is oldest-first; its last entry is the plan that just failed
+    // (already shown above), so render only the *earlier* versions in full here.
+    const priorPlans = lineage.planHistory.slice(0, -1);
+    for (const revision of priorPlans) {
+        const reasoning =
+            revision.healingReasoning != null ? `\n  Rewrite reasoning: ${revision.healingReasoning}` : "";
+        parts.push(`- Iteration ${revision.iterationNumber} plan:\n\`\`\`\n${revision.prompt}\n\`\`\`${reasoning}`);
+    }
+
+    // The most recent rewrite (the one that produced the still-failing current
+    // plan) lives on the last history entry - surface its reasoning explicitly.
+    const current = lineage.planHistory[lineage.planHistory.length - 1];
+    if (current?.healingReasoning != null) {
+        parts.push(`The current plan above was produced by this rewrite: ${current.healingReasoning}`);
+    }
+
+    if (lineage.priorVerdicts.length > 0) {
+        parts.push("Prior verdicts on this test:");
+        for (const verdict of lineage.priorVerdicts) {
+            parts.push(`  - Iteration ${verdict.iterationNumber}: \`${verdict.verdict}\` - ${verdict.reasoning}`);
+        }
+    }
+
+    return parts.join("\n");
+}
+
+/**
+ * Render the data the failing subject's scenario actually seeded, inlined under
+ * its failure. A plan that depends on data the scenario never created points to
+ * a stale test the agent should rewrite to match the seed - not an application
+ * bug. Mirrors resolution's bounded, inlined scenario summary.
+ */
+function buildFailureScenarioSection(scenario: ScenarioData): string {
+    const body = summarizeEntities(scenario.entities, {
+        moreRecords: (entityType, remaining) => `  - ...and ${remaining} more ${entityType} record(s) (not shown).`,
+        moreTypes: (remaining) => `  - ...and ${remaining.length} more entity type(s): ${remaining.join(", ")}.`,
+    });
+    return `**Scenario data** (this subject ran against **${scenario.scenarioName}**). A plan that depends on data not listed here is malformed - rewrite it to match the seeded data rather than reporting a bug:\n${body}`;
 }
 
 function buildInstructionsSection(input: HealingInput): string {

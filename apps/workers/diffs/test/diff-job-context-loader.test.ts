@@ -1,12 +1,23 @@
-import { type SnapshotRunContext, buildVerdicts } from "@autonoma/diffs";
+import { type HealingFailureSubject, type SnapshotRunContext, buildVerdicts } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import { expect } from "vitest";
 import { DiffJobContextLoader } from "../src/review/diff-job-context-loader";
-import { diffJobContextSuite } from "./harness";
+import { type SeededHealingSubject, diffJobContextSuite } from "./harness";
 
 /** Index a snapshot's gathered runs by test name for order-insensitive assertions. */
 function byTestName(runs: SnapshotRunContext[]): Map<string, SnapshotRunContext> {
     return new Map(runs.map((run) => [run.testName, run]));
+}
+
+/** Project a seeded healing subject into the lean descriptor `loadHealingContext` consumes. */
+function toHealingSubject(seeded: SeededHealingSubject): HealingFailureSubject {
+    return {
+        failureKey: seeded.failureKey,
+        source: seeded.source,
+        sourceId: seeded.sourceId,
+        planId: seeded.planId,
+        testCaseId: seeded.testCaseId,
+    };
 }
 
 diffJobContextSuite({
@@ -680,6 +691,124 @@ diffJobContextSuite({
             const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
 
             expect(context.scenario).toBeUndefined();
+        });
+
+        test("gathers healing-scope change facts plus per-failure lineage, scenario, and affected facts", async ({
+            harness,
+            seedResult,
+        }) => {
+            const seeded = await harness.seedHealingIteration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "healbase",
+                headSha: "healhead",
+                analysisReasoning: "Renamed the Submit button to Confirm and reworked signup validation.",
+                subjects: [
+                    {
+                        testName: "Checkout flow",
+                        affected: { reason: "code_change", reasoning: "Clicks the renamed Submit button." },
+                        scenario: {
+                            name: "Healing cart with one item",
+                            generatedData: {
+                                User: [{ _alias: "shopper", email: "shopper@test.com" }],
+                                CartItem: [{ _alias: "item", name: "Widget", ownerId: { _ref: "shopper" } }],
+                            },
+                        },
+                        iterations: [
+                            {
+                                number: 1,
+                                planPrompt: "Click the old Submit button",
+                                verdict: { verdict: "engine_error", reasoning: "Submit selector was stale." },
+                            },
+                            {
+                                number: 2,
+                                planPrompt: "Click the renamed Confirm button",
+                                healingReasoning: "Renamed Submit to Confirm, rewrote the step.",
+                                subject: true,
+                            },
+                        ],
+                    },
+                    {
+                        testName: "Signup flow",
+                        affected: { reason: "code_change", reasoning: "Fills out the signup form." },
+                        subjectSource: "generation",
+                        iterations: [{ number: 1, planPrompt: "Sign up with a fresh email", subject: true }],
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).loadHealingContext({
+                snapshotId: seeded.snapshotId,
+                subjects: seeded.subjects.map(toHealingSubject),
+            });
+
+            expect(context.snapshotId).toBe(seeded.snapshotId);
+            expect(context.organizationId).toBe(seedResult.organizationId);
+            expect(context.applicationId).toBe(seedResult.applicationId);
+            expect(context.change).toEqual({ baseSha: "healbase", headSha: "healhead" });
+            expect(context.analysisReasoning).toBe(
+                "Renamed the Submit button to Confirm and reworked signup validation.",
+            );
+            expect(context.subjects).toHaveLength(2);
+
+            const byKey = new Map(context.subjects.map((subject) => [subject.failureKey, subject]));
+            const [checkoutSeed, signupSeed] = seeded.subjects;
+
+            // Replay failure at iteration 2: full lineage, scenario, and affected facts.
+            const checkout = byKey.get(checkoutSeed?.failureKey ?? "");
+            expect(checkout?.affectedReason).toBe("code_change");
+            expect(checkout?.affectedReasoning).toBe("Clicks the renamed Submit button.");
+            expect(checkout?.lineage?.priorVerdicts).toEqual([
+                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit selector was stale." },
+            ]);
+            expect(checkout?.lineage?.planHistory).toEqual([
+                { iterationNumber: 1, prompt: "Click the old Submit button" },
+                {
+                    iterationNumber: 2,
+                    prompt: "Click the renamed Confirm button",
+                    healingReasoning: "Renamed Submit to Confirm, rewrote the step.",
+                },
+            ]);
+            expect(checkout?.scenario?.scenarioName).toBe("Healing cart with one item");
+            expect(checkout?.scenario?.entities.CartItem).toEqual([
+                { _alias: "item", name: "Widget", ownerId: { _ref: "shopper" } },
+            ]);
+
+            // First-iteration generation failure: flagged, but no lineage and no scenario.
+            const signup = byKey.get(signupSeed?.failureKey ?? "");
+            expect(signup?.affectedReason).toBe("code_change");
+            expect(signup?.affectedReasoning).toBe("Fills out the signup form.");
+            expect(signup?.lineage).toBeUndefined();
+            expect(signup?.scenario).toBeUndefined();
+        });
+
+        test("omits healing change context for a SHA-less snapshot but keeps analysis reasoning", async ({
+            harness,
+            seedResult,
+        }) => {
+            const seeded = await harness.seedHealingIteration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                analysisReasoning: "Reasoning present, but no SHAs to diff against.",
+                subjects: [
+                    {
+                        testName: "Some test",
+                        affected: { reason: "code_change", reasoning: "flagged" },
+                        iterations: [{ number: 1, planPrompt: "do the thing", subject: true }],
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).loadHealingContext({
+                snapshotId: seeded.snapshotId,
+                subjects: seeded.subjects.map(toHealingSubject),
+            });
+
+            expect(context.change).toBeUndefined();
+            // Analysis reasoning is decoupled from the SHA-gated diff anchor.
+            expect(context.analysisReasoning).toBe("Reasoning present, but no SHAs to diff against.");
+            expect(context.subjects).toHaveLength(1);
+            expect(context.subjects[0]?.affectedReason).toBe("code_change");
         });
     },
 });

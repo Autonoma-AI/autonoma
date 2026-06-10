@@ -102,3 +102,82 @@ export interface SnapshotContext {
     /** One entry per replayed, flagged run in the snapshot. */
     runs: SnapshotRunContext[];
 }
+
+/**
+ * The lean descriptor the healing loader needs to gather one failing subject's
+ * diff-job context. A healing iteration's failures are already known (the
+ * workflow bucketed them) - unlike snapshot scope, the loader does not discover
+ * them - so it only needs enough to anchor the lineage walk, resolve the right
+ * scenario, and look up why the test was flagged.
+ *
+ * `sourceId` is the failing subject's primary key: a `generationId` for a
+ * generation-stage failure, a `runId` for a replay-stage failure. `source`
+ * selects which scenario resolver to use; `planId` + `testCaseId` anchor the
+ * per-test lineage walk.
+ */
+export interface HealingFailureSubject {
+    /** Stable key the assembler merges the gathered context back onto its `FailureRecord`. */
+    failureKey: string;
+    source: "generation" | "replay";
+    /** `generationId` for a generation failure, `runId` for a replay failure. */
+    sourceId: string;
+    /** The plan the failing subject executed - anchors its refinement iteration. */
+    planId: string;
+    testCaseId: string;
+}
+
+/**
+ * The diff-job context the loader gathered for one healing failure subject,
+ * carried back to the assembler by {@link HealingFailureSubject.failureKey}.
+ * Every field is optional: a subject may not be a flagged test, may sit in the
+ * first iteration (no lineage), or may have run without a scenario.
+ */
+export interface HealingSubjectContext {
+    /** Matches the originating {@link HealingFailureSubject.failureKey}. */
+    failureKey: string;
+    /** `AffectedTest.affectedReason` for this test - the category it was flagged under. */
+    affectedReason?: AffectedReason;
+    /** `AffectedTest.reasoning` - the diffs-agent's explanation for flagging this test. */
+    affectedReasoning?: string;
+    /**
+     * The complete per-test refinement-loop lineage: the plan rewrite history and
+     * earlier iterations' verdicts. Absent for first-iteration failures and for
+     * failures outside any loop. This is healing's highest-value addition - it
+     * lets the agent avoid re-trying strategies that already failed earlier.
+     */
+    lineage?: ReviewLineage;
+    /**
+     * Materialized snapshot of the data the failing subject's scenario actually
+     * created. Resolved via the shared scenario-data capability (the same path
+     * the reviewers and resolution use). Absent when the subject had no scenario,
+     * UP never succeeded, or the generated-data graph was empty.
+     */
+    scenario?: ScenarioData;
+}
+
+/**
+ * Healing-scope sibling of {@link SnapshotContext}: the unified diff-job context
+ * for one refinement iteration's failing subjects, gathered once at setup so the
+ * agent run stays DB-free. Carries the snapshot-level change facts shared by
+ * every failure plus the per-subject enrichment.
+ *
+ * Unlike snapshot scope, the failing subjects are supplied by the caller (the
+ * workflow already bucketed them) rather than discovered from `AffectedTest`,
+ * because healing failures include generation-stage failures that have no run.
+ */
+export interface HealingContext {
+    snapshotId: string;
+    organizationId: string;
+    /** The application the snapshot belongs to - the assembler's side-inputs key off it. */
+    applicationId: string;
+    /** The diff anchor (base/head SHAs) shared by every failure. Absent when the snapshot has no SHAs. */
+    change?: SnapshotChangeContext;
+    /**
+     * `DiffsJob.analysisReasoning` - the diffs-agent's summary of what changed.
+     * A snapshot-level fact independent of SHA presence, carried even when
+     * {@link change} is absent.
+     */
+    analysisReasoning?: string;
+    /** One entry per supplied failing subject, keyed back by `failureKey`. */
+    subjects: HealingSubjectContext[];
+}
