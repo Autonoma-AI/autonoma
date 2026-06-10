@@ -6,6 +6,7 @@ import {
     buildAppIngress,
     buildAppService,
     buildNginxConfig,
+    buildNginxDeployment,
     NGINX_SERVICE_NAME,
     NGINX_SERVICE_PORT,
 } from "../../src/deployer/resource-factory";
@@ -46,10 +47,26 @@ describe("buildNginxConfig", () => {
     ];
     const namespace = "preview-my-org-my-repo-pr-42";
 
-    it("proxies every app straight through to its in-cluster service", () => {
+    it("proxies each app via a lazily-resolved variable upstream, not a startup-resolved literal", () => {
         const conf = buildNginxConfig({ apps, namespace });
-        expect(conf).toContain(`proxy_pass http://web.${namespace}.svc.cluster.local:3000;`);
-        expect(conf).toContain(`proxy_pass http://api.${namespace}.svc.cluster.local:4000;`);
+        // Variable upstream + resolver: a Service that does not exist yet (still
+        // deploying / build failed) can no longer crash nginx at startup - it just
+        // returns a normal 502 until the Service appears.
+        expect(conf).toContain(`set $backend "web.${namespace}.svc.cluster.local:3000";`);
+        expect(conf).toContain(`set $backend "api.${namespace}.svc.cluster.local:4000";`);
+        expect(conf).toContain("proxy_pass http://$backend;");
+        expect(conf).toContain("resolver __PREVIEWKIT_RESOLVER__");
+        // Bound DNS resolution so a missing upstream fails fast instead of
+        // hanging on nginx's 30s resolver default.
+        expect(conf).toContain("resolver_timeout 5s;");
+        // The crash-prone literal-host form must be gone.
+        expect(conf).not.toContain(`proxy_pass http://web.${namespace}.svc.cluster.local:3000;`);
+    });
+
+    it("does not emit a custom error page - a missing upstream returns the standard 502", () => {
+        const conf = buildNginxConfig({ apps, namespace });
+        expect(conf).not.toContain("error_page");
+        expect(conf).not.toContain("@starting");
     });
 
     it("has no access gate - previews are intentionally public", () => {
@@ -60,6 +77,20 @@ describe("buildNginxConfig", () => {
         expect(conf).not.toContain("pk_session");
         expect(conf).not.toContain("preview-auth");
         expect(conf).not.toContain("return 302");
+    });
+});
+
+describe("buildNginxDeployment", () => {
+    it("resolves the cluster DNS server at startup and runs nginx from the rendered config", () => {
+        const dep = buildNginxDeployment("preview-my-org-my-repo-pr-42", 42, "nginx:alpine");
+        const container = dep.spec!.template.spec!.containers[0]!;
+        expect(container.command?.[0]).toBe("/bin/sh");
+        const script = container.command?.[2] ?? "";
+        // Reads the resolver from resolv.conf, substitutes the placeholder, and
+        // runs nginx from the writable rendered config (the ConfigMap is read-only).
+        expect(script).toContain("/etc/resolv.conf");
+        expect(script).toContain("__PREVIEWKIT_RESOLVER__");
+        expect(script).toContain("nginx -c /tmp/nginx.conf");
     });
 });
 

@@ -203,6 +203,24 @@ interface NginxOptions {
     nginxImage: string;
 }
 
+// Replaced at container start with the pod's cluster DNS server IP (read from
+// /etc/resolv.conf). nginx's `resolver` directive needs a literal IP, which we
+// don't know when this config is generated, so we emit a placeholder and the
+// nginx Deployment's entrypoint substitutes it. See `buildNginxDeployment`.
+const NGINX_RESOLVER_PLACEHOLDER = "__PREVIEWKIT_RESOLVER__";
+
+// nginx needs a literal resolver IP, so at container start we read the pod's
+// cluster DNS server from /etc/resolv.conf and substitute it into the config.
+// The ConfigMap mount is read-only, so we render the resolved config to a
+// writable path and point nginx at it. This replaces the image's default
+// entrypoint (which we don't need).
+const NGINX_ENTRYPOINT_SCRIPT = [
+    "set -e",
+    "resolver=$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)",
+    `sed "s/${NGINX_RESOLVER_PLACEHOLDER}/$resolver/g" /etc/nginx/nginx.conf > /tmp/nginx.conf`,
+    "exec nginx -c /tmp/nginx.conf -g 'daemon off;'",
+].join("\n");
+
 export function buildNginxConfig(opts: {
     apps: Array<{ name: string; port: number; hostname: string }>;
     namespace: string;
@@ -222,13 +240,24 @@ export function buildNginxConfig(opts: {
         }
 
         location / {
-            proxy_pass http://${name}.${namespace}.svc.cluster.local:${port};
+            # Resolve the upstream lazily via a variable + the http-level resolver.
+            # A literal proxy_pass host is resolved at startup, so a single app
+            # whose Service does not exist yet (still deploying, or its build
+            # failed) makes nginx exit with "host not found in upstream" and takes
+            # the whole preview down. With a variable, nginx always starts and an
+            # unresolvable/unreachable upstream just returns a normal 502/504. The
+            # short connect timeout makes that failure fast rather than a 60s hang,
+            # and the resolver's valid= re-resolution means nginx picks the app up
+            # within seconds once its Service appears - no restart needed.
+            set $backend "${name}.${namespace}.svc.cluster.local:${port}";
+            proxy_pass http://$backend;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
             proxy_set_header Host $host;
             proxy_set_header X-Forwarded-Host $host;
             proxy_set_header X-Forwarded-Proto https;
+            proxy_connect_timeout 5s;
             proxy_read_timeout 60s;
             proxy_send_timeout 60s;
         }
@@ -248,6 +277,11 @@ http {
         default upgrade;
         ""      close;
     }
+
+    resolver ${NGINX_RESOLVER_PLACEHOLDER} valid=5s ipv6=off;
+    # Bound DNS resolution so an unresolvable upstream fails fast (5s) instead of
+    # hanging on nginx's 30s resolver default if cluster DNS is ever slow.
+    resolver_timeout 5s;
 ${serverBlocks}
 }
 `;
@@ -293,6 +327,7 @@ export function buildNginxDeployment(namespace: string, prNumber: number, nginxI
                             name: NGINX_SERVICE_NAME,
                             image: nginxImage,
                             imagePullPolicy: "Always",
+                            command: ["/bin/sh", "-c", NGINX_ENTRYPOINT_SCRIPT],
                             ports: [{ containerPort: NGINX_CONTAINER_PORT }],
                             resources: {
                                 requests: { cpu: "50m", memory: "32Mi" },
