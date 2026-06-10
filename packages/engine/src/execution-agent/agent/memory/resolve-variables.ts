@@ -3,8 +3,9 @@ import type { MemoryStore } from "./memory-store";
 const VARIABLE_PATTERN = /\{\{(\w+)\}\}/g;
 
 export class UnresolvedVariableError extends Error {
-    constructor(variableName: string) {
-        super(`Variable "{{${variableName}}}" is not stored in memory. Available variables: none`);
+    constructor(variableName: string, availableVariables: string[]) {
+        const availableStr = availableVariables.length > 0 ? availableVariables.join(", ") : "none";
+        super(`Variable "{{${variableName}}}" is not stored in memory. Available variables: ${availableStr}`);
     }
 }
 
@@ -20,11 +21,7 @@ export function resolveVariables<T>(value: T, memory: MemoryStore): T {
         return value.replace(VARIABLE_PATTERN, (_match, variableName: string) => {
             const resolved = memory.get(variableName);
             if (resolved == null) {
-                const available = Object.keys(memory.getAll());
-                const availableStr = available.length > 0 ? available.join(", ") : "none";
-                throw new UnresolvedVariableError(
-                    `Variable "{{${variableName}}}" is not stored in memory. Available variables: ${availableStr}`,
-                );
+                throw new UnresolvedVariableError(variableName, Object.keys(memory.getAll()));
             }
             return resolved;
         }) as T;
