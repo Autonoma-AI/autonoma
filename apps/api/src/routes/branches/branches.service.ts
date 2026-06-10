@@ -763,14 +763,15 @@ export class BranchesService extends Service {
 type PullRequestStateFilter = "open" | "closed" | "merged";
 
 /**
- * Builds the `prInfo` relation filter for a given PR state. Every tracked branch
- * has a `prInfo` row, but its `prState` is null until the PR metadata cache is
- * first revalidated. We treat unknown (null) state as "open" so freshly tracked
- * PRs show up immediately under the default tab instead of disappearing until the
- * cache fills.
+ * Builds the `prInfo` relation filter for a given PR state. We match the cached
+ * `prState` exactly and do NOT fold unknown (null) state into "open": before the cache
+ * is populated, treating null as open swamped the Open tab with historic closed/merged
+ * PRs. The revalidation now classifies every tracked PR (the open-PR list is
+ * authoritative - anything not in it is marked closed), so null is only a brief transient
+ * state for a freshly tracked PR until the next revalidation, after which it shows under
+ * its real tab.
  */
 function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchInfoWhereInput {
-    if (state === "open") return { OR: [{ prState: "open" }, { prState: null }] };
     return { prState: state };
 }
 

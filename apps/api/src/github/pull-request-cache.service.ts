@@ -1,4 +1,4 @@
-import type { PrismaClient, PullRequestCacheState } from "@autonoma/db";
+import type { Prisma, PrismaClient, PullRequestCacheState } from "@autonoma/db";
 import { z } from "zod";
 import { env } from "../env";
 import { Service } from "../routes/service";
@@ -170,15 +170,46 @@ export class PullRequestCacheService extends Service {
             }),
         );
 
-        // Stamp the remaining tracked rows (closed/merged, or open beyond the list page) so
-        // the freshness gate advances. We deliberately do NOT fetch their metadata - closed
-        // PRs are terminal and captured by the pull_request.closed webhook; this only marks
-        // them "checked" so they stop forcing a revalidation on every read.
-        const stampRest = this.db.featureBranchInfo.updateMany({
-            where: { applicationId, prNumber: { notIn: openNumbers } },
-            data: { prCachedAt: now },
-        });
+        // Handle the tracked rows NOT in the open list. The open-PR list is authoritative
+        // for open-ness, so anything missing from it is not open. When the list is complete
+        // (fewer than a full page, so not truncated) we downgrade rows still marked open/null
+        // to "closed" - this is what keeps them out of the Open tab. We can't tell closed vs
+        // merged without fetching (and we deliberately don't fetch closed PRs), so "closed"
+        // is the catch-all; rows already set to "merged"/"closed" via webhook are left intact
+        // and only get their prCachedAt stamped so the freshness gate advances.
+        const PER_PAGE = 100;
+        const listComplete = result.pullRequests.length < PER_PAGE;
+        const stampRest: Prisma.PrismaPromise<unknown>[] = [];
+        if (listComplete) {
+            stampRest.push(
+                this.db.featureBranchInfo.updateMany({
+                    where: {
+                        applicationId,
+                        prNumber: { notIn: openNumbers },
+                        OR: [{ prState: null }, { prState: "open" }],
+                    },
+                    data: { prState: "closed", prCachedAt: now },
+                }),
+                this.db.featureBranchInfo.updateMany({
+                    where: {
+                        applicationId,
+                        prNumber: { notIn: openNumbers },
+                        prState: { in: ["closed", "merged"] },
+                    },
+                    data: { prCachedAt: now },
+                }),
+            );
+        } else {
+            // List may be truncated (>= a full page of open PRs); don't infer closed-ness,
+            // just stamp so the gate advances.
+            stampRest.push(
+                this.db.featureBranchInfo.updateMany({
+                    where: { applicationId, prNumber: { notIn: openNumbers } },
+                    data: { prCachedAt: now },
+                }),
+            );
+        }
 
-        await this.db.$transaction([...openUpdates, stampRest]);
+        await this.db.$transaction([...openUpdates, ...stampRest]);
     }
 }
