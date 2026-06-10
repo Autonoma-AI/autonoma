@@ -4,7 +4,8 @@ import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
-import { previewkitClient } from "../previewkit/previewkit-service";
+import { previewkitClient, previewkitTriggerService } from "../previewkit/previewkit-service";
+import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
@@ -172,16 +173,46 @@ async function dispatchWebhookEvent(
             await githubService.handleSuspend(installationId);
             return;
         case "pull_request_opened":
+            await startPullRequestDeploy("opened", organizationId, payload);
+            return;
         case "pull_request_synchronize":
+            await startPullRequestDeploy("synchronize", organizationId, payload);
+            return;
         case "pull_request_reopened":
-            await forwardPullRequestToPreviewkit("deploy", organizationId, payload);
+            await startPullRequestDeploy("reopened", organizationId, payload);
             return;
         case "pull_request_closed":
-            await forwardPullRequestToPreviewkit("teardown", organizationId, payload);
+            await startPullRequestTeardown(organizationId, payload);
             return;
         default:
             return;
     }
+}
+
+/**
+ * Deploy path for pull_request opened/synchronize/reopened. With
+ * `PREVIEWKIT_USE_TEMPORAL` on, the API starts the deploy workflow directly;
+ * otherwise the event is forwarded to Previewkit's HTTP server (legacy).
+ */
+async function startPullRequestDeploy(
+    action: PreviewDeployAction,
+    organizationId: string,
+    payload: Record<string, unknown>,
+): Promise<void> {
+    if (env.PREVIEWKIT_USE_TEMPORAL) {
+        await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+        return;
+    }
+    await forwardPullRequestToPreviewkit("deploy", organizationId, payload);
+}
+
+/** Teardown path for pull_request.closed; same flag split as the deploy path. */
+async function startPullRequestTeardown(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+    if (env.PREVIEWKIT_USE_TEMPORAL) {
+        await previewkitTriggerService.teardownFromWebhook(organizationId, payload);
+        return;
+    }
+    await forwardPullRequestToPreviewkit("teardown", organizationId, payload);
 }
 
 interface PullRequestRef {

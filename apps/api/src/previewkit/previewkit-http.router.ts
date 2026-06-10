@@ -1,16 +1,18 @@
 import { type AuthCaller, type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth";
 import { db } from "@autonoma/db";
+import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type BuildLogEntry, BuildLogSpool } from "@autonoma/logger/build-log-spool";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { streamSSE } from "hono/streaming";
+import { z } from "zod";
 import { auth, redisClient } from "../context";
 import { env } from "../env";
 import { openApiSpec } from "./openapi-spec";
 import previewSchema from "./preview-schema.json" with { type: "json" };
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
 import { PreviewkitSecretsService, type SecretItem } from "./previewkit-secrets.service";
-import { previewkitClient } from "./previewkit-service";
+import { previewkitClient, previewkitTriggerService } from "./previewkit-service";
 
 const logger = rootLogger.child({ name: "previewkitHttpRouter" });
 
@@ -50,6 +52,19 @@ const requireStreamAuth: MiddlewareHandler<{ Variables: CallerAuthVariables }> =
     return requireAuth(c, next);
 };
 
+/** Request body for `POST /environments` - mirrors Previewkit's deploy schema. */
+const deployRequestSchema = z.object({
+    repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
+    prNumber: z.number().int().positive(),
+    organizationId: z.string().min(1),
+    githubRepositoryId: z.number().int().positive(),
+    headSha: z.string().min(1),
+    headRef: z.string().min(1),
+    cloneUrl: z.url(),
+    baseSha: z.string().min(1).optional(),
+    baseRef: z.string().min(1).optional(),
+});
+
 /**
  * Public HTTP surface for Previewkit, mounted at `/v1/previewkit`. Two kinds of route:
  *
@@ -57,12 +72,13 @@ const requireStreamAuth: MiddlewareHandler<{ Variables: CallerAuthVariables }> =
  *    `openapi.json` describing this surface): implemented directly here - no forwarding. They
  *    need only the DB + AWS Secrets Manager, which the API already has.
  *
- *  - **Forwarded** (deploy / main-branch deploy / teardown / redeploy): transparently proxied
- *    to Previewkit via `PreviewkitClient`. These run Previewkit's full Kubernetes + BuildKit
- *    pipeline, which cannot execute inside the stateless API. The caller's `Authorization`
- *    header is passed through so Previewkit keeps applying its own auth + org-scoping; the
- *    deploy responses' `statusUrl` is rewritten to this `/v1/previewkit` mount. (These move to
- *    a Temporal worker in a later change.)
+ *  - **Lifecycle ops** (deploy / main-branch deploy / teardown / redeploy): with
+ *    `PREVIEWKIT_USE_TEMPORAL` on, the API authenticates the caller, runs the preflight
+ *    checks, and starts the Temporal workflow directly (`PreviewkitTriggerService`) - the
+ *    Previewkit worker executes the pipeline. With the flag off (legacy), the request is
+ *    transparently proxied to Previewkit's HTTP server via `PreviewkitClient` with the
+ *    caller's `Authorization` header passed through, and the deploy responses' `statusUrl`
+ *    rewritten to this `/v1/previewkit` mount.
  */
 export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>()
     // ─── Native: environment status (DB-backed) ───────────────────────
@@ -239,17 +255,121 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
     // ─── Native: static `.preview.yaml` JSON schema (public, for editors) ──
     .get("/schema/preview.yaml.json", (c) => c.json(previewSchema))
 
-    // ─── Forwarded: heavy pipeline ops + the OpenAPI spec ─────────────
-    .post("/environments", (c) => proxyToPreviewkit(c, "environments", rewriteDeployStatusUrl))
-    .post("/applications/:applicationId/0", (c) =>
-        proxyToPreviewkit(c, `applications/${c.req.param("applicationId")}/0`, rewriteDeployStatusUrl),
-    )
-    .delete("/environments/:owner/:repo/:pr", (c) => proxyToPreviewkit(c, environmentSubPath(c)))
-    .post("/environments/:owner/:repo/:pr/redeploy", (c) => proxyToPreviewkit(c, `${environmentSubPath(c)}/redeploy`))
+    // ─── Lifecycle ops: native Temporal triggers, or proxied to Previewkit (legacy) ───
+    .post("/environments", requireAuth, async (c) => {
+        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, "environments", rewriteDeployStatusUrl);
+
+        const body = await c.req.json().catch(() => undefined);
+        const parsed = deployRequestSchema.safeParse(body);
+        if (!parsed.success) return c.json({ error: "Invalid request body", details: parsed.error.issues }, 400);
+
+        const orgId = callerOrgId(c.var.authCaller);
+        if (orgId != null && orgId !== parsed.data.organizationId) {
+            return c.json({ error: "organizationId does not match the caller's organization" }, 403);
+        }
+
+        const { repoFullName, prNumber } = parsed.data;
+        try {
+            await previewkitTriggerService.deploy(parsed.data);
+        } catch (error) {
+            return lifecycleErrorResponse(c, error, { repoFullName, prNumber });
+        }
+
+        return c.json(
+            {
+                accepted: true,
+                repoFullName,
+                prNumber,
+                statusUrl: `/v1/previewkit/environments/${repoFullName}/${prNumber}`,
+            },
+            202,
+        );
+    })
+    .post("/applications/:applicationId/0", requireAuth, async (c) => {
+        if (!env.PREVIEWKIT_USE_TEMPORAL) {
+            return proxyToPreviewkit(c, `applications/${c.req.param("applicationId")}/0`, rewriteDeployStatusUrl);
+        }
+
+        const applicationId = c.req.param("applicationId");
+        try {
+            const result = await previewkitTriggerService.deployMainBranch(
+                applicationId,
+                callerOrgId(c.var.authCaller),
+            );
+            return c.json(
+                {
+                    accepted: true,
+                    applicationId: result.applicationId,
+                    repoFullName: result.repoFullName,
+                    branch: result.branch,
+                    headSha: result.headSha,
+                    prNumber: result.prNumber,
+                    statusUrl: `/v1/previewkit/environments/${result.repoFullName}/${result.prNumber}`,
+                },
+                202,
+            );
+        } catch (error) {
+            return lifecycleErrorResponse(c, error, { applicationId });
+        }
+    })
+    .delete("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
+        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, environmentSubPath(c));
+
+        const pr = parseEnvironmentNumber(c.req.param("pr"));
+        if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
+
+        const organizationId = c.req.query("organizationId");
+        if (organizationId == null || organizationId === "") {
+            return c.json({ error: "organizationId query param is required" }, 400);
+        }
+        const githubRepositoryIdRaw = c.req.query("githubRepositoryId");
+        const githubRepositoryId = githubRepositoryIdRaw != null ? Number(githubRepositoryIdRaw) : NaN;
+        if (!Number.isInteger(githubRepositoryId) || githubRepositoryId <= 0) {
+            return c.json({ error: "githubRepositoryId query param must be a positive integer" }, 400);
+        }
+
+        const orgId = callerOrgId(c.var.authCaller);
+        if (orgId != null && orgId !== organizationId) {
+            return c.json({ error: "organizationId does not match the caller's organization" }, 403);
+        }
+
+        const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
+        try {
+            await previewkitTriggerService.teardown({ repoFullName, prNumber: pr, organizationId, githubRepositoryId });
+        } catch (error) {
+            return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr });
+        }
+
+        return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
+    })
+    .post("/environments/:owner/:repo/:pr/redeploy", requireAuth, async (c) => {
+        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, `${environmentSubPath(c)}/redeploy`);
+
+        const pr = parseEnvironmentNumber(c.req.param("pr"));
+        if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
+
+        const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
+        try {
+            await previewkitTriggerService.redeploy(repoFullName, pr, callerOrgId(c.var.authCaller));
+        } catch (error) {
+            return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr });
+        }
+
+        return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
+    })
     .get("/openapi.json", (c) => c.json(openApiSpec));
 
 function callerOrgId(caller: AuthCaller): string | undefined {
     return caller.kind === "user" ? caller.organizationId : undefined;
+}
+
+/** Maps trigger-service errors to the same statuses Previewkit's own routes used. */
+function lifecycleErrorResponse(c: Context, error: unknown, logContext: Record<string, string | number>): Response {
+    if (error instanceof NotFoundError) return c.json({ error: error.message }, 404);
+    if (error instanceof ConflictError) return c.json({ error: error.message }, 409);
+
+    logger.error("Preview lifecycle operation failed", error, logContext);
+    return c.json({ error: "Preview lifecycle operation failed" }, 500);
 }
 
 /** A finished environment emits no further log entries, so the SSE relay closes. */

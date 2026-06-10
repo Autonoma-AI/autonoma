@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import { env } from "../../env";
 import { previewkitClient } from "../../previewkit/previewkit-service";
+import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
 import {
     buildServiceSummaries,
@@ -15,7 +17,10 @@ import {
 } from "./preview-summary";
 
 export class DeploymentsService extends Service {
-    constructor(private readonly db: PrismaClient) {
+    constructor(
+        private readonly db: PrismaClient,
+        private readonly previewkitTrigger: PreviewkitTriggerService,
+    ) {
         super();
     }
 
@@ -62,11 +67,11 @@ export class DeploymentsService extends Service {
     }
 
     /**
-     * Triggers a redeploy of a preview environment by calling Previewkit's
-     * redeploy endpoint, which re-runs the full pipeline (all apps) for the PR
-     * at its current head SHA. Admin-only. Surfaces Previewkit's own error
-     * detail (e.g. a torn-down environment returns 409) so the caller learns
-     * why it was rejected.
+     * Triggers a redeploy of a preview environment - re-runs the full pipeline
+     * (all apps) for the PR at its current head SHA. Admin-only. With
+     * `PREVIEWKIT_USE_TEMPORAL` on, the deploy workflow is started directly;
+     * otherwise the request goes through Previewkit's redeploy endpoint
+     * (legacy), surfacing Previewkit's own error detail (e.g. 409 torn down).
      */
     async redeployEnvironment(environmentId: string): Promise<void> {
         this.logger.info("Redeploying previewkit environment", { environmentId });
@@ -77,6 +82,11 @@ export class DeploymentsService extends Service {
         });
         if (environment == null) {
             throw new NotFoundError("Preview environment not found");
+        }
+
+        if (env.PREVIEWKIT_USE_TEMPORAL) {
+            await this.previewkitTrigger.redeploy(environment.repoFullName, environment.prNumber);
+            return;
         }
 
         if (!previewkitClient.isConfigured()) {

@@ -5,11 +5,17 @@ import type { GitHubApp } from "@autonoma/github";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
-import type { TriggerDiffsJobParams, TriggerRunWorkflowParams } from "@autonoma/workflow";
+import type {
+    TriggerDiffsJobParams,
+    TriggerPreviewDeployParams,
+    TriggerPreviewTeardownParams,
+    TriggerRunWorkflowParams,
+} from "@autonoma/workflow";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
+import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
@@ -52,6 +58,7 @@ export interface Services {
     billing: BillingService;
     applicationSetups: ApplicationSetupsService;
     diffsTrigger: DiffsTriggerService;
+    previewkitTrigger: PreviewkitTriggerService;
 }
 
 export type TriggerGenerationReview = (generationId: string) => void | Promise<void>;
@@ -70,6 +77,8 @@ export interface ServicesParams {
     githubApp: GitHubApp;
     triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
     cancelDiffsJob: (snapshotId: string) => Promise<void>;
+    triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
+    triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
 }
 
 export function buildServices({
@@ -85,10 +94,18 @@ export function buildServices({
     githubApp,
     triggerDiffsJob,
     cancelDiffsJob,
+    triggerPreviewDeploy,
+    triggerPreviewTeardown,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper);
     const githubService = new GitHubInstallationService(conn, githubApp);
+    const previewkitTrigger = new PreviewkitTriggerService(
+        conn,
+        githubService,
+        triggerPreviewDeploy,
+        triggerPreviewTeardown,
+    );
 
     return {
         admin: new AdminService(conn, auth, githubApp),
@@ -96,7 +113,7 @@ export function buildServices({
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn, githubService, storageProvider),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
-        deployments: new DeploymentsService(conn),
+        deployments: new DeploymentsService(conn, previewkitTrigger),
         applications: new ApplicationsService(conn, encryptionHelper),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
@@ -112,5 +129,6 @@ export function buildServices({
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
         diffsTrigger: new DiffsTriggerService(conn, githubService, triggerDiffsJob, cancelDiffsJob),
+        previewkitTrigger,
     };
 }

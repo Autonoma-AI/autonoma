@@ -48,6 +48,10 @@ export const env = createEnv({
         //     and signs requests with this same value. Previewkit verifies it on its end.
         // Both sides must hold the same value.
         PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
+        // When true, the preview lifecycle ops (deploy / main-branch / redeploy /
+        // teardown) start Temporal workflows directly from this API instead of
+        // forwarding over HTTP to Previewkit's server.
+        PREVIEWKIT_USE_TEMPORAL: z.stringbool().default(false),
 
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
