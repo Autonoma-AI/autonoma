@@ -21,7 +21,7 @@ description: "Always read this skill before editing any file under apps/ui/. Con
 - **`pnpm typecheck`** - runs `tsc --noEmit`. Prefer the root `pnpm typecheck` to catch cross-package issues. Use the local `pnpm --filter @autonoma/ui typecheck` only when other packages have type errors unrelated to the current task and generate too much noise.
 - **`pnpm generate-routes`** - calls `vite build`. Use this to regenerate the TanStack Router route tree after adding, removing, or renaming route files.
 - **`pnpm build`** - runs typecheck then `vite build`. Prefer the root `pnpm build` as well.
-- **`pnpm lint`** - runs `biome check` on `src/`.
+- **`pnpm lint`** - runs `oxlint --fix` on `src/`.
 
 ## React Principles
 

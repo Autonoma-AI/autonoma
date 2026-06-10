@@ -163,6 +163,24 @@ export class PreviewkitClient {
         this.logger.info("Triggered previewkit redeploy", { repoFullName, prNumber });
     }
 
+    /** Deploy an Application's main branch into environment 0 (the stable
+     *  non-PR environment). Service-to-service. Previewkit resolves the repo and
+     *  branch head itself; we surface its own error detail (e.g. a disabled or
+     *  unlinked application returns 409). */
+    async deployMainBranch(applicationId: string): Promise<void> {
+        const response = await this.serviceFetch("POST", `applications/${applicationId}/0`);
+        if (!response.ok) {
+            const payload: unknown = await response.json().catch(() => undefined);
+            const detail = extractErrorDetail(payload);
+            this.logger.warn("Previewkit main-branch deploy returned non-OK", {
+                status: response.status,
+                applicationId,
+            });
+            throw new Error(detail ?? `Previewkit main-branch deploy failed with status ${response.status}.`);
+        }
+        this.logger.info("Triggered previewkit main-branch deploy", { applicationId });
+    }
+
     /** Build a service-to-service request authenticated with the shared secret. */
     private async serviceFetch(method: string, subPath: string, jsonBody?: unknown): Promise<Response> {
         const baseUrl = this.baseUrl;

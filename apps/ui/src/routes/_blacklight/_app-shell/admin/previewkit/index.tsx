@@ -3,10 +3,16 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
+import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { useAdminPreviewkitEnvironments, useRedeployPreviewkitEnvironment } from "lib/query/admin.queries";
+import {
+  useAdminPreviewkitEnvironments,
+  useDeployPreviewkitMainBranch,
+  usePreviewkitDeployableApplications,
+  useRedeployPreviewkitEnvironment,
+} from "lib/query/admin.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 
@@ -53,11 +59,77 @@ function AdminPreviewkitPage() {
           </p>
         </header>
 
+        <Suspense fallback={<DeployMainBranchSkeleton />}>
+          <DeployMainBranchSection />
+        </Suspense>
+
         <Suspense fallback={<TableSkeleton />}>
           <EnvironmentsTable />
         </Suspense>
       </div>
     </section>
+  );
+}
+
+// Deploys a preview environment from an application's main branch (PR #0).
+// Lists applications linked to a GitHub repository with an active installation.
+function DeployMainBranchSection() {
+  const { data: applications } = usePreviewkitDeployableApplications();
+  const deploy = useDeployPreviewkitMainBranch();
+  const [applicationId, setApplicationId] = useState("");
+
+  const handleDeploy = () => {
+    if (applicationId === "") return;
+    deploy.mutate({ applicationId }, { onSuccess: () => setApplicationId("") });
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border-dim bg-surface-base p-4">
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-sm font-medium text-text-primary">Deploy main branch</h2>
+        <p className="text-2xs text-text-secondary">
+          Deploy a preview environment from an application's main branch. Only applications linked to a GitHub
+          repository with an active installation are listed.
+        </p>
+      </div>
+
+      {applications.length === 0 ? (
+        <p className="text-2xs text-text-secondary">No applications are linked to an active GitHub installation.</p>
+      ) : (
+        <div className="flex items-center gap-3">
+          <select
+            value={applicationId}
+            onChange={(e) => setApplicationId(e.target.value)}
+            aria-label="Select an application to deploy"
+            className="h-9 flex-1 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
+          >
+            <option value="">Select an application...</option>
+            {applications.map((application) => (
+              <option key={application.id} value={application.id}>
+                {application.organization.name} / {application.name}
+              </option>
+            ))}
+          </select>
+          <Button variant="accent" size="sm" disabled={applicationId === "" || deploy.isPending} onClick={handleDeploy}>
+            {deploy.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <RocketLaunchIcon size={14} />}
+            Deploy
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeployMainBranchSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border-dim bg-surface-base p-4">
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="h-3 w-80" />
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 flex-1" />
+        <Skeleton className="h-9 w-24" />
+      </div>
+    </div>
   );
 }
 

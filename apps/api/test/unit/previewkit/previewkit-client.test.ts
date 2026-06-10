@@ -170,4 +170,24 @@ describe("PreviewkitClient", () => {
         await expect(client.redeploy("owner/repo", 7)).rejects.toThrow(/torn down/);
         expect(received?.path).toBe("/v1/environments/owner/repo/7/redeploy");
     });
+
+    it("deployMainBranch posts to the application's environment-0 path with the service secret", async () => {
+        stubStatus = 202;
+        stubBody = { accepted: true };
+        const client = new PreviewkitClient(baseUrl, "service-secret");
+
+        await client.deployMainBranch("app_abc");
+
+        expect(received?.method).toBe("POST");
+        expect(received?.path).toBe("/v1/applications/app_abc/0");
+        expect(received?.authorization).toBe("Bearer service-secret");
+    });
+
+    it("deployMainBranch surfaces Previewkit's own error detail", async () => {
+        stubStatus = 409;
+        stubBody = { error: "Application is disabled and cannot be deployed" };
+        const client = new PreviewkitClient(baseUrl, "service-secret");
+
+        await expect(client.deployMainBranch("app_abc")).rejects.toThrow(/disabled/);
+    });
 });

@@ -41,6 +41,22 @@ export const adminRouter = router({
     redeployPreviewkitEnvironment: adminProcedure
         .input(z.object({ environmentId: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.deployments.redeployEnvironment(input.environmentId)),
+    /**
+     * Applications eligible for a main-branch preview deploy (linked to a GitHub
+     * repository, owned by an org with an active installation). Admin-gated;
+     * the picker source for the deploy action below.
+     */
+    listPreviewkitDeployableApplications: adminProcedure.query(({ ctx: { services } }) =>
+        services.deployments.listDeployableApplications(),
+    ),
+    /**
+     * Deploys an Application's main branch into preview environment 0. Admin-gated;
+     * delegates to the deployments service, which starts the deploy workflow (or
+     * forwards to Previewkit's main-branch endpoint on the legacy path).
+     */
+    deployPreviewkitMainBranch: adminProcedure
+        .input(z.object({ applicationId: z.string().min(1) }))
+        .mutation(({ ctx: { services }, input }) => services.deployments.deployMainBranch(input.applicationId)),
     listOrganizations: adminProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
     listPendingOrgs: adminProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: adminProcedure

@@ -98,6 +98,65 @@ export class DeploymentsService extends Service {
         await previewkitClient.redeploy(environment.repoFullName, environment.prNumber);
     }
 
+    /**
+     * Applications eligible for a main-branch preview deploy: linked to a GitHub
+     * repository and owned by an organization with an active GitHub installation,
+     * excluding disabled apps. Admin-only picker source for the "deploy main
+     * branch" action. Ordered by organization name, then application name.
+     */
+    async listDeployableApplications() {
+        this.logger.info("Listing applications eligible for main-branch preview deploy");
+
+        const applications = await this.db.application.findMany({
+            where: {
+                disabled: false,
+                githubRepositoryId: { not: null },
+                organization: { githubInstallation: { status: "active" } },
+            },
+            orderBy: [{ organization: { name: "asc" } }, { name: "asc" }],
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                organization: { select: { id: true, name: true, slug: true } },
+            },
+        });
+
+        this.logger.info("Listed deployable applications", { count: applications.length });
+
+        return applications.map((application) => ({
+            id: application.id,
+            name: application.name,
+            slug: application.slug,
+            organization: application.organization,
+        }));
+    }
+
+    /**
+     * Deploys an Application's main branch into preview environment 0 (the stable
+     * non-PR environment). Admin-only. With `PREVIEWKIT_USE_TEMPORAL` on, the
+     * deploy workflow is started directly - the trigger service resolves the repo
+     * and branch head from GitHub and validates the application. Otherwise the
+     * request goes through Previewkit's `applications/:id/0` endpoint (legacy),
+     * which performs the same resolution and surfaces its own error detail.
+     */
+    async deployMainBranch(applicationId: string): Promise<void> {
+        this.logger.info("Deploying main-branch preview", { applicationId });
+
+        if (env.PREVIEWKIT_USE_TEMPORAL) {
+            await this.previewkitTrigger.deployMainBranch(applicationId, undefined);
+            return;
+        }
+
+        if (!previewkitClient.isConfigured()) {
+            throw new Error(
+                "Preview environments are not configured: PREVIEWKIT_URL and PREVIEWKIT_SERVICE_SECRET must be set.",
+            );
+        }
+
+        await previewkitClient.deployMainBranch(applicationId);
+    }
+
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {
         this.logger.info("Listing web deployments for PR", { applicationId, prNumber, organizationId });
 

@@ -32,6 +32,23 @@ export function useRedeployPreviewkitEnvironment() {
     });
 }
 
+export function usePreviewkitDeployableApplications() {
+    return useSuspenseQuery(trpc.admin.listPreviewkitDeployableApplications.queryOptions());
+}
+
+export function useDeployPreviewkitMainBranch() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.deployPreviewkitMainBranch.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.listPreviewkitEnvironments.queryKey() });
+            },
+        }),
+        successToast: { title: "Main branch deploy triggered" },
+        errorToast: { title: "Failed to trigger deploy" },
+    });
+}
+
 export function useAdminPendingOrgs() {
     return useSuspenseQuery(trpc.admin.listPendingOrgs.queryOptions());
 }
