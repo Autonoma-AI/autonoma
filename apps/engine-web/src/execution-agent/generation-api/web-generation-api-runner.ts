@@ -2,15 +2,12 @@ import { writeFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { db } from "@autonoma/db";
 import { GenerationAPIRunner, type PlanData, type TestCase, buildExecutionPrompt } from "@autonoma/engine";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
-import { resolvePreviewkitBypassToken as decryptBypassToken } from "@autonoma/utils";
 import type { WebApplicationData, WebContext } from "../../platform";
-import { toPlaywrightCookies } from "../../platform/scenario-auth";
-import { env } from "../env";
+import { buildWebApplicationData } from "../../platform";
 import type { WebCommandSpec } from "../web-agent";
 
 export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, WebContext, WebApplicationData> {
@@ -71,32 +68,16 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
             hasCredentials: auth?.credentials != null,
         });
 
-        const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, webDeployment.url) : undefined;
-        this.parseLogger.info("Converted Playwright cookies", {
-            fallbackUrl: webDeployment.url,
-            count: cookies?.length ?? 0,
-            shapes: cookies?.map((c) => ({
-                name: c.name,
-                sameSite: c.sameSite,
-                hasUrl: c.url != null,
-                hasDomain: c.domain != null,
-                path: c.path,
-                httpOnly: c.httpOnly,
-                secure: c.secure,
-            })),
-        });
-
-        const bypassToken = await resolvePreviewkitBypassToken(webDeployment.url);
-        const headers: Record<string, string> | undefined =
-            bypassToken != null ? { ...(auth?.headers ?? {}), "x-previewkit-bypass": bypassToken } : auth?.headers;
-        const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
+        const webAppData = await buildWebApplicationData({ url: webDeployment.url, file, auth });
 
         this.parseLogger.info("Final WebApplicationData auth summary", {
-            hasCookies: cookies != null,
-            cookieCount: cookies?.length ?? 0,
-            hasHeaders: headers != null && Object.keys(headers).length > 0,
+            hasCookies: webAppData.cookies != null,
+            cookieCount: webAppData.cookies?.length ?? 0,
+            hasHeaders: webAppData.headers != null && Object.keys(webAppData.headers).length > 0,
             hasCredentials: auth?.credentials != null,
         });
+
+        const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
 
         return {
             name: testPlan.testCase.name,
@@ -106,10 +87,7 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
                 auth?.credentials,
                 recipeVariables,
             ),
-            file,
-            url: webDeployment.url,
-            cookies,
-            headers,
+            ...webAppData,
             credentials: auth?.credentials,
             recipeVariables,
         };
@@ -142,18 +120,4 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
 
         return tmpPath;
     }
-}
-
-async function resolvePreviewkitBypassToken(url: string): Promise<string | undefined> {
-    const normalizedUrl = url.replace(/\/$/, "");
-    const logger = rootLogger.child({ name: "resolvePreviewkitBypassToken" });
-    logger.info("Looking up previewkit bypass token", { originalUrl: url, normalizedUrl });
-    const instance = await db.previewkitAppInstance.findFirst({
-        where: { url: normalizedUrl },
-        select: { environment: { select: { bypassToken: true } } },
-    });
-    const stored = instance?.environment.bypassToken;
-    logger.info("Previewkit bypass token lookup result", { normalizedUrl, found: stored != null });
-    if (stored == null) return undefined;
-    return decryptBypassToken(stored, env.PREVIEWKIT_BYPASS_TOKEN_KEY);
 }

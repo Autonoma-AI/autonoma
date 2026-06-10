@@ -1,15 +1,12 @@
 import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { db } from "@autonoma/db";
 import { RunAPIRunner, type RunData } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
-import { resolvePreviewkitBypassToken as decryptBypassToken } from "@autonoma/utils";
-import { env, type WebContext } from "../platform";
-import { toPlaywrightCookies } from "../platform/scenario-auth";
+import { buildWebApplicationData, type WebContext } from "../platform";
 import type { WebApplicationData } from "../platform/web-application-data";
 import type { ReplayWebCommandSpec } from "./web-command-spec";
 
@@ -39,10 +36,6 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
 
         const authParsed = AuthPayloadSchema.safeParse(data.scenarioInstance?.auth);
         const auth = authParsed.success ? authParsed.data : undefined;
-        const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, webDeployment.url) : undefined;
-        const bypassToken = await resolvePreviewkitBypassToken(webDeployment.url);
-        const headers: Record<string, string> | undefined =
-            bypassToken != null ? { ...(auth?.headers ?? {}), "x-previewkit-bypass": bypassToken } : auth?.headers;
         const credentials = auth?.credentials;
 
         if (credentials != null) {
@@ -60,11 +53,13 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
             }
         }
 
+        const webAppData = await buildWebApplicationData({ url: webDeployment.url, file, auth });
+
         this.runLogger.info("Parsed run application data", {
             url: webDeployment.url,
-            hasFile: file != null,
-            hasCookies: cookies != null,
-            hasHeaders: headers != null,
+            hasFile: webAppData.file != null,
+            hasCookies: webAppData.cookies != null,
+            hasHeaders: webAppData.headers != null,
             hasCredentials: credentials != null,
         });
 
@@ -73,12 +68,7 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
             architecture: "web",
         });
 
-        return {
-            url: webDeployment.url,
-            file,
-            cookies,
-            headers,
-        };
+        return webAppData;
     }
 
     private async resolveUploadFilePath(fileKey: string): Promise<string> {
@@ -95,18 +85,4 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
 
         return tmpPath;
     }
-}
-
-async function resolvePreviewkitBypassToken(url: string): Promise<string | undefined> {
-    const normalizedUrl = url.replace(/\/$/, "");
-    const logger = rootLogger.child({ name: "resolvePreviewkitBypassToken" });
-    logger.info("Looking up previewkit bypass token", { originalUrl: url, normalizedUrl });
-    const instance = await db.previewkitAppInstance.findFirst({
-        where: { url: normalizedUrl },
-        select: { environment: { select: { bypassToken: true } } },
-    });
-    const stored = instance?.environment.bypassToken;
-    logger.info("Previewkit bypass token lookup result", { normalizedUrl, found: stored != null });
-    if (stored == null) return undefined;
-    return decryptBypassToken(stored, env.PREVIEWKIT_BYPASS_TOKEN_KEY);
 }
