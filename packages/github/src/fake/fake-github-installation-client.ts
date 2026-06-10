@@ -180,19 +180,6 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         };
     }
 
-    async getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>> {
-        const byNumber = new Map<number, PullRequest>();
-        for (const prNumber of prNumbers) {
-            try {
-                byNumber.set(prNumber, await this.getPullRequest(repoId, prNumber));
-            } catch (err) {
-                // Mirror the real client: a PR missing from the fake repo is omitted, not fatal.
-                console.warn(`Fake getPullRequestsByNumbers: skipping PR #${prNumber}`, err);
-            }
-        }
-        return byNumber;
-    }
-
     async listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult> {
         const repoData = this.requireRepoById(repoId);
         const pullRequests = await Promise.all(

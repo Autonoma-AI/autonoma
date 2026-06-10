@@ -192,45 +192,6 @@ export class GitHubInstallationService extends Service {
         return pullRequest;
     }
 
-    /**
-     * Batch variant of {@link getApplicationPullRequest}: resolves the application, GitHub
-     * installation client, and repo once, then fetches all requested PRs concurrently.
-     * Returns a map keyed by PR number; PRs that fail to fetch are omitted.
-     */
-    async getApplicationPullRequests(
-        organizationId: string,
-        applicationId: string,
-        prNumbers: number[],
-    ): Promise<Map<number, PullRequest>> {
-        this.logger.info("Fetching application pull requests", {
-            organizationId,
-            applicationId,
-            extra: { count: prNumbers.length },
-        });
-
-        if (prNumbers.length === 0) return new Map();
-
-        const app = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-
-        if (app == null) throw new NotFoundError("Application not found");
-        if (app.githubRepositoryId == null) {
-            throw new NotFoundError("Application is not linked to a GitHub repository");
-        }
-
-        const client = await this.getOrgInstallationClient(organizationId);
-        const pullRequests = await client.getPullRequestsByNumbers(app.githubRepositoryId, prNumbers);
-
-        this.logger.info("Fetched application pull requests", {
-            applicationId,
-            extra: { requested: prNumbers.length, fetched: pullRequests.size },
-        });
-
-        return pullRequests;
-    }
-
     async listApplicationPullRequests(
         organizationId: string,
         applicationId: string,

@@ -83,7 +83,6 @@ export interface GitHubInstallationClient {
     getRepositoryArchiveUrl(repoId: number, ref?: string): Promise<string>;
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
-    getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>>;
     listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult>;
     getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
@@ -292,53 +291,6 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger.info("Fetched pull request", { repoId, prNumber, headRef: pullRequest.headRef });
 
         return pullRequest;
-    }
-
-    /**
-     * Fetches several PRs by number in one batch. Resolves the repo's owner/name once
-     * (not once per PR) and issues the requests concurrently - the Octokit throttling
-     * plugin paces them within GitHub's rate limits. A PR that fails to fetch (e.g. it was
-     * deleted -> 404) is logged and omitted from the returned map rather than failing the
-     * whole batch.
-     */
-    async getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>> {
-        if (prNumbers.length === 0) return new Map();
-
-        const { owner, repo } = await this.resolveOwnerRepo(repoId);
-        this.logger.info("Fetching pull requests by number", { repoId, count: prNumbers.length });
-
-        const entries = await Promise.all(
-            prNumbers.map(async (prNumber) => {
-                try {
-                    const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-                        owner,
-                        repo,
-                        pull_number: prNumber,
-                    });
-                    return [prNumber, this.mapPullRequest(data)] as const;
-                } catch (error) {
-                    this.logger.warn("Failed to fetch pull request in batch", {
-                        repoId,
-                        prNumber,
-                        extra: { error: error instanceof Error ? error.message : String(error) },
-                    });
-                    return undefined;
-                }
-            }),
-        );
-
-        const byNumber = new Map<number, PullRequest>();
-        for (const entry of entries) {
-            if (entry != null) byNumber.set(entry[0], entry[1]);
-        }
-
-        this.logger.info("Fetched pull requests by number", {
-            repoId,
-            requested: prNumbers.length,
-            fetched: byNumber.size,
-        });
-
-        return byNumber;
     }
 
     /**

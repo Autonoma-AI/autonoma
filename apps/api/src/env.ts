@@ -33,12 +33,10 @@ export const env = createEnv({
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
         GITHUB_APP_SLUG: z.string().min(1).optional(),
 
-        // Polite revalidation of the cached PR metadata (FeatureBranchInfo). The window
-        // throttles the read-triggered revalidate (at most once per app per window, derived
-        // from min(prCachedAt) in Postgres); the backfill limit caps individual PR fetches
-        // per revalidation tick so we stay within GitHub rate limits.
+        // Polite revalidation of the cached PR metadata (FeatureBranchInfo). Throttles the
+        // read-triggered revalidate to at most once per app per window, derived from
+        // max(prCachedAt) in Postgres. Only open PRs are refreshed (one bulk list call).
         GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES: z.coerce.number().int().positive().default(5),
-        GITHUB_PR_CACHE_BACKFILL_LIMIT: z.coerce.number().int().positive().default(10),
 
         // AES-256-GCM key (64 hex chars / 32 bytes) used to decrypt bypass tokens
         // read from the database before returning them to the browser. Must match BYPASS_TOKEN_KEY in Previewkit.

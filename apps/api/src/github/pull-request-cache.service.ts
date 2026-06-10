@@ -109,103 +109,60 @@ export class PullRequestCacheService extends Service {
     }
 
     async revalidate(applicationId: string, organizationId: string): Promise<void> {
-        const tracked = await this.db.featureBranchInfo.findMany({
-            where: { applicationId },
-            select: { prNumber: true, prCachedAt: true },
-        });
-        if (tracked.length === 0) return;
-
+        // Throttle on the MOST RECENT refresh, not the oldest. Closed/merged PRs (and PRs
+        // tracked before this feature) keep prCachedAt = null forever - they are never
+        // covered by the open-PR list - so gating on "any uncached row" would make the gate
+        // never hold and fire a full revalidation on every read. Gating on max(prCachedAt)
+        // means once we refresh the open PRs we stay quiet for the whole window.
         const windowMs = env.GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES * 60_000;
-        const staleBefore = Date.now() - windowMs;
-        const hasUncached = tracked.some((t) => t.prCachedAt == null);
-        const oldestCachedAt = tracked.reduce<Date | undefined>((min, t) => {
-            if (t.prCachedAt == null) return min;
-            return min == null || t.prCachedAt < min ? t.prCachedAt : min;
-        }, undefined);
-
-        const isFresh = !hasUncached && oldestCachedAt != null && oldestCachedAt.getTime() > staleBefore;
-        if (isFresh) {
+        const { _max } = await this.db.featureBranchInfo.aggregate({
+            where: { applicationId },
+            _max: { prCachedAt: true },
+        });
+        const lastRefreshedAt = _max.prCachedAt;
+        if (lastRefreshedAt != null && lastRefreshedAt.getTime() > Date.now() - windowMs) {
             this.logger.debug("PR cache fresh, skipping revalidation", { applicationId });
             return;
         }
 
-        this.logger.info("Revalidating PR cache", { applicationId });
+        this.logger.info("Revalidating PR cache (open PRs only)", { applicationId });
 
         const now = new Date();
         const result = await this.github.listApplicationPullRequests(organizationId, applicationId);
 
         if (result.unchanged) {
-            // The open-PR list is byte-identical to the last fetch, so every already-cached
-            // row is still current. Bump their prCachedAt to reset the freshness gate;
-            // uncached rows fall through to the bounded backfill below.
+            // Open-PR list byte-identical to the last fetch; bump already-cached rows so the
+            // freshness gate resets without re-writing unchanged data.
             await this.db.featureBranchInfo.updateMany({
                 where: { applicationId, prCachedAt: { not: null } },
                 data: { prCachedAt: now },
             });
-        } else {
-            const trackedNumbers = new Set(tracked.map((t) => t.prNumber));
-            const updates = result.pullRequests
-                .filter((pr) => trackedNumbers.has(pr.number))
-                .map((pr) =>
-                    this.db.featureBranchInfo.update({
-                        where: { applicationId_prNumber: { applicationId, prNumber: pr.number } },
-                        data: {
-                            prTitle: pr.title,
-                            prState: pr.state,
-                            prAuthorLogin: pr.authorLogin ?? null,
-                            prUpdatedAt: new Date(pr.updatedAt),
-                            prCachedAt: now,
-                        },
-                    }),
-                );
-            if (updates.length > 0) await this.db.$transaction(updates);
+            return;
         }
 
-        await this.backfillStale(applicationId, organizationId, staleBefore);
-    }
-
-    /**
-     * Fills a bounded number of rows the open-PR list did not cover - closed/merged PRs,
-     * PRs tracked before this feature, or rows missed by webhooks. Fetches them all in one
-     * batch (repo/client resolved once, requests run concurrently and paced by the Octokit
-     * throttling plugin), then writes them in a single transaction rather than one
-     * round-trip per PR. Capped by GITHUB_PR_CACHE_BACKFILL_LIMIT so it stays polite and
-     * converges over a few reads.
-     */
-    private async backfillStale(applicationId: string, organizationId: string, staleBefore: number): Promise<void> {
-        const stale = await this.db.featureBranchInfo.findMany({
-            where: {
-                applicationId,
-                OR: [{ prCachedAt: null }, { prCachedAt: { lt: new Date(staleBefore) } }],
-            },
+        // Only refresh PRs that are currently OPEN (present in the list). Closed/merged PRs
+        // are terminal and were captured by the pull_request.closed webhook; we never poll
+        // them, which is what keeps this cheap. Historic closed PRs without a cache simply
+        // render the branch-name fallback.
+        const tracked = await this.db.featureBranchInfo.findMany({
+            where: { applicationId },
             select: { prNumber: true },
-            orderBy: { prCachedAt: { sort: "asc", nulls: "first" } },
-            take: env.GITHUB_PR_CACHE_BACKFILL_LIMIT,
         });
-        if (stale.length === 0) return;
-
-        this.logger.info("Backfilling stale PR cache rows", { applicationId, extra: { count: stale.length } });
-
-        const prByNumber = await this.github.getApplicationPullRequests(
-            organizationId,
-            applicationId,
-            stale.map((s) => s.prNumber),
-        );
-        if (prByNumber.size === 0) return;
-
-        const now = new Date();
-        const updates = [...prByNumber].map(([prNumber, pr]) =>
-            this.db.featureBranchInfo.update({
-                where: { applicationId_prNumber: { applicationId, prNumber } },
-                data: {
-                    prTitle: pr.title,
-                    prState: pr.state,
-                    prAuthorLogin: pr.authorLogin ?? null,
-                    prUpdatedAt: new Date(pr.updatedAt),
-                    prCachedAt: now,
-                },
-            }),
-        );
-        await this.db.$transaction(updates);
+        const trackedNumbers = new Set(tracked.map((t) => t.prNumber));
+        const updates = result.pullRequests
+            .filter((pr) => trackedNumbers.has(pr.number))
+            .map((pr) =>
+                this.db.featureBranchInfo.update({
+                    where: { applicationId_prNumber: { applicationId, prNumber: pr.number } },
+                    data: {
+                        prTitle: pr.title,
+                        prState: pr.state,
+                        prAuthorLogin: pr.authorLogin ?? null,
+                        prUpdatedAt: new Date(pr.updatedAt),
+                        prCachedAt: now,
+                    },
+                }),
+            );
+        if (updates.length > 0) await this.db.$transaction(updates);
     }
 }

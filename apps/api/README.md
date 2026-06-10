@@ -45,8 +45,7 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `AGENT_VERSION` | No | `latest` | Version tag for Temporal worker agent images |
 | `POSTHOG_KEY` | No | - | PostHog API key (analytics disabled if absent) |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingest host |
-| `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No | `5` | Throttle window for the read-triggered PR-metadata cache revalidate (per app) |
-| `GITHUB_PR_CACHE_BACKFILL_LIMIT` | No | `10` | Max individual PR fetches per revalidation tick when backfilling stale/uncached rows |
+| `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No | `5` | Throttle window for the read-triggered PR-metadata cache revalidate (per app); refreshes open PRs only |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
