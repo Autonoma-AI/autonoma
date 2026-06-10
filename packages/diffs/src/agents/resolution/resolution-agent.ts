@@ -38,7 +38,6 @@ export interface RunReviewVerdict {
     verdict: string;
     reviewReasoning: string;
     issueTitle?: string;
-    issueConfidence?: number;
     issueDescription?: string;
     affectedReason?: AffectedReason;
 }

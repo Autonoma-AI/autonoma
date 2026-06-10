@@ -9,9 +9,6 @@ export const GENERATION_FAILURE_VERDICTS = [
     "plan_mismatch",
 ] as const satisfies readonly Exclude<GenerationVerdictKind, "success">[];
 
-export const reviewSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
-export type ReviewSeverity = z.infer<typeof reviewSeveritySchema>;
-
 export const reviewEvidenceSchema = z.object({
     type: z.enum(["conversation", "screenshot", "video", "step_output"]),
     description: z.string(),
@@ -28,10 +25,6 @@ export type FailurePoint = z.infer<typeof failurePointSchema>;
 export const generationVerdictSchema = z.object({
     verdict: generationVerdictKindSchema.describe(
         "Reviewer's authoritative classification of this generation. Use 'success' when the generation truly completed the test plan; otherwise pick the failure cause.",
-    ),
-    confidence: z.number().int().min(0).max(100).describe("How confident you are in this verdict (0-100)"),
-    severity: reviewSeveritySchema.describe(
-        "Impact of the issue. For 'success' verdicts, this is informational; use 'low'.",
     ),
     title: z
         .string()

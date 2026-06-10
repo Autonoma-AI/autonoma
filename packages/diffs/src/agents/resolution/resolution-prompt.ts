@@ -52,11 +52,7 @@ The following tests were replayed after Step 1's analysis. Each test has been re
 - **Reviewer reasoning**: ${verdict.reviewReasoning}
 `;
         if (verdict.issueTitle != null) {
-            prompt += `- **Issue**: ${verdict.issueTitle}`;
-            if (verdict.issueConfidence != null) {
-                prompt += ` (confidence: ${verdict.issueConfidence}%)`;
-            }
-            prompt += "\n";
+            prompt += `- **Issue**: ${verdict.issueTitle}\n`;
         }
         if (verdict.issueDescription != null) {
             prompt += `- **Issue details**: ${verdict.issueDescription}\n`;

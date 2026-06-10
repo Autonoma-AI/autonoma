@@ -125,9 +125,9 @@ modification correctness, and bug-report accuracy.
 ### Reviewer frontmatter (generation + replay)
 
 Both reviewer evals share the same shape. Only `verdict` is graded
-deterministically - the reviewer also emits `severity` / `confidence` but
-production drops both (see #783), so asserting on them would gate on dead
-fields. The verdict enum differs per reviewer:
+deterministically; the reviewer's other fields (`title`, `reasoning`,
+`failurePoint`, `evidence`) are free-text and graded by the judge rubric. The
+verdict enum differs per reviewer:
 `success | agent_limitation | application_bug | plan_mismatch` for generation,
 `engine_error | application_bug` for replay.
 

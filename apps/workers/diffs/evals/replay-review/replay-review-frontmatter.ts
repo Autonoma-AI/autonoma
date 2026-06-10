@@ -5,11 +5,8 @@ import type { z } from "zod";
 /**
  * Deterministic checks for a replay review case.
  *
- * Only `verdict` is graded deterministically. The reviewer also emits
- * `severity` and `confidence`, but the production pipeline drops both
- * (resolution / healing decides on its own; see #783), so asserting on them
- * here would gate on dead fields. Reasoning quality belongs in the judge
- * rubric.
+ * Only `verdict` is graded deterministically. Reasoning quality belongs in the
+ * judge rubric.
  */
 export const replayReviewFrontmatterSchema = baseFrontmatterSchema.extend({
     verdict: replayVerdictKindSchema.optional(),

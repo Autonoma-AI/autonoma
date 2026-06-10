@@ -5,12 +5,9 @@ import type { z } from "zod";
 /**
  * Deterministic checks for a generation review case.
  *
- * Only `verdict` is graded deterministically. The reviewer also emits
- * `severity` and `confidence`, but the production pipeline drops both
- * (resolution / healing decides on its own; see #783), so asserting on them
- * here would gate on dead fields. Reasoning quality - correct failure point,
- * no hallucinated steps, sensible engine-vs-app attribution - belongs in the
- * judge rubric, not here.
+ * Only `verdict` is graded deterministically. Reasoning quality - correct
+ * failure point, no hallucinated steps, sensible engine-vs-app attribution -
+ * belongs in the judge rubric, not here.
  */
 export const generationReviewFrontmatterSchema = baseFrontmatterSchema.extend({
     verdict: generationVerdictKindSchema.optional(),

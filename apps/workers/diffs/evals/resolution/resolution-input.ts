@@ -50,7 +50,6 @@ const runReviewVerdictSchema = z.object({
     verdict: z.string(),
     reviewReasoning: z.string(),
     issueTitle: z.string().optional(),
-    issueConfidence: z.number().optional(),
     issueDescription: z.string().optional(),
     affectedReason: affectedReasonSchema.optional(),
 });

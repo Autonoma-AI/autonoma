@@ -35,8 +35,6 @@ Decide which of the four verdicts applies, then submit it via `submit_verdict`:
 - `read_scenario_entities` (when scenario data is present) - the full records the generation's scenario created for one entity type. Use it to verify whether a specific user, item, or value the plan references was actually seeded. Reads in-memory scenario data only - no database or network access.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: one of `success`, `agent_limitation`, `application_bug`, `plan_mismatch`.
-  - **confidence**: 0-100. Use 90+ for clear-cut cases, 60-89 when probable, below 60 for ambiguous.
-  - **severity**: `critical | high | medium | low`. For `success`, use `low`.
   - **title**: short bug-report-style title (under 100 chars). For `success`, describe the verified behavior.
   - **reasoning**: detailed explanation.
   - **failurePoint**: where the failure occurred (or, for `success`, the final completed step).

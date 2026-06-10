@@ -30,8 +30,6 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 - `read_scenario_entities` (when scenario data is present) - the full records the run's scenario created for one entity type. Use it to verify whether a specific user, item, or value the test references was actually seeded. Reads in-memory scenario data only - no database or network access.
 - `submit_verdict` - the terminal call. Required fields:
   - **verdict**: `engine_error` or `application_bug`.
-  - **confidence**: 0-100. 90+ for clear, 60-89 for probable, below 60 for ambiguous.
-  - **severity**: `critical | high | medium | low`.
   - **title**: short bug-report-style title (under 100 chars).
   - **reasoning**: detailed explanation.
   - **failurePoint**: where the failure occurred.
