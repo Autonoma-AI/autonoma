@@ -1,6 +1,6 @@
 import type { AuthCaller, CallerAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
-import { triggerPreviewDeploy } from "@autonoma/workflow";
+import { triggerPreviewDeploy, triggerPreviewTeardown } from "@autonoma/workflow";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { GitProvider, PullRequestEvent } from "../git-provider/git-provider";
@@ -31,6 +31,29 @@ function startPreviewDeploy(
     }
     previewPipeline.deploy(event, { configRevisionId }).catch((err) => {
         logger.error("Deploy failed", err, logContext);
+    });
+}
+
+/**
+ * Kicks off a teardown. When `useTemporal` is on, this starts the teardown
+ * workflow (which shares the deploy workflowId, so an in-flight deploy for the
+ * same PR is terminated first); otherwise it falls back to the legacy
+ * in-process fire-and-forget pipeline. Either way the handler returns 202.
+ */
+function startPreviewTeardown(
+    teardownPipeline: TeardownPipeline,
+    event: PullRequestEvent,
+    logContext: Record<string, string | number>,
+    useTemporal: boolean,
+): void {
+    if (useTemporal) {
+        triggerPreviewTeardown({ event }).catch((err) => {
+            logger.error("Failed to trigger preview teardown workflow", err, logContext);
+        });
+        return;
+    }
+    teardownPipeline.teardown(event).catch((err) => {
+        logger.error("Teardown failed", err, logContext);
     });
 }
 
@@ -235,9 +258,7 @@ export function createEnvironmentsRoute({
                 cloneUrl: "",
             };
 
-            teardownPipeline.teardown(event).catch((err) => {
-                logger.error("Teardown failed", err, { repo: repoFullName, pr });
-            });
+            startPreviewTeardown(teardownPipeline, event, { repo: repoFullName, pr }, useTemporal);
 
             return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
         })

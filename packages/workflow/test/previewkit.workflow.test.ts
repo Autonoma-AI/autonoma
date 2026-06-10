@@ -62,6 +62,9 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
         async failPreviewDeploy() {
             calls.push("fail");
         },
+        async teardownPreviewEnvironment() {
+            calls.push("teardown");
+        },
         ...overrides,
     };
 }

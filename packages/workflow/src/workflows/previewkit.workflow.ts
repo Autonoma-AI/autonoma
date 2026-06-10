@@ -4,11 +4,13 @@ import { TaskQueue } from "../task-queues";
 
 /**
  * Short, GitHub-facing lifecycle activities (resolve + namespace + initial
- * comment/status). No heartbeat; retried a few times for transient blips.
+ * comment/status). No heartbeat. Patient retry: when a PR is closed and
+ * reopened within seconds, the reopen's prepare can race the namespace still
+ * Terminating from the teardown - the spaced attempts ride that window out.
  */
 const lifecycle = proxyActivities<PreviewkitActivities>({
     startToCloseTimeout: "10m",
-    retry: { maximumAttempts: 3 },
+    retry: { maximumAttempts: 5, initialInterval: "5s" },
     taskQueue: TaskQueue.PREVIEWKIT,
 });
 

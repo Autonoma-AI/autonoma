@@ -8,6 +8,7 @@ export const WORKFLOW_TYPE = {
     REFINEMENT_LOOP: "refinementLoopWorkflow",
     RUN_GENERATION_PIPELINE: "runGenerationPipelineWorkflow",
     PREVIEW_DEPLOY: "previewDeployWorkflow",
+    PREVIEW_TEARDOWN: "previewTeardownWorkflow",
 } as const;
 
 export type WorkflowType = (typeof WORKFLOW_TYPE)[keyof typeof WORKFLOW_TYPE];

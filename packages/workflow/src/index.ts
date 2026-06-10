@@ -18,6 +18,8 @@ export {
     buildPreviewDeployWorkflowId,
     type TriggerPreviewDeployParams,
     triggerPreviewDeploy,
+    type TriggerPreviewTeardownParams,
+    triggerPreviewTeardown,
 } from "./triggers/previewkit";
 export type { PreviewDeployEvent } from "./activities/previewkit-activities";
 export { getTemporalClient, resetTemporalClient } from "./client";

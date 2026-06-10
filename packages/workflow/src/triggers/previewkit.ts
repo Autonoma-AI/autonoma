@@ -40,6 +40,36 @@ export async function triggerPreviewDeploy(params: TriggerPreviewDeployParams): 
     logger.info("Preview deploy workflow started", { extra: { workflowId } });
 }
 
+export interface TriggerPreviewTeardownParams {
+    event: PreviewDeployEvent;
+}
+
+/**
+ * Starts the teardown workflow for a (repo, pr). It shares the deploy
+ * workflow's deterministic workflowId, so TERMINATE_EXISTING (which is
+ * workflow-type-agnostic) also terminates an in-flight deploy before tearing
+ * the environment down - the same per-environment mutex the deploy path uses.
+ */
+export async function triggerPreviewTeardown(params: TriggerPreviewTeardownParams): Promise<void> {
+    const { event } = params;
+    const workflowId = buildPreviewDeployWorkflowId(event.repoFullName, event.prNumber);
+
+    logger.info("Triggering preview teardown workflow", {
+        extra: { workflowId, repo: event.repoFullName, pr: event.prNumber },
+    });
+
+    const client = await getTemporalClient();
+    await client.workflow.start(WORKFLOW_TYPE.PREVIEW_TEARDOWN, {
+        workflowId,
+        workflowIdConflictPolicy: WorkflowIdConflictPolicy.TERMINATE_EXISTING,
+        taskQueue: TaskQueue.PREVIEWKIT,
+        searchAttributes: getWorkflowSearchAttributes(),
+        args: [{ event }],
+    });
+
+    logger.info("Preview teardown workflow started", { extra: { workflowId } });
+}
+
 /**
  * Deterministic workflowId for an environment. `repoFullName` ("owner/repo")
  * is sanitized to the Temporal-safe, lowercased form so the same PR always

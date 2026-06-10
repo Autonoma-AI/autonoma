@@ -135,10 +135,19 @@ export interface FailPreviewDeployInput {
     error: string;
 }
 
+export interface TeardownPreviewEnvironmentInput {
+    /**
+     * `action` is "closed" and `headSha` may be "" (webhook close events don't
+     * carry it) - the activity falls back to the environment row's stored sha.
+     */
+    event: PreviewDeployEvent;
+}
+
 export interface PreviewkitActivities {
     preparePreviewDeploy(input: PreparePreviewDeployInput): Promise<PreparePreviewDeployOutput>;
     buildPreviewImages(input: BuildPreviewImagesInput): Promise<BuildPreviewImagesOutput>;
     deployPreviewEnvironment(input: DeployPreviewEnvironmentInput): Promise<DeployPreviewEnvironmentOutput>;
     finalizePreviewDeploy(input: FinalizePreviewDeployInput): Promise<void>;
     failPreviewDeploy(input: FailPreviewDeployInput): Promise<void>;
+    teardownPreviewEnvironment(input: TeardownPreviewEnvironmentInput): Promise<void>;
 }

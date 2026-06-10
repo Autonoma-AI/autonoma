@@ -21,13 +21,16 @@ src/
 │   ├── run-replay.workflow.ts            # Replay execution + review
 │   ├── generation-review.workflow.ts     # Standalone generation review
 │   ├── replay-review.workflow.ts         # Standalone replay review
-│   └── diffs.workflow.ts                 # Diffs analysis
+│   ├── diffs.workflow.ts                 # Diffs analysis
+│   ├── previewkit.workflow.ts            # Preview deploy (per PR push / redeploy / main branch)
+│   └── previewkit-teardown.workflow.ts   # Preview teardown (shares the deploy workflowId = per-env mutex)
 ├── triggers/                             # Functions to start workflows via Temporal client
 │   ├── batch-generation.ts               # triggerBatchGeneration
 │   ├── run-replay.ts                     # triggerRunWorkflow
 │   ├── generation-review.ts              # triggerGenerationReviewWorkflow
 │   ├── replay-review.ts                  # triggerReplayReviewWorkflow
-│   └── diffs.ts                          # triggerDiffsJob
+│   ├── diffs.ts                          # triggerDiffsJob
+│   └── previewkit.ts                     # triggerPreviewDeploy / triggerPreviewTeardown
 └── worker/
     └── create-worker.ts                  # Helper to create Temporal workers
 ```

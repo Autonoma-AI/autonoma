@@ -70,4 +70,5 @@ export type {
     PreviewAddonResult,
     FinalizePreviewDeployInput,
     FailPreviewDeployInput,
+    TeardownPreviewEnvironmentInput,
 } from "./previewkit-activities";

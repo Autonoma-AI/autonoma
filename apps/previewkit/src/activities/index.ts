@@ -1,3 +1,4 @@
+import { db } from "@autonoma/db";
 import type {
     BuildPreviewImagesInput,
     BuildPreviewImagesOutput,
@@ -7,11 +8,13 @@ import type {
     FinalizePreviewDeployInput,
     PreparePreviewDeployInput,
     PreparePreviewDeployOutput,
+    PreviewDeployEvent,
     PreviewkitActivities,
+    TeardownPreviewEnvironmentInput,
 } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { createPreviewkitServices, type PreviewkitServices } from "../create-services";
-import { logger as rootLogger } from "../logger";
+import { type Logger, logger as rootLogger } from "../logger";
 
 /**
  * Lazily-built singleton of the heavy services (k8s clients, builder, GitHub
@@ -96,6 +99,46 @@ export async function failPreviewDeploy(input: FailPreviewDeployInput): Promise<
     await previewPipeline.fail(input.event, input.namespace, input.commentId, input.feedbackEnabled, input.error);
 }
 
+export async function teardownPreviewEnvironment(input: TeardownPreviewEnvironmentInput): Promise<void> {
+    const logger = rootLogger.child({ name: "teardownPreviewEnvironment" });
+    logger.info("Tearing down preview environment", { repo: input.event.repoFullName, pr: input.event.prNumber });
+
+    const heartbeat = startHeartbeat();
+    try {
+        const { teardownPipeline } = await getServices();
+        const event = await resolveTeardownHeadSha(input.event, logger);
+        await teardownPipeline.teardown(event);
+    } finally {
+        clearInterval(heartbeat);
+    }
+}
+
+/**
+ * Webhook close events arrive with `headSha: ""` - fall back to the
+ * environment row's stored sha so the teardown commit status lands on the
+ * commit that was actually deployed.
+ */
+async function resolveTeardownHeadSha(event: PreviewDeployEvent, logger: Logger): Promise<PreviewDeployEvent> {
+    if (event.headSha !== "") return event;
+
+    const row = await db.previewkitEnvironment
+        .findUnique({
+            where: { repoFullName_prNumber: { repoFullName: event.repoFullName, prNumber: event.prNumber } },
+            select: { headSha: true },
+        })
+        .catch((err: unknown) => {
+            logger.warn("Failed to look up environment headSha for teardown; proceeding without it", {
+                repo: event.repoFullName,
+                pr: event.prNumber,
+                err,
+            });
+            return null;
+        });
+    if (row == null) return event;
+
+    return { ...event, headSha: row.headSha };
+}
+
 // Compile-time check: ensure exported activities match the PreviewkitActivities contract.
 ({
     preparePreviewDeploy,
@@ -103,4 +146,5 @@ export async function failPreviewDeploy(input: FailPreviewDeployInput): Promise<
     deployPreviewEnvironment,
     finalizePreviewDeploy,
     failPreviewDeploy,
+    teardownPreviewEnvironment,
 }) satisfies PreviewkitActivities;
