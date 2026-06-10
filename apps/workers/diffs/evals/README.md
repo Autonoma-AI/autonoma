@@ -242,6 +242,13 @@ silently drop the verdicts that resolution itself quarantined via `reportBug`.
 candidates regardless of status so capture recovers the same input shape the agent saw - the
 candidate `id`/`name`/`instruction`/`reasoning` fields are immutable.
 
+**Per-run scenario data (resolution).** Resolution assembles its verdicts through the shared
+`DiffJobContextLoader` (`loadSnapshot`), the same path the reviewers use, so each verdict now
+carries the data its run's scenario actually seeded (materialized from the `ScenarioInstance`'s
+`generatedData`, written once at UP success - historic and immutable, so it never drifts). It is
+frozen into the captured `verdicts[].scenario` field and is optional, so older fixtures captured
+before this still rehydrate.
+
 **Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
 `bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
 time). Those reads only touch rows that the rest of the pipeline never mutates by id

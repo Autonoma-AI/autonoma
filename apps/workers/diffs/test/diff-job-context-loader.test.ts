@@ -1,6 +1,13 @@
+import { type SnapshotRunContext, buildVerdicts } from "@autonoma/diffs";
+import { logger } from "@autonoma/logger";
 import { expect } from "vitest";
 import { DiffJobContextLoader } from "../src/review/diff-job-context-loader";
 import { diffJobContextSuite } from "./harness";
+
+/** Index a snapshot's gathered runs by test name for order-insensitive assertions. */
+function byTestName(runs: SnapshotRunContext[]): Map<string, SnapshotRunContext> {
+    return new Map(runs.map((run) => [run.testName, run]));
+}
 
 diffJobContextSuite({
     name: "DiffJobContextLoader",
@@ -428,6 +435,195 @@ diffJobContextSuite({
             );
 
             expect(context.lineage).toBeUndefined();
+        });
+
+        test("gathers snapshot-scope change facts plus every flagged run, with per-run scenario data", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { snapshotId } = await harness.seedResolutionSnapshot({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "snapbase",
+                headSha: "snaphead",
+                analysisReasoning: "Renamed the checkout button and added a coupon field.",
+                runs: [
+                    {
+                        testName: "Checkout flow",
+                        affectedReason: "code_change",
+                        affectedReasoning: "Clicks the renamed checkout button.",
+                        planPrompt: "Buy an item and reach the confirmation page.",
+                        review: {
+                            verdict: "engine_error",
+                            reasoning: "The button id changed; the step is stale.",
+                        },
+                        scenario: {
+                            name: "Cart with one item",
+                            generatedData: {
+                                User: [{ _alias: "shopper", email: "shopper@test.com" }],
+                                CartItem: [{ _alias: "item", name: "Widget", ownerId: { _ref: "shopper" } }],
+                            },
+                        },
+                    },
+                    {
+                        testName: "Coupon flow",
+                        affectedReason: "code_change",
+                        affectedReasoning: "Exercises the new coupon field.",
+                        review: {
+                            verdict: "application_bug",
+                            reasoning: "Coupon never applied.",
+                            issue: { title: "Coupon not applied", description: "Total unchanged after coupon." },
+                        },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId);
+
+            expect(context.snapshotId).toBe(snapshotId);
+            expect(context.organizationId).toBe(seedResult.organizationId);
+            expect(context.change).toEqual({ baseSha: "snapbase", headSha: "snaphead" });
+            expect(context.analysisReasoning).toBe("Renamed the checkout button and added a coupon field.");
+            expect(context.runs).toHaveLength(2);
+
+            const runs = byTestName(context.runs);
+            const checkout = runs.get("Checkout flow");
+            expect(checkout?.runStatus).toBe("failed");
+            expect(checkout?.quarantined).toBe(false);
+            expect(checkout?.affectedReason).toBe("code_change");
+            expect(checkout?.affectedReasoning).toBe("Clicks the renamed checkout button.");
+            expect(checkout?.testPlanPrompt).toBe("Buy an item and reach the confirmation page.");
+            expect(checkout?.review).toEqual({
+                verdict: "engine_error",
+                reasoning: "The button id changed; the step is stale.",
+            });
+            expect(checkout?.scenario?.scenarioName).toBe("Cart with one item");
+            expect(checkout?.scenario?.entities.CartItem).toEqual([
+                { _alias: "item", name: "Widget", ownerId: { _ref: "shopper" } },
+            ]);
+
+            const coupon = runs.get("Coupon flow");
+            expect(coupon?.review).toEqual({
+                verdict: "application_bug",
+                reasoning: "Coupon never applied.",
+                issueTitle: "Coupon not applied",
+                issueDescription: "Total unchanged after coupon.",
+            });
+            // No scenario was attached to this run.
+            expect(coupon?.scenario).toBeUndefined();
+            // Resolution runs before any refinement loop, so lineage is empty.
+            expect(coupon?.lineage).toBeUndefined();
+        });
+
+        test("gathers all replayed runs regardless of outcome; buildVerdicts filters to the actionable ones", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { snapshotId } = await harness.seedResolutionSnapshot({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "b",
+                headSha: "h",
+                runs: [
+                    {
+                        testName: "Actionable",
+                        affectedReason: "code_change",
+                        affectedReasoning: "stale step",
+                        review: { verdict: "engine_error", reasoning: "needs a rewrite" },
+                    },
+                    {
+                        testName: "Passed",
+                        affectedReason: "code_change",
+                        affectedReasoning: "still works",
+                        runStatus: "success",
+                        review: { verdict: "engine_error", reasoning: "n/a" },
+                    },
+                    {
+                        testName: "Quarantined",
+                        affectedReason: "code_change",
+                        affectedReasoning: "owned by manual review",
+                        quarantined: true,
+                        review: { verdict: "application_bug", reasoning: "known bug" },
+                    },
+                    {
+                        testName: "NoCompletedReview",
+                        affectedReason: "code_change",
+                        affectedReasoning: "review still running",
+                        review: { status: "pending" },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId);
+
+            // The loader gathers every flagged run - it does not pre-filter.
+            expect(context.runs).toHaveLength(4);
+            const runs = byTestName(context.runs);
+            expect(runs.get("Passed")?.runStatus).toBe("success");
+            expect(runs.get("Quarantined")?.quarantined).toBe(true);
+            // A non-completed review contributes no verdict to the gathered context.
+            expect(runs.get("NoCompletedReview")?.review).toBeUndefined();
+
+            // Resolution's actionability filter keeps only the one actionable run.
+            const verdicts = buildVerdicts(context.runs, logger.child({ name: "buildVerdicts-test" }));
+            expect(verdicts.map((v) => v.testName)).toEqual(["Actionable"]);
+            expect(verdicts[0]?.verdict).toBe("engine_error");
+        });
+
+        test("reads the quarantine gate from the baseline snapshot when one is supplied", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { snapshotId } = await harness.seedResolutionSnapshot({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                baseSha: "b",
+                headSha: "h",
+                runs: [
+                    {
+                        testName: "Quarantined in current snapshot",
+                        affectedReason: "code_change",
+                        affectedReasoning: "reportBug quarantined it",
+                        quarantined: true,
+                        review: { verdict: "application_bug", reasoning: "real bug" },
+                    },
+                ],
+            });
+
+            // A different (baseline) snapshot has no quarantining assignment for
+            // this test, so the gate reads false there - recovering the
+            // pre-resolution view the same way capture's "previous" baseline does.
+            const otherBaseline = await harness.createSnapshot(seedResult.organizationId, seedResult.applicationId);
+            const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId, {
+                baselineSnapshotId: otherBaseline,
+            });
+
+            expect(context.runs[0]?.quarantined).toBe(false);
+        });
+
+        test("omits snapshot change context when the snapshot has no SHAs", async ({ harness, seedResult }) => {
+            const { snapshotId } = await harness.seedResolutionSnapshot({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                analysisReasoning: "Reasoning present, but no SHAs to diff against.",
+                runs: [
+                    {
+                        testName: "Some test",
+                        affectedReason: "code_change",
+                        affectedReasoning: "flagged",
+                        review: { verdict: "engine_error", reasoning: "stale" },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId);
+
+            expect(context.change).toBeUndefined();
+            // Analysis reasoning is decoupled from the SHA-gated diff anchor, so it
+            // survives even when there are no SHAs to `git diff` against.
+            expect(context.analysisReasoning).toBe("Reasoning present, but no SHAs to diff against.");
+            // Runs are still gathered even without a diffable change context.
+            expect(context.runs).toHaveLength(1);
         });
 
         test("materializes the generation's scenario generated-data graph into the context", async ({

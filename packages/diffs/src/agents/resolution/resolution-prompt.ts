@@ -1,5 +1,7 @@
 import type { FlowIndex } from "../../flow-index";
 import { buildPlanAuthoringContext } from "../../healing/plan-authoring";
+import type { ScenarioData } from "../../scenario-data";
+import { summarizeEntities } from "../../scenario-data";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { ResolutionAgentInput } from "./resolution-agent";
 
@@ -57,7 +59,11 @@ The following tests were replayed after Step 1's analysis. Each test has been re
         if (verdict.issueDescription != null) {
             prompt += `- **Issue details**: ${verdict.issueDescription}\n`;
         }
-        prompt += `- **Original test instruction**: ${verdict.originalPrompt}\n\n`;
+        prompt += `- **Original test instruction**: ${verdict.originalPrompt}\n`;
+        if (verdict.scenario != null) {
+            prompt += buildVerdictScenarioSection(verdict.scenario);
+        }
+        prompt += "\n";
     }
 
     if (testCandidates.length > 0) {
@@ -107,6 +113,22 @@ When done, call \`finish\` with your overall reasoning.`;
     }
 
     return prompt;
+}
+
+/**
+ * Render the data the failing run's scenario actually seeded, inlined under its
+ * verdict. A failure whose plan references data the scenario never created
+ * points to a stale/incorrect test rather than an application bug - this gives
+ * the agent that signal without a separate disclosure tool (resolution reasons
+ * over many runs at once, so the summary is inlined and bounded rather than
+ * fetched per-run on demand).
+ */
+function buildVerdictScenarioSection(scenario: ScenarioData): string {
+    const body = summarizeEntities(scenario.entities, {
+        moreRecords: (entityType, remaining) => `  - ...and ${remaining} more ${entityType} record(s) (not shown).`,
+        moreTypes: (remaining) => `  - ...and ${remaining.length} more entity type(s): ${remaining.join(", ")}.`,
+    });
+    return `- **Scenario data** (run executed against **${scenario.scenarioName}**). A plan that depends on data not listed here is malformed (a stale test, not a bug):\n${body}\n`;
 }
 
 export const RESOLUTION_SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code changes. You receive test replay verdicts from automated reviewers and must take appropriate action for each failure.

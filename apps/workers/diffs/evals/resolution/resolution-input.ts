@@ -1,5 +1,5 @@
 import type { FlowInfo, ResolutionAgentInput, ScenarioInfo } from "@autonoma/diffs";
-import { FlowIndex, ScenarioIndex, affectedReasonSchema } from "@autonoma/diffs";
+import { FlowIndex, ScenarioIndex, affectedReasonSchema, scenarioDataSchema } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
@@ -52,6 +52,9 @@ const runReviewVerdictSchema = z.object({
     issueTitle: z.string().optional(),
     issueDescription: z.string().optional(),
     affectedReason: affectedReasonSchema.optional(),
+    // Optional so corpus fixtures captured before per-run scenario data still
+    // rehydrate; capture freezes it whenever the run had a resolved scenario.
+    scenario: scenarioDataSchema.optional(),
 });
 
 const testCandidateInputSchema = z.object({

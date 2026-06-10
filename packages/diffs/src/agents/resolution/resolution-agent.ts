@@ -5,6 +5,7 @@ import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
+import type { ScenarioData } from "../../scenario-data";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { AffectedReason } from "../diffs/affected-test";
 import {
@@ -40,6 +41,13 @@ export interface RunReviewVerdict {
     issueTitle?: string;
     issueDescription?: string;
     affectedReason?: AffectedReason;
+    /**
+     * The data the run's scenario actually seeded, materialized via the shared
+     * scenario-data capability. Lets resolution spot a failure rooted in a stale
+     * test referencing data the scenario never created (vs a real bug). Absent
+     * when the run had no scenario, UP failed, or the graph was empty.
+     */
+    scenario?: ScenarioData;
 }
 
 /** A new-test candidate carried forward from the Diffs step. */

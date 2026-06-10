@@ -8,6 +8,9 @@ import {
     type ReviewLineage,
     type RunContext,
     type RunStepData,
+    type SnapshotChangeContext,
+    type SnapshotContext,
+    type SnapshotRunContext,
     resolveScenarioDataForGeneration,
     resolveScenarioDataForRun,
 } from "@autonoma/diffs";
@@ -36,17 +39,23 @@ interface ChangeSnapshot {
 }
 
 /**
- * Gathers everything a reviewer needs for a single subject - a failed replay
- * run **or** a test generation - sourced from Postgres (plus, for generations,
- * the S3-stored agent conversation): the executed steps + test metadata, the
- * subject-scoped change context (base/head SHAs, the diffs-agent's analysis
- * reasoning, and why this test was flagged), the point-in-time refinement-loop
- * lineage, and (for runs) the materialized scenario data.
+ * Gathers everything a diff-job agent needs from the database, at one of two
+ * scopes:
  *
- * This is the only piece of the review path with DB access. It performs no git
- * or filesystem work - the reviewer derives the changed files and diff hunks
- * itself via `git diff` against the checked-out tree - which keeps the reviewer
- * run DB-free and the loader trivially testable against a real Postgres.
+ * - **Subject scope** (`load` / `loadGeneration`): everything a reviewer needs
+ *   for a single subject - a failed replay run **or** a test generation: the
+ *   executed steps + test metadata, the subject-scoped change context (base/head
+ *   SHAs, the diffs-agent's analysis reasoning, and why this test was flagged),
+ *   the point-in-time refinement-loop lineage, and (for runs) the materialized
+ *   scenario data.
+ * - **Snapshot scope** (`loadSnapshot`): the same diff-job context gathered
+ *   across *all* replayed runs in a snapshot, for agents that reason over the
+ *   whole batch at once (resolution today, healing next) rather than one subject.
+ *
+ * This is the only piece of the diff-job path with DB access. It performs no git
+ * or filesystem work - the agent derives the changed files and diff hunks itself
+ * via `git diff` against the checked-out tree - which keeps the agent run
+ * DB-free and the loader trivially testable against a real Postgres.
  *
  * Multimedia (step screenshots + video) stays referenced by S3 key only; an
  * `EvidenceLoader` rehydrates the bytes at run time. The generation conversation
@@ -258,6 +267,162 @@ export class DiffJobContextLoader {
         if (lineage != null) context.lineage = lineage;
         if (scenario != null) context.scenario = scenario;
         return context;
+    }
+
+    /**
+     * Snapshot-scope sibling of {@link load}: gather the diff-job context across
+     * every replayed, flagged run in a snapshot. Resolution reasons over the
+     * whole replay batch at once (not a single subject), so it consumes this
+     * instead of N separate {@link load} calls; healing reuses the same shape.
+     *
+     * Returns the snapshot-level facts once - the diff anchor (SHAs) and the
+     * diffs-agent's analysis reasoning, which is carried independently so it
+     * survives a SHA-less snapshot - plus one
+     * {@link SnapshotRunContext} per flagged run carrying why the test was
+     * flagged, the reviewer's completed verdict (if any), the run's materialized
+     * scenario data, and its point-in-time lineage (virtually always empty here,
+     * since resolution runs before any refinement loop). Every replayed run is
+     * returned regardless of outcome - the consumer filters for actionability.
+     *
+     * `baselineSnapshotId` selects which snapshot the per-test quarantine gate is
+     * read from. It defaults to `snapshotId` (correct at production runtime,
+     * before resolution's own `reportBug` quarantines anything); the eval-capture
+     * path passes the *previous* snapshot to recover the unmutated baseline after
+     * the pipeline has run. Quarantine is the only field affected, so it is the
+     * only one the override touches.
+     */
+    async loadSnapshot(snapshotId: string, opts?: { baselineSnapshotId?: string }): Promise<SnapshotContext> {
+        const baselineSnapshotId = opts?.baselineSnapshotId ?? snapshotId;
+        this.logger.info("Loading snapshot-scope diff-job context", { snapshotId, baselineSnapshotId });
+
+        const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
+            where: { id: snapshotId },
+            select: {
+                headSha: true,
+                baseSha: true,
+                branch: { select: { organizationId: true } },
+                diffsJob: { select: { analysisReasoning: true } },
+            },
+        });
+
+        const affectedTests = await this.db.affectedTest.findMany({
+            where: { snapshotId, runId: { not: null } },
+            select: {
+                affectedReason: true,
+                reasoning: true,
+                testCase: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        // The quarantine gate is read from the *baseline* snapshot's
+                        // assignment - see the doc comment on baselineSnapshotId.
+                        assignments: {
+                            where: { snapshotId: baselineSnapshotId },
+                            select: { quarantineIssueId: true },
+                        },
+                    },
+                },
+                run: {
+                    select: {
+                        id: true,
+                        status: true,
+                        // The plan the run actually executed (point-in-time), not the
+                        // assignment's possibly-repointed plan - mirrors `load`.
+                        planId: true,
+                        plan: { select: { prompt: true } },
+                        runReview: {
+                            select: {
+                                status: true,
+                                verdict: true,
+                                reasoning: true,
+                                issue: { select: { title: true, description: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        const change = this.buildSnapshotChange(snapshotId, snapshot);
+
+        // Each run's scenario + lineage are independent DB resolutions, so gather
+        // them concurrently across runs (and within a run) rather than serially.
+        const runs = (
+            await Promise.all(
+                affectedTests.map(async (affected): Promise<SnapshotRunContext | undefined> => {
+                    const run = affected.run;
+                    if (run == null) return undefined;
+
+                    const [scenario, lineage] = await Promise.all([
+                        resolveScenarioDataForRun(this.db, run.id),
+                        this.buildLineage(run.id, run.planId, affected.testCase.id),
+                    ]);
+
+                    const runContext: SnapshotRunContext = {
+                        runId: run.id,
+                        testCaseId: affected.testCase.id,
+                        testSlug: affected.testCase.slug,
+                        testName: affected.testCase.name,
+                        testPlanPrompt: run.plan?.prompt ?? "",
+                        runStatus: run.status,
+                        quarantined: affected.testCase.assignments[0]?.quarantineIssueId != null,
+                        affectedReason: affected.affectedReason,
+                        affectedReasoning: affected.reasoning,
+                    };
+
+                    const review = run.runReview;
+                    if (review != null && review.status === "completed") {
+                        const runReview: SnapshotRunContext["review"] = { reasoning: review.reasoning ?? "" };
+                        if (review.verdict != null) runReview.verdict = review.verdict;
+                        if (review.issue?.title != null) runReview.issueTitle = review.issue.title;
+                        if (review.issue?.description != null) runReview.issueDescription = review.issue.description;
+                        runContext.review = runReview;
+                    }
+                    if (scenario != null) runContext.scenario = scenario;
+                    if (lineage != null) runContext.lineage = lineage;
+
+                    return runContext;
+                }),
+            )
+        ).filter((run): run is SnapshotRunContext => run != null);
+
+        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? undefined;
+
+        this.logger.info("Snapshot-scope diff-job context loaded", {
+            snapshotId,
+            runCount: runs.length,
+            hasChange: change != null,
+            hasAnalysisReasoning: analysisReasoning != null,
+            runsWithScenario: runs.filter((r) => r.scenario != null).length,
+        });
+
+        const context: SnapshotContext = {
+            snapshotId,
+            organizationId: snapshot.branch.organizationId,
+            runs,
+        };
+        if (change != null) context.change = change;
+        // Analysis reasoning is a snapshot-level fact, not part of the diff anchor:
+        // it is carried even when the SHAs (and thus `change`) are absent.
+        if (analysisReasoning != null) context.analysisReasoning = analysisReasoning;
+        return context;
+    }
+
+    /**
+     * Assemble the snapshot's diff anchor (base/head SHAs) shared by every run.
+     * Returns `undefined` when the snapshot is missing its SHAs - without them
+     * there is nothing to `git diff` against, matching {@link buildChangeContext}'s
+     * per-subject behavior. Analysis reasoning is deliberately *not* gated on this:
+     * it is a snapshot-level fact handled separately by {@link loadSnapshot}.
+     */
+    private buildSnapshotChange(snapshotId: string, snapshot: ChangeSnapshot): SnapshotChangeContext | undefined {
+        if (snapshot.baseSha == null || snapshot.headSha == null) {
+            this.logger.warn("Snapshot is missing base/head SHA - omitting change context", { snapshotId });
+            return undefined;
+        }
+
+        return { baseSha: snapshot.baseSha, headSha: snapshot.headSha };
     }
 
     private async loadConversation(conversationUrl: string | null): Promise<ModelMessage[]> {

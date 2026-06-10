@@ -22,3 +22,8 @@ export { buildGenerationReviewMessages, type GenerationContext, type GenerationS
 
 // Replay reviewer prompt-building blocks. Orchestration lives in `apps/workers/diffs`.
 export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./replay";
+
+// Snapshot-scope context: the diff-job context gathered across all replayed
+// runs in a snapshot. Consumed by resolution today, healing next. The loader
+// that builds it lives in `apps/workers/diffs`.
+export type { SnapshotChangeContext, SnapshotContext, SnapshotRunContext, SnapshotRunReview } from "./snapshot";

@@ -53,8 +53,9 @@ These two capabilities are deliberately distinct data shapes:
 
 - **`scenario-data`** is per-subject **instance** data - the concrete rows a single run's
   or generation's scenario instance *actually generated* (`ScenarioInstance.generatedData`).
-  The replay and generation reviewers use it to judge whether a subject's plan referenced
-  data the scenario really seeded (a strong `engine_error` / `plan_mismatch` signal).
+  The replay and generation reviewers and resolution use it to judge whether a subject's plan
+  referenced data the scenario really seeded (a strong `engine_error` / `plan_mismatch` signal;
+  resolution gets it per-run on every replay verdict).
 - **`scenario-recipe`** is **recipe template** data - what each scenario is *designed to
   seed*, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
   The diffs **analysis** agent uses it: analysis runs *before any replay*, so no instance

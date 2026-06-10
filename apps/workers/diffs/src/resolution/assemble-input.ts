@@ -2,7 +2,6 @@ import { db } from "@autonoma/db";
 import {
     FlowIndex,
     type ResolutionAgentInput,
-    type RunReviewVerdict,
     ScenarioIndex,
     type ScenarioInfo,
     type TestCandidateInput,
@@ -15,6 +14,7 @@ import { fetchTestSuiteInfo } from "@autonoma/test-updates";
 import type { TestSuiteSource } from "../analysis/assemble-input";
 import { type BranchData, loadBranchData } from "../analysis/load-context";
 import { createGithubApp } from "../create-services";
+import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
 const logger = rootLogger.child({ name: "assembleResolutionAgentInput" });
 
@@ -43,8 +43,15 @@ export interface AssembleResolutionAgentInputParams {
 
 /**
  * Loads and assembles the full {@link ResolutionAgentInput} (minus the codebase)
- * for a snapshot: branch data, suite/flow/scenario context, run-review verdicts,
- * and the snapshot's test candidates.
+ * for a snapshot: branch data, suite/flow/scenario context, the unified
+ * snapshot-scope diff-job context (change facts, run-review verdicts, and each
+ * run's materialized scenario data), and the snapshot's test candidates.
+ *
+ * The diff-job context (verdicts + `step1Reasoning` + per-run scenario data) is
+ * sourced from the shared {@link DiffJobContextLoader} so resolution consumes
+ * exactly what the reviewers do, just gathered across the whole snapshot. The
+ * remaining side-inputs (the suite, flows, scenario index, candidates, scope
+ * guidelines) are resolution-specific and assembled here.
  *
  * Shared between the production resolution runner and the eval-capture utility -
  * capture freezes the assembled input to disk, the runner feeds it straight to
@@ -60,7 +67,8 @@ export interface AssembleResolutionAgentInputParams {
  * baseline. The switch affects two fields: `existingTests` (the suite) and
  * the quarantine flag that {@link buildVerdicts} uses to filter out runs -
  * both must travel together, otherwise capture would silently drop the
- * verdicts that resolution itself quarantined.
+ * verdicts that resolution itself quarantined. The quarantine baseline is
+ * threaded into the loader via `loadSnapshot`'s `baselineSnapshotId`.
  *
  * **Test candidates.** At production time candidates have `status: "pending"`;
  * after resolution they are either "accepted" or "rejected". Capture must read
@@ -88,22 +96,22 @@ export async function assembleResolutionAgentInput({
 
     const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
-    const [flows, application, scenarios] = await Promise.all([
+    const [flows, application, scenarios, snapshotContext, testCandidates] = await Promise.all([
         loadFlows(db, branchData.applicationId, suiteInfo),
         db.application.findUniqueOrThrow({
             where: { id: branchData.applicationId },
             select: { testScopeGuidelines: true },
         }),
         loadScenarios(branchData.applicationId),
+        new DiffJobContextLoader(db).loadSnapshot(snapshotId, { baselineSnapshotId }),
+        loadTestCandidates(snapshotId),
     ]);
 
     const flowIndex = new FlowIndex(flows);
     const scenarioIndex = new ScenarioIndex(scenarios);
 
-    const { verdicts, step1Reasoning, testCandidates } = await loadResolutionRuntimeInputs(
-        snapshotId,
-        baselineSnapshotId,
-    );
+    const verdicts = buildVerdicts(snapshotContext.runs, logger);
+    const step1Reasoning = snapshotContext.analysisReasoning ?? "";
 
     logger.info("Loaded resolution context", {
         extra: {
@@ -196,87 +204,22 @@ async function loadScenarios(applicationId: string): Promise<ScenarioInfo[]> {
     });
 }
 
-interface ResolutionRuntimeInputs {
-    verdicts: RunReviewVerdict[];
-    step1Reasoning: string;
-    testCandidates: TestCandidateInput[];
-}
-
 /**
- * Loads everything keyed to the snapshot's *pipeline state* (not its suite):
- * the verdicts derived from affectedTest + run + review, the analysis reasoning
- * from the DiffsJob, and the candidates. Candidates are read regardless of
- * status (pending/accepted/rejected) so capture can recover the input shape
- * after the pipeline has run.
- *
- * The `baselineSnapshotId` parameter controls the snapshot that quarantine flags
- * are read from. It usually equals `snapshotId` (production: nothing has mutated
- * yet) but switches to the previous snapshot at capture time, because resolution
- * itself quarantines tests via `reportBug` - so reading the current snapshot's
- * assignments would let `buildVerdicts` filter out exactly the verdicts that
- * drove those bug-reports.
+ * Load the snapshot's new-test candidates, read regardless of status
+ * (pending/accepted/rejected) so capture can recover the input shape after the
+ * pipeline has run - the candidate id/name/instruction/reasoning fields are
+ * immutable.
  */
-async function loadResolutionRuntimeInputs(
-    snapshotId: string,
-    baselineSnapshotId: string,
-): Promise<ResolutionRuntimeInputs> {
-    const [diffsJob, affectedTests, testCandidates] = await Promise.all([
-        db.diffsJob.findUniqueOrThrow({
-            where: { snapshotId },
-            select: { analysisReasoning: true },
-        }),
-        db.affectedTest.findMany({
-            where: { snapshotId },
-            select: {
-                testCaseId: true,
-                affectedReason: true,
-                runId: true,
-                testCase: {
-                    select: {
-                        id: true,
-                        name: true,
-                        slug: true,
-                        assignments: {
-                            where: { snapshotId: baselineSnapshotId },
-                            select: { quarantineIssueId: true },
-                        },
-                    },
-                },
-                run: {
-                    select: {
-                        id: true,
-                        status: true,
-                        assignment: { select: { plan: { select: { prompt: true } } } },
-                        runReview: {
-                            select: {
-                                status: true,
-                                verdict: true,
-                                reasoning: true,
-                                issue: { select: { title: true, description: true } },
-                            },
-                        },
-                    },
-                },
-            },
-        }),
-        db.testCandidate.findMany({
-            where: { snapshotId },
-            select: { id: true, name: true, instruction: true, reasoning: true },
-        }),
-    ]);
+async function loadTestCandidates(snapshotId: string): Promise<TestCandidateInput[]> {
+    const candidates = await db.testCandidate.findMany({
+        where: { snapshotId },
+        select: { id: true, name: true, instruction: true, reasoning: true },
+    });
 
-    const verdicts = buildVerdicts(affectedTests, logger);
-
-    const candidateInputs: TestCandidateInput[] = testCandidates.map((c) => ({
+    return candidates.map((c) => ({
         candidateId: c.id,
         name: c.name,
         instruction: c.instruction,
         reasoning: c.reasoning,
     }));
-
-    return {
-        verdicts,
-        step1Reasoning: diffsJob.analysisReasoning ?? "",
-        testCandidates: candidateInputs,
-    };
 }

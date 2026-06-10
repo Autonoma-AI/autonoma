@@ -3,6 +3,7 @@ import {
     type GenerationStatus,
     type PrismaClient,
     type RunReviewVerdict,
+    type RunStatus,
     type ScenarioInstanceStatus,
     applyMigrations,
     createClient,
@@ -88,6 +89,48 @@ export interface SeededRun {
     assignmentId: string;
     planId: string;
     scenarioInstanceId?: string;
+}
+
+/** One flagged, replayed run to materialize inside a shared snapshot. */
+export interface SeedSnapshotRun {
+    /** Test case name; the slug is derived and returned keyed by this name. */
+    testName: string;
+    affectedReason: AffectedReason;
+    affectedReasoning: string;
+    /** Run terminal status. Defaults to `"failed"`. */
+    runStatus?: RunStatus;
+    planPrompt?: string;
+    /**
+     * A completed `RunReview` for this run. Omit to leave the run without a
+     * completed review (so resolution sees no actionable verdict for it).
+     * Provide `issue` to also link a bug Issue carrying title/description.
+     */
+    review?: {
+        status?: "pending" | "completed" | "failed";
+        verdict?: RunReviewVerdict;
+        reasoning?: string;
+        issue?: { title: string; description: string };
+    };
+    /** Quarantine this test in the snapshot's assignment (excluded from replay). */
+    quarantined?: boolean;
+    /** Attach a scenario instance whose generated-data graph the loader materializes. */
+    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
+}
+
+export interface SeedResolutionSnapshotParams {
+    organizationId: string;
+    applicationId: string;
+    baseSha?: string;
+    headSha?: string;
+    /** When provided (or any run is flagged), a DiffsJob is created carrying this reasoning. */
+    analysisReasoning?: string;
+    runs: SeedSnapshotRun[];
+}
+
+export interface SeededResolutionSnapshot {
+    snapshotId: string;
+    /** Map from a run's test name to its run id, for assertions. */
+    runIdByTestName: Record<string, string>;
 }
 
 /** One refinement iteration to materialize in a lineage graph. */
@@ -352,6 +395,163 @@ export class DiffJobContextHarness implements IntegrationHarness {
             planId: plan.id,
             scenarioInstanceId,
         };
+    }
+
+    /**
+     * Materialize a single snapshot carrying multiple flagged, replayed runs -
+     * the graph `DiffJobContextLoader.loadSnapshot` reads. Each run gets its own
+     * test case + plan + assignment + run + AffectedTest, plus an optional
+     * completed review (with an optional linked Issue), quarantine flag, and
+     * scenario instance. Unlike {@link seedFailedRun}, every run shares one
+     * snapshot, which is the whole point of snapshot-scope gathering.
+     */
+    async seedResolutionSnapshot(params: SeedResolutionSnapshotParams): Promise<SeededResolutionSnapshot> {
+        const { organizationId, applicationId } = params;
+        const suffix = uniqueSuffix();
+
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${suffix}`, organizationId, applicationId },
+        });
+        const folder = await this.db.folder.create({
+            data: { name: `folder-${suffix}`, applicationId, organizationId },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: {
+                branchId: branch.id,
+                source: "MANUAL",
+                baseSha: params.baseSha ?? null,
+                headSha: params.headSha ?? null,
+            },
+        });
+
+        // AffectedTest.snapshotId FKs to DiffsJob.snapshotId, so a flagged run
+        // requires a DiffsJob - create one whenever there is anything to flag.
+        if (params.analysisReasoning != null || params.runs.length > 0) {
+            await this.db.diffsJob.create({
+                data: {
+                    snapshotId: snapshot.id,
+                    organizationId,
+                    status: "completed",
+                    analysisReasoning: params.analysisReasoning ?? null,
+                },
+            });
+        }
+
+        const runIdByTestName: Record<string, string> = {};
+
+        for (const [index, spec] of params.runs.entries()) {
+            const runId = await this.seedSnapshotRun(
+                snapshot.id,
+                folder.id,
+                organizationId,
+                applicationId,
+                index,
+                spec,
+            );
+            runIdByTestName[spec.testName] = runId;
+        }
+
+        return { snapshotId: snapshot.id, runIdByTestName };
+    }
+
+    private async seedSnapshotRun(
+        snapshotId: string,
+        folderId: string,
+        organizationId: string,
+        applicationId: string,
+        index: number,
+        spec: SeedSnapshotRun,
+    ): Promise<string> {
+        const suffix = uniqueSuffix();
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: spec.testName,
+                slug: `test-${index}-${suffix}`,
+                applicationId,
+                folderId,
+                organizationId,
+            },
+        });
+        const plan = await this.db.testPlan.create({
+            data: { testCaseId: testCase.id, prompt: spec.planPrompt ?? "Original plan prompt", organizationId },
+        });
+
+        const quarantineIssueId = spec.quarantined === true ? await this.createQuarantineIssue(organizationId) : null;
+        const assignment = await this.db.testCaseAssignment.create({
+            data: { snapshotId, testCaseId: testCase.id, planId: plan.id, quarantineIssueId },
+        });
+
+        const scenarioInstanceId =
+            spec.scenario != null
+                ? await this.createScenarioInstance(organizationId, applicationId, spec.scenario)
+                : undefined;
+
+        const run = await this.db.run.create({
+            data: {
+                assignmentId: assignment.id,
+                planId: plan.id,
+                organizationId,
+                status: spec.runStatus ?? "failed",
+                scenarioInstanceId,
+            },
+        });
+
+        if (spec.review != null) {
+            await this.createRunReview(run.id, organizationId, spec.review);
+        }
+
+        await this.db.affectedTest.create({
+            data: {
+                snapshotId,
+                testCaseId: testCase.id,
+                affectedReason: spec.affectedReason,
+                reasoning: spec.affectedReasoning,
+                runId: run.id,
+                organizationId,
+            },
+        });
+
+        return run.id;
+    }
+
+    private async createQuarantineIssue(organizationId: string): Promise<string> {
+        const issue = await this.db.issue.create({
+            data: {
+                organizationId,
+                severity: "high",
+                title: "Quarantined",
+                description: "Test quarantined for snapshot-scope test",
+            },
+        });
+        return issue.id;
+    }
+
+    private async createRunReview(
+        runId: string,
+        organizationId: string,
+        review: NonNullable<SeedSnapshotRun["review"]>,
+    ): Promise<void> {
+        const created = await this.db.runReview.create({
+            data: {
+                runId,
+                organizationId,
+                status: review.status ?? "completed",
+                verdict: review.verdict ?? null,
+                reasoning: review.reasoning ?? null,
+            },
+        });
+
+        if (review.issue != null) {
+            await this.db.issue.create({
+                data: {
+                    runReviewId: created.id,
+                    organizationId,
+                    severity: "high",
+                    title: review.issue.title,
+                    description: review.issue.description,
+                },
+            });
+        }
     }
 
     /**
