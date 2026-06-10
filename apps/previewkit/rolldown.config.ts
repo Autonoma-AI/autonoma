@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
@@ -14,4 +15,13 @@ export default defineConfig({
     },
     platform: "node",
     external: nodeBuiltins,
+    plugins: [
+        {
+            name: "copy-scripts",
+            writeBundle() {
+                mkdirSync("dist/scripts", { recursive: true });
+                copyFileSync("scripts/read-next-config.mjs", "dist/scripts/read-next-config.mjs");
+            },
+        },
+    ],
 });

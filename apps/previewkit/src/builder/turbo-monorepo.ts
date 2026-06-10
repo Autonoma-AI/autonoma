@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { logger } from "../logger";
@@ -65,19 +65,15 @@ export function resolveTurboFilter(appDir: string, relAppDir: string): string {
 }
 
 /**
- * Resolved path to the bundled reader script. Lives at
- * `apps/previewkit/scripts/read-next-config.mjs` in the repo and is copied
- * into the Docker image at the same relative path (the Dockerfile does
- * `COPY . .` against the previewkit build context). Resolving via
- * `import.meta.url` keeps both dev (src/) and prod (dist/) layouts working
- * as long as the script's path relative to this module is the same in both
- * (it is - both `src/builder/` and `dist/builder/` are one level inside
- * the package root).
+ * Resolved path to the reader script.
+ * - dev  (src/builder/): go two levels up to the package root, then into scripts/.
+ * - prod (dist/builder/): go one level up to dist/, where the script is
+ *   copied by the rolldown build (see rolldown.config.ts `copy-scripts` plugin).
  */
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 const READ_NEXT_CONFIG_SCRIPT = resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "..",
+    moduleDir,
+    basename(dirname(moduleDir)) === "dist" ? ".." : "../..",
     "scripts",
     "read-next-config.mjs",
 );
