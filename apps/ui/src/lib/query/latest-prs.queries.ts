@@ -31,7 +31,9 @@ export interface LatestPullRequest {
 export function useLatestPullRequests(): LatestPullRequest[] {
     const currentApp = useCurrentApplication();
     const baseBranchName = currentApp.mainBranch.name;
-    const { data: branches } = useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id }));
+    const { data: branches } = useSuspenseQuery(
+        trpc.branches.list.queryOptions({ applicationId: currentApp.id, state: "open" }),
+    );
 
     return branches
         .flatMap((branch) =>
@@ -55,5 +57,5 @@ export function useLatestPullRequests(): LatestPullRequest[] {
 }
 
 export async function ensureLatestPullRequestsData(queryClient: QueryClient, applicationId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId }));
+    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state: "open" }));
 }

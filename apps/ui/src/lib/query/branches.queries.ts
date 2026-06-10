@@ -3,9 +3,11 @@ import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
-export function useBranches() {
+export type PullRequestStateFilter = "open" | "closed" | "merged";
+
+export function useBranches(state: PullRequestStateFilter = "open") {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id }));
+    return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));
 }
 
 export function useBranchDetail(applicationId: string, branchName: string) {

@@ -3,9 +3,14 @@ import { protectedProcedure, router } from "../../trpc";
 
 export const branchesRouter = router({
     list: protectedProcedure
-        .input(z.object({ applicationId: z.string() }))
+        .input(
+            z.object({
+                applicationId: z.string(),
+                state: z.enum(["open", "closed", "merged"]).default("open"),
+            }),
+        )
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.listBranches(input.applicationId, organizationId),
+            services.branches.listBranches(input.applicationId, organizationId, input.state),
         ),
 
     detail: protectedProcedure

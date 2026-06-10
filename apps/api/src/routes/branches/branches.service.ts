@@ -1,4 +1,5 @@
-import type { GenerationStatus, PrismaClient, RunReviewVerdict, RunStatus } from "@autonoma/db";
+import type { Prisma } from "@autonoma/db";
+import { type GenerationStatus, type PrismaClient, type RunReviewVerdict, type RunStatus } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import {
@@ -33,11 +34,11 @@ export class BranchesService extends Service {
         super();
     }
 
-    async listBranches(applicationId: string, organizationId: string) {
-        this.logger.info("Listing branches", { applicationId });
+    async listBranches(applicationId: string, organizationId: string, state: PullRequestStateFilter = "open") {
+        this.logger.info("Listing branches", { applicationId, extra: { state } });
 
         const branches = await this.db.branch.findMany({
-            where: { applicationId, prInfo: { isNot: null }, application: { organizationId } },
+            where: { applicationId, prInfo: prInfoStateFilter(state), application: { organizationId } },
             select: {
                 id: true,
                 name: true,
@@ -757,6 +758,20 @@ export class BranchesService extends Service {
 
         this.logger.info("Branch deleted", { branchId });
     }
+}
+
+type PullRequestStateFilter = "open" | "closed" | "merged";
+
+/**
+ * Builds the `prInfo` relation filter for a given PR state. Every tracked branch
+ * has a `prInfo` row, but its `prState` is null until the PR metadata cache is
+ * first revalidated. We treat unknown (null) state as "open" so freshly tracked
+ * PRs show up immediately under the default tab instead of disappearing until the
+ * cache fills.
+ */
+function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchInfoWhereInput {
+    if (state === "open") return { OR: [{ prState: "open" }, { prState: null }] };
+    return { prState: state };
 }
 
 const PreviewUrlsSchema = z.record(z.string(), z.string());
