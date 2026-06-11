@@ -12,6 +12,7 @@ import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
 import { serializeGenerationReviewInput } from "../generation-review/generation-review-input";
+import { recoverScenarioDataForGeneration } from "./recover-scenario-data-for-generation";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
 export interface CaptureGenerationReviewParams {
@@ -56,6 +57,16 @@ export async function captureGenerationReview(params: CaptureGenerationReviewPar
     const evidenceLoader = new StorageEvidenceLoader(storage);
     const contextLoader = new DiffJobContextLoader(db, storage);
     const context = await contextLoader.loadGeneration(generationId);
+
+    // Pre-#822 instances have a null generatedData, so the loader omits the
+    // scenario; recover the create graph from the UP webhook_call (eval-only).
+    if (context.scenario == null) {
+        const recovered = await recoverScenarioDataForGeneration(db, generationId);
+        if (recovered != null) {
+            context.scenario = recovered;
+            logger.info("Recovered legacy scenario data from webhook log", { extra: { generationId } });
+        }
+    }
 
     // Refuse to write a case whose media is no longer reachable - parallel to
     // refusing dead SHAs above.

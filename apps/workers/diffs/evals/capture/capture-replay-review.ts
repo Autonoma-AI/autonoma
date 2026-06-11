@@ -12,6 +12,7 @@ import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
 import { serializeReplayReviewInput } from "../replay-review/replay-review-input";
+import { recoverScenarioDataForRun } from "./recover-scenario-data";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
 export interface CaptureReplayReviewParams {
@@ -64,6 +65,16 @@ export async function captureReplayReview(params: CaptureReplayReviewParams): Pr
     const evidenceLoader = new StorageEvidenceLoader(storage);
     const contextLoader = new DiffJobContextLoader(db);
     const context = await contextLoader.load(runId);
+
+    // Pre-#822 instances have a null generatedData, so the loader omits the
+    // scenario; recover the create graph from the UP webhook_call (eval-only).
+    if (context.scenario == null) {
+        const recovered = await recoverScenarioDataForRun(db, runId);
+        if (recovered != null) {
+            context.scenario = recovered;
+            logger.info("Recovered legacy scenario data from webhook log", { extra: { runId } });
+        }
+    }
 
     // Refuse to write a case whose media is no longer reachable.
     const screenshots: string[] = [];

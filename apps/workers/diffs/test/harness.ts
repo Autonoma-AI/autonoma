@@ -1,6 +1,7 @@
 import {
     type AffectedReason,
     type GenerationStatus,
+    type Prisma,
     type PrismaClient,
     type RunReviewVerdict,
     type RunStatus,
@@ -50,6 +51,18 @@ export class InMemoryStorage implements StorageProvider {
     }
 }
 
+/**
+ * A scenario to attach to a seeded run/generation. `status` defaults to
+ * `UP_SUCCESS`; omit `generatedData` for a pre-#822 instance. `upWebhookCreate`
+ * additionally records an `UP` `webhook_call` carrying that create graph.
+ */
+export interface SeedScenario {
+    name: string;
+    status?: ScenarioInstanceStatus;
+    generatedData?: unknown;
+    upWebhookCreate?: Prisma.InputJsonValue;
+}
+
 /** One executed step to materialize as a StepInput + StepOutput pair on a run. */
 export interface SeedStep {
     order: number;
@@ -73,13 +86,8 @@ export interface SeedFailedRunParams {
     testName?: string;
     testPlanPrompt?: string;
     steps?: SeedStep[];
-    /**
-     * When provided, a Scenario + ScenarioInstance is created and the run is
-     * linked to it. `status` defaults to `UP_SUCCESS`; `generatedData` is the
-     * resolved create graph persisted at UP (omit it to exercise the
-     * absent-data path).
-     */
-    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
+    /** When provided, a Scenario + ScenarioInstance is created and the run is linked to it. */
+    scenario?: SeedScenario;
 }
 
 export interface SeededRun {
@@ -216,13 +224,8 @@ export interface SeedGenerationParams {
      * predate the attempt timeline. Every entry is treated as a success.
      */
     legacyStepInputs?: SeedGenerationStep[];
-    /**
-     * When provided, a Scenario + ScenarioInstance is created and the generation
-     * is linked to it. `status` defaults to `UP_SUCCESS`; `generatedData` is the
-     * resolved create graph persisted at UP (omit it to exercise the
-     * absent-data path).
-     */
-    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
+    /** When provided, a Scenario + ScenarioInstance is created and the generation is linked to it. */
+    scenario?: SeedScenario;
 }
 
 export interface SeededGeneration {
@@ -612,14 +615,15 @@ export class DiffJobContextHarness implements IntegrationHarness {
     }
 
     /**
-     * Create a Scenario + ScenarioInstance the way the scenario manager does at
-     * UP success: the resolved create graph lands on `generatedData`. Returns
-     * the instance id so the caller can link a run to it.
+     * Create a Scenario + ScenarioInstance as the manager does at UP success.
+     * When `upWebhookCreate` is set, also records the `UP` `webhook_call` so the
+     * webhook-recovery path can be tested against an instance with no
+     * `generatedData`. Returns the instance id.
      */
     private async createScenarioInstance(
         organizationId: string,
         applicationId: string,
-        scenario: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown },
+        scenario: SeedScenario,
     ): Promise<string> {
         const created = await this.db.scenario.create({
             data: { name: scenario.name, applicationId, organizationId },
@@ -633,6 +637,20 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 generatedData: scenario.generatedData ?? undefined,
             },
         });
+
+        if (scenario.upWebhookCreate !== undefined) {
+            await this.db.webhookCall.create({
+                data: {
+                    applicationId,
+                    instanceId: instance.id,
+                    action: "UP",
+                    requestBody: { action: "up", create: scenario.upWebhookCreate, testRunId: instance.id },
+                    responseBody: { instanceId: instance.id },
+                    statusCode: 200,
+                },
+            });
+        }
+
         return instance.id;
     }
 

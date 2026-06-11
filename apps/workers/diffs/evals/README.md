@@ -179,6 +179,18 @@ Captured `input.json` files store media as **S3 keys**, never bytes. Generation
 review additionally stores the agent conversation, with image parts stripped at
 capture time via `sanitizeConversation` so the fixture stays text-only.
 
+### Legacy scenario-data recovery (Reviewers)
+
+Instances that ran **before #822** have a null `ScenarioInstance.generatedData`,
+so the production loader omits `context.scenario`. To still capture them with
+scenario context, the reviewer captures fall back to the **webhook log**: when
+the loader returns no scenario, capture reads the surviving `UP`
+`webhook_call.request_body.create` (byte-identical to `generatedData`) and
+materializes it the same way. This is eval-only (`capture/recover-scenario-data*.ts`);
+the shared resolvers and `DiffJobContextLoader` are unchanged. A populated
+`generatedData` always wins; recovery is skipped when there is no instance, it
+never came up, or no `UP` webhook survives.
+
 ## Running the evals
 
 Evals are gated behind `RUN_EVALS` and need `DIFFS_EVAL_CASES_DIR` pointed at the
