@@ -55,8 +55,12 @@ function executedWithLatestRun(): ExecutedTest {
     };
 }
 
+function entryIn(sections: Section[], title: string): TestEntry | undefined {
+    return sections.find((s) => s.title === title)?.entries.find((e) => e.urlId === TEST_CASE.id);
+}
+
 function modifiedEntry(sections: Section[]): TestEntry | undefined {
-    return sections.find((s) => s.title === "Modified")?.entries.find((e) => e.urlId === TEST_CASE.id);
+    return entryIn(sections, "Modified");
 }
 
 describe("buildSections - modified test run", () => {
@@ -88,7 +92,10 @@ describe("buildSections - modified test run", () => {
         expect(entry?.run?.status).toBe("failed");
     });
 
-    it("surfaces the latest run for an affected test that has no recorded change", () => {
+    // An affected test with no "updated" change was replayed but never edited, so
+    // it lands in the "Checked" section rather than "Modified". It should still
+    // surface its latest run.
+    it("surfaces the latest run for a checked test (affected but not modified)", () => {
         const sections = buildSections({
             changes: [],
             affectedTests: [affectedWithInitialRun()],
@@ -97,7 +104,9 @@ describe("buildSections - modified test run", () => {
             executedTests: [executedWithLatestRun()],
         });
 
-        const entry = modifiedEntry(sections);
+        expect(modifiedEntry(sections)).toBeUndefined();
+        const entry = entryIn(sections, "Checked");
+        expect(entry?.category).toBe("checked");
         expect(entry?.run?.id).toBe("run-latest");
     });
 });
