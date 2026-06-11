@@ -1,3 +1,4 @@
+// Promoted to @autonoma/scenario - re-exported here for backwards compatibility.
 export {
     type ScenarioData,
     type ScenarioEntities,
@@ -5,8 +6,8 @@ export {
     scenarioDataSchema,
     scenarioEntitiesSchema,
     scenarioEntityRecordSchema,
-} from "./types";
-export { materializeScenarioData } from "./materialize-scenario-data";
+    materializeScenarioData,
+} from "@autonoma/scenario";
 export { resolveScenarioDataForRun } from "./resolve-scenario-data";
 export { resolveScenarioDataForGeneration } from "./resolve-scenario-data-for-generation";
 export { summarizeScenarioData } from "./summarize-scenario-data";

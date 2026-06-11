@@ -451,12 +451,18 @@ importers:
       '@autonoma/errors':
         specifier: workspace:*
         version: link:../../packages/errors
+      '@autonoma/evals':
+        specifier: workspace:*
+        version: link:../../packages/evals
       '@autonoma/image':
         specifier: workspace:*
         version: link:../../packages/image
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@autonoma/scenario':
+        specifier: workspace:*
+        version: link:../../packages/scenario
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -466,12 +472,18 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@google/genai':
+        specifier: ^1.42.0
+        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
       dotenv:
         specifier: 'catalog:'
         version: 17.3.1
@@ -1318,6 +1330,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/scenario':
+        specifier: workspace:*
+        version: link:../scenario
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../storage

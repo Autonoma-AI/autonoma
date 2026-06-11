@@ -8,6 +8,7 @@ interface BuildWebApplicationDataParams {
     file?: string;
     auth?: AuthPayload;
     customHeaders?: Record<string, string>;
+    previewkitBypassToken?: string;
 }
 
 /**
@@ -18,10 +19,11 @@ export async function buildWebApplicationData({
     file,
     auth,
     customHeaders,
+    previewkitBypassToken,
 }: BuildWebApplicationDataParams): Promise<WebApplicationData> {
     const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, url) : undefined;
 
-    const bypassToken = await resolvePreviewkitBypassToken(url);
+    const bypassToken = previewkitBypassToken ?? (await resolvePreviewkitBypassToken(url));
 
     const baseHeaders: Record<string, string> = {
         ...(auth?.headers ?? {}),

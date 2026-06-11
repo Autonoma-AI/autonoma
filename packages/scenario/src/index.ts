@@ -14,3 +14,16 @@ export {
     type TeardownConfig,
 } from "./scenario-provisioner";
 export { type ScenarioSubject, GenerationSubject, RunSubject } from "./scenario-subject";
+export {
+    type ScenarioData,
+    type ScenarioEntities,
+    type ScenarioEntityRecord,
+    scenarioDataSchema,
+    scenarioEntitiesSchema,
+    scenarioEntityRecordSchema,
+} from "./scenario-data/types";
+export { materializeScenarioData } from "./scenario-data/materialize-scenario-data";
+export { summarizeScenarioData } from "./scenario-data/summarize-scenario-data";
+export { normalizeEntities } from "./scenario-data/normalize-entities";
+export { summarizeEntities, type EntitySummaryHints } from "./scenario-data/summarize-entities";
+export { boundRecords, type BoundedRecords } from "./scenario-data/bound-records";

@@ -25,6 +25,13 @@ export interface ProvisionedInstance {
     refs: Record<string, unknown> | undefined;
     refsToken: string | undefined;
     resolvedVariables: Record<string, ScenarioVariableScalar>;
+    /**
+     * The resolved entity-create payload sent to the SDK's `up` call. Mirrors
+     * what production persists as `ScenarioInstance.generatedData`, so callers
+     * without a DB (evals, local tooling) can materialise scenario-data grounding
+     * context from the in-memory result of provisioning alone.
+     */
+    createPayload: Record<string, unknown>;
 }
 
 export interface TeardownConfig {
@@ -83,6 +90,7 @@ export async function provisionScenarioInstance(config: ProvisionConfig): Promis
         refs: response.refs,
         refsToken: response.refsToken,
         resolvedVariables,
+        createPayload,
     };
 }
 
