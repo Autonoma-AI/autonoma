@@ -1,4 +1,4 @@
-import { useBugs } from "lib/query/bugs.queries";
+import { useBugsSummary } from "lib/query/bugs.queries";
 import { useGithubInstallation } from "lib/query/github.queries";
 import { useRuns } from "lib/query/runs.queries";
 import { useCurrentApplication } from "../../-use-current-application";
@@ -52,7 +52,7 @@ export function useMilestones(): Milestone[] {
   const base = `/app/${appSlug}`;
 
   const { data: runs } = useRuns();
-  const { data: bugs } = useBugs();
+  const { data: bugs } = useBugsSummary();
   const { data: installation } = useGithubInstallation();
 
   const completionMap: Record<string, boolean> = {

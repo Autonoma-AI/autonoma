@@ -836,6 +836,7 @@ model Issue {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([snapshotId])
+  @@index([bugId])
   @@map("issue")
 }
 
@@ -871,7 +872,7 @@ model Bug {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([applicationId])
+  @@index([applicationId, lastSeenAt])
   @@index([status])
   @@map("bug")
 }

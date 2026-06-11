@@ -4,9 +4,11 @@ import { ensureAPIQueryData, useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
-export function useBugs(status?: "open" | "resolved" | "regressed") {
+// Lean projection (no evidence/testCase join) for the home page rail and milestones,
+// where only id/title/severity/lastSeenAt/occurrences/status are needed.
+export function useBugsSummary(status?: "open" | "resolved" | "regressed") {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.bugs.list.queryOptions({ applicationId: currentApp.id, status }));
+    return useSuspenseQuery(trpc.bugs.listSummary.queryOptions({ applicationId: currentApp.id, status }));
 }
 
 export function useBugsListByPr(
@@ -28,6 +30,10 @@ export async function ensureBugsListData(queryClient: QueryClient, applicationId
     await ensureAPIQueryData(queryClient, trpc.bugs.list.queryOptions({ applicationId }));
 }
 
+export async function ensureBugsSummaryData(queryClient: QueryClient, applicationId: string) {
+    await ensureAPIQueryData(queryClient, trpc.bugs.listSummary.queryOptions({ applicationId }));
+}
+
 export async function ensureBugDetailData(queryClient: QueryClient, bugId: string) {
     await ensureAPIQueryData(queryClient, trpc.bugs.detail.queryOptions({ bugId }));
 }
@@ -40,6 +46,9 @@ export function useDismissIssue() {
             onSettled: () => {
                 void queryClient.invalidateQueries({
                     queryKey: trpc.bugs.list.queryKey({ applicationId: currentApp.id }),
+                });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.bugs.listSummary.queryKey({ applicationId: currentApp.id }),
                 });
             },
         }),
@@ -57,6 +66,9 @@ export function useResolveBug(bugId: string) {
                 });
                 void queryClient.invalidateQueries({
                     queryKey: trpc.bugs.list.queryKey({ applicationId: currentApp.id }),
+                });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.bugs.listSummary.queryKey({ applicationId: currentApp.id }),
                 });
             },
         }),
@@ -88,6 +100,9 @@ export function useReopenBug(bugId: string) {
                 });
                 void queryClient.invalidateQueries({
                     queryKey: trpc.bugs.list.queryKey({ applicationId: currentApp.id }),
+                });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.bugs.listSummary.queryKey({ applicationId: currentApp.id }),
                 });
             },
         }),

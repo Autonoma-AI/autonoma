@@ -268,6 +268,38 @@ export class BugsService extends Service {
         }));
     }
 
+    async listBugsSummary(organizationId: string, applicationId?: string, status?: BugStatus) {
+        this.logger.info("Listing bug summaries", { organizationId, applicationId, status });
+
+        const bugs = await this.db.bug.findMany({
+            where: {
+                organizationId,
+                ...(applicationId != null ? { applicationId } : {}),
+                ...(status != null ? { status } : {}),
+            },
+            select: {
+                id: true,
+                status: true,
+                title: true,
+                severity: true,
+                lastSeenAt: true,
+                _count: { select: { issues: true } },
+            },
+            orderBy: { lastSeenAt: "desc" },
+        });
+
+        this.logger.info("Bug summaries listed", { count: bugs.length });
+
+        return bugs.map((bug) => ({
+            id: bug.id,
+            status: bug.status,
+            title: bug.title,
+            severity: bug.severity,
+            lastSeenAt: bug.lastSeenAt,
+            occurrences: bug._count.issues,
+        }));
+    }
+
     async listBugsByPr(params: ListBugsByPrParams) {
         const { organizationId, applicationId, branchId, status, snapshotId } = params;
         this.logger.info("Listing bugs by PR", { organizationId, applicationId, branchId, status, snapshotId });

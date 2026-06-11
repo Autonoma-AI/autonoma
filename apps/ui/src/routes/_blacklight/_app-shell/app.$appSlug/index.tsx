@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ensureBugsListData } from "lib/query/bugs.queries";
+import { ensureBugsSummaryData } from "lib/query/bugs.queries";
 import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
     if (app == null) return;
     await Promise.all([
       ensureLatestPullRequestsData(context.queryClient, app.id),
-      ensureBugsListData(context.queryClient, app.id),
+      ensureBugsSummaryData(context.queryClient, app.id),
     ]);
   },
   component: HomePage,

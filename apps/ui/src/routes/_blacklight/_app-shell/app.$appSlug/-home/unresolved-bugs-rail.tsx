@@ -1,10 +1,10 @@
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
-import { useBugs } from "lib/query/bugs.queries";
+import { useBugsSummary } from "lib/query/bugs.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "../../-app-link";
 
-type Bug = RouterOutputs["bugs"]["list"][number];
+type Bug = RouterOutputs["bugs"]["listSummary"][number];
 
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
@@ -37,8 +37,10 @@ function RailShell({ count, children }: { count: number; children: React.ReactNo
 }
 
 export function UnresolvedBugsRail() {
-  const { data: bugs } = useBugs("open");
-  const sorted = [...bugs].sort((a, b) => (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99));
+  const { data: bugs } = useBugsSummary();
+  const sorted = bugs
+    .filter((bug) => bug.status === "open")
+    .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99));
 
   return (
     <RailShell count={sorted.length}>
