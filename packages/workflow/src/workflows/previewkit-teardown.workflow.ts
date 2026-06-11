@@ -1,4 +1,4 @@
-import { log, proxyActivities } from "@temporalio/workflow";
+import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type { PreviewDeployEvent, PreviewkitActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 
@@ -33,6 +33,10 @@ export async function previewTeardownWorkflow(input: PreviewTeardownWorkflowInpu
     const ids = { extra: { repo: event.repoFullName, pr: event.prNumber } };
 
     log.info("Preview teardown workflow started", ids);
-    await teardown.teardownPreviewEnvironment({ event });
+    // Run non-cancellably so a teardown that is itself superseded (a PR closed
+    // then immediately reopened, whose reopen-deploy shares the workflowId) still
+    // deletes the namespace to completion rather than leaving it half-removed.
+    // The activity is idempotent, so running it through is always safe.
+    await CancellationScope.nonCancellable(() => teardown.teardownPreviewEnvironment({ event }));
     log.info("Preview teardown workflow completed", ids);
 }

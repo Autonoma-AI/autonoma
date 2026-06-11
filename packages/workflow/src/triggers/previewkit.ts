@@ -29,6 +29,7 @@ export async function triggerPreviewDeploy(params: TriggerPreviewDeployParams): 
     });
 
     const client = await getTemporalClient();
+    await cancelInFlightPreviewWorkflow(client, workflowId);
     await client.workflow.start(WORKFLOW_TYPE.PREVIEW_DEPLOY, {
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.TERMINATE_EXISTING,
@@ -59,6 +60,7 @@ export async function triggerPreviewTeardown(params: TriggerPreviewTeardownParam
     });
 
     const client = await getTemporalClient();
+    await cancelInFlightPreviewWorkflow(client, workflowId);
     await client.workflow.start(WORKFLOW_TYPE.PREVIEW_TEARDOWN, {
         workflowId,
         workflowIdConflictPolicy: WorkflowIdConflictPolicy.TERMINATE_EXISTING,
@@ -68,6 +70,31 @@ export async function triggerPreviewTeardown(params: TriggerPreviewTeardownParam
     });
 
     logger.info("Preview teardown workflow started", { extra: { workflowId } });
+}
+
+/**
+ * Best-effort graceful cancel of the in-flight workflow for an environment
+ * before starting the next one. The explicit `cancel()` delivers the
+ * cancellation signal so the old run aborts its build (releasing the buildkit
+ * Job in seconds) and finalizes its build row cleanly. The caller still starts
+ * with `TERMINATE_EXISTING` as the hard backstop for a wedged run that never
+ * observes the cancel. A missing/closed run (first push, already torn down) is
+ * the expected no-op path.
+ */
+async function cancelInFlightPreviewWorkflow(
+    client: Awaited<ReturnType<typeof getTemporalClient>>,
+    workflowId: string,
+): Promise<void> {
+    const handle = client.workflow.getHandle(workflowId);
+    try {
+        await handle.describe();
+        await handle.cancel();
+        logger.info("Requested graceful cancel of in-flight preview workflow", { extra: { workflowId } });
+    } catch {
+        logger.info("No in-flight preview workflow to cancel (first push or already closed)", {
+            extra: { workflowId },
+        });
+    }
 }
 
 /**

@@ -19,7 +19,7 @@ import type {
     PreviewServiceResult,
 } from "@autonoma/workflow/activities";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
-import { BuildError, type Builder } from "../builder/builder";
+import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
@@ -95,6 +95,8 @@ interface AppBuildContext {
     repo: string;
     prNumber: number;
     shortSha: string;
+    // Aborts the in-flight buildctl when the deploy is superseded/cancelled.
+    signal?: AbortSignal;
 }
 
 interface DependencyEntry {
@@ -300,6 +302,7 @@ export class PreviewPipeline {
         event: PullRequestEvent,
         namespace: string,
         configRevisionId?: string | undefined,
+        signal?: AbortSignal,
     ): Promise<BuildPreviewImagesOutput> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
@@ -409,6 +412,7 @@ export class PreviewPipeline {
                 arnByApp,
                 application.id,
                 addonOutputs,
+                signal,
             );
             const buildDurationMs = Date.now() - buildStart;
 
@@ -466,7 +470,10 @@ export class PreviewPipeline {
      * post-deploy hooks, restart crash-looped apps, and mark the env ready. Returns
      * flat, comment-ready result rows. Throws when no app comes up.
      */
-    async deployEnvironment(input: DeployPreviewEnvironmentInput): Promise<DeployPreviewEnvironmentOutput> {
+    async deployEnvironment(
+        input: DeployPreviewEnvironmentInput,
+        signal?: AbortSignal,
+    ): Promise<DeployPreviewEnvironmentOutput> {
         const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const mergedConfig = previewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
@@ -483,6 +490,9 @@ export class PreviewPipeline {
             commentId,
         };
 
+        // Bail before each long deploy phase if a newer commit superseded this
+        // run, so we stop sinking work into an environment the successor owns.
+        signal?.throwIfAborted();
         await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
         const infraResult = await this.deployer.deployInfra(deployOpts);
 
@@ -496,6 +506,7 @@ export class PreviewPipeline {
             addonOutputs,
         );
 
+        signal?.throwIfAborted();
         await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
         const result = await this.deployer.deployApps(deployOpts, infraResult);
 
@@ -782,6 +793,7 @@ export class PreviewPipeline {
         arnByApp: Map<string, string>,
         applicationId: string,
         addonOutputs: AddonOutputs,
+        signal?: AbortSignal,
     ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
@@ -806,7 +818,9 @@ export class PreviewPipeline {
 
         // Each app is built independently — a failure in one app is captured
         // into its own outcome and does not abort the other builds. `buildOneApp`
-        // never throws, so we don't need allSettled here.
+        // only throws for a supersede abort (BuildAbortedError), in which case we
+        // want the whole build to reject and bail (Promise.all surfaces the
+        // first rejection); every other error becomes a failed app outcome.
         // Each build spawns its own ephemeral BuildKit Job, so all builds run
         // fully in parallel — Karpenter scales the node pool as needed.
         const entries = await Promise.all(
@@ -826,6 +840,7 @@ export class PreviewPipeline {
                     repo,
                     prNumber,
                     shortSha,
+                    signal,
                 });
                 return [app.name, outcome] as const;
             }),
@@ -901,6 +916,7 @@ export class PreviewPipeline {
                 cacheKey,
                 namespace: ctx.namespace,
                 ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
+                ...(ctx.signal != null ? { signal: ctx.signal } : {}),
             });
 
             return {
@@ -911,6 +927,13 @@ export class PreviewPipeline {
                 runtime: result.runtime,
             };
         } catch (err) {
+            // A supersede abort is not a per-app failure - re-throw so the whole
+            // build aborts before `recordBuildFinished` runs, leaving the
+            // workflow's `markPreviewDeploySuperseded` as the sole writer of this
+            // build row. Every other error is captured as a failed app outcome.
+            if (err instanceof BuildAbortedError) {
+                throw err;
+            }
             const message = err instanceof Error ? err.message : String(err);
             const logUrl = err instanceof BuildError ? err.logUrl : undefined;
             logger.error("App build failed", err, { app: app.name, logUrl });

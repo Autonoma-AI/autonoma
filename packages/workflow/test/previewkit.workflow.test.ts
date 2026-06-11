@@ -5,6 +5,14 @@ import type { PreviewDeployEvent, PreviewkitActivities } from "../src/activities
 import { TaskQueue } from "../src/task-queues";
 import { previewDeployWorkflow } from "../src/workflows/previewkit.workflow";
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => {
+        resolve = r;
+    });
+    return { promise, resolve };
+}
+
 // Bundle just the previewkit workflow for the in-memory worker.
 const workflowsPath = new URL("../src/workflows/previewkit.workflow.ts", import.meta.url).pathname;
 
@@ -64,6 +72,9 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
         },
         async teardownPreviewEnvironment() {
             calls.push("teardown");
+        },
+        async markPreviewDeploySuperseded() {
+            calls.push("markSuperseded");
         },
         ...overrides,
     };
@@ -126,6 +137,55 @@ describe("previewDeployWorkflow", () => {
         });
         await expect(runWorkflow("pk-fail", activities)).rejects.toThrow();
         expect(calls).toContain("fail");
+        expect(calls).not.toContain("finalize");
+    });
+
+    it("on supersede (cancellation), marks the build superseded and skips fail/finalize", async () => {
+        const calls: string[] = [];
+        const buildStarted = deferred();
+        const releaseBuild = deferred();
+        const activities = makeActivities(calls, {
+            // Hold the build in-flight until the test releases it, so the
+            // workflow is still inside `await buildPreviewImages` when cancelled.
+            // With the default TRY_CANCEL, the workflow's build promise rejects
+            // with CancelledFailure on cancel regardless of this activity.
+            async buildPreviewImages() {
+                calls.push("build");
+                buildStarted.resolve();
+                await releaseBuild.promise;
+                return {
+                    mergedConfigJson: "{}",
+                    imageTags: {},
+                    addonOutputs: {},
+                    buildOutcomes: {},
+                    addons: [],
+                    warnings: [],
+                    primaryAppNames: [],
+                };
+            },
+        });
+
+        const worker = await Worker.create({
+            connection: testEnv.nativeConnection,
+            taskQueue: TaskQueue.PREVIEWKIT,
+            workflowsPath,
+            activities,
+        });
+
+        await worker.runUntil(async () => {
+            const handle = await testEnv.client.workflow.start(previewDeployWorkflow, {
+                workflowId: "pk-cancel",
+                taskQueue: TaskQueue.PREVIEWKIT,
+                args: [{ event }],
+            });
+            await buildStarted.promise;
+            await handle.cancel();
+            await expect(handle.result()).rejects.toThrow();
+            releaseBuild.resolve();
+        });
+
+        expect(calls).toContain("markSuperseded");
+        expect(calls).not.toContain("fail");
         expect(calls).not.toContain("finalize");
     });
 });

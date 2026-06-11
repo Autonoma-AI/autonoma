@@ -1,6 +1,7 @@
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import {
+    markBuildSuperseded,
     recordBuildFinished,
     recordEnvironmentCreated,
     recordEnvironmentReady,
@@ -254,6 +255,107 @@ integrationTestSuite({
                 appBuilds: {},
             });
 
+            const builds = await harness.db.previewkitBuild.findMany();
+            expect(builds).toHaveLength(0);
+        });
+
+        test("recordBuildFinished is idempotent on (environment, sha): a retry updates one row and replaces app builds", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+
+            await recordBuildFinished({
+                namespace: "preview-acme-web-pr-7",
+                headSha: "abc1234",
+                status: "building",
+                durationMs: 10_000,
+                appBuilds: {
+                    web: { status: "success", imageTag: "ghcr.io/acme/web:v1", durationMs: 9_000, logUrl: "s3://a" },
+                },
+            });
+
+            // A Temporal retry of the build activity re-runs with the same sha.
+            await recordBuildFinished({
+                namespace: "preview-acme-web-pr-7",
+                headSha: "abc1234",
+                status: "failed",
+                durationMs: 20_000,
+                error: "second attempt failed",
+                appBuilds: {
+                    web: { status: "failed", durationMs: 19_000, error: "boom" },
+                },
+            });
+
+            const builds = await harness.db.previewkitBuild.findMany({ include: { appBuilds: true } });
+            expect(builds).toHaveLength(1);
+            expect(builds[0]!.status).toBe("failed");
+            expect(builds[0]!.error).toBe("second attempt failed");
+            // App rows were replaced, not duplicated.
+            expect(builds[0]!.appBuilds).toHaveLength(1);
+            expect(builds[0]!.appBuilds[0]!.status).toBe("failed");
+        });
+
+        test("markBuildSuperseded marks the build superseded and leaves the env row untouched", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+            // The env row is mid-build and belongs to the newest run.
+            await recordPhaseChanged({
+                namespace: "preview-acme-web-pr-7",
+                status: "building",
+                phase: "building-images",
+            });
+
+            await markBuildSuperseded("preview-acme-web-pr-7", "abc1234");
+
+            const env = await harness.db.previewkitEnvironment.findUnique({
+                where: { namespace: "preview-acme-web-pr-7" },
+                include: { builds: true },
+            });
+            // Env row is NOT touched - the successor run owns it.
+            expect(env!.status).toBe("building");
+            expect(env!.phase).toBe("building-images");
+            // The build row is finalized as superseded.
+            expect(env!.builds).toHaveLength(1);
+            expect(env!.builds[0]!.status).toBe("superseded");
+            expect(env!.builds[0]!.finishedAt).not.toBeNull();
+        });
+
+        test("markBuildSuperseded is idempotent", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+
+            await markBuildSuperseded("preview-acme-web-pr-7", "abc1234");
+            await markBuildSuperseded("preview-acme-web-pr-7", "abc1234");
+
+            const builds = await harness.db.previewkitBuild.findMany();
+            expect(builds).toHaveLength(1);
+            expect(builds[0]!.status).toBe("superseded");
+        });
+
+        test("markBuildSuperseded skips silently when environment does not exist", async ({ harness }) => {
+            await markBuildSuperseded("preview-missing", "abc1234");
             const builds = await harness.db.previewkitBuild.findMany();
             expect(builds).toHaveLength(0);
         });

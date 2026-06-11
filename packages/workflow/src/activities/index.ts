@@ -71,4 +71,5 @@ export type {
     FinalizePreviewDeployInput,
     FailPreviewDeployInput,
     TeardownPreviewEnvironmentInput,
+    MarkPreviewDeploySupersededInput,
 } from "./previewkit-activities";

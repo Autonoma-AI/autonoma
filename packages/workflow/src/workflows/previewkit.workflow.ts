@@ -1,4 +1,4 @@
-import { log, proxyActivities } from "@temporalio/workflow";
+import { CancellationScope, isCancellation, log, proxyActivities } from "@temporalio/workflow";
 import type { PreviewDeployEvent, PreviewkitActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
 
@@ -32,6 +32,17 @@ const heavy = proxyActivities<PreviewkitActivities>({
  * Temporal.
  */
 const feedback = proxyActivities<PreviewkitActivities>({
+    startToCloseTimeout: "10m",
+    retry: { maximumAttempts: 5 },
+    taskQueue: TaskQueue.PREVIEWKIT,
+});
+
+/**
+ * Activities that must run even though the workflow scope is already cancelled
+ * (the supersede cleanup). Same retry policy as `feedback`; `proxyActivities`
+ * created in a non-cancellable scope is not auto-cancelled.
+ */
+const cleanup = proxyActivities<PreviewkitActivities>({
     startToCloseTimeout: "10m",
     retry: { maximumAttempts: 5 },
     taskQueue: TaskQueue.PREVIEWKIT,
@@ -85,6 +96,19 @@ export async function previewDeployWorkflow(input: PreviewDeployWorkflowInput): 
 
         log.info("Preview deploy workflow completed", ids);
     } catch (err) {
+        // A cancellation means a newer commit superseded this run (or the PR was
+        // closed). The successor run owns the environment row, so we must NOT
+        // write it (no "failed" status, no failure PR comment) - we only
+        // finalize this run's own build row. Run it non-cancellably because the
+        // scope is already cancelled, then re-throw so the run ends `Cancelled`.
+        if (isCancellation(err)) {
+            log.info("Preview deploy superseded; finalizing build row only", ids);
+            await CancellationScope.nonCancellable(() =>
+                cleanup.markPreviewDeploySuperseded({ event, namespace: prep.namespace }),
+            );
+            throw err;
+        }
+
         const message = err instanceof Error ? err.message : String(err);
         log.error("Preview deploy workflow failed; running failure finalizer", { extra: { ...ids.extra, message } });
         await feedback.failPreviewDeploy({

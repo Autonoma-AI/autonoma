@@ -30,6 +30,11 @@ export interface BuildRequest {
     // case branch in the dispatcher plus a new build method. Requires
     // `buildContext` to be set (the monorepo root).
     monorepoTool?: "turbo";
+    // Aborts the in-flight `buildctl` when a newer commit supersedes the deploy.
+    // The builder passes it to `spawn`, so abort kills the child and the build's
+    // `finally` releases the buildkit Job within seconds instead of letting it
+    // run to the Job's ~31-min `activeDeadlineSeconds`.
+    signal?: AbortSignal;
 }
 
 export type BuildRuntime = "node" | "docker-image" | "unknown";
@@ -59,6 +64,26 @@ export class BuildError extends Error {
         this.name = "BuildError";
         this.isTransient = options?.isTransient ?? false;
         if (options?.logUrl != null) this.logUrl = options.logUrl;
+    }
+}
+
+/**
+ * A build that was deliberately aborted because the deploy was superseded by a
+ * newer commit (the build's `AbortSignal` fired) - NOT a build failure.
+ *
+ * It extends `BuildError` so the builder's existing `instanceof BuildError`
+ * handling still applies (never retried - `isTransient` stays false). But it is
+ * a distinct type so callers can tell "we cancelled this on purpose" apart from
+ * "the build genuinely broke": `buildOneApp` re-throws it instead of swallowing
+ * it into a `failed` app outcome, so the build activity bails before
+ * `recordBuildFinished` runs. That matters because the deploy workflow's
+ * cancellation path already wrote the build row to `superseded`; letting a late
+ * `recordBuildFinished` run would race and overwrite it back to `failed`.
+ */
+export class BuildAbortedError extends BuildError {
+    constructor(message: string, options?: { cause?: unknown }) {
+        super(message, options);
+        this.name = "BuildAbortedError";
     }
 }
 

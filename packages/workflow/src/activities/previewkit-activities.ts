@@ -143,6 +143,11 @@ export interface TeardownPreviewEnvironmentInput {
     event: PreviewDeployEvent;
 }
 
+export interface MarkPreviewDeploySupersededInput {
+    event: PreviewDeployEvent;
+    namespace: string;
+}
+
 export interface PreviewkitActivities {
     preparePreviewDeploy(input: PreparePreviewDeployInput): Promise<PreparePreviewDeployOutput>;
     buildPreviewImages(input: BuildPreviewImagesInput): Promise<BuildPreviewImagesOutput>;
@@ -150,4 +155,9 @@ export interface PreviewkitActivities {
     finalizePreviewDeploy(input: FinalizePreviewDeployInput): Promise<void>;
     failPreviewDeploy(input: FailPreviewDeployInput): Promise<void>;
     teardownPreviewEnvironment(input: TeardownPreviewEnvironmentInput): Promise<void>;
+    /**
+     * Finalizes a superseded deploy's build row only (never the env row, which
+     * the newest run owns). Called from the deploy workflow's cancellation path.
+     */
+    markPreviewDeploySuperseded(input: MarkPreviewDeploySupersededInput): Promise<void>;
 }

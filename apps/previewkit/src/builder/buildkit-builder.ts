@@ -7,7 +7,14 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { BuildLogSpool } from "@autonoma/logger/build-log-spool";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
-import { BuildError, type Builder, type BuildRequest, type BuildResult, type BuildRuntime } from "./builder";
+import {
+    BuildAbortedError,
+    BuildError,
+    type Builder,
+    type BuildRequest,
+    type BuildResult,
+    type BuildRuntime,
+} from "./builder";
 import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
@@ -135,6 +142,10 @@ export class BuildKitBuilder implements Builder {
         await this.ecr.ensureRepo(request.imageTag);
 
         for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
+            // A supersede between attempts must not spin up a fresh buildkit Job.
+            if (request.signal?.aborted === true) {
+                throw new BuildAbortedError("build aborted between attempts (deploy superseded)");
+            }
             const isLastAttempt = attempt === BUILD_MAX_RETRIES;
             const logPath = this.buildLogPath(request.imageTag);
             const fileStream = createWriteStream(logPath, { flags: "a" });
@@ -163,6 +174,12 @@ export class BuildKitBuilder implements Builder {
                 });
                 return { imageTag: build.imageTag, durationMs, logUrl, runtime: build.runtime };
             } catch (err) {
+                // A supersede abort is not a build failure: re-throw it as-is so
+                // it is neither retried nor wrapped by `annotateWithLogs` (which
+                // would erase the type), and `buildOneApp` can recognize it.
+                if (err instanceof BuildAbortedError) {
+                    throw err;
+                }
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
                     await this.onTransientError(err, attempt, request.appName, logStream, logPath, request.imageTag);
                     continue;
@@ -322,7 +339,7 @@ export class BuildKitBuilder implements Builder {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
 
-            await this.exec("buildctl", args, extraEnv, logStream);
+            await this.exec("buildctl", args, extraEnv, logStream, request.signal);
             return { imageTag: request.imageTag, runtime: "docker-image" };
         } finally {
             if (dockerConfigDir != null) {
@@ -356,6 +373,7 @@ export class BuildKitBuilder implements Builder {
                 ["prepare", request.contextPath, "--plan-out", planPath, ...envArgs],
                 {},
                 logStream,
+                request.signal,
             );
             const runtime = await detectRailpackRuntime(planPath);
 
@@ -392,7 +410,7 @@ export class BuildKitBuilder implements Builder {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
 
-            await this.exec("buildctl", args, extraEnv, logStream);
+            await this.exec("buildctl", args, extraEnv, logStream, request.signal);
             return { imageTag: request.imageTag, runtime };
         } finally {
             await rm(planDir, { recursive: true }).catch(() => {});
@@ -461,6 +479,7 @@ export class BuildKitBuilder implements Builder {
                 ],
                 {},
                 logStream,
+                request.signal,
             );
 
             const args = [
@@ -495,7 +514,7 @@ export class BuildKitBuilder implements Builder {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
 
-            await this.exec("buildctl", args, extraEnv, logStream);
+            await this.exec("buildctl", args, extraEnv, logStream, request.signal);
             return { imageTag: request.imageTag, runtime: "node" };
         } finally {
             await rm(planDir, { recursive: true }).catch((err) => {
@@ -515,6 +534,7 @@ export class BuildKitBuilder implements Builder {
         args: string[],
         extraEnv: Record<string, string>,
         logStream: BuildLogWriter,
+        signal?: AbortSignal,
     ): Promise<void> {
         return new Promise((resolvePromise, reject) => {
             logStream.write(`\n$ ${command} ${args.join(" ")}\n`);
@@ -522,9 +542,17 @@ export class BuildKitBuilder implements Builder {
             const child = spawn(command, args, {
                 env: { ...process.env, ...extraEnv },
                 timeout: this.buildTimeoutMs,
+                ...(signal != null ? { signal } : {}),
             });
 
             child.on("error", (err: NodeJS.ErrnoException) => {
+                // An aborted spawn surfaces as an AbortError here. Reject
+                // non-transiently so the retry loop does not relaunch a build we
+                // are deliberately cancelling.
+                if (err.name === "AbortError" || signal?.aborted === true) {
+                    reject(new BuildAbortedError(`${command} aborted (deploy superseded)`, { cause: err }));
+                    return;
+                }
                 const message = err.code === "ENOENT" ? `${command} binary not found` : err.message;
                 reject(new BuildError(message, { cause: err }));
             });
@@ -546,7 +574,9 @@ export class BuildKitBuilder implements Builder {
             });
 
             child.on("close", (code) => {
-                if (child.killed) {
+                if (signal?.aborted === true) {
+                    reject(new BuildAbortedError(`${command} aborted (deploy superseded)`));
+                } else if (child.killed) {
                     reject(new BuildError(`${command} timed out after ${this.buildTimeoutMs / 1000}s`));
                 } else if (code === 0) {
                     resolvePromise();

@@ -5,7 +5,7 @@ import type { AddonConfig, AppConfig, PreviewConfig, ServiceConfig } from "../co
 import { env } from "../env";
 import { logger as rootLogger } from "../logger";
 
-export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "torn_down";
+export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "superseded" | "torn_down";
 
 export interface EnvironmentCreatedInput {
     repoFullName: string;
@@ -217,17 +217,66 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
         return;
     }
 
-    await db.previewkitBuild.create({
-        data: {
+    // Upsert keyed on (environment, sha) so a Temporal activity retry updates
+    // the existing build row instead of inserting a duplicate. The nested
+    // `deleteMany` clears the prior per-app rows before re-creating them, since
+    // they're uniquely keyed by (buildId, appName) and a bare re-create would
+    // conflict on retry.
+    const appBuildRows = Object.entries(appBuilds).map(([appName, outcome]) => toAppBuildRow(appName, outcome));
+    await db.previewkitBuild.upsert({
+        where: { environmentId_headSha: { environmentId: env.id, headSha } },
+        create: {
             environmentId: env.id,
             headSha,
             status,
             durationMs,
             finishedAt: new Date(),
             error: error ?? null,
-            appBuilds: {
-                create: Object.entries(appBuilds).map(([appName, outcome]) => toAppBuildRow(appName, outcome)),
-            },
+            appBuilds: { create: appBuildRows },
+        },
+        update: {
+            status,
+            durationMs,
+            finishedAt: new Date(),
+            error: error ?? null,
+            appBuilds: { deleteMany: {}, create: appBuildRows },
+        },
+    });
+}
+
+/**
+ * Marks the in-flight build for a (namespace, sha) as `superseded` because a
+ * newer commit cancelled the deploy. Writes ONLY the immutable build row - it
+ * must never touch the environment row, which is owned by the newest run that
+ * is already overwriting it. Idempotent (upsert keyed on (environment, sha));
+ * a no-op if the environment row is gone.
+ */
+export async function markBuildSuperseded(namespace: string, headSha: string): Promise<void> {
+    const logger = rootLogger.child({ name: "markBuildSuperseded" });
+    logger.info("Marking build superseded", { namespace, headSha });
+
+    const env = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { id: true },
+    });
+    if (env == null) {
+        logger.warn("Superseded mark skipped: no environment row found", { namespace, headSha });
+        return;
+    }
+
+    await db.previewkitBuild.upsert({
+        where: { environmentId_headSha: { environmentId: env.id, headSha } },
+        create: {
+            environmentId: env.id,
+            headSha,
+            status: "superseded",
+            finishedAt: new Date(),
+            error: "Superseded by a newer commit",
+        },
+        update: {
+            status: "superseded",
+            finishedAt: new Date(),
+            error: "Superseded by a newer commit",
         },
     });
 }

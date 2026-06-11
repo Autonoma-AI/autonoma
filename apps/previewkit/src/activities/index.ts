@@ -6,6 +6,7 @@ import type {
     DeployPreviewEnvironmentOutput,
     FailPreviewDeployInput,
     FinalizePreviewDeployInput,
+    MarkPreviewDeploySupersededInput,
     PreparePreviewDeployInput,
     PreparePreviewDeployOutput,
     PreviewDeployEvent,
@@ -14,6 +15,7 @@ import type {
 } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { createPreviewkitServices, type PreviewkitServices } from "../create-services";
+import { markBuildSuperseded } from "../db";
 import { type Logger, logger as rootLogger } from "../logger";
 
 /**
@@ -28,11 +30,13 @@ export function getServices(): Promise<PreviewkitServices> {
 }
 
 /**
- * Heartbeat every 30s so a stuck or killed worker is detected within the
- * activity's `heartbeatTimeout` (2m) and Temporal reschedules the activity.
+ * Heartbeat every 10s. Two purposes: a stuck/killed worker is detected within
+ * the activity's `heartbeatTimeout` (2m) and rescheduled; and Temporal delivers
+ * an inbound cancellation to a long-running activity only on a heartbeat
+ * response, so a tight interval bounds how fast a supersede aborts the build.
  */
 function startHeartbeat(): NodeJS.Timeout {
-    return setInterval(() => Context.current().heartbeat(), 30_000);
+    return setInterval(() => Context.current().heartbeat(), 10_000);
 }
 
 export async function preparePreviewDeploy(input: PreparePreviewDeployInput): Promise<PreparePreviewDeployOutput> {
@@ -59,7 +63,14 @@ export async function buildPreviewImages(input: BuildPreviewImagesInput): Promis
     const heartbeat = startHeartbeat();
     try {
         const { previewPipeline } = await getServices();
-        return await previewPipeline.build(input.event, input.namespace, input.configRevisionId);
+        // `cancellationSignal` aborts the in-flight buildctl when a newer commit
+        // supersedes this run, so the buildkit Job is released in seconds.
+        return await previewPipeline.build(
+            input.event,
+            input.namespace,
+            input.configRevisionId,
+            Context.current().cancellationSignal,
+        );
     } finally {
         clearInterval(heartbeat);
     }
@@ -74,7 +85,7 @@ export async function deployPreviewEnvironment(
     const heartbeat = startHeartbeat();
     try {
         const { previewPipeline } = await getServices();
-        return await previewPipeline.deployEnvironment(input);
+        return await previewPipeline.deployEnvironment(input, Context.current().cancellationSignal);
     } finally {
         clearInterval(heartbeat);
     }
@@ -139,6 +150,27 @@ async function resolveTeardownHeadSha(event: PreviewDeployEvent, logger: Logger)
     return { ...event, headSha: row.headSha };
 }
 
+/**
+ * Activity run from `previewDeployWorkflow`'s cancellation branch when a newer
+ * commit (or a teardown) supersedes the in-flight deploy. Its whole job is to
+ * leave the DB in a clean terminal state for the run that just got cancelled.
+ *
+ * It deliberately finalizes ONLY this run's own build row (delegating to the
+ * `markBuildSuperseded` DB write) and never touches the environment
+ * row: the superseding run reuses the same namespace and starts immediately, so
+ * it owns the env row - writing it here would race and clobber the successor's
+ * status. That ownership rule is why this is a separate activity rather than a
+ * branch inside `failPreviewDeploy`, which *does* write the env row.
+ */
+export async function markPreviewDeploySuperseded(input: MarkPreviewDeploySupersededInput): Promise<void> {
+    const logger = rootLogger.child({ name: "markPreviewDeploySuperseded" });
+    logger.info("Marking preview deploy superseded", {
+        repo: input.event.repoFullName,
+        pr: input.event.prNumber,
+    });
+    await markBuildSuperseded(input.namespace, input.event.headSha);
+}
+
 // Compile-time check: ensure exported activities match the PreviewkitActivities contract.
 ({
     preparePreviewDeploy,
@@ -147,4 +179,5 @@ async function resolveTeardownHeadSha(event: PreviewDeployEvent, logger: Logger)
     finalizePreviewDeploy,
     failPreviewDeploy,
     teardownPreviewEnvironment,
+    markPreviewDeploySuperseded,
 }) satisfies PreviewkitActivities;

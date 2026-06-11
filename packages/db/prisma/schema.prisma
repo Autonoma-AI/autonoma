@@ -1643,6 +1643,10 @@ enum PreviewkitStatus {
   deploying
   ready
   failed
+  // A deploy cancelled because a newer commit superseded it. Written to the
+  // superseded build row only; the environment row stays owned by the newest
+  // run, so this value never lands on PreviewkitEnvironment.
+  superseded
   torn_down
 
   @@map("previewkit_status")
@@ -1723,6 +1727,10 @@ model PreviewkitBuild {
 
   appBuilds PreviewkitAppBuild[]
 
+  // One build row per (environment, commit). Makes recordBuildFinished an
+  // idempotent upsert so a Temporal activity retry updates the existing row
+  // instead of inserting a duplicate.
+  @@unique([environmentId, headSha])
   @@index([environmentId, startedAt])
   @@map("previewkit_build")
 }

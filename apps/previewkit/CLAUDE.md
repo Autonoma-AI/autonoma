@@ -33,9 +33,16 @@ On `pull_request.closed`, `triggerPreviewTeardown()` starts `previewTeardownWork
 single activity runs `TeardownPipeline` (addon deprovision + namespace delete + PR comment).
 
 **Concurrency model:** every workflow start for a (repo, pr) - deploy, redeploy, AND teardown -
-uses the same deterministic workflowId `previewkit-{slug}-{pr}` with `TERMINATE_EXISTING`
-(the policy is workflow-type-agnostic), so the workflowId is the per-environment mutex: a new push
-terminates the in-flight deploy; closing a PR mid-deploy terminates the deploy before tearing down.
+uses the same deterministic workflowId `previewkit-{slug}-{pr}`, the per-environment mutex. The
+trigger (`triggers/previewkit.ts`) first issues a graceful `handle.cancel()` on the in-flight run,
+then starts the new one with `TERMINATE_EXISTING` as a backstop. The graceful cancel is what frees
+compute promptly: the deploy workflow observes the cancellation, the build activity's
+`Context.current().cancellationSignal` aborts the `buildctl` spawn, and the builder's `finally`
+releases the buildkit Job in seconds (instead of letting it run to the Job's ~31-min deadline). On
+cancellation the deploy workflow writes ONLY the superseded build row (`PreviewkitBuild.status =
+superseded`) and never the env row - the successor run owns it - so it must not run the failure
+finalizer. Teardown runs its delete in a `nonCancellable` scope so a close-then-reopen can't leave a
+half-deleted namespace.
 
 ## Directory map (`src/`)
 
@@ -104,12 +111,15 @@ and upload build logs to S3; the PR comment links logs via 7-day presigned URLs.
 ## Data model (`packages/db/prisma/schema.prisma`, `Previewkit*`)
 
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
-  pending/building/deploying/ready/failed/torn_down), `phase`, `urls` (JSON appName->URL map),
-  `manifest`, `resolvedConfig` + `configRevisionId` (immutable per-deploy config snapshot),
-  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`.
+  pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
+  map), `manifest`, `resolvedConfig` + `configRevisionId` (immutable per-deploy config snapshot),
+  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`. Note:
+  `superseded` is only ever written to `PreviewkitBuild`, never the env row (the successor run owns it).
 - `PreviewkitAppInstance` - per app: `appName`, `imageTag`, `url`, `port`, `ready`.
 - `PreviewkitBuild` + `PreviewkitAppBuild` - per-push build + per-app build rows (normalized out
-  of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok").
+  of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok"). `PreviewkitBuild`
+  is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across
+  activity retries; a superseded build's row is marked `superseded`.
 - `PreviewkitConfigRevision` - DB-stored config revisions (the "config in DB" path).
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - AWS Secrets Manager ARNs per app / per org.
 - `PreviewkitAddon` - provisioned addon state/outputs.
