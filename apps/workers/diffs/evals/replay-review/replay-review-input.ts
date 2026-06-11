@@ -28,12 +28,20 @@ export const replayReviewCaseInputSchema = z.object({
         organizationId: z.string(),
         testPlanPrompt: z.string(),
         testCaseName: z.string(),
+        // Mapped from the persisted replay `StepOutput`: `status` discriminates
+        // success (carries `output`) from failure (carries `error` + `errorName`).
+        // The `status` default keeps legacy fixtures - captured before the
+        // command-aware renderer, when every step was frozen as a bare `output` -
+        // parseable, recovering them as the successes they were.
         steps: z.array(
             z.object({
                 order: z.number().int().nonnegative(),
                 interaction: z.string(),
                 params: z.unknown(),
-                output: z.unknown(),
+                status: z.enum(["success", "failed"]).default("success"),
+                output: z.unknown().optional(),
+                error: z.string().optional(),
+                errorName: z.string().optional(),
                 screenshotBeforeKey: z.string().optional(),
                 screenshotAfterKey: z.string().optional(),
             }),

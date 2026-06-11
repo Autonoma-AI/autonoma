@@ -1,11 +1,17 @@
 import type { ScenarioData } from "../../scenario-data";
-import type { ChangeContext, ReviewLineage } from "../kernel";
+import type { ChangeContext, ReviewLineage, ReviewStep } from "../kernel";
 
-export interface RunStepData {
+/**
+ * One reviewed replay step: the normalized {@link ReviewStep} plus the
+ * presentation metadata the shared renderer and screenshot tool need (the
+ * step's `order` and its before/after screenshot keys). The replay run persists
+ * every step into a single `output` JSON blob with no status column, so the
+ * loader derives `status`/`error`/`errorName` from that blob: a successful step
+ * carries the command's structured `output`, while a failed step carries the
+ * `errorName` + message the persister recorded.
+ */
+export interface RunStepData extends ReviewStep {
     order: number;
-    interaction: string;
-    params: unknown;
-    output: unknown;
     screenshotBeforeKey?: string;
     screenshotAfterKey?: string;
 }

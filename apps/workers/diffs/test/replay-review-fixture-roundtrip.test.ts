@@ -26,14 +26,24 @@ describe("replay review fixture round-trip", () => {
             steps: [
                 {
                     order: 0,
+                    interaction: "navigate",
+                    params: { url: "/login" },
+                    status: "success",
+                    output: { outcome: "success", url: "https://app.test/login" },
+                    screenshotBeforeKey: "run/run-1/step-0-before.jpeg",
+                },
+                {
+                    order: 1,
                     interaction: "click",
                     params: { target: "submit" },
-                    output: { outcome: "element_not_found" },
-                    screenshotBeforeKey: "run/run-1/step-0-before.jpeg",
+                    status: "failed",
+                    error: "could not find element matching 'submit'",
+                    errorName: "ElementNotFoundError",
+                    screenshotBeforeKey: "run/run-1/step-1-before.jpeg",
                 },
             ],
             videoS3Key: "run/run-1/video.webm",
-            finalScreenshotKey: "run/run-1/step-0-before.jpeg",
+            finalScreenshotKey: "run/run-1/step-1-before.jpeg",
             change: {
                 baseSha: "base000",
                 headSha: "head111",
@@ -98,7 +108,9 @@ describe("replay review fixture round-trip", () => {
                 organizationId: "org-1",
                 testPlanPrompt: "do the thing",
                 testCaseName: "Legacy case",
-                steps: [],
+                // A step frozen before the command-aware renderer had no `status`;
+                // every such step was a success, so the default must recover that.
+                steps: [{ order: 0, interaction: "click", params: { target: "x" }, output: { outcome: "clicked" } }],
             },
         };
 
@@ -108,5 +120,6 @@ describe("replay review fixture round-trip", () => {
         expect(context.change).toBeUndefined();
         expect(context.lineage).toBeUndefined();
         expect(context.runId).toBe("run-legacy");
+        expect(context.steps[0]?.status).toBe("success");
     });
 });

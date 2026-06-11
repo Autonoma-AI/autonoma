@@ -217,7 +217,7 @@ export class RunPersister<TSpec extends CommandSpec> {
                 listId: this.stepOutputListId,
                 organizationId: this.organizationId,
                 order: index,
-                output: (step.output ?? { outcome: step.error?.message ?? "failed" }) as object,
+                output: this.buildStepOutput(step),
                 stepInputId,
                 screenshotBefore: screenshotBeforeUrl,
                 screenshotAfter: screenshotAfterUrl,
@@ -225,6 +225,23 @@ export class RunPersister<TSpec extends CommandSpec> {
         });
 
         this.logger.info("Run step persisted", { index });
+    }
+
+    /**
+     * The JSON written to `StepOutput.output`. On success it is the command's
+     * structured output verbatim. On failure (no output) it is the error message
+     * under `outcome` plus the error class under `errorName` - the attribution
+     * classifier the replay reviewer reads back, mirroring the `errorName` the
+     * generation reviewer gets from `StepAttempt`. `errorName` is always present
+     * on the failure shape, so the loader can use it to tell failures from the
+     * never-`errorName` command outputs of successful steps.
+     */
+    private buildStepOutput(step: PersistableRunStep<TSpec>): object {
+        if (step.output != null) return step.output;
+        return {
+            outcome: step.error?.message ?? "failed",
+            errorName: step.error?.constructor.name ?? "Error",
+        };
     }
 
     public async markCompleted({ result, videoPath }: ReplayRunResult<TSpec>): Promise<void> {

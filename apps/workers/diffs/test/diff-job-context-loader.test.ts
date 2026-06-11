@@ -80,6 +80,53 @@ diffJobContextSuite({
             });
         });
 
+        test("maps run steps onto the normalized reviewer shape, deriving failure from the persisted errorName", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { runId } = await harness.seedFailedRun({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                steps: [
+                    {
+                        order: 0,
+                        interaction: "navigate",
+                        params: { url: "/login" },
+                        output: { outcome: "success", url: "https://app.test/login" },
+                    },
+                    {
+                        order: 1,
+                        interaction: "click",
+                        params: { target: "submit" },
+                        // The failure shape the run persister writes: message under
+                        // `outcome`, error class under `errorName`.
+                        output: {
+                            outcome: "could not find element matching 'submit'",
+                            errorName: "ElementNotFoundError",
+                        },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db).load(runId);
+
+            const [success, failure] = context.steps;
+            // No `errorName` in the persisted output -> a success: `output` is
+            // preserved verbatim and no failure fields leak in.
+            expect(success?.status).toBe("success");
+            expect(success?.output).toEqual({ outcome: "success", url: "https://app.test/login" });
+            expect(success?.error).toBeUndefined();
+            expect(success?.errorName).toBeUndefined();
+
+            // A persisted `errorName` -> a failure: status flips, the message
+            // surfaces as `error`, the class as `errorName`, and the raw failure
+            // blob is not carried as `output`.
+            expect(failure?.status).toBe("failed");
+            expect(failure?.error).toBe("could not find element matching 'submit'");
+            expect(failure?.errorName).toBe("ElementNotFoundError");
+            expect(failure?.output).toBeUndefined();
+        });
+
         test("includes SHAs but omits affected fields when the run's test was not flagged", async ({
             harness,
             seedResult,

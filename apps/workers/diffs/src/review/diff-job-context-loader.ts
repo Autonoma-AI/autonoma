@@ -65,6 +65,15 @@ interface GenerationStepInputRow {
     outputs: { output: unknown }[];
 }
 
+/** One persisted replay `StepOutput` (+ its `StepInput`), the replay step source. */
+interface ReplayStepOutputRow {
+    order: number;
+    output: unknown;
+    screenshotBefore: string | null;
+    screenshotAfter: string | null;
+    stepInput: { interaction: string; params: unknown };
+}
+
 /**
  * Gathers everything a diff-job agent needs from the database, at one of two
  * scopes:
@@ -157,14 +166,7 @@ export class DiffJobContextLoader {
 
         const outputSteps = run.outputs?.list ?? [];
 
-        const steps: RunStepData[] = outputSteps.map((step) => ({
-            order: step.order,
-            interaction: step.stepInput.interaction,
-            params: step.stepInput.params,
-            output: step.output,
-            screenshotBeforeKey: step.screenshotBefore ?? undefined,
-            screenshotAfterKey: step.screenshotAfter ?? undefined,
-        }));
+        const steps: RunStepData[] = outputSteps.map((step) => this.toReplayStep(step));
 
         const lastStep = outputSteps[outputSteps.length - 1];
         const finalScreenshotKey = lastStep?.screenshotAfter ?? lastStep?.screenshotBefore ?? undefined;
@@ -199,6 +201,38 @@ export class DiffJobContextLoader {
         if (lineage != null) context.lineage = lineage;
         if (scenario != null) context.scenario = scenario;
         return context;
+    }
+
+    /**
+     * Map one persisted replay `StepOutput` to the normalized reviewer step
+     * shape. The replay run stores every step's result in a single `output` JSON
+     * blob with no status column, so the discriminant is the `errorName` the run
+     * persister writes only on failure: present means a failed step whose
+     * `outcome` is the error message; absent means a successful step whose
+     * `output` is the command's structured result. This mirrors the generation
+     * path's `StepAttempt` mapping, so both reviewers feed the shared renderer the
+     * same shape.
+     */
+    private toReplayStep(step: ReplayStepOutputRow): RunStepData {
+        const reviewStep: RunStepData = {
+            order: step.order,
+            interaction: step.stepInput.interaction,
+            params: step.stepInput.params,
+            status: "success",
+        };
+        if (step.screenshotBefore != null) reviewStep.screenshotBeforeKey = step.screenshotBefore;
+        if (step.screenshotAfter != null) reviewStep.screenshotAfterKey = step.screenshotAfter;
+
+        const failure = readPersistedFailure(step.output);
+        if (failure != null) {
+            reviewStep.status = "failed";
+            if (failure.error != null) reviewStep.error = failure.error;
+            reviewStep.errorName = failure.errorName;
+            return reviewStep;
+        }
+
+        if (step.output != null) reviewStep.output = step.output;
+        return reviewStep;
     }
 
     /**
@@ -818,4 +852,27 @@ export class DiffJobContextLoader {
 
         return change;
     }
+}
+
+/**
+ * Read the failure attribution a replay step's persisted `output` carries, or
+ * `undefined` when the step succeeded. The run persister writes a string
+ * `errorName` only on failure (alongside the error message under `outcome`), and
+ * no successful command output ever carries an `errorName` field - so a string
+ * `errorName` is an exact failure discriminant.
+ */
+function readPersistedFailure(output: unknown): { error?: string; errorName: string } | undefined {
+    if (!isRecord(output)) return undefined;
+
+    const errorName = output["errorName"];
+    if (typeof errorName !== "string") return undefined;
+
+    const failure: { error?: string; errorName: string } = { errorName };
+    const outcome = output["outcome"];
+    if (typeof outcome === "string") failure.error = outcome;
+    return failure;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

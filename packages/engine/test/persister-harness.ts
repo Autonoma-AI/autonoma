@@ -46,6 +46,17 @@ export interface SeededGeneration {
     generationId: string;
 }
 
+/** Identifiers for a run and the chain of records it hangs off. */
+export interface SeededRun {
+    organizationId: string;
+    applicationId: string;
+    testCaseId: string;
+    snapshotId: string;
+    assignmentId: string;
+    stepsListId: string;
+    runId: string;
+}
+
 /** Postgres-backed harness for GenerationPersister integration tests. */
 export class PersisterTestHarness implements IntegrationHarness {
     constructor(
@@ -129,6 +140,96 @@ export class PersisterTestHarness implements IntegrationHarness {
             testCaseId: testCase.id,
             snapshotId: snapshot.id,
             generationId: generation.id,
+        };
+    }
+
+    /**
+     * Creates an org -> app -> branch -> snapshot -> testCase -> testPlan ->
+     * stepInputList (with two steps) -> assignment -> run chain. The two
+     * StepInput rows (orders 1 and 2) are what `RunPersister.recordStep` resolves
+     * its `stepInputId` against, so callers record steps at those orders.
+     */
+    async seedRun(): Promise<SeededRun> {
+        const stamp = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+
+        const organization = await this.db.organization.create({
+            data: { name: `Org ${stamp}`, slug: `org-${stamp}` },
+        });
+        const application = await this.db.application.create({
+            data: {
+                name: `App ${stamp}`,
+                slug: `app-${stamp}`,
+                organizationId: organization.id,
+                architecture: "WEB",
+            },
+        });
+        const branch = await this.db.branch.create({
+            data: { name: "main", applicationId: application.id, organizationId: organization.id },
+        });
+        const snapshot = await this.db.branchSnapshot.create({
+            data: { branchId: branch.id, source: "MANUAL", status: SnapshotStatus.processing },
+        });
+        const folder = await this.db.folder.create({
+            data: { name: `Folder ${stamp}`, applicationId: application.id, organizationId: organization.id },
+        });
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: `Test Case ${stamp}`,
+                slug: `test-case-${stamp}`,
+                applicationId: application.id,
+                organizationId: organization.id,
+                folderId: folder.id,
+            },
+        });
+        const testPlan = await this.db.testPlan.create({
+            data: { prompt: "test prompt", testCaseId: testCase.id, organizationId: organization.id },
+        });
+        const stepsList = await this.db.stepInputList.create({
+            data: {
+                planId: testPlan.id,
+                organizationId: organization.id,
+                list: {
+                    create: [
+                        {
+                            order: 1,
+                            interaction: "assert",
+                            params: { instruction: "first step" },
+                            organizationId: organization.id,
+                        },
+                        {
+                            order: 2,
+                            interaction: "assert",
+                            params: { instruction: "second step" },
+                            organizationId: organization.id,
+                        },
+                    ],
+                },
+            },
+        });
+        const assignment = await this.db.testCaseAssignment.create({
+            data: {
+                snapshotId: snapshot.id,
+                testCaseId: testCase.id,
+                planId: testPlan.id,
+                stepsId: stepsList.id,
+            },
+        });
+        const run = await this.db.run.create({
+            data: {
+                assignmentId: assignment.id,
+                planId: testPlan.id,
+                organizationId: organization.id,
+            },
+        });
+
+        return {
+            organizationId: organization.id,
+            applicationId: application.id,
+            testCaseId: testCase.id,
+            snapshotId: snapshot.id,
+            assignmentId: assignment.id,
+            stepsListId: stepsList.id,
+            runId: run.id,
         };
     }
 }
