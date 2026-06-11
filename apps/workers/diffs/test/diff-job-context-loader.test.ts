@@ -372,6 +372,97 @@ diffJobContextSuite({
             expect(context.lineage).toBeUndefined();
         });
 
+        test("sources generation steps from the StepAttempt timeline, surfacing failed attempts the replay list omits", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                testName: "Signup flow",
+                steps: [
+                    // A failed attempt: present in the attempt timeline, absent from
+                    // the successful-only StepInput replay list.
+                    {
+                        order: 0,
+                        interaction: "click",
+                        params: { description: "the Submit button" },
+                        status: "failed",
+                        error: "could not find element matching 'the Submit button'",
+                        errorName: "ElementNotFoundError",
+                        screenshotBefore: "generation/x/attempt-0-before.jpeg",
+                    },
+                    // A later successful attempt against the renamed control.
+                    {
+                        order: 1,
+                        interaction: "click",
+                        params: { description: "the Confirm button" },
+                        status: "success",
+                        output: { outcome: "success", point: { x: 10, y: 20 } },
+                        screenshotBefore: "generation/x/step-0-before.jpeg",
+                        screenshotAfter: "generation/x/step-0-after.jpeg",
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            // The full timeline comes back in order, failure included.
+            expect(context.steps.map((s) => s.order)).toEqual([0, 1]);
+
+            const failed = context.steps[0];
+            expect(failed?.status).toBe("failed");
+            expect(failed?.error).toBe("could not find element matching 'the Submit button'");
+            expect(failed?.errorName).toBe("ElementNotFoundError");
+            // A failed attempt carries no structured output.
+            expect(failed?.output).toBeUndefined();
+            expect(failed?.screenshotBeforeKey).toBe("generation/x/attempt-0-before.jpeg");
+
+            const succeeded = context.steps[1];
+            expect(succeeded?.status).toBe("success");
+            expect(succeeded?.output).toEqual({ outcome: "success", point: { x: 10, y: 20 } });
+            // A success carries no error fields.
+            expect(succeeded?.error).toBeUndefined();
+            expect(succeeded?.errorName).toBeUndefined();
+        });
+
+        test("falls back to the StepInput replay list for a generation predating the StepAttempt timeline", async ({
+            harness,
+            seedResult,
+        }) => {
+            // A pre-StepAttempt generation: only StepInput/StepOutput rows exist,
+            // no attempts. The loader must still surface its steps via the fallback.
+            const { generationId } = await harness.seedGeneration({
+                organizationId: seedResult.organizationId,
+                applicationId: seedResult.applicationId,
+                legacyStepInputs: [
+                    {
+                        order: 0,
+                        interaction: "type",
+                        params: { description: "email", text: "new@test.com" },
+                        output: { outcome: "success" },
+                        screenshotBefore: "generation/x/step-0-before.jpeg",
+                        screenshotAfter: "generation/x/step-0-after.jpeg",
+                    },
+                    {
+                        order: 1,
+                        interaction: "click",
+                        params: { description: "submit" },
+                        output: { outcome: "success", point: { x: 5, y: 9 } },
+                    },
+                ],
+            });
+
+            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
+
+            expect(context.steps.map((s) => s.order)).toEqual([0, 1]);
+            // Every fallback step is a success - that era only persisted successes.
+            expect(context.steps.every((s) => s.status === "success")).toBe(true);
+            expect(context.steps[0]?.params).toEqual({ description: "email", text: "new@test.com" });
+            expect(context.steps[0]?.screenshotBeforeKey).toBe("generation/x/step-0-before.jpeg");
+            expect(context.steps[1]?.output).toEqual({ outcome: "success", point: { x: 5, y: 9 } });
+        });
+
         test("returns an empty conversation for a generation with no conversation URL", async ({
             harness,
             seedResult,

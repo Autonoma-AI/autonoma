@@ -42,6 +42,29 @@ interface ChangeSnapshot {
     diffsJob: { analysisReasoning: string | null } | null;
 }
 
+/** One `StepAttempt` row, the preferred source for generation steps. */
+interface GenerationAttemptRow {
+    order: number;
+    interaction: string;
+    params: unknown;
+    status: "success" | "failed";
+    output: unknown;
+    error: string | null;
+    errorName: string | null;
+    screenshotBefore: string | null;
+    screenshotAfter: string | null;
+}
+
+/** One `StepInput` (+ its single `StepOutput`), the legacy fallback source. */
+interface GenerationStepInputRow {
+    order: number;
+    interaction: string;
+    params: unknown;
+    screenshotBefore: string | null;
+    screenshotAfter: string | null;
+    outputs: { output: unknown }[];
+}
+
 /**
  * Gathers everything a diff-job agent needs from the database, at one of two
  * scopes:
@@ -184,6 +207,14 @@ export class DiffJobContextLoader {
      * same subject-scoped change facts + point-in-time lineage the replay path
      * gets. The generation reviewer already reasons over the conversation; this
      * widens it with the change + lineage the replay reviewer gained in #804/#805.
+     *
+     * Steps come from the `StepAttempt` timeline - every attempt in true order,
+     * counting failures - so the Step Summary surfaces failed attempts (the most
+     * diagnostic moments) the successful-only `StepInput` replay list omits. Each
+     * attempt maps to the normalized reviewer step shape: `output` on success,
+     * `error` + `errorName` on failure. Generations that predate the `StepAttempt`
+     * table have no attempts; for those (and re-captures of them) the loader falls
+     * back to the `StepInput` replay list, mapping each step as a success.
      */
     async loadGeneration(generationId: string): Promise<GenerationContext> {
         this.logger.info("Loading generation review context", { generationId });
@@ -214,6 +245,25 @@ export class DiffJobContextLoader {
                     },
                 },
                 affectedTest: { select: { affectedReason: true, reasoning: true } },
+                // The full attempt timeline (successes and failures), in true
+                // order, with the per-attempt diagnostic fields. The preferred
+                // source, since it keeps failed attempts visible.
+                attempts: {
+                    select: {
+                        order: true,
+                        interaction: true,
+                        params: true,
+                        status: true,
+                        output: true,
+                        error: true,
+                        errorName: true,
+                        screenshotBefore: true,
+                        screenshotAfter: true,
+                    },
+                    orderBy: { order: "asc" },
+                },
+                // The successful-only StepInput replay list - the fallback source
+                // for generations that predate the StepAttempt table (see below).
                 steps: {
                     select: {
                         list: {
@@ -232,14 +282,7 @@ export class DiffJobContextLoader {
             },
         });
 
-        const steps: GenerationStepData[] = (generation.steps?.list ?? []).map((input) => ({
-            order: input.order,
-            interaction: input.interaction,
-            params: input.params,
-            output: input.outputs[0]?.output,
-            screenshotBeforeKey: input.screenshotBefore ?? undefined,
-            screenshotAfterKey: input.screenshotAfter ?? undefined,
-        }));
+        const steps = this.resolveGenerationSteps(generationId, generation.attempts, generation.steps?.list ?? []);
 
         const conversation = await this.loadConversation(generation.conversationUrl);
         const change = this.buildChangeContext(generationId, generation.snapshot, generation.affectedTest);
@@ -275,6 +318,57 @@ export class DiffJobContextLoader {
         if (lineage != null) context.lineage = lineage;
         if (scenario != null) context.scenario = scenario;
         return context;
+    }
+
+    /**
+     * Map a generation's persisted steps to the normalized reviewer step shape,
+     * preferring the `StepAttempt` timeline (failures included) and falling back
+     * to the successful-only `StepInput` replay list for generations that predate
+     * the `StepAttempt` table. The fallback marks every step a success, which is
+     * exact: that era only ever persisted successful steps.
+     */
+    private resolveGenerationSteps(
+        generationId: string,
+        attempts: readonly GenerationAttemptRow[],
+        stepInputs: readonly GenerationStepInputRow[],
+    ): GenerationStepData[] {
+        if (attempts.length > 0) {
+            return attempts.map((attempt) => {
+                const step: GenerationStepData = {
+                    order: attempt.order,
+                    interaction: attempt.interaction,
+                    params: attempt.params,
+                    status: attempt.status,
+                };
+                if (attempt.output != null) step.output = attempt.output;
+                if (attempt.error != null) step.error = attempt.error;
+                if (attempt.errorName != null) step.errorName = attempt.errorName;
+                if (attempt.screenshotBefore != null) step.screenshotBeforeKey = attempt.screenshotBefore;
+                if (attempt.screenshotAfter != null) step.screenshotAfterKey = attempt.screenshotAfter;
+                return step;
+            });
+        }
+
+        if (stepInputs.length > 0) {
+            this.logger.info("No StepAttempt rows for generation; falling back to the StepInput replay list", {
+                generationId,
+                stepInputCount: stepInputs.length,
+            });
+        }
+
+        return stepInputs.map((input) => {
+            const step: GenerationStepData = {
+                order: input.order,
+                interaction: input.interaction,
+                params: input.params,
+                status: "success",
+            };
+            const output = input.outputs[0]?.output;
+            if (output != null) step.output = output;
+            if (input.screenshotBefore != null) step.screenshotBeforeKey = input.screenshotBefore;
+            if (input.screenshotAfter != null) step.screenshotAfterKey = input.screenshotAfter;
+            return step;
+        });
     }
 
     /**

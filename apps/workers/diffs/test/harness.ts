@@ -172,12 +172,19 @@ export interface SeededLineage {
     loopId: string;
 }
 
-/** One generation step: a StepInput (with screenshots) + its single StepOutput. */
+/**
+ * One generation attempt, materialized as a `StepAttempt` row (the timeline the
+ * loader reads). A success carries `output`; a failure carries `error` +
+ * `errorName` and omits `output`. `status` defaults to `"success"`.
+ */
 export interface SeedGenerationStep {
     order: number;
     interaction: string;
-    params: object;
-    output: object;
+    params?: object;
+    status?: "success" | "failed";
+    output?: object;
+    error?: string;
+    errorName?: string;
     screenshotBefore?: string;
     screenshotAfter?: string;
 }
@@ -201,7 +208,14 @@ export interface SeedGenerationParams {
     conversation?: ModelMessage[];
     videoUrl?: string;
     finalScreenshot?: string;
+    /** Attempt-timeline steps, materialized as `StepAttempt` rows (the preferred source). */
     steps?: SeedGenerationStep[];
+    /**
+     * Legacy replay-list steps, materialized as `StepInput`/`StepOutput` rows with
+     * NO `StepAttempt`, exercising the loader's fallback for generations that
+     * predate the attempt timeline. Every entry is treated as a success.
+     */
+    legacyStepInputs?: SeedGenerationStep[];
     /**
      * When provided, a Scenario + ScenarioInstance is created and the generation
      * is linked to it. `status` defaults to `UP_SUCCESS`; `generatedData` is the
@@ -886,6 +900,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
             finalScreenshot: params.finalScreenshot,
             conversation: params.conversation,
             steps: params.steps ?? [],
+            legacyStepInputs: params.legacyStepInputs ?? [],
             scenarioInstanceId,
         });
 
@@ -1229,13 +1244,16 @@ export class DiffJobContextHarness implements IntegrationHarness {
         finalScreenshot?: string;
         conversation?: ModelMessage[];
         steps: SeedGenerationStep[];
+        legacyStepInputs?: SeedGenerationStep[];
         scenarioInstanceId?: string;
     }): Promise<{ id: string }> {
         const conversationUrl = this.storeConversation(args.conversation);
 
-        const stepsId = await this.createGenerationSteps(args.planId, args.organizationId, args.steps);
+        // Legacy replay-list steps (StepInput/StepOutput) are linked via stepsId,
+        // mirroring how pre-StepAttempt generations were persisted.
+        const stepsId = await this.createGenerationSteps(args.planId, args.organizationId, args.legacyStepInputs ?? []);
 
-        return this.db.testGeneration.create({
+        const generation = await this.db.testGeneration.create({
             data: {
                 testPlanId: args.planId,
                 snapshotId: args.snapshotId,
@@ -1250,6 +1268,10 @@ export class DiffJobContextHarness implements IntegrationHarness {
             },
             select: { id: true },
         });
+
+        await this.createStepAttempts(generation.id, args.organizationId, args.steps);
+
+        return generation;
     }
 
     private storeConversation(conversation: ModelMessage[] | undefined): string | undefined {
@@ -1260,9 +1282,9 @@ export class DiffJobContextHarness implements IntegrationHarness {
     }
 
     /**
-     * Generation steps live on a StepInputList: each StepInput carries the
+     * Legacy generation steps live on a StepInputList: each StepInput carries the
      * interaction/params + screenshots, and its single StepOutput carries the
-     * command output - exactly the shape `loadGeneration` reads back.
+     * command output. This is the pre-StepAttempt shape the loader falls back to.
      */
     private async createGenerationSteps(
         planId: string,
@@ -1280,7 +1302,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
                     listId: inputList.id,
                     order: step.order,
                     interaction: step.interaction,
-                    params: step.params,
+                    params: step.params ?? {},
                     screenshotBefore: step.screenshotBefore ?? null,
                     screenshotAfter: step.screenshotAfter ?? null,
                     organizationId,
@@ -1290,7 +1312,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 data: {
                     listId: outputList.id,
                     order: step.order,
-                    output: step.output,
+                    output: step.output ?? {},
                     stepInputId: stepInput.id,
                     organizationId,
                 },
@@ -1298,6 +1320,35 @@ export class DiffJobContextHarness implements IntegrationHarness {
         }
 
         return inputList.id;
+    }
+
+    /**
+     * Generation steps live on the `StepAttempt` timeline the loader reads back:
+     * every attempt in order, a success carrying `output` and a failure carrying
+     * `error` + `errorName`. Mirrors how the generation persister records attempts.
+     */
+    private async createStepAttempts(
+        generationId: string,
+        organizationId: string,
+        steps: SeedGenerationStep[],
+    ): Promise<void> {
+        for (const step of steps) {
+            await this.db.stepAttempt.create({
+                data: {
+                    generationId,
+                    organizationId,
+                    order: step.order,
+                    interaction: step.interaction,
+                    params: step.params ?? undefined,
+                    status: step.status ?? "success",
+                    output: step.output ?? undefined,
+                    error: step.error ?? null,
+                    errorName: step.errorName ?? null,
+                    screenshotBefore: step.screenshotBefore ?? null,
+                    screenshotAfter: step.screenshotAfter ?? null,
+                },
+            });
+        }
     }
 
     private async createPlan(testCaseId: string, prompt: string, organizationId: string) {

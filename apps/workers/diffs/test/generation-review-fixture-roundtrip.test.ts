@@ -37,8 +37,18 @@ describe("generation review fixture round-trip", () => {
                     order: 0,
                     interaction: "type",
                     params: { target: "email" },
-                    output: { success: true },
+                    status: "success",
+                    output: { outcome: "success", point: { x: 12, y: 34 } },
                     screenshotBeforeKey: "generation/gen-1/step-0-before.jpeg",
+                },
+                {
+                    order: 1,
+                    interaction: "click",
+                    params: { target: "submit" },
+                    status: "failed",
+                    error: "could not find element matching 'submit'",
+                    errorName: "ElementNotFoundError",
+                    screenshotBeforeKey: "generation/gen-1/attempt-1-before.jpeg",
                 },
             ],
             change: {
@@ -105,7 +115,9 @@ describe("generation review fixture round-trip", () => {
                 selfReportedStatus: "failed",
                 testPlanPrompt: "do the thing",
                 conversation: [],
-                steps: [],
+                // Steps captured before the attempt timeline had no `status`; every
+                // persisted step was a success, so the default must recover that.
+                steps: [{ order: 0, interaction: "click", params: { target: "x" }, output: { outcome: "success" } }],
             },
         };
 
@@ -115,5 +127,6 @@ describe("generation review fixture round-trip", () => {
         expect(context.change).toBeUndefined();
         expect(context.lineage).toBeUndefined();
         expect(context.generationId).toBe("gen-legacy");
+        expect(context.steps[0]?.status).toBe("success");
     });
 });

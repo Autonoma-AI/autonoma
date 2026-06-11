@@ -34,12 +34,19 @@ export const generationReviewCaseInputSchema = z.object({
         reasoning: z.string().optional(),
         videoUrl: z.string().optional(),
         finalScreenshotKey: z.string().optional(),
+        // Sourced from the StepAttempt timeline: `status` discriminates success
+        // (carries `output`) from failure (carries `error` + `errorName`). The
+        // `status` default keeps legacy fixtures - captured before the attempt
+        // timeline existed, when every persisted step was a success - parseable.
         steps: z.array(
             z.object({
                 order: z.number().int().nonnegative(),
                 interaction: z.string(),
                 params: z.unknown(),
-                output: z.unknown(),
+                status: z.enum(["success", "failed"]).default("success"),
+                output: z.unknown().optional(),
+                error: z.string().optional(),
+                errorName: z.string().optional(),
                 screenshotBeforeKey: z.string().optional(),
                 screenshotAfterKey: z.string().optional(),
             }),

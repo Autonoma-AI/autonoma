@@ -1,12 +1,15 @@
 import type { ModelMessage } from "ai";
 import type { ScenarioData } from "../../scenario-data";
-import type { ChangeContext, ReviewLineage } from "../kernel";
+import type { ChangeContext, ReviewLineage, ReviewStep } from "../kernel";
 
-export interface GenerationStepData {
+/**
+ * One reviewed generation step, sourced from the `StepAttempt` timeline (every
+ * attempt, successes and failures, in true order). It is the normalized
+ * {@link ReviewStep} plus the presentation metadata the summary and screenshot
+ * tool need: the attempt-timeline `order` and the before/after screenshot keys.
+ */
+export interface GenerationStepData extends ReviewStep {
     order: number;
-    interaction: string;
-    params: unknown;
-    output: unknown;
     screenshotBeforeKey?: string;
     screenshotAfterKey?: string;
 }

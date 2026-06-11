@@ -1,7 +1,13 @@
 import type { UploadedVideo } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
 import { summarizeScenarioData } from "../../scenario-data";
-import { MessageBuilder, buildChangeContextSection, buildLineageSection, sanitizeConversation } from "../kernel";
+import {
+    MessageBuilder,
+    buildChangeContextSection,
+    buildLineageSection,
+    buildStepSummary,
+    sanitizeConversation,
+} from "../kernel";
 import type { GenerationContext } from "./types";
 
 const CHANGE_CONTEXT_INTRO =
@@ -40,7 +46,7 @@ export function buildGenerationReviewMessages(
 
     builder
         .video(video, "The video above shows the complete execution recording.")
-        .section("Step Summary", buildStepSummary(context));
+        .section("Step Summary", buildStepSummary(context.steps));
 
     if (context.reasoning != null) {
         builder.section("Agent's Final Reasoning", context.reasoning);
@@ -57,28 +63,4 @@ export function buildGenerationReviewMessages(
     );
 
     return builder.build();
-}
-
-function buildStepSummary(context: GenerationContext): string {
-    if (context.steps.length === 0) return "No steps were executed.";
-
-    return context.steps
-        .map((step) => {
-            const output = step.output as Record<string, unknown> | undefined;
-            const success = output?.success ?? "unknown";
-            const result = output?.result ?? output?.error ?? "";
-            const hasScreenshots = step.screenshotBeforeKey != null || step.screenshotAfterKey != null;
-
-            const lines = [
-                `### Step ${step.order}: ${step.interaction}`,
-                `- **Parameters**: ${JSON.stringify(step.params)}`,
-                `- **Success**: ${success}`,
-                `- **Result**: ${JSON.stringify(result)}`,
-            ];
-            if (hasScreenshots) {
-                lines.push("- Screenshots available (use view_step_screenshot tool to inspect)");
-            }
-            return lines.join("\n");
-        })
-        .join("\n\n");
 }
