@@ -1,4 +1,10 @@
-import type { AffectedTest, QuarantinedTest, SnapshotChange, TestCandidate } from "./diffs-timeline-types";
+import type {
+    AffectedTest,
+    ExecutedTest,
+    QuarantinedTest,
+    SnapshotChange,
+    TestCandidate,
+} from "./diffs-timeline-types";
 
 export type EntryCategory =
     | "added"
@@ -48,13 +54,16 @@ export function buildSections({
     affectedTests,
     testCandidates,
     quarantinedTests,
+    executedTests,
 }: {
     changes: SnapshotChange[];
     affectedTests: AffectedTest[];
     testCandidates: TestCandidate[];
     quarantinedTests: QuarantinedTest[];
+    executedTests: ExecutedTest[];
 }): Section[] {
     const affectedByTestCaseId = new Map(affectedTests.map((t) => [t.testCase.id, t]));
+    const executedByTestCaseId = new Map(executedTests.map((e) => [e.testCase.id, e]));
     const candidateByAcceptedTestCaseId = new Map<string, TestCandidate>();
     for (const c of testCandidates) {
         if (c.acceptedTestCase != null) candidateByAcceptedTestCaseId.set(c.acceptedTestCase.id, c);
@@ -97,7 +106,7 @@ export function buildSections({
                 plan: change.plan,
                 previousPlan: change.previousPlan,
                 generation: affectedGeneration(affected),
-                run: affectedRun(affected),
+                run: modifiedRun(affected, executedByTestCaseId.get(change.testCaseId)),
                 quarantine: quarantineByTestCaseId.get(change.testCaseId),
             });
             surfaced.add(change.testCaseId);
@@ -122,7 +131,7 @@ export function buildSections({
             testSlug: affected.testCase.slug,
             reasoning: affected.reasoning,
             generation: affectedGeneration(affected),
-            run: affectedRun(affected),
+            run: modifiedRun(affected, executedByTestCaseId.get(affected.testCase.id)),
             quarantine: quarantineByTestCaseId.get(affected.testCase.id),
         });
         surfaced.add(affected.testCase.id);
@@ -202,4 +211,21 @@ function affectedRun(t: AffectedTest | undefined): TestEntry["run"] {
         verdict: t.run.runReview?.verdict ?? undefined,
         reviewReasoning: t.run.runReview?.reasoning ?? undefined,
     };
+}
+
+// `AffectedTest.run` is pinned to the *initial* replay that detected the test as
+// affected and is never re-pointed at the post-fix validation run created by the
+// refinement loop. For a modified test the user expects the latest replay, so
+// prefer the snapshot's latest executed run for the test case and fall back to
+// the initial replay only when no executed run exists yet.
+function modifiedRun(t: AffectedTest | undefined, executed: ExecutedTest | undefined): TestEntry["run"] {
+    if (executed?.runId != null) {
+        return {
+            id: executed.runId,
+            status: executed.status,
+            verdict: executed.verdict ?? undefined,
+            reviewReasoning: executed.reviewReasoning ?? undefined,
+        };
+    }
+    return affectedRun(t);
 }

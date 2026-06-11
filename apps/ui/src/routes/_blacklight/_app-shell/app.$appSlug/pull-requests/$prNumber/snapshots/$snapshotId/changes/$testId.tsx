@@ -13,7 +13,7 @@ export const Route = createFileRoute(
 function ChangesDetailRoute() {
   const { prNumber, snapshotId, testId } = Route.useParams();
   const { data } = useSnapshotDetail(snapshotId);
-  const { changes, diffsJob, quarantinedTests } = data;
+  const { changes, diffsJob, quarantinedTests, executedTests } = data;
 
   const entry = useMemo(() => {
     const sections = buildSections({
@@ -21,9 +21,10 @@ function ChangesDetailRoute() {
       affectedTests: diffsJob.affectedTests,
       testCandidates: diffsJob.testCandidates,
       quarantinedTests,
+      executedTests,
     });
     return sections.flatMap((s) => s.entries).find((e) => e.urlId === testId);
-  }, [changes, diffsJob.affectedTests, diffsJob.testCandidates, quarantinedTests, testId]);
+  }, [changes, diffsJob.affectedTests, diffsJob.testCandidates, quarantinedTests, executedTests, testId]);
 
   if (entry == null) {
     return (

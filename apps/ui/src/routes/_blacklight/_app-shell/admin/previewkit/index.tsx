@@ -22,14 +22,16 @@ export const Route = createFileRoute("/_blacklight/_app-shell/admin/previewkit/"
 
 type PreviewEnvironment = RouterOutputs["admin"]["listPreviewkitEnvironments"][number];
 
-// PreviewkitStatus -> Badge variant. torn_down never appears (filtered server-side)
-// but is mapped so the record stays exhaustive over the enum.
+// PreviewkitStatus -> Badge variant. torn_down (filtered server-side) and
+// superseded (only ever written to a build row, never to an environment row)
+// never appear here, but are mapped so the record stays exhaustive over the enum.
 const STATUS_VARIANT: Record<PreviewEnvironment["status"], "success" | "warn" | "critical" | "outline"> = {
   ready: "success",
   building: "warn",
   deploying: "warn",
   pending: "warn",
   failed: "critical",
+  superseded: "outline",
   torn_down: "outline",
   superseded: "warn",
 };

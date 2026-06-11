@@ -14,7 +14,7 @@ export const Route = createFileRoute(
 function ChangesLayout() {
   const { prNumber, snapshotId } = Route.useParams();
   const { data } = useSnapshotDetail(snapshotId);
-  const { changes, diffsJob, quarantinedTests } = data;
+  const { changes, diffsJob, quarantinedTests, executedTests } = data;
 
   const sections = useMemo(
     () =>
@@ -23,8 +23,9 @@ function ChangesLayout() {
         affectedTests: diffsJob.affectedTests,
         testCandidates: diffsJob.testCandidates,
         quarantinedTests,
+        executedTests,
       }),
-    [changes, diffsJob.affectedTests, diffsJob.testCandidates, quarantinedTests],
+    [changes, diffsJob.affectedTests, diffsJob.testCandidates, quarantinedTests, executedTests],
   );
 
   const total = sections.reduce((sum, s) => sum + s.entries.length, 0);

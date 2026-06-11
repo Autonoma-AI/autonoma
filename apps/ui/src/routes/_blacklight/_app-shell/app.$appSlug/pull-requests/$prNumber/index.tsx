@@ -398,6 +398,7 @@ function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSec
       affectedTests: detail.diffsJob.affectedTests,
       testCandidates: detail.diffsJob.testCandidates,
       quarantinedTests: detail.quarantinedTests,
+      executedTests: detail.executedTests,
     });
 
     for (const section of sections) {
