@@ -127,7 +127,7 @@ export class AwsExternalSecretManager {
                 },
             },
             spec: {
-                refreshInterval: "1h",
+                refreshInterval: "5m",
                 secretStoreRef: {
                     name: this.clusterSecretStoreName,
                     kind: "ClusterSecretStore",
