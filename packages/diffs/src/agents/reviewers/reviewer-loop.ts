@@ -1,4 +1,5 @@
 import { type AgentConfig, AgentLoop } from "@autonoma/ai";
+import type { ApplicationArchitecture } from "@autonoma/db";
 import type { Codebase } from "../../codebase";
 import type { ScenarioData } from "../../scenario-data";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
@@ -12,6 +13,7 @@ interface ReviewerLoopParams<TResult> extends AgentConfig<TResult> {
     steps: ReviewStepScreenshots[];
     finalScreenshotKey?: string;
     scenarioData?: ScenarioData;
+    architecture?: ApplicationArchitecture;
 }
 
 /**
@@ -33,6 +35,7 @@ export class ReviewerLoop<TResult>
     public readonly steps: ReviewStepScreenshots[];
     public readonly finalScreenshotKey?: string;
     public readonly scenarioData?: ScenarioData;
+    public readonly architecture?: ApplicationArchitecture;
 
     constructor({
         codebase,
@@ -40,6 +43,7 @@ export class ReviewerLoop<TResult>
         steps,
         finalScreenshotKey,
         scenarioData,
+        architecture,
         ...config
     }: ReviewerLoopParams<TResult>) {
         super(config);
@@ -48,5 +52,6 @@ export class ReviewerLoop<TResult>
         this.steps = steps;
         this.finalScreenshotKey = finalScreenshotKey;
         this.scenarioData = scenarioData;
+        this.architecture = architecture;
     }
 }

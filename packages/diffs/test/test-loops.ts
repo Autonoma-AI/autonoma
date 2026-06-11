@@ -1,9 +1,11 @@
 import { FinishTool } from "@autonoma/ai";
+import type { ApplicationArchitecture } from "@autonoma/db";
 import { z } from "zod";
 import type { DiffsAgentResult } from "../src/agents/diffs/diffs-agent";
 import { DiffsAgentLoop } from "../src/agents/diffs/diffs-agent-loop";
 import { ResolutionAgentLoop } from "../src/agents/resolution/resolution-agent-loop";
 import { ReviewerLoop } from "../src/agents/reviewers/reviewer-loop";
+import type { ReviewStepScreenshots, ScreenshotLoader } from "../src/agents/tools/screenshot/screenshot-types";
 import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
@@ -67,6 +69,9 @@ export interface ResolutionLoopOverrides {
 export interface ReviewerLoopOverrides {
     workingDirectory?: string;
     scenarioData?: ScenarioData;
+    steps?: ReviewStepScreenshots[];
+    screenshotLoader?: ScreenshotLoader;
+    architecture?: ApplicationArchitecture;
 }
 
 export function makeReviewerLoop(overrides: ReviewerLoopOverrides = {}): ReviewerLoop<never> {
@@ -77,9 +82,10 @@ export function makeReviewerLoop(overrides: ReviewerLoopOverrides = {}): Reviewe
         tools: [],
         reportTool: FAKE_RESULT_TOOL as never,
         codebase: new Codebase(overrides.workingDirectory ?? process.cwd()),
-        screenshotLoader: { loadScreenshot: async () => Buffer.alloc(0) },
-        steps: [],
+        screenshotLoader: overrides.screenshotLoader ?? { loadScreenshot: async () => Buffer.alloc(0) },
+        steps: overrides.steps ?? [],
         scenarioData: overrides.scenarioData,
+        architecture: overrides.architecture,
     });
 }
 

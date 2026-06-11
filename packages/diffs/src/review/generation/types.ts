@@ -1,3 +1,5 @@
+import type { ApplicationArchitecture } from "@autonoma/db";
+import type { OverlayPoint } from "@autonoma/types";
 import type { ModelMessage } from "ai";
 import type { ScenarioData } from "../../scenario-data";
 import type { ChangeContext, ReviewLineage, ReviewStep } from "../kernel";
@@ -12,6 +14,8 @@ export interface GenerationStepData extends ReviewStep {
     order: number;
     screenshotBeforeKey?: string;
     screenshotAfterKey?: string;
+    /** The engine's resolved click/drag point(s), extracted from `output` for screenshot annotation. */
+    overlayPoints?: OverlayPoint[];
 }
 
 /**
@@ -30,6 +34,8 @@ export interface GenerationContext {
     videoUrl?: string;
     finalScreenshotKey?: string;
     steps: GenerationStepData[];
+    /** Gates before-screenshot point annotation to WEB. */
+    architecture?: ApplicationArchitecture;
     /**
      * DB-sourced facts about the code change under review. Optional so legacy
      * fixtures captured before change context existed still rehydrate; production

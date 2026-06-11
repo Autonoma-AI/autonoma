@@ -100,6 +100,7 @@ export class GenerationReviewer extends Agent<
             steps: input.context.steps,
             finalScreenshotKey: input.context.finalScreenshotKey,
             scenarioData: scenario,
+            architecture: input.context.architecture,
         });
     }
 }

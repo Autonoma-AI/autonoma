@@ -21,6 +21,7 @@
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
+        "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
         "@autonoma/storage": "workspace:*",
@@ -39,6 +40,7 @@
         "@types/node": "catalog:",
         "@types/shell-quote": "^1.7.5",
         "dotenv": "catalog:",
+        "sharp": "^0.33.5",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

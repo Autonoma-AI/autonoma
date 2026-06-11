@@ -53,6 +53,7 @@ Webhook response schemas for the Environment Factory protocol:
 ## Types
 
 - `Architecture` - Enum: `ios`, `android`, `web`
+- `OverlayPoint` / `getStepOverlayPoints` - Extracts a step output's resolved interaction points (the click target, or a drag's start/end), tagged with their role. Shared by the UI overlay and the reviewer's screenshot annotation.
 
 ## Usage
 

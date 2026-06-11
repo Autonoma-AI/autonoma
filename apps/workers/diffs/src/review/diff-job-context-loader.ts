@@ -20,6 +20,7 @@ import {
 } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
+import { getStepOverlayPoints } from "@autonoma/types";
 import type { ModelMessage } from "ai";
 
 /**
@@ -140,6 +141,7 @@ export class DiffJobContextLoader {
                                 headSha: true,
                                 baseSha: true,
                                 diffsJob: { select: { analysisReasoning: true } },
+                                branch: { select: { application: { select: { architecture: true } } } },
                             },
                         },
                     },
@@ -196,6 +198,7 @@ export class DiffJobContextLoader {
             steps,
             videoS3Key: `run/${runId}/video.webm`,
             finalScreenshotKey,
+            architecture: run.assignment.snapshot.branch.application.architecture,
         };
         if (change != null) context.change = change;
         if (lineage != null) context.lineage = lineage;
@@ -222,6 +225,9 @@ export class DiffJobContextLoader {
         };
         if (step.screenshotBefore != null) reviewStep.screenshotBeforeKey = step.screenshotBefore;
         if (step.screenshotAfter != null) reviewStep.screenshotAfterKey = step.screenshotAfter;
+
+        const overlayPoints = getStepOverlayPoints(step.output);
+        if (overlayPoints.length > 0) reviewStep.overlayPoints = overlayPoints;
 
         const failure = readPersistedFailure(step.output);
         if (failure != null) {
@@ -276,6 +282,7 @@ export class DiffJobContextLoader {
                         headSha: true,
                         baseSha: true,
                         diffsJob: { select: { analysisReasoning: true } },
+                        branch: { select: { application: { select: { architecture: true } } } },
                     },
                 },
                 affectedTest: { select: { affectedReason: true, reasoning: true } },
@@ -344,6 +351,7 @@ export class DiffJobContextLoader {
             testPlanPrompt: generation.testPlan.prompt,
             conversation,
             steps,
+            architecture: generation.snapshot.branch.application.architecture,
         };
         if (generation.reasoning != null) context.reasoning = generation.reasoning;
         if (generation.videoUrl != null) context.videoUrl = generation.videoUrl;
@@ -379,6 +387,8 @@ export class DiffJobContextLoader {
                 if (attempt.errorName != null) step.errorName = attempt.errorName;
                 if (attempt.screenshotBefore != null) step.screenshotBeforeKey = attempt.screenshotBefore;
                 if (attempt.screenshotAfter != null) step.screenshotAfterKey = attempt.screenshotAfter;
+                const overlayPoints = getStepOverlayPoints(attempt.output);
+                if (overlayPoints.length > 0) step.overlayPoints = overlayPoints;
                 return step;
             });
         }
@@ -401,6 +411,8 @@ export class DiffJobContextLoader {
             if (output != null) step.output = output;
             if (input.screenshotBefore != null) step.screenshotBeforeKey = input.screenshotBefore;
             if (input.screenshotAfter != null) step.screenshotAfterKey = input.screenshotAfter;
+            const overlayPoints = getStepOverlayPoints(output);
+            if (overlayPoints.length > 0) step.overlayPoints = overlayPoints;
             return step;
         });
     }

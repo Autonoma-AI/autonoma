@@ -24,7 +24,8 @@ src/agents/
 │   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
 │   ├── scenario/            read_scenario_entities (ScenarioDataLoop),
 │   │                        read_scenario_recipe_entities (ScenarioRecipeLoop)
-│   ├── screenshot/          view_step_screenshot, view_final_screenshot
+│   ├── screenshot/          view_step_screenshot (annotates the before screenshot with the
+│   │                        engine's resolved click point, web only), view_final_screenshot
 │   └── subagent/            Nested research agent + tool wrapper
 ├── diffs/                   DiffsAgent + its action tools + result tool + prompt
 ├── resolution/              ResolutionAgent + tools + prompt

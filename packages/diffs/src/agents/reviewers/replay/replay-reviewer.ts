@@ -92,6 +92,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
             steps: input.context.steps,
             finalScreenshotKey: input.context.finalScreenshotKey,
             scenarioData: scenario,
+            architecture: input.context.architecture,
         });
     }
 }
