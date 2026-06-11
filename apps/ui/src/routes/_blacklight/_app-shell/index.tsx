@@ -7,19 +7,26 @@ import { TalkToSupport } from "components/talk-to-support";
 import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
 import { getLastApp } from "./-last-app";
 
+function isOnboardingComplete(app: { onboardingState?: { step: string } | null }): boolean {
+  return app.onboardingState == null || app.onboardingState.step === "completed";
+}
+
 export const Route = createFileRoute("/_blacklight/_app-shell/")({
   beforeLoad: ({ context }) => {
+    const onboardedApps = context.applications.filter(isOnboardingComplete);
+
+    // Prefer the last viewed app if it is still onboarded, otherwise fall back to the first one.
     const lastAppSlug = getLastApp();
-    if (lastAppSlug != null) {
-      const app = context.applications.find((a) => a.slug === lastAppSlug);
-      const isOnboardingComplete = app?.onboardingState == null || app.onboardingState.step === "completed";
-      if (app != null && isOnboardingComplete)
-        throw redirect({
-          to: "/app/$appSlug",
-          params: { appSlug: app.slug },
-          replace: true,
-        });
-    }
+    const targetApp = onboardedApps.find((a) => a.slug === lastAppSlug) ?? onboardedApps[0];
+
+    // Nothing to land on yet (no apps, or none finished onboarding) - show the chooser.
+    if (targetApp == null) return;
+
+    throw redirect({
+      to: "/app/$appSlug",
+      params: { appSlug: targetApp.slug },
+      replace: true,
+    });
   },
   component: AppSelector,
 });
@@ -28,12 +35,8 @@ function AppSelector() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const navigate = useNavigate();
 
-  const incompleteApps = applications.filter(
-    (app) => app.onboardingState != null && app.onboardingState.step !== "completed",
-  );
-  const completedApps = applications.filter(
-    (app) => app.onboardingState == null || app.onboardingState.step === "completed",
-  );
+  const incompleteApps = applications.filter((app) => !isOnboardingComplete(app));
+  const completedApps = applications.filter(isOnboardingComplete);
 
   return (
     <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center px-4">

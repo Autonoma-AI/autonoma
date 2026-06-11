@@ -45,6 +45,7 @@ import {
   useSwitchToOrg,
 } from "lib/query/admin.queries";
 import { Suspense, useState } from "react";
+import { clearLastApp } from "../-last-app";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/admin/")({
   component: AdminPage,
@@ -167,6 +168,8 @@ function OrgList() {
       {
         onSuccess: () => {
           setActivatingId(undefined);
+          // The last-viewed app belongs to the previous org - drop it so the new org lands on its own first app.
+          clearLastApp();
           void router.navigate({ to: "/", reloadDocument: true });
         },
       },
