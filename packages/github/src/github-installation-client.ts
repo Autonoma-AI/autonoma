@@ -65,7 +65,7 @@ export interface PullRequestCommit {
  * answers `304 Not Modified` (the stored ETag still matches), in which case callers
  * keep their existing cache and spend no primary rate-limit budget.
  */
-export type ListOpenPullRequestsResult = { unchanged: true } | { unchanged: false; pullRequests: PullRequest[] };
+export type ListPullRequestsResult = { unchanged: true } | { unchanged: false; pullRequests: PullRequest[] };
 
 export interface CloneRepositoryParams {
     fullName: string;
@@ -83,7 +83,8 @@ export interface GitHubInstallationClient {
     getRepositoryArchiveUrl(repoId: number, ref?: string): Promise<string>;
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
-    listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult>;
+    listOpenPullRequests(repoId: number): Promise<ListPullRequestsResult>;
+    listClosedPullRequests(repoId: number): Promise<ListPullRequestsResult>;
     getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
@@ -330,10 +331,26 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
      * polite revalidate only needs the freshest open PRs, and stragglers are handled by
      * the caller's bounded backfill - a single request keeps the 304 semantics clean.
      */
-    async listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult> {
+    async listOpenPullRequests(repoId: number): Promise<ListPullRequestsResult> {
+        return this.listPullRequests(repoId, "open");
+    }
+
+    /**
+     * Lists the 100 most-recently-updated *closed* PRs as a single conditional request.
+     * GitHub returns merged PRs here too (state="closed"); {@link mapPullRequest} reads
+     * `merged_at` to split them into "merged" vs "closed". One bounded page is intentional:
+     * the cache only needs to classify PRs that *just* left the open list, and the freshest
+     * closed PRs are exactly the recently merged/closed ones. We never paginate the full
+     * closed history - that is thousands of PRs and previously OOM-killed the API (#895).
+     */
+    async listClosedPullRequests(repoId: number): Promise<ListPullRequestsResult> {
+        return this.listPullRequests(repoId, "closed");
+    }
+
+    private async listPullRequests(repoId: number, state: "open" | "closed"): Promise<ListPullRequestsResult> {
         const { owner, repo } = await this.resolveOwnerRepo(repoId);
-        const requestKey = `pulls:open:repo=${repoId}`;
-        this.logger.info("Listing open pull requests", { repoId });
+        const requestKey = `pulls:${state}:repo=${repoId}`;
+        this.logger.info("Listing pull requests", { repoId, extra: { state } });
 
         const storedEtag = await this.etagStore?.get(this.installationId, requestKey);
         const headers = storedEtag != null ? { "if-none-match": storedEtag } : {};
@@ -342,7 +359,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             const response = await this.octokit.request("GET /repos/{owner}/{repo}/pulls", {
                 owner,
                 repo,
-                state: "open",
+                state,
                 sort: "updated",
                 direction: "desc",
                 per_page: 100,
@@ -355,11 +372,11 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             }
 
             const pullRequests = response.data.map((pr) => this.mapPullRequest(pr));
-            this.logger.info("Listed open pull requests", { repoId, count: pullRequests.length });
+            this.logger.info("Listed pull requests", { repoId, extra: { state, count: pullRequests.length } });
             return { unchanged: false, pullRequests };
         } catch (error) {
             if (this.isNotModified(error)) {
-                this.logger.info("Open pull request list unchanged (304)", { repoId });
+                this.logger.info("Pull request list unchanged (304)", { repoId, extra: { state } });
                 return { unchanged: true };
             }
             throw error;

@@ -3,9 +3,10 @@ import type {
     Commit,
     CommitFile,
     GitHubInstallationClient,
-    ListOpenPullRequestsResult,
+    ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
+    PullRequestState,
     Repository,
 } from "../github-installation-client";
 
@@ -33,6 +34,8 @@ export interface PullRequestSetup {
     baseSha: string;
     /** Commits on the PR branch after the fork point, in chronological order (oldest first). */
     commits?: string[];
+    /** PR lifecycle state. Defaults to "open". Closed/merged PRs are excluded from listOpenPullRequests. */
+    state?: PullRequestState;
 }
 
 interface InternalBranch {
@@ -46,6 +49,7 @@ interface InternalPullRequest {
     number: number;
     title: string;
     headRef: string;
+    state: PullRequestState;
 }
 
 interface InternalRepo {
@@ -112,7 +116,16 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             number: setup.number,
             title: setup.title,
             headRef: setup.headRef,
+            state: setup.state ?? "open",
         });
+    }
+
+    /** Transitions an existing PR to a new lifecycle state (e.g. simulate a merge or close). */
+    setPullRequestState(fullName: string, prNumber: number, state: PullRequestState): void {
+        const repo = this.requireRepo(fullName);
+        const pr = repo.pullRequests.get(prNumber);
+        if (pr == null) throw new Error(`Pull request ${fullName}#${prNumber} not found`);
+        pr.state = state;
     }
 
     /** Registers metadata (commit message, author) for a SHA. The SHA must already exist on some branch. */
@@ -174,17 +187,29 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             url: `https://github.com/${repoData.metadata.fullName}/pull/${pr.number}`,
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z",
-            state: "open",
+            state: pr.state,
             commitsCount: branch.commits.length,
-            merged: false,
+            merged: pr.state === "merged",
+            mergedAt: pr.state === "merged" ? "2026-01-01T00:00:00Z" : undefined,
         };
     }
 
-    async listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult> {
+    async listOpenPullRequests(repoId: number): Promise<ListPullRequestsResult> {
+        return this.listByState(repoId, (state) => state === "open");
+    }
+
+    async listClosedPullRequests(repoId: number): Promise<ListPullRequestsResult> {
+        // GitHub's closed-PR list includes merged PRs (state="closed" + merged_at).
+        return this.listByState(repoId, (state) => state !== "open");
+    }
+
+    private async listByState(
+        repoId: number,
+        matches: (state: PullRequestState) => boolean,
+    ): Promise<ListPullRequestsResult> {
         const repoData = this.requireRepoById(repoId);
-        const pullRequests = await Promise.all(
-            [...repoData.pullRequests.values()].map((pr) => this.getPullRequest(repoId, pr.number)),
-        );
+        const selected = [...repoData.pullRequests.values()].filter((pr) => matches(pr.state));
+        const pullRequests = await Promise.all(selected.map((pr) => this.getPullRequest(repoId, pr.number)));
         return { unchanged: false, pullRequests };
     }
 

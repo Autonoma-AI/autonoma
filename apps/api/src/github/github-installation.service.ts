@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type {
     Commit,
     GitHubApp,
-    ListOpenPullRequestsResult,
+    ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
     Repository,
@@ -192,10 +192,7 @@ export class GitHubInstallationService extends Service {
         return pullRequest;
     }
 
-    async listApplicationPullRequests(
-        organizationId: string,
-        applicationId: string,
-    ): Promise<ListOpenPullRequestsResult> {
+    async listApplicationPullRequests(organizationId: string, applicationId: string): Promise<ListPullRequestsResult> {
         this.logger.info("Listing application open pull requests", { organizationId, applicationId });
 
         const app = await this.db.application.findFirst({
@@ -212,6 +209,40 @@ export class GitHubInstallationService extends Service {
         const result = await client.listOpenPullRequests(app.githubRepositoryId);
 
         this.logger.info("Listed application open pull requests", {
+            organizationId,
+            applicationId,
+            unchanged: result.unchanged,
+        });
+
+        return result;
+    }
+
+    /**
+     * Lists one bounded page of the most-recently-updated closed PRs (merged PRs included,
+     * split out by `merged_at`). One ETag-conditional request - the same cost class as
+     * {@link listApplicationPullRequests} - used by the cache to classify merged vs closed
+     * for PRs that just left the open list. We never paginate the full closed history.
+     */
+    async listApplicationClosedPullRequests(
+        organizationId: string,
+        applicationId: string,
+    ): Promise<ListPullRequestsResult> {
+        this.logger.info("Listing application closed pull requests", { organizationId, applicationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const result = await client.listClosedPullRequests(app.githubRepositoryId);
+
+        this.logger.info("Listed application closed pull requests", {
             organizationId,
             applicationId,
             unchanged: result.unchanged,

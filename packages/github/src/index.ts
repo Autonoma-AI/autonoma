@@ -4,7 +4,7 @@ export {
     parseRepoFullName,
     type GitHubInstallationClient,
     type CloneRepositoryParams,
-    type ListOpenPullRequestsResult,
+    type ListPullRequestsResult,
     type Repository,
     type PullRequest,
     type PullRequestState,

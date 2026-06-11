@@ -33,8 +33,11 @@ function mapWebhookState(pr: WebhookPullRequest): PullRequestCacheState {
  *    on pull_request events; writes the latest PR metadata for tracked PRs.
  *  - `kickOff` / `revalidate` - a polite, fire-and-forget backstop kicked off when the PR
  *    list is read. Throttled entirely via Postgres (`min(prCachedAt)`), so it is correct
- *    across pods and pod restarts with no in-memory state. Bulk-lists open PRs (one
- *    ETag-conditional request) and backfills a bounded number of stale/uncached rows.
+ *    across pods and pod restarts with no in-memory state. Lists open PRs (one
+ *    ETag-conditional request); to classify PRs that just left the open list it reads one
+ *    more ETag-conditional page of recent closed PRs (merged vs closed). Both calls are
+ *    single bounded pages - it never paginates the full closed history (that OOM-killed
+ *    the API once, #895), and never fetches PRs one-by-one.
  *
  * Reusable: depends only on a PrismaClient and the GitHubInstallationService, so the
  * webhook router, BranchesService, and any future caller share one implementation.
@@ -171,25 +174,63 @@ export class PullRequestCacheService extends Service {
         );
 
         // Handle the tracked rows NOT in the open list. The open-PR list is authoritative
-        // for open-ness, so anything missing from it is not open. When the list is complete
-        // (fewer than a full page, so not truncated) we downgrade rows still marked open/null
-        // to "closed" - this is what keeps them out of the Open tab. We can't tell closed vs
-        // merged without fetching (and we deliberately don't fetch closed PRs), so "closed"
-        // is the catch-all; rows already set to "merged"/"closed" via webhook are left intact
-        // and only get their prCachedAt stamped so the freshness gate advances.
+        // for open-ness, so anything missing from it is no longer open. When the list is
+        // complete (fewer than a full page, so not truncated) we classify the rows still
+        // marked open/null. GitHub reports state="closed" for BOTH merged and closed PRs;
+        // only merged_at tells them apart. To split them WITHOUT per-PR fetches (which
+        // fanned out across orgs and OOM-killed the API, #895), we read one bounded,
+        // ETag-conditional page of the most-recently-updated closed PRs - the same cost
+        // class as the open-list call above - and classify from it. Rows not on that page
+        // are old transitions GitHub didn't surface; they fall back to the "closed"
+        // catch-all (as before #930), the rare case a stale merge can still mislabel.
         const PER_PAGE = 100;
         const listComplete = result.pullRequests.length < PER_PAGE;
         const stampRest: Prisma.PrismaPromise<unknown>[] = [];
         if (listComplete) {
+            const transitioned = await this.db.featureBranchInfo.findMany({
+                where: {
+                    applicationId,
+                    prNumber: { notIn: openNumbers },
+                    OR: [{ prState: null }, { prState: "open" }],
+                },
+                select: { prNumber: true },
+            });
+            const transitionedNumbers = new Set(transitioned.map((t) => t.prNumber));
+
+            // Only spend the extra request when there is actually something to classify.
+            const mergedNumbers: number[] = [];
+            if (transitionedNumbers.size > 0) {
+                const closed = await this.github.listApplicationClosedPullRequests(organizationId, applicationId);
+                if (!closed.unchanged) {
+                    for (const pr of closed.pullRequests) {
+                        if (pr.state === "merged" && transitionedNumbers.has(pr.number)) {
+                            mergedNumbers.push(pr.number);
+                        }
+                    }
+                }
+            }
+            const mergedSet = new Set(mergedNumbers);
+            const closedNumbers = [...transitionedNumbers].filter((n) => !mergedSet.has(n));
+
+            if (mergedNumbers.length > 0) {
+                stampRest.push(
+                    this.db.featureBranchInfo.updateMany({
+                        where: { applicationId, prNumber: { in: mergedNumbers } },
+                        data: { prState: "merged", prCachedAt: now },
+                    }),
+                );
+            }
+            if (closedNumbers.length > 0) {
+                stampRest.push(
+                    this.db.featureBranchInfo.updateMany({
+                        where: { applicationId, prNumber: { in: closedNumbers } },
+                        data: { prState: "closed", prCachedAt: now },
+                    }),
+                );
+            }
+
+            // Already-terminal rows (merged/closed via webhook) just need their freshness stamp.
             stampRest.push(
-                this.db.featureBranchInfo.updateMany({
-                    where: {
-                        applicationId,
-                        prNumber: { notIn: openNumbers },
-                        OR: [{ prState: null }, { prState: "open" }],
-                    },
-                    data: { prState: "closed", prCachedAt: now },
-                }),
                 this.db.featureBranchInfo.updateMany({
                     where: {
                         applicationId,
