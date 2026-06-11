@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
+import { createWriteStream, existsSync, type WriteStream } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { BuildLogSpool } from "@autonoma/logger/build-log-spool";
+import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
 import {
@@ -19,7 +19,6 @@ import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manage
 import { EcrRegistryClient } from "./ecr-client";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
 
-const LOG_KEY_PREFIX = "buildctl/logs";
 const BUILD_MAX_RETRIES = 3;
 const BUILDKIT_RETRY_DELAY_MS = 5000;
 // Keep only the tail of each stream for transient error detection.
@@ -54,10 +53,11 @@ interface BuildKitBuilderOptions {
     jobManager: BuildKitJobManager;
     buildTimeoutMs: number;
     storage: S3Storage;
-    /** When set, every build-output chunk is mirrored to this spool (keyed by
-     *  `request.namespace`) for live streaming, in addition to the disk + S3
-     *  log. Optional so builds work unchanged when streaming is not configured. */
-    logSpool?: BuildLogSpool;
+    /** When set, every build-output chunk is mirrored to this sink (keyed by
+     *  `request.namespace`) for live streaming + durable history, in addition
+     *  to the disk + S3 log. Optional so builds work unchanged when no sink is
+     *  configured. */
+    logSink?: BuildLogSink;
 }
 
 interface BuildDispatchResult {
@@ -68,18 +68,18 @@ interface BuildDispatchResult {
 /**
  * Minimal writable surface the build methods need from their log stream. The
  * raw file WriteStream satisfies it directly; TeeBuildLog wraps one to also fan
- * each chunk into the BuildLogSpool for live streaming.
+ * each chunk into the build-log sink for live streaming + durable history.
  */
 interface BuildLogWriter {
     write(chunk: string | Uint8Array): boolean;
     end(callback: () => void): void;
 }
 
-/** Tees build output to both the on-disk log file and the live BuildLogSpool. */
+/** Tees build output to both the on-disk log file and the build-log sink. */
 class TeeBuildLog implements BuildLogWriter {
     constructor(
         private readonly file: WriteStream,
-        private readonly spool: BuildLogSpool,
+        private readonly sink: BuildLogSink,
         private readonly namespace: string,
         private readonly app: string,
     ) {}
@@ -87,9 +87,9 @@ class TeeBuildLog implements BuildLogWriter {
     write(chunk: string | Uint8Array): boolean {
         const ok = this.file.write(chunk);
         const message = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-        // Fire-and-forget: the spool swallows + logs its own errors, so a Redis
-        // hiccup can never block or fail the build it is mirroring.
-        void this.spool.append(this.namespace, { kind: "log", app: this.app, message });
+        // Fire-and-forget: the sink swallows + logs its own errors, so a Redis
+        // or Loki hiccup can never block or fail the build it is mirroring.
+        void this.sink.append(this.namespace, { kind: "log", app: this.app, message });
         return ok;
     }
 
@@ -106,23 +106,23 @@ class TeeBuildLog implements BuildLogWriter {
  *
  * All paths push directly to the registry via buildctl's image exporter.
  *
- * Per-build stdout+stderr is captured to a temp file and uploaded to object
- * storage. The `logUrl` is returned in the BuildResult so callers can link to
- * the captured logs.
+ * Per-build stdout+stderr is written to a pod-local temp file (removed after
+ * the attempt) and mirrored to the build-log sink (Grafana Loki) when one is
+ * wired - that sink is where viewers read build logs from.
  */
 export class BuildKitBuilder implements Builder {
     private readonly jobManager: BuildKitJobManager;
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
     private readonly storage: S3Storage;
-    private readonly logSpool?: BuildLogSpool;
+    private readonly logSink?: BuildLogSink;
 
     constructor(options: BuildKitBuilderOptions) {
         this.jobManager = options.jobManager;
         this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
-        this.logSpool = options.logSpool;
+        this.logSink = options.logSink;
     }
 
     /**
@@ -149,11 +149,11 @@ export class BuildKitBuilder implements Builder {
             const isLastAttempt = attempt === BUILD_MAX_RETRIES;
             const logPath = this.buildLogPath(request.imageTag);
             const fileStream = createWriteStream(logPath, { flags: "a" });
-            // Mirror output to the live spool when one is wired and this build
-            // is tied to a namespace; otherwise write to the file alone.
+            // Mirror output to the build-log sink when one is wired and this
+            // build is tied to a namespace; otherwise write to the file alone.
             const logStream: BuildLogWriter =
-                this.logSpool != null && request.namespace != null
-                    ? new TeeBuildLog(fileStream, this.logSpool, request.namespace, request.appName)
+                this.logSink != null && request.namespace != null
+                    ? new TeeBuildLog(fileStream, this.logSink, request.namespace, request.appName)
                     : fileStream;
             // Fresh buildkitd per attempt: a transient failure usually means the
             // previous buildkit Job's pod is in a bad state (evicted, gracefully
@@ -163,16 +163,14 @@ export class BuildKitBuilder implements Builder {
             try {
                 instance = await this.jobManager.provision();
                 const build = await this.dispatchBuild(request, instance.host, logStream);
-                const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
                 const durationMs = Date.now() - start;
                 logger.info("Build complete", {
                     app: request.appName,
                     imageTag: build.imageTag,
                     runtime: build.runtime,
                     durationMs,
-                    logUrl,
                 });
-                return { imageTag: build.imageTag, durationMs, logUrl, runtime: build.runtime };
+                return { imageTag: build.imageTag, durationMs, runtime: build.runtime };
             } catch (err) {
                 // A supersede abort is not a build failure: re-throw it as-is so
                 // it is neither retried nor wrapped by `annotateWithLogs` (which
@@ -181,14 +179,16 @@ export class BuildKitBuilder implements Builder {
                     throw err;
                 }
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
-                    await this.onTransientError(err, attempt, request.appName, logStream, logPath, request.imageTag);
+                    await this.onTransientError(err, attempt, request.appName, logStream);
                     continue;
-                }
-                if (err instanceof BuildError) {
-                    throw await this.annotateWithLogs(err, logStream, logPath, request.imageTag);
                 }
                 throw err;
             } finally {
+                // Close the per-attempt log stream (flushes the temp file and
+                // ends the sink tee) before releasing the build resources.
+                await this.closeLog(logStream).catch((closeErr) => {
+                    logger.warn("Failed to close build log stream", { app: request.appName, closeErr });
+                });
                 const toRelease = instance;
                 if (toRelease != null) {
                     await this.jobManager.release(toRelease).catch((releaseErr) => {
@@ -231,8 +231,6 @@ export class BuildKitBuilder implements Builder {
         attempt: number,
         appName: string,
         logStream: BuildLogWriter,
-        logPath: string,
-        imageTag: string,
     ): Promise<void> {
         logger.warn("BuildKit transient error, retrying", {
             app: appName,
@@ -243,29 +241,9 @@ export class BuildKitBuilder implements Builder {
         logStream.write(
             `\n[previewkit] BuildKit transient error - retrying (attempt ${attempt}/${BUILD_MAX_RETRIES})...\n`,
         );
-        try {
-            await this.closeAndUploadLog(logStream, logPath, imageTag);
-        } catch {
-            // best-effort upload of partial logs on transient failure
-        }
         // Brief delay so a crashed/evicted BuildKit pod has time to restart
         // before the next attempt connects.
         await new Promise<void>((res) => setTimeout(res, BUILDKIT_RETRY_DELAY_MS));
-    }
-
-    private async annotateWithLogs(
-        err: BuildError,
-        logStream: BuildLogWriter,
-        logPath: string,
-        imageTag: string,
-    ): Promise<never> {
-        let logUrl: string | undefined;
-        try {
-            logUrl = await this.closeAndUploadLog(logStream, logPath, imageTag);
-        } catch (uploadErr) {
-            logger.error("Build failed AND log upload failed", uploadErr, { imageTag });
-        }
-        throw new BuildError(err.message, { logUrl, cause: err });
     }
 
     /**
@@ -589,48 +567,14 @@ export class BuildKitBuilder implements Builder {
         });
     }
 
-    /**
-     * Closes the log stream and uploads the file to object storage. Throws on
-     * any failure (upload, empty file, stat) — callers are expected to either
-     * propagate or annotate the original build error.
-     */
-    private async closeAndUploadLog(logStream: BuildLogWriter, logPath: string, imageTag: string): Promise<string> {
+    /** Closes the per-attempt log stream, flushing the temp file and ending the sink tee. */
+    private async closeLog(logStream: BuildLogWriter): Promise<void> {
         await new Promise<void>((res) => logStream.end(() => res()));
-
-        const { size } = await stat(logPath);
-        if (size === 0) {
-            throw new Error(`Build log file is empty at ${logPath} — nothing to upload`);
-        }
-
-        const key = this.buildLogKey(imageTag);
-        const readStream = createReadStream(logPath);
-        const url = await this.storage.uploadStream(
-            key,
-            // Node's fs.ReadStream is a Readable; the storage API accepts a
-            // web ReadableStream. Use the toWeb helper.
-            (await import("node:stream")).Readable.toWeb(readStream) as ReadableStream,
-            "text/plain",
-        );
-        logger.info("Build logs uploaded", { url, bytes: size });
-        return url;
     }
 
     private buildLogPath(imageTag: string): string {
         const safe = imageTag.replace(/[^A-Za-z0-9_.-]/g, "_");
         return join(tmpdir(), `previewkit-build-log-${safe}-${Date.now()}.log`);
-    }
-
-    /**
-     * Derive a deterministic-but-unique S3 key from an imageTag like
-     *   `acct.dkr.ecr.us-east-1.amazonaws.com/preview-acme-bank/api:pr-42-abc1234`
-     * The registry prefix is stripped and `:` becomes `/`, giving:
-     *   `previewkit-build-logs/preview-acme-bank/api/pr-42-abc1234-<epoch>.log`
-     */
-    private buildLogKey(imageTag: string): string {
-        const slashIdx = imageTag.indexOf("/");
-        const withoutRegistry = slashIdx >= 0 ? imageTag.slice(slashIdx + 1) : imageTag;
-        const path = withoutRegistry.replace(":", "/");
-        return `${LOG_KEY_PREFIX}/${path}-${Date.now()}.log`;
     }
 }
 

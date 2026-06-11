@@ -10,6 +10,10 @@ interface BuildLogStreamViewerProps {
   url?: string | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
   headers?: Record<string, string> | undefined;
+  /** Header label; defaults to the build-log wording. */
+  title?: string | undefined;
+  /** Empty-state text while waiting for the first entry. */
+  waitingText?: string | undefined;
   className?: string | undefined;
 }
 
@@ -19,7 +23,13 @@ interface BuildLogStreamViewerProps {
  * a `url` and it renders a terminal-style, auto-scrolling log with phase markers
  * and a live status badge. All consumption logic lives in `useBuildLogStream`.
  */
-export function BuildLogStreamViewer({ url, headers, className }: BuildLogStreamViewerProps) {
+export function BuildLogStreamViewer({
+  url,
+  headers,
+  title = "build logs",
+  waitingText = "waiting for build output…",
+  className,
+}: BuildLogStreamViewerProps) {
   const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers });
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -34,7 +44,7 @@ export function BuildLogStreamViewer({ url, headers, className }: BuildLogStream
     <Card className={cn("flex flex-col overflow-hidden", className)}>
       <header className="flex items-center gap-2 border-b border-border-dim px-4 py-2">
         <TerminalWindowIcon className="size-4 text-text-secondary" weight="duotone" />
-        <span className="font-mono text-2xs text-text-secondary">build logs</span>
+        <span className="font-mono text-2xs text-text-secondary">{title}</span>
         <div className="ml-auto flex items-center gap-2">
           {phase != null && <span className="font-mono text-3xs text-text-secondary">{phase}</span>}
           <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
@@ -43,7 +53,7 @@ export function BuildLogStreamViewer({ url, headers, className }: BuildLogStream
 
       <div ref={bodyRef} className="h-80 overflow-y-auto bg-surface-void px-4 py-3 font-mono text-2xs leading-relaxed">
         {entries.length === 0 ? (
-          <EmptyState connection={connection} error={error} />
+          <EmptyState connection={connection} error={error} waitingText={waitingText} />
         ) : (
           entries.map((entry) => <LogRow key={entry.id} entry={entry} />)
         )}
@@ -65,7 +75,12 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
     );
   }
   return (
-    <div className="whitespace-pre-wrap break-words text-text-secondary">
+    <div
+      className={cn(
+        "whitespace-pre-wrap break-words",
+        entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
+      )}
+    >
       {entry.app != null && <span className="text-text-primary">{entry.app}&nbsp;</span>}
       {entry.message}
     </div>
@@ -99,12 +114,20 @@ function StatusBadge({
   return <Badge variant="secondary">closed</Badge>;
 }
 
-function EmptyState({ connection, error }: { connection: BuildLogConnection; error: string | undefined }) {
+function EmptyState({
+  connection,
+  error,
+  waitingText,
+}: {
+  connection: BuildLogConnection;
+  error: string | undefined;
+  waitingText: string;
+}) {
   if (error != null) return <div className="text-status-critical">{error}</div>;
   return (
     <div className="flex items-center gap-2 text-text-secondary">
       <CircleNotchIcon className="size-3 animate-spin" />
-      {connection === "reconnecting" ? "reconnecting…" : "waiting for build output…"}
+      {connection === "reconnecting" ? "reconnecting…" : waitingText}
     </div>
   );
 }
@@ -131,12 +154,19 @@ export function PreviewBuildLogStreamExample({
 }
 
 /**
- * Builds the previewkit build-log SSE URL, mirroring how `lib/trpc` picks its
+ * Builds the previewkit log-stream SSE URL, mirroring how `lib/trpc` picks its
  * base: same-origin in production, absolute `VITE_API_URL` in cross-origin
- * preview environments.
+ * preview environments. `source` selects build output (default) or the
+ * environment's runtime app stdout/stderr.
  */
-export function buildPreviewLogStreamUrl(owner: string, repo: string, pr: number): string {
-  const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream`;
+export function buildPreviewLogStreamUrl(
+  owner: string,
+  repo: string,
+  pr: number,
+  source: "build" | "app" = "build",
+): string {
+  const query = source === "app" ? "?source=app" : "";
+  const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream${query}`;
   const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
   return isPreviewEnvironment ? `${env.VITE_API_URL}${path}` : path;
 }

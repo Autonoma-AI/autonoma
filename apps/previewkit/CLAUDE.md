@@ -78,11 +78,15 @@ The whole `/v1/previewkit/*` HTTP surface is implemented natively in
 `apps/api/src/previewkit/previewkit-http.router.ts` (auth at the edge with `requireApiKeyOrService`,
 per-caller org-scoping). Previewkit itself serves nothing over HTTP.
 
-- **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live build-log stream
-  (SSE relay of the per-namespace Redis Stream the build pipeline publishes via `BuildLogSpool`),
-  secrets CRUD (`PreviewkitSecretsService` - AWS Secrets Manager + DB), the `.preview.yaml` JSON
-  schema, and `openapi.json`. Secret values are kept out of the API request log via a body-log
-  blocklist prefix on `/v1/previewkit/secrets`.
+- **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live log stream
+  (SSE relay reading Grafana Loki via `LokiLogStore` behind the shared `LogStore` seam;
+  `?source=build` for build output, `?source=app` for runtime stdout/stderr), secrets CRUD
+  (`PreviewkitSecretsService` - AWS Secrets Manager + DB), the `.preview.yaml` JSON schema, and
+  `openapi.json`. Secret values are kept out of the API request log via a body-log blocklist
+  prefix on `/v1/previewkit/secrets`. Loki is a VPC-internal EC2 instance (`PREVIEWKIT_LOKI_URL`
+  in the API env; unset -> the stream route 503s): build logs are pushed by this worker's
+  `LokiBuildLogSink`, app logs by an Alloy DaemonSet on the preview cluster
+  (`deployment/previewkit/cluster/logging/alloy.yaml`) tailing `preview-*` pod logs.
 - **Lifecycle ops** (deploy / main-branch `POST /applications/:id/0` / teardown / redeploy):
   preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
   `diffs-trigger.service.ts`), then the Temporal workflow is started directly. 503 when the API's
@@ -145,11 +149,13 @@ pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
 `TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` are read by `@autonoma/workflow`'s own env.
-`REDIS_URL` (optional) - when set, enables the live build-log streaming tier (`BuildLogSpool`
-from `@autonoma/logger/build-log-spool`): the builder tees each output chunk and the pipeline
-mirrors phase/status transitions into a per-namespace Redis Stream, which the autonoma API relays
-to clients over SSE. Unset disables streaming (builds still log to disk + S3). The S3 upload remains
-the permanent archive; the Redis stream is ephemeral (sealed with a short TTL when the build ends).
+`LOKI_URL` (optional) - the build-log tier. When set, the builder tees each output chunk and the
+pipeline mirrors phase/status transitions into Grafana Loki (`LokiBuildLogSink` behind the
+`BuildLogSink` seam from `@autonoma/logger/build-log-sink`, batched + best-effort); the autonoma
+API reads them back over the same `LogStore` seam and relays to clients over SSE. Loki's 31d
+retention is the archive - there is no Redis tier or S3 log upload anymore (the per-attempt temp
+file on disk is removed after each build attempt). Unset disables build-log publishing entirely.
+The worker drains the sink's buffer on shutdown.
 
 ## Build / test
 

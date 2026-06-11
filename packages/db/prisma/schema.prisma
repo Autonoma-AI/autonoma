@@ -1739,8 +1739,8 @@ model PreviewkitBuild {
 // to be the `app_builds` JSON column so each app's outcome is a typed,
 // queryable row. Apps build independently, so one app's failure leaves the
 // others' rows intact. `imageTag` is set on success; `error` on failure;
-// `logUrl` is present whenever the build-log upload succeeded (the common
-// case) so the PR comment can render a link.
+// `logUrl` is a legacy column from the retired S3 log archive - kept for
+// historic rows, never written anymore (build logs are served from Loki).
 model PreviewkitAppBuild {
   id String @id @default(cuid())
 

@@ -181,13 +181,11 @@ integrationTestSuite({
                         status: "success",
                         imageTag: "ghcr.io/acme/web:pr-7-abc1234",
                         durationMs: 30_000,
-                        logUrl: "s3://logs/web.log",
                     },
                     api: {
                         status: "success",
                         imageTag: "ghcr.io/acme/api:pr-7-abc1234",
                         durationMs: 12_000,
-                        logUrl: "s3://logs/api.log",
                     },
                 },
             });

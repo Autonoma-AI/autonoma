@@ -2,11 +2,13 @@ import { type AuthCaller, type CallerAuthVariables, requireApiKeyOrService } fro
 import { db } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import { type BuildLogEntry, BuildLogSpool } from "@autonoma/logger/build-log-spool";
+import type { BuildLogEntry } from "@autonoma/logger/build-log-event";
+import type { LogStore } from "@autonoma/logger/log-store";
+import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { auth, redisClient } from "../context";
+import { auth } from "../context";
 import { env } from "../env";
 import { openApiSpec } from "./openapi-spec";
 import previewSchema from "./preview-schema.json" with { type: "json" };
@@ -21,10 +23,14 @@ const logger = rootLogger.child({ name: "previewkitHttpRouter" });
 const secretsService = new PreviewkitSecretsService(env.S3_REGION);
 const environmentsService = new PreviewkitEnvironmentsService(db);
 
-// Live build-log relay. Reads the per-namespace Redis Stream the Previewkit
-// build pipeline publishes to and forwards entries over SSE. Reads are
-// non-blocking, so the one shared connection serves all concurrent viewers.
-const logStreamSpool = new BuildLogSpool(redisClient);
+// Log relay. Both sources live in Grafana Loki: build logs are pushed by the
+// previewkit worker's LokiBuildLogSink, app stdout/stderr by the Alloy
+// DaemonSet on the preview cluster. The relay polls Loki and forwards entries
+// over SSE. Undefined when PREVIEWKIT_LOKI_URL is unset - the stream route
+// then returns 503.
+const buildLogStore = env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "build") : undefined;
+const appLogStore = env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "app") : undefined;
+const logSourceSchema = z.enum(["build", "app"]).default("build");
 const LOG_STREAM_POLL_MS = 1000;
 // Heartbeat (and DB status re-check) cadence while idle, in poll ticks.
 const LOG_STREAM_HEARTBEAT_TICKS = 15;
@@ -90,10 +96,19 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         return c.json(status);
     })
 
-    // ─── Native: live build-log stream (SSE, Redis Stream backed) ─────
+    // ─── Native: live log stream (SSE, Loki backed; build + app sources) ──
     .get("/environments/:owner/:repo/:pr/logs/stream", requireStreamAuth, async (c) => {
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
+
+        // ?source=build (default) streams the Redis-backed build output;
+        // ?source=app streams the Loki-backed runtime stdout/stderr.
+        const sourceParsed = logSourceSchema.safeParse(c.req.query("source"));
+        if (!sourceParsed.success) return c.json({ error: "source must be 'build' or 'app'" }, 400);
+        const source = sourceParsed.data;
+
+        const store: LogStore | undefined = source === "app" ? appLogStore : buildLogStore;
+        if (store == null) return c.json({ error: "Log streaming is not configured." }, 503);
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
         const orgId = callerOrgId(c.var.authCaller);
@@ -111,16 +126,19 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
                 // the full retained buffer for a fresh viewer.
                 const lastEventId = c.req.header("Last-Event-ID");
                 let cursor = lastEventId != null && lastEventId !== "" ? lastEventId : "0";
-                // A build already finished at connect emits no further entries,
-                // so close once its buffered tail has been replayed.
-                const startedTerminal = isTerminalStatus(target.status);
+                // Build streams end with the build ("ready" included); app
+                // streams live as long as the environment - only teardown is
+                // terminal for them. A stream already terminal at connect emits
+                // no further entries, so close once its tail has been replayed.
+                const isTerminal = source === "app" ? isTornDown : isTerminalStatus;
+                const startedTerminal = isTerminal(target.status);
                 let idleTicks = 0;
 
                 const readBatch = async (after: string): Promise<BuildLogEntry[] | undefined> => {
                     try {
-                        return await logStreamSpool.readBatch(target.namespace, after);
+                        return await store.readBatch(target.namespace, after);
                     } catch (err) {
-                        logger.error("Failed reading build log stream", err, { namespace: target.namespace });
+                        logger.error("Failed reading log stream", err, { namespace: target.namespace, source });
                         return undefined;
                     }
                 };
@@ -141,7 +159,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
                                 data: JSON.stringify(entry.event),
                             });
                             cursor = entry.id;
-                            if (entry.event.kind === "status" && isTerminalStatus(entry.event.message)) {
+                            if (entry.event.kind === "status" && isTerminal(entry.event.message)) {
                                 await stream.writeSSE({ event: "done", data: entry.event.message });
                                 return;
                             }
@@ -161,7 +179,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
                     if (idleTicks % LOG_STREAM_HEARTBEAT_TICKS === 0) {
                         await stream.writeSSE({ event: "heartbeat", data: "" });
                         const fresh = await environmentsService.resolveStreamTarget(repoFullName, pr, orgId);
-                        if (fresh != null && isTerminalStatus(fresh.status)) {
+                        if (fresh != null && isTerminal(fresh.status)) {
                             await stream.writeSSE({ event: "done", data: fresh.status });
                             return;
                         }
@@ -376,6 +394,11 @@ function lifecycleErrorResponse(c: Context, error: unknown, logContext: Record<s
 /** A finished environment emits no further log entries, so the SSE relay closes. */
 function isTerminalStatus(status: string): boolean {
     return TERMINAL_STATUSES.has(status);
+}
+
+/** App-log streams outlive the build; only teardown ends them. */
+function isTornDown(status: string): boolean {
+    return status === "torn_down";
 }
 
 function parseEnvironmentNumber(raw: string): number | undefined {

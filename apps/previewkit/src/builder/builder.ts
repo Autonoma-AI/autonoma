@@ -20,7 +20,7 @@ export interface BuildRequest {
     cacheKey: string;
     // Preview namespace this build belongs to (e.g. `preview-acme-bank-pr-42`).
     // Used as the key under which the builder streams live log output to the
-    // BuildLogSpool. Optional: when absent (or no spool is wired) the build runs
+    // build-log sink. Optional: when absent (or no sink is wired) the build runs
     // exactly as before, logging only to disk + S3.
     namespace?: string;
     // Names the workspace build tool. Dispatched by the builder to select a
@@ -42,28 +42,21 @@ export type BuildRuntime = "node" | "docker-image" | "unknown";
 export interface BuildResult {
     imageTag: string;
     durationMs: number;
-    logUrl: string;
     runtime: BuildRuntime;
 }
 
 /**
- * Thrown by a Builder when an app's build fails. Carries the URL of the
- * captured build log (when the builder managed to upload it) so callers can
- * surface a clickable link without having to grep the error message.
- *
- * `logUrl` is optional because log upload itself can fail (S3 unreachable,
- * empty log file, etc.); in that case `cause` carries the upload failure
- * for diagnostics and the build error message stays the only signal.
+ * Thrown by a Builder when an app's build fails. The captured build output
+ * lives in the build-log sink (Grafana Loki), keyed by the request's
+ * namespace - viewers read it from there rather than from this error.
  */
 export class BuildError extends Error {
-    readonly logUrl?: string;
     readonly isTransient: boolean;
 
-    constructor(message: string, options?: { logUrl?: string; cause?: unknown; isTransient?: boolean }) {
+    constructor(message: string, options?: { cause?: unknown; isTransient?: boolean }) {
         super(message, options?.cause != null ? { cause: options.cause } : undefined);
         this.name = "BuildError";
         this.isTransient = options?.isTransient ?? false;
-        if (options?.logUrl != null) this.logUrl = options.logUrl;
     }
 }
 

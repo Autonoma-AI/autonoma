@@ -53,8 +53,8 @@ export interface BuildPreviewImagesInput {
 
 /** Serializable mirror of apps/previewkit's per-app `AppBuildOutcome`. */
 export type PreviewBuildOutcome =
-    | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: string }
-    | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: string };
+    | { status: "success"; imageTag: string; durationMs: number; runtime?: string }
+    | { status: "failed"; durationMs: number; error: string; runtime?: string };
 
 export interface BuildPreviewImagesOutput {
     /** `JSON.stringify` of the merged `PreviewConfig`; parsed at the boundary. */
@@ -91,7 +91,6 @@ export interface PreviewServiceResult {
     name: string;
     status: "ready" | "failed";
     url?: string;
-    logsUrl?: string;
     error?: string;
 }
 

@@ -9,11 +9,13 @@ export const env = createEnv({
     server: {
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
-        // Redis - backs the live build-log streaming tier (BuildLogSpool). The
-        // build pipeline publishes log + phase events here keyed by namespace;
-        // the autonoma API relays them to the browser over SSE. Optional: when
-        // unset, live streaming is disabled and builds log only to disk + S3.
-        REDIS_URL: z.string().url().optional(),
+        // Grafana Loki - the build-log tier. The build pipeline publishes log +
+        // phase + status events here keyed by namespace (LokiBuildLogSink); the
+        // autonoma API reads them back (LokiLogStore) and relays to the browser
+        // over SSE. Optional: when unset, build-log publishing is disabled and
+        // build output exists only in the pod-local temp file for the duration
+        // of the build.
+        LOKI_URL: z.string().url().optional(),
 
         // GitHub App credentials. The private key is supplied as base64-encoded PEM
         // and decoded at boot.

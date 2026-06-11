@@ -8,7 +8,7 @@ import {
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
-import type { BuildLogSpool } from "@autonoma/logger/build-log-spool";
+import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
 import type { StorageProvider } from "@autonoma/storage";
 import type {
     BuildPreviewImagesOutput,
@@ -19,7 +19,7 @@ import type {
     PreviewServiceResult,
 } from "@autonoma/workflow/activities";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
-import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
+import { BuildAbortedError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
@@ -46,22 +46,6 @@ import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 
 /**
- * How long the "view logs" links in the PR comment stay valid. Build logs live
- * in a private S3 bucket, so the comment links must be presigned to open from a
- * browser without AWS credentials. 7 days is the maximum a SigV4 presigned URL
- * can last; we use the full window so the link survives a PR sitting open for a
- * while. The link is re-signed every time the comment is updated (each push).
- */
-const BUILD_LOG_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-/**
- * How long a finished build's live log stream lingers in Redis after `seal`.
- * Long enough for a viewer to reconnect and replay the tail right after the
- * build ends; once it expires, the UI falls back to the permanent S3 archive.
- */
-const BUILD_LOG_STREAM_SEAL_TTL_SECONDS = 60 * 60;
-
-/**
  * Combined per-app outcome rendered in the PR comment. Bundles the build and
  * deploy phases so the comment can show one row per app with the final status.
  */
@@ -70,7 +54,6 @@ interface AppFinalOutcome {
     status: "ok" | "failed";
     url?: string;
     error?: string;
-    buildLogUrl?: string;
 }
 
 /**
@@ -115,10 +98,11 @@ interface PreviewPipelineOptions {
     addonManager: AddonManager;
     registryUrl: string;
     storage: StorageProvider;
-    /** Live build-log streaming tier. When set, the pipeline mirrors phase
-     *  transitions + terminal status into it (the builder mirrors raw output),
-     *  keyed by namespace. Optional - absent disables streaming entirely. */
-    logSpool?: BuildLogSpool;
+    /** Build-log sink (live Redis tier and/or durable Loki tier). When set,
+     *  the pipeline mirrors phase transitions + terminal status into it (the
+     *  builder mirrors raw output), keyed by namespace. Optional - absent
+     *  disables mirroring entirely. */
+    logSink?: BuildLogSink;
 }
 
 /**
@@ -138,7 +122,7 @@ export class PreviewPipeline {
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly storage: StorageProvider;
-    private readonly logSpool?: BuildLogSpool;
+    private readonly logSink?: BuildLogSink;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -148,7 +132,7 @@ export class PreviewPipeline {
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.storage = options.storage;
-        this.logSpool = options.logSpool;
+        this.logSink = options.logSink;
     }
 
     /**
@@ -566,13 +550,12 @@ export class PreviewPipeline {
                 bypassToken: result.bypassToken,
             }),
         );
-        void this.logSpool?.append(result.namespace, { kind: "status", message: "ready" });
-        void this.logSpool?.seal(result.namespace, BUILD_LOG_STREAM_SEAL_TTL_SECONDS);
+        void this.logSink?.append(result.namespace, { kind: "status", message: "ready" });
+        void this.logSink?.seal(result.namespace);
 
         const services: PreviewServiceResult[] = finalOutcomes.map((o) => {
             const svc: PreviewServiceResult = { name: o.name, status: o.status === "ok" ? "ready" : "failed" };
             if (o.url != null) svc.url = o.url;
-            if (o.buildLogUrl != null) svc.logsUrl = o.buildLogUrl;
             if (o.error != null) svc.error = o.error;
             return svc;
         });
@@ -694,8 +677,8 @@ export class PreviewPipeline {
             .catch((e) => logger.error("Failed to record failed status", e));
 
         await recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error }));
-        void this.logSpool?.append(namespace, { kind: "status", message: "failed" });
-        void this.logSpool?.seal(namespace, BUILD_LOG_STREAM_SEAL_TTL_SECONDS);
+        void this.logSink?.append(namespace, { kind: "status", message: "failed" });
+        void this.logSink?.seal(namespace);
 
         if (feedbackEnabled && commentId !== "") {
             await postOrUpdateCommentOnGithub({
@@ -923,7 +906,6 @@ export class PreviewPipeline {
                 status: "success",
                 imageTag: result.imageTag,
                 durationMs: result.durationMs,
-                logUrl: result.logUrl,
                 runtime: result.runtime,
             };
         } catch (err) {
@@ -935,11 +917,8 @@ export class PreviewPipeline {
                 throw err;
             }
             const message = err instanceof Error ? err.message : String(err);
-            const logUrl = err instanceof BuildError ? err.logUrl : undefined;
-            logger.error("App build failed", err, { app: app.name, logUrl });
-            const outcome: AppBuildOutcome = { status: "failed", durationMs: Date.now() - start, error: message };
-            if (logUrl != null) outcome.logUrl = logUrl;
-            return outcome;
+            logger.error("App build failed", err, { app: app.name });
+            return { status: "failed", durationMs: Date.now() - start, error: message };
         }
     }
 
@@ -952,7 +931,7 @@ export class PreviewPipeline {
         await this.deployer.updateStatus(repoFullName, prNumber, { status, phase });
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
-        void this.logSpool?.append(namespace, { kind: "phase", message: phase });
+        void this.logSink?.append(namespace, { kind: "phase", message: phase });
     }
 
     private async runPreDeployHooks(
@@ -1115,76 +1094,33 @@ export class PreviewPipeline {
             }
 
             if (build.status === "failed") {
-                const outcome: AppFinalOutcome = { name: app.name, status: "failed", error: build.error };
-                if (build.logUrl != null) outcome.buildLogUrl = build.logUrl;
-                return outcome;
+                return { name: app.name, status: "failed", error: build.error };
             }
 
             if (deploy == null) {
-                return {
-                    name: app.name,
-                    status: "failed",
-                    error: "No deploy outcome recorded",
-                    buildLogUrl: build.logUrl,
-                };
+                return { name: app.name, status: "failed", error: "No deploy outcome recorded" };
             }
 
             if (deploy.status === "ok") {
-                return { name: app.name, status: "ok", url: deploy.url, buildLogUrl: build.logUrl };
+                return { name: app.name, status: "ok", url: deploy.url };
             }
 
             if (deploy.status === "skipped") {
-                return {
-                    name: app.name,
-                    status: "failed",
-                    error: `Deploy skipped: ${deploy.reason}`,
-                    buildLogUrl: build.logUrl,
-                };
+                return { name: app.name, status: "failed", error: `Deploy skipped: ${deploy.reason}` };
             }
 
-            return {
-                name: app.name,
-                status: "failed",
-                url: deploy.url,
-                error: deploy.error,
-                buildLogUrl: build.logUrl,
-            };
+            return { name: app.name, status: "failed", url: deploy.url, error: deploy.error };
         });
     }
 
-    /**
-     * Presign a build log's S3 URL so the "view logs" link in the PR comment
-     * opens in a browser without AWS credentials. Build logs are stored as
-     * `s3://bucket/key`, which is not browser-openable on its own. Signing is
-     * best-effort: a failure drops just that one link rather than failing the
-     * whole comment update.
-     */
-    private async signBuildLogUrl(buildLogUrl: string | undefined, appName: string): Promise<string | undefined> {
-        if (buildLogUrl == null || buildLogUrl === "") return undefined;
-
-        try {
-            return await this.storage.getSignedUrl(buildLogUrl, BUILD_LOG_URL_TTL_SECONDS);
-        } catch (err) {
-            logger.warn("Failed to presign build log URL for PR comment", { app: appName, buildLogUrl, err });
-            return undefined;
-        }
-    }
-
-    /**
-     * Builds the PR comment payload from the flat deploy result. The result rows
-     * carry the raw build-log S3 URLs; this presigns them (best-effort) so the
-     * "view logs" links open in a browser, then formats the comment.
-     */
+    /** Builds the PR comment payload from the flat deploy result. */
     private async buildResultPayload(prNumber: number, headSha: string, result: DeployPreviewEnvironmentOutput) {
-        const services = await Promise.all(
-            result.services.map(async (service) => ({
-                name: service.name,
-                status: service.status,
-                url: service.url,
-                logsUrl: await this.signBuildLogUrl(service.logsUrl, service.name),
-                error: service.error,
-            })),
-        );
+        const services = result.services.map((service) => ({
+            name: service.name,
+            status: service.status,
+            url: service.url,
+            error: service.error,
+        }));
 
         const addons = result.addons.map((addon) => ({
             name: addon.name,

@@ -46,6 +46,9 @@ runWithSentry({ name: "worker-previewkit", dsn: env.SENTRY_DSN }, async () => {
         try {
             await worker.shutdown();
             await runPromise;
+            // Drain any buffered build-log lines (the Loki sink batches) so the
+            // tail of an in-flight build is not lost on rollout.
+            await (await getServices()).buildLogSink?.close?.();
             logger.info("Previewkit worker shutdown complete", { signal, taskQueue: TaskQueue.PREVIEWKIT });
             await Sentry.flush(2000);
             process.exit(0);

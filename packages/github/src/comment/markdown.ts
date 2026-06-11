@@ -66,13 +66,13 @@ export function renderMarkdown(payload: AutonomaCommentPayload): string {
     }
 
     if (payload.services.length > 0) {
-        sections.push("", "**Services:**", "", "| Service | Status | URL | Logs |", "|---|---:|---|---|");
+        sections.push("", "**Services:**", "", "| Service | Status | URL |", "|---|---:|---|");
         for (const service of payload.services) {
             sections.push(
                 `| ${escapeTableCell(service.name)} | ${escapeTableCell(service.status)} | ${renderLinkOrDash(
                     service.url,
                     service.url,
-                )} | ${renderLinkOrDash("view", service.logsUrl)} |`,
+                )} |`,
             );
         }
     }

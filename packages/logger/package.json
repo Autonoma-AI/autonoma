@@ -9,9 +9,25 @@
             "import": "./src/index.ts"
         },
         "./env": "./src/env.ts",
-        "./build-log-spool": {
-            "types": "./src/build-log-spool.ts",
-            "import": "./src/build-log-spool.ts"
+        "./build-log-event": {
+            "types": "./src/build-log-event.ts",
+            "import": "./src/build-log-event.ts"
+        },
+        "./build-log-sink": {
+            "types": "./src/build-log-sink.ts",
+            "import": "./src/build-log-sink.ts"
+        },
+        "./loki-build-log-sink": {
+            "types": "./src/loki-build-log-sink.ts",
+            "import": "./src/loki-build-log-sink.ts"
+        },
+        "./log-store": {
+            "types": "./src/log-store.ts",
+            "import": "./src/log-store.ts"
+        },
+        "./loki-log-store": {
+            "types": "./src/loki-log-store.ts",
+            "import": "./src/loki-log-store.ts"
         }
     },
     "scripts": {
@@ -25,13 +41,12 @@
     "dependencies": {
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
-        "ioredis": "^5.9.3",
         "zod": "catalog:"
     },
     "devDependencies": {
-        "@testcontainers/redis": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
+        "testcontainers": "^11.12.0",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }

@@ -4,7 +4,9 @@ import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
+import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
+import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
@@ -31,7 +33,6 @@ const STATUS_VARIANT: Record<PreviewEnvironment["status"], "success" | "warn" | 
   deploying: "warn",
   pending: "warn",
   failed: "critical",
-  superseded: "outline",
   torn_down: "outline",
   superseded: "warn",
 };
@@ -221,6 +222,10 @@ function RedeployButton({ environmentId }: { environmentId: string }) {
 }
 
 function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
+  const [showLogs, setShowLogs] = useState(false);
+  // The log-stream route is addressed by (owner, repo, pr).
+  const [owner = "", repo = ""] = environment.repoFullName.split("/");
+
   return (
     <div className="overflow-hidden rounded-md border border-border-dim">
       {/* Branch / environment information. */}
@@ -234,6 +239,15 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
           <Badge variant={STATUS_VARIANT[environment.status]} className="text-3xs">
             {environment.phase ?? environment.status}
           </Badge>
+          <Button
+            variant={showLogs ? "secondary" : "outline"}
+            size="xs"
+            onClick={() => setShowLogs((open) => !open)}
+            aria-label="Toggle logs"
+          >
+            <TerminalWindowIcon size={12} />
+            Logs
+          </Button>
           <RedeployButton environmentId={environment.id} />
         </div>
       </div>
@@ -258,6 +272,16 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
+      {showLogs && (
+        <PreviewLogsTabs
+          owner={owner}
+          repo={repo}
+          pr={environment.prNumber}
+          className="border-t border-border-dim p-3"
+        />
       )}
     </div>
   );

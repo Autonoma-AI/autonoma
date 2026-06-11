@@ -52,6 +52,12 @@ export const env = createEnv({
         // native /v1/previewkit/* routes (requireApiKeyOrService) and
         // /v1/diffs/internal/trigger (Authorization: Bearer <secret>).
         PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
+        // VPC-internal Grafana Loki backing the previewkit log streams
+        // (GET .../logs/stream, both ?source=build and ?source=app). Build
+        // logs are pushed by the previewkit worker (its LOKI_URL); app
+        // stdout/stderr is shipped by the Alloy DaemonSet on the preview
+        // cluster. Unset disables log streaming (the route returns 503).
+        PREVIEWKIT_LOKI_URL: z.url().optional(),
 
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.

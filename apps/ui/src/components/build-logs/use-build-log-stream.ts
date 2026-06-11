@@ -5,15 +5,17 @@ import { z } from "zod";
 /**
  * One entry from the build-log stream. Flat (not a discriminated union) to keep
  * accumulation simple. Mirrors the server's `BuildLogEvent`
- * (@autonoma/logger/build-log-spool, relayed by the apps/api SSE route), tagged
- * with the Redis Stream entry id - which is replayed as `Last-Event-Id` on
- * reconnect so the stream resumes without gaps.
+ * (@autonoma/logger/build-log-event, relayed by the apps/api SSE route), tagged
+ * with the server-side entry id (a Loki nanosecond timestamp) - which is
+ * replayed as `Last-Event-Id` on reconnect so the stream resumes without gaps.
  */
 export interface BuildLogEntry {
     id: string;
     kind: "log" | "phase" | "status";
     /** Present on `log` entries (build output is per-app); absent on phase/status. */
     app?: string;
+    /** stdout | stderr for app-log entries (`?source=app`); absent on build output. */
+    stream?: "stdout" | "stderr";
     message: string;
 }
 
@@ -50,6 +52,7 @@ export interface UseBuildLogStreamOptions {
 const streamEventSchema = z.object({
     kind: z.enum(["log", "phase", "status"]),
     app: z.string().optional(),
+    stream: z.enum(["stdout", "stderr"]).optional(),
     message: z.string(),
 });
 
@@ -131,6 +134,7 @@ export function useBuildLogStream({
                 message: parsed.message,
             };
             if (parsed.app != null) entry.app = parsed.app;
+            if (parsed.stream != null) entry.stream = parsed.stream;
             append(entry);
         };
 

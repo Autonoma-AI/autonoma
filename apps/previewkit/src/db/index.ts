@@ -35,15 +35,15 @@ export interface PhaseChangedInput {
  * Per-app outcome of the build phase. Each app is recorded independently so
  * that one failed build doesn't erase the others from the history.
  *
- * - `success`: the image was built and pushed; `imageTag` + `logUrl` are set.
- * - `failed`: the build threw. `error` carries the message; `logUrl` is set
- *   when the builder managed to upload the captured log (it usually does —
- *   the log upload only fails if S3 itself is unreachable or the log file
- *   is empty, both of which are rare).
+ * - `success`: the image was built and pushed; `imageTag` is set.
+ * - `failed`: the build threw; `error` carries the message.
+ *
+ * Build output itself lives in the build-log sink (Grafana Loki), keyed by
+ * namespace - it is not part of the outcome.
  */
 export type AppBuildOutcome =
-    | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: BuildRuntime }
-    | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: BuildRuntime };
+    | { status: "success"; imageTag: string; durationMs: number; runtime?: BuildRuntime }
+    | { status: "failed"; durationMs: number; error: string; runtime?: BuildRuntime };
 
 export interface BuildFinishedInput {
     namespace: string;
@@ -293,7 +293,9 @@ function toAppBuildRow(appName: string, outcome: AppBuildOutcome) {
         durationMs: outcome.durationMs,
         imageTag: outcome.status === "success" ? outcome.imageTag : null,
         error: outcome.status === "failed" ? outcome.error : null,
-        logUrl: outcome.logUrl ?? null,
+        // Legacy column from the retired S3 log archive; kept for historic
+        // rows. Build logs are served from Loki now.
+        logUrl: null,
         runtime: outcome.runtime ?? null,
     };
 }

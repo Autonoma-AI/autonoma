@@ -21,7 +21,6 @@ export const AutonomaCommentServiceSchema = z.object({
     name: z.string(),
     status: z.enum(["ready", "failed", "building", "skipped", "unknown"]),
     url: z.string().optional(),
-    logsUrl: z.string().optional(),
     error: z.string().optional(),
 });
 export type AutonomaCommentService = z.infer<typeof AutonomaCommentServiceSchema>;
