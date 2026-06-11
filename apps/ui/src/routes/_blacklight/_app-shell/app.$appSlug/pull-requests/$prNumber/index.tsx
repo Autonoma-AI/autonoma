@@ -81,6 +81,7 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
           applicationId={app.id}
           prNumber={prNumber}
           branchName={branch.name}
+          cachedTitle={branch.prTitle}
           targetBranchName={pr.data?.baseRef ?? app.mainBranch.name}
           pr={pr.data ?? undefined}
           prPending={pr.isPending}
@@ -102,6 +103,7 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
       applicationId={app.id}
       branchId={branch.id}
       branchName={branch.name}
+      cachedTitle={branch.prTitle}
       prNumber={prNumber}
       pr={pr.data ?? undefined}
       prPending={pr.isPending}
@@ -119,6 +121,7 @@ function PullRequestDetailWithCheckpoint({
   applicationId,
   branchId,
   branchName,
+  cachedTitle,
   prNumber,
   pr,
   prPending,
@@ -132,6 +135,7 @@ function PullRequestDetailWithCheckpoint({
   applicationId: string;
   branchId: string;
   branchName: string;
+  cachedTitle: string | undefined;
   prNumber: number;
   pr: PullRequest | undefined;
   prPending: boolean;
@@ -150,6 +154,7 @@ function PullRequestDetailWithCheckpoint({
         applicationId={applicationId}
         prNumber={prNumber}
         branchName={branchName}
+        cachedTitle={cachedTitle}
         targetBranchName={pr?.baseRef ?? appMainBranchName}
         pr={pr}
         prPending={prPending}

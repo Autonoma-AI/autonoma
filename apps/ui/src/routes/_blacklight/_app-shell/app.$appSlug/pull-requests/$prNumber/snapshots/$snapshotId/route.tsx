@@ -25,6 +25,7 @@ import { formatDuration, formatRelativeTime } from "lib/format";
 import {
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
+  FULL_SNAPSHOT_DETAIL,
   useSnapshotDetail,
   useSnapshotReport,
 } from "lib/query/branches.queries";
@@ -43,7 +44,7 @@ export const Route = createFileRoute(
     if (app == null) throw notFound();
     await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
-      ensureSnapshotDetailData(context.queryClient, snapshotId),
+      ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
     ]);
   },
   component: SnapshotReportLayout,
@@ -62,7 +63,7 @@ function SnapshotReportLayout() {
 function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
-  const { data: detail } = useSnapshotDetail(snapshotId);
+  const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
   const { isAdmin } = useAuth();
   const bugCount = report.bugs.length;
   const location = useLocation();

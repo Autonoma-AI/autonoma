@@ -339,7 +339,9 @@ export class BranchesService extends Service {
                 name: true,
                 createdAt: true,
                 updatedAt: true,
-                prInfo: { select: { prNumber: true } },
+                // Cached GitHub PR metadata. The detail page falls back to this title when the live
+                // GitHub fetch is unavailable, matching the PR list (which always reads from cache).
+                prInfo: { select: { prNumber: true, prTitle: true } },
             },
         });
 
@@ -347,11 +349,21 @@ export class BranchesService extends Service {
         if (branch.prInfo == null) throw new InternalError("Branch has no PR info");
 
         const { prInfo, ...rest } = branch;
-        return { ...rest, prNumber: prInfo.prNumber };
+        return { ...rest, prNumber: prInfo.prNumber, prTitle: prInfo.prTitle ?? undefined };
     }
 
-    async getSnapshotDetail(snapshotId: string, organizationId: string) {
-        this.logger.info("Getting snapshot detail", { snapshotId });
+    async getSnapshotDetail(
+        snapshotId: string,
+        organizationId: string,
+        // Defaults to the full payload so any internal caller keeps prior behavior. The tRPC router
+        // opts out of the workflow/refinement-loop work for aggregate callers (e.g. the PR overview
+        // card, which fans this out across every snapshot in the PR).
+        options: { includeWorkflow: boolean; includeRefinementLoop: boolean } = {
+            includeWorkflow: true,
+            includeRefinementLoop: true,
+        },
+    ) {
+        this.logger.info("Getting snapshot detail", { snapshotId, ...options });
 
         const snapshot = await this.db.branchSnapshot.findUnique({
             where: { id: snapshotId, branch: { organizationId } },
@@ -429,12 +441,12 @@ export class BranchesService extends Service {
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
         if (snapshot.diffsJob == null) throw new NotFoundError("Snapshot has no diffs job");
 
-        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = findLatestWorkflowBySnapshotId(
-            snapshotId,
-        ).catch((error) => {
-            this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
-            return undefined;
-        });
+        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = options.includeWorkflow
+            ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
+                  this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
+                  return undefined;
+              })
+            : Promise.resolve(undefined);
 
         const { prInfo, ...branchRest } = snapshot.branch;
         const { diffsJob, branch: _branch, testCaseAssignments, ...snapshotRest } = snapshot;
@@ -466,7 +478,9 @@ export class BranchesService extends Service {
         const [changes, temporalWorkflow, refinementLoop] = await Promise.all([
             getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger),
             temporalWorkflowPromise,
-            loadRefinementLoop(this.db, snapshotId, this.logger),
+            options.includeRefinementLoop
+                ? loadRefinementLoop(this.db, snapshotId, this.logger)
+                : Promise.resolve(undefined),
         ]);
 
         const acceptedTestCaseIds = diffsJob.testCandidates

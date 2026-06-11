@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import type { ScenarioRecipeSchema, ScenarioStructureJsonSchema } from "@autonoma/types";
@@ -13,6 +14,43 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 export function createClient(connectionString: string): PrismaClient {
     const adapter = new PrismaPg({ connectionString });
     return new PrismaClient({ adapter });
+}
+
+// Per-scope SQL-statement counter. A client from createQueryCountingClient increments the store of
+// the innermost active measureQueries scope on every query event; outside a scope it is a no-op.
+const queryCountStore = new AsyncLocalStorage<{ count: number }>();
+
+/**
+ * Creates a Prisma client whose query events feed the count scope used by {@link measureQueries}.
+ * Query events are delivered to listeners only (not stdout), so this adds no log noise, and the
+ * handler is inert outside a measureQueries scope. Intended for tests / instrumentation; production
+ * code uses {@link createClient}.
+ */
+export function createQueryCountingClient(connectionString: string): PrismaClient {
+    const adapter = new PrismaPg({ connectionString });
+    const client = new PrismaClient({ adapter, log: [{ level: "query", emit: "event" }] });
+
+    client.$on("query", () => {
+        const store = queryCountStore.getStore();
+        if (store != null) store.count += 1;
+    });
+
+    return client;
+}
+
+/**
+ * Runs `fn` and returns its result alongside the number of SQL statements issued during it by a
+ * client built with {@link createQueryCountingClient}. The count is scoped via AsyncLocalStorage, so
+ * concurrent calls do not interfere. Used by performance-budget tests to assert a code path stays
+ * under a fixed number of database round-trips (e.g. catching N+1 regressions).
+ *
+ * Note: only the innermost scope is counted - nesting one measureQueries inside another does not roll
+ * the inner queries up into the outer total.
+ */
+export async function measureQueries<T>(fn: () => Promise<T>): Promise<{ result: T; queryCount: number }> {
+    const store = { count: 0 };
+    const result = await queryCountStore.run(store, fn);
+    return { result, queryCount: store.count };
 }
 
 function createDefaultClient(): PrismaClient {

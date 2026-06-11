@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SnapshotChangesDetail } from "components/snapshot/snapshot-changes-detail";
 import { buildSections } from "components/snapshot/snapshot-entries";
-import { useSnapshotDetail } from "lib/query/branches.queries";
+import { FULL_SNAPSHOT_DETAIL, useSnapshotDetail } from "lib/query/branches.queries";
 import { useMemo } from "react";
 
 export const Route = createFileRoute(
@@ -12,7 +12,7 @@ export const Route = createFileRoute(
 
 function ChangesDetailRoute() {
   const { prNumber, snapshotId, testId } = Route.useParams();
-  const { data } = useSnapshotDetail(snapshotId);
+  const { data } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
   const { changes, diffsJob, quarantinedTests, executedTests } = data;
 
   const entry = useMemo(() => {

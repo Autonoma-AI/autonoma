@@ -2,7 +2,7 @@ import { Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight"
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { SnapshotChangesList } from "components/snapshot/snapshot-changes-list";
 import { buildSections } from "components/snapshot/snapshot-entries";
-import { useSnapshotDetail } from "lib/query/branches.queries";
+import { FULL_SNAPSHOT_DETAIL, useSnapshotDetail } from "lib/query/branches.queries";
 import { useMemo } from "react";
 
 export const Route = createFileRoute(
@@ -13,7 +13,7 @@ export const Route = createFileRoute(
 
 function ChangesLayout() {
   const { prNumber, snapshotId } = Route.useParams();
-  const { data } = useSnapshotDetail(snapshotId);
+  const { data } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
   const { changes, diffsJob, quarantinedTests, executedTests } = data;
 
   const sections = useMemo(

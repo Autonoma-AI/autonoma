@@ -14,6 +14,7 @@ export function PRDetailHeader({
   applicationId,
   prNumber,
   branchName,
+  cachedTitle,
   targetBranchName,
   pr,
   prPending,
@@ -23,13 +24,18 @@ export function PRDetailHeader({
   applicationId: string;
   prNumber: number;
   branchName: string;
+  cachedTitle: string | undefined;
   targetBranchName: string;
   pr: PullRequest | undefined;
   prPending: boolean;
   health: PrHealth;
   bugCount: number;
 }) {
-  const title = pr?.title ?? branchName;
+  // Prefer the live GitHub title, fall back to the cached PR title (same source as the PR list), and
+  // only fall back to the branch name when neither is available.
+  const title = pr?.title ?? cachedTitle ?? branchName;
+  // Show the cached title immediately rather than a skeleton while the live PR fetch is in flight.
+  const showTitleSkeleton = prPending && pr?.title == null && cachedTitle == null;
 
   return (
     <header className="border-b border-border-dim bg-surface-base px-6 py-5 h-36 flex items-center justify-between">
@@ -40,7 +46,7 @@ export function PRDetailHeader({
           </span>
         </div>
 
-        {prPending ? (
+        {showTitleSkeleton ? (
           <Skeleton className="h-7 w-96" />
         ) : (
           <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">

@@ -57,9 +57,26 @@ export async function ensureSnapshotHistoryData(queryClient: QueryClient, branch
 const TERMINAL_DIFFS_JOB_STATUSES = new Set(["completed", "failed"]);
 const INCOMPLETE_GENERATION_STATUSES = new Set(["pending", "queued", "running"]);
 
-export function useSnapshotDetail(snapshotId: string) {
+// The Temporal workflow link and refinement loop are only shown on the single-checkpoint page.
+// Aggregate callers (the PR overview card) omit them so the server skips an external Temporal call
+// and an extra query per snapshot. Lean callers keep the `{ snapshotId }` key so they share one
+// cache entry; the full page uses a distinct key.
+export type SnapshotDetailOptions = { includeWorkflow?: boolean; includeRefinementLoop?: boolean };
+
+// The single-checkpoint page (and its nested changes routes) render the workflow link and refinement
+// loop, so they request the full payload and share one cache entry under this key.
+export const FULL_SNAPSHOT_DETAIL: SnapshotDetailOptions = { includeWorkflow: true, includeRefinementLoop: true };
+
+function snapshotDetailQueryInput(snapshotId: string, options?: SnapshotDetailOptions) {
+    const includeWorkflow = options?.includeWorkflow === true;
+    const includeRefinementLoop = options?.includeRefinementLoop === true;
+    if (!includeWorkflow && !includeRefinementLoop) return { snapshotId };
+    return { snapshotId, includeWorkflow, includeRefinementLoop };
+}
+
+export function useSnapshotDetail(snapshotId: string, options?: SnapshotDetailOptions) {
     return useSuspenseQuery({
-        ...trpc.branches.snapshotDetail.queryOptions({ snapshotId }),
+        ...trpc.branches.snapshotDetail.queryOptions(snapshotDetailQueryInput(snapshotId, options)),
         refetchInterval: (query) => {
             const data = query.state.data;
             if (data == null) return false;
@@ -77,8 +94,15 @@ export function useSnapshotDetail(snapshotId: string) {
     });
 }
 
-export async function ensureSnapshotDetailData(queryClient: QueryClient, snapshotId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.snapshotDetail.queryOptions({ snapshotId }));
+export async function ensureSnapshotDetailData(
+    queryClient: QueryClient,
+    snapshotId: string,
+    options?: SnapshotDetailOptions,
+) {
+    await ensureAPIQueryData(
+        queryClient,
+        trpc.branches.snapshotDetail.queryOptions(snapshotDetailQueryInput(snapshotId, options)),
+    );
 }
 
 export function useSnapshotReport(snapshotId: string) {

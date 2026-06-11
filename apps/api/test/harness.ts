@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { type Organization, type PrismaClient, type Session, type User, createClient } from "@autonoma/db";
+import { type Organization, type PrismaClient, type Session, type User, createQueryCountingClient } from "@autonoma/db";
 import { FakeGitHubApp } from "@autonoma/github";
 import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
@@ -50,7 +50,7 @@ export class APITestHarness implements IntegrationHarness {
             );
         }
 
-        const db = createClient(dbUrl);
+        const db = createQueryCountingClient(dbUrl);
         const redisClient = new Redis(redisUrl);
         const auth = buildAuth({ redisClient, conn: db });
 
