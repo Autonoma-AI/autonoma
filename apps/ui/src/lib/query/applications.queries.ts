@@ -89,3 +89,18 @@ export function useUpdateApplicationSettings() {
         errorToast: { title: "Failed to save settings" },
     });
 }
+
+export function useUpdateApplicationData() {
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    return useAPIMutation({
+        ...trpc.applications.updateData.mutationOptions({
+            onSettled: async () => {
+                await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                await router.invalidate();
+            },
+        }),
+        successToast: { title: "Deployment URL saved" },
+        errorToast: { title: "Failed to save deployment URL" },
+    });
+}
