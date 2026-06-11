@@ -31,6 +31,7 @@ const STATUS_VARIANT: Record<PreviewEnvironment["status"], "success" | "warn" | 
   pending: "warn",
   failed: "critical",
   torn_down: "outline",
+  superseded: "warn",
 };
 
 function AdminPreviewkitPage() {
