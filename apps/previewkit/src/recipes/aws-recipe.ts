@@ -66,10 +66,10 @@ export class AwsRecipe extends BaseRecipe<AwsOptions> {
             resources: {
                 requests: {
                     cpu: config.resources.cpu,
-                    memory: config.resources.memory,
+                    memory: config.resources.memoryRequest,
                 },
                 limits: {
-                    memory: config.resources.memory,
+                    memory: config.resources.memoryLimit,
                 },
             },
             readinessProbe: {

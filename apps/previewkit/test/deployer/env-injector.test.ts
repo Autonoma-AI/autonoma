@@ -23,7 +23,7 @@ const apps: AppConfig[] = [
         build_args: {},
         env: {},
         replicas: 1,
-        resources: { cpu: "250m", memory: "256Mi" },
+        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         build_secrets: [],
     },
     {
@@ -33,7 +33,7 @@ const apps: AppConfig[] = [
         build_args: {},
         env: {},
         replicas: 1,
-        resources: { cpu: "250m", memory: "256Mi" },
+        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         build_secrets: [],
     },
 ];
@@ -43,14 +43,14 @@ const services: ServiceConfig[] = [
         name: "db",
         recipe: "postgres",
         env: {},
-        resources: { cpu: "250m", memory: "256Mi" },
+        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         options: undefined,
     },
     {
         name: "cache",
         recipe: "redis",
         env: {},
-        resources: { cpu: "250m", memory: "256Mi" },
+        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         options: undefined,
     },
 ];
@@ -205,7 +205,7 @@ describe("EnvInjector", () => {
                 name: "temporal",
                 recipe: "temporal",
                 env: {},
-                resources: { cpu: "250m", memory: "256Mi" },
+                resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
                 options: undefined,
             },
         ];
@@ -255,7 +255,7 @@ describe("EnvInjector", () => {
                 recipe: "api-gateway",
                 env: {},
                 options: { routes: [{ path: "/", target: "web", strip_prefix: false }] },
-                resources: { cpu: "250m", memory: "256Mi" },
+                resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
             },
         ];
 

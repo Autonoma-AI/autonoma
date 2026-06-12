@@ -10,7 +10,7 @@ function app(name: string, depends_on?: string[]): AppConfig {
         env: {},
         build_args: {},
         replicas: 1,
-        resources: { cpu: "250m", memory: "256Mi" },
+        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         depends_on,
     };
 }

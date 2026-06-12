@@ -15,14 +15,14 @@ describe("resolveConfig", () => {
         expect(config.services[0].recipe).toBe("postgres");
     });
 
-    it("applies platform standards (resources ignored -> 1000m/1Gi)", () => {
+    it("applies platform standards (resources ignored -> app tier)", () => {
         const config = resolveConfig({
             document: {
                 version: 1,
-                apps: [{ name: "web", port: 3000, resources: { cpu: "250m", memory: "128Mi" } }],
+                apps: [{ name: "web", port: 3000, resources: { cpu: "4", memory: "8Gi" } }],
             },
         });
-        expect(config.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+        expect(config.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
     });
 
     it("throws ZodError for an invalid document", () => {

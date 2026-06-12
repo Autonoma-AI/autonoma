@@ -110,10 +110,10 @@ hooks:
 | `env` | No | `{}` | Environment variables. Supports `{{name.host}}` and `{{name.port}}` templates |
 | `command` | No | | Override the container command |
 | `health_check` | No | | HTTP path for readiness/liveness probes |
-| `replicas` | No | `1` | Number of pod replicas |
+| `replicas` | No | `1` | Number of pod replicas. Capped at 3 (platform policy); higher values are clamped, not rejected |
 | `primary` | No | | Marks this app as the environment's primary URL |
 | `depends_on` | No | | Names of apps/services this app waits for before starting |
-| `resources` | No | | **Deprecated and ignored.** Every container is allocated 1000m CPU / 1Gi memory. Still accepted so existing configs validate; remove it. |
+| `resources` | No | | **Deprecated and ignored.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. Still accepted so existing configs validate; remove it. |
 
 **Service fields:**
 
@@ -124,7 +124,7 @@ hooks:
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
 | `options` | No | `{}` | Recipe-specific options (e.g. `docker-image`'s `image` / `port` / `readiness`) |
-| `resources` | No | | **Deprecated and ignored** (see app fields). All containers get 1000m CPU / 1Gi memory. |
+| `resources` | No | | **Deprecated and ignored** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
 
 ### Template Syntax
 

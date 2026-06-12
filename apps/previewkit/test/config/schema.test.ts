@@ -73,24 +73,46 @@ describe("previewConfigSchema", () => {
         expect(result.apps[0].replicas).toBe(1);
         expect(result.apps[0].build_args).toEqual({});
         expect(result.apps[0].env).toEqual({});
-        // resources is deprecated; omitting it yields the standard allocation.
-        expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+        // resources is deprecated; omitting it yields the app-tier standard.
+        expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+    });
+
+    describe("replicas (clamped)", () => {
+        it("keeps values at or below the cap", () => {
+            const result = previewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, replicas: 2 }],
+            });
+            expect(result.apps[0].replicas).toBe(2);
+        });
+
+        it("clamps values above the cap instead of rejecting", () => {
+            const result = previewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, replicas: 50 }],
+            });
+            expect(result.apps[0].replicas).toBe(3);
+        });
     });
 
     describe("resources (deprecated)", () => {
-        it("yields the standard 1000m/1Gi when omitted", () => {
+        it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
-            expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
         });
 
-        it("ignores any explicit cpu/memory and still yields 1000m/1Gi", () => {
+        it("ignores any explicit cpu/memory and still yields the tiered standards", () => {
             const result = previewConfigSchema.parse({
                 version: 1,
-                apps: [{ name: "web", port: 3000, resources: { cpu: "250m", memory: "256Mi" } }],
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "8Gi" } }],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "4", memory: "8Gi" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
-            expect(result.services[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+            expect(result.services[0].resources).toEqual({
+                cpu: "100m",
+                memoryRequest: "256Mi",
+                memoryLimit: "1Gi",
+            });
         });
 
         it("still validates a config that sets resources (backward compatibility)", () => {

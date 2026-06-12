@@ -57,17 +57,17 @@
             "type": "object",
             "additionalProperties": false,
             "deprecated": true,
-            "description": "DEPRECATED and ignored. Every app and service is allocated a standard 1000m CPU / 1Gi memory. The field is still accepted so existing configs validate, but cpu/memory values have no effect. Remove it.",
+            "description": "DEPRECATED and ignored. Every container gets the platform-standard allocation for its role: apps request 250m CPU / 512Mi memory, recipe services request 100m CPU / 256Mi memory; all containers are limited to 1Gi memory and CPU is never limited (bursting is free). The field is still accepted so existing configs validate, but cpu/memory values have no effect. Remove it.",
             "properties": {
                 "cpu": {
                     "type": "string",
                     "deprecated": true,
-                    "description": "Ignored. All containers request 1000m CPU."
+                    "description": "Ignored. Apps request 250m CPU, recipe services 100m; CPU is never limited."
                 },
                 "memory": {
                     "type": "string",
                     "deprecated": true,
-                    "description": "Ignored. All containers get 1Gi memory."
+                    "description": "Ignored. Apps request 512Mi memory, recipe services 256Mi; all containers are limited to 1Gi."
                 }
             }
         },
@@ -202,7 +202,7 @@
                     "type": "integer",
                     "minimum": 1,
                     "default": 1,
-                    "description": "Number of pod replicas."
+                    "description": "Number of pod replicas. Capped at 3 (platform policy); higher values are accepted but clamped."
                 },
                 "primary": {
                     "type": "boolean",

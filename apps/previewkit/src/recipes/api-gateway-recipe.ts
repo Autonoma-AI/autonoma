@@ -90,9 +90,9 @@ export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
                                 resources: {
                                     requests: {
                                         cpu: config.resources.cpu,
-                                        memory: config.resources.memory,
+                                        memory: config.resources.memoryRequest,
                                     },
-                                    limits: { memory: config.resources.memory },
+                                    limits: { memory: config.resources.memoryLimit },
                                 },
                                 volumeMounts: [
                                     {

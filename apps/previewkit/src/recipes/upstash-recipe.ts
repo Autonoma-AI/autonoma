@@ -103,10 +103,10 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
             resources: {
                 requests: {
                     cpu: config.resources.cpu,
-                    memory: config.resources.memory,
+                    memory: config.resources.memoryRequest,
                 },
                 limits: {
-                    memory: config.resources.memory,
+                    memory: config.resources.memoryLimit,
                 },
             },
             // SRH serves an unauthenticated 200 at GET / ("Welcome to

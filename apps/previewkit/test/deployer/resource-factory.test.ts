@@ -19,7 +19,7 @@ const baseApp: AppConfig = {
     build_secrets: [],
     env: {},
     replicas: 1,
-    resources: { cpu: "1000m", memory: "1Gi" },
+    resources: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
 };
 
 const baseOpts = {
@@ -107,6 +107,15 @@ describe("buildAppDeployment", () => {
         const container = dep.spec!.template.spec!.containers[0]!;
         expect(container.image).toBe("ghcr.io/my-org/web:pr-42-abc1234");
         expect(container.ports![0]!.containerPort).toBe(3000);
+    });
+
+    it("requests cpu and memory separately from the memory limit, with no cpu limit", () => {
+        const dep = buildAppDeployment(baseOpts);
+        const container = dep.spec!.template.spec!.containers[0]!;
+        expect(container.resources).toEqual({
+            requests: { cpu: "250m", memory: "512Mi" },
+            limits: { memory: "1Gi" },
+        });
     });
 
     it("injects resolved environment variables", () => {

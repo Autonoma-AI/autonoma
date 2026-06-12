@@ -17,10 +17,19 @@ describe("createPreviewkitDefaults", () => {
         });
     });
 
-    it("exposes the standard resources as platform policy", () => {
+    it("exposes the tiered standard resources as platform policy", () => {
         const d = createPreviewkitDefaults(env);
-        expect(d.standards.resources).toEqual({ cpu: "1000m", memory: "1Gi" });
-        // Same canonical values the schema transform applies.
-        expect(d.standards.resources).toEqual({ cpu: STANDARD_RESOURCES.cpu, memory: STANDARD_RESOURCES.memory });
+        expect(d.standards.resources).toEqual({
+            app: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
+            service: { cpu: "100m", memoryRequest: "256Mi", memoryLimit: "1Gi" },
+        });
+        // Same canonical values the schema transforms apply.
+        expect(d.standards.resources.app).toEqual(STANDARD_RESOURCES.app);
+        expect(d.standards.resources.service).toEqual(STANDARD_RESOURCES.service);
+    });
+
+    it("exposes the replicas cap as platform policy", () => {
+        const d = createPreviewkitDefaults(env);
+        expect(d.standards.maxReplicas).toBe(3);
     });
 });

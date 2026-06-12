@@ -83,10 +83,10 @@ export class MongoDbRecipe extends BaseRecipe {
                                 resources: {
                                     requests: {
                                         cpu: config.resources.cpu,
-                                        memory: config.resources.memory,
+                                        memory: config.resources.memoryRequest,
                                     },
                                     limits: {
-                                        memory: config.resources.memory,
+                                        memory: config.resources.memoryLimit,
                                     },
                                 },
                                 volumeMounts: [{ name: "data", mountPath: "/data/db" }],

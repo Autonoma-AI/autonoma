@@ -90,10 +90,10 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
                             resources: {
                                 requests: {
                                     cpu: app.resources.cpu,
-                                    memory: app.resources.memory,
+                                    memory: app.resources.memoryRequest,
                                 },
                                 limits: {
-                                    memory: app.resources.memory,
+                                    memory: app.resources.memoryLimit,
                                 },
                             },
                             ...(app.health_check && {

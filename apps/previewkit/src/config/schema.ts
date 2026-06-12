@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { STANDARD_RESOURCES } from "./index";
+import { MAX_REPLICAS, STANDARD_RESOURCES } from "./index";
 
 // Re-exported so existing importers can keep getting it from the schema
 // module; the canonical definition now lives in the config index alongside the
@@ -10,20 +10,32 @@ const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 /**
  * @deprecated Per-app/service resource sizing is no longer configurable -
- * every container gets {@link STANDARD_RESOURCES} (1000m CPU / 1Gi memory).
+ * every container gets the {@link STANDARD_RESOURCES} tier for its role
+ * (`app` for application containers, `service` for recipe services).
  *
  * The field is still accepted so existing `.preview.yaml` files keep
  * validating, but any `cpu`/`memory` values are ignored: the schema
  * transform discards the input and always returns the standard allocation.
  * Remove `resources:` from your config; it has no effect.
  */
-const resourcesSchema = z
+const ignoredResourcesInput = z
     .object({
         cpu: z.string().optional(),
         memory: z.string().optional(),
     })
-    .optional()
-    .transform(() => ({ cpu: STANDARD_RESOURCES.cpu, memory: STANDARD_RESOURCES.memory }));
+    .optional();
+
+const appResourcesSchema = ignoredResourcesInput.transform(() => ({
+    cpu: STANDARD_RESOURCES.app.cpu,
+    memoryRequest: STANDARD_RESOURCES.app.memoryRequest,
+    memoryLimit: STANDARD_RESOURCES.app.memoryLimit,
+}));
+
+const serviceResourcesSchema = ignoredResourcesInput.transform(() => ({
+    cpu: STANDARD_RESOURCES.service.cpu,
+    memoryRequest: STANDARD_RESOURCES.service.memoryRequest,
+    memoryLimit: STANDARD_RESOURCES.service.memoryLimit,
+}));
 
 const appSchema = z.object({
     name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
@@ -51,9 +63,18 @@ const appSchema = z.object({
     env: z.record(z.string(), z.string()).default({}),
     command: z.string().optional(),
     health_check: z.string().optional(),
-    replicas: z.number().int().positive().default(1),
+    // Clamped to MAX_REPLICAS (platform policy): every replica multiplies the
+    // standard allocation, so this is capped rather than client-tunable.
+    // Out-of-range values are clamped, not rejected, so existing configs
+    // keep validating.
+    replicas: z
+        .number()
+        .int()
+        .positive()
+        .default(1)
+        .transform((n) => Math.min(n, MAX_REPLICAS)),
     primary: z.boolean().optional(),
-    resources: resourcesSchema,
+    resources: appResourcesSchema,
     depends_on: z.array(z.string()).optional(),
 });
 
@@ -63,7 +84,7 @@ const serviceSchema = z.object({
     version: z.string().optional(),
     env: z.record(z.string(), z.string()).default({}),
     options: z.record(z.string(), z.unknown()).default({}),
-    resources: resourcesSchema,
+    resources: serviceResourcesSchema,
     // aws recipe
     s3: z.boolean().optional(),
     sqs: z.boolean().optional(),

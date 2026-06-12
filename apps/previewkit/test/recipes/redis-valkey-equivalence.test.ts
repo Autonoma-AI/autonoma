@@ -8,7 +8,7 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
     recipe: "redis",
     env: { FOO: "bar" },
     options: {},
-    resources: { cpu: "250m", memory: "256Mi" },
+    resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
     ...overrides,
 });
 
@@ -29,7 +29,7 @@ describe("RedisRecipe", () => {
         expect(container?.env).toEqual([{ name: "FOO", value: "bar" }]);
         expect(container?.resources).toEqual({
             requests: { cpu: "250m", memory: "256Mi" },
-            limits: { memory: "256Mi" },
+            limits: { memory: "512Mi" },
         });
 
         expect(result.services[0]?.spec?.ports).toEqual([{ name: "primary", port: 6379, targetPort: 6379 }]);

@@ -15,13 +15,45 @@
  * `PreviewkitDefaults` table - consumers and the resolver stay the same.
  */
 
+/** Resource allocation for a single container. CPU and memory requests drive
+ *  node provisioning (Karpenter schedules off requests); the memory limit only
+ *  caps bursting and reserves nothing. */
+export interface ContainerResources {
+    cpu: string;
+    memoryRequest: string;
+    memoryLimit: string;
+}
+
 /**
- * Standard resource allocation applied to every app and service container.
- * CPU is requested but not limited (CPU limits cause throttling at the
- * boundary); memory is both requested and limited. This is the canonical
- * source; the `resources` schema transform reads it to ignore client input.
+ * Standard resource allocations, tiered by container role. Preview workloads
+ * idle most of their lifetime, so requests are sized for the idle baseline
+ * and bursting covers the rest:
+ *   - CPU is requested but never limited (CPU limits cause throttling at the
+ *     boundary), so the request is pure scheduling reservation - boot and
+ *     load spikes borrow whatever the node has free.
+ *   - Memory requests are sized to typical idle footprint; the limit stays at
+ *     1Gi so peak behavior is unchanged - only bin-packing improves.
+ *
+ * Tiers:
+ *   - `app`: client application containers (built images).
+ *   - `service`: recipe-provisioned services (postgres, redis, mongodb, ...),
+ *     which idle far below app containers in a preview.
+ *
+ * This is the canonical source; the `resources` schema transforms read it to
+ * ignore client input.
  */
-export const STANDARD_RESOURCES = { cpu: "1000m", memory: "1Gi" } as const;
+export const STANDARD_RESOURCES = {
+    app: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
+    service: { cpu: "100m", memoryRequest: "256Mi", memoryLimit: "1Gi" },
+} as const;
+
+/**
+ * Upper bound on per-app `replicas`. Platform policy, not client-tunable:
+ * every replica multiplies the standard allocation, and a preview never
+ * needs horizontal scale. Values above the cap are clamped, not rejected,
+ * so existing configs keep validating.
+ */
+export const MAX_REPLICAS = 3;
 
 export interface PreviewkitDefaults {
     /** Platform fallbacks; a client `.preview.yaml` value takes precedence. */
@@ -32,7 +64,11 @@ export interface PreviewkitDefaults {
     };
     /** Platform policy; client config cannot override these. */
     standards: {
-        resources: { cpu: string; memory: string };
+        resources: {
+            app: ContainerResources;
+            service: ContainerResources;
+        };
+        maxReplicas: number;
     };
 }
 
@@ -52,7 +88,19 @@ export function createPreviewkitDefaults(env: PreviewkitDefaultsEnv): Previewkit
             buildTimeoutMs: env.BUILD_TIMEOUT_MS,
         },
         standards: {
-            resources: { cpu: STANDARD_RESOURCES.cpu, memory: STANDARD_RESOURCES.memory },
+            resources: {
+                app: {
+                    cpu: STANDARD_RESOURCES.app.cpu,
+                    memoryRequest: STANDARD_RESOURCES.app.memoryRequest,
+                    memoryLimit: STANDARD_RESOURCES.app.memoryLimit,
+                },
+                service: {
+                    cpu: STANDARD_RESOURCES.service.cpu,
+                    memoryRequest: STANDARD_RESOURCES.service.memoryRequest,
+                    memoryLimit: STANDARD_RESOURCES.service.memoryLimit,
+                },
+            },
+            maxReplicas: MAX_REPLICAS,
         },
     };
 }
