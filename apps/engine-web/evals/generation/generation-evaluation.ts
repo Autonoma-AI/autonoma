@@ -1,4 +1,7 @@
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { CostCollector } from "@autonoma/ai";
 import {
     ExecutionAgentRunner,
@@ -34,6 +37,7 @@ export type GenerationEvalCase = LoadedCase<GenerationEvalInput, GenerationEvalF
 
 const CASE_TIMEOUT_MS = 600_000;
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
+const RESULTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "results");
 
 setScreenshotConfig({ screenResolution: DEFAULT_VIEWPORT, architecture: "web" });
 
@@ -89,6 +93,12 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
         if (testCase.frontmatter.skip === true) {
             helpers.skip("case marked skip: true in expected.md frontmatter");
         }
+
+        const caseData: Record<string, unknown> = {};
+        const recordInfo = (info: Record<string, unknown>) => {
+            Object.assign(caseData, info);
+            addInfo(info);
+        };
 
         const { input, frontmatter, rubric } = testCase;
         const signingSecret = resolveSigningSecret(input, helpers, testCase.name);
@@ -183,43 +193,49 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             expect.fail("Execution produced no result");
         }
 
+        const caseDir = saveCaseArtifacts(testCase.name, videoPath);
+        const savedVideoPath = path.join(caseDir, "recording.webm");
+
         const agentCost = summarizeRunCost(costCollector);
         const deterministicFailures = checkGenerationResult(result, frontmatter);
-        addInfo({
+        recordInfo({
             finishReason: result.finishReason,
             stepCount: result.generatedSteps.filter((s) => s.status === "success").length,
             steps: result.generatedSteps.map(toLeanStep),
             reasoning: result.reasoning,
-            videoPath,
+            videoPath: savedVideoPath,
             deterministicFailures,
             agentCost,
         });
 
         if (deterministicFailures.length > 0) {
             const summary = deterministicFailures.map((f) => `${f.check}: ${f.message}`).join("; ");
+            writeCaseResult(caseDir, testCase, caseData);
             expect.fail(`Deterministic checks failed: ${summary}`);
         }
 
         if (rubric.trim().length === 0) {
             this.logger.info("No rubric authored, skipping judge", { extra: { case: testCase.name } });
+            writeCaseResult(caseDir, testCase, caseData);
             return;
         }
 
         const judgeResult = await this.judge.grade({
             result,
-            videoPath,
+            videoPath: savedVideoPath,
             rawPrompt: input.rawPrompt,
             rubric,
             scenarioData,
         });
 
-        addInfo({
+        recordInfo({
             judgePassed: judgeResult.passed,
             judgeConfidence: judgeResult.confidence,
             judgeReasoning: judgeResult.reasoning,
             judgeCost: judgeResult.cost,
         });
 
+        writeCaseResult(caseDir, testCase, caseData);
         expect(judgeResult.passed, `Judge failed: ${judgeResult.reasoning}`).toBe(true);
     }
 
@@ -292,4 +308,28 @@ function resolveSigningSecret(
             .warn("No signing secret found, skipping case", { extra: { case: caseName, err } });
         helpers.skip(`signing secret missing: ${message}`);
     }
+}
+
+function saveCaseArtifacts(caseName: string, videoPath: string): string {
+    const slug = caseName.slice(0, 48).replace(/[^a-z0-9-]/gi, "-");
+    const caseDir = path.join(RESULTS_DIR, `${slug}-${Date.now()}`);
+    mkdirSync(caseDir, { recursive: true });
+    try {
+        copyFileSync(videoPath, path.join(caseDir, "recording.webm"));
+    } catch (err) {
+        rootLogger
+            .child({ name: "saveCaseArtifacts" })
+            .warn("Failed to copy video", { extra: { videoPath, caseDir, err } });
+    }
+    return caseDir;
+}
+
+function writeCaseResult(caseDir: string, testCase: GenerationEvalCase, data: Record<string, unknown>): void {
+    const result = {
+        case: testCase.name,
+        generationId: testCase.input.generationId,
+        url: testCase.input.url,
+        ...data,
+    };
+    writeFileSync(path.join(caseDir, "result.json"), JSON.stringify(result, null, 2) + "\n", "utf-8");
 }
