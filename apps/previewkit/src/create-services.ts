@@ -11,6 +11,7 @@ import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
+import { mirrorDockerHubImage } from "./deployer/image-mirror";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
@@ -98,7 +99,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     const buildkitJobManager = new BuildKitJobManager({
         kc: localKc,
         namespace: env.BUILDKIT_BUILD_NAMESPACE,
-        image: env.BUILDKIT_IMAGE,
+        image: mirrorDockerHubImage(env.BUILDKIT_IMAGE, env.DOCKER_HUB_MIRROR),
         serviceAccountName: env.BUILDKIT_BUILDER_SERVICE_ACCOUNT,
         activeDeadlineSeconds: Math.ceil(previewkitDefaults.defaults.buildTimeoutMs / 1000) + 60,
         provisionTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
@@ -131,6 +132,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         env.INGRESS_CLASS_NAME,
         env.INGRESS_NAMESPACE,
         env.DEPLOY_TIMEOUT_MS,
+        env.DOCKER_HUB_MIRROR,
     );
 
     // Addon plugin registry + manager.

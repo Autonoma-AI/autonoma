@@ -3,9 +3,11 @@ import * as k8s from "@kubernetes/client-node";
 import type { AppConfig, PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
 import { computeDeployWaves } from "../pipeline/deploy-graph";
+import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
 import { type AddonOutputs, EnvInjector } from "./env-injector";
+import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
 import { buildNetworkPolicies } from "./network-policy-factory";
@@ -107,6 +109,10 @@ export class Deployer {
         private ingressClassName: string = "nginx",
         private ingressNamespace: string = "system",
         private deployTimeoutMs: number = 600_000,
+        // Docker Hub pull-through cache prefix (see DOCKER_HUB_MIRROR in env.ts).
+        // Applied to every platform-managed image: service recipes and the nginx
+        // proxy. Client app images come from our own registry and are never touched.
+        private dockerHubMirrorUrl: string = "",
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
@@ -114,6 +120,7 @@ export class Deployer {
         this.namespaceManager = new NamespaceManager(kc);
         this.recipeRegistry = new RecipeRegistry();
         this.envInjector = new EnvInjector(this.recipeRegistry);
+        this.nginxImage = mirrorDockerHubImage(nginxImage, dockerHubMirrorUrl);
     }
 
     /**
@@ -166,6 +173,7 @@ export class Deployer {
         for (const svcConfig of config.services) {
             const recipe = this.recipeRegistry.get(svcConfig.recipe);
             const resources = recipe.generate(svcConfig, namespace);
+            this.mirrorRecipeImages(resources);
 
             for (const pvc of resources.persistentVolumeClaims) {
                 await this.applyPvc(namespace, pvc);
@@ -668,6 +676,35 @@ export class Deployer {
         }
 
         throw new Error(`Timed out waiting for services to be ready in ${namespace}`);
+    }
+
+    /**
+     * Rewrites every Docker Hub image in recipe-generated workloads to pull
+     * through the configured mirror (ECR pull-through cache). Mutates the
+     * resources in place before they are applied. Images on other registries
+     * are left untouched, so client-supplied references to e.g. ghcr.io keep
+     * working.
+     */
+    private mirrorRecipeImages(resources: RecipeResources): void {
+        const podSpecs = [
+            ...resources.deployments.map((d) => d.spec?.template.spec),
+            ...resources.statefulSets.map((s) => s.spec?.template.spec),
+        ];
+        for (const podSpec of podSpecs) {
+            if (podSpec == null) continue;
+            const containers = [...podSpec.containers, ...(podSpec.initContainers ?? [])];
+            for (const container of containers) {
+                if (container.image == null) continue;
+                const mirrored = mirrorDockerHubImage(container.image, this.dockerHubMirrorUrl);
+                if (mirrored !== container.image) {
+                    logger.info("Mirroring service image through Docker Hub pull-through cache", {
+                        from: container.image,
+                        to: mirrored,
+                    });
+                    container.image = mirrored;
+                }
+            }
+        }
     }
 
     private async applyServiceDeployment(namespace: string, deployment: k8s.V1Deployment): Promise<void> {

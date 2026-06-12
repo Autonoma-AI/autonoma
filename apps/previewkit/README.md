@@ -216,6 +216,7 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `PREVIEW_URL_SECRET` | Yes | | HMAC key for deterministic, unguessable preview hostnames |
 | `PREVIEW_DOMAIN` | No | `preview.autonoma.app` | Base domain for preview URLs (wildcard DNS must point at the shared gateway) |
 | `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry (ECR in production) |
+| `DOCKER_HUB_MIRROR` | No | `140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub` | ECR pull-through cache prefix. Every platform-managed image that resolves to Docker Hub (service recipes, the nginx access proxy, the BuildKit Job) is rewritten to pull through it; official images get the `library/` namespace. Other registries are never rewritten. Empty string disables mirroring |
 | `BUILDKIT_BUILD_NAMESPACE` | No | `buildkit` | Namespace where per-build BuildKit Jobs are spawned |
 | `BUILDKIT_IMAGE` | No | `moby/buildkit:v0.21.1` | Image used for build Jobs |
 | `BUILDKIT_BUILDER_SERVICE_ACCOUNT` | No | `buildkitd` | ServiceAccount each build pod runs as (needs IRSA for the S3 cache) |
@@ -275,6 +276,8 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 | `upstash` | `hiett/serverless-redis-http` + `redis` sidecar | 8000 | Serverless-Redis-HTTP proxy over a Redis sidecar in one Pod. Default token `local-dev-token` |
 | `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
+
+**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. The same applies to the per-namespace nginx proxy and the BuildKit Job. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
 
 ### `docker-image`
 

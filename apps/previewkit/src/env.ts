@@ -25,6 +25,15 @@ export const env = createEnv({
         // Container registry
         REGISTRY_URL: z.string().default("registry.previewkit.svc.cluster.local:5000"),
 
+        // ECR pull-through cache for Docker Hub. Every platform-managed (non-client)
+        // image reference that resolves to Docker Hub - service recipes, the nginx
+        // access proxy, the buildkit Job - is rewritten to pull through this prefix
+        // (no trailing slash), avoiding Docker Hub rate limits. Official images get
+        // the `library/` namespace the cache path requires (postgres:16 ->
+        // {mirror}/library/postgres:16). References to other registries are never
+        // rewritten. Set to an empty string to disable mirroring.
+        DOCKER_HUB_MIRROR: z.string().default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub"),
+
         // BuildKit: a fresh buildkitd Job is spawned per build in
         // BUILDKIT_BUILD_NAMESPACE using BUILDKIT_IMAGE. The Job runs in
         // the same cluster as previewkit; previewkit connects to it by
