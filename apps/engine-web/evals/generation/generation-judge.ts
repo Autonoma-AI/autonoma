@@ -235,18 +235,20 @@ class ReadScenarioEntitiesTool extends AgentTool<ReadEntitiesInput, ReadEntities
 // Agent loop - holds in-memory screenshots and scenario data for the tools
 // ---------------------------------------------------------------------------
 
-class GenerationJudgeLoop extends AgentLoop<GenerationJudgeVerdict> {
+export class GenerationJudgeLoop extends AgentLoop<GenerationJudgeVerdict> {
     constructor(
         model: LanguageModel,
         resultTool: FinishTool<GenerationJudgeVerdict>,
         readonly stepScreenshots: StepScreenshot[],
         readonly finalScreenshotBase64: string | undefined,
         readonly scenarioData: ScenarioData | undefined,
+        systemPrompt: string = SYSTEM_PROMPT,
+        name: string = "GenerationJudge",
     ) {
         super({
-            name: "GenerationJudge",
+            name,
             model,
-            systemPrompt: SYSTEM_PROMPT,
+            systemPrompt,
             tools: [
                 new InMemoryViewStepScreenshotTool(),
                 new InMemoryViewFinalScreenshotTool(),

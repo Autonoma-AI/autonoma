@@ -10,14 +10,15 @@ import { z } from "zod";
 import { resolvePreviewkitBypassToken } from "../../src/platform/previewkit-bypass-token";
 import { env } from "../env";
 import type { GenerationEvalInput } from "../generation/generation-input";
+import { frozenStepSchema, type FrozenStep, type ReplayEvalInput } from "../replay/replay-input";
 import { writeSigningSecret } from "../secrets";
 import { slugify } from "../shared/eval-utils";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CASES_DIR = path.join(__dirname, "../generation/cases");
+const CASES_DIR = path.join(__dirname, "../replay/cases");
 
-export interface CaptureGenerationParams {
-    testGenerationId: string;
+export interface CaptureReplayParams {
+    runId: string;
     /** Case folder name (defaults to slugified test case name). */
     name?: string;
     /** Overwrite an existing case folder. */
@@ -31,71 +32,102 @@ export interface CaptureGenerationParams {
 }
 
 /**
- * Capture a live TestGeneration from the database and freeze it as an eval case.
+ * Capture a live Run from the database and freeze it as a replay eval case.
  *
- * Reads TestGeneration + TestPlan + TestCase + Application + WebDeployment +
- * BranchSnapshot + ScenarioRecipeVersion from the database. Freezes the
- * assembled input to `input.json` (rawPrompt, url, applicationId, sdkUrl,
- * unresolved fixtureJson). Writes the
- * decrypted signing secret to the gitignored `.secrets.json`. Scaffolds a blank
- * `expected.md`.
+ * Reads Run + TestCaseAssignment + StepInputList + TestPlan + Application +
+ * WebDeployment + BranchSnapshot + ScenarioRecipeVersion from the database.
+ * Freezes the assembled input to `input.json` (rawPrompt, url, applicationId,
+ * sdkUrl, unresolved fixtureJson, recorded steps). Writes the decrypted signing
+ * secret to the gitignored `.secrets.json`. Scaffolds a blank `expected.md`.
  *
  * Warns if the snapshot branch is not main. Refuses if no recipe exists for the
  * (scenarioId, snapshotId) pair.
  */
-export async function captureGeneration(params: CaptureGenerationParams): Promise<string> {
-    const logger = rootLogger.child({ name: "captureGeneration" });
-    const { testGenerationId, force = false, validate = false } = params;
+export async function captureReplay(params: CaptureReplayParams): Promise<string> {
+    const logger = rootLogger.child({ name: "captureReplay" });
+    const { runId, force = false, validate = false } = params;
     const urlOverride = params.url;
     const sdkUrlOverride = params.sdkUrl;
 
-    logger.info("Capturing generation eval case", { extra: { testGenerationId } });
+    logger.info("Capturing replay eval case", { extra: { runId } });
     if (urlOverride != null) logger.info("URL override active", { extra: { urlOverride } });
     if (sdkUrlOverride != null) logger.info("SDK URL override active", { extra: { sdkUrlOverride } });
 
-    const generation = await db.testGeneration.findUnique({
-        where: { id: testGenerationId },
+    const run = await db.run.findUnique({
+        where: { id: runId },
         include: {
-            snapshot: {
+            plan: {
                 include: {
-                    branch: {
+                    scenario: true,
+                    testCase: {
+                        include: { application: true },
+                    },
+                },
+            },
+            assignment: {
+                include: {
+                    steps: {
                         include: {
-                            deployment: {
-                                include: { webDeployment: true },
+                            list: { orderBy: { order: "asc" } },
+                        },
+                    },
+                    snapshot: {
+                        include: {
+                            branch: {
+                                include: {
+                                    deployment: {
+                                        include: { webDeployment: true },
+                                    },
+                                },
                             },
                         },
                     },
                 },
             },
-            testPlan: {
-                include: {
-                    testCase: { include: { application: true } },
-                    scenario: true,
-                },
-            },
         },
     });
 
-    if (generation == null) {
-        throw new Error(`TestGeneration ${testGenerationId} not found`);
+    if (run == null) {
+        throw new Error(`Run ${runId} not found`);
     }
 
-    const { testPlan, snapshot } = generation;
-    const { testCase, scenario } = testPlan;
+    const { plan, assignment } = run;
+
+    if (plan == null) {
+        throw new Error(`Run ${runId} has no associated TestPlan (planId is null)`);
+    }
+
+    const { testCase, scenario } = plan;
     const { application } = testCase;
 
-    const branch = snapshot.branch;
+    if (assignment.steps == null) {
+        throw new Error(`Run ${runId} has no StepInputList - the run may not have been executed yet`);
+    }
+
+    const branch = assignment.snapshot.branch;
     const deployment = branch.deployment;
     const webDeployment = deployment?.webDeployment;
 
     if (webDeployment == null || deployment == null) {
-        throw new Error(`TestGeneration ${testGenerationId} has no web deployment on snapshot ${snapshot.id}`);
+        throw new Error(`Run ${runId} has no web deployment on snapshot ${assignment.snapshotId}`);
     }
 
     if (branch.name !== "main" && branch.name !== "master") {
         logger.warn("Snapshot branch is not main - eval cases should point at stable main-branch deployments", {
-            extra: { branch: branch.name, testGenerationId },
+            extra: { branch: branch.name, runId },
         });
+    }
+
+    const frozenSteps: FrozenStep[] = assignment.steps.list.map((step) =>
+        frozenStepSchema.parse({
+            interaction: step.interaction,
+            params: step.params,
+            waitCondition: step.waitCondition ?? undefined,
+        }),
+    );
+
+    if (frozenSteps.length === 0) {
+        throw new Error(`Run ${runId} has no steps to freeze`);
     }
 
     let sdkUrl: string | undefined;
@@ -105,14 +137,14 @@ export async function captureGeneration(params: CaptureGenerationParams): Promis
 
     if (scenario != null) {
         const recipeVersion = await db.scenarioRecipeVersion.findFirst({
-            where: { scenarioId: scenario.id, snapshotId: snapshot.id },
+            where: { scenarioId: scenario.id, snapshotId: assignment.snapshotId },
             orderBy: { createdAt: "desc" },
         });
 
         if (recipeVersion == null) {
             throw new Error(
-                `No ScenarioRecipeVersion found for scenario ${scenario.id} + snapshot ${snapshot.id}. ` +
-                    "Capture requires a frozen recipe. Run this generation on a snapshot that has one.",
+                `No ScenarioRecipeVersion found for scenario ${scenario.id} + snapshot ${assignment.snapshotId}. ` +
+                    "Capture requires a frozen recipe. Run this on a snapshot that has one.",
             );
         }
 
@@ -177,9 +209,9 @@ export async function captureGeneration(params: CaptureGenerationParams): Promis
         logger.info("Resolved previewkit bypass token for URL", { extra: { url: appUrl } });
     }
 
-    const input: GenerationEvalInput = {
-        generationId: testGenerationId,
-        rawPrompt: testPlan.prompt,
+    const input: ReplayEvalInput = {
+        runId: run.id,
+        rawPrompt: plan.prompt,
         customInstructions: application.customInstructions ?? undefined,
         url: appUrl,
         file: webDeployment.file,
@@ -187,9 +219,10 @@ export async function captureGeneration(params: CaptureGenerationParams): Promis
         sdkUrl,
         customHeaders,
         scenarioId: scenario?.id,
-        scenarioName: scenario?.name,
+        scenarioName: scenario?.name ?? undefined,
         fixtureJson,
         previewkitBypassToken,
+        steps: frozenSteps,
     };
 
     mkdirSync(caseDir, { recursive: true });
@@ -200,27 +233,24 @@ export async function captureGeneration(params: CaptureGenerationParams): Promis
         logger.info("Signing secret written to .secrets.json", { extra: { applicationId: application.id } });
     }
 
-    writeFileSync(path.join(caseDir, "expected.md"), blankExpected(testCase.name), "utf-8");
+    writeFileSync(path.join(caseDir, "expected.md"), blankExpected(testCase.name, frozenSteps.length), "utf-8");
 
-    logger.info("Captured generation eval case", { extra: { caseDir, scenarioId: scenario?.id } });
+    logger.info("Captured replay eval case", {
+        extra: { caseDir, stepCount: frozenSteps.length, scenarioId: scenario?.id },
+    });
     return caseDir;
 }
 
-function blankExpected(testCaseName: string): string {
+function blankExpected(testCaseName: string, stepCount: number): string {
     return `---
 description: "${testCaseName}"
-finishReason: success
-# Optional additional checks:
-# steps:
-#   minCount: 1
-#   noLoop: true
-#   includesInteractions: [click, type]
+stepCount: ${stepCount}
 ---
 `;
 }
 
 async function main(): Promise<void> {
-    const logger = rootLogger.child({ name: "capture-generation-cli" });
+    const logger = rootLogger.child({ name: "capture-replay-cli" });
 
     const { values, positionals } = parseArgs({
         allowPositionals: true,
@@ -233,21 +263,21 @@ async function main(): Promise<void> {
         },
     });
 
-    const [testGenerationId] = positionals;
-    if (testGenerationId == null) {
+    const [runId] = positionals;
+    if (runId == null) {
         throw new Error(
-            "Missing <testGenerationId>. Usage: capture-generation.ts <testGenerationId> [--name <case-name>] [--force] [--validate] [--url <app-url>] [--sdk-url <webhook-url>]",
+            "Missing <runId>. Usage: capture-replay.ts <runId> [--name <case-name>] [--force] [--validate] [--url <app-url>] [--sdk-url <webhook-url>]",
         );
     }
 
-    const params: CaptureGenerationParams = { testGenerationId, force: values.force, validate: values.validate };
-    if (values.name != null) params.name = values.name;
-    if (values.url != null) params.url = values.url;
-    if (values["sdk-url"] != null) params.sdkUrl = values["sdk-url"];
+    const capParams: CaptureReplayParams = { runId, force: values.force, validate: values.validate };
+    if (values.name != null) capParams.name = values.name;
+    if (values.url != null) capParams.url = values.url;
+    if (values["sdk-url"] != null) capParams.sdkUrl = values["sdk-url"];
 
-    const caseDir = await captureGeneration(params);
+    const caseDir = await captureReplay(capParams);
     logger.info("Capture complete", { extra: { caseDir } });
-    process.stdout.write(`Captured generation eval case to ${caseDir}\n`);
+    process.stdout.write(`Captured replay eval case to ${caseDir}\n`);
 }
 
 try {
@@ -255,7 +285,7 @@ try {
 } catch (err) {
     console.error(err);
     rootLogger
-        .child({ name: "capture-generation-cli" })
+        .child({ name: "capture-replay-cli" })
         .error("Capture failed", err instanceof Error ? err : new Error(String(err)));
     process.exitCode = 1;
 }

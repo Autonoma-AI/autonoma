@@ -1,13 +1,14 @@
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CostCollector } from "@autonoma/ai";
+import { CostCollector, VisualConditionChecker } from "@autonoma/ai";
 import {
-    ExecutionAgentRunner,
-    type ExecutionResult,
-    buildExecutionPrompt,
+    ReplayRunner,
+    WaitConditionChecker,
+    type ReplayResult,
+    type ReplayStep,
+    type StepData,
     createEngineModelRegistry,
-    toLeanStep,
 } from "@autonoma/engine";
 import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { setScreenshotConfig } from "@autonoma/image";
@@ -15,11 +16,11 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { provisionScenarioInstance, teardownScenarioInstance, type ProvisionedInstance } from "@autonoma/scenario";
 import { chromium } from "playwright";
 import { expect } from "vitest";
-import type { WebCommandSpec } from "../../src/execution-agent/web-agent";
-import { createWebAgentFactory } from "../../src/execution-agent/web-agent";
 import type { WebApplicationData, WebContext } from "../../src/platform";
 import { buildWebApplicationData } from "../../src/platform/web-application-data-builder";
 import { WebInstaller } from "../../src/platform/web-installer";
+import type { ReplayWebCommandSpec } from "../../src/replay/web-command-spec";
+import { createWebCommands } from "../../src/replay/web-commands";
 import {
     buildScenarioData,
     coerceScenarioVariables,
@@ -28,11 +29,11 @@ import {
     summarizeRunCost,
     writeCaseResult,
 } from "../shared/eval-utils";
-import { type GenerationEvalFrontmatter, checkGenerationResult } from "./generation-frontmatter";
-import type { GenerationEvalInput } from "./generation-input";
-import { GenerationJudge } from "./generation-judge";
+import { type ReplayEvalFrontmatter, checkReplayResult } from "./replay-frontmatter";
+import type { FrozenStep, ReplayEvalInput } from "./replay-input";
+import { ReplayJudge } from "./replay-judge";
 
-export type GenerationEvalCase = LoadedCase<GenerationEvalInput, GenerationEvalFrontmatter>;
+export type ReplayEvalCase = LoadedCase<ReplayEvalInput, ReplayEvalFrontmatter>;
 
 const CASE_TIMEOUT_MS = 600_000;
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
@@ -41,24 +42,26 @@ const RESULTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "res
 setScreenshotConfig({ screenResolution: DEFAULT_VIEWPORT, architecture: "web" });
 
 /**
- * Thin ExecutionAgentRunner subclass that exposes seedMemory publicly so the
+ * Thin ReplayRunner subclass that exposes seedMemoryEntries publicly so the
  * eval harness can inject credentials without going through the DB-coupled
- * GenerationAPIRunner path.
+ * RunAPIRunner path.
  */
-class EvalAgentRunner extends ExecutionAgentRunner<WebCommandSpec, WebApplicationData, WebContext> {
+class EvalReplayRunner extends ReplayRunner<ReplayWebCommandSpec, WebApplicationData, WebContext> {
     public seedMemoryEntries(entries: Record<string, string>): void {
-        this.seedMemory(entries);
+        for (const [key, value] of Object.entries(entries)) {
+            this.memory.set(key, value);
+        }
     }
 }
 
-export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
+export class ReplayEvaluation extends Evaluation<ReplayEvalCase> {
     private readonly logger = rootLogger.child({ name: this.constructor.name });
-    private readonly judge = new GenerationJudge();
+    private readonly judge = new ReplayJudge();
 
-    constructor(resultsDir: string, cases: GenerationEvalCase[]) {
+    constructor(resultsDir: string, cases: ReplayEvalCase[]) {
         super(
             {
-                name: "web-generation",
+                name: "web-replay",
                 parallel: false,
                 testOptions: { timeout: CASE_TIMEOUT_MS },
                 resultsDir,
@@ -67,25 +70,25 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
         );
     }
 
-    protected override caseName(testCase: GenerationEvalCase): string {
+    protected override caseName(testCase: ReplayEvalCase): string {
         const note = testCase.frontmatter.description;
         return note != null ? `${testCase.name} - ${note}` : testCase.name;
     }
 
-    protected override testCaseInfo(testCase: GenerationEvalCase): Record<string, string> {
+    protected override testCaseInfo(testCase: ReplayEvalCase): Record<string, string> {
         const info: Record<string, string> = {
             case: testCase.name,
             applicationId: testCase.input.applicationId,
             url: testCase.input.url,
         };
-        if (testCase.input.generationId != null) {
-            info.generationId = testCase.input.generationId;
+        if (testCase.input.runId != null) {
+            info.runId = testCase.input.runId;
         }
         return info;
     }
 
     protected override async runCase(
-        testCase: GenerationEvalCase,
+        testCase: ReplayEvalCase,
         addInfo: (info: Record<string, unknown>) => void,
         helpers: RunCaseHelpers,
     ): Promise<void> {
@@ -111,7 +114,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
         });
         const installer = new WebInstaller(browser, browserContext);
 
-        let result: ExecutionResult<WebCommandSpec> | undefined;
+        let result: ReplayResult<ReplayWebCommandSpec> | undefined;
         let videoPath: string | undefined;
         const costCollector = new CostCollector();
 
@@ -124,29 +127,31 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 previewkitBypassToken: input.previewkitBypassToken,
             });
 
+            const models = createEngineModelRegistry(costCollector);
+            const commands = createWebCommands(models);
+
+            const runner = new EvalReplayRunner({
+                installer,
+                commands,
+                createWaitChecker: (screen) =>
+                    new WaitConditionChecker(
+                        new VisualConditionChecker({
+                            model: models.getModel({ model: "fast-visual", tag: "wait-condition-checker" }),
+                        }),
+                        screen,
+                    ),
+                eventHandlers: {
+                    frame: async () => {},
+                    beforeStep: async () => {},
+                    afterStep: async () => {},
+                },
+            });
+
             const credentials = provisionedInstance?.auth?.credentials;
             const resolvedVariables =
                 provisionedInstance?.resolvedVariables != null
                     ? coerceScenarioVariables(provisionedInstance.resolvedVariables)
                     : undefined;
-
-            const prompt = buildExecutionPrompt(
-                input.rawPrompt,
-                input.customInstructions,
-                credentials,
-                resolvedVariables,
-            );
-            const runner = new EvalAgentRunner({
-                installer,
-                executionAgentFactory: createWebAgentFactory(createEngineModelRegistry(costCollector)),
-                eventHandlers: {
-                    frame: async () => {},
-                    beforeStep: async () => {},
-                    attempt: async () => {},
-                },
-            });
-
-            await runner.setupAgent({ name: testCase.name, prompt, ...webAppData }, prompt);
 
             if (credentials != null && Object.keys(credentials).length > 0) {
                 runner.seedMemoryEntries(credentials);
@@ -155,15 +160,18 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 runner.seedMemoryEntries(resolvedVariables);
             }
 
-            const runResult = await runner.run();
+            await runner.setup(webAppData);
+
+            const steps = mapToReplaySteps(input.steps);
+            const runResult = await runner.run(steps);
             result = runResult.result;
             videoPath = runResult.videoPath;
 
-            this.logger.info("Agent finished", {
+            this.logger.info("Replay finished", {
                 extra: {
                     case: testCase.name,
-                    finishReason: result.finishReason,
-                    steps: result.generatedSteps.length,
+                    success: result.success,
+                    steps: result.state.executedSteps.length,
                 },
             });
         } finally {
@@ -189,29 +197,37 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
         }
 
         if (result == null || videoPath == null) {
-            expect.fail("Execution produced no result");
+            expect.fail("Replay produced no result");
         }
 
         const caseDir = saveCaseArtifacts(RESULTS_DIR, testCase.name, videoPath);
         const savedVideoPath = path.join(caseDir, "recording.webm");
 
-        const agentCost = summarizeRunCost(costCollector);
-        const deterministicFailures = checkGenerationResult(result, frontmatter);
+        const replayCost = summarizeRunCost(costCollector);
+        const deterministicFailures = checkReplayResult(result, frontmatter);
         recordInfo({
-            finishReason: result.finishReason,
-            stepCount: result.generatedSteps.filter((s) => s.status === "success").length,
-            steps: result.generatedSteps.map(toLeanStep),
+            success: result.success,
+            stepCount: result.state.executedSteps.length,
+            steps: result.state.executionResults.map(({ step, status, output, error }) => ({
+                index: step.index,
+                interaction: step.stepData.interaction,
+                params: step.stepData.params,
+                waitCondition: step.waitCondition,
+                status,
+                output,
+                error: error?.message,
+            })),
             reasoning: result.reasoning,
             videoPath: savedVideoPath,
             deterministicFailures,
-            agentCost,
+            replayCost,
         });
 
         if (deterministicFailures.length > 0) {
             const summary = deterministicFailures.map((f) => `${f.check}: ${f.message}`).join("; ");
             writeCaseResult(
                 caseDir,
-                { case: testCase.name, generationId: testCase.input.generationId, url: testCase.input.url },
+                { case: testCase.name, runId: testCase.input.runId, url: testCase.input.url },
                 caseData,
             );
             expect.fail(`Deterministic checks failed: ${summary}`);
@@ -221,7 +237,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             this.logger.info("No rubric authored, skipping judge", { extra: { case: testCase.name } });
             writeCaseResult(
                 caseDir,
-                { case: testCase.name, generationId: testCase.input.generationId, url: testCase.input.url },
+                { case: testCase.name, runId: testCase.input.runId, url: testCase.input.url },
                 caseData,
             );
             return;
@@ -242,12 +258,16 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             judgeCost: judgeResult.cost,
         });
 
-        writeCaseResult(caseDir, testCase, caseData);
+        writeCaseResult(
+            caseDir,
+            { case: testCase.name, runId: testCase.input.runId, url: testCase.input.url },
+            caseData,
+        );
         expect(judgeResult.passed, `Judge failed: ${judgeResult.reasoning}`).toBe(true);
     }
 
     private async provisionScenario(
-        input: GenerationEvalInput,
+        input: ReplayEvalInput,
         signingSecret: string | undefined,
         helpers: RunCaseHelpers,
         caseName: string,
@@ -269,4 +289,15 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             helpers.skip(`scenario provisioning failed: ${message}`);
         }
     }
+}
+
+function mapToReplaySteps(frozenSteps: FrozenStep[]): ReplayStep<ReplayWebCommandSpec>[] {
+    return frozenSteps.map((step, index) => ({
+        index,
+        stepData: {
+            interaction: step.interaction,
+            params: step.params,
+        } as StepData<ReplayWebCommandSpec>,
+        waitCondition: step.waitCondition,
+    }));
 }

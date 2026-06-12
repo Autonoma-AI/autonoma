@@ -17,3 +17,14 @@ export type ReplayWebCommandSpec =
     | AssertCommandSpec
     | ScrollCommandSpec
     | RefreshCommandSpec;
+
+/** Tuple of all valid interaction names for `z.enum` validation at case-load time. */
+export const REPLAY_WEB_INTERACTIONS = [
+    "click",
+    "hover",
+    "navigate",
+    "type",
+    "assert",
+    "scroll",
+    "refresh",
+] as const satisfies ReadonlyArray<ReplayWebCommandSpec["interaction"]>;

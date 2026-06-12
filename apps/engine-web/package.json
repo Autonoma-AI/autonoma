@@ -18,6 +18,8 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests",
         "eval": "RUN_EVALS=true vitest run --passWithNoTests",
+        "eval:generation": "RUN_EVALS=true vitest run evals/generation/generation.eval.ts",
+        "eval:replay": "RUN_EVALS=true vitest run evals/replay/replay.eval.ts",
         "dev": "tsx --env-file=../../.env src/execution-agent/local-dev/run-execution.ts",
         "run-generation": "tsx --env-file=../../.env src/execution-agent/generation-api/run-generation-job.ts",
         "run-replay": "tsx --env-file=../../.env src/replay/run-replay-job.ts"
