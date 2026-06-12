@@ -8,7 +8,15 @@ export interface TypeCommandSpec {
 }
 
 export const typeParamsSchema = z.object({
-    description: z.string().describe("A natural language description of the input element to click on."),
+    description: z
+        .string()
+        .describe(
+            "A precise description of the interactive text area to focus-click before typing. " +
+                "This is fed directly into a visual point detector that picks a single pixel to click — " +
+                "describe the inner text area specifically (e.g. 'the white text area inside the chat input box, left of the send button'), " +
+                "not the outer container, placeholder label, or any icon next to it. " +
+                "A vague description that matches the border or a surrounding element will cause a silent typing failure.",
+        ),
     text: z.string().describe("The text to type into the element."),
     overwrite: z
         .boolean()
