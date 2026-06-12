@@ -313,10 +313,13 @@ model Application {
   previewkitSecrets         PreviewkitSecret[]
   previewkitConfigRevisions PreviewkitConfigRevision[]
 
-  // Revision currently in effect for this Application's previews. Stored as a
-  // plain id (not a relation) to avoid a second relation edge on this central
-  // model; the revision is fetched by id when resolving config.
-  activeConfigRevisionId String? @map("active_config_revision_id")
+  // Revision currently in effect for this Application's previews. A real FK
+  // (named relation, since previewkitConfigRevisions is the other edge to the
+  // same model - mirrors the mainBranch cycle above) so the pointer can never
+  // dangle. onDelete: SetNull lets a revision be deleted out from under it,
+  // degrading to the .preview.yaml fallback rather than erroring.
+  activeConfigRevisionId String?                   @unique @map("active_config_revision_id")
+  activeConfigRevision   PreviewkitConfigRevision? @relation("ActiveConfigRevision", fields: [activeConfigRevisionId], references: [id], onDelete: SetNull)
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1852,6 +1855,9 @@ model PreviewkitConfigRevision {
   id            String @id @default(cuid())
   applicationId String @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Back-relation for Application.activeConfigRevision (the active pointer).
+  activeForApplication Application? @relation("ActiveConfigRevision")
 
   // Monotonically increasing per application. (applicationId, revision) unique.
   revision      Int
