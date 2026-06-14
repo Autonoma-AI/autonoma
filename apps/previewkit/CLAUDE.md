@@ -153,7 +153,7 @@ Service (port 80 -> container 8080). It does three things:
   Service has ready endpoints, then proxies.
 - Gatekeeper runs as its **own in-cluster ServiceAccount** (NOT previewkit's cross-cluster creds), so
   it needs the per-namespace Role (`get/list/watch/patch` on deployments+statefulsets, `get/list` on
-  endpoints+pods) AND the API-server egress NetworkPolicy - without the latter, scale calls hang.
+  endpointslices) AND the API-server egress NetworkPolicy - without the latter, scale calls hang.
 
 ## Key env vars (`src/env.ts`)
 

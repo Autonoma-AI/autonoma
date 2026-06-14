@@ -329,7 +329,7 @@ export function buildGatekeeperServiceAccount(namespace: string, prNumber: numbe
 
 /**
  * Least-privilege namespaced Role: Gatekeeper patches replicas + the wake
- * annotation on managed Deployments/StatefulSets and reads Endpoints to detect
+ * annotation on managed Deployments/StatefulSets and reads EndpointSlices to detect
  * readiness. It runs as its own in-cluster ServiceAccount (not previewkit's
  * cross-cluster creds).
  */
@@ -345,8 +345,10 @@ export function buildGatekeeperRole(namespace: string, prNumber: number): k8s.V1
                 verbs: ["get", "list", "watch", "patch"],
             },
             {
-                apiGroups: [""],
-                resources: ["endpoints", "pods"],
+                // Gatekeeper polls EndpointSlices (discovery.k8s.io/v1) for readiness on
+                // wake - the core Endpoints API it replaced is deprecated in k8s 1.33+.
+                apiGroups: ["discovery.k8s.io"],
+                resources: ["endpointslices"],
                 verbs: ["get", "list"],
             },
         ],

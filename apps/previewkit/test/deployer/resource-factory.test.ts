@@ -107,14 +107,15 @@ describe("buildGatekeeperServiceAccount", () => {
 });
 
 describe("buildGatekeeperRole", () => {
-    it("grants patch on workloads and read on endpoints to scale + detect readiness", () => {
+    it("grants patch on workloads and read on endpointslices to scale + detect readiness", () => {
         const role = buildGatekeeperRole("preview-my-org-my-repo-pr-42", 42);
         const appsRule = role.rules!.find((r) => r.apiGroups?.includes("apps"))!;
         expect(appsRule.resources).toEqual(expect.arrayContaining(["deployments", "statefulsets"]));
         expect(appsRule.verbs).toEqual(expect.arrayContaining(["get", "list", "watch", "patch"]));
 
-        const coreRule = role.rules!.find((r) => r.resources?.includes("endpoints"))!;
-        expect(coreRule.verbs).toEqual(expect.arrayContaining(["get", "list"]));
+        const sliceRule = role.rules!.find((r) => r.resources?.includes("endpointslices"))!;
+        expect(sliceRule.apiGroups).toContain("discovery.k8s.io");
+        expect(sliceRule.verbs).toEqual(expect.arrayContaining(["get", "list"]));
     });
 });
 

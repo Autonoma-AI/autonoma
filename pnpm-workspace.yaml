@@ -92,6 +92,8 @@ minimumReleaseAgeExclude:
   - tmp@0.2.6
   - axios@1.16.0
   - hono@4.12.21
+  - '@grpc/grpc-js@1.14.4'
+  - esbuild@0.28.1
 
 onlyBuiltDependencies:
   - '@prisma/engines'
