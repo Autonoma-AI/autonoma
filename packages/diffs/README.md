@@ -77,11 +77,13 @@ Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that im
 
 For action tools, push to the loop's public mutable fields directly (`loop.affectedTests.push(...)`); for cross-tool invariants, either inline the check or extract a free helper alongside the tool. The loop subclasses expose their state as `public readonly` fields - there is no separate "collector" abstraction.
 
-## Bash tool process isolation
+## Bash tool
 
-The `bash` tool (`agents/tools/codebase/bash-tool.ts`) lets the research agents run shell commands against the clone. Its command allowlist + grammar validator is a first gate and ergonomic guidance, **not** the security boundary - several allowed verbs (`find -exec`, `sed -i`, `awk 'system()'`, `git` write subcommands) can still write or execute within a single validated invocation.
+The `bash` tool (`agents/tools/codebase/bash-tool.ts`) lets the research agents run shell commands against the clone. It runs each command with `sh -c`, with the working directory pinned to the clone root and a scrubbed environment (`buildSafeEnv` passes only `PATH`/`HOME`/`LANG`, so worker secrets never reach the child), a 30s timeout, and head+tail output truncation.
 
-The durable boundary is `CommandSandbox` (`agents/tools/codebase/command-sandbox.ts`), which wraps the child in [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) so it cannot write/delete files, reach the network, read host paths outside the clone, or see worker secrets. `bwrap` is installed in the diffs worker image. When it is absent (macOS / local eval) the wrapper **no-ops to a bare `sh -c` and logs a degraded-isolation warning** - isolation is never silently off in production. The four properties are verified by `test/command-sandbox.test.ts`, which spawns real `bwrap` and is skipped where it is unavailable.
+**There is no process isolation.** The command allowlist + grammar validator (`validateCommand`) and the scrubbed environment are the only gates. The allowlist is a first gate and ergonomic guidance, **not** a security boundary: several allowed verbs (`find -exec`, `sed -i`, `awk 'system()'`, `git` write subcommands) can write, execute, or reach the network within a single validated invocation. The tool therefore trusts its own agent and runs against the user's own clone; the residual risk (writes to the worker filesystem, network egress, host-path reads outside the clone) is accepted.
+
+> This previously wrapped the child in [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) for full process isolation, but `bwrap` requires unprivileged user namespaces that are blocked on the worker nodes (every command failed with `Creating new namespace failed: Operation not permitted`), so the isolation was removed. If isolation is wanted back without userns, prefer pod-level controls (a `NetworkPolicy` denying egress + a read-only root filesystem `securityContext`).
 
 ## Adding a new agent
 

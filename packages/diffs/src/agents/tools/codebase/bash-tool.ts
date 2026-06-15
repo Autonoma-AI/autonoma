@@ -4,7 +4,6 @@ import { AgentTool } from "@autonoma/ai";
 import { parse, type ParseEntry } from "shell-quote";
 import { z } from "zod";
 import type { CodebaseLoop } from "./codebase-loop";
-import { CommandSandbox } from "./command-sandbox";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,10 +12,13 @@ const execFileAsync = promisify(execFile);
  * worker image. Keep this small and biased toward read-only inspection - adding
  * a verb expands the agent's shell surface.
  *
- * NOTE: the allowlist + {@link validateCommand} are ergonomic guidance and a
- * first gate, **not** the security boundary. Several allowed verbs can still
- * write or execute within a single invocation (`find -exec`, `awk 'system()'`,
- * `sed -i`, `git` write subcommands). The durable boundary is process isolation.
+ * NOTE: the allowlist + {@link validateCommand}, together with the scrubbed
+ * environment ({@link buildSafeEnv}), are the ONLY gates on this tool. There is
+ * no process isolation: several allowed verbs can still write or execute within a
+ * single invocation (`find -exec`, `awk 'system()'`, `sed -i`, `git` write
+ * subcommands), so a command can write to the worker filesystem, reach the
+ * network, and read host paths outside the clone. The scrubbed environment is
+ * what still keeps worker secrets out of the child.
  */
 const ALLOWED_COMMANDS = new Set([
     "rg",
@@ -219,13 +221,12 @@ function readExecFailure(error: unknown): ExecFailure {
  * and the child runs with a scrubbed environment so worker secrets are never
  * visible to it.
  *
- * The durable security boundary is the {@link CommandSandbox}, which isolates the
- * child process (no writes, no network, no host reads outside the clone). The
- * allowlist validator is a first gate and ergonomic guidance, not the boundary.
+ * There is no process isolation: the command allowlist + {@link validateCommand}
+ * and the scrubbed environment are the only gates. Allowed verbs can still write,
+ * execute, or reach the network within a single invocation, so this tool trusts
+ * its own agent and runs against the user's own clone.
  */
 export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
-    private readonly sandbox = new CommandSandbox();
-
     constructor() {
         super({
             name: "bash",
@@ -249,12 +250,11 @@ export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
         if (validationError != null) return blockResult(validationError);
 
         const env = buildSafeEnv(process.env);
-        const spec = this.sandbox.wrap(input.command, loop.codebase.root, env);
 
         try {
-            const { stdout, stderr } = await execFileAsync(spec.file, spec.args, {
+            const { stdout, stderr } = await execFileAsync("sh", ["-c", input.command], {
                 cwd: loop.codebase.root,
-                env: spec.env,
+                env,
                 maxBuffer: MAX_BUFFER_BYTES,
                 timeout: TIMEOUT_MS,
             });
