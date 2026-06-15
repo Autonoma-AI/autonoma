@@ -44,3 +44,4 @@ step2-result.json
 
 # AI Plan files
 plan/
+**/.claude/worktrees

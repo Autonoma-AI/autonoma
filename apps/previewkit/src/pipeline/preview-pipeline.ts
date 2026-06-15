@@ -20,6 +20,7 @@ import type {
 } from "@autonoma/workflow/activities";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildAbortedError, type Builder } from "../builder/builder";
+import { buildPreviewImageReference } from "../builder/image-reference";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
@@ -851,7 +852,14 @@ export class PreviewPipeline {
                 );
             }
 
-            const imageTag = `${ctx.registry}/${ctx.org}/${ctx.repo}:${app.name}-pr-${ctx.prNumber}-${ctx.shortSha}`;
+            const imageTag = buildPreviewImageReference({
+                registry: ctx.registry,
+                org: ctx.org,
+                repo: ctx.repo,
+                appName: app.name,
+                prNumber: ctx.prNumber,
+                shortSha: ctx.shortSha,
+            });
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
             const contextPath = path.resolve(dir, app.path);
