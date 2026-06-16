@@ -273,7 +273,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 
 | Recipe | Image | Port | Notes |
 |--------|-------|------|-------|
-| `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default version `16-alpine`; user/password/db all `preview` |
+| `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default version `16-alpine`; user/password/db all `preview`. Override with `options.image` (allowed prefixes: `postgres:`, `postgis/postgis:`, `pgvector/pgvector:`, `google/alloydbomni`) |
 | `redis` | `redis:{version}-alpine` | 6379 | Deployment, no persistence. Default version `7-alpine` |
 | `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence. Default version `8-alpine` |
 | `mongodb` | `mongo:{version}` | 27017 | StatefulSet with PVC. Single-node replica set (Change Streams); connect with `directConnection=true`. Default version `7` |

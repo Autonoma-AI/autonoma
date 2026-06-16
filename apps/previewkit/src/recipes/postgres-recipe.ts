@@ -4,7 +4,7 @@ import type { ServiceConfig } from "../config/schema";
 import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 // Allowlist of accepted image prefixes for options.image.
-const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:", "pgvector/pgvector:"];
+const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:", "pgvector/pgvector:", "google/alloydbomni"];
 
 const optionsSchema = z.object({
     databases: z.array(z.string()).default([]),
