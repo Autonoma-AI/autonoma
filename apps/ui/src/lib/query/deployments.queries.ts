@@ -6,8 +6,23 @@ export function useDeploymentsByPr(applicationId: string, prNumber: number) {
     return useSuspenseQuery(trpc.deployments.listByPr.queryOptions({ applicationId, prNumber }));
 }
 
-export function usePreviewEnvironmentSummary(applicationId: string, prNumber: number) {
-    return useSuspenseQuery(trpc.deployments.previewSummaryByPr.queryOptions({ applicationId, prNumber }));
+const PREVIEW_POLL_MS = 5_000;
+// Frontend preview statuses that are still in flight (a redeploy is building or pending). Terminal
+// statuses (ready/degraded/failed/stopped/missing/unknown) stop the poll.
+const ACTIVE_PREVIEW_STATUSES: ReadonlySet<string> = new Set(["building", "stale"]);
+
+export function usePreviewEnvironmentSummary(
+    applicationId: string,
+    prNumber: number,
+    options?: { refetchWhileActive?: boolean },
+) {
+    return useSuspenseQuery({
+        ...trpc.deployments.previewSummaryByPr.queryOptions({ applicationId, prNumber }),
+        refetchInterval: (query) =>
+            options?.refetchWhileActive === true && ACTIVE_PREVIEW_STATUSES.has(query.state.data?.status ?? "")
+                ? PREVIEW_POLL_MS
+                : false,
+    });
 }
 
 export async function ensureDeploymentsByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {

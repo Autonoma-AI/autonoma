@@ -14,6 +14,8 @@ interface BuildLogStreamViewerProps {
   title?: string | undefined;
   /** Empty-state text while waiting for the first entry. */
   waitingText?: string | undefined;
+  /** When true, the viewer grows to fill its flex parent instead of using a fixed body height. */
+  fill?: boolean | undefined;
   className?: string | undefined;
 }
 
@@ -28,6 +30,7 @@ export function BuildLogStreamViewer({
   headers,
   title = "build logs",
   waitingText = "waiting for build output…",
+  fill,
   className,
 }: BuildLogStreamViewerProps) {
   const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers });
@@ -41,7 +44,7 @@ export function BuildLogStreamViewer({
   }, [entries]);
 
   return (
-    <Card className={cn("flex flex-col overflow-hidden", className)}>
+    <Card className={cn("flex flex-col overflow-hidden", fill === true && "min-h-0 flex-1", className)}>
       <header className="flex items-center gap-2 border-b border-border-dim px-4 py-2">
         <TerminalWindowIcon className="size-4 text-text-secondary" weight="duotone" />
         <span className="font-mono text-2xs text-text-secondary">{title}</span>
@@ -51,7 +54,13 @@ export function BuildLogStreamViewer({
         </div>
       </header>
 
-      <div ref={bodyRef} className="h-80 overflow-y-auto bg-surface-void px-4 py-3 font-mono text-2xs leading-relaxed">
+      <div
+        ref={bodyRef}
+        className={cn(
+          fill === true ? "min-h-0 flex-1" : "h-80",
+          "overflow-y-auto bg-surface-void px-4 py-3 font-mono text-2xs leading-relaxed",
+        )}
+      >
         {entries.length === 0 ? (
           <EmptyState connection={connection} error={error} waitingText={waitingText} />
         ) : (
@@ -157,16 +166,21 @@ export function PreviewBuildLogStreamExample({
  * Builds the previewkit log-stream SSE URL, mirroring how `lib/trpc` picks its
  * base: same-origin in production, absolute `VITE_API_URL` in cross-origin
  * preview environments. `source` selects build output (default) or the
- * environment's runtime app stdout/stderr.
+ * environment's runtime app stdout/stderr; `app`, when set, narrows the stream
+ * to a single app's logs.
  */
 export function buildPreviewLogStreamUrl(
   owner: string,
   repo: string,
   pr: number,
   source: "build" | "app" = "build",
+  app?: string,
 ): string {
-  const query = source === "app" ? "?source=app" : "";
-  const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream${query}`;
+  const params = new URLSearchParams();
+  if (source === "app") params.set("source", "app");
+  if (app != null && app !== "") params.set("app", app);
+  const query = params.toString();
+  const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream${query !== "" ? `?${query}` : ""}`;
   const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
   return isPreviewEnvironment ? `${env.VITE_API_URL}${path}` : path;
 }

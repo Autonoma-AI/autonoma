@@ -54,12 +54,13 @@ describe("LokiLogStore (integration)", () => {
         namespace: string,
         cursor: string,
         minEntries: number,
+        app?: string,
     ): Promise<Awaited<ReturnType<LokiLogStore["readBatch"]>>> {
         const deadline = Date.now() + 10_000;
-        let batch = await store.readBatch(namespace, cursor);
+        let batch = await store.readBatch(namespace, cursor, app);
         while (batch.length < minEntries && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 250));
-            batch = await store.readBatch(namespace, cursor);
+            batch = await store.readBatch(namespace, cursor, app);
         }
         return batch;
     }
@@ -188,5 +189,27 @@ describe("LokiLogStore (integration)", () => {
 
     it("rejects environment ids outside the namespace charset", async () => {
         await expect(appStore.readBatch('preview-"}{evil', "0")).rejects.toThrow(/Invalid environment id/);
+    });
+
+    it("filters to a single app when an app name is given", async () => {
+        const namespace = "preview-acme-api-pr-7";
+
+        await push({ namespace, source: "app", app: "web", stream: "stdout", kind: "log" }, [[nextNs(), "from web"]]);
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [[nextNs(), "from api"]]);
+
+        // Unfiltered: both apps' lines.
+        const all = await readUntil(appStore, namespace, "0", 2);
+        expect(all.map((entry) => entry.event.message).sort()).toEqual(["from api", "from web"]);
+
+        // Filtered to "api": only that app's line.
+        const apiOnly = await readUntil(appStore, namespace, "0", 1, "api");
+        expect(apiOnly.map((entry) => entry.event.message)).toEqual(["from api"]);
+        expect(apiOnly.every((entry) => entry.event.app === "api")).toBe(true);
+    });
+
+    it("rejects app names outside the allowed charset", async () => {
+        await expect(appStore.readBatch("preview-acme-api-pr-8", "0", 'api"}{evil')).rejects.toThrow(
+            /Invalid app name/,
+        );
     });
 });

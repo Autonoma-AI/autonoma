@@ -31,6 +31,12 @@ const environmentsService = new PreviewkitEnvironmentsService(db);
 const buildLogStore = env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "build") : undefined;
 const appLogStore = env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "app") : undefined;
 const logSourceSchema = z.enum(["build", "app"]).default("build");
+// Optional `?app=` narrows the stream to one app's logs. Charset-limited so it
+// is safe to interpolate into the Loki selector downstream.
+const logAppSchema = z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]{1,63}$/, "invalid app name")
+    .optional();
 const LOG_STREAM_POLL_MS = 1000;
 // Heartbeat (and DB status re-check) cadence while idle, in poll ticks.
 const LOG_STREAM_HEARTBEAT_TICKS = 15;
@@ -107,6 +113,11 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         if (!sourceParsed.success) return c.json({ error: "source must be 'build' or 'app'" }, 400);
         const source = sourceParsed.data;
 
+        // Optional ?app=<name> narrows both sources to a single app's lines.
+        const appParsed = logAppSchema.safeParse(c.req.query("app"));
+        if (!appParsed.success) return c.json({ error: "app must be a valid app name" }, 400);
+        const app = appParsed.data;
+
         const store: LogStore | undefined = source === "app" ? appLogStore : buildLogStore;
         if (store == null) return c.json({ error: "Log streaming is not configured." }, 503);
 
@@ -136,7 +147,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
                 const readBatch = async (after: string): Promise<BuildLogEntry[] | undefined> => {
                     try {
-                        return await store.readBatch(target.namespace, after);
+                        return await store.readBatch(target.namespace, after, app);
                     } catch (err) {
                         logger.error("Failed reading log stream", err, { namespace: target.namespace, source });
                         return undefined;

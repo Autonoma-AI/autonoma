@@ -1,6 +1,7 @@
 packages:
   - apps/**
   - packages/**
+  - "!**/.claude/**"
   - "!apps/**/.output/**"
   - "!apps/**/.nitro/**"
 

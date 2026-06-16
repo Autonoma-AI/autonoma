@@ -12,5 +12,6 @@ import type { BuildLogEntry } from "./build-log-event";
  * from preview pods by the Alloy DaemonSet.
  */
 export interface LogStore {
-    readBatch(environmentId: string, afterCursor: string): Promise<BuildLogEntry[]>;
+    /** `app`, when set, narrows the stream to one app's lines (both sources carry an `app` label). */
+    readBatch(environmentId: string, afterCursor: string, app?: string): Promise<BuildLogEntry[]>;
 }

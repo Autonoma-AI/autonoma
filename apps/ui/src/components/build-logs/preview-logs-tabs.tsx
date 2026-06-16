@@ -1,10 +1,17 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger, cn } from "@autonoma/blacklight";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
 
 interface PreviewLogsTabsProps {
   owner: string;
   repo: string;
   pr: number;
+  /** When set, both tabs stream only this app's logs instead of the whole environment's. */
+  app?: string | undefined;
+  /** When true, the app is still building, so the App logs tab shows a placeholder (no runtime logs yet). */
+  appBuilding?: boolean | undefined;
+  /** When true, the tabs grow to fill their flex parent (full-height layout) instead of a fixed body height. */
+  fill?: boolean | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
   headers?: Record<string, string> | undefined;
   className?: string | undefined;
@@ -16,24 +23,50 @@ interface PreviewLogsTabsProps {
  * Radix only mounts the active tab's content, so each SSE stream opens on
  * demand and closes when the user switches away.
  */
-export function PreviewLogsTabs({ owner, repo, pr, headers, className }: PreviewLogsTabsProps) {
+export function PreviewLogsTabs({ owner, repo, pr, app, appBuilding, fill, headers, className }: PreviewLogsTabsProps) {
+  const contentClassName = fill === true ? "flex min-h-0 flex-col" : undefined;
   return (
-    <Tabs defaultValue="build" className={cn("gap-2", className)}>
+    <Tabs defaultValue="build" className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}>
       <TabsList>
         <TabsTrigger value="build">Build logs</TabsTrigger>
         <TabsTrigger value="app">App logs</TabsTrigger>
       </TabsList>
-      <TabsContent value="build">
-        <BuildLogStreamViewer url={buildPreviewLogStreamUrl(owner, repo, pr)} headers={headers} />
-      </TabsContent>
-      <TabsContent value="app">
+      <TabsContent value="build" className={contentClassName}>
         <BuildLogStreamViewer
-          url={buildPreviewLogStreamUrl(owner, repo, pr, "app")}
+          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app)}
           headers={headers}
-          title="app logs"
-          waitingText="waiting for application output…"
+          fill={fill}
         />
       </TabsContent>
+      <TabsContent value="app" className={contentClassName}>
+        {appBuilding === true ? (
+          <AppLogsBuildingPlaceholder fill={fill} />
+        ) : (
+          <BuildLogStreamViewer
+            url={buildPreviewLogStreamUrl(owner, repo, pr, "app", app)}
+            headers={headers}
+            title="app logs"
+            waitingText="waiting for application output…"
+            fill={fill}
+          />
+        )}
+      </TabsContent>
     </Tabs>
+  );
+}
+
+// Runtime (app) logs only exist once the container is running, so while the app is still building
+// the App logs tab shows this instead of an indefinite "waiting for output" spinner.
+function AppLogsBuildingPlaceholder({ fill }: { fill?: boolean | undefined }) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 border border-border-dim bg-surface-void px-4 text-center",
+        fill === true ? "min-h-0 flex-1" : "h-80",
+      )}
+    >
+      <CircleNotchIcon className="size-4 animate-spin text-text-secondary" />
+      <p className="font-mono text-2xs text-text-secondary">App logs will appear once the app finishes building.</p>
+    </div>
   );
 }

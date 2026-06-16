@@ -36,6 +36,9 @@ const REPLAY_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 // environmentId is interpolated into a LogQL selector; restricting it to the
 // Kubernetes namespace charset makes escaping unnecessary.
 const ENVIRONMENT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
+// app is likewise interpolated into the selector; restrict to the charset of an
+// app name / Kubernetes label value so escaping is unnecessary.
+const APP_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,63}$/;
 // Loki cursors are decimal nanosecond timestamps. Anything else (e.g. a Redis
 // Stream entry id replayed by a browser after the build store was flipped from
 // Redis to Loki) is treated as a fresh viewer instead of an error.
@@ -72,9 +75,12 @@ export class LokiLogStore implements LogStore {
      * window (mirroring `kubectl logs --tail`), build streams replay forward
      * from the beginning so the whole build is shown.
      */
-    async readBatch(environmentId: string, afterCursor: string): Promise<BuildLogEntry[]> {
+    async readBatch(environmentId: string, afterCursor: string, app?: string): Promise<BuildLogEntry[]> {
         if (!ENVIRONMENT_ID_PATTERN.test(environmentId)) {
             throw new Error(`Invalid environment id: ${environmentId}`);
+        }
+        if (app != null && !APP_NAME_PATTERN.test(app)) {
+            throw new Error(`Invalid app name: ${app}`);
         }
 
         const nowNs = BigInt(Date.now()) * 1_000_000n;
@@ -82,8 +88,14 @@ export class LokiLogStore implements LogStore {
         const lookbackMs = this.source === "app" ? TAIL_LOOKBACK_MS : REPLAY_LOOKBACK_MS;
         const startNs = isInitial ? nowNs - BigInt(lookbackMs) * 1_000_000n : BigInt(afterCursor) + 1n;
 
+        // An optional `app` narrows the stream to one app's lines (both sources carry the per-app
+        // `app` label); without it the whole environment streams.
+        const selector =
+            app == null
+                ? `{namespace="${environmentId}", source="${this.source}"}`
+                : `{namespace="${environmentId}", source="${this.source}", app="${app}"}`;
         const params = new URLSearchParams({
-            query: `{namespace="${environmentId}", source="${this.source}"}`,
+            query: selector,
             start: startNs.toString(),
             end: nowNs.toString(),
             // App initial: backward + limit = the newest lines in the window
