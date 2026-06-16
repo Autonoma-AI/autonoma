@@ -3,6 +3,7 @@ import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVer
 import type { IterationLineage } from "../review/kernel";
 import type { ScenarioData } from "../scenario-data";
 import type { ScenarioIndex } from "../scenario-index";
+import type { HealingReviewLink } from "./actions";
 import type { FlowSummary } from "./plan-authoring/types";
 
 /**
@@ -51,6 +52,35 @@ export interface FailureRecord {
      * created (rewrite to match the seed) from a real application bug.
      */
     scenario?: ScenarioData;
+    /**
+     * The source review a `report_bug` / `report_engine_limitation` on this
+     * failure links its evidence to - deterministic failure metadata the runner
+     * stamps, not authored by the model. A failure surfaced at generation links
+     * to its generation review, one surfaced at replay to its run review. Absent
+     * when the failure carries no source review (e.g. the generation/run failed
+     * before review); a failure with no review link cannot be the target of a
+     * report action.
+     */
+    reviewLink?: HealingReviewLink;
+}
+
+/**
+ * A new-test candidate carried into a refinement turn (today, the first turn,
+ * seeded from the diff-analysis step). The agent decides per candidate whether
+ * to graduate it into a real test via `add_test` (referencing its id) or to
+ * reject it; the result tool enforces that every candidate is decided.
+ */
+export interface HealingTestCandidate {
+    candidateId: string;
+    name: string;
+    instruction: string;
+    reasoning: string;
+}
+
+/** A candidate the agent decided not to graduate into a test, with its reasoning. */
+export interface HealingRejectedCandidate {
+    candidateId: string;
+    reasoning: string;
 }
 
 export interface SnapshotInfo {

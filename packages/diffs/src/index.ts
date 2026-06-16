@@ -27,10 +27,13 @@ export {
     GenerationReviewer,
     type GenerationReviewerConfig,
     type GenerationReviewInput,
+    HealingAddTestTool,
     HealingAgent,
     HealingAgentLoop,
     type HealingAgentConfig,
     type HealingInput,
+    healingNewTestSchema,
+    type HealingNewTest,
     type HealingResult,
     ListFlowsTool,
     ListScenariosTool,
@@ -111,7 +114,13 @@ export { buildVerdicts } from "./loaders/build-verdicts";
 
 export { Codebase } from "./codebase";
 
-export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
+export type {
+    FailureRecord,
+    HealingRejectedCandidate,
+    HealingTestCandidate,
+    SnapshotInfo,
+    PlanAuthoringInput,
+} from "./healing/types";
 export { bucketIterationOutcomes, type BucketedIterationOutcomes } from "./refinement/bucket-iteration-outcomes";
 export {
     healingActionSchema,

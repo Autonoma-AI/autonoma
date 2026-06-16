@@ -25,6 +25,7 @@ export { generatedTestSchema, type GeneratedTest } from "./resolution/tools/add-
 
 export { HealingAgent, type HealingAgentConfig, type HealingInput, type HealingResult } from "./healing/healing-agent";
 export { HealingAgentLoop } from "./healing/healing-agent-loop";
+export { HealingAddTestTool, healingNewTestSchema, type HealingNewTest } from "./healing/tools/add-test-tool";
 
 export { ReviewerLoop } from "./reviewers/reviewer-loop";
 export {

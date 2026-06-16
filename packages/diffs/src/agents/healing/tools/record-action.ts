@@ -23,12 +23,12 @@ class UnreportableActionError extends FixableToolError {
 
 /**
  * Resolve the source review a report action must link evidence to. A test case
- * is reportable iff it carries a review link, so this doubles as the
+ * is reportable iff its failure carries a review link, so this doubles as the
  * reportability guard: it throws a fixable error when the model targets a test
  * case that has none.
  */
 export function resolveReviewLink(loop: HealingAgentLoop, testCaseId: string): HealingReviewLink {
-    const reviewLink = loop.reportableReviewLinks.get(testCaseId);
+    const reviewLink = loop.reviewLinksByTestCaseId.get(testCaseId);
     if (reviewLink == null) throw new UnreportableActionError(testCaseId);
     return reviewLink;
 }

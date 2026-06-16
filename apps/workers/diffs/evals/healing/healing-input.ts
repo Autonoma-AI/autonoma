@@ -1,7 +1,10 @@
 import { RunReviewVerdict } from "@autonoma/db";
 import {
+    type ExistingTestInfo,
+    type FlowInfo,
+    FlowIndex,
     type FlowSummary,
-    type HealingReviewLink,
+    type HealingTestCandidate,
     type HealingInput as LiveHealingInput,
     ScenarioIndex,
     type ScenarioInfo,
@@ -55,6 +58,36 @@ const failureRecordSchema = z.object({
     affectedReasoning: z.string().optional(),
     lineage: iterationLineageSchema.default([]),
     scenario: scenarioDataSchema.optional(),
+    // Deterministic source-review link a report action attaches evidence to.
+    reviewLink: healingReviewLinkSchema.optional(),
+});
+
+const quarantineInfoSchema = z.object({
+    reason: z.enum(["application_bug", "engine_limitation"]),
+    bugId: z.string().optional(),
+    issueId: z.string().optional(),
+});
+
+const existingTestInfoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    prompt: z.string(),
+    quarantine: quarantineInfoSchema.optional(),
+});
+
+const flowInfoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    testSlugs: z.array(z.string()),
+});
+
+const testCandidateSchema = z.object({
+    candidateId: z.string(),
+    name: z.string(),
+    instruction: z.string(),
+    reasoning: z.string(),
 });
 
 const scenarioRecipeSchema = z.object({
@@ -87,15 +120,16 @@ const planAuthoringSchema = z.object({
 /**
  * The frozen, on-disk shape of a captured Healing case (`input.json`).
  *
- * Mirrors {@link LiveHealingInput} with two substitutions per the eval-case
- * contract: the live `Codebase` becomes {@link CodebaseCoords}, and the
- * `ScenarioIndex` instance becomes its underlying array. `reportableReviewLinks`
- * is stored as `[testCaseId, link][]` tuples (a `Map` is not JSON-native).
+ * Mirrors {@link LiveHealingInput} with three substitutions per the eval-case
+ * contract: the live `Codebase` becomes {@link CodebaseCoords}, and both the
+ * `FlowIndex` and `ScenarioIndex` instances become their underlying arrays.
  *
  * `change` (the snapshot's base/head SHAs) and `analysisReasoning` are the
  * snapshot-level diff-job context, both required - healing runs against a
  * checked-out head SHA, downstream of a successful analysis. `analysisReasoning`
  * is defaulted so a fixture frozen before it was captured still rehydrates.
+ * `candidates`, `existingTests`, and `flowIndex` are defaulted for the same
+ * reason (fixtures frozen before the resolution capabilities folded in).
  */
 export const healingCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -105,7 +139,9 @@ export const healingCaseInputSchema = z.object({
     organizationId: z.string(),
     priorActions: z.array(healingActionSchema),
     failures: z.array(failureRecordSchema),
-    reportableReviewLinks: z.array(z.tuple([z.string(), healingReviewLinkSchema])),
+    candidates: z.array(testCandidateSchema).default([]),
+    existingTests: z.array(existingTestInfoSchema).default([]),
+    flowIndex: z.array(flowInfoSchema).default([]),
     planAuthoring: planAuthoringSchema,
     change: z.object({ baseSha: z.string(), headSha: z.string() }),
     // Defaulted so a fixture frozen before analysis reasoning was captured still
@@ -122,14 +158,17 @@ export interface RehydratedHealingInput {
 }
 
 /**
- * Reconstruct the agent input from a parsed case, rebuilding the
- * `ScenarioIndex` instance from its array form and the `reportableReviewLinks`
- * `Map` from its entry tuples. The codebase itself is returned separately as
- * coords for the caller to rehydrate via `ensureCachedCheckout`.
+ * Reconstruct the agent input from a parsed case, rebuilding the `FlowIndex`
+ * and `ScenarioIndex` instances from their array forms. The codebase itself is
+ * returned separately as coords for the caller to rehydrate via
+ * `ensureCachedCheckout`.
  */
 export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHealingInput {
     const scenarios: ScenarioInfo[] = parsed.planAuthoring.scenarios;
-    const flows: FlowSummary[] = parsed.planAuthoring.flows;
+    const flowSummaries: FlowSummary[] = parsed.planAuthoring.flows;
+    const flows: FlowInfo[] = parsed.flowIndex;
+    const existingTests: ExistingTestInfo[] = parsed.existingTests;
+    const candidates: HealingTestCandidate[] = parsed.candidates;
 
     const agentInput: HealingInputWithoutCodebase = {
         iteration: parsed.iteration,
@@ -138,10 +177,12 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
         organizationId: parsed.organizationId,
         priorActions: parsed.priorActions,
         failures: parsed.failures,
-        reportableReviewLinks: new Map<string, HealingReviewLink>(parsed.reportableReviewLinks),
+        candidates,
+        flowIndex: new FlowIndex(flows),
+        existingTests,
         planAuthoring: {
             scenarios: new ScenarioIndex(scenarios),
-            flows,
+            flows: flowSummaries,
             testScopeGuidelines: parsed.planAuthoring.testScopeGuidelines,
         },
         change: parsed.change,
@@ -153,9 +194,9 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
 
 /**
  * Freeze an assembled agent input into the on-disk case shape: replace the
- * live codebase with the given coords, the `ScenarioIndex` with its array, and
- * the `reportableReviewLinks` `Map` with its entry tuples. Validated through
- * the schema so capture can never write a malformed `input.json`.
+ * live codebase with the given coords and the `FlowIndex` / `ScenarioIndex`
+ * with their arrays. Validated through the schema so capture can never write a
+ * malformed `input.json`.
  */
 export function serializeHealingInput(
     coords: CodebaseCoords,
@@ -170,7 +211,9 @@ export function serializeHealingInput(
         organizationId: agentInput.organizationId,
         priorActions: agentInput.priorActions,
         failures: agentInput.failures,
-        reportableReviewLinks: Array.from(agentInput.reportableReviewLinks.entries()),
+        candidates: agentInput.candidates,
+        existingTests: agentInput.existingTests,
+        flowIndex: agentInput.flowIndex.toArray(),
         planAuthoring: {
             scenarios,
             flows: agentInput.planAuthoring.flows,

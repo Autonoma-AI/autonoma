@@ -25,9 +25,9 @@ export interface CaptureHealingParams {
  * resolves the iteration's snapshot's git coordinates, validates both SHAs are
  * fetchable (refusing to write a case otherwise), runs the shared Healing
  * side-input loaders against a real codebase clone, freezes the assembled
- * `HealingInput` to `input.json` (codebase as coords, `ScenarioIndex` as an
- * array, `reportableReviewLinks` as entries), and scaffolds a blank
- * `expected.md` (`skip: true`) for the author to fill in.
+ * `HealingInput` to `input.json` (codebase as coords, `FlowIndex` / `ScenarioIndex`
+ * as arrays), and scaffolds a blank `expected.md` (`skip: true`) for the author
+ * to fill in.
  */
 export async function captureHealing(params: CaptureHealingParams): Promise<string> {
     const logger = rootLogger.child({ name: "captureHealing" });

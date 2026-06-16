@@ -4,14 +4,31 @@ import { Agent, type LanguageModel, RedactOldToolResults } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { ModelMessage } from "ai";
 import type { Codebase } from "../../codebase";
+import type { ExistingTestInfo } from "../../diffs-agent";
+import type { FlowIndex } from "../../flow-index";
 import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import { buildHealingPrompt } from "../../healing/prompt-builder";
-import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
+import type {
+    FailureRecord,
+    HealingRejectedCandidate,
+    HealingTestCandidate,
+    PlanAuthoringInput,
+    SnapshotInfo,
+} from "../../healing/types";
 import type { SnapshotChangeContext } from "../../review/snapshot";
-import { buildCodebaseTools, ListScenariosTool, ReadScenarioTool, SubagentTool } from "../tools";
+import {
+    buildCodebaseTools,
+    ListFlowsTool,
+    ListScenariosTool,
+    ListTestsTool,
+    ReadScenarioTool,
+    ReadTestsTool,
+    SubagentTool,
+} from "../tools";
 import { HealingAgentLoop } from "./healing-agent-loop";
 import { HealingResultTool } from "./healing-result-tool";
+import { HealingAddTestTool, type HealingNewTest } from "./tools/add-test-tool";
 import { HealingRemoveTestTool } from "./tools/remove-test-tool";
 import { HealingReportBugTool } from "./tools/report-bug-tool";
 import { ReportEngineLimitationTool } from "./tools/report-engine-limitation-tool";
@@ -56,18 +73,26 @@ export interface HealingInput extends SnapshotInfo {
      */
     analysisReasoning: string;
     /**
-     * Maps each reportable testCaseId (one whose failure carries a source
-     * review the apply layer can link evidence to) to that review link. Only
-     * these test cases may be targeted by report_bug / report_engine_limitation,
-     * and the resolved link is attached to the emitted action.
+     * New-test candidates offered for this turn (today, only the first turn,
+     * seeded from the diff-analysis step). Empty on turns with no candidates,
+     * in which case `add_test` falls back to first-turn spontaneous proposals
+     * and the result tool's candidate clause is vacuously satisfied.
      */
-    reportableReviewLinks: ReadonlyMap<string, HealingReviewLink>;
+    candidates: HealingTestCandidate[];
     codebase: Codebase;
+    /** The suite's flow (folder) tree, for `list_flows` / `list_tests` and `add_test` folder validation. */
+    flowIndex: FlowIndex;
+    /** The existing tests in the suite, for `list_tests` / `read_tests`. */
+    existingTests: ExistingTestInfo[];
     planAuthoring: PlanAuthoringInput;
 }
 
 export interface HealingResult {
     actions: HealingAction[];
+    /** New tests the agent decided to add this turn (accepted candidates + first-turn spontaneous adds). */
+    newTests: HealingNewTest[];
+    /** Candidates the agent explicitly rejected this turn. */
+    rejectedCandidates: HealingRejectedCandidate[];
     reasoning: string;
 }
 
@@ -82,12 +107,16 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
 
     private readonly codebaseTools = buildCodebaseTools();
     private readonly subagentTool: SubagentTool;
+    private readonly listFlowsTool = new ListFlowsTool();
+    private readonly listTestsTool = new ListTestsTool();
+    private readonly readTestsTool = new ReadTestsTool();
     private readonly listScenariosTool = new ListScenariosTool();
     private readonly readScenarioTool = new ReadScenarioTool();
     private readonly updatePlanTool = new UpdatePlanTool();
     private readonly reportBugTool = new HealingReportBugTool();
     private readonly reportEngineLimitationTool = new ReportEngineLimitationTool();
     private readonly removeTestTool = new HealingRemoveTestTool();
+    private readonly addTestTool = new HealingAddTestTool();
     private readonly resultTool = new HealingResultTool();
 
     constructor({ model }: HealingAgentConfig) {
@@ -107,6 +136,11 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
     }
 
     protected async createLoop(input: HealingInput): Promise<HealingAgentLoop> {
+        const reviewLinksByTestCaseId = new Map<string, HealingReviewLink>();
+        for (const f of input.failures) {
+            if (f.reviewLink != null) reviewLinksByTestCaseId.set(f.testCaseId, f.reviewLink);
+        }
+
         return new HealingAgentLoop({
             name: "HealingAgent",
             model: this.model,
@@ -114,12 +148,16 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
             tools: [
                 ...this.codebaseTools,
                 this.subagentTool,
+                this.listFlowsTool,
+                this.listTestsTool,
+                this.readTestsTool,
                 this.listScenariosTool,
                 this.readScenarioTool,
                 this.updatePlanTool,
                 this.reportBugTool,
                 this.reportEngineLimitationTool,
                 this.removeTestTool,
+                this.addTestTool,
             ],
             reportTool: this.resultTool,
             compactor: {
@@ -127,10 +165,14 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
                 threshold: COMPACTION_TOKEN_THRESHOLD,
             },
             codebase: input.codebase,
+            flowIndex: input.flowIndex,
+            existingTests: input.existingTests,
             scenarioIndex: input.planAuthoring.scenarios,
             failureKeysByTestCaseId: new Map(input.failures.map((f) => [f.testCaseId, f.key])),
             failureKeys: new Set(input.failures.map((f) => f.key)),
-            reportableReviewLinks: input.reportableReviewLinks,
+            reviewLinksByTestCaseId,
+            candidatesById: new Map(input.candidates.map((c) => [c.candidateId, c])),
+            isFirstTurn: input.iteration === 1,
         });
     }
 }

@@ -3,7 +3,7 @@ import { type ChangeContext, type IterationLineage, buildChangeContextSection } 
 import { type ScenarioData, summarizeEntities } from "../scenario-data";
 import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
-import type { FailureRecord } from "./types";
+import type { FailureRecord, HealingTestCandidate } from "./types";
 
 /**
  * Builds the user-facing prompt that goes into HealingAgent. The system prompt
@@ -36,7 +36,11 @@ export function buildHealingPrompt(input: HealingInput): string {
     if (input.failures.length > 0) {
         sections.push(buildFailuresSection(input.failures));
     } else {
-        sections.push("# Failures\n\nNone in this batch. Call finish to close out the iteration.");
+        sections.push("# Failures\n\nNone in this batch.");
+    }
+
+    if (input.candidates.length > 0) {
+        sections.push(buildCandidatesSection(input.candidates));
     }
 
     sections.push(buildInstructionsSection(input));
@@ -208,19 +212,61 @@ function buildFailureScenarioSection(scenario: ScenarioData): string {
     return `**Scenario data** (this subject ran against **${scenario.scenarioName}**). A plan that depends on data not listed here is malformed - rewrite it to match the seeded data rather than reporting a bug:\n${body}`;
 }
 
+/**
+ * Render the new-test candidates the agent must decide this turn. Each is
+ * either graduated into a real test via `add_test` (passing its id as
+ * `acceptingCandidateId`) or recorded in `rejectedCandidates` at `finish`.
+ */
+function buildCandidatesSection(candidates: HealingTestCandidate[]): string {
+    const parts = [`# Test Candidates (${candidates.length})`];
+    parts.push(
+        "Proposed new tests for behavior introduced by this change. Decide each one: accept it by calling " +
+            "`add_test` with `acceptingCandidateId` set to the candidate id (you may refine the instruction first), " +
+            "or reject it by listing its id in `rejectedCandidates` when you call `finish`. Use `list_tests` / " +
+            "`read_tests` to avoid duplicating coverage that already exists.",
+    );
+    for (const c of candidates) {
+        parts.push(
+            [
+                `## ${c.name} (candidate \`${c.candidateId}\`)`,
+                `- **Reasoning**: ${c.reasoning}`,
+                `- **Instruction**: ${c.instruction}`,
+            ].join("\n"),
+        );
+    }
+    return parts.join("\n\n");
+}
+
 function buildInstructionsSection(input: HealingInput): string {
-    if (input.failures.length === 0) {
+    const hasFailures = input.failures.length > 0;
+    const hasCandidates = input.candidates.length > 0;
+
+    if (!hasFailures && !hasCandidates) {
         return [
             "# Instructions",
-            "No failures in this batch. Call `finish` immediately with a brief explanation.",
+            "No failures and no candidates in this batch. Call `finish` immediately with a brief explanation.",
         ].join("\n");
     }
 
-    return [
-        "# Instructions",
-        "1. Read each failure and the reviewer's reasoning.",
-        "2. Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
-        "3. For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
-        "4. Call `finish` with a one-paragraph summary when every failure is handled.",
-    ].join("\n");
+    const steps: string[] = [];
+    if (hasFailures) {
+        steps.push("Read each failure and the reviewer's reasoning.");
+        steps.push(
+            "Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
+        );
+        steps.push(
+            "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
+        );
+    }
+    if (hasCandidates) {
+        steps.push(
+            "For each test candidate, either accept it with `add_test` (set `acceptingCandidateId`) or reject it via `rejectedCandidates` at finish. Explore the suite with `list_tests` / `read_tests` first to avoid duplicate coverage.",
+        );
+    }
+    steps.push(
+        "Call `finish` with a one-paragraph summary once every failure is handled and every candidate is decided.",
+    );
+
+    const numbered = steps.map((step, i) => `${i + 1}. ${step}`);
+    return ["# Instructions", ...numbered].join("\n");
 }

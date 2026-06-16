@@ -1,17 +1,20 @@
 import { type PrismaClient, db } from "@autonoma/db";
 import {
     type FailureRecord,
+    FlowIndex,
     type FlowSummary,
     type HealingAction,
     type HealingFailureSubject,
     type HealingInput,
-    type HealingReviewLink,
     type HealingSubjectContext,
     type PlanAuthoringInput,
     ScenarioIndex,
     healingActionSchema,
+    loadFlows,
+    mapTestSuiteToContext,
 } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
+import { fetchTestSuiteInfo } from "@autonoma/test-updates";
 import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/workflow/activities";
 import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
@@ -79,21 +82,27 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
     });
 
     const baseFailures = collectFailureRecords(failuresAtGeneration, failuresAtReplay);
-    const reportableReviewLinks = computeReportableReviewLinks(failuresAtGeneration, failuresAtReplay);
 
     // The diff-job context (per-failure lineage + scenario + affected facts, and
     // the snapshot's change facts + application/org) comes from the shared loader.
-    // Prior actions are independent of it, so gather them concurrently.
-    const [diffJobContext, priorActions] = await Promise.all([
+    // Prior actions and the suite (for the suite-browsing tools + add_test folder
+    // validation) are independent of it, so gather them concurrently.
+    const [diffJobContext, priorActions, suiteInfo] = await Promise.all([
         new DiffJobContextLoader(db).loadHealingContext({
             snapshotId,
             subjects: baseFailures.map(toHealingSubject),
         }),
         loadPriorActions(iterationId),
+        fetchTestSuiteInfo(db, snapshotId),
     ]);
 
     const { applicationId, organizationId } = diffJobContext;
-    const planAuthoring = await loadPlanAuthoringInput({ db, applicationId, snapshotId });
+    const { existingTests } = mapTestSuiteToContext(suiteInfo);
+
+    const [planAuthoring, flows] = await Promise.all([
+        loadPlanAuthoringInput({ db, applicationId, snapshotId }),
+        loadFlows(db, applicationId, suiteInfo),
+    ]);
 
     const failures = mergeDiffJobContext(baseFailures, diffJobContext.subjects);
 
@@ -101,7 +110,12 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         iteration: iterationNumber,
         priorActions,
         failures,
-        reportableReviewLinks,
+        // No candidates on the refinement-only path; the diffs analysis fold
+        // (a later slice) seeds the first turn's candidates. With none, add_test
+        // is dormant and the result tool's candidate clause is vacuous.
+        candidates: [],
+        flowIndex: new FlowIndex(flows),
+        existingTests,
         planAuthoring,
         snapshotId,
         applicationId,
@@ -165,30 +179,12 @@ export async function loadPriorActions(currentIterationId: string): Promise<Heal
 }
 
 /**
- * Map each reportable testCaseId to the source review its report action links
- * evidence to. A generation failure links to its generation review, a replay
- * failure to its run review; when a test case failed at both stages the
- * generation review wins.
+ * Project bucketed gen/run failures into the {@link FailureRecord} shape the
+ * agent reads. Each record carries its own source review link (deterministic
+ * failure metadata): a generation failure links to its generation review, a
+ * replay failure to its run review. A failure with no review id carries no
+ * link and so cannot be the target of a report action.
  */
-export function computeReportableReviewLinks(
-    failuresAtGeneration: GenerationOutcomeFailure[],
-    failuresAtReplay: RunOutcomeFailure[],
-): Map<string, HealingReviewLink> {
-    const reviewLinks = new Map<string, HealingReviewLink>();
-    for (const f of failuresAtGeneration) {
-        if (f.generationReviewId != null && !reviewLinks.has(f.testCaseId)) {
-            reviewLinks.set(f.testCaseId, { generationReviewId: f.generationReviewId });
-        }
-    }
-    for (const f of failuresAtReplay) {
-        if (f.runReviewId != null && !reviewLinks.has(f.testCaseId)) {
-            reviewLinks.set(f.testCaseId, { runReviewId: f.runReviewId });
-        }
-    }
-    return reviewLinks;
-}
-
-/** Project bucketed gen/run failures into the {@link FailureRecord} shape the agent reads. */
 export function collectFailureRecords(
     failuresAtGeneration: GenerationOutcomeFailure[],
     failuresAtReplay: RunOutcomeFailure[],
@@ -207,6 +203,7 @@ export function collectFailureRecords(
         sourceStatus: f.sourceStatus,
         reviewReasoning: f.reviewReasoning,
         lineage: [],
+        reviewLink: f.generationReviewId != null ? { generationReviewId: f.generationReviewId } : undefined,
     }));
     const fromRun: FailureRecord[] = failuresAtReplay.map((f) => ({
         key: f.failureKey,
@@ -222,6 +219,7 @@ export function collectFailureRecords(
         sourceStatus: f.sourceStatus,
         reviewReasoning: f.reviewReasoning,
         lineage: [],
+        reviewLink: f.runReviewId != null ? { runReviewId: f.runReviewId } : undefined,
     }));
     return [...fromGen, ...fromRun];
 }
