@@ -21,6 +21,7 @@ pnpm-debug.log*
 
 # AI
 .claude/settings.local.json
+.claude/skills/*/config.local.json
 
 # Isolated runner output
 step1-result.json
