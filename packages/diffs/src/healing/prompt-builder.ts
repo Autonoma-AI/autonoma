@@ -1,5 +1,5 @@
 import type { HealingInput } from "../agents/healing/healing-agent";
-import { type ChangeContext, type ReviewLineage, buildChangeContextSection } from "../review/kernel";
+import { type ChangeContext, type IterationLineage, buildChangeContextSection } from "../review/kernel";
 import { type ScenarioData, summarizeEntities } from "../scenario-data";
 import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
@@ -25,8 +25,7 @@ export function buildHealingPrompt(input: HealingInput): string {
         "You are inside a refinement loop. The codebase is checked out at the current snapshot's head SHA, with the base SHA also fetched, so you can inspect what changed with `git diff`.",
     );
 
-    const changeFacts = buildChangeFactsSection(input);
-    if (changeFacts != null) sections.push(changeFacts);
+    sections.push(buildChangeFactsSection(input));
 
     if (input.priorActions.length > 0) {
         sections.push(buildPriorActionsSection(input.priorActions));
@@ -52,28 +51,23 @@ export function buildHealingPrompt(input: HealingInput): string {
  * the same context. The per-test affected reason/reasoning is rendered per
  * failure instead, since it differs across tests.
  *
- * Returns `undefined` when neither SHAs nor analysis reasoning are available
- * (e.g. a SHA-less snapshot with no recorded analysis). Falls back to rendering
- * just the analysis reasoning when SHAs are absent but reasoning is present.
+ * Healing runs against a checked-out head SHA, so change is always present; the
+ * loader types it optionally for SHA-less snapshots.
  */
-function buildChangeFactsSection(input: HealingInput): string | undefined {
-    if (input.change != null) {
-        const change: ChangeContext = {
-            baseSha: input.change.baseSha,
-            headSha: input.change.headSha,
-            analysisReasoning: input.analysisReasoning,
-        };
-        return buildChangeContextSection(
-            change,
-            "# Code Change\n\nThe failing plans were authored against an earlier state of the app. Inspect the diff that triggered this loop to see what moved:",
-        );
+function buildChangeFactsSection(input: HealingInput): string {
+    if (input.change == null) {
+        throw new Error(`Healing requires change context (snapshot SHAs), absent for snapshot ${input.snapshotId}`);
     }
 
-    if (input.analysisReasoning != null) {
-        return ["# Code Change", "### Change Analysis", input.analysisReasoning].join("\n\n");
-    }
-
-    return undefined;
+    const change: ChangeContext = {
+        baseSha: input.change.baseSha,
+        headSha: input.change.headSha,
+        analysisReasoning: input.analysisReasoning,
+    };
+    return buildChangeContextSection(
+        change,
+        "# Code Change\n\nThe failing plans were authored against an earlier state of the app. Inspect the diff that triggered this loop to see what moved:",
+    );
 }
 
 function buildPriorActionsSection(actions: HealingAction[]): string {
@@ -152,7 +146,7 @@ function formatFailure(f: FailureRecord): string {
 
     lines.push(`\n**Plan prompt**:\n\`\`\`\n${f.planPrompt}\n\`\`\``);
 
-    if (f.lineage != null) {
+    if (f.lineage.length > 0) {
         lines.push(`\n${buildFailureLineageSection(f.lineage)}`);
     }
     if (f.scenario != null) {
@@ -169,32 +163,32 @@ function formatFailure(f: FailureRecord): string {
  * that already failed - if a prior rewrite did not work, it should try a
  * different angle or reconsider whether the failure is a real bug.
  */
-function buildFailureLineageSection(lineage: ReviewLineage): string {
+function buildFailureLineageSection(lineage: IterationLineage[]): string {
     const parts = [
         "**Refinement lineage for this test** - what earlier iterations already tried, so you do not repeat a strategy that already failed:",
     ];
 
-    // planHistory is oldest-first; its last entry is the plan that just failed
-    // (already shown above), so render only the *earlier* versions in full here.
-    const priorPlans = lineage.planHistory.slice(0, -1);
-    for (const revision of priorPlans) {
+    // Oldest-first; the last entry is the plan that just failed (already shown
+    // above), so render only the *earlier* versions in full here.
+    const priorPlans = lineage.slice(0, -1);
+    for (const iteration of priorPlans) {
         const reasoning =
-            revision.healingReasoning != null ? `\n  Rewrite reasoning: ${revision.healingReasoning}` : "";
-        parts.push(`- Iteration ${revision.iterationNumber} plan:\n\`\`\`\n${revision.prompt}\n\`\`\`${reasoning}`);
+            iteration.healingReasoning != null ? `\n  Rewrite reasoning: ${iteration.healingReasoning}` : "";
+        parts.push(`- Iteration ${iteration.iterationNumber} plan:\n\`\`\`\n${iteration.prompt}\n\`\`\`${reasoning}`);
     }
 
     // The most recent rewrite (the one that produced the still-failing current
-    // plan) lives on the last history entry - surface its reasoning explicitly.
-    const current = lineage.planHistory[lineage.planHistory.length - 1];
+    // plan) lives on the last entry - surface its reasoning explicitly.
+    const current = lineage[lineage.length - 1];
     if (current?.healingReasoning != null) {
         parts.push(`The current plan above was produced by this rewrite: ${current.healingReasoning}`);
     }
 
-    if (lineage.priorVerdicts.length > 0) {
-        parts.push("Prior verdicts on this test:");
-        for (const verdict of lineage.priorVerdicts) {
-            parts.push(`  - Iteration ${verdict.iterationNumber}: \`${verdict.verdict}\` - ${verdict.reasoning}`);
-        }
+    const priorVerdicts = lineage.flatMap((iteration) =>
+        iteration.verdicts.map((v) => `  - Iteration ${iteration.iterationNumber}: \`${v.verdict}\` - ${v.reasoning}`),
+    );
+    if (priorVerdicts.length > 0) {
+        parts.push("Prior verdicts on this test:", ...priorVerdicts);
     }
 
     return parts.join("\n");

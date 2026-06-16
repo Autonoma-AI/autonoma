@@ -19,8 +19,13 @@ export interface ChangeContext {
     baseSha: string;
     /** Commit under test (the diff's "after"). */
     headSha: string;
-    /** `DiffsJob.analysisReasoning` - the agent's summary of what changed and why. Absent if analysis recorded none. */
-    analysisReasoning?: string;
+    /**
+     * `DiffsJob.analysisReasoning` - the diffs-agent's summary of what changed and
+     * why. Always set: every consumer runs downstream of a successful analysis,
+     * which writes it before the status leaves `analyzing`. Empty string when
+     * analysis recorded no summary.
+     */
+    analysisReasoning: string;
     /** `AffectedTest.affectedReason` - the category under which this test was flagged. Absent if the test wasn't flagged. */
     affectedReason?: AffectedReason;
     /** `AffectedTest.reasoning` - the diffs-agent's explanation for why this test was flagged. Absent if the test wasn't flagged. */
@@ -28,55 +33,34 @@ export interface ChangeContext {
 }
 
 /**
- * A verdict an earlier refinement-loop iteration's review reached on this same
- * test. Point-in-time: only verdicts that already existed when the subject was
- * reviewed appear here.
- *
- * These are deliberately framed as *fallible* signal in the prompt: an earlier
- * reviewer may have misattributed the failure, and the healing agent may then
- * have rewritten the plan on a mistaken theory. The reviewer must re-derive its
- * own verdict rather than rubber-stamp the loop's existing one.
+ * A verdict one of an iteration's runs reached on this test. Framed as *fallible*
+ * signal in the prompt: an earlier reviewer may have misattributed the failure,
+ * and the healing agent may then have rewritten the plan on a mistaken theory, so
+ * the reviewer must re-derive its own verdict rather than rubber-stamp it.
  */
-export interface PriorVerdict {
-    /** The refinement iteration whose run produced this verdict. */
-    iterationNumber: number;
-    /** The earlier review's attribution. */
+export interface IterationVerdict {
     verdict: RunReviewVerdict;
-    /** The earlier review's free-text justification. Empty string if the review recorded none. */
+    /** The review's free-text justification. Empty string if it recorded none. */
     reasoning: string;
 }
 
 /**
- * One plan in the test's rewrite history within the refinement loop, oldest
- * first. The first entry is the seed plan (no healing reasoning); each later
- * entry is a healing rewrite. The last entry is the plan the subject actually
- * executed - the "current healed plan".
+ * One iteration in the subject test's refinement-loop history: the plan that
+ * iteration scoped for the test, and the completed verdicts that iteration's runs
+ * reached. The point-in-time history is the array of these, oldest first, up to
+ * and including the iteration the subject executed.
  */
-export interface PlanRevision {
+export interface IterationLineage {
     /** The refinement iteration this plan was the analysis-scope input to. */
     iterationNumber: number;
     /** The plan prompt executed in that iteration. */
     prompt: string;
-    /**
-     * The healing agent's reasoning for producing this rewrite. Absent for the
-     * seed plan (iteration 1), which the healing agent did not author.
-     */
+    /** The healing agent's reasoning for this rewrite. Absent for the seed plan (iteration 1). */
     healingReasoning?: string;
-}
-
-/**
- * Point-in-time review lineage for the subject, gathered from the refinement
- * loop it belongs to. Present only for iteration-2+ reviews: first-iteration
- * reviews have no earlier verdicts and no plan rewrites, so the loader omits
- * lineage entirely (and legacy fixtures predate it).
- */
-export interface ReviewLineage {
-    /** Earlier iterations' verdicts on this test, oldest first. */
-    priorVerdicts: PriorVerdict[];
     /**
-     * The test's plan rewrite history within the loop, oldest first, up to and
-     * including the plan the subject executed. Has at least two entries when
-     * present (the seed plan plus at least one healing rewrite).
+     * Completed verdicts from this iteration's runs. Empty for the subject's own
+     * iteration (its review is the one in progress) and for any iteration whose
+     * runs have no completed review.
      */
-    planHistory: PlanRevision[];
+    verdicts: IterationVerdict[];
 }

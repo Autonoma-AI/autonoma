@@ -224,7 +224,7 @@ diffJobContextSuite({
 
             const context = await new DiffJobContextLoader(harness.db).load(runId);
 
-            expect(context.lineage).toBeUndefined();
+            expect(context.lineage).toEqual([]);
         });
 
         test("carries no lineage for a first-iteration run inside a refinement loop", async ({
@@ -240,7 +240,7 @@ diffJobContextSuite({
 
             const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
 
-            expect(context.lineage).toBeUndefined();
+            expect(context.lineage).toEqual([]);
         });
 
         test("gathers point-in-time prior verdicts and plan history for an iteration-2 run", async ({
@@ -268,16 +268,17 @@ diffJobContextSuite({
 
             const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
 
-            expect(context.lineage).toBeDefined();
-            expect(context.lineage?.priorVerdicts).toEqual([
-                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit button selector looked stale." },
-            ]);
-            expect(context.lineage?.planHistory).toEqual([
-                { iterationNumber: 1, prompt: "Click the old Submit button" },
+            expect(context.lineage).toEqual([
+                {
+                    iterationNumber: 1,
+                    prompt: "Click the old Submit button",
+                    verdicts: [{ verdict: "engine_error", reasoning: "Submit button selector looked stale." }],
+                },
                 {
                     iterationNumber: 2,
                     prompt: "Click the renamed Confirm button",
                     healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                    verdicts: [],
                 },
             ]);
         });
@@ -317,12 +318,13 @@ diffJobContextSuite({
             const context = await new DiffJobContextLoader(harness.db).load(subjectRunId);
 
             // History stops at the subject's own iteration (2); iteration 3 is excluded.
-            expect(context.lineage?.planHistory.map((p) => p.iterationNumber)).toEqual([1, 2]);
-            // Only the earlier iteration's verdict; the subject's own iteration-2
-            // verdict is the review-in-progress and must not appear.
-            expect(context.lineage?.priorVerdicts).toEqual([
-                { iterationNumber: 1, verdict: "engine_error", reasoning: "iter1 verdict" },
+            expect(context.lineage.map((it) => it.iterationNumber)).toEqual([1, 2]);
+            // Only the earlier iteration carries a verdict; the subject's own
+            // iteration-2 verdict is the review-in-progress and must not appear.
+            expect(context.lineage.find((it) => it.iterationNumber === 1)?.verdicts).toEqual([
+                { verdict: "engine_error", reasoning: "iter1 verdict" },
             ]);
+            expect(context.lineage.find((it) => it.iterationNumber === 2)?.verdicts).toEqual([]);
         });
 
         test("reads the run's own plan prompt, not the assignment's later-repointed plan (point-in-time)", async ({
@@ -416,7 +418,7 @@ diffJobContextSuite({
                 affectedReasoning: "This test fills out the signup form.",
             });
             // First-iteration generation outside any loop carries no lineage.
-            expect(context.lineage).toBeUndefined();
+            expect(context.lineage).toEqual([]);
         });
 
         test("sources generation steps from the StepAttempt timeline, surfacing failed attempts the replay list omits", async ({
@@ -554,16 +556,17 @@ diffJobContextSuite({
                 subjectGenerationId,
             );
 
-            expect(context.lineage).toBeDefined();
-            expect(context.lineage?.priorVerdicts).toEqual([
-                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit button selector looked stale." },
-            ]);
-            expect(context.lineage?.planHistory).toEqual([
-                { iterationNumber: 1, prompt: "Click the old Submit button" },
+            expect(context.lineage).toEqual([
+                {
+                    iterationNumber: 1,
+                    prompt: "Click the old Submit button",
+                    verdicts: [{ verdict: "engine_error", reasoning: "Submit button selector looked stale." }],
+                },
                 {
                     iterationNumber: 2,
                     prompt: "Click the renamed Confirm button",
                     healingReasoning: "Renamed Submit to Confirm in the diff, so I rewrote the step.",
+                    verdicts: [],
                 },
             ]);
         });
@@ -583,7 +586,7 @@ diffJobContextSuite({
                 subjectGenerationId,
             );
 
-            expect(context.lineage).toBeUndefined();
+            expect(context.lineage).toEqual([]);
         });
 
         test("gathers snapshot-scope change facts plus every flagged run, with per-run scenario data", async ({
@@ -661,7 +664,7 @@ diffJobContextSuite({
             // No scenario was attached to this run.
             expect(coupon?.scenario).toBeUndefined();
             // Resolution runs before any refinement loop, so lineage is empty.
-            expect(coupon?.lineage).toBeUndefined();
+            expect(coupon?.lineage).toEqual([]);
         });
 
         test("gathers all replayed runs regardless of outcome; buildVerdicts filters to the actionable ones", async ({
@@ -896,15 +899,17 @@ diffJobContextSuite({
             const checkout = byKey.get(checkoutSeed?.failureKey ?? "");
             expect(checkout?.affectedReason).toBe("code_change");
             expect(checkout?.affectedReasoning).toBe("Clicks the renamed Submit button.");
-            expect(checkout?.lineage?.priorVerdicts).toEqual([
-                { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit selector was stale." },
-            ]);
-            expect(checkout?.lineage?.planHistory).toEqual([
-                { iterationNumber: 1, prompt: "Click the old Submit button" },
+            expect(checkout?.lineage).toEqual([
+                {
+                    iterationNumber: 1,
+                    prompt: "Click the old Submit button",
+                    verdicts: [{ verdict: "engine_error", reasoning: "Submit selector was stale." }],
+                },
                 {
                     iterationNumber: 2,
                     prompt: "Click the renamed Confirm button",
                     healingReasoning: "Renamed Submit to Confirm, rewrote the step.",
+                    verdicts: [],
                 },
             ]);
             expect(checkout?.scenario?.scenarioName).toBe("Healing cart with one item");
@@ -916,7 +921,7 @@ diffJobContextSuite({
             const signup = byKey.get(signupSeed?.failureKey ?? "");
             expect(signup?.affectedReason).toBe("code_change");
             expect(signup?.affectedReasoning).toBe("Fills out the signup form.");
-            expect(signup?.lineage).toBeUndefined();
+            expect(signup?.lineage).toEqual([]);
             expect(signup?.scenario).toBeUndefined();
         });
 

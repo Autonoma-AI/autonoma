@@ -23,9 +23,7 @@ export function buildChangeContextSection(change: ChangeContext, intro: string):
         `- **Head SHA** (under test): \`${change.headSha}\``,
     ];
 
-    if (change.analysisReasoning != null) {
-        lines.push("", "### Change Analysis", change.analysisReasoning);
-    }
+    lines.push("", "### Change Analysis", change.analysisReasoning);
 
     if (change.affectedReason != null || change.affectedReasoning != null) {
         lines.push("", "### Why This Test Was Flagged");

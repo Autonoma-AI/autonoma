@@ -275,9 +275,10 @@ the snapshot's change facts (frozen as the top-level `change` + `analysisReasoni
 the failing subject's scenario actually seeded (`failures[].scenario`). Lineage and scenario are
 sourced from historic, immutable rows (`RefinementIterationInput` / `RefinementAction` / earlier
 `RunReview`s, and the `ScenarioInstance.generatedData` written once at UP success), so they never
-drift. Every added field (`failures[].affectedReason` / `affectedReasoning` / `lineage` /
-`scenario`, plus the top-level `change` / `analysisReasoning`) is optional, so fixtures captured
-before this still rehydrate.
+drift. `failures[].affectedReason` / `affectedReasoning` / `lineage` / `scenario` are optional, so
+fixtures captured before this still rehydrate. `change` and `analysisReasoning` are required -
+healing runs against a checked-out head SHA, downstream of a successful analysis - though
+`analysisReasoning` defaults to `""` on read for a fixture frozen before it was captured.
 
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or

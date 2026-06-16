@@ -9,6 +9,8 @@ function context(steps: RunStepData[]): RunContext {
         organizationId: "org-1",
         testPlanPrompt: "Log in and reach the dashboard",
         testCaseName: "Login flow",
+        change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Login markup was rewritten." },
+        lineage: [],
         steps,
     };
 }

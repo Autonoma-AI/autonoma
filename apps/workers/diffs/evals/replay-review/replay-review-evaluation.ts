@@ -4,6 +4,7 @@ import {
     type EvidenceLoader,
     openModelSession,
     ReplayReviewer,
+    type RunContext,
     StorageEvidenceLoader,
     summarizeSessionCost,
 } from "@autonoma/diffs";
@@ -139,7 +140,7 @@ export class ReplayReviewEvaluation extends Evaluation<ReplayReviewCase> {
     }
 
     private async probeReferencedEvidence(
-        context: ReplayReviewCase["input"]["context"],
+        context: RunContext,
         loader: EvidenceLoader,
         helpers: RunCaseHelpers,
         caseName: string,

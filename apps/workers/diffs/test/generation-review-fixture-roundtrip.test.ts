@@ -58,17 +58,19 @@ describe("generation review fixture round-trip", () => {
                 affectedReason: "code_change",
                 affectedReasoning: "This test fills out the signup form.",
             },
-            lineage: {
-                priorVerdicts: [{ iterationNumber: 1, verdict: "engine_error", reasoning: "Selector looked stale." }],
-                planHistory: [
-                    { iterationNumber: 1, prompt: "Click the old Submit button" },
-                    {
-                        iterationNumber: 2,
-                        prompt: "Click the renamed Confirm button",
-                        healingReasoning: "Renamed Submit to Confirm in the diff.",
-                    },
-                ],
-            },
+            lineage: [
+                {
+                    iterationNumber: 1,
+                    prompt: "Click the old Submit button",
+                    verdicts: [{ verdict: "engine_error", reasoning: "Selector looked stale." }],
+                },
+                {
+                    iterationNumber: 2,
+                    prompt: "Click the renamed Confirm button",
+                    healingReasoning: "Renamed Submit to Confirm in the diff.",
+                    verdicts: [],
+                },
+            ],
         };
 
         const frozen = serializeGenerationReviewInput(coords, context);
@@ -87,6 +89,8 @@ describe("generation review fixture round-trip", () => {
             testPlanPrompt: "Open the first project and verify its name",
             conversation: [{ role: "assistant", content: "I opened the project list" }],
             steps: [],
+            change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Project view markup changed." },
+            lineage: [],
             scenario: {
                 scenarioName: "Single org with one project",
                 entities: {
@@ -106,7 +110,7 @@ describe("generation review fixture round-trip", () => {
         expect(rehydrated).toEqual(context);
     });
 
-    it("still parses a legacy fixture captured before change context and lineage existed", () => {
+    it("parses a legacy fixture with no lineage and defaults status-less steps to success", () => {
         const legacy: unknown = {
             codebase: coords,
             context: {
@@ -115,6 +119,7 @@ describe("generation review fixture round-trip", () => {
                 selfReportedStatus: "failed",
                 testPlanPrompt: "do the thing",
                 conversation: [],
+                change: { baseSha: "base000", headSha: "head111" },
                 // Steps captured before the attempt timeline had no `status`; every
                 // persisted step was a success, so the default must recover that.
                 steps: [{ order: 0, interaction: "click", params: { target: "x" }, output: { outcome: "success" } }],
@@ -124,9 +129,25 @@ describe("generation review fixture round-trip", () => {
         const parsed: GenerationReviewCaseInput = generationReviewCaseInputSchema.parse(legacy);
         const { context } = rehydrateGenerationReviewInput(parsed);
 
-        expect(context.change).toBeUndefined();
-        expect(context.lineage).toBeUndefined();
+        expect(context.change?.analysisReasoning).toBe("");
+        expect(context.lineage).toEqual([]);
         expect(context.generationId).toBe("gen-legacy");
         expect(context.steps[0]?.status).toBe("success");
+    });
+
+    it("rejects a fixture missing change context - the reviewer requires the diff anchor", () => {
+        const noChange: unknown = {
+            codebase: coords,
+            context: {
+                generationId: "gen-no-change",
+                organizationId: "org-1",
+                selfReportedStatus: "failed",
+                testPlanPrompt: "do the thing",
+                conversation: [],
+                steps: [],
+            },
+        };
+
+        expect(() => generationReviewCaseInputSchema.parse(noChange)).toThrow();
     });
 });

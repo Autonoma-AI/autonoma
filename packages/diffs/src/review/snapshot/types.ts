@@ -1,6 +1,6 @@
 import type { AffectedReason } from "@autonoma/db";
 import type { ScenarioData } from "../../scenario-data";
-import type { ReviewLineage } from "../kernel";
+import type { IterationLineage } from "../kernel";
 
 /**
  * The SHAs that bound the snapshot's diff, shared by every replayed run in it.
@@ -71,11 +71,11 @@ export interface SnapshotRunContext {
      */
     scenario?: ScenarioData;
     /**
-     * Point-in-time refinement-loop lineage for this run. Resolution runs at
-     * Step 3, before any refinement loop, so this is virtually always absent;
-     * carried for parity with the reviewer context and for healing's reuse.
+     * Point-in-time refinement-loop history for this run, one entry per iteration.
+     * Resolution runs at Step 3, before any refinement loop, so this is virtually
+     * always empty; carried for parity with the reviewer context and healing's reuse.
      */
-    lineage?: ReviewLineage;
+    lineage: IterationLineage[];
 }
 
 /**
@@ -90,15 +90,18 @@ export interface SnapshotRunContext {
 export interface SnapshotContext {
     snapshotId: string;
     organizationId: string;
-    /** The diff anchor (base/head SHAs) shared by every run. Absent when the snapshot has no SHAs. */
+    /**
+     * The diff anchor (base/head SHAs) shared by every run. Absent for a SHA-less
+     * snapshot. Resolution, this scope's only consumer, does not read it.
+     */
     change?: SnapshotChangeContext;
     /**
-     * `DiffsJob.analysisReasoning` - the diffs-agent's natural-language summary of
-     * what changed. A snapshot-level fact independent of SHA presence, so it is
-     * carried even when {@link change} is absent. Undefined when analysis
-     * recorded none (or no DiffsJob exists yet).
+     * `DiffsJob.analysisReasoning` - the diffs-agent's summary of what changed. A
+     * snapshot-level fact independent of SHA presence, carried even when
+     * {@link change} is absent. Always set: resolution runs downstream of a
+     * successful analysis. Empty string when analysis recorded no summary.
      */
-    analysisReasoning?: string;
+    analysisReasoning: string;
     /** One entry per replayed, flagged run in the snapshot. */
     runs: SnapshotRunContext[];
 }
@@ -129,8 +132,9 @@ export interface HealingFailureSubject {
 /**
  * The diff-job context the loader gathered for one healing failure subject,
  * carried back to the assembler by {@link HealingFailureSubject.failureKey}.
- * Every field is optional: a subject may not be a flagged test, may sit in the
- * first iteration (no lineage), or may have run without a scenario.
+ * `affectedReason`/`affectedReasoning` are optional (a subject may not be a
+ * flagged test) and `scenario` is optional (a subject may have run without one);
+ * `lineage` is empty for first-iteration failures and failures outside any loop.
  */
 export interface HealingSubjectContext {
     /** Matches the originating {@link HealingFailureSubject.failureKey}. */
@@ -140,12 +144,13 @@ export interface HealingSubjectContext {
     /** `AffectedTest.reasoning` - the diffs-agent's explanation for flagging this test. */
     affectedReasoning?: string;
     /**
-     * The complete per-test refinement-loop lineage: the plan rewrite history and
-     * earlier iterations' verdicts. Absent for first-iteration failures and for
-     * failures outside any loop. This is healing's highest-value addition - it
-     * lets the agent avoid re-trying strategies that already failed earlier.
+     * Point-in-time refinement-loop history for this test, one entry per iteration
+     * (the plan it scoped and the verdicts it reached), oldest first. Empty for
+     * first-iteration failures and failures outside any loop. Healing's
+     * highest-value addition - it lets the agent avoid re-trying strategies that
+     * already failed earlier.
      */
-    lineage?: ReviewLineage;
+    lineage: IterationLineage[];
     /**
      * Materialized snapshot of the data the failing subject's scenario actually
      * created. Resolved via the shared scenario-data capability (the same path
@@ -170,14 +175,18 @@ export interface HealingContext {
     organizationId: string;
     /** The application the snapshot belongs to - the assembler's side-inputs key off it. */
     applicationId: string;
-    /** The diff anchor (base/head SHAs) shared by every failure. Absent when the snapshot has no SHAs. */
+    /**
+     * The diff anchor (base/head SHAs) shared by every failure. Absent for a
+     * SHA-less snapshot; the healing prompt builder asserts its presence.
+     */
     change?: SnapshotChangeContext;
     /**
-     * `DiffsJob.analysisReasoning` - the diffs-agent's summary of what changed.
-     * A snapshot-level fact independent of SHA presence, carried even when
-     * {@link change} is absent.
+     * `DiffsJob.analysisReasoning` - the diffs-agent's summary of what changed. A
+     * snapshot-level fact independent of SHA presence, carried even when
+     * {@link change} is absent. Always set: healing runs downstream of a successful
+     * analysis. Empty string when analysis recorded no summary.
      */
-    analysisReasoning?: string;
+    analysisReasoning: string;
     /** One entry per supplied failing subject, keyed back by `failureKey`. */
     subjects: HealingSubjectContext[];
 }

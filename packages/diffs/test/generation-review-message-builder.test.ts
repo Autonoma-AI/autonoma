@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGenerationReviewMessages } from "../src/review/generation/message-builder";
 import type { GenerationContext } from "../src/review/generation/types";
 
-/** Minimal generation context; individual tests layer change/lineage on top. */
+/** Minimal generation context with the always-present `change`; tests layer lineage/scenario on top. */
 function baseContext(overrides: Partial<GenerationContext> = {}): GenerationContext {
     return {
         generationId: "gen-1",
@@ -10,6 +10,8 @@ function baseContext(overrides: Partial<GenerationContext> = {}): GenerationCont
         selfReportedStatus: "failed",
         testPlanPrompt: "Sign up and reach the welcome screen",
         conversation: [{ role: "assistant", content: "I typed the email" }],
+        change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Signup validation was rewritten." },
+        lineage: [],
         steps: [
             {
                 order: 0,
@@ -60,28 +62,28 @@ describe("buildGenerationReviewMessages", () => {
         expect(text).toContain("This test fills out the signup form.");
     });
 
-    it("omits the change-context section when change is absent", () => {
-        const text = leadingText(buildGenerationReviewMessages(baseContext(), undefined));
-        expect(text).not.toContain("## Code Change Under Review");
-        expect(text).not.toContain("git diff");
+    it("throws when change is absent - the reviewer requires the diff anchor", () => {
+        const context = baseContext();
+        delete context.change;
+        expect(() => buildGenerationReviewMessages(context, undefined)).toThrow(/requires change context/);
     });
 
     it("renders the lineage plan-delta and the anchoring guard when lineage is present", () => {
         const messages = buildGenerationReviewMessages(
             baseContext({
-                lineage: {
-                    priorVerdicts: [
-                        { iterationNumber: 1, verdict: "engine_error", reasoning: "Selector looked stale." },
-                    ],
-                    planHistory: [
-                        { iterationNumber: 1, prompt: "Click the old Submit button" },
-                        {
-                            iterationNumber: 2,
-                            prompt: "Click the renamed Confirm button",
-                            healingReasoning: "Renamed Submit to Confirm in the diff.",
-                        },
-                    ],
-                },
+                lineage: [
+                    {
+                        iterationNumber: 1,
+                        prompt: "Click the old Submit button",
+                        verdicts: [{ verdict: "engine_error", reasoning: "Selector looked stale." }],
+                    },
+                    {
+                        iterationNumber: 2,
+                        prompt: "Click the renamed Confirm button",
+                        healingReasoning: "Renamed Submit to Confirm in the diff.",
+                        verdicts: [],
+                    },
+                ],
             }),
             undefined,
         );

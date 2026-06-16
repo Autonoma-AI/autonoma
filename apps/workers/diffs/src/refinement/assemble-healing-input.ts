@@ -136,13 +136,13 @@ function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: Healing
         const context = contextByKey.get(failure.key);
         if (context == null) return failure;
 
-        // Override-only-when-present: the gathered context wins, but a field it
-        // didn't resolve keeps whatever the base failure already carried.
+        // Override-only-when-present: the gathered context wins, but an optional
+        // field it didn't resolve keeps whatever the base failure already carried.
         return {
             ...failure,
             affectedReason: context.affectedReason ?? failure.affectedReason,
             affectedReasoning: context.affectedReasoning ?? failure.affectedReasoning,
-            lineage: context.lineage ?? failure.lineage,
+            lineage: context.lineage,
             scenario: context.scenario ?? failure.scenario,
         };
     });
@@ -206,6 +206,7 @@ export function collectFailureRecords(
         sourceId: f.sourceId,
         sourceStatus: f.sourceStatus,
         reviewReasoning: f.reviewReasoning,
+        lineage: [],
     }));
     const fromRun: FailureRecord[] = failuresAtReplay.map((f) => ({
         key: f.failureKey,
@@ -220,6 +221,7 @@ export function collectFailureRecords(
         sourceId: f.sourceId,
         sourceStatus: f.sourceStatus,
         reviewReasoning: f.reviewReasoning,
+        lineage: [],
     }));
     return [...fromGen, ...fromRun];
 }

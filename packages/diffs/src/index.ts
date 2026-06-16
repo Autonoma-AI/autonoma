@@ -146,9 +146,8 @@ export {
     type VideoDownloader,
     type EvidenceLoader,
     type ChangeContext,
-    type PlanRevision,
-    type PriorVerdict,
-    type ReviewLineage,
+    type IterationLineage,
+    type IterationVerdict,
 } from "./review/kernel";
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
 export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./review/replay";

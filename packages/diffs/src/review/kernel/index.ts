@@ -5,4 +5,4 @@ export { buildChangeContextSection } from "./change-context-section";
 export { buildLineageSection } from "./lineage-section";
 export { buildStepSummary, type RenderableReviewStep } from "./step-summary";
 export type { ReviewStep } from "./review-step";
-export type { ChangeContext, PlanRevision, PriorVerdict, ReviewLineage } from "./widened-context";
+export type { ChangeContext, IterationLineage, IterationVerdict } from "./widened-context";

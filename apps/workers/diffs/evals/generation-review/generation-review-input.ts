@@ -15,13 +15,12 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  * S3 keys - never bytes - and is rehydrated by the production evidence loader
  * at run time.
  *
- * `change`, `lineage`, and `scenario` are optional so cases captured before each
- * existed still parse; the changed-file list and diff hunks are never frozen here
- * - the reviewer derives them from the rehydrated codebase via `git diff`. The
- * `scenario` payload is the materialized generated-data graph, frozen verbatim.
- * `lineage` is present only for iteration-2+ cases (the refinement-loop
- * generations this fix targets) and absent for first-iteration and pre-lineage
- * cases.
+ * `change` is required - every reviewed generation executes against a checked-out
+ * head SHA. The changed-file list and diff hunks are never frozen here - the
+ * reviewer derives them from the rehydrated codebase via `git diff`. `lineage`
+ * defaults to empty (non-empty only for iteration-2+ cases) and `scenario` stays
+ * optional, so cases captured before each existed still parse; the `scenario`
+ * payload is the materialized generated-data graph, frozen verbatim.
  */
 export const generationReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -51,33 +50,25 @@ export const generationReviewCaseInputSchema = z.object({
                 screenshotAfterKey: z.string().optional(),
             }),
         ),
-        change: z
-            .object({
-                baseSha: z.string(),
-                headSha: z.string(),
-                analysisReasoning: z.string().optional(),
-                affectedReason: z.enum(AffectedReason).optional(),
-                affectedReasoning: z.string().optional(),
-            })
-            .optional(),
+        change: z.object({
+            baseSha: z.string(),
+            headSha: z.string(),
+            // Defaulted so a fixture frozen before analysis reasoning was captured
+            // still rehydrates.
+            analysisReasoning: z.string().default(""),
+            affectedReason: z.enum(AffectedReason).optional(),
+            affectedReasoning: z.string().optional(),
+        }),
         lineage: z
-            .object({
-                priorVerdicts: z.array(
-                    z.object({
-                        iterationNumber: z.number().int().positive(),
-                        verdict: z.enum(RunReviewVerdict),
-                        reasoning: z.string(),
-                    }),
-                ),
-                planHistory: z.array(
-                    z.object({
-                        iterationNumber: z.number().int().positive(),
-                        prompt: z.string(),
-                        healingReasoning: z.string().optional(),
-                    }),
-                ),
-            })
-            .optional(),
+            .array(
+                z.object({
+                    iterationNumber: z.number().int().positive(),
+                    prompt: z.string(),
+                    healingReasoning: z.string().optional(),
+                    verdicts: z.array(z.object({ verdict: z.enum(RunReviewVerdict), reasoning: z.string() })),
+                }),
+            )
+            .default([]),
         scenario: scenarioDataSchema.optional(),
     }),
 });

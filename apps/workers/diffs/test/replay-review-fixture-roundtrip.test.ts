@@ -51,19 +51,19 @@ describe("replay review fixture round-trip", () => {
                 affectedReason: "code_change",
                 affectedReasoning: "This test clicks the renamed submit button.",
             },
-            lineage: {
-                priorVerdicts: [
-                    { iterationNumber: 1, verdict: "engine_error", reasoning: "Submit selector looked stale." },
-                ],
-                planHistory: [
-                    { iterationNumber: 1, prompt: "Click the old Submit button" },
-                    {
-                        iterationNumber: 2,
-                        prompt: "Click the renamed Confirm button",
-                        healingReasoning: "Renamed Submit to Confirm in the diff.",
-                    },
-                ],
-            },
+            lineage: [
+                {
+                    iterationNumber: 1,
+                    prompt: "Click the old Submit button",
+                    verdicts: [{ verdict: "engine_error", reasoning: "Submit selector looked stale." }],
+                },
+                {
+                    iterationNumber: 2,
+                    prompt: "Click the renamed Confirm button",
+                    healingReasoning: "Renamed Submit to Confirm in the diff.",
+                    verdicts: [],
+                },
+            ],
         };
 
         const frozen = serializeReplayReviewInput(coords, context);
@@ -81,6 +81,8 @@ describe("replay review fixture round-trip", () => {
             testPlanPrompt: "Open the first project and verify its name",
             testCaseName: "Project view",
             steps: [],
+            change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Project view markup changed." },
+            lineage: [],
             scenario: {
                 scenarioName: "Single org with one project",
                 entities: {
@@ -100,7 +102,7 @@ describe("replay review fixture round-trip", () => {
         expect(rehydrated).toEqual(context);
     });
 
-    it("still parses a legacy fixture captured before change context existed", () => {
+    it("parses a legacy fixture with no lineage and defaults status-less steps to success", () => {
         const legacy: unknown = {
             codebase: coords,
             context: {
@@ -108,6 +110,7 @@ describe("replay review fixture round-trip", () => {
                 organizationId: "org-1",
                 testPlanPrompt: "do the thing",
                 testCaseName: "Legacy case",
+                change: { baseSha: "base000", headSha: "head111" },
                 // A step frozen before the command-aware renderer had no `status`;
                 // every such step was a success, so the default must recover that.
                 steps: [{ order: 0, interaction: "click", params: { target: "x" }, output: { outcome: "clicked" } }],
@@ -117,9 +120,24 @@ describe("replay review fixture round-trip", () => {
         const parsed: ReplayReviewCaseInput = replayReviewCaseInputSchema.parse(legacy);
         const { context } = rehydrateReplayReviewInput(parsed);
 
-        expect(context.change).toBeUndefined();
-        expect(context.lineage).toBeUndefined();
+        expect(context.change?.analysisReasoning).toBe("");
+        expect(context.lineage).toEqual([]);
         expect(context.runId).toBe("run-legacy");
         expect(context.steps[0]?.status).toBe("success");
+    });
+
+    it("rejects a fixture missing change context - the reviewer requires the diff anchor", () => {
+        const noChange: unknown = {
+            codebase: coords,
+            context: {
+                runId: "run-no-change",
+                organizationId: "org-1",
+                testPlanPrompt: "do the thing",
+                testCaseName: "No-change case",
+                steps: [],
+            },
+        };
+
+        expect(() => replayReviewCaseInputSchema.parse(noChange)).toThrow();
     });
 });

@@ -21,6 +21,14 @@ export function buildGenerationReviewMessages(
     context: GenerationContext,
     video: UploadedVideo | undefined,
 ): ModelMessage[] {
+    // Every reviewed generation executes against a checked-out head SHA, so change
+    // is always present; the loader types it optionally for SHA-less snapshots.
+    if (context.change == null) {
+        throw new Error(
+            `Generation review requires change context (snapshot SHAs), absent for generation ${context.generationId}`,
+        );
+    }
+
     const builder = new MessageBuilder()
         .section("Test Plan", context.testPlanPrompt)
         .section(
@@ -29,11 +37,9 @@ export function buildGenerationReviewMessages(
                 "Treat this as a hint only - your verdict is the source of truth.",
         );
 
-    if (context.change != null) {
-        builder.section("Code Change Under Review", buildChangeContextSection(context.change, CHANGE_CONTEXT_INTRO));
-    }
+    builder.section("Code Change Under Review", buildChangeContextSection(context.change, CHANGE_CONTEXT_INTRO));
 
-    if (context.lineage != null) {
+    if (context.lineage.length > 0) {
         builder.section(
             "Refinement-Loop History (fallible signal)",
             buildLineageSection(context.lineage, "generation"),

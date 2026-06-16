@@ -6,9 +6,8 @@ import {
     type HealingContext,
     type HealingFailureSubject,
     type HealingSubjectContext,
-    type PlanRevision,
-    type PriorVerdict,
-    type ReviewLineage,
+    type IterationLineage,
+    type IterationVerdict,
     type RunContext,
     type RunStepData,
     type ScenarioData,
@@ -26,8 +25,7 @@ import type { ModelMessage } from "ai";
 
 /**
  * One refinement-iteration analysis-scope row for the subject test, carrying the
- * plan it scoped and the iteration that scoped it. The shared shape both the
- * plan-history and prior-verdict walks read from.
+ * plan it scoped and the iteration that scoped it.
  */
 interface IterationPlanInput {
     plan: { id: string; prompt: string };
@@ -187,7 +185,7 @@ export class DiffJobContextLoader {
             runId,
             stepCount: steps.length,
             hasChange: change != null,
-            hasLineage: lineage != null,
+            hasLineage: lineage.length > 0,
             hasScenario: scenario != null,
         });
 
@@ -334,7 +332,7 @@ export class DiffJobContextLoader {
             stepCount: steps.length,
             selfReportedStatus: generation.status,
             hasChange: change != null,
-            hasLineage: lineage != null,
+            hasLineage: lineage.length > 0,
             hasScenario: scenario != null,
         });
 
@@ -527,13 +525,14 @@ export class DiffJobContextLoader {
             )
         ).filter((run): run is SnapshotRunContext => run != null);
 
-        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? undefined;
+        // Always set post-analysis; the null collapses the unreachable states.
+        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? "";
 
         this.logger.info("Snapshot-scope diff-job context loaded", {
             snapshotId,
             runCount: runs.length,
             hasChange: change != null,
-            hasAnalysisReasoning: analysisReasoning != null,
+            hasAnalysisReasoning: analysisReasoning.length > 0,
             runsWithScenario: runs.filter((r) => r.scenario != null).length,
         });
 
@@ -586,7 +585,8 @@ export class DiffJobContextLoader {
         });
 
         const change = this.buildSnapshotChange(snapshotId, snapshot);
-        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? undefined;
+        // Always set post-analysis; the null collapses the unreachable states.
+        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? "";
 
         // One AffectedTest per (snapshot, testCase), so the per-test flag facts
         // are read in a single batched query keyed by the subjects' test cases.
@@ -621,8 +621,8 @@ export class DiffJobContextLoader {
             snapshotId,
             subjectCount: subjectContexts.length,
             hasChange: change != null,
-            hasAnalysisReasoning: analysisReasoning != null,
-            subjectsWithLineage: subjectContexts.filter((subject) => subject.lineage != null).length,
+            hasAnalysisReasoning: analysisReasoning.length > 0,
+            subjectsWithLineage: subjectContexts.filter((subject) => subject.lineage.length > 0).length,
             subjectsWithScenario: subjectContexts.filter((subject) => subject.scenario != null).length,
         });
 
@@ -685,26 +685,26 @@ export class DiffJobContextLoader {
     }
 
     /**
-     * Gather the subject test's point-in-time refinement-loop lineage: the plan
-     * rewrite history (oldest first, up to and including the plan this subject
-     * executed) and earlier iterations' verdicts on this same test.
+     * Gather the subject test's point-in-time refinement-loop history: one entry
+     * per iteration (oldest first, up to and including the iteration this subject
+     * executed) carrying the plan that iteration scoped and the verdicts its runs
+     * reached.
      *
      * "Point-in-time" is enforced two ways: the history is capped at the subject's
      * own iteration number (later iterations may already exist in the DB by the
      * time a re-review runs, but they did not exist when this subject executed),
-     * and only `completed` reviews from *earlier* iterations contribute verdicts.
+     * and only `completed` reviews from *earlier* iterations contribute verdicts -
+     * the subject's own iteration carries no verdict (its review is in progress).
      *
-     * Returns `undefined` when there is nothing to show: the subject isn't part of
-     * a refinement loop, or it's a first-iteration subject (no earlier iterations,
-     * so no rewrite and no prior verdict). First-iteration reviews therefore carry
-     * no lineage at all - exactly the case this fix leaves alone.
+     * Empty when there is nothing to show: the subject isn't part of a refinement
+     * loop, or it's a first-iteration subject (no earlier iterations).
      */
     private async buildLineage(
         subjectId: string,
         planId: string | null,
         testCaseId: string,
-    ): Promise<ReviewLineage | undefined> {
-        if (planId == null) return undefined;
+    ): Promise<IterationLineage[]> {
+        if (planId == null) return [];
 
         // The subject's executed plan is the analysis-scope input to exactly one
         // refinement iteration; that iteration's number and loop bound the walk.
@@ -714,19 +714,18 @@ export class DiffJobContextLoader {
         });
         if (subjectInput == null) {
             this.logger.info("Subject is not part of a refinement loop - no lineage", { subjectId });
-            return undefined;
+            return [];
         }
 
         const { number: subjectNumber, loopId } = subjectInput.iteration;
         if (subjectNumber <= 1) {
             this.logger.info("First-iteration subject - no lineage", { subjectId, iteration: subjectNumber });
-            return undefined;
+            return [];
         }
 
-        // Single source of truth for both the history and the verdicts: every plan
-        // this test was scoped to from the seed iteration through the subject's own
-        // iteration. Capping at `subjectNumber` keeps the view point-in-time even if
-        // later iterations already exist in the DB by the time this review runs.
+        // Every plan this test was scoped to from the seed iteration through the
+        // subject's own iteration. Capping at `subjectNumber` keeps the view
+        // point-in-time even if later iterations already exist in the DB.
         const inputs = await this.db.refinementIterationInput.findMany({
             where: {
                 plan: { testCaseId },
@@ -739,56 +738,63 @@ export class DiffJobContextLoader {
             orderBy: { iteration: { number: "asc" } },
         });
 
-        const planHistory = await this.buildPlanHistory(loopId, inputs);
-        const priorVerdicts = await this.buildPriorVerdicts(inputs, subjectNumber);
+        const planIds = inputs.map((input) => input.plan.id);
+        const [rewriteReasoning, verdictsByIteration] = await Promise.all([
+            this.loadRewriteReasoning(loopId, planIds),
+            this.loadVerdictsByIteration(inputs, subjectNumber),
+        ]);
+
+        const lineage = inputs.map((input) => ({
+            iterationNumber: input.iteration.number,
+            prompt: input.plan.prompt,
+            healingReasoning: rewriteReasoning.get(input.plan.id) ?? undefined,
+            verdicts: verdictsByIteration.get(input.iteration.number) ?? [],
+        }));
 
         this.logger.info("Gathered review lineage", {
             subjectId,
             iteration: subjectNumber,
-            planRevisions: planHistory.length,
-            priorVerdicts: priorVerdicts.length,
+            iterations: lineage.length,
         });
 
-        return { priorVerdicts, planHistory };
+        return lineage;
     }
 
     /**
-     * The chronological plan rewrite history for this test inside the loop, from
-     * the seed plan (iteration 1) through the plan the subject executed. Each
-     * rewrite's `healingReasoning` comes from the `update_plan` action that created
-     * the plan; the seed plan has none.
+     * The `update_plan` healing reasoning per plan id, from the action that created
+     * each plan. The seed plan (iteration 1) has none.
      */
-    private async buildPlanHistory(loopId: string, inputs: IterationPlanInput[]): Promise<PlanRevision[]> {
-        const planIds = inputs.map((input) => input.plan.id);
+    private async loadRewriteReasoning(loopId: string, planIds: string[]): Promise<Map<string, string>> {
         const actions = await this.db.refinementAction.findMany({
             where: { kind: "update_plan", planId: { in: planIds }, iteration: { loopId } },
             select: { planId: true, reasoning: true },
         });
-        const reasoningByPlanId = new Map(actions.map((action) => [action.planId, action.reasoning]));
-
-        return inputs.map((input) => ({
-            iterationNumber: input.iteration.number,
-            prompt: input.plan.prompt,
-            healingReasoning: reasoningByPlanId.get(input.plan.id) ?? undefined,
-        }));
+        const reasoningByPlanId = new Map<string, string>();
+        for (const action of actions) {
+            if (action.planId != null) reasoningByPlanId.set(action.planId, action.reasoning);
+        }
+        return reasoningByPlanId;
     }
 
     /**
-     * The verdicts earlier iterations reached on this test, oldest first. Sourced
-     * from `completed` `RunReview`s of the runs that executed the *earlier* plans
-     * (the subject iteration's own runs are excluded - that's the review in
-     * progress). Each prior run maps back to its iteration number via its plan.
+     * The completed verdicts each *earlier* iteration's runs reached on this test,
+     * keyed by iteration number (oldest-first within each, by run creation). The
+     * subject iteration's own runs are excluded - that's the review in progress.
      */
-    private async buildPriorVerdicts(inputs: IterationPlanInput[], subjectNumber: number): Promise<PriorVerdict[]> {
+    private async loadVerdictsByIteration(
+        inputs: IterationPlanInput[],
+        subjectNumber: number,
+    ): Promise<Map<number, IterationVerdict[]>> {
+        const byIteration = new Map<number, IterationVerdict[]>();
+
         const earlierInputs = inputs.filter((input) => input.iteration.number < subjectNumber);
-        if (earlierInputs.length === 0) return [];
+        if (earlierInputs.length === 0) return byIteration;
 
         const iterationByPlanId = new Map(earlierInputs.map((input) => [input.plan.id, input.iteration.number]));
-        const earlierPlanIds = earlierInputs.map((input) => input.plan.id);
 
         const priorRuns = await this.db.run.findMany({
             where: {
-                planId: { in: earlierPlanIds },
+                planId: { in: earlierInputs.map((input) => input.plan.id) },
                 runReview: { status: "completed", verdict: { not: null } },
             },
             select: {
@@ -798,29 +804,24 @@ export class DiffJobContextLoader {
             orderBy: { createdAt: "asc" },
         });
 
-        const verdicts: PriorVerdict[] = [];
         for (const run of priorRuns) {
             const verdict = run.runReview?.verdict;
             if (run.planId == null || verdict == null) continue;
             const iterationNumber = iterationByPlanId.get(run.planId);
             if (iterationNumber == null) continue;
-            verdicts.push({
-                iterationNumber,
-                verdict,
-                reasoning: run.runReview?.reasoning ?? "",
-            });
+            const verdicts = byIteration.get(iterationNumber) ?? [];
+            verdicts.push({ verdict, reasoning: run.runReview?.reasoning ?? "" });
+            byIteration.set(iterationNumber, verdicts);
         }
 
-        verdicts.sort((a, b) => a.iterationNumber - b.iterationNumber);
-        return verdicts;
+        return byIteration;
     }
 
     /**
      * Assemble the subject-scoped change facts. Returns `undefined` when the
      * snapshot is missing its SHAs - without them the reviewer has nothing to
-     * `git diff` against, so the change section would be useless. Analysis
-     * reasoning and the affected-test fields are individually optional: a subject
-     * may predate analysis or not be a flagged test.
+     * `git diff` against, so the change section would be useless. The affected-test
+     * fields stay individually optional: a subject may not be a flagged test.
      */
     private buildChangeContext(
         subjectId: string,
@@ -837,7 +838,9 @@ export class DiffJobContextLoader {
         return {
             baseSha: snapshot.baseSha,
             headSha: snapshot.headSha,
-            analysisReasoning: snapshot.diffsJob?.analysisReasoning ?? undefined,
+            // Always set post-analysis; the null collapses the unreachable
+            // states (and a missing DiffsJob) to the empty-summary case.
+            analysisReasoning: snapshot.diffsJob?.analysisReasoning ?? "",
             affectedReason: affectedTest?.affectedReason,
             affectedReasoning: affectedTest?.reasoning,
         };

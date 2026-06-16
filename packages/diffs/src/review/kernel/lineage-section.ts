@@ -1,4 +1,4 @@
-import type { PlanRevision, ReviewLineage } from "./widened-context";
+import type { IterationLineage } from "./widened-context";
 
 /**
  * Renders the subject test's refinement-loop lineage: the plan-delta (the prior
@@ -14,10 +14,10 @@ import type { PlanRevision, ReviewLineage } from "./widened-context";
  * `subjectNoun` names the subject under review ("replay" / "generation") so the
  * shared copy reads naturally for either reviewer.
  */
-export function buildLineageSection(lineage: ReviewLineage, subjectNoun: string): string {
-    const sections = [buildPlanDeltaSection(lineage.planHistory, subjectNoun)];
+export function buildLineageSection(lineage: IterationLineage[], subjectNoun: string): string {
+    const sections = [buildPlanDeltaSection(lineage, subjectNoun)];
 
-    const priorVerdicts = buildPriorVerdictsSection(lineage.priorVerdicts);
+    const priorVerdicts = buildPriorVerdictsSection(lineage);
     if (priorVerdicts != null) sections.push(priorVerdicts);
 
     sections.push(
@@ -37,13 +37,13 @@ export function buildLineageSection(lineage: ReviewLineage, subjectNoun: string)
  * iteration executed versus the current healed plan the subject executed, plus
  * the healing agent's stated reasoning for the latest rewrite. Falls back to
  * rendering whatever history is present (a single entry, or none) so the
- * function is total over any non-empty history the loader produces.
+ * function is total over any history the loader produces.
  */
-function buildPlanDeltaSection(planHistory: PlanRevision[], subjectNoun: string): string {
-    const current = planHistory[planHistory.length - 1];
+function buildPlanDeltaSection(lineage: IterationLineage[], subjectNoun: string): string {
+    const current = lineage[lineage.length - 1];
     if (current == null) return "### Plan Changes\nNo plan history is available.";
 
-    const previous = planHistory[planHistory.length - 2];
+    const previous = lineage[lineage.length - 2];
     if (previous == null) {
         return [
             "### Plan Changes",
@@ -69,7 +69,7 @@ function buildPlanDeltaSection(planHistory: PlanRevision[], subjectNoun: string)
     return lines.join("\n");
 }
 
-function formatPlan(label: string, plan: PlanRevision): string {
+function formatPlan(label: string, plan: IterationLineage): string {
     return [`**${label}:**`, "", "```", plan.prompt, "```"].join("\n");
 }
 
@@ -78,14 +78,16 @@ function formatPlan(label: string, plan: PlanRevision): string {
  * are none (a healing rewrite can exist without a recorded prior verdict), so
  * the caller omits the heading entirely rather than printing an empty section.
  */
-function buildPriorVerdictsSection(priorVerdicts: ReviewLineage["priorVerdicts"]): string | undefined {
-    if (priorVerdicts.length === 0) return undefined;
-
-    const items = priorVerdicts.map((v) =>
-        [`- **Iteration ${v.iterationNumber}** judged this \`${v.verdict}\`.`, `  Reasoning: ${v.reasoning}`].join(
-            "\n",
+function buildPriorVerdictsSection(lineage: IterationLineage[]): string | undefined {
+    const items = lineage.flatMap((iteration) =>
+        iteration.verdicts.map((v) =>
+            [
+                `- **Iteration ${iteration.iterationNumber}** judged this \`${v.verdict}\`.`,
+                `  Reasoning: ${v.reasoning}`,
+            ].join("\n"),
         ),
     );
+    if (items.length === 0) return undefined;
 
     return ["### Prior Verdicts On This Test", ...items].join("\n");
 }

@@ -2,6 +2,7 @@ import { VideoProcessor } from "@autonoma/ai";
 import { env as aiEnv } from "@autonoma/ai/env";
 import {
     type EvidenceLoader,
+    type GenerationContext,
     GenerationReviewer,
     openModelSession,
     StorageEvidenceLoader,
@@ -146,7 +147,7 @@ export class GenerationReviewEvaluation extends Evaluation<GenerationReviewCase>
     }
 
     private async probeReferencedEvidence(
-        context: GenerationReviewCase["input"]["context"],
+        context: GenerationContext,
         loader: EvidenceLoader,
         helpers: RunCaseHelpers,
         caseName: string,

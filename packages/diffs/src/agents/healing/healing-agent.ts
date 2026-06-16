@@ -43,15 +43,18 @@ export interface HealingInput extends SnapshotInfo {
     /**
      * The diff anchor (base/head SHAs) shared by every failure - the codebase is
      * checked out at head with base also fetched, so the agent can
-     * `git diff baseSha..headSha`. Absent when the snapshot has no SHAs.
+     * `git diff baseSha..headSha`. Absent for a SHA-less snapshot; the prompt
+     * builder asserts its presence.
      */
     change?: SnapshotChangeContext;
     /**
      * `DiffsJob.analysisReasoning` - the diffs-agent's natural-language summary of
      * what changed across the snapshot. Carried independently of {@link change}
-     * so it survives a SHA-less snapshot.
+     * so it survives a SHA-less snapshot. Required: healing runs strictly
+     * downstream of a successful analysis, so it is always set (empty string only
+     * in the unreachable analysis-recorded-nothing case).
      */
-    analysisReasoning?: string;
+    analysisReasoning: string;
     /**
      * Maps each reportable testCaseId (one whose failure carries a source
      * review the apply layer can link evidence to) to that review link. Only

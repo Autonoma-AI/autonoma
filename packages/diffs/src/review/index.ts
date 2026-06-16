@@ -14,9 +14,8 @@ export {
     type VideoDownloader,
     type EvidenceLoader,
     type ChangeContext,
-    type PlanRevision,
-    type PriorVerdict,
-    type ReviewLineage,
+    type IterationLineage,
+    type IterationVerdict,
 } from "./kernel";
 
 // Generation reviewer prompt-building blocks. Orchestration (the runner, the

@@ -111,7 +111,7 @@ export async function assembleResolutionAgentInput({
     const scenarioIndex = new ScenarioIndex(scenarios);
 
     const verdicts = buildVerdicts(snapshotContext.runs, logger);
-    const step1Reasoning = snapshotContext.analysisReasoning ?? "";
+    const step1Reasoning = snapshotContext.analysisReasoning;
 
     logger.info("Loaded resolution context", {
         extra: {

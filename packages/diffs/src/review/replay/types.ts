@@ -1,7 +1,7 @@
 import type { ApplicationArchitecture } from "@autonoma/db";
 import type { OverlayPoint } from "@autonoma/types";
 import type { ScenarioData } from "../../scenario-data";
-import type { ChangeContext, ReviewLineage, ReviewStep } from "../kernel";
+import type { ChangeContext, IterationLineage, ReviewStep } from "../kernel";
 
 /**
  * One reviewed replay step: the normalized {@link ReviewStep} plus the
@@ -31,17 +31,17 @@ export interface RunContext {
     /** Gates before-screenshot point annotation to WEB. */
     architecture?: ApplicationArchitecture;
     /**
-     * DB-sourced facts about the code change under review. Optional so legacy
-     * fixtures captured before change context existed still rehydrate; production
-     * always populates it via `DiffJobContextLoader`.
+     * DB-sourced facts about the code change under review. Absent for a SHA-less
+     * snapshot; the replay reviewer asserts its presence (every reviewed run
+     * executes against a checked-out head SHA).
      */
     change?: ChangeContext;
     /**
-     * Point-in-time refinement-loop lineage for this test: the prior verdicts and
-     * the plan rewrite history. Absent for first-iteration reviews (no earlier
-     * iterations) and for legacy fixtures captured before lineage existed.
+     * Point-in-time refinement-loop history for this test, one entry per iteration
+     * (the plan it scoped and the verdicts it reached), oldest first. Empty for
+     * first-iteration reviews and for tests outside a refinement loop.
      */
-    lineage?: ReviewLineage;
+    lineage: IterationLineage[];
     /**
      * Materialized snapshot of the data the run's scenario actually created.
      * Omitted when the run has no scenario instance, UP never succeeded, or the
