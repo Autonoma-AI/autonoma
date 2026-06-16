@@ -71,12 +71,12 @@ export async function runRefinementHealing(
         conversation,
         logger: logger.child({ name: "uploadHealingConversation" }),
     });
-    if (conversationUrl != null) {
-        await db.refinementIteration.update({
-            where: { id: input.iterationId },
-            data: { healingConversationUrl: conversationUrl },
-        });
-    }
+    // Persist the agent's summary reasoning unconditionally; an `undefined`
+    // conversationUrl (upload skipped or failed) leaves that column untouched.
+    await db.refinementIteration.update({
+        where: { id: input.iterationId },
+        data: { reasoning: result.reasoning, healingConversationUrl: conversationUrl },
+    });
 
     logger.info("Refinement healing cost", { extra: summarizeSessionCost(session.costCollector) });
 

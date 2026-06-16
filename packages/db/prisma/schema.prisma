@@ -974,6 +974,12 @@ model RefinementIteration {
   /// S3 URL of the persisted HealingAgent conversation for this iteration.
   healingConversationUrl String? @map("healing_conversation_url")
 
+  /// The HealingAgent's one-paragraph summary reasoning for this iteration,
+  /// captured from its finish tool. Nullable: written after the agent runs, so
+  /// it stays null for pending/running iterations and for iterations that error
+  /// before the agent finishes.
+  reasoning String? @map("reasoning") @db.Text
+
   actions RefinementAction[]
   inputs  RefinementIterationInput[]
 
