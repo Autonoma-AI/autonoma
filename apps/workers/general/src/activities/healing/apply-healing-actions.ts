@@ -3,6 +3,7 @@ import { BugMatcher, openModelSession } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
+import { applyAddTest } from "./apply-add-test";
 import { applyRemoveTest } from "./apply-remove-test";
 import { applyReportBug } from "./apply-report-bug";
 import { applyReportEngineLimitation } from "./apply-report-engine-limitation";
@@ -47,6 +48,19 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                     organizationId: input.organizationId,
                     testCaseId: action.testCaseId,
                     newPrompt: action.newPrompt,
+                });
+                nextIterationPlanIds.push(planId);
+                break;
+            }
+            case "add_test": {
+                const { planId } = await applyAddTest({
+                    refinementActionId,
+                    snapshotId: input.snapshotId,
+                    organizationId: input.organizationId,
+                    folderId: action.folderId,
+                    name: action.name,
+                    instruction: action.instruction,
+                    scenarioId: action.scenarioId,
                 });
                 nextIterationPlanIds.push(planId);
                 break;

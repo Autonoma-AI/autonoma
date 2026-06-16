@@ -1,8 +1,10 @@
 import { db } from "@autonoma/db";
 import {
     type Codebase,
+    type FlowIndex,
     HealingAgent,
     type HealingAction,
+    type HealingNewTest,
     openModelSession,
     summarizeSessionCost,
 } from "@autonoma/diffs";
@@ -63,7 +65,7 @@ export async function runRefinementHealing(
     const agent = new HealingAgent({ model });
     const { result, conversation } = await agent.run({ ...agentInput, codebase });
 
-    const persisted = await persistActions(input.iterationId, result.actions);
+    const persisted = await persistActions(input.iterationId, result.actions, result.newTests, agentInput.flowIndex);
 
     const conversationUrl = await uploadHealingConversation({
         storage: S3Storage.createFromEnv(),
@@ -85,7 +87,21 @@ export async function runRefinementHealing(
     return { persistedActions: persisted, reasoning: result.reasoning };
 }
 
-async function persistActions(iterationId: string, actions: HealingAction[]): Promise<PersistedHealingAction[]> {
+/**
+ * Persists every per-failure action plus every `add_test` outcome as a
+ * RefinementAction row, returning each with its row id so the workflow can
+ * dispatch the matching apply* activity. `add_test` outcomes live in the
+ * agent's separate `newTests` channel (they target no failure, so they are not
+ * part of the per-failure action union); each is resolved from `folderName` to
+ * a concrete `folderId` here, where the iteration's flow index is in scope, so
+ * the apply activity can mint the test without re-loading the suite.
+ */
+async function persistActions(
+    iterationId: string,
+    actions: HealingAction[],
+    newTests: HealingNewTest[],
+    flowIndex: FlowIndex,
+): Promise<PersistedHealingAction[]> {
     const persisted: PersistedHealingAction[] = [];
 
     for (const action of actions) {
@@ -97,6 +113,33 @@ async function persistActions(iterationId: string, actions: HealingAction[]): Pr
                 testCaseId: action.testCaseId,
                 payload: actionPayload(action),
                 reasoning: actionReasoning(action),
+            },
+            select: { id: true },
+        });
+
+        persisted.push({ refinementActionId: row.id, action });
+    }
+
+    for (const newTest of newTests) {
+        const folder = flowIndex.getFlow(newTest.folderName);
+        if (folder == null) throw new Error(`Folder "${newTest.folderName}" not found for new test "${newTest.name}"`);
+
+        const action = {
+            kind: "add_test" as const,
+            folderId: folder.id,
+            name: newTest.name,
+            instruction: newTest.instruction,
+            scenarioId: newTest.scenarioId,
+            reasoning: newTest.reasoning,
+        };
+        const { kind: _kind, ...payload } = action;
+
+        const row = await db.refinementAction.create({
+            data: {
+                iterationId,
+                kind: "add_test",
+                payload,
+                reasoning: newTest.reasoning,
             },
             select: { id: true },
         });

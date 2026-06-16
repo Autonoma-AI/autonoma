@@ -162,7 +162,13 @@ function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: Healing
     });
 }
 
-/** Read every action emitted by *earlier* iterations of the same loop, in emission order. */
+/**
+ * Read every per-failure action emitted by *earlier* iterations of the same
+ * loop, in emission order. `add_test` rows are excluded: they live outside the
+ * per-failure action union ({@link healingActionSchema}), so feeding them
+ * through the parser would throw. The new tests they minted surface to later
+ * iterations through the suite itself, not through `priorActions`.
+ */
 export async function loadPriorActions(currentIterationId: string): Promise<HealingAction[]> {
     const current = await db.refinementIteration.findUniqueOrThrow({
         where: { id: currentIterationId },
@@ -170,7 +176,7 @@ export async function loadPriorActions(currentIterationId: string): Promise<Heal
     });
 
     const priorRows = await db.refinementAction.findMany({
-        where: { iteration: { loopId: current.loopId, number: { lt: current.number } } },
+        where: { iteration: { loopId: current.loopId, number: { lt: current.number } }, kind: { not: "add_test" } },
         select: { kind: true, payload: true },
         orderBy: { createdAt: "asc" },
     });

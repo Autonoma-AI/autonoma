@@ -8,6 +8,16 @@ export interface ApplyUpdatePlanInput {
     newPrompt: string;
 }
 
+export interface ApplyAddTestInput {
+    refinementActionId?: string;
+    snapshotId: string;
+    organizationId: string;
+    folderId: string;
+    name: string;
+    instruction: string;
+    scenarioId?: string;
+}
+
 export interface ApplyReportBugInput {
     refinementActionId?: string;
     snapshotId: string;

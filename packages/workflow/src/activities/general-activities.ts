@@ -218,6 +218,14 @@ export interface PersistedHealingAction {
     action:
         | { kind: "update_plan"; planId: string; testCaseId: string; newPrompt: string; reasoning: string }
         | {
+              kind: "add_test";
+              folderId: string;
+              name: string;
+              instruction: string;
+              scenarioId?: string;
+              reasoning: string;
+          }
+        | {
               kind: "report_bug";
               testCaseId: string;
               title: string;
@@ -252,7 +260,7 @@ export interface ApplyHealingActionsInput {
 
 /**
  * Output of applyHealingActions. When the actions included any plan-changing
- * kinds (update_plan), the activity also creates iteration N+1 with
+ * kinds (update_plan or add_test), the activity also creates iteration N+1 with
  * status=pending and writes its RefinementIterationInput rows. The workflow
  * then fires `runGenerationPipeline` against `nextIterationPlanIds` before
  * advancing into iter N+1's body.
