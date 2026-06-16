@@ -7,6 +7,34 @@ import { logger as rootLogger } from "../logger";
 
 export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "superseded" | "torn_down";
 
+// Full per-app lifecycle status (mirrors the Prisma `PreviewkitAppStatus`
+// enum). pending -> building -> built -> deploying -> ready is the happy path;
+// build_failed / deploy_failed are terminal, skipped means the build failed
+// upstream so the deploy was never attempted.
+export type PreviewkitAppStatus =
+    | "pending"
+    | "building"
+    | "built"
+    | "deploying"
+    | "ready"
+    | "build_failed"
+    | "deploy_failed"
+    | "skipped";
+
+// One per-app state transition written to PreviewkitAppInstance. The mutable
+// fields are overwritten wholesale on every write (an absent field clears the
+// column), so a caller transitioning an app must pass the complete intended
+// state - e.g. carry `imageTag` through the `deploying` and `ready` writes so
+// it is not wiped. `port` always comes from the resolved config.
+export interface AppStateUpdate {
+    appName: string;
+    status: PreviewkitAppStatus;
+    port: number;
+    imageTag?: string;
+    url?: string;
+    error?: string;
+}
+
 export interface EnvironmentCreatedInput {
     repoFullName: string;
     prNumber: number;
@@ -57,7 +85,6 @@ export interface BuildFinishedInput {
 export interface EnvironmentReadyInput {
     namespace: string;
     urls: Record<string, string>;
-    apps: Array<{ appName: string; imageTag: string; port: number }>;
     bypassToken?: string;
 }
 
@@ -300,55 +327,29 @@ function toAppBuildRow(appName: string, outcome: AppBuildOutcome) {
     };
 }
 
+// Marks the environment row itself ready. Per-app rows are written separately
+// via `recordAppStates` - this only owns the environment-level status, urls,
+// deployedAt, and bypass token.
 export async function recordEnvironmentReady(input: EnvironmentReadyInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordEnvironmentReady" });
-    const { namespace, urls, apps, bypassToken } = input;
-    logger.info("Recording environment ready", { namespace, appCount: apps.length });
+    const { namespace, urls, bypassToken } = input;
+    logger.info("Recording environment ready", { namespace });
 
-    const envRow = await db.previewkitEnvironment.findUnique({
+    const updated = await db.previewkitEnvironment.updateMany({
         where: { namespace },
-        select: { id: true },
+        data: {
+            status: "ready",
+            phase: "ready",
+            error: null,
+            urls,
+            deployedAt: new Date(),
+            bypassToken:
+                bypassToken != null ? encryptPreviewkitBypassToken(bypassToken, env.BYPASS_TOKEN_KEY) : undefined,
+        },
     });
-    if (envRow == null) {
+    if (updated.count === 0) {
         logger.warn("Environment ready but no environment row found", { namespace });
-        return;
     }
-
-    await db.$transaction(async (tx) => {
-        await tx.previewkitEnvironment.update({
-            where: { namespace },
-            data: {
-                status: "ready",
-                phase: "ready",
-                error: null,
-                urls,
-                deployedAt: new Date(),
-                ...(bypassToken != null
-                    ? { bypassToken: encryptPreviewkitBypassToken(bypassToken, env.BYPASS_TOKEN_KEY) }
-                    : {}),
-            },
-        });
-
-        for (const app of apps) {
-            await tx.previewkitAppInstance.upsert({
-                where: { environmentId_appName: { environmentId: envRow.id, appName: app.appName } },
-                create: {
-                    environmentId: envRow.id,
-                    appName: app.appName,
-                    imageTag: app.imageTag,
-                    url: urls[app.appName],
-                    port: app.port,
-                    ready: false,
-                },
-                update: {
-                    imageTag: app.imageTag,
-                    url: urls[app.appName],
-                    port: app.port,
-                    ready: false,
-                },
-            });
-        }
-    });
 }
 
 export async function recordEnvironmentTornDown(namespace: string): Promise<void> {
@@ -365,23 +366,75 @@ export async function recordEnvironmentTornDown(namespace: string): Promise<void
     });
 }
 
-export function toAppInstances(
-    apps: AppConfig[],
-    imageTags: Record<string, string>,
-    readyAppNames: ReadonlySet<string>,
-): EnvironmentReadyInput["apps"] {
-    // Only record instances for apps that actually deployed. Apps that built
-    // successfully but failed readiness should not get persisted instance rows,
-    // otherwise consumers cannot distinguish a partial preview from a fully
-    // ready one.
-    return apps
-        .filter((app) => {
-            const tag = imageTags[app.name];
-            return readyAppNames.has(app.name) && tag != null && tag !== "";
-        })
-        .map((app) => ({
-            appName: app.name,
-            imageTag: imageTags[app.name]!,
-            port: app.port,
-        }));
+// Moment 0: seed one `pending` PreviewkitAppInstance row per configured app, so
+// every app has a distinct status record before any build/deploy work runs.
+// Idempotent and safe to re-run on redeploy - it resets each app to `pending`
+// (clearing the prior commit's imageTag/url/error) and prunes rows for apps
+// that the new config no longer declares.
+export async function recordAppsPending(
+    namespace: string,
+    apps: Array<{ appName: string; port: number }>,
+): Promise<void> {
+    const logger = rootLogger.child({ name: "recordAppsPending" });
+    logger.info("Recording apps pending", { namespace, appCount: apps.length });
+
+    const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+    if (envRow == null) {
+        logger.warn("Cannot seed pending apps: no environment row found", { namespace });
+        return;
+    }
+
+    const appNames = apps.map((a) => a.appName);
+    await db.$transaction(async (tx) => {
+        await tx.previewkitAppInstance.deleteMany({
+            where: { environmentId: envRow.id, appName: { notIn: appNames } },
+        });
+        for (const app of apps) {
+            await tx.previewkitAppInstance.upsert({
+                where: { environmentId_appName: { environmentId: envRow.id, appName: app.appName } },
+                create: { environmentId: envRow.id, appName: app.appName, status: "pending", port: app.port },
+                update: {
+                    status: "pending",
+                    port: app.port,
+                    imageTag: null,
+                    url: null,
+                    error: null,
+                },
+            });
+        }
+    });
+}
+
+// Bulk-transitions per-app lifecycle rows. Each update overwrites the mutable
+// fields wholesale (see AppStateUpdate), upserting so a transition self-heals
+// even if the moment-0 `recordAppsPending` seed was lost. Used for the
+// building / built / build_failed / deploying / ready / deploy_failed / skipped
+// transitions across the build and deploy phases.
+export async function recordAppStates(namespace: string, updates: AppStateUpdate[]): Promise<void> {
+    const logger = rootLogger.child({ name: "recordAppStates" });
+    if (updates.length === 0) return;
+    logger.info("Recording app states", { namespace, count: updates.length });
+
+    const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+    if (envRow == null) {
+        logger.warn("Cannot record app states: no environment row found", { namespace });
+        return;
+    }
+
+    await db.$transaction(async (tx) => {
+        for (const u of updates) {
+            const mutable = {
+                status: u.status,
+                port: u.port,
+                imageTag: u.imageTag ?? null,
+                url: u.url ?? null,
+                error: u.error ?? null,
+            };
+            await tx.previewkitAppInstance.upsert({
+                where: { environmentId_appName: { environmentId: envRow.id, appName: u.appName } },
+                create: { environmentId: envRow.id, appName: u.appName, ...mutable },
+                update: mutable,
+            });
+        }
+    });
 }

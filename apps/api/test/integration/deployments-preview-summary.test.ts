@@ -1,4 +1,4 @@
-import { ApplicationArchitecture } from "@autonoma/db";
+import { ApplicationArchitecture, type PreviewkitAppStatus } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -253,6 +253,71 @@ apiTestSuite({
             expect(summary.failedServiceCount).toBe(1);
         });
 
+        test("surfaces an app that built successfully but failed to deploy", async ({ harness }) => {
+            const fixture = await createPreviewFixture(harness, { prNumber: 208, lastHandledSha: "sha-deploy-fail" });
+
+            await createPreviewEnvironment(harness, fixture, {
+                status: "ready",
+                manifest: {
+                    apps: [
+                        { name: "web", port: 3000, primary: true },
+                        { name: "api", port: 4000 },
+                    ],
+                    services: [],
+                    addons: [],
+                },
+                urls: {
+                    web: "https://web-pr208.preview.example.com",
+                    api: "https://api-pr208.preview.example.com",
+                },
+                appBuilds: {
+                    web: {
+                        status: "success",
+                        imageTag: "web:sha-deploy-fail",
+                        durationMs: 1000,
+                        logUrl: "https://logs/web",
+                    },
+                    // The build succeeded for api too - the failure is purely at deploy time.
+                    api: {
+                        status: "success",
+                        imageTag: "api:sha-deploy-fail",
+                        durationMs: 1000,
+                        logUrl: "https://logs/api",
+                    },
+                },
+                appInstances: [
+                    {
+                        appName: "web",
+                        imageTag: "web:sha-deploy-fail",
+                        url: "https://web-pr208.preview.example.com",
+                        port: 3000,
+                    },
+                    {
+                        appName: "api",
+                        status: "deploy_failed",
+                        imageTag: "api:sha-deploy-fail",
+                        url: "https://api-pr208.preview.example.com",
+                        port: 4000,
+                        error: "Readiness probe timed out",
+                    },
+                ],
+            });
+
+            const summary = await harness.request().deployments.previewSummaryByPr({
+                applicationId: fixture.application.id,
+                prNumber: fixture.prNumber,
+            });
+
+            expect(summary.status).toBe("degraded");
+            expect(summary.readyServiceCount).toBe(1);
+            expect(summary.failedServiceCount).toBe(1);
+            const api = summary.services.find((service) => service.name === "api")!;
+            expect(api.status).toBe("failed");
+            // Build succeeded, so the surfaced reason comes from the deploy, not the build.
+            expect(api.statusReason).toBe("Readiness probe timed out");
+            expect(api.imageTag).toBe("api:sha-deploy-fail");
+        });
+
         test("returns stale when branch head is newer than deployed head", async ({ harness }) => {
             const fixture = await createPreviewFixture(harness, { prNumber: 205, lastHandledSha: "sha-new" });
 
@@ -372,7 +437,14 @@ async function createPreviewEnvironment(
             | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: string }
             | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: string }
         >;
-        appInstances?: Array<{ appName: string; imageTag: string; url: string; port: number }>;
+        appInstances?: Array<{
+            appName: string;
+            imageTag: string;
+            url: string;
+            port: number;
+            status?: PreviewkitAppStatus;
+            error?: string;
+        }>;
         addons?: Array<{
             name: string;
             provider: string;
@@ -427,10 +499,11 @@ async function createPreviewEnvironment(
             data: {
                 environmentId: environment.id,
                 appName: app.appName,
+                status: app.status ?? "ready",
                 imageTag: app.imageTag,
+                error: app.error,
                 url: app.url,
                 port: app.port,
-                ready: true,
             },
         });
     }

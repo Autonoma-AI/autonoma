@@ -1,4 +1,4 @@
-import type { Prisma, PreviewkitStatus } from "@autonoma/db";
+import type { PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
 
 type PreviewEnvironmentStatus =
     | "ready"
@@ -139,10 +139,11 @@ export function buildServiceSummaries({
         deployedAt: Date | null;
         appInstances: Array<{
             appName: string;
-            imageTag: string;
+            status: PreviewkitAppStatus;
+            imageTag: string | null;
+            error: string | null;
             url: string | null;
             port: number;
-            ready: boolean;
             updatedAt: Date;
         }>;
         addons: Array<{
@@ -177,7 +178,7 @@ export function buildServiceSummaries({
             name,
             kind,
             iconKey: resolvePreviewServiceIconKey({ name, kind, runtime: build?.runtime }),
-            status: deriveAppStatus(environment.status, instance?.ready ?? false, instance != null, build),
+            status: deriveAppStatus(environment.status, instance, build),
             branch: branchName,
             branchSource: "matched_pr_branch" as const,
             branchHint: "matched PR branch",
@@ -185,7 +186,7 @@ export function buildServiceSummaries({
             port: instance?.port ?? manifestApp?.port ?? null,
             imageTag: instance?.imageTag ?? (build?.status === "success" ? build.imageTag : null),
             buildLogUrl: build?.logUrl ?? null,
-            statusReason: build?.status === "failed" ? build.error : null,
+            statusReason: build?.status === "failed" ? build.error : (instance?.error ?? null),
             lastBuiltAt: latestBuild?.finishedAt ?? null,
             lastDeployedAt: instance?.updatedAt ?? environment.deployedAt,
         } satisfies PreviewServiceSummary;
@@ -276,18 +277,26 @@ export function derivePreviewStatus({
 
 function deriveAppStatus(
     environmentStatus: PreviewkitStatus,
-    instanceReady: boolean,
-    hasInstance: boolean,
+    instance: { status: PreviewkitAppStatus } | undefined,
     build: PreviewkitAppBuildOutcome | undefined,
 ): PreviewServiceStatus {
     if (environmentStatus === "torn_down") return "stopped";
+    // The per-app lifecycle row is the source of truth once it exists.
+    if (instance != null) return mapAppStatus(instance.status);
+    // No per-app row yet (config not resolved, or a service/addon handled
+    // elsewhere): fall back to the build outcome and the env-level status.
     if (build?.status === "failed") return "failed";
     if (environmentStatus === "pending" || environmentStatus === "building" || environmentStatus === "deploying")
         return "building";
-    if (environmentStatus === "ready" && hasInstance) return "ready";
-    if (instanceReady) return "ready";
     if (environmentStatus === "failed") return "failed";
     return "unknown";
+}
+
+function mapAppStatus(status: PreviewkitAppStatus): PreviewServiceStatus {
+    if (status === "ready") return "ready";
+    if (status === "build_failed" || status === "deploy_failed" || status === "skipped") return "failed";
+    // pending | building | built | deploying are all in-flight.
+    return "building";
 }
 
 function mapAddonStatus(status: "pending" | "ok" | "failed" | "deprovisioned" | undefined): PreviewServiceStatus {

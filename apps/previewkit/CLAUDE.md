@@ -125,7 +125,13 @@ and upload build logs to S3; the PR comment links logs via 7-day presigned URLs.
   map), `manifest`, `resolvedConfig` + `configRevisionId` (immutable per-deploy config snapshot),
   `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`. Note:
   `superseded` is only ever written to `PreviewkitBuild`, never the env row (the successor run owns it).
-- `PreviewkitAppInstance` - per app: `appName`, `imageTag`, `url`, `port`, `ready`.
+- `PreviewkitAppInstance` - the per-app lifecycle record (one row per `(environment, app)`), source of
+  truth for an app's status. Seeded `pending` at moment 0 (`recordAppsPending`, once the merged config names
+  the apps) and transitioned through the `PreviewkitAppStatus` enum (`pending` -> `building` -> `built` ->
+  `deploying` -> `ready`, or terminal `build_failed` / `deploy_failed` / `skipped`) via `recordAppStates`.
+  Carries `status`, `imageTag` (null until built), `error`, `url`, `port`. A built-but-undeployed
+  app is therefore a distinct queryable row, not an inferred absence. `recordEnvironmentReady` only owns the
+  environment row now (status/urls/deployedAt/bypass token); the per-app rows are written separately.
 - `PreviewkitBuild` + `PreviewkitAppBuild` - per-push build + per-app build rows (normalized out
   of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok"). `PreviewkitBuild`
   is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across

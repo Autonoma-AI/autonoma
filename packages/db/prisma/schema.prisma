@@ -1677,6 +1677,24 @@ enum PreviewkitAppBuildStatus {
   @@map("previewkit_app_build_status")
 }
 
+// Full per-app lifecycle status, tracked on PreviewkitAppInstance from the
+// moment the resolved config names the apps (moment 0). The happy path is
+// pending -> building -> built -> deploying -> ready. `build_failed` /
+// `deploy_failed` are terminal failures (reason in `error`); `skipped` means
+// an upstream build failure meant the deploy was never attempted.
+enum PreviewkitAppStatus {
+  pending
+  building
+  built
+  deploying
+  ready
+  build_failed
+  deploy_failed
+  skipped
+
+  @@map("previewkit_app_status")
+}
+
 model PreviewkitEnvironment {
   id String @id @default(cuid())
 
@@ -1782,17 +1800,25 @@ model PreviewkitAppBuild {
   @@map("previewkit_app_build")
 }
 
+// One row per app per environment - the per-app lifecycle record and the
+// source of truth for an app's status. Created at moment 0 (as `pending`, as
+// soon as the resolved config names the apps) and transitioned through build
+// and deploy, so a built-but-undeployed app (e.g. one that failed readiness
+// while its siblings came up) is a distinct, queryable row rather than an
+// inferred absence. `imageTag` is null until the build succeeds; `error`
+// carries the reason for a `build_failed` / `deploy_failed` status.
 model PreviewkitAppInstance {
   id String @id @default(cuid())
 
   environmentId String                @map("environment_id")
   environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
-  appName  String  @map("app_name")
-  imageTag String  @map("image_tag")
+  appName  String              @map("app_name")
+  status   PreviewkitAppStatus @default(pending)
+  imageTag String?             @map("image_tag")
+  error    String?
   url      String?
   port     Int
-  ready    Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

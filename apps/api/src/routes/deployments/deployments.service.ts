@@ -226,10 +226,11 @@ export class DeploymentsService extends Service {
                 appInstances: {
                     select: {
                         appName: true,
+                        status: true,
                         imageTag: true,
+                        error: true,
                         url: true,
                         port: true,
-                        ready: true,
                         updatedAt: true,
                     },
                     orderBy: { appName: "asc" },

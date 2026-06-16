@@ -2,6 +2,8 @@ import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import {
     markBuildSuperseded,
+    recordAppsPending,
+    recordAppStates,
     recordBuildFinished,
     recordEnvironmentCreated,
     recordEnvironmentReady,
@@ -358,7 +360,7 @@ integrationTestSuite({
             expect(builds).toHaveLength(0);
         });
 
-        test("recordEnvironmentReady updates env and upserts app instances with ready=false", async ({ harness }) => {
+        test("recordEnvironmentReady marks the environment row ready", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
             await recordEnvironmentCreated({
@@ -376,15 +378,10 @@ integrationTestSuite({
                     web: "https://web-pr-7-acme.preview.autonoma.app",
                     api: "https://api-pr-7-acme.preview.autonoma.app",
                 },
-                apps: [
-                    { appName: "web", imageTag: "ghcr.io/acme/web:pr-7-abc1234", port: 3000 },
-                    { appName: "api", imageTag: "ghcr.io/acme/api:pr-7-abc1234", port: 4000 },
-                ],
             });
 
             const env = await harness.db.previewkitEnvironment.findUnique({
                 where: { namespace: "preview-acme-web-pr-7" },
-                include: { appInstances: { orderBy: { appName: "asc" } } },
             });
             expect(env!.status).toBe("ready");
             expect(env!.phase).toBe("ready");
@@ -393,18 +390,10 @@ integrationTestSuite({
                 web: "https://web-pr-7-acme.preview.autonoma.app",
                 api: "https://api-pr-7-acme.preview.autonoma.app",
             });
-
-            expect(env!.appInstances).toHaveLength(2);
-            const api = env!.appInstances.find((a) => a.appName === "api")!;
-            expect(api.imageTag).toBe("ghcr.io/acme/api:pr-7-abc1234");
-            expect(api.url).toBe("https://api-pr-7-acme.preview.autonoma.app");
-            expect(api.port).toBe(4000);
-            expect(api.ready).toBe(false);
         });
 
-        test("recordEnvironmentReady upserts are idempotent across redeploys", async ({ harness }) => {
+        test("recordAppsPending seeds a pending lifecycle row per app at moment 0", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
-
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -414,28 +403,148 @@ integrationTestSuite({
                 namespace: "preview-acme-web-pr-7",
             });
 
-            await recordEnvironmentReady({
+            await recordAppsPending("preview-acme-web-pr-7", [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+            ]);
+
+            const instances = await harness.db.previewkitAppInstance.findMany({ orderBy: { appName: "asc" } });
+            expect(instances).toHaveLength(2);
+            for (const instance of instances) {
+                expect(instance.status).toBe("pending");
+                expect(instance.imageTag).toBeNull();
+                expect(instance.url).toBeNull();
+            }
+            expect(instances.find((i) => i.appName === "api")!.port).toBe(4000);
+        });
+
+        test("recordAppsPending prunes dropped apps and resets the rest on redeploy", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
                 namespace: "preview-acme-web-pr-7",
-                urls: { web: "https://old" },
-                apps: [{ appName: "web", imageTag: "ghcr.io/acme/web:pr-7-old", port: 3000 }],
             });
 
-            // Simulate operator-flipped readiness, then a redeploy. The redeploy
-            // should reset ready to false per current semantics.
-            await harness.db.previewkitAppInstance.updateMany({ data: { ready: true } });
+            await recordAppsPending("preview-acme-web-pr-7", [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+            ]);
+            // web reaches ready on the first commit...
+            await recordAppStates("preview-acme-web-pr-7", [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:v1", url: "https://web" },
+            ]);
 
-            await recordEnvironmentReady({
-                namespace: "preview-acme-web-pr-7",
-                urls: { web: "https://new" },
-                apps: [{ appName: "web", imageTag: "ghcr.io/acme/web:pr-7-new", port: 3000 }],
-            });
+            // ...then a new commit drops `api` from the config and redeploys.
+            await recordAppsPending("preview-acme-web-pr-7", [{ appName: "web", port: 3000 }]);
 
             const instances = await harness.db.previewkitAppInstance.findMany();
             expect(instances).toHaveLength(1);
             const web = instances[0]!;
-            expect(web.imageTag).toBe("ghcr.io/acme/web:pr-7-new");
+            expect(web.appName).toBe("web");
+            // Reset back to pending, clearing the prior commit's imageTag/url.
+            expect(web.status).toBe("pending");
+            expect(web.imageTag).toBeNull();
+            expect(web.url).toBeNull();
+        });
+
+        test("recordAppStates transitions an app through the full lifecycle", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+            const ns = "preview-acme-web-pr-7";
+            await recordAppsPending(ns, [{ appName: "web", port: 3000 }]);
+
+            await recordAppStates(ns, [{ appName: "web", status: "building", port: 3000 }]);
+            await recordAppStates(ns, [{ appName: "web", status: "built", port: 3000, imageTag: "web:v1" }]);
+            await recordAppStates(ns, [{ appName: "web", status: "deploying", port: 3000, imageTag: "web:v1" }]);
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:v1", url: "https://web" },
+            ]);
+
+            const web = await harness.db.previewkitAppInstance.findFirstOrThrow({ where: { appName: "web" } });
+            expect(web.status).toBe("ready");
+            expect(web.imageTag).toBe("web:v1");
+            expect(web.url).toBe("https://web");
+            expect(web.error).toBeNull();
+        });
+
+        test("recordAppStates records build_failed and deploy_failed as distinct rows", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+            const ns = "preview-acme-web-pr-7";
+            await recordAppsPending(ns, [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+                { appName: "worker", port: 5000 },
+            ]);
+
+            // web deploys, api fails its build, worker builds but fails to deploy.
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:v1", url: "https://web" },
+                { appName: "api", status: "build_failed", port: 4000, error: "tsc failed" },
+                {
+                    appName: "worker",
+                    status: "deploy_failed",
+                    port: 5000,
+                    imageTag: "worker:v1",
+                    error: "CrashLoopBackOff",
+                },
+            ]);
+
+            const instances = await harness.db.previewkitAppInstance.findMany({ orderBy: { appName: "asc" } });
+            const byName = Object.fromEntries(instances.map((i) => [i.appName, i]));
+            expect(byName.web!.status).toBe("ready");
+            expect(byName.api!.status).toBe("build_failed");
+            expect(byName.api!.error).toBe("tsc failed");
+            expect(byName.api!.imageTag).toBeNull();
+            expect(byName.worker!.status).toBe("deploy_failed");
+            expect(byName.worker!.error).toBe("CrashLoopBackOff");
+            // worker built successfully, so its image tag is retained even though the deploy failed.
+            expect(byName.worker!.imageTag).toBe("worker:v1");
+        });
+
+        test("recordAppStates overwrites mutable fields on redeploy", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+            const ns = "preview-acme-web-pr-7";
+            await recordAppsPending(ns, [{ appName: "web", port: 3000 }]);
+
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:old", url: "https://old" },
+            ]);
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:new", url: "https://new" },
+            ]);
+
+            const instances = await harness.db.previewkitAppInstance.findMany();
+            expect(instances).toHaveLength(1);
+            const web = instances[0]!;
+            expect(web.imageTag).toBe("web:new");
             expect(web.url).toBe("https://new");
-            expect(web.ready).toBe(false);
         });
 
         test("recordEnvironmentTornDown marks env torn_down and stamps tornDownAt", async ({ harness }) => {

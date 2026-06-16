@@ -26,13 +26,15 @@ import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
 import {
     type AppBuildOutcome,
+    type AppStateUpdate,
+    recordAppsPending,
+    recordAppStates,
     recordBuildFinished,
     recordEnvironmentCreated,
     recordEnvironmentManifest,
     recordEnvironmentReady,
     recordPhaseChanged,
     recordResolvedConfig,
-    toAppInstances,
 } from "../db";
 import type { AppDeployOutcome, DeployResult, Deployer } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
@@ -333,6 +335,17 @@ export class PreviewPipeline {
                 recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId: resolvedRevisionId }),
             );
 
+            // Moment 0: now that the merged config names every app, seed a
+            // `pending` lifecycle row per app so each has a distinct status
+            // record from the start (and stale rows from a prior commit are
+            // pruned/reset).
+            await recordSafe(() =>
+                recordAppsPending(
+                    namespace,
+                    mergedConfig.apps.map((a) => ({ appName: a.name, port: a.port })),
+                ),
+            );
+
             const appRepoDirs = new Map<string, string>();
             for (const app of primaryConfig.apps) {
                 appRepoDirs.set(app.name, primaryDir);
@@ -377,6 +390,12 @@ export class PreviewPipeline {
             }
 
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
+            await recordSafe(() =>
+                recordAppStates(
+                    namespace,
+                    mergedConfig.apps.map((a) => ({ appName: a.name, status: "building", port: a.port })),
+                ),
+            );
             const buildStart = Date.now();
             const arnByApp = new Map<string, string>();
             for (const s of application.previewkitSecrets) {
@@ -417,6 +436,10 @@ export class PreviewPipeline {
                     error: allBuildsFailed ? "All app builds failed" : undefined,
                 }),
             );
+
+            // Transition each app's lifecycle row to `built` (with its imageTag)
+            // or `build_failed` (with the error) - the per-app build verdict.
+            await recordSafe(() => recordAppStates(namespace, this.toBuildStates(mergedConfig, appBuilds)));
 
             if (allBuildsFailed) {
                 throw new Error("All app builds failed; see per-app build outcomes for details");
@@ -493,6 +516,12 @@ export class PreviewPipeline {
 
         signal?.throwIfAborted();
         await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
+        // Mark the apps that built (have an image) as `deploying`. Apps whose
+        // build failed have no imageTag and stay `build_failed`.
+        const deployingStates: AppStateUpdate[] = mergedConfig.apps
+            .filter((a) => imageTags[a.name] != null && imageTags[a.name] !== "")
+            .map((a) => ({ appName: a.name, status: "deploying", port: a.port, imageTag: imageTags[a.name]! }));
+        await recordSafe(() => recordAppStates(infraResult.namespace, deployingStates));
         const result = await this.deployer.deployApps(deployOpts, infraResult);
 
         const readyAppNamesForHooks = new Set(
@@ -534,6 +563,16 @@ export class PreviewPipeline {
         const readyCount = readyAppNames.size;
         const totalCount = finalOutcomes.length;
 
+        // Persist the final per-app verdict for every app - ready, deploy_failed,
+        // or skipped - before the all-failed guard below, so a built-but-undeployed
+        // app is a distinct row even when no app came up at all.
+        await recordSafe(() =>
+            recordAppStates(
+                result.namespace,
+                this.toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags),
+            ),
+        );
+
         if (readyCount === 0) {
             throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
         }
@@ -547,7 +586,6 @@ export class PreviewPipeline {
             recordEnvironmentReady({
                 namespace: result.namespace,
                 urls: result.urls,
-                apps: toAppInstances(mergedConfig.apps, imageTags, readyAppNames),
                 bypassToken: result.bypassToken,
             }),
         );
@@ -1118,6 +1156,76 @@ export class PreviewPipeline {
             }
 
             return { name: app.name, status: "failed", url: deploy.url, error: deploy.error };
+        });
+    }
+
+    /**
+     * Maps per-app build outcomes to lifecycle-row transitions: `built` (with
+     * imageTag) on success, `build_failed` (with the error) otherwise. Written
+     * right after the build phase so each app's build verdict is persisted
+     * before any deploy work begins.
+     */
+    private toBuildStates(config: PreviewConfig, appBuilds: Record<string, AppBuildOutcome>): AppStateUpdate[] {
+        return config.apps.map((app) => {
+            const outcome = appBuilds[app.name];
+            if (outcome == null) {
+                return {
+                    appName: app.name,
+                    status: "build_failed",
+                    port: app.port,
+                    error: "No build outcome recorded",
+                };
+            }
+            if (outcome.status === "success") {
+                return { appName: app.name, status: "built", port: app.port, imageTag: outcome.imageTag };
+            }
+            return { appName: app.name, status: "build_failed", port: app.port, error: outcome.error };
+        });
+    }
+
+    /**
+     * Maps the combined build + deploy outcomes to the terminal lifecycle state
+     * for every app: `build_failed`, `skipped` (built upstream-failed so deploy
+     * was never attempted), `deploy_failed` (with the reason), or `ready`. This
+     * is what makes "A and B are ready but C failed to deploy" a set of distinct
+     * persisted rows rather than an inferred absence.
+     */
+    private toFinalAppStates(
+        config: PreviewConfig,
+        buildOutcomes: Record<string, PreviewBuildOutcome>,
+        deployOutcomes: Record<string, AppDeployOutcome>,
+        imageTags: Record<string, string>,
+    ): AppStateUpdate[] {
+        return config.apps.map((app) => {
+            const port = app.port;
+            const build = buildOutcomes[app.name];
+            const deploy = deployOutcomes[app.name];
+            const imageTag = imageTags[app.name];
+
+            if (build == null || build.status === "failed") {
+                return {
+                    appName: app.name,
+                    status: "build_failed",
+                    port,
+                    error: build?.error ?? "No build outcome recorded",
+                };
+            }
+            if (deploy == null) {
+                return {
+                    appName: app.name,
+                    status: "deploy_failed",
+                    port,
+                    imageTag,
+                    error: "No deploy outcome recorded",
+                };
+            }
+            if (deploy.status === "ok") {
+                return { appName: app.name, status: "ready", port, imageTag, url: deploy.url };
+            }
+            if (deploy.status === "skipped") {
+                return { appName: app.name, status: "skipped", port, error: `Deploy skipped: ${deploy.reason}` };
+            }
+            return { appName: app.name, status: "deploy_failed", port, imageTag, url: deploy.url, error: deploy.error };
         });
     }
 
