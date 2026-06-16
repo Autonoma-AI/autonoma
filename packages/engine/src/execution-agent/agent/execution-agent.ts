@@ -1,4 +1,4 @@
-import { AI_REQUEST_TIMEOUT_MS, type LanguageModel } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, type VisualConditionChecker } from "@autonoma/ai";
 import { external } from "@autonoma/errors";
 import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
@@ -95,6 +95,14 @@ export interface ExecutionAgentConfig<TSpec extends CommandSpec, TContext extend
 
     /** Optional handler for asking the user questions (only available in frontend-connected sessions) */
     askUserHandler?: AskUserHandler;
+
+    /**
+     * When provided, each wait condition is validated against the step's
+     * pre-screenshot as conditions are resolved (in parallel via Promise.all).
+     * Conditions that fail are stripped so they cannot cause false-negative
+     * timeouts during replay.
+     */
+    waitConditionValidator?: VisualConditionChecker;
 }
 
 /** Internal representation of a successful step, carrying the still-pending wait condition. */
@@ -484,6 +492,44 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         return step;
     }
 
+    private async replanWaitCondition(
+        agentStep: Omit<InternalSuccessStep<TSpec>, "waitConditionPromise">,
+        successfulSteps: InternalSuccessStep<TSpec>[],
+        index: number,
+        failedCondition: string,
+        failureReason: string,
+    ): Promise<string | null | undefined> {
+        const prevStep = index > 0 ? successfulSteps[index - 1] : undefined;
+        if (prevStep == null) {
+            this.logger.warn("No previous step available for replanning, stripping condition", {
+                interaction: agentStep.executionOutput.stepData.interaction,
+            });
+            return undefined;
+        }
+
+        try {
+            const replanned = await this.params.waitPlanner.replanWait({
+                prevStep: prevStep.executionOutput.stepData,
+                prevScreenshot: prevStep.afterMetadata.screenshot,
+                newStep: agentStep.executionOutput.stepData,
+                newScreenshot: agentStep.beforeMetadata.screenshot,
+                failedCondition,
+                failureReason,
+            });
+            this.logger.info("Wait condition replanned", {
+                interaction: agentStep.executionOutput.stepData.interaction,
+                replanned,
+            });
+            return replanned;
+        } catch (err) {
+            this.logger.warn("Wait condition replan failed, stripping", {
+                interaction: agentStep.executionOutput.stepData.interaction,
+                err,
+            });
+            return undefined;
+        }
+    }
+
     private async buildExecutionResult(
         steps: AIStepResult<ReturnType<typeof this.buildTools>>[],
     ): Promise<ExecutionResult<TSpec>> {
@@ -492,7 +538,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             (attempt): attempt is InternalSuccessStep<TSpec> => attempt.status === "success",
         );
         const generatedSteps: GeneratedStep<TSpec>[] = await Promise.all(
-            successfulSteps.map(async ({ waitConditionPromise, ...agentStep }) => {
+            successfulSteps.map(async ({ waitConditionPromise, ...agentStep }, index) => {
                 let waitCondition: string | null | undefined;
                 try {
                     waitCondition = await waitConditionPromise;
@@ -501,6 +547,34 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                         interaction: agentStep.executionOutput.stepData.interaction,
                         error,
                     });
+                }
+
+                if (waitCondition != null && this.params.waitConditionValidator != null) {
+                    try {
+                        const check = await this.params.waitConditionValidator.checkCondition(
+                            waitCondition,
+                            agentStep.beforeMetadata.screenshot,
+                        );
+                        if (!check.metCondition) {
+                            this.logger.warn("Wait condition failed against generation screenshot, replanning", {
+                                interaction: agentStep.executionOutput.stepData.interaction,
+                                waitCondition,
+                                reason: check.reason,
+                            });
+                            waitCondition = await this.replanWaitCondition(
+                                agentStep,
+                                successfulSteps,
+                                index,
+                                waitCondition,
+                                check.reason,
+                            );
+                        }
+                    } catch (err) {
+                        this.logger.warn("Wait condition validation failed, keeping as-is", {
+                            interaction: agentStep.executionOutput.stepData.interaction,
+                            err,
+                        });
+                    }
                 }
 
                 return {

@@ -59,6 +59,27 @@ Expected result: { "reasoning": "The new step requires selecting the 'Price Rang
 The previous screenshot shows a login page, and the previous step was to fill the "Email" field with "user@example.com". The next screenshot shows the same login page but with the email field filled, and the new step is to click on the "Submit" button.
 
 Expected result: { "reasoning": "The new step requires clicking the 'Submit' button, so we need to wait until the button is enabled and clickable after the email field has been filled.", "condition": "the 'Submit' button is enabled and clickable" }`;
+
+const REPLAN_WAIT_SYSTEM_PROMPT = `You are a website interaction expert, part of a QA automation pipeline. A wait condition was generated for a test step, but it was rejected because it does not match the actual state of the UI in the screenshot.
+
+You will receive:
+- A description of the previous step and a screenshot taken after it executed.
+- A description of the new step and a screenshot taken before it executes.
+- The condition that was tried and rejected.
+- The reason it was rejected.
+
+Generate a corrected wait condition that:
+- Accurately describes what is visible in the screenshots at the moment the new step is about to execute.
+- Does NOT repeat the mistake described in the failure reason.
+- Follows the same guidelines as the original: be specific but concise, avoid dynamic data.
+
+If no meaningful condition can be derived from the screenshots, set condition to an empty string.`;
+
+export interface ReplanWaitInput<TSpec extends CommandSpec> extends WaitPlannerInput<TSpec> {
+    failedCondition: string;
+    failureReason: string;
+}
+
 /**
  * The wait planner creates `wait-until` steps in between agent-generated steps.
  */
@@ -66,6 +87,7 @@ export class WaitPlanner<TSpec extends CommandSpec> {
     private readonly logger: Logger;
 
     private readonly waitPlanGenerator: ObjectGenerator<WaitUntilPlanningOutput>;
+    private readonly replanGenerator: ObjectGenerator<WaitUntilPlanningOutput>;
 
     constructor({ model }: WaitPlannerConfig) {
         this.logger = logger.child({
@@ -75,6 +97,11 @@ export class WaitPlanner<TSpec extends CommandSpec> {
             model,
             schema: waitUntilSchema,
             systemPrompt: WAIT_UNTIL_PLANNING_SYSTEM_PROMPT,
+        });
+        this.replanGenerator = new ObjectGenerator({
+            model,
+            schema: waitUntilSchema,
+            systemPrompt: REPLAN_WAIT_SYSTEM_PROMPT,
         });
     }
 
@@ -126,6 +153,30 @@ export class WaitPlanner<TSpec extends CommandSpec> {
      * to compare against. Synchronous and deterministic - no LLM call. Returns null when no useful
      * pre-wait can be derived (e.g. assertions, unknown commands).
      */
+    async replanWait({
+        prevStep,
+        prevScreenshot,
+        newStep,
+        newScreenshot,
+        failedCondition,
+        failureReason,
+    }: ReplanWaitInput<TSpec>): Promise<string | null> {
+        this.logger.info("Replanning wait condition after validation failure", {
+            interaction: newStep.interaction,
+            failedCondition,
+            failureReason,
+        });
+
+        const { reasoning, condition } = await this.replanGenerator.generate({
+            userPrompt: JSON.stringify({ prevStep, newStep, failedCondition, failureReason }),
+            images: [prevScreenshot, newScreenshot],
+        });
+
+        this.logger.info("Wait condition replanned", { condition, reasoning });
+
+        return condition.trim().length > 0 ? condition : null;
+    }
+
     public planFirstWait(step: StepData<TSpec>): string | null {
         const params = step.params as Record<string, unknown>;
         const description = typeof params.description === "string" ? params.description : undefined;

@@ -75,6 +75,9 @@ export function createWebAgentFactory(models: EngineModelRegistry): ExecutionAge
         waitPlanner: new WaitPlanner<WebCommandSpec>({
             model: models.getModel({ model: "fast-visual", tag: "wait-planner" }),
         }),
+        waitConditionValidator: new VisualConditionChecker({
+            model: models.getModel({ model: "fast-visual", tag: "wait-condition-validator" }),
+        }),
         architecture: "web",
         platformMetadata: async ({ context }) => ({
             url: await context.navigation.getCurrentUrl(),
