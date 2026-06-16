@@ -1,6 +1,7 @@
 import { CancellationScope, executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities/diffs-activities";
 import type { GeneralActivities } from "../activities/general-activities";
+import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
 
@@ -184,7 +185,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
     } catch (e) {
         log.error("Refinement loop failed", {
             ...loopIds,
-            extra: { reason: e instanceof Error ? e.message : String(e) },
+            extra: { reason: rootFailureMessage(e) },
         });
         await CancellationScope.nonCancellable(async () => {
             try {
@@ -192,7 +193,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             } catch (cleanupError) {
                 log.error("Failed to close errored refinement iterations", {
                     ...loopIds,
-                    extra: { reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+                    extra: { reason: rootFailureMessage(cleanupError) },
                 });
             }
             try {
@@ -200,7 +201,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             } catch (cleanupError) {
                 log.error("Failed to mark refinement loop as errored", {
                     ...loopIds,
-                    extra: { reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+                    extra: { reason: rootFailureMessage(cleanupError) },
                 });
             }
         });

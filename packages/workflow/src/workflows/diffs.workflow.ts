@@ -1,5 +1,6 @@
 import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities";
+import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -68,7 +69,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
             args: [{ snapshotId, triggeredBy: "diffs" as const }],
         });
     } catch (error) {
-        const failureReason = error instanceof Error ? error.message : String(error);
+        const failureReason = rootFailureMessage(error);
         log.error("Refinement loop failed; finalizing diffs job as failed", { ...ids, extra: { failureReason } });
         await shortLived.finalizeDiffs({ snapshotId, failureReason });
         throw error;
