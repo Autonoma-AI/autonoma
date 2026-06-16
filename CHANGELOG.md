@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.6.0](https://github.com/Autonoma-AI/agent/compare/v1.5.0...v1.6.0) (2026-06-16)
+
+
+### Features
+
+* add alloydb to postgres allowed images ([#977](https://github.com/Autonoma-AI/agent/issues/977)) ([b5c6698](https://github.com/Autonoma-AI/agent/commit/b5c6698d79fa779102ea460ca91fd832f0cc78f5))
+* merge resolution capabilities into the healing agent ([#974](https://github.com/Autonoma-AI/agent/issues/974)) ([8061fcc](https://github.com/Autonoma-AI/agent/commit/8061fcc1387c92ae6bb54abd7ac28fa315d80cef))
+* persist per-iteration healing reasoning ([#971](https://github.com/Autonoma-AI/agent/issues/971)) ([2707bbe](https://github.com/Autonoma-AI/agent/commit/2707bbe87a6d130df5c2ef4e4040944687fdfff8))
+* **previewkit:** track per-app lifecycle status on PreviewkitAppInstance ([#961](https://github.com/Autonoma-AI/agent/issues/961)) ([cb77887](https://github.com/Autonoma-AI/agent/commit/cb77887d49a0724cf3ab843a462f817f1cd30a2d))
+* relax iteration bucketer to admit replay-only outcomes ([#973](https://github.com/Autonoma-AI/agent/issues/973)) ([a09cd72](https://github.com/Autonoma-AI/agent/commit/a09cd72ae362e24bb59511780d3ae15797c77fc2))
+* run generation eval and replay locally ([#970](https://github.com/Autonoma-AI/agent/issues/970)) ([9fbae09](https://github.com/Autonoma-AI/agent/commit/9fbae094c520e3d073d6d7b6a768508d31274c20))
+* **skills:** add update-client-prs Notion sync skill ([#966](https://github.com/Autonoma-AI/agent/issues/966)) ([f556cf9](https://github.com/Autonoma-AI/agent/commit/f556cf9d6aedcf1969ddf99ec3de878a99a071cc))
+* **ui:** auto-switch org for internal users on cross-org deep links ([#967](https://github.com/Autonoma-AI/agent/issues/967)) ([d20649a](https://github.com/Autonoma-AI/agent/commit/d20649a4eb0f81783152657b0d31757adc18b811))
+
+
+### Bug Fixes
+
+* **engine:** validate wait conditions against pre-screenshot at generation time ([#958](https://github.com/Autonoma-AI/agent/issues/958)) ([904b27f](https://github.com/Autonoma-AI/agent/commit/904b27f978f4427dd1bebecac3301b08fb28b3ab))
+* remove bubblewrap isolation from diffs bash tool ([#964](https://github.com/Autonoma-AI/agent/issues/964)) ([f12181f](https://github.com/Autonoma-AI/agent/commit/f12181fd95cddc71ff7792206e1ebda75553dffb))
+* validate wait conditions inline during generation ([#976](https://github.com/Autonoma-AI/agent/issues/976)) ([ad06780](https://github.com/Autonoma-AI/agent/commit/ad0678065be50ea8fd1a2e6a20fb66340716719d))
+
 ## [1.5.0](https://github.com/Autonoma-AI/agent/compare/v1.4.0...v1.5.0) (2026-06-15)
 
 
