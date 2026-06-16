@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ import { createWebAgentFactory } from "../../src/execution-agent/web-agent";
 import type { WebApplicationData, WebContext } from "../../src/platform";
 import { buildWebApplicationData } from "../../src/platform/web-application-data-builder";
 import { WebInstaller } from "../../src/platform/web-installer";
+import { frozenStepSchema, type ReplayEvalInput } from "../replay/replay-input";
 import {
     buildScenarioData,
     coerceScenarioVariables,
@@ -37,6 +39,7 @@ export type GenerationEvalCase = LoadedCase<GenerationEvalInput, GenerationEvalF
 const CASE_TIMEOUT_MS = 600_000;
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const RESULTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "results");
+const REPLAY_CASES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../replay/cases");
 
 setScreenshotConfig({ screenResolution: DEFAULT_VIEWPORT, architecture: "web" });
 
@@ -195,6 +198,8 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
         const caseDir = saveCaseArtifacts(RESULTS_DIR, testCase.name, videoPath);
         const savedVideoPath = path.join(caseDir, "recording.webm");
 
+        this.writeReplayCase(testCase.name, testCase.input, result.generatedSteps);
+
         const agentCost = summarizeRunCost(costCollector);
         const deterministicFailures = checkGenerationResult(result, frontmatter);
         recordInfo({
@@ -244,6 +249,34 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
 
         writeCaseResult(caseDir, testCase, caseData);
         expect(judgeResult.passed, `Judge failed: ${judgeResult.reasoning}`).toBe(true);
+    }
+
+    private writeReplayCase(
+        caseName: string,
+        input: GenerationEvalInput,
+        generatedSteps: ExecutionResult<WebCommandSpec>["generatedSteps"],
+    ): void {
+        if (generatedSteps.length === 0) return;
+
+        const steps = generatedSteps.map((step) =>
+            frozenStepSchema.parse({
+                interaction: step.executionOutput.stepData.interaction,
+                params: step.executionOutput.stepData.params,
+                waitCondition: step.waitCondition,
+            }),
+        );
+
+        const replayInput: ReplayEvalInput = { ...input, steps };
+        const caseDir = path.join(REPLAY_CASES_DIR, caseName);
+        mkdirSync(caseDir, { recursive: true });
+        writeFileSync(path.join(caseDir, "input.json"), `${JSON.stringify(replayInput, null, 2)}\n`, "utf-8");
+
+        const expectedPath = path.join(caseDir, "expected.md");
+        if (!existsSync(expectedPath)) {
+            writeFileSync(expectedPath, `---\ndescription: "${caseName}"\nstepCount: ${steps.length}\n---\n`, "utf-8");
+        }
+
+        this.logger.info("Wrote replay case", { extra: { caseDir, stepCount: steps.length } });
     }
 
     private async provisionScenario(
