@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import type { Auth } from "../../auth";
+import { env } from "../../env";
 import { Service } from "../service";
 
 type SessionPayload = {
@@ -135,6 +136,49 @@ export class AdminService extends Service {
 
         this.logger.info("Organization created", { orgId: org.id });
         return { id: org.id };
+    }
+
+    /**
+     * Resolves which organization owns an application slug, searching across ALL
+     * organizations (not scoped to the caller's active org). Admin-only because
+     * it leaks the existence of other orgs' apps. Used to auto-switch internal
+     * users into the right org when they open a cross-org deep link.
+     *
+     * Application slugs are unique per org, so the same slug can exist in several
+     * orgs. The internal org dogfoods customer apps, so it routinely shares slugs
+     * with the real customer orgs - an internal user following a shared link
+     * always wants the customer's org, never our own copy, so the internal org is
+     * excluded whenever a non-internal candidate exists. If that still leaves
+     * more than one candidate we cannot disambiguate from the URL alone and
+     * return undefined so the caller falls back to the manual org switcher.
+     */
+    async findOrgByAppSlug(appSlug: string) {
+        this.logger.info("Finding organization by app slug", { appSlug });
+
+        const applications = await this.db.application.findMany({
+            where: { slug: appSlug, disabled: false },
+            select: { organization: { select: { id: true, name: true, slug: true, domain: true } } },
+        });
+
+        const external = applications.filter((a) => a.organization.domain !== env.INTERNAL_DOMAIN);
+        const candidates = external.length > 0 ? external : applications;
+
+        const [match] = candidates;
+        if (match == null) {
+            this.logger.info("No application found for slug", { appSlug });
+            return undefined;
+        }
+        if (candidates.length > 1) {
+            this.logger.warn("App slug is ambiguous across organizations, skipping auto-resolve", {
+                appSlug,
+                matchCount: candidates.length,
+            });
+            return undefined;
+        }
+
+        const organization = match.organization;
+        this.logger.info("Resolved organization by app slug", { appSlug, orgId: organization.id });
+        return { orgId: organization.id, orgName: organization.name, orgSlug: organization.slug };
     }
 
     async switchToOrg(userId: string, sessionToken: string, orgId: string) {

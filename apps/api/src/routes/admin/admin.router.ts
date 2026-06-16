@@ -57,6 +57,11 @@ export const adminRouter = router({
     switchToOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))
         .mutation(({ ctx, input }) => ctx.services.admin.switchToOrg(ctx.user.id, ctx.session.token, input.orgId)),
+    // Internal-user navigation aid: resolves which org owns an app slug so a
+    // shared cross-org deep link can auto-switch into the right org.
+    findOrgByAppSlug: internalProcedure
+        .input(z.object({ appSlug: z.string().min(1) }))
+        .query(({ ctx: { services }, input }) => services.admin.findOrgByAppSlug(input.appSlug)),
     github: router({
         listRepositories: internalProcedure.query(({ ctx: { services } }) => services.admin.listGitHubRepositories()),
         getRepositoryArchiveUrl: internalProcedure

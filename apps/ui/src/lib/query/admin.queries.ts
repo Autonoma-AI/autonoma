@@ -1,5 +1,5 @@
 import type { AppRouter } from "@autonoma/api/router";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import type { inferRouterInputs } from "@trpc/server";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
@@ -61,6 +61,19 @@ export function useDownloadAdminGitHubRepository() {
     return useAPIMutation({
         ...trpc.admin.github.getRepositoryArchiveUrl.mutationOptions(),
         errorToast: { title: "Failed to download repository" },
+    });
+}
+
+/**
+ * Resolves which organization owns an application slug, across all orgs. Admin
+ * only - used to auto-switch internal users into the right org when they open a
+ * cross-org deep link. Pass `enabled: false` for non-admins so the admin-gated
+ * endpoint is never called.
+ */
+export function useOrgByAppSlug(appSlug: string, enabled: boolean) {
+    return useQuery({
+        ...trpc.admin.findOrgByAppSlug.queryOptions({ appSlug }),
+        enabled,
     });
 }
 
