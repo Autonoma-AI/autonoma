@@ -121,7 +121,12 @@ export type {
     SnapshotInfo,
     PlanAuthoringInput,
 } from "./healing/types";
-export { bucketIterationOutcomes, type BucketedIterationOutcomes } from "./refinement/bucket-iteration-outcomes";
+export {
+    bucketIterationOutcomes,
+    bucketPlanOutcomes,
+    type BucketedIterationOutcomes,
+    type BucketedPlanOutcomes,
+} from "./refinement/bucket-iteration-outcomes";
 export {
     healingActionSchema,
     type HealingAction,

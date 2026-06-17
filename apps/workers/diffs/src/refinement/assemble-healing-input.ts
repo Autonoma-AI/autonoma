@@ -131,7 +131,7 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
 }
 
 /** Project a bucketed {@link FailureRecord} into the lean subject the loader gathers context for. */
-function toHealingSubject(failure: FailureRecord): HealingFailureSubject {
+export function toHealingSubject(failure: FailureRecord): HealingFailureSubject {
     return {
         failureKey: failure.key,
         source: failure.source,
@@ -146,7 +146,10 @@ function toHealingSubject(failure: FailureRecord): HealingFailureSubject {
  * facts) back onto each {@link FailureRecord} by `failureKey`. A failure with no
  * gathered context (none matched its key) passes through unchanged.
  */
-function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: HealingSubjectContext[]): FailureRecord[] {
+export function mergeDiffJobContext(
+    failures: FailureRecord[],
+    subjectContexts: HealingSubjectContext[],
+): FailureRecord[] {
     const contextByKey = new Map(subjectContexts.map((context) => [context.failureKey, context]));
 
     return failures.map((failure) => {
@@ -177,7 +180,10 @@ function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: Healing
  * immutable - so reading all statuses lets eval-capture recover the exact set
  * the live turn saw after the pipeline has decided them.
  */
-async function loadFirstTurnCandidates(iterationNumber: number, snapshotId: string): Promise<HealingTestCandidate[]> {
+export async function loadFirstTurnCandidates(
+    iterationNumber: number,
+    snapshotId: string,
+): Promise<HealingTestCandidate[]> {
     if (iterationNumber !== 1) return [];
 
     const candidates = await db.testCandidate.findMany({

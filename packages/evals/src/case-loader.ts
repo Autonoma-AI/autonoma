@@ -41,8 +41,14 @@ const EXPECTED_FILE = "expected.md";
  * Load every case folder under `casesDir`. Each folder must contain
  * {@link INPUT_FILE} and {@link EXPECTED_FILE}; folders missing either are
  * skipped with a warning rather than throwing, so a half-captured case never
- * breaks the whole suite. A case whose files fail schema validation does
- * throw - that is an authoring error, not a transient/missing fixture.
+ * breaks the whole suite.
+ *
+ * A case whose files no longer parse against the current schema is handled by
+ * its `skip` flag (see {@link loadCase}): an **active** (`skip: false`) case
+ * throws - that is a real authoring error - while a **skipped** (`skip: true`)
+ * case is dropped with a warning, since the author has parked it and it would
+ * not run anyway. This means a stale skipped fixture in the private corpus can
+ * never take down a whole suite at load time.
  */
 export function loadCases<TInput, TFrontmatter>(
     config: CaseLoaderConfig<TInput, TFrontmatter>,
@@ -69,26 +75,61 @@ export function loadCases<TInput, TFrontmatter>(
         const dir = path.join(casesDir, name);
         if (!statSync(dir).isDirectory()) continue;
 
-        const inputPath = path.join(dir, INPUT_FILE);
-        const expectedPath = path.join(dir, EXPECTED_FILE);
-
-        if (!fileExists(inputPath) || !fileExists(expectedPath)) {
-            logger.warn("Skipping incomplete case folder", {
-                extra: { name, hasInput: fileExists(inputPath), hasExpected: fileExists(expectedPath) },
-            });
-            continue;
-        }
-
-        const input = inputSchema.parse(JSON.parse(readFileSync(inputPath, "utf-8")));
-        const { data, content } = matter(readFileSync(expectedPath, "utf-8"));
-        warnOnSchemaDrift(name, data, logger);
-        const frontmatter = frontmatterSchema.parse(data);
-
-        cases.push({ name, dir, input, frontmatter, rubric: content.trim() });
+        const loaded = loadCase(name, dir, inputSchema, frontmatterSchema, logger);
+        if (loaded != null) cases.push(loaded);
     }
 
     logger.info("Loaded eval cases", { extra: { casesDir, count: cases.length } });
     return cases;
+}
+
+/**
+ * Load a single case folder, or return `undefined` to drop it. A folder missing
+ * either file is dropped with a warning. Otherwise input + frontmatter are
+ * parsed: on success the case is returned; on failure the case's `skip` flag
+ * decides - a skipped case is dropped with a warning (it would not run anyway),
+ * an active case throws with its name so the offending fixture is obvious.
+ */
+function loadCase<TInput, TFrontmatter>(
+    name: string,
+    dir: string,
+    inputSchema: z.ZodType<TInput>,
+    frontmatterSchema: z.ZodType<TFrontmatter>,
+    logger: Logger,
+): LoadedCase<TInput, TFrontmatter> | undefined {
+    const inputPath = path.join(dir, INPUT_FILE);
+    const expectedPath = path.join(dir, EXPECTED_FILE);
+
+    if (!fileExists(inputPath) || !fileExists(expectedPath)) {
+        logger.warn("Skipping incomplete case folder", {
+            extra: { name, hasInput: fileExists(inputPath), hasExpected: fileExists(expectedPath) },
+        });
+        return undefined;
+    }
+
+    const { data, content } = matter(readFileSync(expectedPath, "utf-8"));
+    warnOnSchemaDrift(name, data, logger);
+
+    // `skip` is read leniently here (before the full frontmatter parse) so it can
+    // protect a case even when the rest of its frontmatter no longer parses.
+    const isSkipped = skipProbe.safeParse(data).data?.skip === true;
+
+    try {
+        const input = inputSchema.parse(JSON.parse(readFileSync(inputPath, "utf-8")));
+        const frontmatter = frontmatterSchema.parse(data);
+        return { name, dir, input, frontmatter, rubric: content.trim() };
+    } catch (err) {
+        if (isSkipped) {
+            logger.warn("Dropping skipped case that no longer parses; re-capture or migrate it", {
+                extra: { name, err },
+            });
+            return undefined;
+        }
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(`Eval case "${name}" has an invalid ${INPUT_FILE} or ${EXPECTED_FILE}: ${detail}`, {
+            cause: err,
+        });
+    }
 }
 
 function fileExists(filePath: string): boolean {
@@ -98,6 +139,8 @@ function fileExists(filePath: string): boolean {
         return false;
     }
 }
+
+const skipProbe = z.object({ skip: z.boolean().optional() });
 
 const schemaVersionProbe = z.object({ schemaVersion: z.number().int().positive().optional() });
 

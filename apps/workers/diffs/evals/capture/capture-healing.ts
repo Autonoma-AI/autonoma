@@ -9,6 +9,7 @@ import { assembleHealingInput } from "../../src/refinement/assemble-healing-inpu
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { serializeHealingInput } from "../healing/healing-input";
+import { buildHealingExpected } from "./healing-expected-scaffold";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
 export interface CaptureHealingParams {
@@ -68,12 +69,17 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
 
     await mkdir(caseDir, { recursive: true });
     await writeFile(path.join(caseDir, "input.json"), `${JSON.stringify(frozenInput, null, 2)}\n`, "utf-8");
-    await writeFile(path.join(caseDir, "expected.md"), blankExpected(iterationId, frozenInput.failures), "utf-8");
+    await writeFile(
+        path.join(caseDir, "expected.md"),
+        buildHealingExpected(`iteration ${iterationId}`, frozenInput.failures, frozenInput.candidates),
+        "utf-8",
+    );
 
     logger.info("Captured healing case", {
         extra: {
             caseDir,
             failures: frozenInput.failures.length,
+            candidates: frozenInput.candidates.length,
             priorActions: frozenInput.priorActions.length,
             scenarios: frozenInput.planAuthoring.scenarios.length,
             flows: frozenInput.planAuthoring.flows.length,
@@ -81,38 +87,4 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     });
 
     return caseDir;
-}
-
-function blankExpected(iterationId: string, failures: { testCaseId: string; testCaseSlug: string }[]): string {
-    const expectedLines = failures.map(
-        (f) =>
-            `#   ${f.testCaseId}: update_plan   # ${f.testCaseSlug} - pick: update_plan | report_bug | report_engine_limitation | remove_test`,
-    );
-    const expectedBlock =
-        expectedLines.length > 0 ? expectedLines.join("\n") : "#   (no failing test cases in this iteration)";
-
-    return `---
-description: "Captured from iteration ${iterationId} - TODO: describe what this case exercises"
-skip: true
-# Deterministic check (uncomment + fill in, then set skip: false).
-# One entry per failing test case in input.json; the keyset must match exactly,
-# and each value is the action kind that test case should receive.
-# expectedActions:
-${expectedBlock}
----
-
-TODO: author the LLM-judge rubric here.
-
-The judge sees only the agent's structured output plus this body - never the
-codebase or screenshots. Grade qualities the deterministic check cannot express:
-  - For each \`update_plan\`: does the \`newPrompt\` address the cited failure?
-    Is it specific enough? Does it preserve the test's original intent?
-  - For each \`report_bug\` / \`report_engine_limitation\`: is the triage correct
-    (application defect vs. engine/agent limitation)? Are the description and
-    severity proportionate to the cited reasoning?
-  - For each \`remove_test\`: is the cited reason plausible given the failure
-    context (e.g. feature removed from the app)?
-Keep every point additive to the frontmatter, and phrase each as something
-checkable from the structured output alone.
-`;
 }

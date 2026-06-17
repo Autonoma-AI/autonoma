@@ -12,10 +12,10 @@
         "test": "vitest run --passWithNoTests",
         "eval": "RUN_EVALS=true vitest run --passWithNoTests",
         "capture:analysis": "tsx --env-file=../../../.env evals/capture/capture-analysis-cli.ts",
-        "capture:resolution": "tsx --env-file=../../../.env evals/capture/capture-resolution-cli.ts",
         "capture:generation-review": "tsx --env-file=../../../.env evals/capture/capture-generation-review.ts",
         "capture:replay-review": "tsx --env-file=../../../.env evals/capture/capture-replay-review.ts",
-        "capture:healing": "tsx --env-file=../../../.env evals/capture/capture-healing-cli.ts"
+        "capture:healing": "tsx --env-file=../../../.env evals/capture/capture-healing-cli.ts",
+        "capture:healing-from-snapshot": "tsx --env-file=../../../.env evals/capture/capture-healing-from-snapshot-cli.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",

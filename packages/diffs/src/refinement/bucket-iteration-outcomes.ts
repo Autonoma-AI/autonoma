@@ -2,12 +2,27 @@ import { type PrismaClient, type RefinementTrigger } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { GenerationOutcomeFailure, RunOutcomeFailure, SystemBlockedOutcome } from "@autonoma/workflow/activities";
 
+/** The outcome buckets for a set of plans. See {@link bucketPlanOutcomes}. */
+export interface BucketedPlanOutcomes {
+    validatedTestCaseIds: string[];
+    failuresAtGeneration: GenerationOutcomeFailure[];
+    failuresAtReplay: RunOutcomeFailure[];
+    systemBlocked: SystemBlockedOutcome[];
+}
+
+/** {@link BucketedPlanOutcomes} plus the iteration's loop/snapshot metadata. */
+export interface BucketedIterationOutcomes extends BucketedPlanOutcomes {
+    snapshotId: string;
+    loopId: string;
+    triggeredBy: RefinementTrigger;
+    iterationNumber: number;
+}
+
 /**
- * The shared bucketing logic for one refinement iteration's plan outcomes.
+ * The shared bucketing logic for a set of plans within a snapshot.
  *
- * For each plan that fed into the iteration, this resolves the latest
- * generation and run in the iteration's snapshot, joins their reviews, and
- * splits them into four buckets:
+ * For each plan, this resolves the latest generation and run in the snapshot,
+ * joins their reviews, and splits them into four buckets:
  *
  *  - `validatedTestCaseIds` - the run succeeded.
  *  - `failuresAtGeneration` - generation (or its review) failed (healable).
@@ -18,60 +33,32 @@ import type { GenerationOutcomeFailure, RunOutcomeFailure, SystemBlockedOutcome 
  *    failure (`scenario_setup`). Routed out of the healable buckets so the loop
  *    ignores them for convergence and never feeds them to the healing agent.
  *
- * The bucketing invariants are load-bearing for both callers, so this helper is
+ * The bucketing invariants are load-bearing for every caller, so this helper is
  * the single source of truth:
  *
  *  - A plan with a generation buckets through the generation path; a passing
  *    generation must have a run (else fatal).
  *  - A plan with a run but no generation is a *replay-only* outcome (e.g.
- *    seeding iteration 1 from replays): it buckets purely by its run result,
+ *    seeding a first turn from replays): it buckets purely by its run result,
  *    with no generation review.
  *  - A plan with neither a generation nor a run is the fatal violation.
  *
- * The `analyzeResults` activity wraps it, and healing capture reuses it to
- * rebuild the activity input from an iteration id when the original input is no
- * longer in hand.
+ * Callers resolve which plans to bucket however suits them: {@link bucketIterationOutcomes}
+ * from a refinement iteration's inputs (the `analyzeResults` activity), and
+ * healing eval-capture of a folded-resolution first turn from the affected-test
+ * replays.
  */
-export interface BucketedIterationOutcomes {
-    validatedTestCaseIds: string[];
-    failuresAtGeneration: GenerationOutcomeFailure[];
-    failuresAtReplay: RunOutcomeFailure[];
-    systemBlocked: SystemBlockedOutcome[];
-    snapshotId: string;
-    loopId: string;
-    triggeredBy: RefinementTrigger;
-    iterationNumber: number;
-}
-
-/** Bucket an iteration's plan outcomes. See {@link BucketedIterationOutcomes}. */
-export async function bucketIterationOutcomes(
+export async function bucketPlanOutcomes(
     db: PrismaClient,
-    iterationId: string,
+    snapshotId: string,
+    planIds: string[],
     logger?: Logger,
-): Promise<BucketedIterationOutcomes> {
-    const log = logger ?? rootLogger.child({ name: "bucketIterationOutcomes" });
-
-    const iteration = await db.refinementIteration.findUniqueOrThrow({
-        where: { id: iterationId },
-        select: {
-            number: true,
-            inputs: { select: { planId: true } },
-            loop: { select: { id: true, snapshotId: true, triggeredBy: true } },
-        },
-    });
-
-    const planIds = iteration.inputs.map((i) => i.planId);
-    const snapshotId = iteration.loop.snapshotId;
-    const meta = {
-        snapshotId,
-        loopId: iteration.loop.id,
-        triggeredBy: iteration.loop.triggeredBy,
-        iterationNumber: iteration.number,
-    };
+): Promise<BucketedPlanOutcomes> {
+    const log = logger ?? rootLogger.child({ name: "bucketPlanOutcomes" });
 
     if (planIds.length === 0) {
-        log.info("Iteration has no input plans; nothing to bucket");
-        return { validatedTestCaseIds: [], failuresAtGeneration: [], failuresAtReplay: [], systemBlocked: [], ...meta };
+        log.info("No input plans to bucket");
+        return { validatedTestCaseIds: [], failuresAtGeneration: [], failuresAtReplay: [], systemBlocked: [] };
     }
 
     const generations = await db.testGeneration.findMany({
@@ -136,7 +123,7 @@ export async function bucketIterationOutcomes(
         const run = latestRunByPlan.get(planId);
 
         // Replay-only outcome (#951): a pre-existing test replayed against the
-        // diff has a run but no generation (e.g. seeding iteration 1 from
+        // diff has a run but no generation (e.g. seeding a first turn from
         // replays). Bucket it purely by its run result, with no generation
         // review. A plan with neither a generation nor a (plan-linked) run is
         // the fatal violation.
@@ -148,9 +135,9 @@ export async function bucketIterationOutcomes(
                     runId: run?.id,
                 });
                 throw new Error(
-                    `bucketIterationOutcomes: planId=${planId} has no TestGeneration and no plan-linked Run in ` +
-                        `snapshot=${snapshotId} (iteration=${iterationId}). An input plan must have at least a ` +
-                        `generation, or a replay-only run that references its plan; investigate the upstream pipeline.`,
+                    `bucketPlanOutcomes: planId=${planId} has no TestGeneration and no plan-linked Run in ` +
+                        `snapshot=${snapshotId}. An input plan must have at least a generation, or a replay-only ` +
+                        `run that references its plan; investigate the upstream pipeline.`,
                 );
             }
 
@@ -209,7 +196,7 @@ export async function bucketIterationOutcomes(
                 testGenerationId: generation.id,
             });
             throw new Error(
-                `bucketIterationOutcomes: TestGeneration ${generation.id} for planId=${planId} succeeded but no ` +
+                `bucketPlanOutcomes: TestGeneration ${generation.id} for planId=${planId} succeeded but no ` +
                     `Run exists for that plan in snapshot=${snapshotId}. The refinement loop's pre-fire step ` +
                     `must have created one via prepareRunsForGenerations; investigate runGenerationPipelineWorkflow.`,
             );
@@ -239,7 +226,7 @@ export async function bucketIterationOutcomes(
         else failuresAtReplay.push(failure);
     }
 
-    log.info("Bucketed iteration outcomes", {
+    log.info("Bucketed plan outcomes", {
         extra: {
             validated: validatedTestCaseIds.length,
             failuresAtGeneration: failuresAtGeneration.length,
@@ -248,5 +235,40 @@ export async function bucketIterationOutcomes(
         },
     });
 
-    return { validatedTestCaseIds, failuresAtGeneration, failuresAtReplay, systemBlocked, ...meta };
+    return { validatedTestCaseIds, failuresAtGeneration, failuresAtReplay, systemBlocked };
+}
+
+/**
+ * Bucket one refinement iteration's plan outcomes. Resolves the iteration's
+ * input plan ids and its loop/snapshot metadata, then delegates the bucketing to
+ * {@link bucketPlanOutcomes}. The `analyzeResults` activity wraps it, and healing
+ * eval-capture reuses it to rebuild the activity input from an iteration id when
+ * the original input is no longer in hand.
+ */
+export async function bucketIterationOutcomes(
+    db: PrismaClient,
+    iterationId: string,
+    logger?: Logger,
+): Promise<BucketedIterationOutcomes> {
+    const log = logger ?? rootLogger.child({ name: "bucketIterationOutcomes" });
+
+    const iteration = await db.refinementIteration.findUniqueOrThrow({
+        where: { id: iterationId },
+        select: {
+            number: true,
+            inputs: { select: { planId: true } },
+            loop: { select: { id: true, snapshotId: true, triggeredBy: true } },
+        },
+    });
+
+    const planIds = iteration.inputs.map((i) => i.planId);
+    const buckets = await bucketPlanOutcomes(db, iteration.loop.snapshotId, planIds, log);
+
+    return {
+        ...buckets,
+        snapshotId: iteration.loop.snapshotId,
+        loopId: iteration.loop.id,
+        triggeredBy: iteration.loop.triggeredBy,
+        iterationNumber: iteration.number,
+    };
 }
