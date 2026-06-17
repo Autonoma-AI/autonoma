@@ -5,7 +5,7 @@ import type { ModelMessage } from "ai";
 interface UploadConversationParams {
     storage: StorageProvider;
     snapshotId: string;
-    phase: "analysis" | "resolution";
+    phase: "analysis";
     conversation: ModelMessage[];
     logger: Logger;
 }

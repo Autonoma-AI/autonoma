@@ -1,7 +1,6 @@
 import type { DiffsActivities } from "@autonoma/workflow/activities";
 
 export { analyzeDiffs } from "./analyze-diffs";
-export { resolveDiffs } from "./resolve-diffs";
 export { markDiffsGenerating } from "./mark-diffs-generating";
 export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
@@ -12,14 +11,12 @@ import { analyzeDiffs } from "./analyze-diffs";
 import { finalizeDiffs } from "./finalize-diffs";
 import { markDiffsGenerating } from "./mark-diffs-generating";
 import { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
-import { resolveDiffs } from "./resolve-diffs";
 import { reviewGeneration } from "./review/generation";
 import { reviewReplay } from "./review/replay";
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
     analyzeDiffs,
-    resolveDiffs,
     markDiffsGenerating,
     finalizeDiffs,
     reviewGeneration,

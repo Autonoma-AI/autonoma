@@ -1,18 +1,40 @@
 import type { Logger } from "@autonoma/logger";
-import type { RunReviewVerdict } from "../agents/resolution/resolution-agent";
+import type { AffectedReason } from "../agents/diffs/affected-test";
 import type { SnapshotRunContext } from "../review/snapshot";
+import type { ScenarioData } from "../scenario-data";
+
+/** Reviewer's verdict on a single test replay, plus the context needed to act on it. */
+export interface RunReviewVerdict {
+    runId: string;
+    testSlug: string;
+    testName: string;
+    originalPrompt: string;
+    runStatus: string;
+    verdict: string;
+    reviewReasoning: string;
+    issueTitle?: string;
+    issueDescription?: string;
+    affectedReason?: AffectedReason;
+    /**
+     * The data the run's scenario actually seeded, materialized via the shared
+     * scenario-data capability. Lets a consumer spot a failure rooted in a stale
+     * test referencing data the scenario never created (vs a real bug). Absent
+     * when the run had no scenario, UP failed, or the graph was empty.
+     */
+    scenario?: ScenarioData;
+}
 
 /**
  * Reduce a snapshot's per-run context (gathered by the `DiffJobContextLoader`)
- * to the actionable {@link RunReviewVerdict[]} the resolution agent handles.
+ * to the actionable {@link RunReviewVerdict[]}.
  *
- * Three classes of run are dropped, mirroring what resolution can act on:
- * passed runs (the test still works), quarantined tests (excluded from replay,
- * owned by manual review), and runs without a completed reviewer verdict
- * (nothing to attribute yet). The drops are logged per-slug for observability.
+ * Three classes of run are dropped: passed runs (the test still works),
+ * quarantined tests (excluded from replay, owned by manual review), and runs
+ * without a completed reviewer verdict (nothing to attribute yet). The drops
+ * are logged per-slug for observability.
  *
  * Each surviving run carries its materialized scenario data straight through, so
- * the agent can tell a stale test (references data the scenario never created)
+ * a consumer can tell a stale test (references data the scenario never created)
  * from a real bug.
  */
 export function buildVerdicts(runs: SnapshotRunContext[], logger: Logger): RunReviewVerdict[] {

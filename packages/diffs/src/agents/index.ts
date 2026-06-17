@@ -8,21 +8,6 @@ export type { ScenarioRecipeLoop } from "./tools/scenario/scenario-recipe-loop";
 export { DiffsAgent, type DiffsAgentConfig, type DiffsAgentInput, type DiffsAgentResult } from "./diffs/diffs-agent";
 export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
 
-export {
-    type RejectedCandidate,
-    ResolutionAgent,
-    type ResolutionAgentConfig,
-    type ResolutionAgentInput,
-    type ResolutionAgentResult,
-    type RunReviewVerdict,
-    type TestCandidateInput,
-} from "./resolution/resolution-agent";
-export { ResolutionAgentLoop } from "./resolution/resolution-agent-loop";
-export { modifyTestSchema, type ModifiedTest } from "./resolution/tools/modify-test-tool";
-export { removedTestSchema, type RemovedTest } from "./resolution/tools/remove-test-tool";
-export { reportBugSchema, type ReportedBug } from "./resolution/tools/report-bug-tool";
-export { generatedTestSchema, type GeneratedTest } from "./resolution/tools/add-test-tool";
-
 export { HealingAgent, type HealingAgentConfig, type HealingInput, type HealingResult } from "./healing/healing-agent";
 export { HealingAgentLoop } from "./healing/healing-agent-loop";
 export { HealingAddTestTool, healingNewTestSchema, type HealingNewTest } from "./healing/tools/add-test-tool";

@@ -1,18 +1,17 @@
 # @autonoma/diffs
 
-AI agents that drive the diff-analysis, resolution, healing, and review pipeline. Every agent is a subclass of `Agent` from `@autonoma/ai`, built on the same abstraction: an immutable agent class holds tools + system prompt, each call constructs a fresh `AgentLoop` subclass that carries the per-run state.
+AI agents that drive the diff-analysis, healing, and review pipeline. Every agent is a subclass of `Agent` from `@autonoma/ai`, built on the same abstraction: an immutable agent class holds tools + system prompt, each call constructs a fresh `AgentLoop` subclass that carries the per-run state.
 
 ## Pipeline at a glance
 
 | Agent | Trigger | Decides |
 |---|---|---|
 | `DiffsAgent` | PR diffs | Which existing tests might be affected; what new tests are missing |
-| `ResolutionAgent` | (none - superseded) | Folded into `HealingAgent` iteration 1; no longer wired into the diffs workflow. Code retained pending removal |
-| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test), plus which new-test candidates to graduate via add_test. For diffs, iteration 1 is the folded resolution turn (replay failures + Step 1 candidates) |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test), plus which new-test candidates to graduate via add_test. For diffs, iteration 1 reconciles the first replay failures + Step 1 candidates |
 | `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug) |
 | `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug) |
 
-All five extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
+All four extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
 
 ## Code layout
 
@@ -28,7 +27,6 @@ src/agents/
 │   │                        engine's resolved click point, web only), view_final_screenshot
 │   └── subagent/            Nested research agent + tool wrapper
 ├── diffs/                   DiffsAgent + its action tools + result tool + prompt
-├── resolution/              ResolutionAgent + tools + prompt
 ├── healing/                 HealingAgent + tools + result tool
 └── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
 
@@ -54,10 +52,10 @@ These two capabilities are deliberately distinct data shapes:
 
 - **`scenario-data`** is per-subject **instance** data - the concrete rows a single run's
   or generation's scenario instance *actually generated* (`ScenarioInstance.generatedData`).
-  The replay and generation reviewers, resolution, and healing use it to judge whether a
+  The replay and generation reviewers and healing use it to judge whether a
   subject's plan referenced data the scenario really seeded (a strong `engine_error` /
-  `plan_mismatch` signal; resolution gets it per-run on every replay verdict, healing per
-  failing subject so it can rewrite a plan to match the seed rather than report a bug).
+  `plan_mismatch` signal; healing gets it per failing subject so it can rewrite a plan to
+  match the seed rather than report a bug).
 - **`scenario-recipe`** is **recipe template** data - what each scenario is *designed to
   seed*, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
   The diffs **analysis** agent uses it: analysis runs *before any replay*, so no instance

@@ -4,7 +4,6 @@ import { z } from "zod";
 import type { DiffsAgentResult } from "../src/agents/diffs/diffs-agent";
 import { DiffsAgentLoop } from "../src/agents/diffs/diffs-agent-loop";
 import { HealingAgentLoop } from "../src/agents/healing/healing-agent-loop";
-import { ResolutionAgentLoop } from "../src/agents/resolution/resolution-agent-loop";
 import { ReviewerLoop } from "../src/agents/reviewers/reviewer-loop";
 import type { ReviewStepScreenshots, ScreenshotLoader } from "../src/agents/tools/screenshot/screenshot-types";
 import { Codebase } from "../src/codebase";
@@ -58,15 +57,6 @@ export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoo
         validConflictSlugs: overrides.validConflictSlugs ?? new Set(),
         scenarioRecipes: overrides.scenarioRecipes ?? [],
     });
-}
-
-export interface ResolutionLoopOverrides {
-    workingDirectory?: string;
-    flowIndex?: FlowIndex;
-    scenarioIndex?: ScenarioIndex;
-    existingTests?: ExistingTestInfo[];
-    failedSlugs?: ReadonlySet<string>;
-    quarantinedSlugs?: ReadonlySet<string>;
 }
 
 export interface ReviewerLoopOverrides {
@@ -123,25 +113,5 @@ export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAg
         reviewLinksByTestCaseId: overrides.reviewLinksByTestCaseId ?? new Map(),
         candidatesById: new Map((overrides.candidates ?? []).map((c) => [c.candidateId, c])),
         isFirstTurn: overrides.isFirstTurn ?? false,
-    });
-}
-
-export function makeResolutionLoop(overrides: ResolutionLoopOverrides = {}): ResolutionAgentLoop {
-    const existingTests = overrides.existingTests ?? [];
-    return new ResolutionAgentLoop({
-        name: "ResolutionAgentTest",
-        model: FAKE_MODEL,
-        systemPrompt: "",
-        tools: [],
-        reportTool: FAKE_RESULT_TOOL as never,
-        codebase: new Codebase(overrides.workingDirectory ?? process.cwd()),
-        flowIndex:
-            overrides.flowIndex ??
-            new FlowIndex([{ id: "all", name: "All Tests", testSlugs: existingTests.map((t) => t.slug) }]),
-        scenarioIndex: overrides.scenarioIndex ?? new ScenarioIndex([]),
-        existingTests,
-        failedSlugs: overrides.failedSlugs ?? new Set(existingTests.map((t) => t.slug)),
-        quarantinedSlugs:
-            overrides.quarantinedSlugs ?? new Set(existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),
     });
 }

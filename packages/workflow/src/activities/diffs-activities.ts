@@ -23,10 +23,6 @@ export interface AnalyzeDiffsOutput {
     replays: PreparedRunInfo[];
 }
 
-export interface ResolveDiffsInput {
-    snapshotId: string;
-}
-
 export interface MarkDiffsGeneratingInput {
     snapshotId: string;
 }
@@ -40,11 +36,10 @@ export interface FinalizeDiffsInput {
 /**
  * Activities executed on the {@link TaskQueue.DIFFS} task queue. Lives on the
  * diffs worker so the heavy AI-powered review and healing work shares the
- * pool already provisioned for diffs/resolution.
+ * pool already provisioned for diffs.
  */
 export interface DiffsActivities {
     analyzeDiffs(input: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput>;
-    resolveDiffs(input: ResolveDiffsInput): Promise<void>;
     markDiffsGenerating(input: MarkDiffsGeneratingInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
     reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput>;

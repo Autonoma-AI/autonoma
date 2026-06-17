@@ -45,7 +45,7 @@ cd apps/jobs/scenario
 pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
 ```
 
-For local diffs tooling - analysis, resolution, the full pipeline, and generation/replay reviewer inspection - see `@autonoma/worker-diffs` (e.g. `pnpm --filter @autonoma/worker-diffs diffs-agent`, `resolution-agent`, `full-pipeline`, `review:generation <generationId>`, `review:replay <runId>`).
+For local diffs tooling - analysis, the full pipeline, and generation/replay reviewer inspection - see `@autonoma/worker-diffs` (e.g. `pnpm --filter @autonoma/worker-diffs diffs-agent`, `full-pipeline`, `review:generation <generationId>`, `review:replay <runId>`).
 
 ## Environment Variables
 

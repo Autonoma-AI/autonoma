@@ -26,8 +26,8 @@ export class ScenarioIndex {
     /**
      * The underlying scenario array this index was built from.
      *
-     * Used to serialize the index back to its raw form (e.g. when freezing a
-     * `ResolutionAgentInput` into an on-disk eval fixture) so it can be
+     * Used to serialize the index back to its raw form (e.g. when freezing an
+     * agent input into an on-disk eval fixture) so it can be
      * reconstructed later via `new ScenarioIndex(array)`.
      */
     toArray(): ScenarioInfo[] {

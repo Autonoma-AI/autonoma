@@ -50,7 +50,6 @@ export type {
     AnalyzeDiffsInput,
     AnalyzeDiffsOutput,
     PreparedRunInfo,
-    ResolveDiffsInput,
     MarkDiffsGeneratingInput,
     FinalizeDiffsInput,
 } from "./diffs-activities";
