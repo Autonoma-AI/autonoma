@@ -2,10 +2,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
+import { z } from "zod";
 import type { EtagStore } from "./etag-store";
 
 const execFileAsync = promisify(execFile);
 const GITHUB_API = "https://api.github.com";
+
+const installationAuthSchema = z.object({ token: z.string().min(1) });
 
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
@@ -75,6 +78,13 @@ export interface CloneRepositoryParams {
     depth?: number;
 }
 
+export interface GitTree {
+    /** Blob (file) paths only - directories are implied by path prefixes. */
+    paths: string[];
+    /** True when GitHub truncated the recursive listing (very large repos). */
+    truncated: boolean;
+}
+
 export interface GitHubInstallationClient {
     getInstallation(installationId: number): Promise<{ account: unknown }>;
     getInstallationToken(): Promise<string>;
@@ -89,6 +99,10 @@ export interface GitHubInstallationClient {
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
     getBranchHead(repoId: number, branchName: string): Promise<string>;
+    /** Recursive file listing of the repo at `ref`. */
+    getGitTree(repoId: number, ref: string): Promise<GitTree>;
+    /** Decoded file content at `path`/`ref`, or undefined when the path doesn't exist (or is not a file). */
+    getFileContent(repoId: number, path: string, ref: string): Promise<string | undefined>;
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
 }
@@ -123,6 +137,38 @@ export function parseRepoFullName(repoFullName: string): { owner: string; repo: 
     return { owner, repo };
 }
 
+function isNotFoundError(error: unknown): boolean {
+    return typeof error === "object" && error != null && "status" in error && error.status === 404;
+}
+
+/**
+ * Build an environment for `git` that supplies the installation token as an
+ * `Authorization` header via env-based config (`GIT_CONFIG_*`). This avoids
+ * putting the token in the process argv or the cloned remote URL, so it can't
+ * leak through git's stderr or an `execFile` error.
+ */
+function buildAuthenticatedGitEnv(token: string): NodeJS.ProcessEnv {
+    const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
+    return {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "http.extraHeader",
+        GIT_CONFIG_VALUE_0: `Authorization: Basic ${basicAuth}`,
+    };
+}
+
+/**
+ * Replace every occurrence of `secret` in an error (message and any string
+ * fields like `stderr`/`cmd`) with `***`. Used as defense in depth so a git
+ * failure can never surface the installation token to callers that log it.
+ */
+function redactSecret(error: unknown, secret: string): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    if (secret.length === 0) return error instanceof Error ? error : new Error(message);
+    return new Error(message.split(secret).join("***"));
+}
+
 /** Typed wrapper around an installation-scoped Octokit. */
 export class OctokitGitHubInstallationClient implements GitHubInstallationClient {
     private readonly logger: Logger;
@@ -149,7 +195,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
 
     async getInstallationToken(): Promise<string> {
         this.logger.info("Resolving installation token");
-        const { token } = (await this.octokit.auth({ type: "installation" })) as { token: string };
+        const { token } = installationAuthSchema.parse(await this.octokit.auth({ type: "installation" }));
         this.logger.info("Resolved installation token");
         return token;
     }
@@ -164,40 +210,55 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger.info("Resolving installation token for clone", { fullName });
         const token = await this.getInstallationToken();
 
-        const cloneUrl = `https://x-access-token:${token}@github.com/${fullName}.git`;
+        // Pass credentials via env-based git config rather than embedding the
+        // token in the clone URL. This keeps the token out of the process argv,
+        // out of the stored `origin` remote URL, and out of git's stderr - so a
+        // failing git command can't leak it into logs/Sentry via the error.
+        const gitEnv = buildAuthenticatedGitEnv(token);
+        const cloneUrl = `https://github.com/${fullName}.git`;
 
-        this.logger.info("Cloning repository", { fullName, headSha, targetDir });
-        await execFileAsync("git", ["clone", `--depth=${depth}`, cloneUrl, targetDir], {
-            maxBuffer: 10 * 1024 * 1024,
-            timeout: 120_000,
-        });
-
-        this.logger.info("Checking out commit", { headSha });
         try {
-            await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
-        } catch {
-            this.logger.info("Head SHA not in shallow clone, fetching explicitly", { headSha });
-            await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", headSha], {
-                cwd: targetDir,
-                timeout: 60_000,
+            this.logger.info("Cloning repository", { fullName, headSha, targetDir });
+            await execFileAsync("git", ["clone", `--depth=${depth}`, cloneUrl, targetDir], {
+                maxBuffer: 10 * 1024 * 1024,
+                timeout: 120_000,
+                env: gitEnv,
             });
-            await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
-        }
 
-        if (baseSha != null) {
-            this.logger.info("Ensuring base commit is available", { baseSha });
+            this.logger.info("Checking out commit", { headSha });
             try {
-                await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: targetDir });
-            } catch {
-                await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", baseSha], {
+                await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+            } catch (err) {
+                this.logger.info("Head SHA not in shallow clone, fetching explicitly", { headSha, err });
+                await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", headSha], {
                     cwd: targetDir,
                     timeout: 60_000,
+                    env: gitEnv,
                 });
+                await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
             }
-        }
 
-        this.logger.info("Repository cloned successfully", { fullName, targetDir });
-        return targetDir;
+            if (baseSha != null) {
+                this.logger.info("Ensuring base commit is available", { baseSha });
+                try {
+                    await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: targetDir });
+                } catch (err) {
+                    this.logger.debug("Base SHA not in shallow clone, fetching explicitly", { baseSha, err });
+                    await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", baseSha], {
+                        cwd: targetDir,
+                        timeout: 60_000,
+                        env: gitEnv,
+                    });
+                }
+            }
+
+            this.logger.info("Repository cloned successfully", { fullName, targetDir });
+            return targetDir;
+        } catch (err) {
+            // Defense in depth: redact the installation token from any git error
+            // before it propagates to callers that log it.
+            throw redactSecret(err, token);
+        }
     }
 
     async getRepository(repoId: number): Promise<Repository> {
@@ -485,6 +546,52 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         const sha = data.commit.sha;
         this.logger.info("Fetched branch head", { repoId, branchName, sha });
         return sha;
+    }
+
+    async getGitTree(repoId: number, ref: string): Promise<GitTree> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Fetching git tree", { repoId, ref });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/git/trees/{tree_sha}", {
+            owner,
+            repo,
+            tree_sha: ref,
+            recursive: "1",
+        });
+
+        const paths: string[] = [];
+        for (const entry of data.tree) {
+            if (entry.type === "blob" && entry.path != null) paths.push(entry.path);
+        }
+        const truncated = data.truncated === true;
+
+        this.logger.info("Fetched git tree", { repoId, ref, fileCount: paths.length, truncated });
+
+        return { paths, truncated };
+    }
+
+    async getFileContent(repoId: number, path: string, ref: string): Promise<string | undefined> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Fetching file content", { repoId, path, ref });
+
+        try {
+            const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+                owner,
+                repo,
+                path,
+                ref,
+            });
+
+            if (Array.isArray(data) || data.type !== "file") return undefined;
+
+            return Buffer.from(data.content, "base64").toString("utf-8");
+        } catch (error: unknown) {
+            if (isNotFoundError(error)) {
+                this.logger.info("File not found", { repoId, path, ref });
+                return undefined;
+            }
+            throw error;
+        }
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {

@@ -240,7 +240,10 @@ async function startPullRequestTeardown(organizationId: string, payload: Record<
 }
 
 /** Pre-record relevance check for push: is there a live main-branch environment tracking the pushed branch? */
-async function pushUpdatesMainBranchPreview(organizationId: string, payload: Record<string, unknown>): Promise<boolean> {
+async function pushUpdatesMainBranchPreview(
+    organizationId: string,
+    payload: Record<string, unknown>,
+): Promise<boolean> {
     if (!env.PREVIEWKIT_ENABLED) return false;
     return await previewkitTriggerService.pushTargetsMainBranchEnvironment(organizationId, payload);
 }

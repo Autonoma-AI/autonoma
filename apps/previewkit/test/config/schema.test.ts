@@ -73,7 +73,7 @@ describe("previewConfigSchema", () => {
         expect(result.apps[0].replicas).toBe(1);
         expect(result.apps[0].build_args).toEqual({});
         expect(result.apps[0].env).toEqual({});
-        // resources is deprecated; omitting it yields the app-tier standard.
+        // Omitting resources yields the app-tier standard.
         expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
     });
 
@@ -95,17 +95,17 @@ describe("previewConfigSchema", () => {
         });
     });
 
-    describe("resources (deprecated)", () => {
+    describe("resources", () => {
         it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
             expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
         });
 
-        it("ignores any explicit cpu/memory and still yields the tiered standards", () => {
+        it("ignores explicit app and service resource input", () => {
             const result = previewConfigSchema.parse({
                 version: 1,
-                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "8Gi" } }],
-                services: [{ name: "db", recipe: "postgres", resources: { cpu: "4", memory: "8Gi" } }],
+                apps: [{ name: "web", port: 3000, resources: { cpu: "500m", memory: "2Gi" } }],
+                services: [{ name: "db", recipe: "postgres", resources: { cpu: "250m", memory: "2Gi" } }],
             });
             expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
             expect(result.services[0].resources).toEqual({
@@ -113,14 +113,6 @@ describe("previewConfigSchema", () => {
                 memoryRequest: "256Mi",
                 memoryLimit: "1Gi",
             });
-        });
-
-        it("still validates a config that sets resources (backward compatibility)", () => {
-            const result = previewConfigSchema.safeParse({
-                version: 1,
-                apps: [{ name: "web", port: 3000, resources: { cpu: "500m", memory: "512Mi" } }],
-            });
-            expect(result.success).toBe(true);
         });
     });
 

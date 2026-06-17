@@ -54,7 +54,14 @@ async function setMainBranchEnvironment(
             status,
             organizationId: harness.organizationId,
         },
-        update: { headRef, status },
+        update: {
+            namespace: "preview-acme-web-pr-0",
+            headSha: "main-sha-1",
+            headRef,
+            githubRepositoryId: REPO_ID,
+            status,
+            organizationId: harness.organizationId,
+        },
     });
 }
 
@@ -320,10 +327,7 @@ apiTestSuite({
             await setMainBranchEnvironment(harness, "main", "ready");
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook(
-                harness.organizationId,
-                pushPayload("develop", "push-sha-2"),
-            );
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("develop", "push-sha-2"));
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
@@ -376,10 +380,7 @@ apiTestSuite({
                 harness.organizationId,
                 pushPayload("main", "push-sha-5", true),
             );
-            await service.deployMainBranchFromPushWebhook(
-                harness.organizationId,
-                pushPayload("main", "0".repeat(40)),
-            );
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "0".repeat(40)));
             await service.deployMainBranchFromPushWebhook(harness.organizationId, {
                 ref: "refs/tags/v1.0.0",
                 after: "push-sha-6",

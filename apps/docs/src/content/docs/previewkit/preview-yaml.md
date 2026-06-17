@@ -5,6 +5,8 @@ description: Complete schema for the Previewkit configuration file - apps, servi
 
 The `.preview.yaml` file at the root of your repository tells Previewkit how to build and deploy your stack for each pull request. This page documents every field.
 
+Configs can also be authored from the Autonoma dashboard (PreviewKit onboarding's topology builder) instead of committing a file. A dashboard-saved config is stored as an active revision and takes precedence over the repo's `.preview.yaml`; this applies to multirepo dependency repos too - each dependency repo's dashboard revision is preferred, falling back to that repo's committed file.
+
 ## Top-level shape
 
 ```yaml

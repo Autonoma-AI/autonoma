@@ -111,5 +111,35 @@ apiTestSuite({
                 TRPCError,
             );
         });
+
+        test("delete frees the GitHub repo link so it can be re-linked to a new app", async ({
+            harness,
+            seedResult: { web },
+        }) => {
+            const repoId = 9_123_456;
+            await harness.db.application.update({ where: { id: web.id }, data: { githubRepositoryId: repoId } });
+
+            await harness.request().applications.delete({ id: web.id });
+
+            const deleted = await harness.db.application.findUniqueOrThrow({
+                where: { id: web.id },
+                select: { disabled: true, githubRepositoryId: true },
+            });
+            expect(deleted.disabled).toBe(true);
+            expect(deleted.githubRepositoryId).toBeNull();
+
+            // The same repo must now link to another app in the org without
+            // tripping the unique [organizationId, githubRepositoryId] constraint.
+            const fresh = await harness.services.applications.createApplication({
+                name: "Fresh App",
+                organizationId: harness.organizationId,
+                architecture: ApplicationArchitecture.WEB,
+                url: "https://fresh.example.com",
+                file: "s3://bucket/default-file.png",
+            });
+            await expect(
+                harness.db.application.update({ where: { id: fresh.id }, data: { githubRepositoryId: repoId } }),
+            ).resolves.toBeDefined();
+        });
     },
 });

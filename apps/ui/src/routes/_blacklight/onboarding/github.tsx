@@ -13,7 +13,9 @@ import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import {
+  useApplicationRepositoryFromGitHub,
   useGithubConfig,
   useGithubInstallation,
   useGithubRepositories,
@@ -36,7 +38,7 @@ export const Route = createFileRoute("/_blacklight/onboarding/github")({
 
 function RouteComponent() {
   const { appId } = Route.useSearch();
-  return <Navigate to="/onboarding" search={{ step: "github", appId, apiKey: undefined, setupId: undefined }} />;
+  return <Navigate to="/onboarding" search={buildOnboardingSearch("github", appId)} />;
 }
 
 function getErrorMessage(error: string): string {
@@ -59,7 +61,7 @@ export function GitHubPage({ appId }: { appId?: string }) {
   if (applicationId == null) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-text-tertiary">No application found. Please start from the beginning.</p>
+        <p className="font-mono text-sm text-text-secondary">No application found. Please start from the beginning.</p>
       </div>
     );
   }
@@ -72,10 +74,10 @@ export function GitHubPage({ appId }: { appId?: string }) {
             <GithubLogoIcon size={22} weight="duotone" className="text-primary-ink" />
           </div>
         }
-        title="Connect GitHub"
+        title="Connect repository"
         description={
           <p className="max-w-2xl">
-            Link a repository so Autonoma can analyze code changes and keep your tests up to date.
+            Choose the repository Autonoma will deploy with PreviewKit or observe through your existing deploys.
           </p>
         }
         descriptionClassName="text-sm"
@@ -120,7 +122,7 @@ class GitHubErrorBoundary extends Component<{ children: ReactNode }, { error?: E
           <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
           <div>
             <p className="text-sm font-medium text-text-primary">Failed to load GitHub configuration</p>
-            <p className="mt-1 font-mono text-3xs text-text-tertiary">{this.state.error.message}</p>
+            <p className="mt-1 font-mono text-3xs text-text-secondary">{this.state.error.message}</p>
           </div>
         </div>
       );
@@ -146,7 +148,7 @@ function ConnectStep({ appId }: { appId: string }) {
   return (
     <div className="space-y-6">
       <p className="font-mono text-sm text-text-secondary">
-        Install the Autonoma GitHub App on your repository to enable automatic test updates when code changes.
+        Install the Autonoma GitHub App on the repository Autonoma should deploy or observe for preview environments.
       </p>
 
       <Button
@@ -170,6 +172,7 @@ function ConnectStep({ appId }: { appId: string }) {
 function RepoSelectionStep({ appId }: { appId: string }) {
   const { data: repos } = useGithubRepositories();
   const { data: installation } = useGithubInstallation();
+  const { data: linkedRepo } = useApplicationRepositoryFromGitHub(appId);
   const linkRepository = useLinkRepository();
   const completeGithub = useCompleteGithub();
 
@@ -178,6 +181,9 @@ function RepoSelectionStep({ appId }: { appId: string }) {
   const [configured, setConfigured] = useState(false);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId);
+  const connectedRepo = linkedRepo ?? (configured ? selectedRepo : undefined);
+  const selectedRepoLinkedToOtherApp =
+    selectedRepo?.applicationId != null && selectedRepo.applicationId !== appId ? selectedRepo : undefined;
   const isLinking = linkRepository.isPending;
   const isCompleting = completeGithub.isPending;
   const settingsUrl = installation?.settingsUrl;
@@ -200,24 +206,21 @@ function RepoSelectionStep({ appId }: { appId: string }) {
       { applicationId: appId },
       {
         onSuccess: () => {
-          void navigate({
-            to: "/onboarding",
-            search: { step: "complete", appId: appId, apiKey: undefined, setupId: undefined },
-          });
+          void navigate({ to: "/onboarding", search: buildOnboardingSearch("preview-environment", appId) });
         },
       },
     );
   }
 
-  if (configured) {
+  if (connectedRepo != null) {
     return (
       <div className="space-y-8">
         <div className="flex items-center gap-3 rounded border border-status-success/20 bg-status-success/5 px-5 py-4">
           <CheckCircleIcon size={20} weight="fill" className="text-status-success" />
           <div>
-            <p className="text-sm font-medium text-text-primary">{selectedRepo?.fullName ?? "Repository"} connected</p>
+            <p className="text-sm font-medium text-text-primary">{connectedRepo.fullName} connected</p>
             <p className="font-mono text-2xs text-text-secondary">
-              Default branch: <span className="text-text-primary">{selectedRepo?.defaultBranch ?? "main"}</span>
+              Default branch: <span className="text-text-primary">{connectedRepo.defaultBranch}</span>
             </p>
           </div>
         </div>
@@ -229,7 +232,7 @@ function RepoSelectionStep({ appId }: { appId: string }) {
           disabled={isCompleting}
           aria-label="onboarding-github-complete"
         >
-          {isCompleting ? "finishing..." : "Complete Setup"}
+          {isCompleting ? "continuing..." : "Continue"}
           <ArrowRightIcon size={18} weight="bold" />
         </Button>
       </div>
@@ -244,22 +247,44 @@ function RepoSelectionStep({ appId }: { appId: string }) {
           value={selectedRepoId != null ? String(selectedRepoId) : ""}
           onValueChange={(value) => {
             const numValue = Number(value);
+            linkRepository.reset();
             setSelectedRepoId(!Number.isNaN(numValue) ? numValue : undefined);
           }}
         >
           <SelectTrigger className="max-w-lg">
-            <SelectValue placeholder="Select a repository" />
+            <SelectValue placeholder="Select a repository">{selectedRepo?.fullName}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {repos.map((repo) => (
-              <SelectItem key={repo.id} value={String(repo.id)}>
-                {repo.fullName}
-              </SelectItem>
-            ))}
+            {repos.map((repo) => {
+              const isLinkedToOtherApp = repo.applicationId != null && repo.applicationId !== appId;
+              return (
+                <SelectItem key={repo.id} value={String(repo.id)} disabled={isLinkedToOtherApp}>
+                  {isLinkedToOtherApp
+                    ? `${repo.fullName} (linked to ${repo.applicationName ?? "another app"})`
+                    : repo.fullName}
+                </SelectItem>
+              );
+            })}
           </SelectContent>
         </Select>
+        {selectedRepoLinkedToOtherApp != null && (
+          <div className="mt-2 flex max-w-lg items-start gap-2 rounded border border-status-warn/20 bg-status-warn/5 px-3 py-2">
+            <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+            <p className="font-mono text-2xs text-text-secondary">
+              {selectedRepoLinkedToOtherApp.fullName} is already linked to{" "}
+              {selectedRepoLinkedToOtherApp.applicationName ?? "another application"}. Choose an unlinked repository or
+              continue from that application.
+            </p>
+          </div>
+        )}
+        {linkRepository.error != null && (
+          <div className="mt-2 flex max-w-lg items-start gap-2 rounded border border-status-critical/30 bg-status-critical/5 px-3 py-2">
+            <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
+            <p className="font-mono text-2xs text-status-critical">{linkRepository.error.message}</p>
+          </div>
+        )}
         {settingsUrl != null && (
-          <p className="font-mono text-2xs text-text-tertiary">
+          <p className="font-mono text-2xs text-text-secondary">
             Can't find your repository?{" "}
             <a
               href={settingsUrl}
@@ -277,7 +302,7 @@ function RepoSelectionStep({ appId }: { appId: string }) {
         variant="accent"
         className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
         onClick={handleLinkRepo}
-        disabled={selectedRepoId == null || isLinking}
+        disabled={selectedRepoId == null || selectedRepoLinkedToOtherApp != null || isLinking}
         aria-label="onboarding-github-link"
       >
         {isLinking ? "linking..." : "Link Repository"}

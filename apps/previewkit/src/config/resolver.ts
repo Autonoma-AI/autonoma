@@ -24,8 +24,9 @@ export interface ResolveConfigInput {
  * `PreviewConfig`. One path shared by the `.preview.yaml` loader and the
  * DB-backed loader:
  *   1. upgrade the document from its `schemaVersion` to the current one,
- *   2. validate with `previewConfigSchema` (which also applies platform
- *      standards, e.g. the `resources` transform).
+ *   2. validate with `previewConfigSchema`, applying defaults for omitted
+ *      fields. Resource fields are accepted for backwards compatibility but
+ *      resolved to PreviewKit's standard platform budgets.
  *
  * Throws `ZodError` on an invalid document (callers format it) or a plain
  * `Error` for an unsupported `schemaVersion`.

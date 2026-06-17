@@ -120,7 +120,15 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
             onClick={() => {
               void navigate({
                 to: "/onboarding",
-                search: { step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined },
+                search: {
+                  step: "cli-setup",
+                  appId: undefined,
+                  apiKey: undefined,
+                  setupId: undefined,
+                  focusApp: undefined,
+                  focusField: undefined,
+                  focusSection: undefined,
+                },
               });
             }}
           >

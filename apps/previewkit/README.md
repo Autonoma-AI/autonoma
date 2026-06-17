@@ -39,6 +39,15 @@ PR opened/updated
 
 On PR close, the entire namespace is deleted.
 
+## Config sources
+
+Previewkit resolves a repo's config in this order:
+
+1. **Active dashboard revision** - configs saved from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder) are stored as `PreviewkitConfigRevision` rows; the Application's active revision wins.
+2. **Repo-committed `.preview.yaml`** - the fallback when no active revision exists.
+
+The same order applies to multirepo dependency repos (`config.multirepo.repos`): each dependency repo's own Application active revision is preferred, falling back to that repo's `.preview.yaml`. A dependency with neither is skipped.
+
 ## Config: `.preview.yaml`
 
 Add a `.preview.yaml` to your repository root:

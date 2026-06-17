@@ -65,10 +65,12 @@ half-deleted namespace.
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts`.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
   validate), `file.ts` (`loadPreviewConfig` reads a repo's `.preview.yaml`), `revisions.ts`
-  (`loadActiveConfig` reads the Application's active DB config revision), `index.ts`
-  (`createPreviewkitDefaults`), `migrate-yaml-to-revisions.ts` (one-off `.preview.yaml` -> DB import).
+  (`loadActiveConfig` reads the Application's active DB config revision), `dependency-config.ts`
+  (`resolveDependencyConfig` - multirepo dependency repos prefer their own Application's active
+  DB revision, then fall back to their `.preview.yaml`), `index.ts` (`createPreviewkitDefaults`),
+  `migrate-yaml-to-revisions.ts` (one-off `.preview.yaml` -> DB import).
   The pipeline prefers the active DB revision and falls back to the repo's `.preview.yaml`
-  (`PreviewPipeline.resolvePrimaryConfig`).
+  (`PreviewPipeline.resolvePrimaryConfig`); dependencies resolve the same way in `cloneDependency`.
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (Deployments/Services/Ingress/ConfigMaps/RBAC, incl. the Gatekeeper proxy), `env-injector.ts`
   (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.

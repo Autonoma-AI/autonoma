@@ -21,6 +21,7 @@ import type {
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildAbortedError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";
+import { resolveDependencyConfig } from "../config/dependency-config";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
@@ -91,6 +92,8 @@ interface DependencyEntry {
     tmpDir: string;
     usedFallback: boolean;
     targetBranch: string;
+    /** Where the dependency's config came from: a dashboard-authored DB revision or its repo-committed `.preview.yaml`. */
+    source: "revision" | "file";
 }
 
 interface PreviewPipelineOptions {
@@ -101,10 +104,9 @@ interface PreviewPipelineOptions {
     addonManager: AddonManager;
     registryUrl: string;
     storage: StorageProvider;
-    /** Build-log sink (live Redis tier and/or durable Loki tier). When set,
-     *  the pipeline mirrors phase transitions + terminal status into it (the
-     *  builder mirrors raw output), keyed by namespace. Optional - absent
-     *  disables mirroring entirely. */
+    /** Build-log sink. When set, the pipeline mirrors phase transitions +
+     *  terminal status into it (the builder mirrors raw output), keyed by
+     *  namespace. Optional - absent disables mirroring entirely. */
     logSink?: BuildLogSink;
 }
 
@@ -296,10 +298,7 @@ export class PreviewPipeline {
 
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: {
-                id: true,
-                previewkitSecrets: { select: { appName: true, awsSecretArn: true } },
-            },
+            select: { id: true },
         });
         if (application == null) {
             throw new Error(`Application not found for ${repoFullName} (org ${organizationId})`);
@@ -321,7 +320,9 @@ export class PreviewPipeline {
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
             const convention = primaryConfig.config?.multirepo?.branch_convention;
             const [dependencyResults] = await Promise.all([
-                Promise.all(deps.map((dep) => this.cloneDependency(dep, prNumber, event.headRef, convention))),
+                Promise.all(
+                    deps.map((dep) => this.cloneDependency(dep, prNumber, event.headRef, convention, organizationId)),
+                ),
                 this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
@@ -397,10 +398,18 @@ export class PreviewPipeline {
                 ),
             );
             const buildStart = Date.now();
+            // Org-scoped by appName, mirroring AwsExternalSecretManager.applyForNamespace:
+            // in multirepo deployments dependency apps' secrets hang off their own
+            // Application rows, and app names are unique across the merged topology.
+            const secretRecords = await db.previewkitSecret.findMany({
+                where: {
+                    application: { organizationId },
+                    appName: { in: mergedConfig.apps.map((app) => app.name) },
+                },
+                select: { appName: true, awsSecretArn: true },
+            });
             const arnByApp = new Map<string, string>();
-            for (const s of application.previewkitSecrets) {
-                if (s.appName != null) arnByApp.set(s.appName, s.awsSecretArn);
-            }
+            for (const s of secretRecords) arnByApp.set(s.appName, s.awsSecretArn);
             logger.info("Resolved Application for build", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -758,40 +767,39 @@ export class PreviewPipeline {
         });
     }
 
-    // Resolves the target branch, fetches the .preview.yaml, and clones the repo into a temp dir.
-    // Returns null if no .preview.yaml is found on either the resolved branch or the fallback (opt-out).
+    // Resolves the target branch, resolves the dependency's config (active DB
+    // revision first, then `.preview.yaml`), and clones the repo into a temp dir.
+    // Returns null when neither config source resolves (opt-out).
     private async cloneDependency(
         dep: RepoDependency,
         prNumber: number,
         headRef: string,
         convention: BranchConvention | undefined,
+        organizationId: string,
     ): Promise<DependencyEntry | null> {
         const targetBranch = resolveTargetBranch(headRef, convention, dep.fallback_branch);
 
-        let config = await loadPreviewConfig(this.provider, dep.repo, targetBranch);
-        let branch = targetBranch;
-        let usedFallback = false;
-
-        if (config == null && targetBranch !== dep.fallback_branch) {
-            config = await loadPreviewConfig(this.provider, dep.repo, dep.fallback_branch);
-            branch = dep.fallback_branch;
-            usedFallback = true;
-        }
-
-        if (config == null) {
-            logger.warn("No .preview.yaml found for dependency repo, skipping", {
-                name: dep.name,
-                repo: dep.repo,
-                targetBranch,
-                fallbackBranch: dep.fallback_branch,
-            });
-            return null;
-        }
+        const resolved = await resolveDependencyConfig(this.provider, organizationId, dep, targetBranch);
+        if (resolved == null) return null;
 
         const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
-        await this.provider.fetchRepoTarball(dep.repo, branch, tmpDir);
-        logger.info("Cloned dependency repo", { name: dep.name, repo: dep.repo, branch, usedFallback });
-        return { dep, config, tmpDir, usedFallback, targetBranch };
+        await this.provider.fetchRepoTarball(dep.repo, resolved.branch, tmpDir);
+        logger.info("Cloned dependency repo", {
+            name: dep.name,
+            repo: dep.repo,
+            branch: resolved.branch,
+            usedFallback: resolved.usedFallback,
+            source: resolved.source,
+            revisionId: resolved.revisionId,
+        });
+        return {
+            dep,
+            config: resolved.config,
+            tmpDir,
+            usedFallback: resolved.usedFallback,
+            targetBranch,
+            source: resolved.source,
+        };
     }
 
     private mergeConfigs(primaryConfig: PreviewConfig, deps: DependencyEntry[]): PreviewConfig {
@@ -883,10 +891,9 @@ export class PreviewPipeline {
                 const registered = [...ctx.arnByApp.keys()].sort();
                 const registeredList = registered.length > 0 ? registered.join(", ") : "(none)";
                 throw new Error(
-                    `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it under applicationId=${ctx.applicationId}. ` +
-                        `Registered appNames for this Application: ${registeredList}. ` +
-                        `If your secrets are attached to a different Application row (e.g. one without a github_repository_id), point them at ${ctx.applicationId} instead - that's the Application linked to this GitHub repo. ` +
-                        `Otherwise upsert a secret via PUT /v1/secrets/${ctx.applicationId}/${app.name}.`,
+                    `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it in this organization. ` +
+                        `Registered appNames across the org: ${registeredList}. ` +
+                        `Upsert a secret via PUT /v1/secrets/{applicationId}/${app.name} on the Application that owns this app's repo.`,
                 );
             }
 

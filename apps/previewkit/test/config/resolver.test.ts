@@ -15,7 +15,7 @@ describe("resolveConfig", () => {
         expect(config.services[0].recipe).toBe("postgres");
     });
 
-    it("applies platform standards (resources ignored -> app tier)", () => {
+    it("ignores explicit resource values from the config document", () => {
         const config = resolveConfig({
             document: {
                 version: 1,

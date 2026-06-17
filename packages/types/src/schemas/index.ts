@@ -15,6 +15,8 @@ export * from "./generation";
 export * from "./api-key";
 export * from "./secrets";
 export * from "./org-secrets";
+export * from "./previewkit-config";
+export * from "./previewkit-introspection";
 export * from "./healing-actions";
 export * from "./snapshot-report";
 export * from "./bug-detail";

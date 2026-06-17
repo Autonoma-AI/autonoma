@@ -26,14 +26,22 @@ import {
 } from "lib/onboarding/onboarding-api";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DocLink } from "./-components/doc-link";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 export const Route = createFileRoute("/_blacklight/onboarding/scenario-dry-run")({
   component: () => (
     <Navigate
       to="/onboarding"
-      search={{ step: "scenario-dry-run", appId: undefined, apiKey: undefined, setupId: undefined }}
+      search={{
+        step: "scenario-dry-run",
+        appId: undefined,
+        apiKey: undefined,
+        setupId: undefined,
+        focusApp: undefined,
+        focusField: undefined,
+        focusSection: undefined,
+      }}
     />
   ),
 });
@@ -214,8 +222,12 @@ function useLogEntries() {
 function formatError(error: unknown): string {
   if (error == null) return "Unknown error";
   if (typeof error === "string") return error;
-  if (typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
+  if (hasMessage(error)) return String(error.message);
   return String(error);
+}
+
+function hasMessage(error: unknown): error is { message: unknown } {
+  return typeof error === "object" && error != null && "message" in error;
 }
 
 function WebhookLog({ entries }: { entries: LogEntry[] }) {
@@ -290,8 +302,6 @@ export function DeployPage({ appId }: { appId?: string }) {
   const [signingSecret, setSigningSecret] = useState("");
   const [signingSecretTouched, setSigningSecretTouched] = useState(false);
   const [deployConfirmed, setDeployConfirmed] = useState(false);
-  const [appUrl, setAppUrl] = useState("");
-  const [appUrlTouched, setAppUrlTouched] = useState(false);
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -327,8 +337,6 @@ export function DeployPage({ appId }: { appId?: string }) {
   const webhookReachableButNoScenarios = webhookConfirmed && !hasScenarios && !scenariosQuery.isPending;
   const persistedDiscoveryError = onboardingStateQuery.data?.lastDiscoveryError ?? undefined;
   const lastDiscoveredModels = onboardingStateQuery.data?.lastDiscoveredModels ?? undefined;
-  const isAppUrlValid = appUrl.length > 0 && isValidUrl(appUrl);
-
   const allDryRunsPassed = scenarios.length > 0 && scenarios.every((s) => scenarioResults[s.id]?.success === true);
   const anyDryRunFailed = scenarios.some((s) => scenarioResults[s.id]?.success === false);
 
@@ -382,7 +390,7 @@ export function DeployPage({ appId }: { appId?: string }) {
     reconfigureWebhook.mutate({ applicationId });
   }
 
-  const handleRunAllDryRuns = useCallback(async () => {
+  async function handleRunAllDryRuns() {
     if (applicationId == null || scenarios.length === 0) return;
 
     setIsDryRunning(true);
@@ -419,18 +427,26 @@ export function DeployPage({ appId }: { appId?: string }) {
     }
 
     setIsDryRunning(false);
-  }, [applicationId, scenarios, runDryRun, log]);
+  }
 
   function handleComplete() {
-    if (applicationId == null || !isAppUrlValid) return;
+    if (applicationId == null) return;
 
     completeOnboarding.mutate(
-      { applicationId, productionUrl: appUrl },
+      { applicationId },
       {
         onSuccess: () => {
           void navigate({
             to: "/onboarding",
-            search: { step: "github", appId: applicationId, apiKey: undefined, setupId: undefined },
+            search: {
+              step: "github",
+              appId: applicationId,
+              apiKey: undefined,
+              setupId: undefined,
+              focusApp: undefined,
+              focusField: undefined,
+              focusSection: undefined,
+            },
             replace: true,
           });
         },
@@ -841,49 +857,30 @@ export function DeployPage({ appId }: { appId?: string }) {
       {/* Webhook log console */}
       <WebhookLog entries={log.entries} />
 
-      {/* Step 4: App URL + Continue */}
+      {/* Step 4: Continue to repository */}
       {allDryRunsPassed && (
         <section className="mt-10 space-y-4 border-t border-border-dim pt-10">
           <div className="flex items-start gap-4">
-            <StepNumber step={4} done={isAppUrlValid} />
+            <StepNumber step={4} done={false} />
             <div className="flex-1 space-y-4">
               <div>
-                <h2 className="text-lg font-medium text-text-primary">Set your application URL</h2>
+                <h2 className="text-lg font-medium text-text-primary">Connect your repository</h2>
                 <p className="mt-1 max-w-2xl text-sm leading-relaxed text-text-secondary">
-                  Where should Autonoma run tests? Use your staging or preview environment - somewhere that closely
-                  mirrors production but where test data won't affect real users. You can change this later in settings.
+                  The SDK handshake works. Next, choose the repository Autonoma will deploy or observe before setting up
+                  the preview environment.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="app-url">Application URL</Label>
-                <Input
-                  id="app-url"
-                  type="url"
-                  value={appUrl}
-                  onChange={(e) => setAppUrl(e.target.value)}
-                  onBlur={() => setAppUrlTouched(true)}
-                  aria-invalid={appUrlTouched && appUrl.length > 0 && !isValidUrl(appUrl)}
-                  placeholder="https://staging.your-app.com"
-                  className="max-w-lg"
-                />
-                {appUrlTouched && appUrl.length > 0 && !isValidUrl(appUrl) && (
-                  <p className="text-2xs text-status-critical">Enter a valid URL starting with http:// or https://</p>
-                )}
-              </div>
-
-              {isAppUrlValid && (
-                <Button
-                  variant="accent"
-                  className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
-                  onClick={handleComplete}
-                  disabled={isCompleting}
-                  aria-label="onboarding-complete"
-                >
-                  {isCompleting ? "Completing..." : "Continue"}
-                  <ArrowRightIcon size={18} weight="bold" />
-                </Button>
-              )}
+              <Button
+                variant="accent"
+                className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
+                onClick={handleComplete}
+                disabled={isCompleting}
+                aria-label="onboarding-connect-repository"
+              >
+                {isCompleting ? "Continuing..." : "Connect repository"}
+                <ArrowRightIcon size={18} weight="bold" />
+              </Button>
             </div>
           </div>
         </section>

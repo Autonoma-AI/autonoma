@@ -11,6 +11,7 @@ export {
     type PullRequestCommit,
     type Commit,
     type CommitFile,
+    type GitTree,
 } from "./github-installation-client";
 export type { EtagStore } from "./etag-store";
 export { FakeGitHubApp } from "./fake/fake-github-app";

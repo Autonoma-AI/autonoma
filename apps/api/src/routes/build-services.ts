@@ -16,6 +16,7 @@ import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { PullRequestCacheService } from "../github/pull-request-cache.service";
+import { RepoIntrospectionService } from "../github/repo-introspection.service";
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { AdminService } from "./admin/admin.service";
@@ -53,6 +54,7 @@ export interface Services {
     secrets: PreviewkitSecretsService;
     orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
+    repoIntrospection: RepoIntrospectionService;
     issues: IssuesService;
     onboarding: OnboardingService;
     snapshotEdit: SnapshotEditService;
@@ -99,15 +101,29 @@ export function buildServices({
     triggerPreviewTeardown,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
-    const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper);
+    const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn);
     const githubService = new GitHubInstallationService(conn, githubApp);
-    const prCacheService = new PullRequestCacheService(conn, githubService);
+    const repoIntrospectionService = new RepoIntrospectionService(conn, githubApp);
+    const applicationsService = new ApplicationsService(conn, encryptionHelper);
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
         githubService,
         triggerPreviewDeploy,
         triggerPreviewTeardown,
     );
+    const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, {
+        previewkitClient: {
+            isConfigured: () => env.PREVIEWKIT_ENABLED,
+            deployApplicationMain: async (applicationId, organizationId) => {
+                await previewkitTrigger.deployMainBranch(applicationId, organizationId);
+            },
+        },
+        previewkitSecretsService,
+        repoIntrospection: repoIntrospectionService,
+        github: githubService,
+        applications: applicationsService,
+    });
+    const prCacheService = new PullRequestCacheService(conn, githubService);
 
     return {
         admin: new AdminService(conn, auth, githubApp),
@@ -116,7 +132,7 @@ export function buildServices({
         branches: new BranchesService(conn, githubService, storageProvider, prCacheService),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
-        applications: new ApplicationsService(conn, encryptionHelper),
+        applications: applicationsService,
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn, storageProvider),
@@ -125,6 +141,7 @@ export function buildServices({
         secrets: new PreviewkitSecretsService(env.S3_REGION, conn),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
+        repoIntrospection: repoIntrospectionService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
         onboarding: new OnboardingService(onboardingManager),
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),

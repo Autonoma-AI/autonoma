@@ -47,7 +47,15 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   if (applications.length === 0 && !isAdminEscapeHatch) {
     throw redirect({
       to: "/onboarding",
-      search: { step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined },
+      search: {
+        step: "cli-setup",
+        appId: undefined,
+        apiKey: undefined,
+        setupId: undefined,
+        focusApp: undefined,
+        focusField: undefined,
+        focusSection: undefined,
+      },
     });
   }
 

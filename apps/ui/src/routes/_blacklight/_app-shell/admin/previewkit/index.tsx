@@ -33,8 +33,8 @@ const STATUS_VARIANT: Record<PreviewEnvironment["status"], "success" | "warn" | 
   deploying: "warn",
   pending: "warn",
   failed: "critical",
+  superseded: "outline",
   torn_down: "outline",
-  superseded: "warn",
 };
 
 function AdminPreviewkitPage() {

@@ -315,7 +315,7 @@ export class ApplicationsService extends Service {
                 });
 
                 await tx.onboardingState.create({
-                    data: { applicationId: app.id },
+                    data: { applicationId: app.id, step: "webhook_configuring" },
                 });
 
                 this.logger.info("Minimal application created", { applicationId: app.id });
@@ -365,6 +365,10 @@ export class ApplicationsService extends Service {
                 disabled: true,
                 slug: `${suffix}-${app.slug}`,
                 name: `${suffix}-${app.name}`,
+                // Free the repo so the same GitHub repository can be linked to a
+                // new application - the unique [organizationId, githubRepositoryId]
+                // constraint would otherwise reject re-linking after a delete.
+                githubRepositoryId: null,
             },
         });
 

@@ -29,7 +29,7 @@ export interface PreviewkitServices {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
     githubProvider: GitHubProvider;
-    /** Composed build-log sink (Redis and/or Loki); exposed so the worker can drain it on shutdown. */
+    /** Build-log sink; exposed so the worker can drain it on shutdown. */
     buildLogSink?: BuildLogSink;
 }
 

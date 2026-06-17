@@ -22,6 +22,74 @@ export class OnboardingService extends Service {
         return this.manager.completeGithub(applicationId, organizationId);
     }
 
+    async selectPreviewEnvironmentMode(
+        applicationId: string,
+        organizationId: string,
+        mode: "previewkit" | "existing_deploys",
+    ) {
+        return this.manager.selectPreviewEnvironmentMode(applicationId, organizationId, mode);
+    }
+
+    async confirmExistingDeploysSetup(applicationId: string, organizationId: string) {
+        return this.manager.confirmExistingDeploysSetup(applicationId, organizationId);
+    }
+
+    async triggerPreviewkitMainDeploy(applicationId: string, organizationId: string) {
+        return this.manager.triggerPreviewkitMainDeploy(applicationId, organizationId);
+    }
+
+    async getPreviewkitConfig(applicationId: string, organizationId: string) {
+        return this.manager.getPreviewkitConfig(applicationId, organizationId);
+    }
+
+    async savePreviewkitConfig(
+        applicationId: string,
+        organizationId: string,
+        document: unknown,
+        userId: string,
+        dependencyDocuments?: Array<{ repo: string; document: unknown }>,
+    ) {
+        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, userId, dependencyDocuments);
+    }
+
+    async getDeploymentSignalStatus(applicationId: string, organizationId: string) {
+        return this.manager.getDeploymentSignalStatus(applicationId, organizationId);
+    }
+
+    async validatePreviewkitConfig(
+        applicationId: string,
+        organizationId: string,
+        document: unknown,
+        githubRepositoryId?: number,
+    ) {
+        return this.manager.validatePreviewkitConfig(applicationId, organizationId, document, githubRepositoryId);
+    }
+
+    async listPreviewkitSecrets(applicationId: string, organizationId: string, appName: string) {
+        return this.manager.listPreviewkitSecrets(applicationId, organizationId, appName);
+    }
+
+    async upsertPreviewkitSecrets(
+        applicationId: string,
+        organizationId: string,
+        appName: string,
+        items: Array<{ key: string; value: string }>,
+    ) {
+        return this.manager.upsertPreviewkitSecrets(applicationId, organizationId, appName, items);
+    }
+
+    async deletePreviewkitSecret(applicationId: string, organizationId: string, appName: string, key: string) {
+        return this.manager.deletePreviewkitSecret(applicationId, organizationId, appName, key);
+    }
+
+    async getPreviewReadiness(applicationId: string, organizationId: string) {
+        return this.manager.getPreviewReadiness(applicationId, organizationId);
+    }
+
+    async completePreviewOnboarding(applicationId: string, organizationId: string) {
+        return this.manager.completePreviewOnboarding(applicationId, organizationId);
+    }
+
     async configureAndDiscoverScenarios(
         applicationId: string,
         organizationId: string,
@@ -48,9 +116,5 @@ export class OnboardingService extends Service {
 
     async complete(applicationId: string, productionUrl?: string) {
         return this.manager.complete(applicationId, productionUrl);
-    }
-
-    async reset(applicationId: string) {
-        return this.manager.reset(applicationId);
     }
 }

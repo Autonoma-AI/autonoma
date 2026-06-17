@@ -3,6 +3,7 @@ import type {
     CloneRepositoryParams,
     Commit,
     GitHubInstallationClient,
+    GitTree,
     ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
@@ -152,6 +153,33 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
     async getBranchHead(repoId: number, branchName: string): Promise<string> {
         this.logger.info("Returning local-dev branch head", { repoId, branchName });
         return `head-${repoId}-${branchName}`;
+    }
+
+    async getGitTree(repoId: number, ref: string): Promise<GitTree> {
+        this.logger.info("Returning local-dev git tree", { repoId, ref });
+        return {
+            paths: [
+                "package.json",
+                "pnpm-workspace.yaml",
+                "apps/web/package.json",
+                "apps/web/Dockerfile",
+                "apps/api/package.json",
+            ],
+            truncated: false,
+        };
+    }
+
+    async getFileContent(repoId: number, path: string, ref: string): Promise<string | undefined> {
+        this.logger.info("Returning local-dev file content", { repoId, path, ref });
+        if (path === "pnpm-workspace.yaml") return 'packages:\n  - "apps/*"\n';
+        if (path === "package.json") return JSON.stringify({ name: "local-dev-root", private: true });
+        if (path === "apps/web/package.json") {
+            return JSON.stringify({ name: "web", scripts: { dev: "next dev -p 3000" }, dependencies: { next: "*" } });
+        }
+        if (path === "apps/api/package.json") {
+            return JSON.stringify({ name: "api", scripts: { start: "node server.js" } });
+        }
+        return undefined;
     }
 
     async postComment(repoFullName: string, prNumber: number, _body: string): Promise<string> {

@@ -15,7 +15,11 @@ import { Route as BlacklightOnboardingRouteRouteImport } from './routes/_blackli
 import { Route as BlacklightAppShellRouteRouteImport } from './routes/_blacklight/_app-shell/route'
 import { Route as BlacklightAppShellIndexRouteImport } from './routes/_blacklight/_app-shell/index'
 import { Route as BlacklightOnboardingScenarioDryRunRouteImport } from './routes/_blacklight/onboarding/scenario-dry-run'
+import { Route as BlacklightOnboardingPreviewkitConfigRouteImport } from './routes/_blacklight/onboarding/previewkit-config'
+import { Route as BlacklightOnboardingPreviewEnvironmentRouteImport } from './routes/_blacklight/onboarding/preview-environment'
+import { Route as BlacklightOnboardingPreviewDeployVerifyRouteImport } from './routes/_blacklight/onboarding/preview-deploy-verify'
 import { Route as BlacklightOnboardingGithubRouteImport } from './routes/_blacklight/onboarding/github'
+import { Route as BlacklightOnboardingExistingDeploysRouteImport } from './routes/_blacklight/onboarding/existing-deploys'
 import { Route as BlacklightOnboardingCompleteRouteImport } from './routes/_blacklight/onboarding/complete'
 import { Route as BlacklightauthRejectedRouteImport } from './routes/_blacklight/(auth)/rejected'
 import { Route as BlacklightauthPendingRouteImport } from './routes/_blacklight/(auth)/pending'
@@ -89,10 +93,34 @@ const BlacklightOnboardingScenarioDryRunRoute =
     path: '/scenario-dry-run',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
+const BlacklightOnboardingPreviewkitConfigRoute =
+  BlacklightOnboardingPreviewkitConfigRouteImport.update({
+    id: '/previewkit-config',
+    path: '/previewkit-config',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
+const BlacklightOnboardingPreviewEnvironmentRoute =
+  BlacklightOnboardingPreviewEnvironmentRouteImport.update({
+    id: '/preview-environment',
+    path: '/preview-environment',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
+const BlacklightOnboardingPreviewDeployVerifyRoute =
+  BlacklightOnboardingPreviewDeployVerifyRouteImport.update({
+    id: '/preview-deploy-verify',
+    path: '/preview-deploy-verify',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
 const BlacklightOnboardingGithubRoute =
   BlacklightOnboardingGithubRouteImport.update({
     id: '/github',
     path: '/github',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
+const BlacklightOnboardingExistingDeploysRoute =
+  BlacklightOnboardingExistingDeploysRouteImport.update({
+    id: '/existing-deploys',
+    path: '/existing-deploys',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
 const BlacklightOnboardingCompleteRoute =
@@ -372,7 +400,11 @@ export interface FileRoutesByFullPath {
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/onboarding/github': typeof BlacklightOnboardingGithubRoute
+  '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
+  '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
+  '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
   '/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
   '/login/': typeof BlacklightauthLoginIndexRoute
@@ -420,7 +452,11 @@ export interface FileRoutesByTo {
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/onboarding/github': typeof BlacklightOnboardingGithubRoute
+  '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
+  '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
+  '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
   '/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/login': typeof BlacklightauthLoginIndexRoute
   '/admin': typeof BlacklightAppShellAdminIndexRoute
@@ -465,7 +501,11 @@ export interface FileRoutesById {
   '/_blacklight/(auth)/pending': typeof BlacklightauthPendingRoute
   '/_blacklight/(auth)/rejected': typeof BlacklightauthRejectedRoute
   '/_blacklight/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/_blacklight/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/_blacklight/onboarding/github': typeof BlacklightOnboardingGithubRoute
+  '/_blacklight/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
+  '/_blacklight/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
+  '/_blacklight/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
   '/_blacklight/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/_blacklight/_app-shell/': typeof BlacklightAppShellIndexRoute
   '/_blacklight/_app-shell/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
@@ -517,7 +557,11 @@ export interface FileRouteTypes {
     | '/pending'
     | '/rejected'
     | '/onboarding/complete'
+    | '/onboarding/existing-deploys'
     | '/onboarding/github'
+    | '/onboarding/preview-deploy-verify'
+    | '/onboarding/preview-environment'
+    | '/onboarding/previewkit-config'
     | '/onboarding/scenario-dry-run'
     | '/app/$appSlug'
     | '/login/'
@@ -565,7 +609,11 @@ export interface FileRouteTypes {
     | '/pending'
     | '/rejected'
     | '/onboarding/complete'
+    | '/onboarding/existing-deploys'
     | '/onboarding/github'
+    | '/onboarding/preview-deploy-verify'
+    | '/onboarding/preview-environment'
+    | '/onboarding/previewkit-config'
     | '/onboarding/scenario-dry-run'
     | '/login'
     | '/admin'
@@ -609,7 +657,11 @@ export interface FileRouteTypes {
     | '/_blacklight/(auth)/pending'
     | '/_blacklight/(auth)/rejected'
     | '/_blacklight/onboarding/complete'
+    | '/_blacklight/onboarding/existing-deploys'
     | '/_blacklight/onboarding/github'
+    | '/_blacklight/onboarding/preview-deploy-verify'
+    | '/_blacklight/onboarding/preview-environment'
+    | '/_blacklight/onboarding/previewkit-config'
     | '/_blacklight/onboarding/scenario-dry-run'
     | '/_blacklight/_app-shell/'
     | '/_blacklight/_app-shell/app/$appSlug'
@@ -701,11 +753,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightOnboardingScenarioDryRunRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
+    '/_blacklight/onboarding/previewkit-config': {
+      id: '/_blacklight/onboarding/previewkit-config'
+      path: '/previewkit-config'
+      fullPath: '/onboarding/previewkit-config'
+      preLoaderRoute: typeof BlacklightOnboardingPreviewkitConfigRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
+    '/_blacklight/onboarding/preview-environment': {
+      id: '/_blacklight/onboarding/preview-environment'
+      path: '/preview-environment'
+      fullPath: '/onboarding/preview-environment'
+      preLoaderRoute: typeof BlacklightOnboardingPreviewEnvironmentRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
+    '/_blacklight/onboarding/preview-deploy-verify': {
+      id: '/_blacklight/onboarding/preview-deploy-verify'
+      path: '/preview-deploy-verify'
+      fullPath: '/onboarding/preview-deploy-verify'
+      preLoaderRoute: typeof BlacklightOnboardingPreviewDeployVerifyRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
     '/_blacklight/onboarding/github': {
       id: '/_blacklight/onboarding/github'
       path: '/github'
       fullPath: '/onboarding/github'
       preLoaderRoute: typeof BlacklightOnboardingGithubRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
+    '/_blacklight/onboarding/existing-deploys': {
+      id: '/_blacklight/onboarding/existing-deploys'
+      path: '/existing-deploys'
+      fullPath: '/onboarding/existing-deploys'
+      preLoaderRoute: typeof BlacklightOnboardingExistingDeploysRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
     '/_blacklight/onboarding/complete': {
@@ -1203,14 +1283,26 @@ const BlacklightAppShellRouteRouteWithChildren =
 
 interface BlacklightOnboardingRouteRouteChildren {
   BlacklightOnboardingCompleteRoute: typeof BlacklightOnboardingCompleteRoute
+  BlacklightOnboardingExistingDeploysRoute: typeof BlacklightOnboardingExistingDeploysRoute
   BlacklightOnboardingGithubRoute: typeof BlacklightOnboardingGithubRoute
+  BlacklightOnboardingPreviewDeployVerifyRoute: typeof BlacklightOnboardingPreviewDeployVerifyRoute
+  BlacklightOnboardingPreviewEnvironmentRoute: typeof BlacklightOnboardingPreviewEnvironmentRoute
+  BlacklightOnboardingPreviewkitConfigRoute: typeof BlacklightOnboardingPreviewkitConfigRoute
   BlacklightOnboardingScenarioDryRunRoute: typeof BlacklightOnboardingScenarioDryRunRoute
 }
 
 const BlacklightOnboardingRouteRouteChildren: BlacklightOnboardingRouteRouteChildren =
   {
     BlacklightOnboardingCompleteRoute: BlacklightOnboardingCompleteRoute,
+    BlacklightOnboardingExistingDeploysRoute:
+      BlacklightOnboardingExistingDeploysRoute,
     BlacklightOnboardingGithubRoute: BlacklightOnboardingGithubRoute,
+    BlacklightOnboardingPreviewDeployVerifyRoute:
+      BlacklightOnboardingPreviewDeployVerifyRoute,
+    BlacklightOnboardingPreviewEnvironmentRoute:
+      BlacklightOnboardingPreviewEnvironmentRoute,
+    BlacklightOnboardingPreviewkitConfigRoute:
+      BlacklightOnboardingPreviewkitConfigRoute,
     BlacklightOnboardingScenarioDryRunRoute:
       BlacklightOnboardingScenarioDryRunRoute,
   }

@@ -23,7 +23,8 @@ Structured logging package for all Autonoma backend services. Wraps Sentry for p
 Secondary export paths:
 
 - `@autonoma/logger/env` exposes the validated environment config.
-- `@autonoma/logger/build-log-spool` exposes `BuildLogSpool` - the live build-log streaming tier (see below). It is intentionally **not** re-exported from the package root so its `ioredis` dependency stays out of the universal logger entry.
+- `@autonoma/logger/loki-build-log-sink` exposes `LokiBuildLogSink` for PreviewKit build-log publishing.
+- `@autonoma/logger/loki-log-store` exposes `LokiLogStore` for PreviewKit build/app log reads.
 
 ## Usage
 
@@ -71,28 +72,11 @@ function processResult(result: Result, logger: Logger) {
 }
 ```
 
-### Build log streaming (`BuildLogSpool`)
+### PreviewKit log relay
 
-`@autonoma/logger/build-log-spool` is a **separate data plane** from the telemetry logger above. It is the ephemeral tier between a build process (producer) and a relay (consumer): the producer `append`s log lines + phase/status events to a per-environment Redis Stream, the consumer polls `readBatch` and forwards them (e.g. to a browser over SSE), and the producer `seal`s the stream when the build ends. It is bounded (`MAXLEN ~`) and resumable (Redis Stream entry ids map onto the SSE `Last-Event-ID` protocol).
+PreviewKit build and app logs use Grafana Loki as the customer-facing log data plane. Build output is pushed through `LokiBuildLogSink`, app stdout/stderr is collected by the preview cluster logging stack, and the API reads both sources with `LokiLogStore` before relaying entries to the browser over SSE.
 
-It is **not a logger** and never touches Sentry - build output is customer-facing and may echo secrets, so it must not flow into error tracking. The `BuildLogSpool` class uses the root logger only to observe itself.
-
-```ts
-import { BuildLogSpool } from "@autonoma/logger/build-log-spool";
-import Redis from "ioredis";
-
-const spool = new BuildLogSpool(new Redis(process.env.REDIS_URL));
-
-// Producer
-await spool.append(namespace, { kind: "log", app: "api", message: chunk });
-await spool.append(namespace, { kind: "phase", message: "building-images" });
-await spool.seal(namespace, 3600); // shorten TTL once finished
-
-// Consumer (poll loop)
-const entries = await spool.readBatch(namespace, lastSeenId); // "0" replays from the start
-```
-
-A Testcontainers integration test (`pnpm test:integration`, requires Docker) exercises the full `append` -> `readBatch` round-trip against a real Redis; the default `pnpm test` excludes it and needs no Docker.
+This path is intentionally separate from telemetry logging: customer build output may echo secrets, so it must not flow into Sentry. The sink only uses the root logger to observe delivery failures.
 
 ### Running a job with Sentry
 

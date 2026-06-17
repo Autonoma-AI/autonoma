@@ -592,6 +592,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../../packages/utils

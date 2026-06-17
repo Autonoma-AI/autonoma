@@ -11,6 +11,7 @@ import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
 import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
+import { onboardingHttpRouter } from "./routes/onboarding/onboarding-http.router";
 import { appRouter } from "./routes/router";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
 
@@ -107,6 +108,10 @@ export function createApiApp() {
     // environments (with credentials), so CORS must mirror the tRPC mount.
     app.use("/v1/previewkit/*", cors(corsOptions));
     app.route("/v1/previewkit", previewkitHttpRouter);
+
+    // ─── Onboarding HTTP integrations ────────────────────────────────
+
+    app.route("/v1/onboarding", onboardingHttpRouter);
 
     // ─── Stripe ───────────────────────────────────────────────────────
 

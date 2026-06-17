@@ -3,6 +3,7 @@ import type {
     Commit,
     CommitFile,
     GitHubInstallationClient,
+    GitTree,
     ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
@@ -58,6 +59,11 @@ interface InternalRepo {
     branches: Map<string, InternalBranch>;
     pullRequests: Map<number, InternalPullRequest>;
     commitDetails: Map<string, CommitDetails>;
+    /** File paths returned by getGitTree. Set via setTree. */
+    treePaths: string[];
+    treeTruncated: boolean;
+    /** File contents returned by getFileContent, keyed by path. Set via setFile. */
+    files: Map<string, string>;
 }
 
 export class FakeGitHubInstallationClient implements GitHubInstallationClient {
@@ -92,6 +98,9 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             branches: new Map(),
             pullRequests: new Map(),
             commitDetails: new Map(),
+            treePaths: [],
+            treeTruncated: false,
+            files: new Map(),
         };
         this.repositories.set(setup.fullName, repo);
         this.repoById.set(setup.id, repo);
@@ -135,6 +144,20 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             throw new Error(`Commit "${sha}" not found on any branch of ${fullName}`);
         }
         repo.commitDetails.set(sha, details);
+    }
+
+    /** Registers the file paths getGitTree returns for this repo (any ref). */
+    setTree(fullName: string, paths: string[], options?: { truncated?: boolean }): void {
+        const repo = this.requireRepo(fullName);
+        repo.treePaths = [...paths];
+        repo.treeTruncated = options?.truncated ?? false;
+    }
+
+    /** Registers a file's content for getFileContent (any ref) and adds its path to the tree. */
+    setFile(fullName: string, path: string, content: string): void {
+        const repo = this.requireRepo(fullName);
+        repo.files.set(path, content);
+        if (!repo.treePaths.includes(path)) repo.treePaths.push(path);
     }
 
     /** Appends a commit to a branch. For the default branch, pass its name (e.g. "main"). */
@@ -279,6 +302,16 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             throw new Error(`No commits on branch "${branchName}"`);
         }
         return head;
+    }
+
+    async getGitTree(repoId: number, _ref: string): Promise<GitTree> {
+        const repo = this.requireRepoById(repoId);
+        return { paths: [...repo.treePaths], truncated: repo.treeTruncated };
+    }
+
+    async getFileContent(repoId: number, path: string, _ref: string): Promise<string | undefined> {
+        const repo = this.requireRepoById(repoId);
+        return repo.files.get(path);
     }
 
     async getInstallation(_installationId: number): Promise<{ account: unknown }> {

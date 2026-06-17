@@ -1,7 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
+
+export function useApplications() {
+    return useSuspenseQuery(trpc.applications.list.queryOptions());
+}
 
 export function useCreateApplication() {
     const queryClient = useQueryClient();

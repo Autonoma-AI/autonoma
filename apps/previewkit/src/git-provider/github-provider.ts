@@ -10,6 +10,10 @@ function parseRepo(repoFullName: string): { owner: string; repo: string } {
     return { owner, repo };
 }
 
+function isNotFoundError(error: unknown): boolean {
+    return typeof error === "object" && error != null && "status" in error && error.status === 404;
+}
+
 /**
  * Narrows octokit's `response.data` into a Node Readable for streaming. With
  * `parseSuccessResponseBody:false`, octokit sets `data` to the fetch response's
@@ -86,6 +90,29 @@ export class GitHubProvider implements GitProvider {
             defaultBranch: data.default_branch,
             private: data.private,
         };
+    }
+
+    async getRepositoryByFullName(repoFullName: string): Promise<GitRepository | undefined> {
+        const { owner, repo } = parseRepo(repoFullName);
+
+        try {
+            const octokit = await this.getInstallationOctokit(repoFullName);
+            const { data } = await octokit.request("GET /repos/{owner}/{repo}", { owner, repo });
+
+            return {
+                id: data.id,
+                name: data.name,
+                fullName: data.full_name,
+                defaultBranch: data.default_branch,
+                private: data.private,
+            };
+        } catch (error: unknown) {
+            if (isNotFoundError(error)) {
+                logger.info("Repository not found by full name", { repoFullName });
+                return undefined;
+            }
+            throw error;
+        }
     }
 
     async getBranchHead(repoFullName: string, branchName: string): Promise<string> {

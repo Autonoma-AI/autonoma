@@ -1,4 +1,4 @@
-import type { OnboardingStep, PrismaClient } from "@autonoma/db";
+import type { OnboardingPreviewEnvironmentMode, OnboardingStep, PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 
@@ -45,7 +45,7 @@ export interface ScenarioDryRunResult {
  * Base class for the onboarding state machine (State pattern).
  *
  * Each step in the onboarding flow (webhook_configuring -> discovered ->
- * dry_run_passed -> url -> github -> completed) is represented by a concrete
+ * dry_run_passed -> github -> preview_environment -> preview_verified -> completed) is represented by a concrete
  * subclass that overrides only the transitions valid for that step. All other
  * transitions throw {@link InvalidOnboardingStepError}.
  *
@@ -98,26 +98,27 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "set url");
     }
 
-    /** Transition from `github` to `completed`. */
+    /** Transition from `github` to `preview_environment`. */
     completeGithub(): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "complete github");
     }
 
-    async reset(): Promise<void> {
-        this.logger.info("Resetting onboarding");
-        await this.db.onboardingState.update({
-            where: { applicationId: this.applicationId },
-            data: {
-                step: "webhook_configuring",
-                agentConnectedAt: null,
-                agentLogs: [],
-                productionUrl: null,
-                completedAt: null,
-                lastDiscoveryError: null,
-                lastDiscoveredAt: null,
-                lastDiscoveredModels: null,
-                discoveringStartedAt: null,
-            },
-        });
+    /** Select whether onboarding should use PreviewKit-managed deploys or existing deploys. */
+    selectPreviewEnvironmentMode(_mode: OnboardingPreviewEnvironmentMode): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "select preview environment mode");
+    }
+
+    /**
+     * Existing-deploys path: mark setup as finished and move to
+     * `existing_deploys_waiting`, where onboarding waits for the first signed
+     * deployment signal to arrive (which advances it to `preview_verified`).
+     */
+    confirmExistingDeploysSetup(): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "confirm existing deploys setup");
+    }
+
+    /** Transition from `preview_verified` to `completed`. */
+    completePreviewOnboarding(): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "complete preview onboarding");
     }
 }

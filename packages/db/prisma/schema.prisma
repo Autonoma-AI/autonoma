@@ -156,26 +156,51 @@ enum OnboardingStep {
   dry_run_passed
   url
   github
+  preview_environment
+  previewkit_configuring
+  previewkit_deploying
+  existing_deploys_configuring
+  existing_deploys_waiting
+  preview_verified
   completed
 
   @@map("onboarding_step")
 }
 
+enum OnboardingPreviewEnvironmentMode {
+  previewkit
+  existing_deploys
+
+  @@map("onboarding_preview_environment_mode")
+}
+
+enum OnboardingPreviewVerificationStatus {
+  idle
+  building
+  ready
+  failed
+
+  @@map("onboarding_preview_verification_status")
+}
+
 model OnboardingState {
-  id                   String         @id @default(cuid())
-  applicationId        String         @unique @map("application_id")
-  step                 OnboardingStep @default(webhook_configuring) @map("step")
-  agentConnectedAt     DateTime?      @map("agent_connected_at")
+  id                        String                              @id @default(cuid())
+  applicationId             String                              @unique @map("application_id")
+  step                      OnboardingStep                      @default(webhook_configuring) @map("step")
+  agentConnectedAt          DateTime?                           @map("agent_connected_at")
   /// [AgentLogEntry]
-  agentLogs            Json           @default("[]") @map("agent_logs")
-  productionUrl        String?        @map("production_url")
-  completedAt          DateTime?      @map("completed_at")
-  lastDiscoveryError   String?        @map("last_discovery_error")
-  lastDiscoveredAt     DateTime?      @map("last_discovered_at")
-  lastDiscoveredModels Int?           @map("last_discovered_models")
-  discoveringStartedAt DateTime?      @map("discovering_started_at")
-  createdAt            DateTime       @default(now()) @map("created_at")
-  updatedAt            DateTime       @updatedAt @map("updated_at")
+  agentLogs                 Json                                @default("[]") @map("agent_logs")
+  productionUrl             String?                             @map("production_url")
+  previewEnvironmentMode    OnboardingPreviewEnvironmentMode?   @map("preview_environment_mode")
+  previewUrl                String?                             @map("preview_url")
+  previewVerificationStatus OnboardingPreviewVerificationStatus @default(idle) @map("preview_verification_status")
+  completedAt               DateTime?                           @map("completed_at")
+  lastDiscoveryError        String?                             @map("last_discovery_error")
+  lastDiscoveredAt          DateTime?                           @map("last_discovered_at")
+  lastDiscoveredModels      Int?                                @map("last_discovered_models")
+  discoveringStartedAt      DateTime?                           @map("discovering_started_at")
+  createdAt                 DateTime                            @default(now()) @map("created_at")
+  updatedAt                 DateTime                            @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 

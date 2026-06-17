@@ -108,7 +108,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
-        // ?source=build (default) streams the Redis-backed build output;
+        // ?source=build (default) streams Loki-backed build output;
         // ?source=app streams the Loki-backed runtime stdout/stderr.
         const sourceParsed = logSourceSchema.safeParse(c.req.query("source"));
         if (!sourceParsed.success) return c.json({ error: "source must be 'build' or 'app'" }, 400);

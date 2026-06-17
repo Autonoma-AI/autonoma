@@ -29,6 +29,14 @@ export interface GitProvider {
 
     getRepository(installationId: number, repositoryId: number): Promise<GitRepository>;
 
+    /**
+     * Resolves a repository by its `owner/name` full name through the installation
+     * that has access to it. Returns undefined when the repo doesn't exist or no
+     * installation can see it - callers use this to map config repo references
+     * (e.g. multirepo dependencies) onto GitHub-side repo ids.
+     */
+    getRepositoryByFullName(repoFullName: string): Promise<GitRepository | undefined>;
+
     getBranchHead(repoFullName: string, branchName: string): Promise<string>;
 
     fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined>;

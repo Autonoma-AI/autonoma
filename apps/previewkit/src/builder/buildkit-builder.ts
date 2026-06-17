@@ -87,8 +87,8 @@ class TeeBuildLog implements BuildLogWriter {
     write(chunk: string | Uint8Array): boolean {
         const ok = this.file.write(chunk);
         const message = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-        // Fire-and-forget: the sink swallows + logs its own errors, so a Redis
-        // or Loki hiccup can never block or fail the build it is mirroring.
+        // Fire-and-forget: the sink swallows + logs its own errors, so a Loki
+        // hiccup can never block or fail the build it is mirroring.
         void this.sink.append(this.namespace, { kind: "log", app: this.app, message });
         return ok;
     }

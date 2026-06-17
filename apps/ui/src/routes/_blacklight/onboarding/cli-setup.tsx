@@ -22,6 +22,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useArtifactStatus } from "lib/query/app-generations.queries";
 import { useApplicationSharedSecret, useCreateMinimalApplication } from "lib/query/applications.queries";
 import { trpc, trpcClient } from "lib/trpc";
@@ -85,14 +86,9 @@ export function CliSetupPage({ appId }: CliSetupProps) {
     return (
       <NameStep
         onCreated={(id) => {
-          // Put the new app id in the URL so a refresh keeps us on the setup
-          // step instead of dropping back to "create application". Pin step to
-          // cli-setup so it wins over the backend onboarding state (which a
-          // fresh app already reports as a later view step).
-          void navigate({
-            to: "/onboarding",
-            search: { step: "cli-setup", appId: id, apiKey: undefined, setupId: undefined },
-          });
+          // Put the new app id in the URL so a refresh keeps us in the CLI setup
+          // instead of dropping back to "create application".
+          void navigate({ to: "/onboarding", search: buildOnboardingSearch("cli-setup", id) });
         }}
       />
     );
@@ -142,12 +138,12 @@ function NameStep({ onCreated }: { onCreated: (appId: string) => void }) {
     <>
       <OnboardingPageHeader
         title="Create your application"
-        description="Give your application a name. You'll run the Autonoma CLI to generate your test artifacts - it uploads them here automatically when it finishes."
+        description="Give your application a name, then connect the repository Autonoma will deploy with PreviewKit."
       />
 
       <form onSubmit={handleSubmit} className="mt-10 flex max-w-md flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="app-name" className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
+          <Label htmlFor="app-name" className="font-mono text-2xs uppercase tracking-widest text-text-secondary">
             Application name
           </Label>
           <Input
@@ -221,7 +217,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
       await navigate({
         to: "/onboarding",
         replace: true,
-        search: { step: "cli-setup", appId: applicationId, apiKey: keyResult.key, setupId: newSetupId },
+        search: buildOnboardingSearch("cli-setup", applicationId, { apiKey: keyResult.key, setupId: newSetupId }),
       });
     }
 
@@ -238,10 +234,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
     if (!artifactStatus.complete || hasAdvanced.current) return;
     hasAdvanced.current = true;
     const timeout = setTimeout(() => {
-      void navigate({
-        to: "/onboarding",
-        search: { step: "scenario-dry-run", appId: applicationId, apiKey: undefined, setupId: undefined },
-      });
+      void navigate({ to: "/onboarding", search: buildOnboardingSearch("scenario-dry-run", applicationId) });
     }, 1500);
     return () => clearTimeout(timeout);
   }, [artifactStatus.complete, applicationId, navigate]);
@@ -344,10 +337,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
   }
 
   function handleContinue() {
-    void navigate({
-      to: "/onboarding",
-      search: { step: "scenario-dry-run", appId: applicationId, apiKey: undefined, setupId: undefined },
-    });
+    void navigate({ to: "/onboarding", search: buildOnboardingSearch("scenario-dry-run", applicationId) });
   }
 
   const nextIdx = artifactStatus.artifacts.findIndex((artifact) => !artifact.received);
@@ -403,7 +393,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
                 {displayCommand}
               </pre>
 
-              <p className="font-mono text-3xs text-text-tertiary">
+              <p className="font-mono text-3xs text-text-secondary">
                 The CLI prompts for an{" "}
                 <a
                   href="https://openrouter.ai/keys"
@@ -451,7 +441,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
           </PanelHeader>
 
           <PanelBody className="flex flex-col gap-4">
-            <p className="font-mono text-3xs text-text-tertiary">
+            <p className="font-mono text-3xs text-text-secondary">
               The CLI reads your app, maps your data models, and writes a test suite. Each piece shows up here as it
               finishes - this page updates on its own.
             </p>
@@ -475,22 +465,22 @@ function SetupStep({ applicationId }: { applicationId: string }) {
                       ) : isNext ? (
                         <BrailleSpinner size="sm" className="text-text-secondary" />
                       ) : (
-                        <CircleDashedIcon size={16} className="text-text-tertiary" />
+                        <CircleDashedIcon size={16} className="text-text-secondary" />
                       )}
                     </span>
                     <span
                       className={cn(
                         "font-mono text-xs",
-                        artifact.received ? "text-text-primary" : "text-text-tertiary",
+                        artifact.received ? "text-text-primary" : "text-text-secondary",
                       )}
                     >
                       {label.name}
                     </span>
-                    <span className="truncate font-mono text-3xs text-text-tertiary">{label.desc}</span>
+                    <span className="truncate font-mono text-3xs text-text-secondary">{label.desc}</span>
                     <span
                       className={cn(
                         "font-mono text-3xs",
-                        artifact.received ? "text-status-success" : "text-text-tertiary",
+                        artifact.received ? "text-status-success" : "text-text-secondary",
                       )}
                     >
                       {meta}
@@ -527,7 +517,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
             <button
               type="button"
               onClick={() => setManualUploadOpen((v) => !v)}
-              className="flex items-center gap-1.5 self-start font-mono text-3xs uppercase tracking-widest text-text-tertiary transition-colors hover:text-text-secondary"
+              className="flex items-center gap-1.5 self-start font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:text-text-secondary"
             >
               <CaretDownIcon size={12} className={cn("transition-transform", manualUploadOpen && "rotate-180")} />
               Upload manually (internal)
@@ -555,12 +545,12 @@ function SetupStep({ applicationId }: { applicationId: string }) {
                       disabled={setupId == null}
                       className="flex cursor-pointer flex-col items-center gap-3 border border-dashed border-border-mid p-8 transition-colors hover:border-primary-ink hover:bg-primary-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <FolderOpenIcon size={32} weight="duotone" className="text-text-tertiary" />
+                      <FolderOpenIcon size={32} weight="duotone" className="text-text-secondary" />
                       <div className="text-center">
                         <p className="text-sm font-medium text-text-primary">
                           Select a <code className="font-mono text-primary-ink">~/.autonoma/your-app/</code> folder
                         </p>
-                        <p className="mt-1 font-mono text-3xs text-text-tertiary">
+                        <p className="mt-1 font-mono text-3xs text-text-secondary">
                           Internal shortcut - uploads recipe + artifacts for this application.
                         </p>
                       </div>
@@ -569,7 +559,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
 
                   {uploadState === "uploading" && (
                     <div className="flex items-center gap-3 border border-border-dim p-6">
-                      <SpinnerGapIcon size={20} className="animate-spin text-text-tertiary" />
+                      <SpinnerGapIcon size={20} className="animate-spin text-text-secondary" />
                       <p className="text-sm text-text-secondary">Uploading artifacts...</p>
                     </div>
                   )}
@@ -595,7 +585,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
                         <div>
                           <p className="text-sm font-medium text-text-primary">Upload failed</p>
                           {uploadError != null && (
-                            <p className="font-mono text-3xs text-text-tertiary">{uploadError}</p>
+                            <p className="font-mono text-3xs text-text-secondary">{uploadError}</p>
                           )}
                         </div>
                       </div>

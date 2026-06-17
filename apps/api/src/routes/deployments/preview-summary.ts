@@ -247,6 +247,113 @@ export function buildServiceSummaries({
     return [...apps, ...genericServices, ...addons];
 }
 
+export type PreviewFailureCode =
+    | "build_failed"
+    | "deploy_failed"
+    | "missing_path"
+    | "missing_dockerfile"
+    | "missing_image"
+    | "addon_failed"
+    | "unknown";
+
+/**
+ * A structured deploy failure. `fieldPath` (e.g. `apps.0.path`) points at the
+ * config field most likely responsible, so UIs can deep-link "edit config" to
+ * the exact input.
+ */
+export interface PreviewFailure {
+    code: PreviewFailureCode;
+    message: string;
+    appName?: string;
+    fieldPath?: string;
+}
+
+/**
+ * Best-effort classification of preview deploy failures from persisted build
+ * rows, service summaries, and the environment-level error. The pipeline
+ * records errors as plain strings, so this matches known message shapes
+ * (`No repo directory found for app "x"`, `Specified Dockerfile not found`,
+ * `No image tag found for app "x"`) and falls back to generic codes. Structured
+ * error codes at the pipeline level are future work.
+ */
+export function classifyPreviewFailures({
+    appBuilds,
+    services,
+    environmentError,
+    appIndexByName,
+}: {
+    appBuilds: Record<string, PreviewkitAppBuildOutcome>;
+    services: PreviewServiceSummary[];
+    environmentError: string | undefined;
+    appIndexByName: Map<string, number>;
+}): PreviewFailure[] {
+    const failures: PreviewFailure[] = [];
+    const seen = new Set<string>();
+    const push = (failure: PreviewFailure) => {
+        const key = `${failure.code}:${failure.appName ?? ""}:${failure.message}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        failures.push(failure);
+    };
+
+    for (const [appName, build] of Object.entries(appBuilds)) {
+        if (build.status !== "failed") continue;
+        push(classifyAppFailure(appName, build.error, "build_failed", appIndexByName));
+    }
+
+    for (const service of services) {
+        if (service.status !== "failed") continue;
+        if (appBuilds[service.name] != null) continue;
+        push({
+            code: "deploy_failed",
+            message: service.statusReason ?? `"${service.name}" failed to deploy`,
+            appName: service.name,
+        });
+    }
+
+    if (environmentError != null && environmentError !== "") {
+        const appName = /app "([^"]+)"/i.exec(environmentError)?.[1];
+        if (/no built image|no image tag/i.test(environmentError)) {
+            push({
+                code: "missing_image",
+                message: environmentError,
+                ...(appName != null ? { appName } : {}),
+            });
+        } else if (/addon/i.test(environmentError)) {
+            push({ code: "addon_failed", message: environmentError });
+        } else if (appName != null) {
+            push(classifyAppFailure(appName, environmentError, "deploy_failed", appIndexByName));
+        } else if (failures.length === 0) {
+            push({ code: "unknown", message: environmentError });
+        }
+    }
+
+    return failures;
+}
+
+function classifyAppFailure(
+    appName: string,
+    message: string,
+    fallbackCode: PreviewFailureCode,
+    appIndexByName: Map<string, number>,
+): PreviewFailure {
+    const appIndex = appIndexByName.get(appName);
+    const fieldPath = (field: string) => (appIndex != null ? `apps.${appIndex}.${field}` : undefined);
+
+    if (/no repo directory found/i.test(message)) {
+        const path = fieldPath("path");
+        return { code: "missing_path", message, appName, ...(path != null ? { fieldPath: path } : {}) };
+    }
+    if (/dockerfile not found|failed to read dockerfile|cannot locate.*dockerfile/i.test(message)) {
+        const path = fieldPath("dockerfile");
+        return { code: "missing_dockerfile", message, appName, ...(path != null ? { fieldPath: path } : {}) };
+    }
+    if (/no built image|no image tag/i.test(message)) {
+        return { code: "missing_image", message, appName };
+    }
+    return { code: fallbackCode, message, appName };
+}
+
 export function derivePreviewStatus({
     previewkitStatus,
     currentHeadSha,
@@ -263,11 +370,11 @@ export function derivePreviewStatus({
     degradedServiceCount: number;
 }): PreviewEnvironmentStatus {
     if (previewkitStatus === "torn_down") return "stopped";
+    if (previewkitStatus === "failed") return primaryUrl != null ? "degraded" : "failed";
     if (currentHeadSha != null && currentHeadSha !== "" && currentHeadSha !== deployedHeadSha) return "stale";
     if (previewkitStatus === "pending" || previewkitStatus === "building" || previewkitStatus === "deploying") {
         return "building";
     }
-    if (previewkitStatus === "failed") return primaryUrl != null ? "degraded" : "failed";
     if (previewkitStatus === "ready") {
         if (failedServiceCount > 0 || degradedServiceCount > 0) return "degraded";
         return "ready";

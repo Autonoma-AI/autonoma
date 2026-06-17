@@ -19,6 +19,7 @@
         "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
+        "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",

@@ -72,8 +72,8 @@ export class PreviewkitEnvironmentsService {
     }
 
     /**
-     * Resolve the Redis stream key (`namespace`) + current `status` for one
-     * environment's live build-log stream, applying the same org-scoping as
+     * Resolve the Loki label key (`namespace`) + current `status` for one
+     * environment's live log stream, applying the same org-scoping as
      * `getStatus`. Returns undefined when no such environment exists (or it
      * belongs to another org), which the SSE route maps to a 404.
      */
@@ -95,7 +95,7 @@ export class PreviewkitEnvironmentsService {
     }
 }
 
-/** Identifies which Redis stream to relay and whether the build has already finished. */
+/** Identifies which Loki stream to relay and whether the build has already finished. */
 export interface PreviewkitStreamTarget {
     namespace: string;
     status: string;
