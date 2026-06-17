@@ -33,10 +33,6 @@ interface SecretDialogProps {
   appName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialKey?: string;
-  initialValue?: string;
-  title?: string;
-  description?: string;
 }
 
 let rowIdCounter = 0;
@@ -45,17 +41,8 @@ function newRow(partial?: Partial<Row>): Row {
   return { id: rowIdCounter, key: "", value: "", visible: false, ...partial };
 }
 
-export function SecretDialog({
-  applicationId,
-  appName,
-  open,
-  onOpenChange,
-  initialKey = "",
-  initialValue = "",
-  title = "Add Environment Variable",
-  description,
-}: SecretDialogProps) {
-  const [rows, setRows] = useState<Row[]>(() => [newRow({ key: initialKey, value: initialValue })]);
+export function SecretDialog({ applicationId, appName, open, onOpenChange }: SecretDialogProps) {
+  const [rows, setRows] = useState<Row[]>(() => [newRow()]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const upsertSecrets = useUpsertSecrets(applicationId, appName);
 
@@ -121,7 +108,7 @@ export function SecretDialog({
 
   function handleOpenChange(next: boolean) {
     if (!next) {
-      setRows([newRow({ key: initialKey, value: initialValue })]);
+      setRows([newRow()]);
     }
     onOpenChange(next);
   }
@@ -131,22 +118,18 @@ export function SecretDialog({
       <DialogBackdrop />
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle>Add Environment Variable</DialogTitle>
           <DialogDescription>
-            {description ?? (
-              <>
-                Add one or many variables. Paste a <code className="font-mono">.env</code> file into the key field to
-                import multiple at once. Values are never displayed again after saving.
-              </>
-            )}
+            Add one or many variables. Paste a <code className="font-mono">.env</code> file into the key field to import
+            multiple at once. Values are never displayed again after saving.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
-                <Label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">Key</Label>
-                <Label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">Value</Label>
+                <Label className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Key</Label>
+                <Label className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Value</Label>
                 <span />
               </div>
               {rows.map((row) => (
@@ -173,7 +156,7 @@ export function SecretDialog({
                     <button
                       type="button"
                       onClick={() => updateRow(row.id, { visible: !row.visible })}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-primary"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
                       aria-label={row.visible ? "Hide value" : "Show value"}
                     >
                       {row.visible ? <EyeSlashIcon size={14} /> : <EyeIcon size={14} />}
@@ -183,7 +166,7 @@ export function SecretDialog({
                     type="button"
                     onClick={() => removeRow(row.id)}
                     disabled={rows.length === 1}
-                    className="mt-2 text-text-tertiary transition-colors hover:text-status-critical disabled:cursor-not-allowed disabled:opacity-30"
+                    className="mt-2 text-text-secondary transition-colors hover:text-status-critical disabled:cursor-not-allowed disabled:opacity-30"
                     aria-label="Remove row"
                   >
                     <TrashIcon size={16} />
@@ -197,7 +180,7 @@ export function SecretDialog({
               Add Another
             </Button>
 
-            <p className="border-t border-border-dim pt-4 font-mono text-3xs text-text-tertiary">
+            <p className="border-t border-border-dim pt-4 font-mono text-3xs text-text-secondary">
               Values are write-only. After saving, they can be updated or deleted but never revealed again.
             </p>
           </div>
@@ -208,7 +191,7 @@ export function SecretDialog({
               <UploadSimpleIcon size={14} />
               Import
             </Button>
-            <span className="hidden font-mono text-3xs text-text-tertiary sm:inline">
+            <span className="hidden font-mono text-3xs text-text-secondary sm:inline">
               or paste .env contents in Key input
             </span>
             <input

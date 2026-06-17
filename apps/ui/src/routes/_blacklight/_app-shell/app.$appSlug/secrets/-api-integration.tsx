@@ -16,6 +16,7 @@ import { Highlight } from "./-highlight";
 
 interface ApiIntegrationProps {
   applicationId: string;
+  appName: string;
 }
 
 type Operation = "list" | "set" | "delete";
@@ -26,27 +27,33 @@ const OPERATIONS: {
   value: Operation;
   label: string;
   method: "GET" | "PUT" | "DELETE";
-  path: (appId: string) => string;
+  path: (appId: string, app: string) => string;
 }[] = [
-  { value: "list", label: "List", method: "GET", path: (id) => `/v1/applications/${id}/secrets` },
-  { value: "set", label: "Set", method: "PUT", path: (id) => `/v1/applications/${id}/secrets/{key}` },
-  { value: "delete", label: "Delete", method: "DELETE", path: (id) => `/v1/applications/${id}/secrets/{key}` },
+  { value: "list", label: "List", method: "GET", path: (id, app) => `/v1/previewkit/secrets/${id}/${app}` },
+  { value: "set", label: "Set", method: "PUT", path: (id, app) => `/v1/previewkit/secrets/${id}/${app}/{key}` },
+  {
+    value: "delete",
+    label: "Delete",
+    method: "DELETE",
+    path: (id, app) => `/v1/previewkit/secrets/${id}/${app}/{key}`,
+  },
 ];
 
-function buildCurl(op: Operation, appId: string): string {
+function buildCurl(op: Operation, appId: string, app: string): string {
   const base = `curl -H "Authorization: Bearer $AUTONOMA_API_KEY"`;
+  const url = `${BASE_URL}/v1/previewkit/secrets/${appId}/${app}`;
   switch (op) {
     case "list":
-      return `${base} \\\n  ${BASE_URL}/v1/applications/${appId}/secrets`;
+      return `${base} \\\n  ${url}`;
     case "set":
-      return `${base} \\\n  -X PUT \\\n  -H "Content-Type: application/json" \\\n  -d '{"value": "sk_live_..."}' \\\n  ${BASE_URL}/v1/applications/${appId}/secrets/STRIPE_SECRET_KEY`;
+      return `${base} \\\n  -X PUT \\\n  -H "Content-Type: application/json" \\\n  -d '{"value": "sk_live_..."}' \\\n  ${url}/STRIPE_SECRET_KEY`;
     case "delete":
-      return `${base} \\\n  -X DELETE \\\n  ${BASE_URL}/v1/applications/${appId}/secrets/STRIPE_SECRET_KEY`;
+      return `${base} \\\n  -X DELETE \\\n  ${url}/STRIPE_SECRET_KEY`;
   }
 }
 
-function buildNode(op: Operation, appId: string): string {
-  const init = `const API = "${BASE_URL}/v1/applications/${appId}/secrets";
+function buildNode(op: Operation, appId: string, app: string): string {
+  const init = `const API = "${BASE_URL}/v1/previewkit/secrets/${appId}/${app}";
 const headers = { Authorization: \`Bearer \${process.env.AUTONOMA_API_KEY}\` };`;
   switch (op) {
     case "list":
@@ -78,7 +85,7 @@ const METHOD_STYLES: Record<string, string> = {
   DELETE: "bg-status-critical/10 text-status-critical border-status-critical/20",
 };
 
-export function ApiIntegration({ applicationId }: ApiIntegrationProps) {
+export function ApiIntegration({ applicationId, appName }: ApiIntegrationProps) {
   const [op, setOp] = useState<Operation>("list");
   const current = OPERATIONS.find((o) => o.value === op) ?? OPERATIONS[0]!;
 
@@ -106,19 +113,19 @@ export function ApiIntegration({ applicationId }: ApiIntegrationProps) {
               >
                 {o.method}
               </span>
-              <code className="truncate font-mono text-xs text-text-primary">{o.path(applicationId)}</code>
+              <code className="truncate font-mono text-xs text-text-primary">{o.path(applicationId, appName)}</code>
             </div>
-            <CodeBlock title="cURL" language="bash" code={buildCurl(o.value, applicationId)} />
-            <CodeBlock title="Node.js" language="javascript" code={buildNode(o.value, applicationId)} />
+            <CodeBlock title="cURL" language="bash" code={buildCurl(o.value, applicationId, appName)} />
+            <CodeBlock title="Node.js" language="javascript" code={buildNode(o.value, applicationId, appName)} />
           </TabsContent>
         ))}
       </Tabs>
 
-      <p className="font-mono text-3xs text-text-tertiary">
+      <p className="font-mono text-3xs text-text-secondary">
         Base URL <span className="text-text-secondary">{BASE_URL}</span> — currently {current.method}{" "}
-        {current.path(applicationId)}
+        {current.path(applicationId, appName)}
       </p>
-      <p className="font-mono text-3xs text-text-tertiary">
+      <p className="font-mono text-3xs text-text-secondary">
         Values are write-only and cannot be read back via the API. Use <span className="text-text-secondary">PUT</span>{" "}
         to rotate.
       </p>
@@ -149,8 +156,8 @@ function CodeBlock({ title, language, code }: { title: string; language: "bash" 
     <div className="overflow-hidden rounded-md border border-border-dim bg-surface-base">
       <div className="flex items-center justify-between border-b border-border-dim px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">{title}</span>
-          <span className="font-mono text-3xs text-text-tertiary">{language}</span>
+          <span className="font-mono text-2xs uppercase tracking-widest text-text-secondary">{title}</span>
+          <span className="font-mono text-3xs text-text-secondary">{language}</span>
         </div>
         <Tooltip>
           <TooltipTrigger render={<Button variant="ghost" size="xs" className="gap-1.5" onClick={handleCopy} />}>

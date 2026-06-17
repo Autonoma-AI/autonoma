@@ -26,6 +26,11 @@ export const SecretItemSchema = z.object({
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
 
+export const ListSecretAppsInputSchema = z.object({
+    applicationId: z.string(),
+});
+export type ListSecretAppsInput = z.infer<typeof ListSecretAppsInputSchema>;
+
 export const ListSecretsInputSchema = z.object({
     applicationId: z.string(),
     appName: AppNameSchema,

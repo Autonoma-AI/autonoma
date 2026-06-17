@@ -4,6 +4,10 @@ import { type RouterOutputs, trpc } from "lib/trpc";
 
 export type SecretSummary = RouterOutputs["secrets"]["list"][number];
 
+export function useSecretApps(applicationId: string) {
+    return useSuspenseQuery(trpc.secrets.listApps.queryOptions({ applicationId }));
+}
+
 export function useSecrets(applicationId: string, appName: string) {
     return useSuspenseQuery(trpc.secrets.list.queryOptions({ applicationId, appName }));
 }
@@ -15,6 +19,11 @@ export function useUpsertSecrets(applicationId: string, appName: string) {
             onSettled: () => {
                 void queryClient.invalidateQueries({
                     queryKey: trpc.secrets.list.queryKey({ applicationId, appName }),
+                });
+                // A first-time upsert lazily creates the bundle, so refresh the
+                // app picker's list of bundles too.
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.secrets.listApps.queryKey({ applicationId }),
                 });
             },
         }),

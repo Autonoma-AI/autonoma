@@ -15,7 +15,7 @@ import {
  * `auth_secret:` field. One PreviewkitOrgSecret row per (org, name); the
  * row holds an AWS Secrets Manager ARN whose SecretString is a JSON map.
  *
- * Mirrors `SecretsService` (per-app secrets) but scoped to the organization.
+ * Mirrors `PreviewkitSecretsService` (per-app secrets) but scoped to the organization.
  * Same AWS SM JSON-map convention so the same UI patterns and item shapes
  * (`{ key, value }`) can be reused on the frontend.
  */

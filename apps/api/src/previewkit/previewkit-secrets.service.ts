@@ -1,5 +1,7 @@
 import { db, type PrismaClient } from "@autonoma/db";
+import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import type { SecretItem, SecretSummary } from "@autonoma/types";
 import {
     CreateSecretCommand,
     GetSecretValueCommand,
@@ -7,17 +9,6 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
-
-export interface SecretItem {
-    key: string;
-    value: string;
-}
-
-export interface SecretSummary {
-    key: string;
-    maskedLength: number;
-    updatedAt: Date;
-}
 
 /**
  * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
@@ -96,6 +87,27 @@ export class PreviewkitSecretsService {
             .sort((a, b) => a.key.localeCompare(b.key));
     }
 
+    /**
+     * Lists the per-app secret bundle names registered for an application.
+     * Each (applicationId, appName) is its own bundle - a monorepo Application
+     * can declare many apps in `.preview.yaml` - so the UI needs this to let
+     * the user pick which bundle to view; the app name rarely matches the
+     * Application's slug.
+     */
+    async listApps(applicationId: string, callerOrgId: string | undefined): Promise<string[]> {
+        this.logger.info("Listing secret app bundles", { applicationId });
+
+        const app = await this.findApplication(applicationId, callerOrgId);
+        if (app == null) return [];
+
+        const rows = await this.prisma.previewkitSecret.findMany({
+            where: { applicationId },
+            select: { appName: true },
+            orderBy: { appName: "asc" },
+        });
+        return rows.map((row) => row.appName);
+    }
+
     async upsert(
         applicationId: string,
         appName: string,
@@ -109,7 +121,7 @@ export class PreviewkitSecretsService {
 
         const app = await this.findApplication(applicationId, callerOrgId);
         if (app == null) {
-            throw new Error(`Application not found: ${applicationId}`);
+            throw new NotFoundError(`Application not found: ${applicationId}`);
         }
 
         const existing = await this.prisma.previewkitSecret.findUnique({

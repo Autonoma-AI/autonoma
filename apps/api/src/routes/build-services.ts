@@ -16,6 +16,7 @@ import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { PullRequestCacheService } from "../github/pull-request-cache.service";
+import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -32,7 +33,6 @@ import { OnboardingService } from "./onboarding/onboarding.service";
 import { OrgSecretsService } from "./org-secrets/org-secrets.service";
 import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
-import { SecretsService } from "./secrets/secrets.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
 import { TestsService } from "./tests/tests.service";
@@ -50,7 +50,7 @@ export interface Services {
     tests: TestsService;
     folders: FoldersService;
     scenarios: ScenariosService;
-    secrets: SecretsService;
+    secrets: PreviewkitSecretsService;
     orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
     issues: IssuesService;
@@ -122,7 +122,7 @@ export function buildServices({
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
-        secrets: new SecretsService(conn, env.AWS_REGION ?? "us-east-1"),
+        secrets: new PreviewkitSecretsService(env.S3_REGION, conn),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),

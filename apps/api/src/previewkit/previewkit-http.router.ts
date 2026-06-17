@@ -5,6 +5,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { BuildLogEntry } from "@autonoma/logger/build-log-event";
 import type { LogStore } from "@autonoma/logger/log-store";
 import { LokiLogStore } from "@autonoma/logger/loki-log-store";
+import type { SecretItem } from "@autonoma/types";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -13,7 +14,7 @@ import { env } from "../env";
 import { openApiSpec } from "./openapi-spec";
 import previewSchema from "./preview-schema.json" with { type: "json" };
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
-import { PreviewkitSecretsService, type SecretItem } from "./previewkit-secrets.service";
+import { PreviewkitSecretsService } from "./previewkit-secrets.service";
 import { previewkitTriggerService } from "./previewkit-service";
 
 const logger = rootLogger.child({ name: "previewkitHttpRouter" });
@@ -230,8 +231,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         try {
             await secretsService.upsert(applicationId, app, validation.items, callerOrgId(c.var.authCaller));
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            if (message.includes("Application not found")) return c.json({ error: message }, 404);
+            if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
             throw err;
         }
 
@@ -261,8 +261,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
                 callerOrgId(c.var.authCaller),
             );
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            if (message.includes("Application not found")) return c.json({ error: message }, 404);
+            if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
             throw err;
         }
 
