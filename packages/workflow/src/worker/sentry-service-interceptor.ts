@@ -64,6 +64,16 @@ export function createSentryServiceInterceptor(
                                 try {
                                     return await next(input);
                                 } catch (error) {
+                                    // A cancelled activity is expected control flow, not a crash
+                                    // (e.g. a newer commit superseded a preview deploy, aborting the
+                                    // in-flight build). Log it at warn so it stays out of the
+                                    // fatal/error stream, then re-throw unchanged.
+                                    if (ctx.cancellationSignal.aborted) {
+                                        logger.warn(`Activity cancelled: ${activityType}`, {
+                                            extra: { error: String(error) },
+                                        });
+                                        throw error;
+                                    }
                                     if (error instanceof Error) {
                                         logger.fatal(`Activity failed: ${activityType}`, error);
                                     } else {
