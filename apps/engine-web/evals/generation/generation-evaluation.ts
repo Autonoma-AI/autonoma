@@ -138,6 +138,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 input.customInstructions,
                 credentials,
                 resolvedVariables,
+                input.url,
             );
             const runner = new EvalAgentRunner({
                 installer,

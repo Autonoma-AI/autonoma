@@ -3,8 +3,16 @@ export function buildExecutionPrompt(
     customInstructions?: string | null,
     credentials?: Record<string, string>,
     recipeVariables?: Record<string, string>,
+    appUrl?: string,
 ): string {
     const parts: string[] = [];
+
+    if (appUrl != null) {
+        const origin = new URL(appUrl).origin;
+        parts.push(
+            `The application under test is hosted at ${origin}. Always navigate within this domain - use relative paths (e.g. /invoices) or URLs on this exact origin. Never navigate to any other domain.`,
+        );
+    }
 
     if (credentials != null && Object.keys(credentials).length > 0) {
         const credentialLines = Object.entries(credentials)

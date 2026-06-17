@@ -136,7 +136,7 @@ export class ReplayEvaluation extends Evaluation<ReplayEvalCase> {
                 createWaitChecker: (screen) =>
                     new WaitConditionChecker(
                         new VisualConditionChecker({
-                            model: models.getModel({ model: "fast-visual", tag: "wait-condition-checker" }),
+                            model: models.getModel({ model: "smart-visual", tag: "wait-condition-checker" }),
                         }),
                         screen,
                     ),
