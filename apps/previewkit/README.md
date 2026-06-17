@@ -287,7 +287,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 | `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence. Default version `8-alpine` |
 | `mongodb` | `mongo:{version}` | 27017 | StatefulSet with PVC. Single-node replica set (Change Streams); connect with `directConnection=true`. Default version `7` |
 | `temporal` | `temporalio/temporal:{version}` | 7233 (gRPC), 8233 (UI) | Deployment, `start-dev` mode |
-| `upstash` | `hiett/serverless-redis-http` + `redis` sidecar | 8000 | Serverless-Redis-HTTP proxy over a Redis sidecar in one Pod. Default token `local-dev-token` |
+| `upstash` | `hiett/serverless-redis-http` + `redis` sidecar | 8000 (REST), 6379 (RESP) | Serverless-Redis-HTTP proxy over a Redis sidecar in one Pod. Exposes both the REST port (for `@upstash/redis`/`@vercel/kv` via `KV_REST_API_URL`) and the raw Redis port (for `ioredis`/`KV_URL`), like real Vercel KV. `{{cache.port}}` resolves to the REST port. Default token `local-dev-token` |
 | `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
 

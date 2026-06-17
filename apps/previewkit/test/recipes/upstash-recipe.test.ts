@@ -60,10 +60,10 @@ describe("UpstashRecipe", () => {
         expect(redis?.image).toBe("redis:8-alpine");
     });
 
-    it("binds Redis to 127.0.0.1 so other pods cannot reach the raw RESP port", () => {
+    it("binds Redis to 0.0.0.0 so the Service can route the RESP port to other pods", () => {
         const result = recipe.generate(baseService(), "ns");
         const redis = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "redis");
-        expect(redis?.args).toEqual(["--bind", "127.0.0.1", "--port", "6379"]);
+        expect(redis?.args).toEqual(["--bind", "0.0.0.0", "--port", "6379"]);
     });
 
     it("runs SRH in env mode pointed at localhost:6379", () => {
@@ -91,10 +91,13 @@ describe("UpstashRecipe", () => {
         expect(proxy?.env).toContainEqual({ name: "SRH_TOKEN", value: "super-secret-abc" });
     });
 
-    it("exposes only the REST port on the Service (not the raw Redis port)", () => {
+    it("exposes both the REST port and the raw Redis port on the Service", () => {
         const result = recipe.generate(baseService(), "ns");
         const service = result.services[0];
-        expect(service?.spec?.ports).toEqual([{ name: "http", port: 8000, targetPort: 8000 }]);
+        expect(service?.spec?.ports).toEqual([
+            { name: "http", port: 8000, targetPort: 8000 },
+            { name: "redis", port: 6379, targetPort: 6379 },
+        ]);
     });
 
     it("uses an unauthenticated GET / readiness probe on the REST port", () => {

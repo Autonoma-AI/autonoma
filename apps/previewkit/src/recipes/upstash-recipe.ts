@@ -34,8 +34,9 @@ export type UpstashOptions = z.infer<typeof optionsSchema>;
  * instead of the real `*.upstash.io`.
  *
  * The recipe deploys two containers in a single Pod:
- *   1. `redis:7-alpine` - the actual data store, bound to 127.0.0.1:6379
- *      so it is reachable only by the sidecar in the same Pod.
+ *   1. `redis:7-alpine` - the actual data store, bound to 0.0.0.0:6379 so it
+ *      is reachable both by the in-Pod SRH sidecar and by other Pods through
+ *      the Service's RESP port.
  *   2. `hiett/serverless-redis-http` (SRH) - the Upstash-compatible REST
  *      proxy, listening on :8000 (via SRH_PORT) and forwarding to
  *      `localhost:6379`.
@@ -45,8 +46,15 @@ export type UpstashOptions = z.infer<typeof optionsSchema>;
  * `darthbenro008/upstash-redis-local` was arm64-only and produced
  * "exec format error" on amd64 preview nodes.
  *
- * Only the REST port (8000) is exposed via the K8s Service; the raw RESP
- * port is intra-Pod only since the @upstash/redis SDK talks REST.
+ * The Service exposes BOTH ports, matching real Vercel KV / Upstash which
+ * offer a REST endpoint and a directly-dialable Redis endpoint:
+ *   - 8000 (REST) for `@upstash/redis` / `@vercel/kv` REST clients
+ *     (`KV_REST_API_URL`). `connectionInfo` points here, so `{{cache.port}}`
+ *     templates resolve to the REST port.
+ *   - 6379 (RESP) for raw-protocol clients such as `ioredis` that dial the
+ *     `KV_URL` (`redis://<service>:6379`) connection string directly.
+ * Preview namespaces are network-isolated by NetworkPolicy, so the
+ * unauthenticated RESP port is only reachable by the app's own Pods.
  *
  * Auth: SRH uses a shared bearer token (SRH_TOKEN). Default `local-dev-token`
  * so a standard `@upstash/redis` client config just works; override via
@@ -73,7 +81,10 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
         const redisContainer: k8s.V1Container = {
             name: "redis",
             image: redisImage,
-            args: ["--bind", "127.0.0.1", "--port", String(REDIS_LOCAL_PORT)],
+            // Bind to 0.0.0.0 (not loopback) so the Service can route the RESP
+            // port to this container for raw-protocol clients (ioredis/KV_URL),
+            // in addition to the in-Pod SRH sidecar.
+            args: ["--bind", "0.0.0.0", "--port", String(REDIS_LOCAL_PORT)],
             ports: [{ name: "redis", containerPort: REDIS_LOCAL_PORT }],
             resources: {
                 requests: { cpu: "50m", memory: "64Mi" },
@@ -142,7 +153,12 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
             metadata: { name: config.name, namespace, labels },
             spec: {
                 selector: { app: config.name },
-                ports: [{ name: "http", port: PROXY_PORT, targetPort: PROXY_PORT }],
+                ports: [
+                    // REST proxy (KV_REST_API_URL) - connectionInfo points here.
+                    { name: "http", port: PROXY_PORT, targetPort: PROXY_PORT },
+                    // Raw RESP (KV_URL / ioredis) - dialed directly by the app.
+                    { name: "redis", port: REDIS_LOCAL_PORT, targetPort: REDIS_LOCAL_PORT },
+                ],
             },
         };
 
