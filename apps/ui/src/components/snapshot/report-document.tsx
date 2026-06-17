@@ -24,7 +24,7 @@ export function SnapshotReportDocument({ report }: { report: SnapshotReport }) {
         />
         <ReasoningPanel
           title="Resolution"
-          content={report.resolutionReasoning}
+          content={report.firstIterationReasoning}
           empty="No resolution has been recorded for this snapshot."
         />
       </div>

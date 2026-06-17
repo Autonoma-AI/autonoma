@@ -29,7 +29,7 @@ function stageEvidence(stage: StageKey, job: DiffsJob): boolean {
         case "replay":
             return job.affectedTests.some((t) => t.run != null);
         case "resolution":
-            return job.resolutionReasoning != null || job.testCandidates.some((c) => c.status !== "pending");
+            return job.firstIterationReasoning != null || job.testCandidates.some((c) => c.status !== "pending");
         case "generation":
             return (
                 job.affectedTests.some((t) => t.generation != null) ||

@@ -97,7 +97,7 @@ export const snapshotReportSchema = z.object({
     selection: snapshotReportSelectionSchema,
     results: snapshotReportResultsSchema,
     bugs: z.array(snapshotReportBugSchema),
-    resolutionReasoning: z.string().optional(),
+    firstIterationReasoning: z.string().optional(),
     health: reportHealthSchema,
     healthCounts: snapshotReportHealthCountsSchema,
 });

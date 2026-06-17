@@ -4,6 +4,7 @@ import type { Logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
+import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
 import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
 import { loadBugsForSnapshot } from "./snapshot-report-bugs";
@@ -48,7 +49,6 @@ export async function loadSnapshotReport({
             diffsJob: {
                 select: {
                     analysisReasoning: true,
-                    resolutionReasoning: true,
                     affectedTests: {
                         select: {
                             affectedReason: true,
@@ -76,10 +76,11 @@ export async function loadSnapshotReport({
     };
     const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts);
 
-    const [trigger, executedTests, bugs] = await Promise.all([
+    const [trigger, executedTests, bugs, firstIterationReasoning] = await Promise.all([
         buildTriggerBlock({ snapshot, github, organizationId, logger }),
         listExecutedTestsForSnapshot(db, snapshotId),
         loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
+        loadFirstIterationReasoning(db, snapshotId, logger),
     ]);
     const results = buildResultsBlock(executedTests, logger);
 
@@ -120,7 +121,7 @@ export async function loadSnapshotReport({
         },
         results,
         bugs,
-        resolutionReasoning: snapshot.diffsJob?.resolutionReasoning ?? undefined,
+        firstIterationReasoning,
         health,
         healthCounts,
     };

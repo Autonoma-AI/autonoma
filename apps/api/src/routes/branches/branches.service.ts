@@ -15,6 +15,7 @@ import type { GitHubInstallationService } from "../../github/github-installation
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
+import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
 import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
@@ -387,7 +388,6 @@ export class BranchesService extends Service {
                     select: {
                         status: true,
                         analysisReasoning: true,
-                        resolutionReasoning: true,
                         failureReason: true,
                         startedAt: true,
                         completedAt: true,
@@ -475,11 +475,17 @@ export class BranchesService extends Service {
                 bugId: a.quarantineIssue.bugId ?? undefined,
             }));
 
-        const [changes, temporalWorkflow, refinementLoop] = await Promise.all([
+        const [changes, temporalWorkflow, refinementLoop, firstIterationReasoning] = await Promise.all([
             getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger),
             temporalWorkflowPromise,
             options.includeRefinementLoop
                 ? loadRefinementLoop(this.db, snapshotId, this.logger)
+                : Promise.resolve(undefined),
+            // The first iteration's reasoning is only rendered on the single-snapshot pipeline strip,
+            // so it loads alongside the refinement loop. The lean PR-overview fan-out (one detail per
+            // snapshot) leaves it out to avoid a per-snapshot query.
+            options.includeRefinementLoop
+                ? loadFirstIterationReasoning(this.db, snapshotId, this.logger)
                 : Promise.resolve(undefined),
         ]);
 
@@ -549,6 +555,7 @@ export class BranchesService extends Service {
 
         const diffsJobWithCandidateGens = {
             ...diffsJob,
+            firstIterationReasoning,
             temporalWorkflow,
             testCandidates: diffsJob.testCandidates.map((c) => ({
                 ...c,

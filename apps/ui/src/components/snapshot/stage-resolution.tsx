@@ -28,8 +28,8 @@ export function StageResolution({ job }: StageResolutionProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      {job.resolutionReasoning != null && (
-        <ReasoningBlock label="Resolution reasoning" content={job.resolutionReasoning} />
+      {job.firstIterationReasoning != null && (
+        <ReasoningBlock label="Resolution reasoning" content={job.firstIterationReasoning} />
       )}
 
       <div className="flex flex-col gap-2">
