@@ -38,6 +38,7 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
         where: { id: runId },
         select: {
             status: true,
+            failure: true,
             organizationId: true,
             runReview: { select: { id: true, status: true } },
         },
@@ -45,6 +46,11 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
 
     if (run.status !== "failed") {
         logger.info("Run is not failed - skipping review", { runId, status: run.status });
+        return { status: "skipped" };
+    }
+
+    if (run.failure?.kind === "scenario_setup") {
+        logger.info("Run failed during scenario setup - skipping review", { runId });
         return { status: "skipped" };
     }
 

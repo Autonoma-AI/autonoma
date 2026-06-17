@@ -41,10 +41,16 @@ export async function runGenerationReview(
     const generation = await db.testGeneration.findUniqueOrThrow({
         where: { id: generationId },
         select: {
+            failure: true,
             organizationId: true,
             generationReview: { select: { id: true, status: true } },
         },
     });
+
+    if (generation.failure?.kind === "scenario_setup") {
+        logger.info("Generation failed during scenario setup - skipping review", { generationId });
+        return { status: "skipped" };
+    }
 
     if (generation.generationReview?.status === "completed") {
         logger.info("Skipping - completed review already exists", { generationId });
