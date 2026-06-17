@@ -21,6 +21,14 @@ class UnreportableActionError extends FixableToolError {
     }
 }
 
+class UnknownTestCaseError extends FixableToolError {
+    constructor(public readonly testCaseId: string) {
+        super(
+            `testCaseId "${testCaseId}" is not one of this iteration's failing test cases, so no action can target it. Copy a testCaseId verbatim from the failure list - do not paste extra text, markdown, or multiple ids into the field.`,
+        );
+    }
+}
+
 /**
  * Resolve the source review a report action must link evidence to. A test case
  * is reportable iff its failure carries a review link, so this doubles as the
@@ -41,8 +49,17 @@ export function resolveReviewLink(loop: HealingAgentLoop, testCaseId: string): H
  * Free function rather than a method on the loop because the loop favours
  * direct-field interaction; this helper just bundles the three writes that
  * always go together (push action, mark handled, mark failure-key handled).
+ *
+ * Every per-failure action must target one of this iteration's failing test
+ * cases. Rejecting an unknown testCaseId here is the single guard that stops a
+ * hallucinated or malformed id (e.g. a valid cuid with extra text pasted onto
+ * the end) from being recorded and later crashing the apply step, which expects
+ * the test case to have an assignment on the snapshot.
  */
 export function recordHealingAction(loop: HealingAgentLoop, action: HealingAction): void {
+    if (!loop.failureKeysByTestCaseId.has(action.testCaseId)) {
+        throw new UnknownTestCaseError(action.testCaseId);
+    }
     if (loop.handledTestCaseIds.has(action.testCaseId)) {
         const prior = loop.actions.find((a) => a.testCaseId === action.testCaseId);
         throw new DuplicateActionError(action.testCaseId, prior?.kind ?? "unknown");
