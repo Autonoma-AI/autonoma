@@ -24,7 +24,12 @@ import { buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
-import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
+import {
+    type BranchConvention,
+    type PreviewConfig,
+    type RepoDependency,
+    trustedPreviewConfigSchema,
+} from "../config/schema";
 import {
     type AppBuildOutcome,
     type AppStateUpdate,
@@ -493,7 +498,12 @@ export class PreviewPipeline {
     ): Promise<DeployPreviewEnvironmentOutput> {
         const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
-        const mergedConfig = previewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
+        // Re-hydrate the merged config across the Temporal activity boundary. Each
+        // source already had its resource policy applied upstream (a `.preview.yaml`
+        // was standardized; a DB revision's overrides were honored), so this re-parse
+        // must preserve those values rather than re-standardize them - hence the
+        // trusted schema, which passes already-normalized resources through unchanged.
+        const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
 
         const deployOpts = {
             repoFullName,

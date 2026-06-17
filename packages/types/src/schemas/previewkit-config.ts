@@ -18,59 +18,54 @@ export const MAX_REPLICAS = 3;
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 /**
- * Deprecated config field: user-provided CPU/memory values are accepted so
- * existing `.preview.yaml` files continue to validate, but they are ignored.
- * PreviewKit owns container budgets centrally to keep preview namespaces
- * predictable and prevent onboarding users from setting unbounded resources.
+ * Per-container `resources` input. `cpu` and `memory` are the client-facing
+ * knobs; the normalized `memoryRequest` / `memoryLimit` keys are accepted too so
+ * that re-parsing an already-resolved config is idempotent (the merged config is
+ * re-validated at deploy time after crossing the Temporal activity boundary).
+ *
+ * Whether these values take effect is decided by the config's source, not the
+ * field itself - see {@link buildResourcesSchema}.
  */
-const appResourcesSchema = z
-    .unknown()
-    .optional()
-    .transform(() => standardResources("app"));
+const resourcesInput = z
+    .object({
+        cpu: z.string().optional(),
+        memory: z.string().optional(),
+        memoryRequest: z.string().optional(),
+        memoryLimit: z.string().optional(),
+    })
+    .optional();
 
 /**
- * Deprecated config field: service resources follow the same compatibility
- * policy as app resources, but resolve to the smaller service-tier budget.
+ * Builds the `resources` schema for one container tier. The trust boundary lives
+ * here: per-app/service resource sizing is honored only for platform-authored DB
+ * config revisions, never for a repo's `.preview.yaml` (anyone who can open a PR
+ * edits that file, so it must not size its own preview, and onboarding users must
+ * not set unbounded budgets).
+ *
+ * - `allowCustomResources === false` (a `.preview.yaml`): client input is
+ *   discarded; every container gets the standard {@link STANDARD_RESOURCES} tier
+ *   for its role. The field is still accepted so existing files keep validating.
+ * - `allowCustomResources === true` (a DB config revision): client `cpu` /
+ *   `memory` are honored, each missing field falling back to the tier standard.
+ *   `memory` sets both the request and the limit unless the normalized
+ *   `memoryRequest` / `memoryLimit` are present (the deploy-time re-parse).
  */
-const serviceResourcesSchema = z
-    .unknown()
-    .optional()
-    .transform(() => standardResources("service"));
+function buildResourcesSchema(role: PreviewResourceRole, allowCustomResources: boolean) {
+    return resourcesInput.transform((input) => {
+        if (!allowCustomResources || input == null) {
+            return standardResources(role);
+        }
+        const tier = STANDARD_RESOURCES[role];
+        return {
+            cpu: input.cpu ?? tier.cpu,
+            memoryRequest: input.memoryRequest ?? input.memory ?? tier.memoryRequest,
+            memoryLimit: input.memoryLimit ?? input.memory ?? tier.memoryLimit,
+        };
+    });
+}
 
-const appSchema = z.object({
-    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
-    path: z.string().default("."),
-    build_context: z.string().optional(),
-    dockerfile: z.string().optional(),
-    monorepo: z.enum(["turbo"]).optional(),
-    build_args: z.record(z.string(), z.string()).default({}),
-    build_secrets: z.array(z.string()).default([]),
-    port: z.number().int().positive(),
-    env: z.record(z.string(), z.string()).default({}),
-    command: z.string().optional(),
-    health_check: z.string().optional(),
-    replicas: z
-        .number()
-        .int()
-        .positive()
-        .default(1)
-        .transform((replicas) => Math.min(replicas, MAX_REPLICAS)),
-    primary: z.boolean().optional(),
-    resources: appResourcesSchema,
-    depends_on: z.array(z.string()).optional(),
-});
-
-const serviceSchema = z.object({
-    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
-    recipe: z.string(),
-    version: z.string().optional(),
-    env: z.record(z.string(), z.string()).default({}),
-    options: z.record(z.string(), z.unknown()).default({}),
-    resources: serviceResourcesSchema,
-    s3: z.boolean().optional(),
-    sqs: z.boolean().optional(),
-    sns: z.boolean().optional(),
-});
+// `appSchema` and `serviceSchema` are built inside `buildPreviewConfigSchema`
+// (below) so their `resources` tier can be gated by `allowCustomResources`.
 
 const addonSchema = z.object({
     name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
@@ -124,37 +119,98 @@ const hooksSchema = z
     })
     .default({ pre_deploy: [], post_deploy: [] });
 
-export const previewConfigSchema = z
-    .object({
-        version: z.literal(1),
-        domain: z.string().optional(),
-        registry: z.string().optional(),
-        config: configSchema.optional(),
-        apps: z.array(appSchema).min(1, "At least one app is required"),
-        services: z.array(serviceSchema).default([]),
-        addons: z.array(addonSchema).default([]),
-        hooks: hooksSchema,
-    })
-    .superRefine((cfg, ctx) => {
-        const seen = new Map<string, "app" | "service" | "addon">();
-        const check = (name: string, kind: "app" | "service" | "addon") => {
-            const existing = seen.get(name);
-            if (existing != null) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: `Name "${name}" is used by both a ${existing} and an ${kind} - names must be unique across apps, services, and addons`,
-                });
-                return;
-            }
-            seen.set(name, kind);
-        };
-        for (const app of cfg.apps) check(app.name, "app");
-        for (const service of cfg.services) check(service.name, "service");
-        for (const addon of cfg.addons) check(addon.name, "addon");
+/**
+ * Builds the preview config schema. `allowCustomResources` is the only knob: it
+ * decides whether per-app/service `resources` overrides are honored (trusted DB
+ * config revisions) or discarded in favor of the standard tier (a repo's
+ * `.preview.yaml`). Every other validation rule is identical. See
+ * {@link buildResourcesSchema}.
+ */
+function buildPreviewConfigSchema(allowCustomResources: boolean) {
+    const appSchema = z.object({
+        name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+        path: z.string().default("."),
+        build_context: z.string().optional(),
+        dockerfile: z.string().optional(),
+        monorepo: z.enum(["turbo"]).optional(),
+        build_args: z.record(z.string(), z.string()).default({}),
+        build_secrets: z.array(z.string()).default([]),
+        port: z.number().int().positive(),
+        env: z.record(z.string(), z.string()).default({}),
+        command: z.string().optional(),
+        health_check: z.string().optional(),
+        replicas: z
+            .number()
+            .int()
+            .positive()
+            .default(1)
+            .transform((replicas) => Math.min(replicas, MAX_REPLICAS)),
+        primary: z.boolean().optional(),
+        resources: buildResourcesSchema("app", allowCustomResources),
+        depends_on: z.array(z.string()).optional(),
     });
 
+    const serviceSchema = z.object({
+        name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+        recipe: z.string(),
+        version: z.string().optional(),
+        env: z.record(z.string(), z.string()).default({}),
+        options: z.record(z.string(), z.unknown()).default({}),
+        resources: buildResourcesSchema("service", allowCustomResources),
+        s3: z.boolean().optional(),
+        sqs: z.boolean().optional(),
+        sns: z.boolean().optional(),
+    });
+
+    return z
+        .object({
+            version: z.literal(1),
+            domain: z.string().optional(),
+            registry: z.string().optional(),
+            config: configSchema.optional(),
+            apps: z.array(appSchema).min(1, "At least one app is required"),
+            services: z.array(serviceSchema).default([]),
+            addons: z.array(addonSchema).default([]),
+            hooks: hooksSchema,
+        })
+        .superRefine((cfg, ctx) => {
+            const seen = new Map<string, "app" | "service" | "addon">();
+            const check = (name: string, kind: "app" | "service" | "addon") => {
+                const existing = seen.get(name);
+                if (existing != null) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: `Name "${name}" is used by both a ${existing} and an ${kind} - names must be unique across apps, services, and addons`,
+                    });
+                    return;
+                }
+                seen.set(name, kind);
+            };
+            for (const app of cfg.apps) check(app.name, "app");
+            for (const service of cfg.services) check(service.name, "service");
+            for (const addon of cfg.addons) check(addon.name, "addon");
+        });
+}
+
+/**
+ * The public `.preview.yaml` contract. Per-app/service `resources` overrides are
+ * accepted but ignored here (every container gets the standard tier); a repo
+ * cannot size its own preview. Use this for any repo-sourced config.
+ */
+export const previewConfigSchema = buildPreviewConfigSchema(false);
+
+/**
+ * Variant that honors per-app/service `resources` overrides. Use ONLY for
+ * trusted, platform-authored config: DB config revisions and the deploy-time
+ * re-parse of an already-resolved merged config. NEVER parse a repo's
+ * `.preview.yaml` with this - that path must use {@link previewConfigSchema}.
+ */
+export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
+
+// Both variants produce the same shape (resources is always the normalized
+// `{ cpu, memoryRequest, memoryLimit }`); only the source of the values differs.
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
-export type AppConfig = z.infer<typeof appSchema>;
+export type AppConfig = PreviewConfig["apps"][number];
 
 export type ConfigIssueSeverity = "error" | "warning";
 
@@ -295,7 +351,7 @@ function standardResources(role: PreviewResourceRole): ContainerResources {
         memoryLimit: standard.memoryLimit,
     };
 }
-export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<z.infer<typeof serviceSchema>, "options"> & {
+export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConfig["services"][number], "options"> & {
     options: TOptions;
 };
 export type AddonConfig = z.infer<typeof addonSchema>;

@@ -1,5 +1,5 @@
 import { logger as rootLogger } from "../logger";
-import { previewConfigSchema, type PreviewConfig } from "./schema";
+import { previewConfigSchema, type PreviewConfig, trustedPreviewConfigSchema } from "./schema";
 
 /**
  * The config-document schema version this build understands. Stored on each
@@ -17,6 +17,12 @@ export interface ResolveConfigInput {
      *  path leaves it unset (the yaml's own `version` field is validated by
      *  the schema). */
     schemaVersion?: number;
+    /** When true, honor any per-app/service `resources` overrides in the
+     *  document; when false (default), discard them and apply the standard tier.
+     *  Reserved for trusted, platform-authored sources (DB config revisions) -
+     *  the `.preview.yaml` path leaves this false so a repo can't size its own
+     *  preview. See `buildResourcesSchema` in `./schema`. */
+    allowCustomResources?: boolean;
 }
 
 /**
@@ -24,9 +30,10 @@ export interface ResolveConfigInput {
  * `PreviewConfig`. One path shared by the `.preview.yaml` loader and the
  * DB-backed loader:
  *   1. upgrade the document from its `schemaVersion` to the current one,
- *   2. validate with `previewConfigSchema`, applying defaults for omitted
- *      fields. Resource fields are accepted for backwards compatibility but
- *      resolved to PreviewKit's standard platform budgets.
+ *   2. validate with the config schema (which also applies platform standards,
+ *      e.g. the `resources` transform). The trusted variant is used when
+ *      `allowCustomResources` is set so a DB revision's resource overrides are
+ *      honored; otherwise the standard tier is forced.
  *
  * Throws `ZodError` on an invalid document (callers format it) or a plain
  * `Error` for an unsupported `schemaVersion`.
@@ -34,12 +41,16 @@ export interface ResolveConfigInput {
 export function resolveConfig(input: ResolveConfigInput): PreviewConfig {
     const logger = rootLogger.child({ name: "resolveConfig" });
     const fromVersion = input.schemaVersion ?? CURRENT_CONFIG_SCHEMA_VERSION;
+    const allowCustomResources = input.allowCustomResources ?? false;
 
     const upgraded = upgradeConfigDocument(input.document, fromVersion);
-    const config = previewConfigSchema.parse(upgraded);
+    const config = allowCustomResources
+        ? trustedPreviewConfigSchema.parse(upgraded)
+        : previewConfigSchema.parse(upgraded);
 
     logger.debug("Resolved preview config", {
         fromVersion,
+        allowCustomResources,
         apps: config.apps.length,
         services: config.services.length,
     });

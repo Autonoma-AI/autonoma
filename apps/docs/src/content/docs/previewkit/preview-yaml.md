@@ -46,9 +46,6 @@ apps:
     command: "node dist/server.js"      # optional, overrides image CMD
     health_check: /health                # optional
     replicas: 1
-    resources:
-      cpu: 500m
-      memory: 512Mi
 ```
 
 | Field          | Type                 | Default     | Notes |
@@ -62,8 +59,8 @@ apps:
 | `command`      | string               | image CMD   | Optional shell command to override the image entrypoint. Wrapped in `/bin/sh -c`. |
 | `health_check` | string               | none        | HTTP path for both readiness and liveness probes. |
 | `replicas`     | integer              | `1`         | Number of pod replicas. |
-| `resources.cpu`    | string           | `"250m"`    | CPU request (no limit). |
-| `resources.memory` | string           | `"256Mi"`   | Memory request and limit. |
+| `resources.cpu`    | string           | `"250m"`    | **Ignored in `.preview.yaml`** (see note below). CPU request (no limit). |
+| `resources.memory` | string           | `"256Mi"`   | **Ignored in `.preview.yaml`** (see note below). Memory request and limit. |
 
 ### Resulting URL
 
@@ -86,9 +83,6 @@ services:
     version: "16"
     env:
       POSTGRES_DB: app
-    resources:
-      cpu: 500m
-      memory: 1Gi
 ```
 
 | Field       | Type                | Default         | Notes |
@@ -98,7 +92,16 @@ services:
 | `version`   | string              | recipe default  | Image tag for the underlying service. |
 | `env`       | map<string, string> | `{}`            | Extra environment variables for the service container. |
 | `options`   | map                 | `{}`            | Recipe-specific config. See each recipe below. |
-| `resources` | object              | `250m / 256Mi`  | Same shape as app resources. |
+| `resources` | object              | `100m / 256Mi`  | **Ignored in `.preview.yaml`** (see note below). Same shape as app resources. |
+
+:::note[Resource sizing is platform-controlled]
+A `resources:` block in a `.preview.yaml` is accepted (so existing configs keep
+validating) but has no effect: every app container gets 250m CPU / 512Mi memory
+and every service container gets 100m CPU / 256Mi memory, each with a 1Gi memory
+limit and no CPU limit (so containers burst freely). Custom resource sizing is
+honored only for platform-authored server-side config revisions, not for a
+repo's `.preview.yaml`.
+:::
 
 ### Available recipes
 
@@ -217,9 +220,6 @@ apps:
       REDIS_URL: "redis://{{cache.host}}:6379"
       ENV_LABEL: "pr-{{pr}}"
     health_check: /health
-    resources:
-      cpu: 500m
-      memory: 512Mi
 
 services:
   - name: db

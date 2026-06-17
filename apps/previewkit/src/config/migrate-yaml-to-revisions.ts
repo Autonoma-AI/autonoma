@@ -99,12 +99,15 @@ export async function migrateYamlConfigsToDb(options: MigrateYamlOptions): Promi
             }
 
             const document = yaml.load(raw);
-            // Validate against the same pipeline the runtime loader uses; throws on
-            // an invalid document so the per-app catch records it as a failure.
-            resolveConfig({ document });
-            if (typeof document !== "object" || document === null || Array.isArray(document)) {
-                throw new Error("Parsed .preview.yaml did not produce a config object");
-            }
+            // Validate + normalize against the runtime pipeline; throws on an invalid
+            // document so the per-app catch records it as a failure. We store the
+            // RESOLVED config (not the raw file): a `.preview.yaml`'s `resources:`
+            // block has always been ignored (standard tier), and resolving it bakes
+            // that in. Storing the raw file instead would let the import silently
+            // activate resource sizing the file path never applied, since revisions
+            // honor `resources`. Only resources authored directly into a revision take
+            // effect.
+            const resolved = resolveConfig({ document });
 
             if (dryRun) {
                 result.migrated++;
@@ -116,7 +119,7 @@ export async function migrateYamlConfigsToDb(options: MigrateYamlOptions): Promi
                 continue;
             }
 
-            const revisionId = await importRevision(applicationId, document);
+            const revisionId = await importRevision(applicationId, resolved);
             result.migrated++;
             logger.info("Imported .preview.yaml as the active config revision", {
                 applicationId,

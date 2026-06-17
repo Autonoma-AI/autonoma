@@ -122,7 +122,7 @@ hooks:
 | `replicas` | No | `1` | Number of pod replicas. Capped at 3 (platform policy); higher values are clamped, not rejected |
 | `primary` | No | | Marks this app as the environment's primary URL |
 | `depends_on` | No | | Names of apps/services this app waits for before starting |
-| `resources` | No | | **Deprecated and ignored.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. Still accepted so existing configs validate; remove it. |
+| `resources` | No | | **Ignored in `.preview.yaml`.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. The field is still accepted so existing configs validate, but its `cpu`/`memory` values have no effect here - resource sizing is honored only for platform-authored server-side config revisions. |
 
 **Service fields:**
 
@@ -133,7 +133,7 @@ hooks:
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
 | `options` | No | `{}` | Recipe-specific options (e.g. `docker-image`'s `image` / `port` / `readiness`) |
-| `resources` | No | | **Deprecated and ignored** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
+| `resources` | No | | **Ignored in `.preview.yaml`** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
 
 ### Template Syntax
 

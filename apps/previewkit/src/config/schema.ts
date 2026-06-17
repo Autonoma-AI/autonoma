@@ -2,6 +2,7 @@ export {
     MAX_REPLICAS,
     STANDARD_RESOURCES,
     previewConfigSchema,
+    trustedPreviewConfigSchema,
     type AddonConfig,
     type AppConfig,
     type BranchConvention,

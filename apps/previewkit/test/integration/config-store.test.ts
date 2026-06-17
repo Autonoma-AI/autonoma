@@ -70,6 +70,26 @@ integrationTestSuite({
             expect(active!.config.domain).toBe("base.example.com");
         });
 
+        test("loadActiveConfig honors per-app/service resource overrides from a revision", async ({ harness }) => {
+            const applicationId = await createApplication(harness);
+            // A revision is a trusted, platform-authored source, so its `resources`
+            // overrides are honored - unlike a `.preview.yaml`, which is ignored.
+            await seedActiveRevision(harness, applicationId, {
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
+                services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
+            });
+
+            const active = await loadActiveConfig(applicationId);
+
+            expect(active!.config.apps[0]!.resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
+            expect(active!.config.services[0]!.resources).toEqual({
+                cpu: "1",
+                memoryRequest: "2Gi",
+                memoryLimit: "2Gi",
+            });
+        });
+
         test("loadActiveConfig ignores an active revision id that belongs to another application", async ({
             harness,
         }) => {

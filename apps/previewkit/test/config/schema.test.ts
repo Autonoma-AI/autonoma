@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { previewConfigSchema } from "../../src/config/schema.js";
+import { previewConfigSchema, trustedPreviewConfigSchema } from "../../src/config/schema.js";
 
 describe("previewConfigSchema", () => {
     const validConfig = {
@@ -73,7 +73,7 @@ describe("previewConfigSchema", () => {
         expect(result.apps[0].replicas).toBe(1);
         expect(result.apps[0].build_args).toEqual({});
         expect(result.apps[0].env).toEqual({});
-        // Omitting resources yields the app-tier standard.
+        // On the `.preview.yaml` path, omitting resources yields the app-tier standard.
         expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
     });
 
@@ -95,7 +95,7 @@ describe("previewConfigSchema", () => {
         });
     });
 
-    describe("resources", () => {
+    describe("resources (ignored on the .preview.yaml path)", () => {
         it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
             expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
@@ -113,6 +113,61 @@ describe("previewConfigSchema", () => {
                 memoryRequest: "256Mi",
                 memoryLimit: "1Gi",
             });
+        });
+
+        it("ignores the normalized memoryRequest/memoryLimit keys too", () => {
+            const result = previewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memoryRequest: "8Gi", memoryLimit: "16Gi" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+        });
+
+        it("still validates a config that sets resources (backward compatibility)", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "500m", memory: "512Mi" } }],
+            });
+            expect(result.success).toBe(true);
+        });
+    });
+
+    describe("resources (honored for trusted config revisions)", () => {
+        it("honors explicit cpu/memory, using memory for both request and limit", () => {
+            const result = trustedPreviewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
+                services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
+            expect(result.services[0].resources).toEqual({ cpu: "1", memoryRequest: "2Gi", memoryLimit: "2Gi" });
+        });
+
+        it("falls back to the tier standard for any field the document omits", () => {
+            const result = trustedPreviewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ cpu: "2", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+        });
+
+        it("yields the standard tier when resources is omitted", () => {
+            const result = trustedPreviewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+            });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+        });
+
+        it("is idempotent when re-parsing an already-resolved config (deploy round-trip)", () => {
+            const once = trustedPreviewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
+            });
+            // The merged config crosses the Temporal activity boundary as JSON and is
+            // re-parsed at deploy time; the second parse must preserve the values.
+            const twice = trustedPreviewConfigSchema.parse(JSON.parse(JSON.stringify(once)));
+            expect(twice.apps[0].resources).toEqual(once.apps[0].resources);
         });
     });
 

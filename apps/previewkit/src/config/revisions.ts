@@ -32,7 +32,13 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
         revisionId: revision.id,
         schemaVersion: revision.schemaVersion,
     });
-    const config = resolveConfig({ document: revision.document, schemaVersion: revision.schemaVersion });
+    // Config revisions are platform-authored (not a repo's `.preview.yaml`), so
+    // per-app/service `resources` overrides are trusted and honored here.
+    const config = resolveConfig({
+        document: revision.document,
+        schemaVersion: revision.schemaVersion,
+        allowCustomResources: true,
+    });
     return { config, revisionId: revision.id };
 }
 
