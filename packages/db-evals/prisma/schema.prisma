@@ -1,0 +1,56 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BenchmarkBatchStatus {
+  running
+  completed
+
+  @@map("benchmark_batch_status")
+}
+
+enum BenchmarkGenerationStatus {
+  pending
+  running
+  success
+  failed
+
+  @@map("benchmark_generation_status")
+}
+
+model BenchmarkBatch {
+  id          String               @id @default(cuid())
+  status      BenchmarkBatchStatus @default(running)
+  repeatCount Int                  @map("repeat_count")
+  appUrls     String[]             @map("app_urls")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  completedAt DateTime?            @map("completed_at")
+
+  generations BenchmarkGeneration[]
+
+  @@map("benchmark_batch")
+}
+
+model BenchmarkGeneration {
+  id               String                    @id @default(cuid())
+  batchId          String                    @map("batch_id")
+  testPlanId       String                    @map("test_plan_id")
+  testGenerationId String                    @map("test_generation_id")
+  appUrl           String                    @map("app_url")
+  status           BenchmarkGenerationStatus @default(pending)
+  verdict          String?
+  stepCount        Int?                      @map("step_count")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  completedAt      DateTime?                 @map("completed_at")
+
+  batch BenchmarkBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([testGenerationId])
+  @@map("benchmark_generation")
+}

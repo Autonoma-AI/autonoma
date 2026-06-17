@@ -8,6 +8,7 @@ dist/
 
 # Prisma 7 generated client
 packages/db/src/generated/
+packages/db-evals/src/generated/
 
 .env
 .env.*
