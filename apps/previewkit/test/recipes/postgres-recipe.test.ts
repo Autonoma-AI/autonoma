@@ -14,16 +14,21 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
 describe("PostgresRecipe", () => {
     const recipe = new PostgresRecipe();
 
-    it("stores Postgres data in the mounted PVC subdirectory", () => {
-        const result = recipe.generate(baseService(), "ns");
+    // The same data layout must hold for every allowed image: mount the volume
+    // root and pin PGDATA to a subdirectory, so lost+found never collides with
+    // initdb and AlloyDB Omni (whose default PGDATA is already that subdir)
+    // needs no special-casing.
+    it.each([
+        { label: "the official postgres image", options: {} },
+        { label: "AlloyDB Omni", options: { image: "google/alloydbomni:16.8.0" } },
+    ])("pins PGDATA to a subdirectory and mounts the volume root for $label", ({ options }) => {
+        const result = recipe.generate(baseService({ options }), "ns");
         const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];
+        const dataMount = container?.volumeMounts?.find((mount) => mount.name === "data");
 
-        expect(container?.env).not.toContainEqual({ name: "PGDATA", value: "/var/lib/postgresql/data/pgdata" });
-        expect(container?.volumeMounts).toContainEqual({
-            name: "data",
-            mountPath: "/var/lib/postgresql/data",
-            subPath: "pgdata",
-        });
+        expect(container?.env).toContainEqual({ name: "PGDATA", value: "/var/lib/postgresql/data/pgdata" });
+        expect(dataMount?.mountPath).toBe("/var/lib/postgresql/data");
+        expect(dataMount?.subPath).toBeUndefined();
     });
 
     it("connectionInfo returns the service name and Postgres port", () => {

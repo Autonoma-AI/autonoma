@@ -33,6 +33,15 @@ export type PostgresRestoreOptions = {
 
 const DEFAULT_VERSION = "16-alpine";
 const PORT = 5432;
+const DATA_MOUNT_PATH = "/var/lib/postgresql/data";
+
+// Pin PGDATA to a subdirectory of the mounted volume for every allowed image. A
+// freshly formatted ext4 PVC has a lost+found dir at its root and initdb refuses
+// to initialize into a non-empty directory, so the cluster must live one level
+// down. This is the layout the official postgres image documents for a mounted
+// data dir, and it is already AlloyDB Omni's default PGDATA - so a single root
+// mount plus an explicit PGDATA works for all images with no per-image branching.
+const PGDATA_PATH = `${DATA_MOUNT_PATH}/pgdata`;
 
 export class PostgresRecipe extends BaseRecipe {
     readonly name = "postgres";
@@ -94,6 +103,7 @@ export class PostgresRecipe extends BaseRecipe {
                                     { name: "POSTGRES_USER", value: "preview" },
                                     { name: "POSTGRES_PASSWORD", value: "preview" },
                                     { name: "POSTGRES_DB", value: "preview" },
+                                    { name: "PGDATA", value: PGDATA_PATH },
                                     ...Object.entries(config.env).map(([name, value]) => ({
                                         name,
                                         value,
@@ -111,14 +121,10 @@ export class PostgresRecipe extends BaseRecipe {
                                 volumeMounts: [
                                     {
                                         name: "data",
-                                        mountPath: "/var/lib/postgresql/data",
-                                        // Mount a subdirectory rather than the volume root. A
-                                        // freshly formatted ext4 PVC contains a lost+found dir at
-                                        // its root, and initdb refuses to initialize into a
-                                        // non-empty data directory. With Postgres' default PGDATA,
-                                        // this stores data at PVC:/pgdata without nesting another
-                                        // pgdata directory inside it.
-                                        subPath: "pgdata",
+                                        // Mount the volume root; PGDATA (set above) points the
+                                        // cluster at the pgdata subdirectory. See PGDATA_PATH for
+                                        // why this single layout is used for every allowed image.
+                                        mountPath: DATA_MOUNT_PATH,
                                     },
                                     ...(hasExtraDatabases
                                         ? [
