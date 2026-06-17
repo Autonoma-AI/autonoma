@@ -48,7 +48,7 @@ function AppSelector() {
       <Panel>
         <PanelBody className="p-0">
           {applications.length > 0 ? (
-            <div className="divide-y divide-border-dim">
+            <div className="max-h-[60vh] divide-y divide-border-dim overflow-y-auto">
               {incompleteApps.length > 0 && (
                 <>
                   <div className="px-5 py-2.5">
