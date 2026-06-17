@@ -1,5 +1,6 @@
 import { CancellationScope, isCancellation, log, proxyActivities } from "@temporalio/workflow";
 import type { PreviewDeployEvent, PreviewkitActivities } from "../activities";
+import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 
 /**
@@ -109,7 +110,7 @@ export async function previewDeployWorkflow(input: PreviewDeployWorkflowInput): 
             throw err;
         }
 
-        const message = err instanceof Error ? err.message : String(err);
+        const message = rootFailureMessage(err);
         log.error("Preview deploy workflow failed; running failure finalizer", { extra: { ...ids.extra, message } });
         await feedback.failPreviewDeploy({
             event,

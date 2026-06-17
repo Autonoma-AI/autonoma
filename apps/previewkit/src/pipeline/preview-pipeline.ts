@@ -709,7 +709,7 @@ export class PreviewPipeline {
         error: string,
     ): Promise<void> {
         const { repoFullName, prNumber, headSha } = event;
-        logger.error("Preview deployment failed", new Error(error), { repo: repoFullName, pr: prNumber });
+        logger.error("Preview deployment failed", { repo: repoFullName, pr: prNumber, error });
 
         await this.deployer
             .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
