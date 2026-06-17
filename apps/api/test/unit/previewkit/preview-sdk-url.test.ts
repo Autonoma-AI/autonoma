@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePreviewSdkUrl } from "../../../src/routes/deployments/previewkit-env-factory.service";
+import { derivePreviewSdkUrl } from "../../../src/routes/deployments/preview-sdk-url";
 
 describe("derivePreviewSdkUrl", () => {
     it("combines the preview origin with the main webhook path and query", () => {
