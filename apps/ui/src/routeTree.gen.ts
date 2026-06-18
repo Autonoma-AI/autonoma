@@ -37,6 +37,7 @@ import { Route as BlacklightAppShellAppAppSlugSettingsIndexRouteImport } from '.
 import { Route as BlacklightAppShellAppAppSlugSecretsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/secrets/index'
 import { Route as BlacklightAppShellAppAppSlugScenariosIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/scenarios/index'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/index'
+import { Route as BlacklightAppShellAppAppSlugPreviewConfigIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/preview-config/index'
 import { Route as BlacklightAppShellAppAppSlugHistoryIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/history/index'
 import { Route as BlacklightAppShellAppAppSlugGithubIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/github/index'
 import { Route as BlacklightAppShellAppAppSlugGenerationProgressIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/generation-progress/index'
@@ -221,6 +222,12 @@ const BlacklightAppShellAppAppSlugPullRequestsIndexRoute =
   BlacklightAppShellAppAppSlugPullRequestsIndexRouteImport.update({
     id: '/pull-requests/',
     path: '/pull-requests/',
+    getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
+  } as any)
+const BlacklightAppShellAppAppSlugPreviewConfigIndexRoute =
+  BlacklightAppShellAppAppSlugPreviewConfigIndexRouteImport.update({
+    id: '/preview-config/',
+    path: '/preview-config/',
     getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
   } as any)
 const BlacklightAppShellAppAppSlugHistoryIndexRoute =
@@ -430,6 +437,7 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/app/$appSlug/github/': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/app/$appSlug/history/': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
+  '/app/$appSlug/preview-config/': typeof BlacklightAppShellAppAppSlugPreviewConfigIndexRoute
   '/app/$appSlug/pull-requests/': typeof BlacklightAppShellAppAppSlugPullRequestsIndexRoute
   '/app/$appSlug/scenarios/': typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   '/app/$appSlug/secrets/': typeof BlacklightAppShellAppAppSlugSecretsIndexRoute
@@ -478,6 +486,7 @@ export interface FileRoutesByTo {
   '/app/$appSlug/generation-progress': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/app/$appSlug/github': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/app/$appSlug/history': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
+  '/app/$appSlug/preview-config': typeof BlacklightAppShellAppAppSlugPreviewConfigIndexRoute
   '/app/$appSlug/pull-requests': typeof BlacklightAppShellAppAppSlugPullRequestsIndexRoute
   '/app/$appSlug/scenarios': typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   '/app/$appSlug/secrets': typeof BlacklightAppShellAppAppSlugSecretsIndexRoute
@@ -532,6 +541,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/github/': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/history/': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
+  '/_blacklight/_app-shell/app/$appSlug/preview-config/': typeof BlacklightAppShellAppAppSlugPreviewConfigIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/': typeof BlacklightAppShellAppAppSlugPullRequestsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/scenarios/': typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/secrets/': typeof BlacklightAppShellAppAppSlugSecretsIndexRoute
@@ -587,6 +597,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/generation-progress/'
     | '/app/$appSlug/github/'
     | '/app/$appSlug/history/'
+    | '/app/$appSlug/preview-config/'
     | '/app/$appSlug/pull-requests/'
     | '/app/$appSlug/scenarios/'
     | '/app/$appSlug/secrets/'
@@ -635,6 +646,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/generation-progress'
     | '/app/$appSlug/github'
     | '/app/$appSlug/history'
+    | '/app/$appSlug/preview-config'
     | '/app/$appSlug/pull-requests'
     | '/app/$appSlug/scenarios'
     | '/app/$appSlug/secrets'
@@ -688,6 +700,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/generation-progress/'
     | '/_blacklight/_app-shell/app/$appSlug/github/'
     | '/_blacklight/_app-shell/app/$appSlug/history/'
+    | '/_blacklight/_app-shell/app/$appSlug/preview-config/'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/'
     | '/_blacklight/_app-shell/app/$appSlug/scenarios/'
     | '/_blacklight/_app-shell/app/$appSlug/secrets/'
@@ -905,6 +918,13 @@ declare module '@tanstack/react-router' {
       path: '/pull-requests'
       fullPath: '/app/$appSlug/pull-requests/'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsIndexRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/preview-config/': {
+      id: '/_blacklight/_app-shell/app/$appSlug/preview-config/'
+      path: '/preview-config'
+      fullPath: '/app/$appSlug/preview-config/'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPreviewConfigIndexRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/history/': {
@@ -1200,6 +1220,7 @@ interface BlacklightAppShellAppAppSlugRouteRouteChildren {
   BlacklightAppShellAppAppSlugGenerationProgressIndexRoute: typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   BlacklightAppShellAppAppSlugGithubIndexRoute: typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   BlacklightAppShellAppAppSlugHistoryIndexRoute: typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
+  BlacklightAppShellAppAppSlugPreviewConfigIndexRoute: typeof BlacklightAppShellAppAppSlugPreviewConfigIndexRoute
   BlacklightAppShellAppAppSlugPullRequestsIndexRoute: typeof BlacklightAppShellAppAppSlugPullRequestsIndexRoute
   BlacklightAppShellAppAppSlugScenariosIndexRoute: typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   BlacklightAppShellAppAppSlugSecretsIndexRoute: typeof BlacklightAppShellAppAppSlugSecretsIndexRoute
@@ -1239,6 +1260,8 @@ const BlacklightAppShellAppAppSlugRouteRouteChildren: BlacklightAppShellAppAppSl
       BlacklightAppShellAppAppSlugGithubIndexRoute,
     BlacklightAppShellAppAppSlugHistoryIndexRoute:
       BlacklightAppShellAppAppSlugHistoryIndexRoute,
+    BlacklightAppShellAppAppSlugPreviewConfigIndexRoute:
+      BlacklightAppShellAppAppSlugPreviewConfigIndexRoute,
     BlacklightAppShellAppAppSlugPullRequestsIndexRoute:
       BlacklightAppShellAppAppSlugPullRequestsIndexRoute,
     BlacklightAppShellAppAppSlugScenariosIndexRoute:

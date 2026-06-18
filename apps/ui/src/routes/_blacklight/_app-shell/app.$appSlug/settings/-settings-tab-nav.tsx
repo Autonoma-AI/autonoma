@@ -1,5 +1,6 @@
 import { cn, tabsListVariants } from "@autonoma/blacklight";
 import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
+import { BrowsersIcon } from "@phosphor-icons/react/Browsers";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
@@ -9,7 +10,7 @@ import type { Icon } from "@phosphor-icons/react/lib";
 import { LockKeyIcon } from "@phosphor-icons/react/LockKey";
 import { Link } from "@tanstack/react-router";
 
-type SettingsTab = "general" | "billing" | "scenarios" | "history" | "github" | "api-keys" | "secrets";
+type SettingsTab = "general" | "billing" | "scenarios" | "history" | "github" | "api-keys" | "secrets" | "preview";
 
 interface SettingsTabNavProps {
   activeTab: SettingsTab;
@@ -22,6 +23,7 @@ const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string 
   { value: "scenarios", label: "Scenarios", icon: BroadcastIcon, path: "scenarios" },
   { value: "api-keys", label: "API Keys", icon: KeyIcon, path: "api-keys" },
   { value: "secrets", label: "Secrets", icon: LockKeyIcon, path: "secrets" },
+  { value: "preview", label: "Preview", icon: BrowsersIcon, path: "preview-config" },
   { value: "history", label: "History", icon: ClockCounterClockwiseIcon, path: "history" },
   { value: "github", label: "GitHub", icon: GithubLogoIcon, path: "github" },
 ];
