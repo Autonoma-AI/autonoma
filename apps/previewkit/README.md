@@ -293,6 +293,36 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 
 **Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. The same mirroring covers the BuildKit Job image (`moby/buildkit`); the per-namespace Gatekeeper proxy runs from `public.ecr.aws`, so it is pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
 
+### `api-gateway`
+
+An nginx reverse proxy that routes incoming paths to backend services. Each route becomes an nginx `location` block that proxies to its `target` (request-time DNS resolution, so targets that don't exist yet at deploy time still work).
+
+```yaml
+services:
+  - name: api-gateway
+    recipe: api-gateway
+    options:
+      client_max_body_size: 25m
+      inject_headers:
+        x-gateway-source: api-gateway-proxy
+      routes:
+        - path: /graphql
+          target: subgraph-core:4001
+        - path: /api/
+          target: platform-user-service:3000
+          strip_prefix: true
+```
+
+**`options` fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `routes` | Yes | At least one route. Each: `path` (location prefix), `target` (`host:port`, resolved against the namespace if it has no dot), optional `strip_prefix` (drop `path` before forwarding), optional `rewrite` (custom prefix rewrite) |
+| `client_max_body_size` | No | nginx `client_max_body_size`. Default `10m` |
+| `inject_headers` | No | Map of header -> value added to **every** proxied request via `proxy_set_header`. Since `proxy_set_header` overrides any client-supplied value, this is also how you stamp a trusted gateway-identity header (e.g. `x-gateway-source: api-gateway-proxy`) that upstreams can rely on - clients cannot spoof a header the gateway always overwrites. Header names must be valid HTTP tokens; values cannot contain double quotes or newlines |
+
+Routes are matched most-specific-first (longest `path` wins). The gateway also serves `GET /_health` (200) for its own readiness probe.
+
 ### `docker-image`
 
 Use `docker-image` to deploy any container without writing a dedicated recipe. The image, port, command, and readiness probe are configured via `options`.

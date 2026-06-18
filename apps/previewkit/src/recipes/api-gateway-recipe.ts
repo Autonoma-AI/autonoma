@@ -19,9 +19,22 @@ const routeSchema = z.object({
     rewrite: z.string().optional(),
 });
 
+// Header names are restricted to valid HTTP tokens and values to a single line
+// without double quotes, so they can be emitted verbatim into the nginx config
+// (inside a quoted `proxy_set_header` value) with no risk of breaking out of the
+// directive or injecting arbitrary nginx config.
+const headerNameSchema = z.string().regex(/^[A-Za-z0-9-]+$/, "header name must be a valid HTTP token");
+const headerValueSchema = z.string().regex(/^[^\r\n"]*$/, "header value cannot contain double quotes or newlines");
+
 const optionsSchema = z.object({
     routes: z.array(routeSchema).min(1, "api-gateway requires at least one route"),
     client_max_body_size: z.string().default("10m"),
+    // Headers injected into every proxied request via `proxy_set_header`. Because
+    // proxy_set_header overrides any client-supplied value, this is also the
+    // mechanism for stamping a trusted gateway-identity header (e.g.
+    // `x-gateway-source: api-gateway-proxy`) that upstreams can rely on - a
+    // client cannot spoof a header the gateway always overwrites.
+    inject_headers: z.record(headerNameSchema, headerValueSchema).default({}),
 });
 
 export type ApiGatewayOptions = z.infer<typeof optionsSchema>;
@@ -139,6 +152,12 @@ export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
 }
 
 function buildNginxConfig(options: ApiGatewayOptions, namespace: string): string {
+    // Emitted into every proxied location. proxy_set_header overrides whatever
+    // the client sent, so these are authoritative on the forwarded request.
+    const injectedHeaderLines = Object.entries(options.inject_headers).map(
+        ([name, value]) => `        proxy_set_header ${name} "${value}";`,
+    );
+
     const locationBlocks = sortByPathSpecificity(options.routes).map((route, index) => {
         const target = normalizeTarget(route.target, namespace);
         const rewrite = buildRewrite(route);
@@ -162,6 +181,7 @@ function buildNginxConfig(options: ApiGatewayOptions, namespace: string): string
             `        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`,
             `        proxy_set_header X-Forwarded-Proto $scheme;`,
             `        proxy_set_header X-Forwarded-Host $host;`,
+            ...injectedHeaderLines,
             `        proxy_read_timeout 60s;`,
             `        proxy_connect_timeout 10s;`,
             `    }`,
