@@ -292,6 +292,13 @@ fixtures captured before this still rehydrate. `change` and `analysisReasoning` 
 healing runs against a checked-out head SHA, downstream of a successful analysis - though
 `analysisReasoning` defaults to `""` on read for a fixture frozen before it was captured.
 
+**Final-turn gating (Healing).** Capture also freezes the loop's trigger-specific iteration cap as
+`maxIterations`, recovered from the iteration's `RefinementLoop.triggeredBy` (4 diffs / 3 onboarding).
+The eval runs the real `HealingAgent`, which withholds the retry tools (`update_plan` / `add_test`)
+when `iteration === maxIterations`, so a final-turn fixture exercises the same triage-only tool set
+production does. `maxIterations` defaults to `4` (the corpus is diffs-only) for a fixture frozen
+before it was captured.
+
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
 schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -

@@ -134,6 +134,11 @@ const planAuthoringSchema = z.object({
 export const healingCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
     iteration: z.number().int().positive(),
+    // The loop's trigger-specific iteration cap; the agent withholds its retry
+    // tools when `iteration === maxIterations`. Defaulted to the diffs cap (4,
+    // the corpus is diffs-only) so a fixture frozen before this field was
+    // captured still rehydrates with production-faithful final-turn behavior.
+    maxIterations: z.number().int().positive().default(4),
     snapshotId: z.string(),
     applicationId: z.string(),
     organizationId: z.string(),
@@ -172,6 +177,7 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
 
     const agentInput: HealingInputWithoutCodebase = {
         iteration: parsed.iteration,
+        maxIterations: parsed.maxIterations,
         snapshotId: parsed.snapshotId,
         applicationId: parsed.applicationId,
         organizationId: parsed.organizationId,
@@ -206,6 +212,7 @@ export function serializeHealingInput(
     return healingCaseInputSchema.parse({
         codebase: coords,
         iteration: agentInput.iteration,
+        maxIterations: agentInput.maxIterations,
         snapshotId: agentInput.snapshotId,
         applicationId: agentInput.applicationId,
         organizationId: agentInput.organizationId,

@@ -86,6 +86,7 @@ describe("healing fixture round-trip", () => {
             coords,
             {
                 iteration: 1,
+                maxIterations: 4,
                 snapshotId: "snap-1",
                 applicationId: "app-1",
                 organizationId: "org-1",
@@ -119,6 +120,8 @@ describe("healing fixture round-trip", () => {
         expect(agentInput.planAuthoring.scenarios.toArray()).toEqual(scenarios);
         // analysisReasoning is default-backed, so its value must round-trip, not reset.
         expect(agentInput.analysisReasoning).toBe("Checkout was restructured around a promo-code field.");
+        // The trigger-specific cap round-trips so the eval gates the final turn as production does.
+        expect(agentInput.maxIterations).toBe(4);
     });
 
     it("defaults the resolution-era fields when a pre-fold fixture omits them", () => {

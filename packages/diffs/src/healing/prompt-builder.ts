@@ -6,6 +6,15 @@ import { buildPlanAuthoringContext } from "./plan-authoring";
 import type { FailureRecord, HealingTestCandidate } from "./types";
 
 /**
+ * Whether this is the loop's final iteration. On the final turn the agent's
+ * retry tools (`update_plan` / `add_test`) are withheld - mirrored here so the
+ * prompt instructs the agent to triage rather than retry.
+ */
+function isFinalTurn(input: HealingInput): boolean {
+    return input.iteration >= input.maxIterations;
+}
+
+/**
  * Builds the user-facing prompt that goes into HealingAgent. The system prompt
  * teaches the agent its job; this prompt gives it the per-call context.
  */
@@ -25,6 +34,16 @@ export function buildHealingPrompt(input: HealingInput): string {
         "You are inside a refinement loop. The codebase is checked out at the current snapshot's head SHA, with the base SHA also fetched, so you can inspect what changed with `git diff`.",
     );
 
+    if (isFinalTurn(input)) {
+        sections.push(
+            `This is the **final iteration** (the loop's ${input.maxIterations}-iteration budget is exhausted). ` +
+                "There is no next turn, so retrying is not an option: `update_plan` and `add_test` are unavailable. " +
+                "Reach a terminal disposition for every failure - `report_bug`, `report_engine_limitation`, or " +
+                "`remove_test`. A plan that is still failing here but is not an application bug or engine limitation " +
+                "should be removed.",
+        );
+    }
+
     sections.push(buildChangeFactsSection(input));
 
     if (input.priorActions.length > 0) {
@@ -34,7 +53,7 @@ export function buildHealingPrompt(input: HealingInput): string {
     sections.push(buildSnapshotSection(input));
 
     if (input.failures.length > 0) {
-        sections.push(buildFailuresSection(input.failures));
+        sections.push(buildFailuresSection(input.failures, isFinalTurn(input)));
     } else {
         sections.push("# Failures\n\nNone in this batch.");
     }
@@ -112,11 +131,12 @@ function buildSnapshotSection(input: HealingInput): string {
     return ["# Snapshot", `- snapshotId: ${input.snapshotId}`, `- applicationId: ${input.applicationId}`].join("\n");
 }
 
-function buildFailuresSection(failures: FailureRecord[]): string {
+function buildFailuresSection(failures: FailureRecord[], finalTurn: boolean): string {
     const parts = [`# Failures (${failures.length})`];
-    parts.push(
-        "Each failure must be addressed via update_plan, report_bug, report_engine_limitation, or remove_test before you call finish.",
-    );
+    const actions = finalTurn
+        ? "report_bug, report_engine_limitation, or remove_test"
+        : "update_plan, report_bug, report_engine_limitation, or remove_test";
+    parts.push(`Each failure must be addressed via ${actions} before you call finish.`);
 
     for (const f of failures) {
         parts.push(formatFailure(f));
@@ -255,7 +275,9 @@ function buildInstructionsSection(input: HealingInput): string {
             "Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
         );
         steps.push(
-            "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
+            isFinalTurn(input)
+                ? "For each failure, choose exactly one terminal action: `report_bug`, `report_engine_limitation`, or `remove_test`. There is no next turn, so `update_plan` is unavailable."
+                : "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
         );
     }
     if (hasCandidates) {

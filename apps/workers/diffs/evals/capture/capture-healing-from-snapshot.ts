@@ -5,6 +5,7 @@ import { db } from "@autonoma/db";
 import { FlowIndex, bucketPlanOutcomes, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { maxIterationsForTrigger } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../../src/create-services";
 import {
     type HealingInputWithoutCodebase,
@@ -136,6 +137,9 @@ async function assembleFirstTurnInput(snapshotId: string, logger: Logger): Promi
 
     return {
         iteration: 1,
+        // Always the diffs folded-resolution first turn, so the cap is the diffs
+        // budget; iteration 1 is never the final turn, so retry tools stay live.
+        maxIterations: maxIterationsForTrigger("diffs"),
         priorActions: [],
         failures,
         candidates,

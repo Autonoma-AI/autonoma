@@ -1,6 +1,7 @@
 import { CancellationScope, executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities/diffs-activities";
 import type { GeneralActivities } from "../activities/general-activities";
+import { maxIterationsForTrigger } from "../refinement-max-iterations";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -32,8 +33,6 @@ export interface RefinementLoopResult {
     validatedTestCaseIds: string[];
 }
 
-const DEFAULT_MAX_ITERATIONS = 3;
-
 /**
  * Refinement loop.
  *
@@ -55,7 +54,7 @@ const DEFAULT_MAX_ITERATIONS = 3;
  * them before the loop converges.
  */
 export async function refinementLoopWorkflow(input: RefinementLoopInput): Promise<RefinementLoopResult> {
-    const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const maxIterations = input.maxIterations ?? maxIterationsForTrigger(input.triggeredBy);
     const baseIds = { snapshot: { snapshotId: input.snapshotId } };
 
     log.info("Refinement loop workflow started", {
@@ -148,6 +147,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             const triage = await diffs.runHealingAgentForRefinement({
                 iterationId: currentIterationId,
                 iteration: currentIterationNumber,
+                maxIterations,
                 snapshotId: input.snapshotId,
                 organizationId,
                 failuresAtGeneration: results.failuresAtGeneration,
@@ -165,9 +165,22 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
 
             await general.finishRefinementIteration({ iterationId: currentIterationId });
 
+            // The final turn is triage-only - healing's retry tools are withheld,
+            // so it can never produce a plan change, and `nextIterationId` is always
+            // null here. Reaching this branch on the final turn means we exhausted
+            // the iteration budget with failures still present (now triaged
+            // terminally) -> `max_iterations`. On any earlier turn, no plan change
+            // means healing settled every failure terminally before the cap ->
+            // `converged`.
+            const isFinalIteration = currentIterationNumber >= maxIterations;
             if (applyResult.nextIterationId == null) {
-                finalStatus = "converged";
-                log.info("Healing produced no plan changes; refinement converged", iterIds);
+                if (isFinalIteration) {
+                    finalStatus = "max_iterations";
+                    log.info("Final iteration triaged remaining failures; refinement hit iteration cap", iterIds);
+                } else {
+                    finalStatus = "converged";
+                    log.info("Healing produced no plan changes; refinement converged", iterIds);
+                }
                 break;
             }
 

@@ -54,6 +54,14 @@ export interface HealingAgentConfig {
 export interface HealingInput extends SnapshotInfo {
     /** 1-indexed iteration number within the refinement loop. */
     iteration: number;
+    /**
+     * The loop's trigger-specific iteration cap (4 diffs / 3 onboarding). When
+     * `iteration === maxIterations` this is the final turn: the retry tools
+     * (`update_plan` / `add_test`) are withheld so the agent can only reach a
+     * terminal disposition (report_bug / report_engine_limitation / remove_test),
+     * making it structurally impossible to spawn a dangling iteration N+1.
+     */
+    maxIterations: number;
     /** Actions emitted in earlier iterations of the same loop. */
     priorActions: HealingAction[];
     failures: FailureRecord[];
@@ -141,6 +149,29 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
             if (f.reviewLink != null) reviewLinksByTestCaseId.set(f.testCaseId, f.reviewLink);
         }
 
+        // The final turn is triage-only: withhold the retry tools (`update_plan` /
+        // `add_test`) so the agent cannot author a plan change that would spawn an
+        // iteration N+1 the loop will never analyze. The terminal tools remain, so
+        // every failure is still dispositioned.
+        const isFinalTurn = input.iteration >= input.maxIterations;
+
+        // Candidates are graduated only via `add_test`, which is withheld on the
+        // final turn - so a candidate riding a final turn could never be decided
+        // (the result tool would deadlock) and the prompt would tell the agent to
+        // call a tool it doesn't have. This cannot happen under current caps
+        // (candidates ride only diffs iteration 1; the cap is >= 3), so enforce
+        // the coupling here: anyone lowering the cap must rethink candidate
+        // scheduling rather than silently ship a contradictory turn.
+        if (isFinalTurn && input.candidates.length > 0) {
+            throw new Error(
+                `Healing final turn (iteration ${input.iteration}/${input.maxIterations}) received ` +
+                    `${input.candidates.length} candidate(s), but add_test is withheld on the final turn. ` +
+                    "Candidate scheduling must not coincide with the iteration cap.",
+            );
+        }
+
+        const retryTools = isFinalTurn ? [] : [this.updatePlanTool, this.addTestTool];
+
         return new HealingAgentLoop({
             name: "HealingAgent",
             model: this.model,
@@ -153,11 +184,10 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
                 this.readTestsTool,
                 this.listScenariosTool,
                 this.readScenarioTool,
-                this.updatePlanTool,
                 this.reportBugTool,
                 this.reportEngineLimitationTool,
                 this.removeTestTool,
-                this.addTestTool,
+                ...retryTools,
             ],
             reportTool: this.resultTool,
             compactor: {

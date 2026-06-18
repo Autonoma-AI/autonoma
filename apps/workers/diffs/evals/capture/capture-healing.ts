@@ -4,6 +4,7 @@ import path from "node:path";
 import { db } from "@autonoma/db";
 import { bucketIterationOutcomes } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
+import { maxIterationsForTrigger } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../../src/create-services";
 import { assembleHealingInput } from "../../src/refinement/assemble-healing-input";
 import { requireCasesDir } from "../framework/cases-dir";
@@ -49,6 +50,14 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     // Run, their reviews) so they reproduce exactly what the live iteration saw.
     const outcomes = await bucketIterationOutcomes(db, iterationId, logger);
 
+    // The trigger-specific iteration cap the live iteration ran under, recovered
+    // from its loop so the frozen input reflects production final-turn gating.
+    const { loop } = await db.refinementIteration.findUniqueOrThrow({
+        where: { id: iterationId },
+        select: { loop: { select: { triggeredBy: true } } },
+    });
+    const maxIterations = maxIterationsForTrigger(loop.triggeredBy);
+
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(outcomes.snapshotId, githubApp);
 
@@ -60,6 +69,7 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     const { agentInput } = await assembleHealingInput({
         iterationId,
         iterationNumber: outcomes.iterationNumber,
+        maxIterations,
         snapshotId: outcomes.snapshotId,
         failuresAtGeneration: outcomes.failuresAtGeneration,
         failuresAtReplay: outcomes.failuresAtReplay,

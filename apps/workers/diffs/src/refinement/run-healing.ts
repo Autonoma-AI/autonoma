@@ -54,6 +54,7 @@ export async function runRefinementHealing(
     const { agentInput } = await assembleHealingInput({
         iterationId: input.iterationId,
         iterationNumber: input.iteration,
+        maxIterations: input.maxIterations,
         snapshotId: input.snapshotId,
         failuresAtGeneration: input.failuresAtGeneration,
         failuresAtReplay: input.failuresAtReplay,

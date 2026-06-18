@@ -25,6 +25,12 @@ export type HealingInputWithoutCodebase = Omit<HealingInput, "codebase">;
 export interface AssembleHealingInputParams {
     iterationId: string;
     iterationNumber: number;
+    /**
+     * The loop's trigger-specific iteration cap (4 diffs / 3 onboarding), carried
+     * into {@link HealingInput} so the agent knows when it is on the final turn
+     * and must triage rather than retry.
+     */
+    maxIterations: number;
     snapshotId: string;
     failuresAtGeneration: GenerationOutcomeFailure[];
     failuresAtReplay: RunOutcomeFailure[];
@@ -71,7 +77,7 @@ export interface AssembledHealingInput {
  */
 export async function assembleHealingInput(params: AssembleHealingInputParams): Promise<AssembledHealingInput> {
     const logger = rootLogger.child({ name: "assembleHealingInput" });
-    const { iterationId, iterationNumber, snapshotId, failuresAtGeneration, failuresAtReplay } = params;
+    const { iterationId, iterationNumber, maxIterations, snapshotId, failuresAtGeneration, failuresAtReplay } = params;
 
     logger.info("Loading healing assembly inputs", {
         extra: {
@@ -110,6 +116,7 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
 
     const agentInput: HealingInputWithoutCodebase = {
         iteration: iterationNumber,
+        maxIterations,
         priorActions,
         failures,
         // Candidates ride only on the first turn (the folded resolution turn,

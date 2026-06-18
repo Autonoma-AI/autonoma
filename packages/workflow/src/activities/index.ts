@@ -75,3 +75,5 @@ export type {
     TeardownPreviewEnvironmentInput,
     MarkPreviewDeploySupersededInput,
 } from "./previewkit-activities";
+
+export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

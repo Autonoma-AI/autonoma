@@ -1,5 +1,6 @@
 import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities";
+import { maxIterationsForTrigger } from "../refinement-max-iterations";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -62,7 +63,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
         await executeChild(WORKFLOW_TYPE.REFINEMENT_LOOP, {
             workflowId: `refinement-loop-${snapshotId}`,
             taskQueue: TaskQueue.GENERAL,
-            args: [{ snapshotId, triggeredBy: "diffs" as const, maxIterations: 4 }],
+            args: [{ snapshotId, triggeredBy: "diffs" as const, maxIterations: maxIterationsForTrigger("diffs") }],
         });
     } catch (error) {
         const failureReason = rootFailureMessage(error);

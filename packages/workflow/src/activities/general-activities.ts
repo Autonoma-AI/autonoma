@@ -372,6 +372,13 @@ export interface RunGenerationPipelineInput {
 export interface RunHealingAgentForRefinementInput {
     iterationId: string;
     iteration: number;
+    /**
+     * The loop's trigger-specific iteration cap (4 diffs / 3 onboarding). The
+     * agent reads this to detect the final turn and withhold its retry tools
+     * (`update_plan` / `add_test`), so the last round triages instead of
+     * spawning a dangling iteration N+1.
+     */
+    maxIterations: number;
     snapshotId: string;
     organizationId: string;
     failuresAtGeneration: GenerationOutcomeFailure[];
