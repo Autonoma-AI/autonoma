@@ -115,8 +115,10 @@ export class GenerationManager {
      *
      * This doesn't immediately start the job - it only stores the data for later execution.
      * Deletes any existing pending generations for the same test case before creating the new one.
+     *
+     * @returns The id of the created generation record.
      */
-    async addJob(planId: string) {
+    async addJob(planId: string): Promise<string> {
         this.logger.info("Adding job to queue", { planId });
 
         const generations = await this.fetchGenerations();
@@ -147,13 +149,17 @@ export class GenerationManager {
         }
 
         this.logger.info("Creating generation record", { planId });
-        await this.db.testGeneration.create({
+        const generation = await this.db.testGeneration.create({
             data: {
                 testPlanId: planId,
                 snapshotId: this.snapshotId,
                 organizationId: this.organizationId,
             },
+            select: { id: true },
         });
+
+        this.logger.info("Generation record created", { planId, generationId: generation.id });
+        return generation.id;
     }
 
     /** Returns all pending generation records for this snapshot. */

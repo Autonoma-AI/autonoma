@@ -3,12 +3,14 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { logger as rootLogger } from "@autonoma/logger";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
+import { applyUpdatePlan } from "../src/activities/healing/apply-update-plan";
 import { reconcileFirstTurnOutcomes } from "../src/activities/healing/reconcile-first-turn";
 import { initRefinementLoop } from "../src/activities/refinement/loop-lifecycle";
 
-// initRefinementLoop / reconcileFirstTurnOutcomes read the `@autonoma/db`
-// singleton (the global `db` proxy resolves to globalThis.prisma). Point it at
-// this suite's container so the activities and the fixtures share one database.
+// initRefinementLoop / reconcileFirstTurnOutcomes / applyUpdatePlan read the
+// `@autonoma/db` singleton (the global `db` proxy resolves to globalThis.prisma).
+// Point it at this suite's container so the activities and the fixtures share one
+// database.
 declare global {
     // eslint-disable-next-line no-var
     var prisma: PrismaClient | undefined;
@@ -238,23 +240,11 @@ cutoverSuite((test) => {
         expect(result.runFirstIterationPipeline).toBe(true);
     });
 
-    test("first-turn tail links updated affected tests and decides every candidate", async ({
+    test("first-turn tail decides every candidate", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
         const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
-
-        // An affected test whose plan iteration 1 updated: it now has a queued
-        // regeneration that the tail should link to its AffectedTest row.
-        const updated = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
-        await harness.createAffectedTest({
-            organizationId,
-            snapshotId,
-            testCaseId: updated.testCaseId,
-            planId: updated.planId,
-            runStatus: "failed",
-        });
-        await harness.createPendingGeneration({ organizationId, snapshotId, planId: updated.planId });
 
         // A minted test case standing in for an accepted candidate's new test.
         const minted = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
@@ -264,21 +254,10 @@ cutoverSuite((test) => {
 
         await reconcileFirstTurnOutcomes({
             snapshotId,
-            updatedTestCaseIds: [updated.testCaseId],
             acceptedCandidateLinks: [{ candidateId: accepted, testCaseId: minted.testCaseId }],
             rejectedCandidates: [{ candidateId: rejected, reasoning: "duplicate coverage" }],
             logger: rootLogger.child({ name: "reconcileFirstTurnOutcomes.test" }),
         });
-
-        const affected = await harness.db.affectedTest.findUniqueOrThrow({
-            where: { snapshotId_testCaseId: { snapshotId, testCaseId: updated.testCaseId } },
-            select: { generationId: true },
-        });
-        const generation = await harness.db.testGeneration.findFirstOrThrow({
-            where: { snapshotId, testPlan: { testCaseId: updated.testCaseId } },
-            select: { id: true },
-        });
-        expect(affected.generationId).toBe(generation.id);
 
         const candidates = await harness.db.testCandidate.findMany({
             where: { snapshotId },
@@ -290,5 +269,48 @@ cutoverSuite((test) => {
         // Result-tool guarantees every candidate is decided; the bulk safety net
         // still rejects any that slipped through with no reasoning.
         expect(byId.get(leftover)).toMatchObject({ status: "rejected", rejectionReasoning: null });
+    });
+
+    test("update_plan links the affected test to its queued regeneration", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+
+        // An affected test whose replay failed: healing updates its plan, which
+        // queues a regeneration. applyUpdatePlan must link the AffectedTest row to
+        // that fresh generation (no first-turn reconciliation tail involved).
+        const affected = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+        });
+        await harness.createAffectedTest({
+            organizationId,
+            snapshotId,
+            testCaseId: affected.testCaseId,
+            planId: affected.planId,
+            runStatus: "failed",
+        });
+
+        await applyUpdatePlan({
+            snapshotId,
+            organizationId,
+            testCaseId: affected.testCaseId,
+            newPrompt: "navigate to /settings and confirm the new toggle persists",
+        });
+
+        // applyUpdatePlan queues exactly one generation for the updated plan.
+        const generation = await harness.db.testGeneration.findFirstOrThrow({
+            where: { snapshotId, testPlan: { testCaseId: affected.testCaseId } },
+            select: { id: true },
+        });
+
+        const linked = await harness.db.affectedTest.findUniqueOrThrow({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId: affected.testCaseId } },
+            select: { generationId: true },
+        });
+        expect(linked.generationId).toBe(generation.id);
     });
 });

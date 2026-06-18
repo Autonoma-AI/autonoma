@@ -10,8 +10,6 @@ export interface AcceptedCandidateLink {
 
 export interface ReconcileFirstTurnOutcomesParams {
     snapshotId: string;
-    /** Test case ids whose plan iteration 1 changed (update_plan), now regenerating. */
-    updatedTestCaseIds: string[];
     /** Candidates the agent accepted via add_test, paired with their minted test case. */
     acceptedCandidateLinks: AcceptedCandidateLink[];
     /** Candidates the agent explicitly rejected, with reasoning. */
@@ -21,62 +19,30 @@ export interface ReconcileFirstTurnOutcomesParams {
 
 /**
  * The first-turn apply tail. After iteration 1's healing actions are applied,
- * this performs the linking the standalone resolution step used to do, so the
- * "Resolution" snapshot stage still shows its data:
+ * this decides every candidate so the "Resolution" snapshot stage still shows
+ * its data:
  *
- *   - Affected tests whose plan changed get their AffectedTest row linked to the
- *     queued regeneration ("Queued for regeneration").
  *   - Accepted candidates are marked accepted against their minted test case;
  *     every other candidate is rejected (explicit rejections keep their
  *     reasoning) ("Candidate decisions").
  *
- * Runs only on iteration 1. Naturally a no-op for onboarding (no AffectedTest or
- * TestCandidate rows exist) and for diffs turns with neither plan changes nor
- * candidates.
+ * The affected-test -> regeneration link is no longer done here: it now happens
+ * at the moment the regeneration is queued (see applyUpdatePlan). Candidate
+ * marking is all that remains, and it is removed by the candidate-free cut-over.
+ *
+ * Runs only on iteration 1. Naturally a no-op for onboarding (no TestCandidate
+ * rows exist) and for diffs turns with no candidates.
  */
 export async function reconcileFirstTurnOutcomes(params: ReconcileFirstTurnOutcomesParams): Promise<void> {
-    const { snapshotId, updatedTestCaseIds, acceptedCandidateLinks, rejectedCandidates, logger } = params;
+    const { snapshotId, acceptedCandidateLinks, rejectedCandidates, logger } = params;
     logger.info("Reconciling first-turn outcomes", {
         snapshotId,
-        updatedTestCases: updatedTestCaseIds.length,
         acceptedCandidates: acceptedCandidateLinks.length,
         rejectedCandidates: rejectedCandidates.length,
     });
 
-    await linkUpdatedTestsToGenerations(snapshotId, updatedTestCaseIds, logger);
     await markAcceptedCandidates(snapshotId, acceptedCandidateLinks, logger);
     await rejectRemainingCandidates(snapshotId, rejectedCandidates, logger);
-}
-
-/**
- * Link each updated affected test to its queued regeneration. update_plan minted
- * a fresh plan and queued exactly one generation for it; we point the
- * AffectedTest row at the latest generation for that test case in the snapshot.
- */
-async function linkUpdatedTestsToGenerations(snapshotId: string, testCaseIds: string[], logger: Logger): Promise<void> {
-    if (testCaseIds.length === 0) return;
-
-    const generations = await db.testGeneration.findMany({
-        where: { snapshotId, testPlan: { testCaseId: { in: testCaseIds } } },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, testPlan: { select: { testCaseId: true } } },
-    });
-
-    const latestByTestCase = new Map<string, string>();
-    for (const gen of generations) {
-        if (!latestByTestCase.has(gen.testPlan.testCaseId)) latestByTestCase.set(gen.testPlan.testCaseId, gen.id);
-    }
-
-    for (const [testCaseId, generationId] of latestByTestCase) {
-        await db.affectedTest
-            .update({
-                where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
-                data: { generationId },
-            })
-            .catch((error) => {
-                logger.warn("Failed to link AffectedTest to generation", { testCaseId, generationId, error });
-            });
-    }
 }
 
 async function markAcceptedCandidates(

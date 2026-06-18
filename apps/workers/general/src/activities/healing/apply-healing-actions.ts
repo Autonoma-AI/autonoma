@@ -40,7 +40,6 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
 
     const nextIterationPlanIds: string[] = [];
     // Collected for the first-turn apply tail (iteration 1 only).
-    const updatedTestCaseIds: string[] = [];
     const acceptedCandidateLinks: AcceptedCandidateLink[] = [];
 
     for (const { action, refinementActionId } of input.actions) {
@@ -54,7 +53,6 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                     newPrompt: action.newPrompt,
                 });
                 nextIterationPlanIds.push(planId);
-                updatedTestCaseIds.push(action.testCaseId);
                 break;
             }
             case "add_test": {
@@ -116,14 +114,13 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
         }
     }
 
-    // First-turn apply tail: relocate the linking the standalone resolution step
-    // did (affected-test -> regeneration link, candidate accept/reject). Runs on
+    // First-turn apply tail: decide every candidate (accept/reject). Runs on
     // iteration 1 regardless of whether any plan changed - a candidates-only first
-    // turn still needs its candidates decided.
+    // turn still needs its candidates decided. The affected-test -> regeneration
+    // link is no longer done here; applyUpdatePlan links it at queue time.
     if (input.currentIterationNumber === 1) {
         await reconcileFirstTurnOutcomes({
             snapshotId: input.snapshotId,
-            updatedTestCaseIds,
             acceptedCandidateLinks,
             rejectedCandidates: input.rejectedCandidates,
             logger,
