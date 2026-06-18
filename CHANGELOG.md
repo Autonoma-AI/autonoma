@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.8.0](https://github.com/Autonoma-AI/agent/compare/v1.7.0...v1.8.0) (2026-06-17)
+
+
+### Features
+
+* **evals:** add batch runner script and isolated evals database ([#987](https://github.com/Autonoma-AI/agent/issues/987)) ([0ae454a](https://github.com/Autonoma-AI/agent/commit/0ae454ae138c99a2b81674d103c4cf9fec7f6fee))
+* fold resolution into iteration 1 of the refinement loop ([#954](https://github.com/Autonoma-AI/agent/issues/954)) ([#986](https://github.com/Autonoma-AI/agent/issues/986)) ([efefc13](https://github.com/Autonoma-AI/agent/commit/efefc139da358ae4ef727ae3ca465d2783b69521))
+* PreviewKit onboarding ([#809](https://github.com/Autonoma-AI/agent/issues/809)) ([a3672b4](https://github.com/Autonoma-AI/agent/commit/a3672b440ca87f1b926dd213a8a9ad7e0f59a212))
+* **previewkit:** add manual Environment Factory up/down on the admin page ([#968](https://github.com/Autonoma-AI/agent/issues/968)) ([6b436b7](https://github.com/Autonoma-AI/agent/commit/6b436b7d0fb5b321d771a1c7cbc22f105a041c4d))
+* **previewkit:** honor custom resources only for DB config revisions ([#1008](https://github.com/Autonoma-AI/agent/issues/1008)) ([15e0561](https://github.com/Autonoma-AI/agent/commit/15e0561d495d388b8e4dbde7b05315cac682a468))
+* route scenario_setup failures out of healable refinement buckets ([#1000](https://github.com/Autonoma-AI/agent/issues/1000)) ([16bf5cd](https://github.com/Autonoma-AI/agent/commit/16bf5cd56719ec442210cf4358e4e0c8114a44ee))
+* **scenario:** preserve raw body and content type on non-JSON SDK responses ([#1015](https://github.com/Autonoma-AI/agent/issues/1015)) ([bc1f480](https://github.com/Autonoma-AI/agent/commit/bc1f4805ad0af843fac51cd95e9974dfc2d991fe))
+* skip review for scenario_setup system failures ([#996](https://github.com/Autonoma-AI/agent/issues/996)) ([da7c86d](https://github.com/Autonoma-AI/agent/commit/da7c86dcf45c77c15f2d3d07c9e1c4e5703d2117))
+* source snapshot reasoning from refinement iteration 1 ([#989](https://github.com/Autonoma-AI/agent/issues/989)) ([4b10523](https://github.com/Autonoma-AI/agent/commit/4b105238a895607b2fe59f9a187d86c90a949c9a))
+* **ui:** per-app secret page and unified secrets service ([#991](https://github.com/Autonoma-AI/agent/issues/991)) ([dac1ffe](https://github.com/Autonoma-AI/agent/commit/dac1ffe1c07f99d3fe76fc83a9d7e59641b737ac))
+* unify resolution eval-capture and eval suite into healing ([#988](https://github.com/Autonoma-AI/agent/issues/988)) ([c807461](https://github.com/Autonoma-AI/agent/commit/c807461b5e28cc54741bf8441cb655d544d026ba))
+
+
+### Bug Fixes
+
+* **api:** keep preview SDK-URL helper env-free so its unit test passes in CI ([#1016](https://github.com/Autonoma-AI/agent/issues/1016)) ([5bba3e4](https://github.com/Autonoma-AI/agent/commit/5bba3e4c4932b30867be7157d25e140147c198d1))
+* **previewkit:** expose raw Redis (RESP) port on the upstash recipe ([#1017](https://github.com/Autonoma-AI/agent/issues/1017)) ([8458fbe](https://github.com/Autonoma-AI/agent/commit/8458fbe62ef601672ebd051f35c0f9a94d43e9e2))
+* **previewkit:** surface real failure cause instead of synthetic stack ([#1002](https://github.com/Autonoma-AI/agent/issues/1002)) ([0ef9b8b](https://github.com/Autonoma-AI/agent/commit/0ef9b8b59218ac167663e85b5be16c0da2ba69c5))
+* **previewkit:** use proper PGDATA variable for AlloyDB recipe ([#1014](https://github.com/Autonoma-AI/agent/issues/1014)) ([0b04d1e](https://github.com/Autonoma-AI/agent/commit/0b04d1e55ba14e548a970021e561f472f15eb99a))
+* stop a malformed healing testCaseId from crashing refinement ([#1011](https://github.com/Autonoma-AI/agent/issues/1011)) ([fe3e437](https://github.com/Autonoma-AI/agent/commit/fe3e4378cb7c4d7e84393a6f1a3fb51a0b2e1ebe))
+* **ui:** make app selection list scrollable with max height ([#1003](https://github.com/Autonoma-AI/agent/issues/1003)) ([ce6a5ba](https://github.com/Autonoma-AI/agent/commit/ce6a5ba294ffa3d48a227759681f28226f904006))
+* use deployment url to build generation plan ([#999](https://github.com/Autonoma-AI/agent/issues/999)) ([1d2da37](https://github.com/Autonoma-AI/agent/commit/1d2da37bc2f34ff3da32915b0be4f844de5cf706))
+* **workflow:** log cancelled activities at warn, not fatal ([#1005](https://github.com/Autonoma-AI/agent/issues/1005)) ([b984930](https://github.com/Autonoma-AI/agent/commit/b9849306efbd73966baff32daa95b7fdca4644ae))
+
 ## [1.7.0](https://github.com/Autonoma-AI/agent/compare/v1.6.0...v1.7.0) (2026-06-16)
 
 
