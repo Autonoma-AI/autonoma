@@ -149,8 +149,109 @@ apiTestSuite({
                 finalOutcome: "passed",
             });
         });
+
+        test("surfaces a scenario_setup failure in a completed iteration as setup_failed", async ({ harness }) => {
+            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
+            const { plan } = await attachPlan(harness, fixture.assignments.checkout);
+
+            const loop = await createRefinementLoop(harness, fixture.snapshotId);
+            await createRefinementIteration(harness, loop.id, plan.id, 1, {
+                startedAt: new Date("2026-01-01T10:00:00Z"),
+                finishedAt: new Date("2026-01-01T10:10:00Z"),
+            });
+            await createScenarioSetupFailedGeneration(
+                harness,
+                fixture.snapshotId,
+                plan.id,
+                new Date("2026-01-01T10:02:00Z"),
+                "The staging environment never came up.",
+            );
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.health).toBe("critical");
+            expect(detail.healthCounts).toMatchObject({
+                setupFailed: 1,
+                failing: 0,
+                passing: 0,
+                running: 0,
+                totalTests: 1,
+            });
+            expect(detail.executedTests).toHaveLength(1);
+            expect(detail.executedTests[0]).toMatchObject({
+                finalOutcome: "setup_failed",
+                reviewReasoning: "The staging environment never came up.",
+            });
+        });
+
+        // Documents the #995 boundary: a non-completed final iteration that still carries
+        // RefinementIterationInput rows for the test case keeps masking the underlying
+        // scenario_setup failure as unresolved/pending. This slice intentionally does not fix that.
+        test("keeps a setup failure masked behind a dangling final iteration that carries inputs", async ({
+            harness,
+        }) => {
+            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
+            const { plan } = await attachPlan(harness, fixture.assignments.checkout);
+
+            const loop = await createRefinementLoop(harness, fixture.snapshotId);
+            await createRefinementIteration(harness, loop.id, plan.id, 1, {
+                startedAt: new Date("2026-01-01T10:00:00Z"),
+                finishedAt: new Date("2026-01-01T10:10:00Z"),
+            });
+            await createScenarioSetupFailedGeneration(
+                harness,
+                fixture.snapshotId,
+                plan.id,
+                new Date("2026-01-01T10:02:00Z"),
+                "The staging environment never came up.",
+            );
+            // The dangling final iteration is still in-flight but carries an input for the same plan.
+            await createRefinementIteration(harness, loop.id, plan.id, 2, {
+                startedAt: new Date("2026-01-01T10:20:00Z"),
+                status: "running",
+            });
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.healthCounts).toMatchObject({
+                setupFailed: 0,
+                failing: 0,
+                passing: 0,
+                running: 1,
+                totalTests: 1,
+            });
+            expect(detail.executedTests).toHaveLength(1);
+            expect(detail.executedTests[0]).toMatchObject({ finalOutcome: "unresolved", status: "pending" });
+        });
     },
 });
+
+async function attachPlan(harness: APITestHarness, assignment: { id: string; testCaseId: string }) {
+    const plan = await harness.db.testPlan.create({
+        data: {
+            testCaseId: assignment.testCaseId,
+            prompt: "Complete checkout",
+            organizationId: harness.organizationId,
+        },
+    });
+    await harness.db.testCaseAssignment.update({
+        where: { id: assignment.id },
+        data: { planId: plan.id },
+    });
+    return { plan };
+}
+
+async function createRefinementLoop(harness: APITestHarness, snapshotId: string) {
+    return harness.db.refinementLoop.create({
+        data: {
+            snapshotId,
+            triggeredBy: "diffs",
+            status: "running",
+            startedAt: new Date("2026-01-01T10:00:00Z"),
+            organizationId: harness.organizationId,
+        },
+    });
+}
 
 async function createSnapshotDetailFixture(harness: APITestHarness, input: { testNames?: string[] } = {}) {
     const application = await harness.services.applications.createApplication({
@@ -255,13 +356,13 @@ async function createRefinementIteration(
     loopId: string,
     planId: string,
     number: number,
-    input: { startedAt: Date; finishedAt: Date },
+    input: { startedAt: Date; finishedAt?: Date; status?: "pending" | "running" | "completed" },
 ) {
     const iteration = await harness.db.refinementIteration.create({
         data: {
             loopId,
             number,
-            status: "completed",
+            status: input.status ?? "completed",
             startedAt: input.startedAt,
             finishedAt: input.finishedAt,
         },
@@ -274,6 +375,26 @@ async function createRefinementIteration(
         },
     });
     return iteration;
+}
+
+async function createScenarioSetupFailedGeneration(
+    harness: APITestHarness,
+    snapshotId: string,
+    testPlanId: string,
+    at: Date,
+    message: string,
+) {
+    return harness.db.testGeneration.create({
+        data: {
+            snapshotId,
+            testPlanId,
+            status: "failed",
+            failure: { kind: "scenario_setup", message },
+            createdAt: at,
+            updatedAt: at,
+            organizationId: harness.organizationId,
+        },
+    });
 }
 
 async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {

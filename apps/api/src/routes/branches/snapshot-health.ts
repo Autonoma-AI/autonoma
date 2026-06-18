@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { listExecutedTestsForSnapshots } from "./snapshot-executed-tests";
+import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./snapshot-executed-tests";
 
 export type SnapshotHealth = "healthy" | "critical" | "running" | "unknown";
 
@@ -8,6 +8,12 @@ export interface SnapshotHealthCounts {
     failing: number;
     passing: number;
     running: number;
+    /**
+     * Tests that never ran because their scenario setup failed. Tracked apart
+     * from `failing` so "couldn't run" reads differently from "your code failed
+     * N tests", even though both drive the snapshot to `critical`.
+     */
+    setupFailed: number;
     quarantined: number;
     notAffected: number;
     totalTests: number;
@@ -23,10 +29,44 @@ export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHe
     // partial run results are not meaningful health signal.
     if (snapshotStatus === "cancelled") return "unknown";
     if (snapshotStatus === "failed") return "critical";
-    if (counts.failing > 0 || counts.quarantined > 0) return "critical";
+    // Setup-failed tests yield no trustworthy signal - surface them as critical
+    // so the user acts on them, even when nothing genuinely failed.
+    if (counts.failing > 0 || counts.quarantined > 0 || counts.setupFailed > 0) return "critical";
     if (counts.running > 0 || snapshotStatus === "processing") return "running";
     if (counts.passing > 0 || counts.notAffected > 0) return "healthy";
     return "unknown";
+}
+
+export interface ExecutedTestTally {
+    passing: number;
+    failing: number;
+    setupFailed: number;
+    running: number;
+}
+
+// The single source of truth for how an executed test's final outcome maps to a
+// health/report bucket. Keyed by every `SnapshotExecutedTestFinalOutcome`, so
+// adding a new outcome is a typechecker-guarded change here rather than three
+// hand-written branches that can silently diverge.
+const OUTCOME_BUCKET: Record<SnapshotExecutedTest["finalOutcome"], keyof ExecutedTestTally> = {
+    passed: "passing",
+    failed: "failing",
+    setup_failed: "setupFailed",
+    unresolved: "running",
+};
+
+/**
+ * Tallies executed tests into health/report buckets by final outcome, skipping
+ * any quarantined test case. Shared by both health-count computations and the
+ * report-results bucketer so all surfaces agree.
+ */
+export function tallyExecutedTests(tests: SnapshotExecutedTest[], quarantinedSet: Set<string>): ExecutedTestTally {
+    const tally: ExecutedTestTally = { passing: 0, failing: 0, setupFailed: 0, running: 0 };
+    for (const test of tests) {
+        if (quarantinedSet.has(test.testCase.id)) continue;
+        tally[OUTCOME_BUCKET[test.finalOutcome]] += 1;
+    }
+    return tally;
 }
 
 export async function aggregateSnapshotHealth(
@@ -58,22 +98,22 @@ export async function aggregateSnapshotHealth(
             if (a.quarantineIssueId != null) quarantinedSet.add(a.testCaseId);
         }
 
-        let failing = 0;
-        let passing = 0;
-        let running = 0;
         const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
-        for (const test of executedTests) {
-            if (quarantinedSet.has(test.testCase.id)) continue;
-            if (test.finalOutcome === "failed") failing += 1;
-            else if (test.finalOutcome === "passed") passing += 1;
-            else running += 1;
-        }
+        const tally = tallyExecutedTests(executedTests, quarantinedSet);
 
         const quarantined = quarantinedSet.size;
-        const replayed = failing + passing + running;
+        const replayed = tally.passing + tally.failing + tally.setupFailed + tally.running;
         const notAffected = Math.max(totalTests - quarantined - replayed, 0);
 
-        const counts: SnapshotHealthCounts = { failing, passing, running, quarantined, notAffected, totalTests };
+        const counts: SnapshotHealthCounts = {
+            failing: tally.failing,
+            passing: tally.passing,
+            running: tally.running,
+            setupFailed: tally.setupFailed,
+            quarantined,
+            notAffected,
+            totalTests,
+        };
         result.set(snapshot.id, {
             health: computeSnapshotHealth(snapshot.status, counts),
             counts,

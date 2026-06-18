@@ -450,6 +450,7 @@ function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: P
   // PR card report fewer tests than the rest of the UI while a checkpoint was still running.
   const sections = new Map<string, PRTestRunSection>([
     ["failed", { key: "failed", title: "Failed", entries: [] }],
+    ["setup_failed", { key: "setup_failed", title: "Setup Failed", entries: [] }],
     ["running", { key: "running", title: "Running", entries: [] }],
     ["passed", { key: "passed", title: "Passed", entries: [] }],
   ]);
@@ -474,6 +475,7 @@ function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: P
 
 function groupKeyForExecutedTest(test: PRExecutedTest): string {
   if (test.finalOutcome === "failed") return "failed";
+  if (test.finalOutcome === "setup_failed") return "setup_failed";
   if (test.finalOutcome === "passed") return "passed";
   return "running";
 }
@@ -577,6 +579,7 @@ function buildTestRunSummary(sections: PRTestRunSection[]): SummaryItem[] {
 
   const summary: SummaryItem[] = [
     { key: "failed", label: "failed", count: finalOutcomeCount("failed"), variant: "status-failed" },
+    { key: "setup_failed", label: "setup failed", count: finalOutcomeCount("setup_failed"), variant: "warn" },
     { key: "running", label: "running", count: finalOutcomeCount("unresolved"), variant: "status-running" },
     { key: "passed", label: "passed", count: finalOutcomeCount("passed"), variant: "status-passed" },
   ];
@@ -706,6 +709,7 @@ function CheckpointRailItem({
 function checkpointMetricText(counts: SnapshotDetail["healthCounts"], bugCount: number): string {
   const parts: string[] = [];
   if (counts.failing > 0) parts.push(`${counts.failing} failed`);
+  if (counts.setupFailed > 0) parts.push(`${counts.setupFailed} setup failed`);
   if (counts.running > 0) parts.push(`${counts.running} running`);
   if (counts.passing > 0) parts.push(`${counts.passing} passed`);
   if (bugCount > 0) parts.push(`${bugCount} ${bugCount === 1 ? "bug" : "bugs"}`);

@@ -11,6 +11,8 @@ export interface SnapshotHealthCounts {
   failing: number;
   passing: number;
   running: number;
+  /** Tests that never ran because their scenario setup failed - tracked apart from `failing`. */
+  setupFailed: number;
   quarantined: number;
   notAffected: number;
   totalTests: number;
@@ -22,6 +24,9 @@ export function describeSnapshotHealth(snapshotStatus: string, counts: SnapshotH
   if (snapshotStatus === "failed") return "Checkpoint failed to process";
   if (counts.failing > 0) {
     return `${counts.failing} of ${counts.totalTests} ${counts.totalTests === 1 ? "test" : "tests"} failing`;
+  }
+  if (counts.setupFailed > 0) {
+    return `${counts.setupFailed} ${counts.setupFailed === 1 ? "test" : "tests"} failed to set up`;
   }
   if (counts.quarantined > 0) {
     return `${counts.quarantined} ${counts.quarantined === 1 ? "test" : "tests"} quarantined`;
@@ -84,6 +89,7 @@ export function PrHealthPill({ health, className }: { health: SnapshotHealth; cl
 export function HealthBreakdown({ counts }: { counts: SnapshotHealthCounts }) {
   const items: Array<{ key: keyof SnapshotHealthCounts; label: string; tone: Tone }> = [
     { key: "failing", label: `${counts.failing} failing`, tone: "critical" },
+    { key: "setupFailed", label: `${counts.setupFailed} setup failed`, tone: "warn" },
     { key: "passing", label: `${counts.passing} passing`, tone: "success" },
     { key: "running", label: `${counts.running} running`, tone: "warn" },
     { key: "notAffected", label: `${counts.notAffected} not affected`, tone: "neutral" },

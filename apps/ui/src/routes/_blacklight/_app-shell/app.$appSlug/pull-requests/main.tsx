@@ -198,6 +198,7 @@ function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLates
 function checkpointMetricText(counts: Snapshot["healthCounts"], bugCount: number): string {
   const parts: string[] = [];
   if (counts.failing > 0) parts.push(`${counts.failing} failed`);
+  if (counts.setupFailed > 0) parts.push(`${counts.setupFailed} setup failed`);
   if (counts.running > 0) parts.push(`${counts.running} running`);
   if (counts.passing > 0) parts.push(`${counts.passing} passed`);
   if (bugCount > 0) parts.push(`${bugCount} ${bugCount === 1 ? "bug" : "bugs"}`);

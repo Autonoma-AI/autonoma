@@ -39,7 +39,7 @@ export function CheckpointTestsRun({ executedTests, totalTests, maxRows, classNa
         if (tests.length === 0) return null;
         return (
           <div key={group.label} className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">
+            <div className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary">
               <span>{group.label}</span>
               <span>·</span>
               <span>{executedTests.filter((test) => group.outcomes.includes(test.finalOutcome)).length}</span>
@@ -54,7 +54,7 @@ export function CheckpointTestsRun({ executedTests, totalTests, maxRows, classNa
       })}
 
       {hiddenCount > 0 && (
-        <div className="border border-border-dim bg-surface-void px-4 py-2 font-mono text-2xs text-text-tertiary">
+        <div className="border border-border-dim bg-surface-void px-4 py-2 font-mono text-2xs text-text-secondary">
           Showing {visibleTests.length} of {executedTests.length} tests run
         </div>
       )}
@@ -74,7 +74,7 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
             <Badge variant={VERDICT_BADGE[test.verdict].variant}>{VERDICT_BADGE[test.verdict].label}</Badge>
           )}
         </div>
-        <span className="font-mono text-2xs text-text-tertiary">{formatRelativeTime(test.latestRunAt)}</span>
+        <span className="font-mono text-2xs text-text-secondary">{formatRelativeTime(test.latestRunAt)}</span>
       </div>
       {reviewReasoning.length > 0 && (
         <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-primary">{reviewReasoning}</p>
@@ -114,14 +114,16 @@ function TestNameLink({ test, className }: { test: ExecutedTest; className: stri
 
 const TEST_GROUPS: Array<{ label: string; outcomes: FinalOutcome[] }> = [
   { label: "Failed", outcomes: ["failed"] },
+  { label: "Setup Failed", outcomes: ["setup_failed"] },
   { label: "Running", outcomes: ["unresolved"] },
   { label: "Passed", outcomes: ["passed"] },
 ];
 
-const FINAL_OUTCOME_BADGE: Record<FinalOutcome, StatusBadgeVariant> = {
+const FINAL_OUTCOME_BADGE: Record<FinalOutcome, StatusBadgeVariant | "warn"> = {
   unresolved: "status-running",
   passed: "status-passed",
   failed: "status-failed",
+  setup_failed: "warn",
 };
 
 const RUN_STATUS_LABEL: Record<RunStatus, string> = {
@@ -135,6 +137,7 @@ const RUN_STATUS_LABEL: Record<RunStatus, string> = {
 function finalOutcomeLabel(test: ExecutedTest): string {
   if (test.finalOutcome === "passed") return "passed";
   if (test.finalOutcome === "failed") return "failed";
+  if (test.finalOutcome === "setup_failed") return "setup failed";
   return RUN_STATUS_LABEL[test.status];
 }
 

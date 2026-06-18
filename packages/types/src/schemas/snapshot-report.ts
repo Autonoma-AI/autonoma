@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const reportHealthSchema = z.enum(["healthy", "critical", "running", "unknown"]);
 
-export const reportTestStatusSchema = z.enum(["passed", "failed", "running", "pending"]);
+export const reportTestStatusSchema = z.enum(["passed", "failed", "setup_failed", "running", "pending"]);
 export type ReportTestStatus = z.infer<typeof reportTestStatusSchema>;
 
 export const reportCommitFileSchema = z.object({
@@ -52,6 +52,7 @@ export const snapshotReportResultsSchema = z.object({
     durationMs: z.number().optional(),
     passed: z.number(),
     failed: z.number(),
+    setupFailed: z.number(),
     pending: z.number(),
     running: z.number(),
     total: z.number(),
@@ -78,6 +79,7 @@ export const snapshotReportHealthCountsSchema = z.object({
     failing: z.number(),
     passing: z.number(),
     running: z.number(),
+    setupFailed: z.number(),
     quarantined: z.number(),
     notAffected: z.number(),
     totalTests: z.number(),

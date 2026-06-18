@@ -133,6 +133,9 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           <span className={report.results.failed > 0 ? "text-status-critical" : undefined}>
             {report.results.failed} failed
           </span>
+          {report.results.setupFailed > 0 && (
+            <span className="text-status-warn">{report.results.setupFailed} setup failed</span>
+          )}
           {report.results.running > 0 && <span>{report.results.running} running</span>}
           {report.results.pending > 0 && <span>{report.results.pending} pending</span>}
           <span>commit range:</span>

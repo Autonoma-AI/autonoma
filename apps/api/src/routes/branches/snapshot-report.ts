@@ -70,6 +70,7 @@ export async function loadSnapshotReport({
         failing: 0,
         passing: 0,
         running: 0,
+        setupFailed: 0,
         quarantined: 0,
         notAffected: 0,
         totalTests: 0,

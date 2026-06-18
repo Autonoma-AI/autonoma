@@ -18,8 +18,13 @@ import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
-import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
-import { aggregateSnapshotHealth, computeSnapshotHealth, type SnapshotHealthCounts } from "./snapshot-health";
+import { listExecutedTestsForSnapshot, type SnapshotExecutedTest } from "./snapshot-executed-tests";
+import {
+    aggregateSnapshotHealth,
+    computeSnapshotHealth,
+    tallyExecutedTests,
+    type SnapshotHealthCounts,
+} from "./snapshot-health";
 import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
 
@@ -283,6 +288,7 @@ export class BranchesService extends Service {
                 failing: 0,
                 passing: 0,
                 running: 0,
+                setupFailed: 0,
                 quarantined: 0,
                 notAffected: snapshot._count.testCaseAssignments,
                 totalTests: snapshot._count.testCaseAssignments,
@@ -589,26 +595,25 @@ export class BranchesService extends Service {
 
     private computeHealthCounts(
         assignments: Array<{ testCaseId: string; quarantineIssueId: string | null }>,
-        executedTests: Array<{ testCase: { id: string }; finalOutcome: "passed" | "failed" | "unresolved" }>,
+        executedTests: SnapshotExecutedTest[],
     ): SnapshotHealthCounts {
         const quarantinedSet = new Set(assignments.filter((a) => a.quarantineIssueId != null).map((a) => a.testCaseId));
-        let failing = 0;
-        let passing = 0;
-        let running = 0;
-
-        for (const test of executedTests) {
-            if (quarantinedSet.has(test.testCase.id)) continue;
-            if (test.finalOutcome === "failed") failing += 1;
-            else if (test.finalOutcome === "passed") passing += 1;
-            else running += 1;
-        }
+        const tally = tallyExecutedTests(executedTests, quarantinedSet);
 
         const quarantined = quarantinedSet.size;
-        const replayed = failing + passing + running;
+        const replayed = tally.passing + tally.failing + tally.setupFailed + tally.running;
         const totalTests = assignments.length;
         const notAffected = Math.max(totalTests - quarantined - replayed, 0);
 
-        return { failing, passing, running, quarantined, notAffected, totalTests };
+        return {
+            failing: tally.failing,
+            passing: tally.passing,
+            running: tally.running,
+            setupFailed: tally.setupFailed,
+            quarantined,
+            notAffected,
+            totalTests,
+        };
     }
 
     async getSnapshotReport(snapshotId: string, organizationId: string): Promise<SnapshotReport> {

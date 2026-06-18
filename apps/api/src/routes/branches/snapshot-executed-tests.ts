@@ -8,7 +8,7 @@ import type {
 } from "@autonoma/db";
 import { computeIterationOutcomes } from "./refinement-loop";
 
-export type SnapshotExecutedTestFinalOutcome = "passed" | "failed" | "unresolved";
+export type SnapshotExecutedTestFinalOutcome = "passed" | "failed" | "setup_failed" | "unresolved";
 
 export interface SnapshotExecutedTest {
     source: "replay" | "generation" | "refinement";
@@ -28,6 +28,7 @@ export interface SnapshotExecutedTest {
 const runSelect = {
     id: true,
     status: true,
+    failure: true,
     startedAt: true,
     completedAt: true,
     createdAt: true,
@@ -40,6 +41,7 @@ const generationSelect = {
     id: true,
     snapshotId: true,
     status: true,
+    failure: true,
     createdAt: true,
     updatedAt: true,
     testPlan: {
@@ -240,9 +242,9 @@ function buildExecutedTests(
                         runId: run.id,
                         generationId: null,
                         status: run.status,
-                        finalOutcome: finalOutcomeForRunStatus(run.status),
+                        finalOutcome: finalOutcomeForRunStatus(run.status, run.failure),
                         verdict: run.runReview?.verdict ?? null,
-                        reviewReasoning: run.runReview?.reasoning ?? null,
+                        reviewReasoning: run.runReview?.reasoning ?? setupFailureMessage(run.failure) ?? null,
                         startedAt: run.startedAt,
                         completedAt: run.completedAt,
                         createdAt: run.createdAt,
@@ -261,9 +263,10 @@ function buildExecutedTests(
                     runId: null,
                     generationId: generation.id,
                     status: generation.status,
-                    finalOutcome: finalOutcomeForGenerationStatus(generation.status),
+                    finalOutcome: finalOutcomeForGenerationStatus(generation.status, generation.failure),
                     verdict: generation.generationReview?.verdict ?? null,
-                    reviewReasoning: generation.generationReview?.reasoning ?? null,
+                    reviewReasoning:
+                        generation.generationReview?.reasoning ?? setupFailureMessage(generation.failure) ?? null,
                     startedAt: null,
                     completedAt: null,
                     createdAt: generation.createdAt,
@@ -361,9 +364,9 @@ function computeFinalRefinementOutcomes({
                 runId: outcome.runId,
                 generationId: null,
                 status: outcome.runStatus,
-                finalOutcome: "failed",
+                finalOutcome: terminalFailureOutcome(run?.failure ?? null),
                 verdict: outcome.verdictKind ?? null,
-                reviewReasoning: outcome.reviewReasoning ?? null,
+                reviewReasoning: outcome.reviewReasoning ?? setupFailureMessage(run?.failure ?? null) ?? null,
                 startedAt: run?.startedAt ?? null,
                 completedAt: run?.completedAt ?? null,
                 createdAt: run?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
@@ -380,9 +383,9 @@ function computeFinalRefinementOutcomes({
                 runId: null,
                 generationId: outcome.generationId,
                 status: outcome.generationStatus,
-                finalOutcome: "failed",
+                finalOutcome: terminalFailureOutcome(generation?.failure ?? null),
                 verdict: outcome.verdictKind ?? null,
-                reviewReasoning: outcome.reviewReasoning ?? null,
+                reviewReasoning: outcome.reviewReasoning ?? setupFailureMessage(generation?.failure ?? null) ?? null,
                 startedAt: null,
                 completedAt: null,
                 createdAt: generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
@@ -421,13 +424,37 @@ function unresolvedRefinementRow(
     };
 }
 
-export function finalOutcomeForRunStatus(status: RunStatus): SnapshotExecutedTestFinalOutcome {
+type SystemFailureRow = RunRow["failure"] | GenerationRow["failure"];
+
+export function finalOutcomeForRunStatus(
+    status: RunStatus,
+    failure: RunRow["failure"],
+): SnapshotExecutedTestFinalOutcome {
     if (status === "success") return "passed";
-    if (status === "failed") return "failed";
+    if (status === "failed") return terminalFailureOutcome(failure);
     return "unresolved";
 }
 
-export function finalOutcomeForGenerationStatus(status: GenerationStatus): SnapshotExecutedTestFinalOutcome {
-    if (status === "failed") return "failed";
+export function finalOutcomeForGenerationStatus(
+    status: GenerationStatus,
+    failure: GenerationRow["failure"],
+): SnapshotExecutedTestFinalOutcome {
+    if (status === "failed") return terminalFailureOutcome(failure);
     return "unresolved";
+}
+
+/**
+ * Maps a terminal failure to its outcome bucket. A scenario-setup failure means
+ * the test never got a chance to run (the environment never came up), so it
+ * surfaces as the distinct `setup_failed` outcome; every other failure kind
+ * (engine_error, agent_failed, max_steps, replay_failed) is a real `failed`.
+ */
+function terminalFailureOutcome(failure: SystemFailureRow): SnapshotExecutedTestFinalOutcome {
+    return failure?.kind === "scenario_setup" ? "setup_failed" : "failed";
+}
+
+/** The human-readable reason to surface for a scenario-setup failure, if any. */
+function setupFailureMessage(failure: SystemFailureRow): string | undefined {
+    if (failure?.kind === "scenario_setup") return failure.message;
+    return undefined;
 }
