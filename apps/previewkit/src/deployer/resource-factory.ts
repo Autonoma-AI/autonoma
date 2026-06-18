@@ -44,6 +44,11 @@ export const GATEKEEPER_SERVICE_PORT = 80;
 export const GATEKEEPER_CONTAINER_PORT = 8080;
 export const GATEKEEPER_CONFIGMAP_NAME = "gatekeeper-routes";
 export const GATEKEEPER_HEALTH_PATH = "/gatekeeper-health";
+// Annotation Gatekeeper reads to wake workloads in dependency order (matches the
+// image's default DEPENDS_ON_ANNOTATION). Value is a comma-separated list of the
+// workload names this one depends on, so e.g. a web app's database is scaled up
+// and ready before the app itself is woken.
+export const GATEKEEPER_DEPENDS_ON_ANNOTATION = "gatekeeper.dev/depends-on";
 
 export function buildAppHostname(
     appName: string,
@@ -69,6 +74,10 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
         "previewkit.dev/pr-number": String(opts.prNumber),
     };
 
+    // Workloads this app must wait for at wake time. Gatekeeper reads this from the
+    // Deployment annotation and scales dependencies up (and ready) before this app.
+    const dependsOn = app.depends_on ?? [];
+
     const envVars = Object.entries(resolvedEnv).map(([name, value]) => ({
         name,
         value,
@@ -82,7 +91,14 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
     return {
         apiVersion: "apps/v1",
         kind: "Deployment",
-        metadata: { name: app.name, namespace, labels },
+        metadata: {
+            name: app.name,
+            namespace,
+            labels,
+            ...(dependsOn.length > 0 && {
+                annotations: { [GATEKEEPER_DEPENDS_ON_ANNOTATION]: dependsOn.join(",") },
+            }),
+        },
         spec: {
             replicas: app.replicas,
             selector: { matchLabels: { app: app.name } },

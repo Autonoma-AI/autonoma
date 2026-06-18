@@ -186,6 +186,16 @@ describe("buildAppDeployment", () => {
         expect(container.readinessProbe).toBeUndefined();
         expect(container.livenessProbe).toBeUndefined();
     });
+
+    it("stamps the depends-on annotation from app.depends_on", () => {
+        const dep = buildAppDeployment({ ...baseOpts, app: { ...baseApp, depends_on: ["db", "cache"] } });
+        expect(dep.metadata?.annotations?.["gatekeeper.dev/depends-on"]).toBe("db,cache");
+    });
+
+    it("omits the depends-on annotation when there are no dependencies", () => {
+        const dep = buildAppDeployment(baseOpts);
+        expect(dep.metadata?.annotations?.["gatekeeper.dev/depends-on"]).toBeUndefined();
+    });
 });
 
 describe("buildAppService", () => {
