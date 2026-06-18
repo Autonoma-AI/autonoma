@@ -232,8 +232,6 @@ function RedeployButton({ environmentId }: { environmentId: string }) {
 function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
   const [showLogs, setShowLogs] = useState(false);
   const [showEnvFactory, setShowEnvFactory] = useState(false);
-  // The log-stream route is addressed by (owner, repo, pr).
-  const [owner = "", repo = ""] = environment.repoFullName.split("/");
 
   return (
     <div className="overflow-hidden rounded-md border border-border-dim">
@@ -296,14 +294,62 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
       {showEnvFactory && <EnvFactoryPanel environmentId={environment.id} />}
 
       {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
-      {showLogs && (
-        <PreviewLogsTabs
-          owner={owner}
-          repo={repo}
-          pr={environment.prNumber}
-          className="border-t border-border-dim p-3"
-        />
-      )}
+      {showLogs && <EnvironmentLogsPanel environment={environment} />}
+    </div>
+  );
+}
+
+// Build + app logs for the environment, optionally narrowed to a single app. The
+// app filter sets PreviewLogsTabs' `app` prop, which scopes both the build and
+// the runtime stream; "All apps" (undefined) streams the whole environment with
+// per-app line prefixes. The log-stream route is addressed by (owner, repo, pr).
+function EnvironmentLogsPanel({ environment }: { environment: PreviewEnvironment }) {
+  const [selectedApp, setSelectedApp] = useState<string | undefined>(undefined);
+  const [owner = "", repo = ""] = environment.repoFullName.split("/");
+  const appNames = environment.apps.map((app) => app.appName);
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border-dim p-3">
+      {appNames.length > 0 && <LogAppFilter apps={appNames} selectedApp={selectedApp} onSelect={setSelectedApp} />}
+      <PreviewLogsTabs owner={owner} repo={repo} pr={environment.prNumber} app={selectedApp} />
+    </div>
+  );
+}
+
+// Segmented selector that scopes the logs to one app. "All apps" clears the
+// filter (undefined). Mirrors the card's other toggles: active = secondary,
+// inactive = outline.
+function LogAppFilter({
+  apps,
+  selectedApp,
+  onSelect,
+}: {
+  apps: string[];
+  selectedApp: string | undefined;
+  onSelect: (app: string | undefined) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-0.5 font-mono text-3xs uppercase tracking-widest text-text-secondary">App</span>
+      <Button
+        variant={selectedApp == null ? "secondary" : "outline"}
+        size="xs"
+        aria-pressed={selectedApp == null}
+        onClick={() => onSelect(undefined)}
+      >
+        All apps
+      </Button>
+      {apps.map((app) => (
+        <Button
+          key={app}
+          variant={selectedApp === app ? "secondary" : "outline"}
+          size="xs"
+          aria-pressed={selectedApp === app}
+          onClick={() => onSelect(app)}
+        >
+          {app}
+        </Button>
+      ))}
     </div>
   );
 }
