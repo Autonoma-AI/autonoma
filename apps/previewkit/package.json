@@ -37,7 +37,7 @@
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
-        "js-yaml": "^4.1.1",
+        "js-yaml": "^4.2.0",
         "tar-fs": "^3.1.2",
         "zod": "catalog:"
     },

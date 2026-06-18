@@ -63,38 +63,9 @@ catalog:
   zod: 4.3.6
 
 minimumReleaseAgeExclude:
-  - serialize-javascript@7.0.3
-  - fast-xml-parser@5.3.8
-  - fast-xml-parser@5.5.6
-  - serialize-javascript@7.0.5
-  - '@hono/node-server@1.19.13'
-  - fast-xml-parser@5.5.7
-  - postcss@8.5.10
-  - uuid@11.1.1
-  - ip-address@10.1.1
-  - hono@4.12.16
-  - fast-xml-builder@1.1.7
-  - fast-uri@3.1.1
-  - fast-uri@3.1.2
-  - '@babel/plugin-transform-modules-systemjs@7.29.4'
-  - basic-ftp@5.3.1
-  - fast-xml-parser@5.7.0
-  - hono@4.12.18
-  - '@rvf/set-get@7.0.2'
-  - kysely@0.28.17
-  - protobufjs@7.5.6
-  - '@protobufjs/utf8@1.1.1'
-  - devalue@5.8.1
-  - brace-expansion@5.0.6
-  - ws@8.20.1
-  - protobufjs@7.5.8
-  - turbo@2.9.14
-  - qs@6.15.2
-  - tmp@0.2.6
-  - axios@1.16.0
-  - hono@4.12.21
-  - '@grpc/grpc-js@1.14.4'
   - esbuild@0.28.1
+  - js-yaml@4.1.2
+  - '@opentelemetry/core@2.8.0'
 
 onlyBuiltDependencies:
   - '@prisma/engines'

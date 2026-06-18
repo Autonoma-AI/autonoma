@@ -16,7 +16,7 @@
         "@fontsource-variable/dm-sans": "^5.2.8",
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@tailwindcss/vite": "^4.2.2",
-        "astro": "^6.1.10",
+        "astro": "^6.4.8",
         "astro-expressive-code": "^0.41.7",
         "hast-util-select": "^6.0.4",
         "rehype-parse": "^9.0.1",
