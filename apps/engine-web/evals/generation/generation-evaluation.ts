@@ -52,6 +52,16 @@ class EvalAgentRunner extends ExecutionAgentRunner<WebCommandSpec, WebApplicatio
     public seedMemoryEntries(entries: Record<string, string>): void {
         this.seedMemory(entries);
     }
+
+    public async getFinalVideoPath(): Promise<string | undefined> {
+        if (this.videoRecorder == null) return undefined;
+        try {
+            return await this.videoRecorder.getVideoPath();
+        } catch (err) {
+            this.logger.warn("Could not recover video path after timeout", { extra: { err } });
+            return undefined;
+        }
+    }
 }
 
 export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
@@ -116,7 +126,11 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
 
         let result: ExecutionResult<WebCommandSpec> | undefined;
         let videoPath: string | undefined;
+        let runner: EvalAgentRunner | undefined;
+        let agentTimedOut = false;
         const costCollector = new CostCollector();
+
+        const AGENT_RUN_TIMEOUT_MS = CASE_TIMEOUT_MS - 30_000;
 
         try {
             const webAppData = await buildWebApplicationData({
@@ -140,7 +154,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 resolvedVariables,
                 input.url,
             );
-            const runner = new EvalAgentRunner({
+            runner = new EvalAgentRunner({
                 installer,
                 executionAgentFactory: createWebAgentFactory(createEngineModelRegistry(costCollector)),
                 eventHandlers: {
@@ -159,22 +173,49 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 runner.seedMemoryEntries(resolvedVariables);
             }
 
-            const runResult = await runner.run();
-            result = runResult.result;
-            videoPath = runResult.videoPath;
+            const agentRunPromise = runner.run();
+            agentRunPromise.catch(() => {});
 
-            this.logger.info("Agent finished", {
-                extra: {
-                    case: testCase.name,
-                    finishReason: result.finishReason,
-                    steps: result.generatedSteps.length,
-                },
-            });
-        } finally {
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("eval-agent-timeout")), AGENT_RUN_TIMEOUT_MS),
+            );
+
             try {
-                await installer.cleanup();
+                const runResult = await Promise.race([agentRunPromise, timeoutPromise]);
+                result = runResult.result;
+                videoPath = runResult.videoPath;
             } catch (err) {
-                this.logger.warn("Browser cleanup failed", { extra: { case: testCase.name, err } });
+                if (err instanceof Error && err.message === "eval-agent-timeout") {
+                    agentTimedOut = true;
+                    this.logger.warn("Agent run timed out - closing browser to finalize video", {
+                        extra: { case: testCase.name, timeoutMs: AGENT_RUN_TIMEOUT_MS },
+                    });
+                    await installer.cleanup().catch((e: unknown) => {
+                        this.logger.warn("Browser cleanup on timeout failed", { extra: { e } });
+                    });
+                    await agentRunPromise.catch(() => {});
+                    videoPath = await runner.getFinalVideoPath();
+                } else {
+                    throw err;
+                }
+            }
+
+            if (result != null) {
+                this.logger.info("Agent finished", {
+                    extra: {
+                        case: testCase.name,
+                        finishReason: result.finishReason,
+                        steps: result.generatedSteps.length,
+                    },
+                });
+            }
+        } finally {
+            if (!agentTimedOut) {
+                try {
+                    await installer.cleanup();
+                } catch (err) {
+                    this.logger.warn("Browser cleanup failed", { extra: { case: testCase.name, err } });
+                }
             }
 
             if (provisionedInstance != null && input.sdkUrl != null && signingSecret != null) {
@@ -189,6 +230,27 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
                 }).catch((err: unknown) => {
                     this.logger.warn("Scenario teardown failed", { extra: { case: testCase.name, err } });
                 });
+            }
+
+            // Save artifacts in finally so they're written even on timeout.
+            if (videoPath != null) {
+                const dir = saveCaseArtifacts(RESULTS_DIR, testCase.name, videoPath);
+                const runData: Record<string, unknown> = {
+                    videoPath: path.join(dir, "recording.webm"),
+                    agentCost: summarizeRunCost(costCollector),
+                    timedOut: agentTimedOut,
+                };
+                if (result != null) {
+                    runData.finishReason = result.finishReason;
+                    runData.stepCount = result.generatedSteps.filter((s) => s.status === "success").length;
+                    runData.steps = result.generatedSteps.map(toLeanStep);
+                    runData.reasoning = result.reasoning;
+                }
+                writeCaseResult(
+                    dir,
+                    { case: testCase.name, generationId: testCase.input.generationId, url: testCase.input.url },
+                    runData,
+                );
             }
         }
 
@@ -248,7 +310,11 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             judgeCost: judgeResult.cost,
         });
 
-        writeCaseResult(caseDir, testCase, caseData);
+        writeCaseResult(
+            caseDir,
+            { case: testCase.name, generationId: testCase.input.generationId, url: testCase.input.url },
+            caseData,
+        );
         expect(judgeResult.passed, `Judge failed: ${judgeResult.reasoning}`).toBe(true);
     }
 
