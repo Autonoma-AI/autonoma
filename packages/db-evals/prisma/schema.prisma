@@ -32,6 +32,7 @@ model BenchmarkBatch {
   completedAt DateTime?            @map("completed_at")
 
   generations BenchmarkGeneration[]
+  runs        BenchmarkRun[]
 
   @@map("benchmark_batch")
 }
@@ -53,4 +54,22 @@ model BenchmarkGeneration {
   @@index([batchId])
   @@index([testGenerationId])
   @@map("benchmark_generation")
+}
+
+model BenchmarkRun {
+  id    String                    @id @default(cuid())
+  batchId  String                 @map("batch_id")
+  testPlanId String               @map("test_plan_id")
+  runId    String                 @map("run_id")
+  org      String
+  status   BenchmarkGenerationStatus @default(pending)
+  verdict  String?
+  createdAt  DateTime             @default(now()) @map("created_at")
+  completedAt DateTime?           @map("completed_at")
+
+  batch BenchmarkBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([runId])
+  @@map("benchmark_run")
 }
