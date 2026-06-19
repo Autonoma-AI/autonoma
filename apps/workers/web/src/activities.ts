@@ -28,7 +28,7 @@ export async function runWebReplay(input: RunWebReplayInput): Promise<void> {
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runWebReplayJob(input.runId);
+        await runWebReplayJob(input.runId, input.urlOverride);
         logger.info("Web replay execution completed");
     } finally {
         clearInterval(heartbeat);

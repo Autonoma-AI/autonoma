@@ -11,6 +11,8 @@ export interface TriggerRunWorkflowParams {
     runId: string;
     architecture: Architecture;
     scenarioId?: string;
+    urlOverride?: string;
+    sdkUrlOverride?: string;
 }
 
 function toReplayArchitecture(architecture: Architecture): WorkflowArchitecture {
@@ -25,7 +27,7 @@ function toReplayArchitecture(architecture: Architecture): WorkflowArchitecture 
 }
 
 export async function triggerRunWorkflow(params: TriggerRunWorkflowParams): Promise<void> {
-    const { runId, architecture, scenarioId } = params;
+    const { runId, architecture, scenarioId, urlOverride, sdkUrlOverride } = params;
 
     logger.info("Triggering run replay workflow", { runId, architecture, scenarioId });
 
@@ -42,6 +44,8 @@ export async function triggerRunWorkflow(params: TriggerRunWorkflowParams): Prom
                 runId,
                 architecture: toReplayArchitecture(architecture),
                 scenarioId,
+                urlOverride,
+                sdkUrlOverride,
             },
         ],
     });

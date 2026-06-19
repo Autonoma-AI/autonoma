@@ -44,10 +44,12 @@ model BenchmarkGeneration {
   testPlanId       String                    @map("test_plan_id")
   testGenerationId String                    @map("test_generation_id")
   appUrl           String                    @map("app_url")
+  sdkUrl           String?                   @map("sdk_url")
   status           BenchmarkGenerationStatus @default(pending)
   verdict          String?
   verdictReasoning String?                   @map("verdict_reasoning")
   stepCount        Int?                      @map("step_count")
+  failureKind      String?                   @map("failure_kind")
   createdAt        DateTime                  @default(now()) @map("created_at")
   completedAt      DateTime?                 @map("completed_at")
 
@@ -73,20 +75,24 @@ model GenerationMetric {
 }
 
 model BenchmarkRun {
-  id    String                    @id @default(cuid())
-  batchId  String                 @map("batch_id")
-  testPlanId String               @map("test_plan_id")
-  runId    String                 @map("run_id")
-  org      String
-  status   BenchmarkGenerationStatus @default(pending)
+  id               String                    @id @default(cuid())
+  batchId          String                    @map("batch_id")
+  testPlanId       String                    @map("test_plan_id")
+  testGenerationId String?                   @map("test_generation_id")
+  runId            String                    @map("run_id")
+  org              String
+  status           BenchmarkGenerationStatus @default(pending)
   verdict          String?
-  verdictReasoning String?  @map("verdict_reasoning")
-  createdAt        DateTime @default(now()) @map("created_at")
-  completedAt      DateTime? @map("completed_at")
+  stepCount        Int?                      @map("step_count")
+  failureKind      String?                   @map("failure_kind")
+  verdictReasoning String?                   @map("verdict_reasoning")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  completedAt      DateTime?                 @map("completed_at")
 
   batch BenchmarkBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   @@index([batchId])
   @@index([runId])
+  @@index([testGenerationId])
   @@map("benchmark_run")
 }

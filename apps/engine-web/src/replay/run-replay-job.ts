@@ -15,7 +15,7 @@ import { createWebCommands } from "./web-commands";
 
 const VIDEO_EXTENSION = "webm";
 
-export async function runWebReplayJob(runId: string) {
+export async function runWebReplayJob(runId: string, urlOverride?: string) {
     const logger = rootLogger.child({ name: "run-replay-job", runId });
 
     setScreenshotConfig({ screenResolution: DEFAULT_VIEWPORT, architecture: "web" });
@@ -55,6 +55,7 @@ export async function runWebReplayJob(runId: string) {
             videoExtension: VIDEO_EXTENSION,
             runPersister,
             storageProvider,
+            urlOverride,
         });
 
         await runner.runReplay();

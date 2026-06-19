@@ -22,10 +22,12 @@ export interface RunReplayInput {
     runId: string;
     architecture: WorkflowArchitecture;
     scenarioId?: string;
+    urlOverride?: string;
+    sdkUrlOverride?: string;
 }
 
 export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
-    const { runId, architecture, scenarioId } = input;
+    const { runId, architecture, scenarioId, urlOverride, sdkUrlOverride } = input;
 
     let scenarioInstanceId: string | undefined;
 
@@ -40,6 +42,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
                     scenarioJobType: "run",
                     entityId: runId,
                     scenarioId,
+                    sdkUrlOverride,
                 });
                 scenarioInstanceId = result.scenarioInstanceId;
                 log.info("Scenario setup complete", { runId, scenarioInstanceId });
@@ -57,7 +60,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
 
         // Step 2: Run the replay execution agent
         try {
-            await runReplayExecution(architecture, runId);
+            await runReplayExecution(architecture, runId, urlOverride);
         } catch (error) {
             const message = rootFailureMessage(error);
             log.error("Run replay failed, marking as failed", { runId, message });
@@ -87,7 +90,11 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
     }
 }
 
-async function runReplayExecution(architecture: WorkflowArchitecture, runId: string): Promise<void> {
+async function runReplayExecution(
+    architecture: WorkflowArchitecture,
+    runId: string,
+    urlOverride?: string,
+): Promise<void> {
     if (architecture === "WEB") {
         const { runWebReplay } = proxyActivities<WebActivities>({
             startToCloseTimeout: "90m",
@@ -95,7 +102,7 @@ async function runReplayExecution(architecture: WorkflowArchitecture, runId: str
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },
         });
-        await runWebReplay({ runId });
+        await runWebReplay({ runId, urlOverride });
     } else {
         const { runMobileReplay } = proxyActivities<MobileActivities>({
             startToCloseTimeout: "90m",

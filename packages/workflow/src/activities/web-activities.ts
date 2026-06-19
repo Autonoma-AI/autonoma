@@ -11,6 +11,7 @@ export interface RunWebGenerationInput {
 
 export interface RunWebReplayInput {
     runId: string;
+    urlOverride?: string;
 }
 
 export interface WebActivities {

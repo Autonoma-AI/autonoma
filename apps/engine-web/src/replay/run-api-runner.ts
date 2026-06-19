@@ -17,14 +17,17 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
     constructor(
         config: ConstructorParameters<typeof RunAPIRunner<ReplayWebCommandSpec, WebContext, WebApplicationData>>[0] & {
             storageProvider: StorageProvider;
+            urlOverride?: string;
         },
     ) {
-        const { storageProvider, ...runnerConfig } = config;
+        const { storageProvider, urlOverride, ...runnerConfig } = config;
         super(runnerConfig);
         this.storageProvider = storageProvider;
+        this.urlOverride = urlOverride;
     }
 
     private readonly storageProvider: StorageProvider;
+    private readonly urlOverride?: string;
 
     public async parseRunData(data: RunData): Promise<WebApplicationData> {
         const webDeployment = data.snapshot.branch.deployment?.webDeployment;
@@ -53,7 +56,7 @@ export class WebRunAPIRunner extends RunAPIRunner<ReplayWebCommandSpec, WebConte
             }
         }
 
-        const webAppData = await buildWebApplicationData({ url: webDeployment.url, file, auth });
+        const webAppData = await buildWebApplicationData({ url: this.urlOverride ?? webDeployment.url, file, auth });
 
         this.runLogger.info("Parsed run application data", {
             url: webDeployment.url,
