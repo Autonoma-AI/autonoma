@@ -20,6 +20,13 @@ type PrepareStepArgs = Parameters<PrepareStepFunction<GenericToolSet>>[0];
 type PrepareStepReturn = Awaited<ReturnType<PrepareStepFunction<GenericToolSet>>>;
 type AgentStepResult = StepResult<GenericToolSet>;
 
+/**
+ * Default step cap applied when {@link AgentConfig.maxSteps} is not provided. Deliberately large:
+ * forcing `toolChoice: "required"` removes the loop's natural text-finish stop, so this acts purely
+ * as a runaway backstop, not a tuning knob - well above any healthy run's real step count.
+ */
+export const DEFAULT_MAX_STEPS = 1000;
+
 export interface AgentConfig<TResult> {
     /** A descriptive name for this type of agent, used for observability. */
     name: string;
@@ -27,7 +34,12 @@ export interface AgentConfig<TResult> {
     /** The model to use for the agent loop. */
     model: LanguageModel;
 
-    /** Maximum number of steps the agent will take before failing with {@link MaxStepsReached}. */
+    /**
+     * Maximum number of steps the agent will take before failing with {@link MaxStepsReached}.
+     * Defaults to {@link DEFAULT_MAX_STEPS}. Because the loop forces a structured tool call on
+     * every step (`toolChoice: "required"`), the model can never end its turn with plain text;
+     * this cap is the loop's only other stop besides the report tool firing, so it is always set.
+     */
     maxSteps?: number;
 
     /**
@@ -107,7 +119,7 @@ export class AgentLoop<TResult = unknown> {
     private readonly systemPrompt: string;
     private readonly tools: AgentTool<unknown, unknown>[];
     private readonly resultTool: ReportResultTool<unknown, TResult>;
-    private readonly maxSteps: number | undefined;
+    private readonly maxSteps: number;
     private readonly compactor: { strategy: MessageCompactor; threshold: number } | undefined;
 
     constructor({
@@ -124,7 +136,7 @@ export class AgentLoop<TResult = unknown> {
         this.systemPrompt = systemPrompt;
         this.tools = tools;
         this.resultTool = resultTool;
-        this.maxSteps = maxSteps;
+        this.maxSteps = maxSteps ?? DEFAULT_MAX_STEPS;
         this.compactor = compactor;
 
         this.logger = logger.child({ name: this.name });
@@ -185,7 +197,13 @@ export class AgentLoop<TResult = unknown> {
             model: this.model,
             instructions: this.systemPrompt,
             tools,
-            stopWhen: [this.hasProducedResult, ...(this.maxSteps != null ? [stepCountIs(this.maxSteps)] : [])],
+            // Force a structured tool call on every step. Without this the AI SDK stops the loop as
+            // soon as a step returns finishReason !== "tool-calls" (e.g. the model writes its result
+            // as prose, ends with an empty turn, or types a tool call as text), which surfaced as
+            // NoAgentResultError. "required" keeps finishReason at "tool-calls" until the report tool
+            // sets the result and trips hasProducedResult.
+            toolChoice: "required",
+            stopWhen: [this.hasProducedResult, stepCountIs(this.maxSteps)],
             prepareStep: async (args) =>
                 applyCompactor(await this.prepareStep(args), args, this.compactor, this.logger),
             onStepFinish: (result) => this.onStepFinish(result),
@@ -196,7 +214,7 @@ export class AgentLoop<TResult = unknown> {
 
         if (this.result === undefined) {
             const partialResult = this.snapshotPartial?.();
-            if (this.maxSteps != null && generationResult.steps.length >= this.maxSteps) {
+            if (generationResult.steps.length >= this.maxSteps) {
                 this.logger.fatal("Agent loop reached maximum number of steps without producing a result");
                 throw new MaxStepsReached(conversation, partialResult);
             }

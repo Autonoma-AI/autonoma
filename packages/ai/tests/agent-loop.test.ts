@@ -1,7 +1,9 @@
+import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AgentLoop, MultipleResultCalls } from "../src/agent/agent-loop";
+import { AgentLoop, DEFAULT_MAX_STEPS, MaxStepsReached, MultipleResultCalls } from "../src/agent/agent-loop";
 import { FinishTool, ReportResultTool } from "../src/agent/tools/agent-result";
+import { AgentTool } from "../src/agent/tools/agent-tool";
 
 interface FakeResult {
     payload: string;
@@ -29,6 +31,116 @@ describe("AgentLoop.setResult", () => {
         const loop = makeLoop();
         loop.setResult({ payload: "first" });
         expect(() => loop.setResult({ payload: "second" })).toThrow(MultipleResultCalls);
+    });
+});
+
+const FAKE_USAGE = {
+    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 1, text: 1, reasoning: 0 },
+} as const;
+
+/** A tool that does nothing but keeps the loop going - it never reports a result. */
+class NoopTool extends AgentTool<{ note: string }, { ok: true }> {
+    constructor() {
+        super({ name: "noop", description: "Does nothing.", inputSchema: z.object({ note: z.string() }) });
+    }
+    protected async execute(): Promise<{ ok: true }> {
+        return { ok: true };
+    }
+}
+
+/** A model that calls `noop` on every step and never finishes - exercises the step-cap backstop. */
+function alwaysCallsNoopModel(): MockLanguageModelV3 {
+    let step = 0;
+    return new MockLanguageModelV3({
+        doGenerate: async () => {
+            step += 1;
+            return {
+                content: [
+                    {
+                        type: "tool-call",
+                        toolCallId: `noop-${step}`,
+                        toolName: "noop",
+                        input: JSON.stringify({ note: `step ${step}` }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            };
+        },
+    });
+}
+
+function makeBoundedLoop(model: MockLanguageModelV3, maxSteps?: number): AgentLoop<FakeResult> {
+    return new AgentLoop<FakeResult>({
+        name: "bounded-loop",
+        model,
+        systemPrompt: "system",
+        tools: [new NoopTool()],
+        reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+        maxSteps,
+    });
+}
+
+describe("AgentLoop forces tool calls and stays bounded", () => {
+    it("forces toolChoice 'required' on every model call", async () => {
+        const model = alwaysCallsNoopModel();
+        await makeBoundedLoop(model, 3)
+            .runLoop([{ role: "user", content: "go" }])
+            .catch(() => undefined);
+
+        expect(model.doGenerateCalls.length).toBe(3);
+        for (const call of model.doGenerateCalls) {
+            expect(call.toolChoice).toEqual({ type: "required" });
+        }
+    });
+
+    it("stops with MaxStepsReached when the model never reports a result", async () => {
+        const model = alwaysCallsNoopModel();
+        await expect(makeBoundedLoop(model, 4).runLoop([{ role: "user", content: "go" }])).rejects.toThrow(
+            MaxStepsReached,
+        );
+        expect(model.doGenerateCalls.length).toBe(4);
+    });
+
+    it("applies the large default step cap when maxSteps is omitted", async () => {
+        const model = alwaysCallsNoopModel();
+        await expect(makeBoundedLoop(model).runLoop([{ role: "user", content: "go" }])).rejects.toThrow(
+            MaxStepsReached,
+        );
+        expect(model.doGenerateCalls.length).toBe(DEFAULT_MAX_STEPS);
+    }, 30_000);
+
+    it("returns the result and stops once the report tool fires", async () => {
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => ({
+                content: [
+                    {
+                        type: "tool-call",
+                        toolCallId: "finish-1",
+                        toolName: "finish",
+                        input: JSON.stringify({ payload: "done" }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            }),
+        });
+        const loop = new AgentLoop<FakeResult>({
+            name: "finishing-loop",
+            model,
+            systemPrompt: "system",
+            tools: [],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+        });
+
+        const { result } = await loop.runLoop([{ role: "user", content: "go" }]);
+
+        expect(result).toEqual({ payload: "done" });
+        expect(model.doGenerateCalls.length).toBe(1);
+        expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: "required" });
     });
 });
 
