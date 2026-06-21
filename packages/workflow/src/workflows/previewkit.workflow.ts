@@ -67,11 +67,17 @@ export async function previewDeployWorkflow(input: PreviewDeployWorkflowInput): 
         return;
     }
 
+    // Set the moment `deployPreviewEnvironment` returns - which is also the point
+    // the environment row has been persisted as `ready`. The catch below keys off
+    // this to tell a genuine deploy failure (the row never reached ready) apart
+    // from a post-deploy finalize failure (the row is already ready).
+    let deployed: Awaited<ReturnType<typeof heavy.deployPreviewEnvironment>> | undefined;
+
     try {
         const built = await heavy.buildPreviewImages({ event, namespace: prep.namespace, configRevisionId });
         log.info("Preview images built", { extra: { ...ids.extra, apps: Object.keys(built.imageTags).length } });
 
-        const deployed = await heavy.deployPreviewEnvironment({
+        deployed = await heavy.deployPreviewEnvironment({
             event,
             namespace: prep.namespace,
             commentId: prep.commentId,
@@ -111,14 +117,30 @@ export async function previewDeployWorkflow(input: PreviewDeployWorkflowInput): 
         }
 
         const message = rootFailureMessage(err);
-        log.error("Preview deploy workflow failed; running failure finalizer", { extra: { ...ids.extra, message } });
-        await feedback.failPreviewDeploy({
-            event,
-            namespace: prep.namespace,
-            commentId: prep.commentId,
-            feedbackEnabled: prep.feedbackEnabled,
-            error: message,
-        });
+
+        // Once the deploy has returned, the environment is persisted as `ready`. A
+        // failure after that point is the best-effort GitHub finalization (PR
+        // comment / commit status), not an environment failure. Running the
+        // failure finalizer here would overwrite a healthy `ready` environment
+        // with `failed`, so only run it when the deploy itself never completed.
+        // Either way we re-throw, so the run still surfaces as failed for alerting.
+        if (deployed == null) {
+            log.error("Preview deploy workflow failed; running failure finalizer", {
+                extra: { ...ids.extra, message },
+            });
+            await feedback.failPreviewDeploy({
+                event,
+                namespace: prep.namespace,
+                commentId: prep.commentId,
+                feedbackEnabled: prep.feedbackEnabled,
+                error: message,
+            });
+        } else {
+            log.error("Preview finalize failed after a successful deploy; leaving environment ready", {
+                extra: { ...ids.extra, message },
+            });
+        }
+
         throw err;
     }
 }

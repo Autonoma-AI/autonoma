@@ -4,7 +4,9 @@ import { env } from "../../env";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
 import {
+    buildPreviewAppSummaries,
     buildServiceSummaries,
+    deriveEnvironmentHealth,
     derivePreviewStatus,
     legacyPreviewSummary,
     mapBuildStatus,
@@ -26,8 +28,13 @@ export class DeploymentsService extends Service {
     /**
      * Lists every Previewkit environment that has not been torn down, across all
      * organizations. An admin-only operational view answering "which preview
-     * environments are currently live, and at what URLs". Ordered most-recently
-     * updated first. `apps` is the per-app name -> URL map flattened for display.
+     * environments are currently live, what is each app's status, and at what
+     * URLs". Ordered most-recently updated first. `apps` carries every configured
+     * app with its per-app lifecycle status - not just the ones that reached a
+     * URL - sourced from the app-instance rows (see `buildPreviewAppSummaries`).
+     * `health` is a reconciled headline status rolled up from the apps + addons
+     * (see `deriveEnvironmentHealth`) so the badge never contradicts the app rows;
+     * the raw `status`/`phase` are kept for the underlying pipeline state.
      */
     async listActiveEnvironments() {
         this.logger.info("Listing active previewkit environments");
@@ -47,22 +54,31 @@ export class DeploymentsService extends Service {
                 deployedAt: true,
                 updatedAt: true,
                 organization: { select: { id: true, name: true, slug: true } },
+                appInstances: {
+                    select: { appName: true, status: true, url: true, error: true },
+                    orderBy: { appName: "asc" },
+                },
+                addons: { select: { status: true } },
             },
         });
 
-        return environments.map((environment) => ({
-            id: environment.id,
-            namespace: environment.namespace,
-            repoFullName: environment.repoFullName,
-            prNumber: environment.prNumber,
-            headRef: environment.headRef,
-            status: environment.status,
-            phase: environment.phase,
-            organization: environment.organization,
-            deployedAt: environment.deployedAt,
-            updatedAt: environment.updatedAt,
-            apps: Object.entries(parseStringRecord(environment.urls)).map(([appName, url]) => ({ appName, url })),
-        }));
+        return environments.map((environment) => {
+            const apps = buildPreviewAppSummaries(environment.appInstances, parseStringRecord(environment.urls));
+            return {
+                id: environment.id,
+                namespace: environment.namespace,
+                repoFullName: environment.repoFullName,
+                prNumber: environment.prNumber,
+                headRef: environment.headRef,
+                status: environment.status,
+                phase: environment.phase,
+                health: deriveEnvironmentHealth(environment.status, apps, environment.addons),
+                organization: environment.organization,
+                deployedAt: environment.deployedAt,
+                updatedAt: environment.updatedAt,
+                apps,
+            };
+        });
     }
 
     /**

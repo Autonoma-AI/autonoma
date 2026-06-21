@@ -8,9 +8,12 @@
         "declarationMap": false,
         "types": ["vite/client"],
         "allowImportingTsExtensions": true,
-        "baseUrl": "./src",
         "paths": {
-            "@/*": ["../../../packages/pond-ui/src/*"]
+            "components/*": ["./src/components/*"],
+            "hooks/*": ["./src/hooks/*"],
+            "lib/*": ["./src/lib/*"],
+            "routes/*": ["./src/routes/*"],
+            "env": ["./src/env.ts"]
         }
     },
     "include": ["src"]

@@ -140,6 +140,26 @@ describe("previewDeployWorkflow", () => {
         expect(calls).not.toContain("finalize");
     });
 
+    it("leaves the environment ready (no failure finalizer) when finalize fails after a successful deploy", async () => {
+        const calls: string[] = [];
+        const activities = makeActivities(calls, {
+            async finalizePreviewDeploy() {
+                calls.push("finalize");
+                // e.g. the PR comment update / commit status POST keeps 4xx-ing.
+                throw new Error("github finalization failed");
+            },
+        });
+
+        // The run still surfaces as failed for alerting (finalize is retried by
+        // its activity retry policy, then the workflow re-throws)...
+        await expect(runWorkflow("pk-finalize-fail", activities)).rejects.toThrow();
+        expect(calls).toContain("deploy");
+        expect(calls).toContain("finalize");
+        // ...but the failure finalizer (which stamps the env `failed`) must NOT
+        // run, since the deploy already succeeded and the env row is `ready`.
+        expect(calls).not.toContain("fail");
+    });
+
     it("on supersede (cancellation), marks the build superseded and skips fail/finalize", async () => {
         const calls: string[] = [];
         const buildStarted = deferred();

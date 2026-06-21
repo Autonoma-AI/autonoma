@@ -1,11 +1,26 @@
-import { Badge, BrailleSpinner, Button, Input, Skeleton } from "@autonoma/blacklight";
+import {
+  Badge,
+  BrailleSpinner,
+  Button,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Input,
+  Skeleton,
+  cn,
+} from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowLineDownIcon } from "@phosphor-icons/react/ArrowLineDown";
 import { ArrowLineUpIcon } from "@phosphor-icons/react/ArrowLineUp";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
@@ -31,18 +46,33 @@ export const Route = createFileRoute("/_blacklight/_app-shell/admin/previewkit/"
 });
 
 type PreviewEnvironment = RouterOutputs["admin"]["listPreviewkitEnvironments"][number];
+type PreviewApp = PreviewEnvironment["apps"][number];
 
-// PreviewkitStatus -> Badge variant. torn_down (filtered server-side) and
-// superseded (only ever written to a build row, never to an environment row)
-// never appear here, but are mapped so the record stays exhaustive over the enum.
-const STATUS_VARIANT: Record<PreviewEnvironment["status"], "success" | "warn" | "critical" | "outline"> = {
+// Reconciled environment health -> Badge variant. This is a rollup of the
+// per-app (and addon) statuses, derived server-side so the headline badge can
+// never contradict the app rows beneath it - e.g. an environment whose apps are
+// all ready but whose post-deploy GitHub finalization failed reads "ready", not
+// "failed". The raw pipeline status/phase is shown in the badge's tooltip.
+const ENV_HEALTH_VARIANT: Record<PreviewEnvironment["health"], "success" | "warn" | "high" | "critical" | "outline"> = {
   ready: "success",
   building: "warn",
-  deploying: "warn",
-  pending: "warn",
+  degraded: "high",
   failed: "critical",
-  superseded: "outline",
-  torn_down: "outline",
+  unknown: "outline",
+};
+
+// PreviewkitAppStatus -> Badge variant, for the per-app status shown on each app
+// row. Ready is green, terminal failures are red, in-flight states are amber,
+// and not-yet-started / skipped are neutral.
+const APP_STATUS_VARIANT: Record<PreviewApp["status"], "success" | "warn" | "critical" | "neutral"> = {
+  ready: "success",
+  pending: "neutral",
+  building: "warn",
+  built: "warn",
+  deploying: "warn",
+  build_failed: "critical",
+  deploy_failed: "critical",
+  skipped: "neutral",
 };
 
 function AdminPreviewkitPage() {
@@ -66,8 +96,8 @@ function AdminPreviewkitPage() {
           </div>
           <h1 className="text-xl font-medium tracking-tight text-text-primary">Preview environments</h1>
           <p className="text-xs text-text-secondary">
-            Active Previewkit environments across all organizations, with their live URLs. Torn-down environments are
-            hidden.
+            Active Previewkit environments across all organizations, with each app's status and live URL. Torn-down
+            environments are hidden.
           </p>
         </header>
 
@@ -156,7 +186,7 @@ function EmptyState({ message }: { message: string }) {
 
 function EnvironmentsTable() {
   const { data: environments } = useAdminPreviewkitEnvironments();
-  // Empty = no organization chosen yet. Results only render once one is picked.
+  const [query, setQuery] = useState("");
   const [organizationId, setOrganizationId] = useState("");
 
   if (environments.length === 0) {
@@ -164,53 +194,103 @@ function EnvironmentsTable() {
   }
 
   // Distinct organizations that actually have active environments, sorted by
-  // name. Deriving the options from the rows keeps the selector free of orgs
-  // with nothing to show.
+  // name - so the filter only lists orgs with something to show.
   const organizations = [
     ...new Map(environments.map((environment) => [environment.organization.id, environment.organization])).values(),
   ].sort((a, b) => a.name.localeCompare(b.name));
 
-  const hasSelection = organizationId !== "";
-  const selectedEnvironments = hasSelection
-    ? environments.filter((environment) => environment.organization.id === organizationId)
-    : [];
+  const filtered = filterEnvironments(environments, query, organizationId);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        {hasSelection && (
-          <p className="text-2xs text-text-tertiary">
-            {selectedEnvironments.length} {selectedEnvironments.length === 1 ? "environment" : "environments"}
-          </p>
-        )}
+        <div className="relative w-full max-w-sm">
+          <MagnifyingGlassIcon
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary"
+          />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search org, repo, PR, branch, or app..."
+            aria-label="Search preview environments"
+            className="pl-8"
+          />
+        </div>
         <select
           value={organizationId}
           onChange={(e) => setOrganizationId(e.target.value)}
           aria-label="Filter by organization"
-          className="ml-auto h-9 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
+          className="h-9 shrink-0 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
         >
-          <option value="">Select an organization...</option>
+          <option value="">All organizations</option>
           {organizations.map((organization) => (
             <option key={organization.id} value={organization.id}>
               {organization.name}
             </option>
           ))}
         </select>
+        <span className="ml-auto shrink-0 font-mono text-2xs text-text-secondary">
+          {filtered.length} of {environments.length}
+        </span>
       </div>
 
-      {!hasSelection ? (
-        <EmptyState message="Select an organization to view its preview environments" />
-      ) : selectedEnvironments.length === 0 ? (
-        <EmptyState message="No environments for the selected organization" />
+      {filtered.length === 0 ? (
+        <EmptyState message="No environments match your filters" />
       ) : (
-        <div className="flex flex-col gap-3">
-          {selectedEnvironments.map((environment) => (
-            <EnvironmentCard key={environment.id} environment={environment} />
-          ))}
+        <div className="overflow-x-auto rounded-md border border-border-dim">
+          <DataTable>
+            <DataTableHead>
+              <DataTableRow>
+                <DataTableHeaderCell className="w-8 pl-3" />
+                <DataTableHeaderCell>Environment</DataTableHeaderCell>
+                <DataTableHeaderCell>Organization</DataTableHeaderCell>
+                <DataTableHeaderCell>Health</DataTableHeaderCell>
+                <DataTableHeaderCell>Apps</DataTableHeaderCell>
+                <DataTableHeaderCell>Updated</DataTableHeaderCell>
+                <DataTableHeaderCell align="right" className="pr-3">
+                  Actions
+                </DataTableHeaderCell>
+              </DataTableRow>
+            </DataTableHead>
+            <DataTableBody>
+              {filtered.map((environment) => (
+                <EnvironmentRow key={environment.id} environment={environment} />
+              ))}
+            </DataTableBody>
+          </DataTable>
         </div>
       )}
     </div>
   );
+}
+
+// Narrows to the selected organization (empty = all), then a case-insensitive
+// substring match across the fields an operator is likely to search by: org,
+// repo, PR number, branch, namespace, health, and app names.
+function filterEnvironments(
+  environments: PreviewEnvironment[],
+  query: string,
+  organizationId: string,
+): PreviewEnvironment[] {
+  const trimmed = query.trim().toLowerCase();
+  return environments.filter((environment) => {
+    if (organizationId !== "" && environment.organization.id !== organizationId) return false;
+    if (trimmed === "") return true;
+    const haystack = [
+      environment.organization.name,
+      environment.repoFullName,
+      environment.headRef,
+      environment.namespace,
+      environment.health,
+      environment.status,
+      `pr #${environment.prNumber}`,
+      ...environment.apps.map((app) => app.appName),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(trimmed);
+  });
 }
 
 function RedeployButton({ environmentId }: { environmentId: string }) {
@@ -218,84 +298,172 @@ function RedeployButton({ environmentId }: { environmentId: string }) {
   return (
     <Button
       variant="outline"
-      size="xs"
+      size="icon-xs"
       disabled={redeploy.isPending}
       onClick={() => redeploy.mutate({ environmentId })}
       aria-label="Redeploy environment"
+      title="Redeploy"
     >
       {redeploy.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <ArrowsClockwiseIcon size={12} />}
-      Redeploy
     </Button>
   );
 }
 
-function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
-  const [showLogs, setShowLogs] = useState(false);
+// One environment per table row. The row shows the at-a-glance columns; the
+// caret expands a detail row beneath it with the per-app list. The Up / Logs
+// toggles reveal the Environment Factory and log panels in that same detail row.
+function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
+  const [showApps, setShowApps] = useState(false);
   const [showEnvFactory, setShowEnvFactory] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const isOpen = showApps || showEnvFactory || showLogs;
+  const readyCount = environment.apps.filter((app) => app.status === "ready").length;
 
   return (
-    <div className="overflow-hidden rounded-md border border-border-dim">
-      {/* Branch / environment information. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-dim bg-surface-base px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs">PR #{environment.prNumber}</span>
-          <span className="font-mono text-2xs text-text-secondary">{environment.headRef}</span>
-        </div>
-        <div className="flex gap-4 ml-auto items-center">
-          <span className="ml-auto text-2xs text-text-tertiary">{formatDate(environment.updatedAt)}</span>
-          <Badge variant={STATUS_VARIANT[environment.status]} className="text-3xs">
-            {environment.phase ?? environment.status}
+    <>
+      <DataTableRow>
+        <DataTableCell className="pl-3">
+          <button
+            type="button"
+            onClick={() => setShowApps((open) => !open)}
+            aria-label={showApps ? "Collapse apps" : "Expand apps"}
+            aria-expanded={showApps}
+            className="inline-flex size-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
+          >
+            <CaretRightIcon size={12} className={cn("transition-transform", showApps && "rotate-90")} />
+          </button>
+        </DataTableCell>
+        <DataTableCell>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-mono text-2xs text-text-primary">PR #{environment.prNumber}</span>
+            <span className="block max-w-xs truncate font-mono text-3xs text-text-secondary">
+              {environment.headRef}
+            </span>
+          </div>
+        </DataTableCell>
+        <DataTableCell>
+          <span className="font-mono text-2xs text-text-primary">{environment.organization.name}</span>
+        </DataTableCell>
+        <DataTableCell>
+          <Badge
+            variant={ENV_HEALTH_VARIANT[environment.health]}
+            className="text-3xs"
+            title={`Pipeline status: ${environment.phase ?? environment.status}`}
+          >
+            {environment.health}
           </Badge>
-          <Button
-            variant={showEnvFactory ? "secondary" : "outline"}
-            size="xs"
-            onClick={() => setShowEnvFactory((open) => !open)}
-            aria-label="Toggle environment factory up/down"
-          >
-            <ArrowLineUpIcon size={12} />
-            Up
-          </Button>
-          <Button
-            variant={showLogs ? "secondary" : "outline"}
-            size="xs"
-            onClick={() => setShowLogs((open) => !open)}
-            aria-label="Toggle logs"
-          >
-            <TerminalWindowIcon size={12} />
-            Logs
-          </Button>
-          <RedeployButton environmentId={environment.id} />
-        </div>
-      </div>
+        </DataTableCell>
+        <DataTableCell>
+          <span className="font-mono text-2xs text-text-secondary">
+            {readyCount}/{environment.apps.length}
+          </span>
+        </DataTableCell>
+        <DataTableCell>
+          <span className="whitespace-nowrap font-mono text-3xs text-text-secondary">
+            {formatDate(environment.updatedAt)}
+          </span>
+        </DataTableCell>
+        <DataTableCell align="right" className="pr-3">
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              variant={showEnvFactory ? "secondary" : "outline"}
+              size="icon-xs"
+              onClick={() => setShowEnvFactory((open) => !open)}
+              aria-label="Toggle environment factory up/down"
+              title="Environment Factory"
+            >
+              <ArrowLineUpIcon size={12} />
+            </Button>
+            <Button
+              variant={showLogs ? "secondary" : "outline"}
+              size="icon-xs"
+              onClick={() => setShowLogs((open) => !open)}
+              aria-label="Toggle logs"
+              title="Logs"
+            >
+              <TerminalWindowIcon size={12} />
+            </Button>
+            <RedeployButton environmentId={environment.id} />
+          </div>
+        </DataTableCell>
+      </DataTableRow>
 
-      {/* Apps: name + URL per entry, no columns. */}
-      {environment.apps.length === 0 ? (
-        <p className="px-3 py-2 font-mono text-2xs text-text-tertiary">No URLs yet</p>
-      ) : (
-        <div className="divide-y divide-border-dim">
-          {environment.apps.map((app) => (
-            <div key={app.appName} className="items-center gap-x-3 gap-y-0.5 px-3 py-2 grid grid-cols-2">
-              <span className="font-mono text-xs text-text-primary">{app.appName}</span>
-              <a
-                href={app.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 font-mono text-2xs text-text-tertiary hover:text-text-primary hover:underline"
-              >
-                <ArrowSquareOutIcon size={12} className="shrink-0" />
-                <span className="truncate">{app.url}</span>
-              </a>
-            </div>
-          ))}
-        </div>
+      {isOpen && (
+        <DataTableRow>
+          <DataTableCell colSpan={7} className="bg-surface-base p-0">
+            {showApps && <AppsDetail apps={environment.apps} />}
+            {/* Manual Environment Factory up/down against this specific preview. */}
+            {showEnvFactory && <EnvFactoryPanel environmentId={environment.id} />}
+            {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
+            {showLogs && <EnvironmentLogsPanel environment={environment} />}
+          </DataTableCell>
+        </DataTableRow>
       )}
+    </>
+  );
+}
 
-      {/* Manual Environment Factory up/down against this specific preview. */}
-      {showEnvFactory && <EnvFactoryPanel environmentId={environment.id} />}
-
-      {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
-      {showLogs && <EnvironmentLogsPanel environment={environment} />}
+// The expanded per-app detail for an environment, as its own column-aligned
+// table: every configured app with its status, plus its URL when it has one.
+function AppsDetail({ apps }: { apps: PreviewApp[] }) {
+  if (apps.length === 0) {
+    return <p className="border-t border-border-dim px-3 py-2 font-mono text-2xs text-text-secondary">No apps yet</p>;
+  }
+  return (
+    <div className="border-t border-border-dim px-3 py-2">
+      <DataTable className="table-fixed">
+        <DataTableHead>
+          <DataTableRow>
+            <DataTableHeaderCell className="w-1/3 pr-3">App</DataTableHeaderCell>
+            <DataTableHeaderCell className="w-1/3 pr-3">Status</DataTableHeaderCell>
+            <DataTableHeaderCell className="w-1/3">URL</DataTableHeaderCell>
+          </DataTableRow>
+        </DataTableHead>
+        <DataTableBody>
+          {apps.map((app) => (
+            <AppRow key={app.appName} app={app} />
+          ))}
+        </DataTableBody>
+      </DataTable>
     </div>
+  );
+}
+
+// One app row: name, lifecycle status badge, and its live URL when it has one.
+// A failed app shows its error instead; one with no URL yet (still building, or
+// skipped) shows a muted placeholder.
+function AppRow({ app }: { app: PreviewApp }) {
+  return (
+    <DataTableRow>
+      <DataTableCell className="pr-3">
+        <span className="block truncate font-mono text-2xs text-text-primary">{app.appName}</span>
+      </DataTableCell>
+      <DataTableCell className="pr-3">
+        <Badge variant={APP_STATUS_VARIANT[app.status]} className="text-3xs">
+          {app.status.replace(/_/g, " ")}
+        </Badge>
+      </DataTableCell>
+      <DataTableCell>
+        {app.url != null ? (
+          <a
+            href={app.url}
+            target="_blank"
+            rel="noreferrer"
+            title={app.url}
+            className="inline-flex max-w-full items-center gap-1 font-mono text-2xs text-text-secondary hover:text-text-primary hover:underline"
+          >
+            <ArrowSquareOutIcon size={12} className="shrink-0" />
+            <span className="truncate">{app.url}</span>
+          </a>
+        ) : app.error != null ? (
+          <span className="block max-w-md truncate font-mono text-2xs text-status-critical" title={app.error}>
+            {app.error}
+          </span>
+        ) : (
+          <span className="font-mono text-2xs text-text-secondary">No URL</span>
+        )}
+      </DataTableCell>
+    </DataTableRow>
   );
 }
 
@@ -556,10 +724,16 @@ function EnvFactoryResult({
 
 function TableSkeleton() {
   return (
-    <div className="flex flex-col gap-2">
-      {[1, 2, 3, 4].map((i) => (
-        <Skeleton key={i} className="h-12 w-full rounded-md" />
-      ))}
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 w-full max-w-sm" />
+        <Skeleton className="ml-auto h-4 w-16" />
+      </div>
+      <div className="flex flex-col gap-2 rounded-md border border-border-dim p-2">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </div>
     </div>
   );
 }

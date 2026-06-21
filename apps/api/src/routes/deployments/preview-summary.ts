@@ -1,4 +1,4 @@
-import type { PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
+import type { PreviewkitAddonStatus, PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
 
 type PreviewEnvironmentStatus =
     | "ready"
@@ -453,6 +453,94 @@ export function parseStringRecord(value: Prisma.JsonValue): Record<string, strin
             .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "")
             .sort(([a], [b]) => a.localeCompare(b)),
     );
+}
+
+/** Per-app row for the admin environment list: an app's name, lifecycle status, URL, and failure reason. */
+export type PreviewAppSummary = {
+    appName: string;
+    status: PreviewkitAppStatus;
+    url: string | undefined;
+    error: string | undefined;
+};
+
+/**
+ * Builds the per-app status list for the admin environment view. `appInstances`
+ * is the source of truth - one row per configured app, created at moment 0 and
+ * transitioned through the lifecycle - so apps that never reached a URL (still
+ * pending/building, or build_failed/deploy_failed/skipped) are included too,
+ * not just the ones present in the `urls` map. Legacy environments deployed
+ * before the app-instance model existed have only the `urls` map; those apps
+ * are surfaced as `ready`, since a URL is only written on a successful deploy.
+ * Sorted by app name.
+ */
+export function buildPreviewAppSummaries(
+    appInstances: Array<{ appName: string; status: PreviewkitAppStatus; url: string | null; error: string | null }>,
+    urls: Record<string, string>,
+): PreviewAppSummary[] {
+    const instancesByName = new Map(appInstances.map((instance) => [instance.appName, instance]));
+    const appNames = [...new Set([...instancesByName.keys(), ...Object.keys(urls)])].sort((a, b) => a.localeCompare(b));
+
+    return appNames.map((appName) => {
+        const instance = instancesByName.get(appName);
+        if (instance == null) {
+            return { appName, status: "ready", url: urls[appName], error: undefined };
+        }
+        return {
+            appName,
+            status: instance.status,
+            url: instance.url ?? urls[appName],
+            error: instance.error ?? undefined,
+        };
+    });
+}
+
+/** Reconciled headline status for the admin environment list. */
+export type PreviewEnvironmentHealth = "ready" | "building" | "degraded" | "failed" | "unknown";
+
+/**
+ * Rolls an environment's many component statuses up into a single headline
+ * health, so the badge can never contradict the per-app rows shown beneath it.
+ *
+ * Once per-app instance rows exist they are the source of truth: the
+ * environment is `ready` only when every app is ready (and no addon failed),
+ * `degraded` when some apps are up but others failed / were skipped or an addon
+ * failed, `failed` when nothing came up, and `building` while any app is still
+ * in flight. The persisted environment `status` is consulted only before any
+ * app rows exist (e.g. a build that failed at moment 0).
+ *
+ * This is what lets a fully-deployed environment whose post-deploy GitHub
+ * finalization failed - status stamped `failed`, yet every app `ready` - read
+ * as `ready` instead of a misleading `failed`. The raw `status`/`phase` are
+ * still returned for admins who want the underlying pipeline state.
+ */
+export function deriveEnvironmentHealth(
+    status: PreviewkitStatus,
+    apps: Array<{ status: PreviewkitAppStatus }>,
+    addons: Array<{ status: PreviewkitAddonStatus }>,
+): PreviewEnvironmentHealth {
+    if (status === "torn_down") return "unknown";
+
+    const hasFailedAddon = addons.some((addon) => addon.status === "failed");
+
+    if (apps.length === 0) {
+        if (status === "failed") return "failed";
+        if (status === "ready") return hasFailedAddon ? "degraded" : "ready";
+        return "building";
+    }
+
+    const readyCount = apps.filter((app) => app.status === "ready").length;
+    const inFlightCount = apps.filter(
+        (app) =>
+            app.status === "pending" ||
+            app.status === "building" ||
+            app.status === "built" ||
+            app.status === "deploying",
+    ).length;
+
+    if (inFlightCount > 0) return "building";
+    if (readyCount === 0) return "failed";
+    if (hasFailedAddon || readyCount < apps.length) return "degraded";
+    return "ready";
 }
 
 /** One persisted `PreviewkitAppBuild` row, as selected by the deployments query. */
