@@ -10,6 +10,7 @@ export {
     type LogExtra,
     type ObservabilityContext,
     type OrganizationContext,
+    type PreviewContext,
     type RefinementIterationContext,
     type RefinementLoopContext,
     type RunContext,

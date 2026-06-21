@@ -85,6 +85,16 @@ const CompactionContextSchema = z.object({
     messagesAffected: z.number().int().nonnegative().optional(),
 });
 
+/**
+ * Preview-deployment identity (previewkit). `repo` is the GitHub `owner/name`
+ * and `headRef` is the git branch being deployed. Distinct from the test-domain
+ * `branch` group (whose `branchId` is an Autonoma Branch entity, not a git ref).
+ */
+const PreviewContextSchema = z.object({
+    repo: z.string().min(1),
+    headRef: z.string().min(1).optional(),
+});
+
 export const ObservabilityContextSchema = z.object({
     temporal: TemporalContextSchema.optional(),
     organization: OrganizationContextSchema.optional(),
@@ -98,6 +108,7 @@ export const ObservabilityContextSchema = z.object({
     run: RunContextSchema.optional(),
     job: JobContextSchema.optional(),
     compaction: CompactionContextSchema.optional(),
+    preview: PreviewContextSchema.optional(),
 });
 
 export type ObservabilityContext = z.infer<typeof ObservabilityContextSchema>;
@@ -113,6 +124,7 @@ export type TestGenerationContext = z.infer<typeof TestGenerationContextSchema>;
 export type RunContext = z.infer<typeof RunContextSchema>;
 export type JobContext = z.infer<typeof JobContextSchema>;
 export type CompactionContext = z.infer<typeof CompactionContextSchema>;
+export type PreviewContext = z.infer<typeof PreviewContextSchema>;
 
 /**
  * Any structured payload passed to a log call. Canonical groups go at the top
@@ -237,6 +249,7 @@ const GROUP_SCHEMAS = [
     ["run", RunContextSchema],
     ["job", JobContextSchema],
     ["compaction", CompactionContextSchema],
+    ["preview", PreviewContextSchema],
 ] as const;
 
 const GROUP_FIELDS = {
@@ -252,4 +265,5 @@ const GROUP_FIELDS = {
     run: RunContextSchema.keyof().options,
     job: JobContextSchema.keyof().options,
     compaction: CompactionContextSchema.keyof().options,
+    preview: PreviewContextSchema.keyof().options,
 } as const;

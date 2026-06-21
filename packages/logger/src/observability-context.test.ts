@@ -85,6 +85,14 @@ describe("observability context", () => {
         });
     });
 
+    it("flattens the preview group, omitting an unset headRef", () => {
+        expect(flattenObservabilityContext({ preview: { repo: "acme/web", headRef: "fix/login" } })).toEqual({
+            repo: "acme/web",
+            headRef: "fix/login",
+        });
+        expect(flattenObservabilityContext({ preview: { repo: "acme/web" } })).toEqual({ repo: "acme/web" });
+    });
+
     it("pickObservabilityContext lifts a flat record into groups", () => {
         const result = pickObservabilityContext({
             snapshotId: "snap",
