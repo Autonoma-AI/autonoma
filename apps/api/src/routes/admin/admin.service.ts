@@ -200,20 +200,29 @@ export class AdminService extends Service {
 
         const installations = await this.githubApp.listInstallations();
         const repositories: AdminGitHubRepository[] = [];
+        let failedInstallationCount = 0;
 
         for (const installation of installations) {
-            const client = await this.githubApp.getInstallationClient(installation.id);
-            const repos = await client.listInstallationRepos();
+            try {
+                const client = await this.githubApp.getInstallationClient(installation.id);
+                const repos = await client.listInstallationRepos();
 
-            for (const repo of repos) {
-                repositories.push({
-                    id: repo.id,
-                    name: repo.fullName,
-                    repositoryName: repo.name,
-                    installationId: installation.id,
-                    installationAccountLogin: installation.accountLogin,
-                    installationAccountType: installation.accountType,
-                });
+                for (const repo of repos) {
+                    repositories.push({
+                        id: repo.id,
+                        name: repo.fullName,
+                        repositoryName: repo.name,
+                        installationId: installation.id,
+                        installationAccountLogin: installation.accountLogin,
+                        installationAccountType: installation.accountType,
+                    });
+                }
+            } catch (err) {
+                // A single broken installation (suspended on GitHub, revoked permissions, etc.)
+                // must not bring down the whole admin listing - log it, reconcile its DB status,
+                // and keep going with the rest.
+                failedInstallationCount++;
+                await this.reconcileFailedInstallation(installation.id, installation.accountLogin, err);
             }
         }
 
@@ -221,10 +230,37 @@ export class AdminService extends Service {
 
         this.logger.info("Admin listed all GitHub App repositories", {
             installationCount: installations.length,
+            failedInstallationCount,
             repositoryCount: repositories.length,
         });
 
         return repositories;
+    }
+
+    /**
+     * Marks an installation that failed to list its repos. If GitHub reports the installation as
+     * suspended we persist that status so callers (deploys, previewkit) fail fast; any other error
+     * is logged and skipped without mutating state, since it may be transient.
+     */
+    private async reconcileFailedInstallation(installationId: number, accountLogin: string, err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const isSuspended = message.toLowerCase().includes("suspended");
+
+        if (!isSuspended) {
+            this.logger.warn("Skipping GitHub installation that failed to list repos", {
+                extra: { installationId, accountLogin, error: message },
+            });
+            return;
+        }
+
+        this.logger.warn("Marking GitHub installation as suspended", {
+            extra: { installationId, accountLogin, error: message },
+        });
+
+        await this.db.gitHubInstallation.updateMany({
+            where: { installationId },
+            data: { status: "suspended" },
+        });
     }
 
     async getGitHubRepositoryArchiveUrl(input: { installationId: number; repositoryId: number; ref?: string }) {
