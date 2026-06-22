@@ -97,36 +97,6 @@ describe("trigger functions", () => {
         expect(options?.args?.[0]).toEqual({ snapshotId: "snap-1" });
     });
 
-    it("triggerGenerationReviewWorkflow starts workflow", async () => {
-        const { triggerGenerationReviewWorkflow } = await import("../src/triggers/generation-review");
-        const { getTemporalClient } = await import("../src/client");
-
-        await triggerGenerationReviewWorkflow("gen-1");
-
-        const client = await getTemporalClient();
-        expect(client.workflow.start).toHaveBeenCalledOnce();
-
-        const call = vi.mocked(client.workflow.start).mock.calls[0];
-        const options = call?.[1];
-        expect(options?.taskQueue).toBe("diffs");
-        expect(options?.args?.[0]).toEqual({ generationId: "gen-1" });
-    });
-
-    it("triggerReplayReviewWorkflow starts workflow", async () => {
-        const { triggerReplayReviewWorkflow } = await import("../src/triggers/replay-review");
-        const { getTemporalClient } = await import("../src/client");
-
-        await triggerReplayReviewWorkflow("run-1");
-
-        const client = await getTemporalClient();
-        expect(client.workflow.start).toHaveBeenCalledOnce();
-
-        const call = vi.mocked(client.workflow.start).mock.calls[0];
-        const options = call?.[1];
-        expect(options?.taskQueue).toBe("diffs");
-        expect(options?.args?.[0]).toEqual({ runId: "run-1" });
-    });
-
     it("findLatestWorkflowByGenerationId returns workflow ref", async () => {
         const { findLatestWorkflowByGenerationId } = await import("../src/triggers/batch-generation");
 

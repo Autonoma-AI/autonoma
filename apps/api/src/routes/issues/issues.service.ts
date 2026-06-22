@@ -1,8 +1,6 @@
 import type { IssueKind, PrismaClient } from "@autonoma/db";
-import { GenerationStatus, RunStatus } from "@autonoma/db";
-import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import type { TriggerGenerationReview, TriggerRunReview } from "../build-services";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
 
@@ -12,8 +10,6 @@ export class IssuesService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
-        private readonly triggerGenerationReview: TriggerGenerationReview,
-        private readonly triggerRunReview: TriggerRunReview,
     ) {
         super();
     }
@@ -290,75 +286,5 @@ export class IssuesService extends Service {
             },
             testPlan: runReview.run.assignment.plan?.prompt ?? undefined,
         };
-    }
-
-    async requestReview(generationId: string, organizationId: string) {
-        this.logger.info("Requesting generation review", { generationId, organizationId });
-
-        const generation = await this.db.testGeneration.findFirst({
-            where: { id: generationId, organizationId },
-            select: { id: true, status: true, generationReview: { select: { id: true, status: true } } },
-        });
-
-        if (generation == null) throw new NotFoundError();
-
-        if (generation.status !== GenerationStatus.failed) {
-            throw new BadRequestError("Only failed generations can be reviewed");
-        }
-
-        const existingReview = generation.generationReview;
-        if (existingReview != null && existingReview.status !== "failed") {
-            throw new ConflictError("A review already exists for this generation");
-        }
-
-        if (existingReview != null) {
-            await this.db.generationReview.delete({ where: { id: existingReview.id } });
-        }
-
-        await this.db.generationReview.create({
-            data: {
-                generationId,
-                organizationId,
-            },
-        });
-
-        await this.triggerGenerationReview(generationId);
-
-        this.logger.info("Generation review triggered", { generationId });
-    }
-
-    async requestRunReview(runId: string, organizationId: string) {
-        this.logger.info("Requesting run review", { runId, organizationId });
-
-        const run = await this.db.run.findFirst({
-            where: { id: runId, organizationId },
-            select: { id: true, status: true, runReview: { select: { id: true, status: true } } },
-        });
-
-        if (run == null) throw new NotFoundError();
-
-        if (run.status !== RunStatus.failed) {
-            throw new BadRequestError("Only failed runs can be reviewed");
-        }
-
-        const existingReview = run.runReview;
-        if (existingReview != null && existingReview.status !== "failed") {
-            throw new ConflictError("A review already exists for this run");
-        }
-
-        if (existingReview != null) {
-            await this.db.runReview.delete({ where: { id: existingReview.id } });
-        }
-
-        await this.db.runReview.create({
-            data: {
-                runId,
-                organizationId,
-            },
-        });
-
-        await this.triggerRunReview(runId);
-
-        this.logger.info("Run review triggered", { runId });
     }
 }

@@ -14,7 +14,6 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
@@ -31,7 +30,6 @@ import { SystemFailurePanel, isSystemFailure } from "components/system-failure-p
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureGenerationDetailData, useGenerationDetail } from "lib/query/generations.queries";
-import { useRequestReview } from "lib/query/issues.queries";
 import { useState } from "react";
 import Markdown from "react-markdown";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../../-home/helpers";
@@ -73,7 +71,6 @@ function GenerationDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | undefined>(undefined);
   const currentApp = useCurrentApplication();
   const { isAdmin } = useAuth();
-  const requestReview = useRequestReview();
   const { data: generation } = useGenerationDetail(generationId);
 
   const status = generation.status as GenerationStatus;
@@ -136,17 +133,6 @@ function GenerationDetailPage() {
                 <WarningIcon size={14} weight="fill" />
                 Review failed
               </Badge>
-            )}
-            {isAdmin && status === "failed" && (review == null || reviewStatus === "failed") && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={requestReview.isPending}
-                onClick={() => requestReview.mutate({ generationId })}
-              >
-                <MagnifyingGlassIcon size={14} />
-                {reviewStatus === "failed" ? "Retry review" : "Review"}
-              </Button>
             )}
             {isAdmin && generation.temporalWorkflow != null && (
               <>

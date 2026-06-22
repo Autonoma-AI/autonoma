@@ -14,7 +14,6 @@ import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { Stack } from "@phosphor-icons/react/Stack";
 import { Trash } from "@phosphor-icons/react/Trash";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
@@ -29,7 +28,6 @@ import { NavigableLightbox, type NavigableStep } from "components/screenshot-lig
 import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { useRequestRunReview } from "lib/query/issues.queries";
 import { ensureRunDetailData, useRestartRun, useRunDetail } from "lib/query/runs.queries";
 import { useState } from "react";
 import { AppLink } from "../../-app-link";
@@ -96,7 +94,6 @@ function RunDetailPage() {
   const [showDebug, setShowDebug] = useState(false);
 
   const restartRun = useRestartRun(runId);
-  const requestReview = useRequestRunReview();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (run == null) {
@@ -206,17 +203,6 @@ function RunDetailPage() {
                 <WarningIcon size={14} weight="fill" />
                 Review failed
               </Badge>
-            )}
-            {isAdmin && status === "failed" && (review == null || reviewStatus === "failed") && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={requestReview.isPending}
-                onClick={() => requestReview.mutate({ runId })}
-              >
-                <MagnifyingGlassIcon size={14} />
-                {reviewStatus === "failed" ? "Retry review" : "Review"}
-              </Button>
             )}
             {isAdmin && (
               <>

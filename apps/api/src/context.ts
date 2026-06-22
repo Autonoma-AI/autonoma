@@ -6,10 +6,8 @@ import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import {
     cancelDiffsJob,
     triggerDiffsJob,
-    triggerGenerationReviewWorkflow,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
-    triggerReplayReviewWorkflow,
     triggerRunWorkflow,
 } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
@@ -61,8 +59,6 @@ export async function createContext(c: HonoContext) {
             auth,
             storageProvider,
             triggerRunWorkflow,
-            triggerGenerationReview: triggerGenerationReviewWorkflow,
-            triggerRunReview: triggerReplayReviewWorkflow,
             scenarioManager,
             encryptionHelper,
             generationProvider,

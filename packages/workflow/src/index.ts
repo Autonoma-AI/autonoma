@@ -10,8 +10,6 @@ export {
     triggerDiffsJob,
 } from "./triggers/diffs";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
-export { triggerGenerationReviewWorkflow } from "./triggers/generation-review";
-export { triggerReplayReviewWorkflow } from "./triggers/replay-review";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";
 export { findLatestWorkflowByRunId, type TriggerRunWorkflowParams, triggerRunWorkflow } from "./triggers/run-replay";
 export {

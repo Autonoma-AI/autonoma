@@ -66,16 +66,11 @@ export interface Services {
     previewkitTrigger: PreviewkitTriggerService;
 }
 
-export type TriggerGenerationReview = (generationId: string) => void | Promise<void>;
-export type TriggerRunReview = (runId: string) => void | Promise<void>;
-
 export interface ServicesParams {
     conn: PrismaClient;
     auth: Auth;
     storageProvider: StorageProvider;
     triggerRunWorkflow: (params: TriggerRunWorkflowParams) => Promise<void>;
-    triggerGenerationReview: TriggerGenerationReview;
-    triggerRunReview: TriggerRunReview;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
     generationProvider: GenerationProvider;
@@ -91,8 +86,6 @@ export function buildServices({
     auth,
     storageProvider,
     triggerRunWorkflow,
-    triggerGenerationReview,
-    triggerRunReview,
     scenarioManager,
     encryptionHelper,
     generationProvider,
@@ -145,7 +138,7 @@ export function buildServices({
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
         repoIntrospection: repoIntrospectionService,
-        issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
+        issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
         billing: billingService,

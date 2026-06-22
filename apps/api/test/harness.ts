@@ -80,8 +80,6 @@ export class APITestHarness implements IntegrationHarness {
             auth,
             storageProvider: storage,
             triggerRunWorkflow: triggerWorkflow,
-            triggerGenerationReview: triggerWorkflow,
-            triggerRunReview: triggerWorkflow,
             scenarioManager,
             encryptionHelper,
             generationProvider,
