@@ -139,14 +139,20 @@ githubHttpRouter.post("/webhook", async (ctx) => {
         return ctx.json({ ok: true, ignored: true });
     }
 
-    try {
-        await dispatchWebhookEvent(eventType, installationId, organizationId, githubService, prCacheService, payload);
-    } catch (error) {
-        // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
-        const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
-        const causeMessage = cause instanceof Error ? cause.message : cause != null ? String(cause) : undefined;
-        logger.fatal("Error processing GitHub webhook", error, { event, deliveryId, cause: causeMessage });
-    }
+    // Ack immediately and process in the background. Superseding an in-flight
+    // preview deploy waits (tens of seconds) for the old run to cancel
+    // gracefully before starting its replacement; awaiting that here would blow
+    // GitHub's 10s webhook delivery timeout and surface as failed deliveries.
+    // The dispatched work is durable (Temporal), so a thrown error only needs
+    // logging: GitHub gets 200 either way, and redelivery would not help.
+    void dispatchWebhookEvent(eventType, installationId, organizationId, githubService, prCacheService, payload).catch(
+        (error) => {
+            // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
+            const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+            const causeMessage = cause instanceof Error ? cause.message : cause != null ? String(cause) : undefined;
+            logger.fatal("Error processing GitHub webhook", error, { event, deliveryId, cause: causeMessage });
+        },
+    );
 
     return ctx.json({ ok: true });
 });

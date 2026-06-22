@@ -15,11 +15,7 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
 // Seeds a config revision for an application WITHOUT pointing the Application's
 // active pointer at it. Used to set up the cross-application case: a revision
 // owned by one app that another app then (illegally) references.
-async function seedRevision(
-    harness: PreviewkitTestHarness,
-    applicationId: string,
-    document: object,
-): Promise<string> {
+async function seedRevision(harness: PreviewkitTestHarness, applicationId: string, document: object): Promise<string> {
     const revision = await harness.db.previewkitConfigRevision.create({
         data: { applicationId, revision: 1, schemaVersion: 1, source: "api", document },
     });
@@ -90,9 +86,7 @@ integrationTestSuite({
             });
         });
 
-        test("loadActiveConfig ignores an active revision that belongs to another application", async ({
-            harness,
-        }) => {
+        test("loadActiveConfig ignores an active revision that belongs to another application", async ({ harness }) => {
             const appA = await createApplication(harness, "app-a");
             const appB = await createApplication(harness, "app-b");
             // appB owns the revision but has NOT activated it, so appA's unique,

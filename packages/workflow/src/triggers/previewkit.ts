@@ -1,10 +1,12 @@
 import { logger } from "@autonoma/logger";
-import { WorkflowIdConflictPolicy } from "@temporalio/client";
+import { WorkflowIdConflictPolicy, WorkflowNotFoundError } from "@temporalio/client";
 import type { PreviewDeployEvent } from "../activities/previewkit-activities";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
+
+const SUPERSEDE_CANCEL_GRACE_MS = 30_000;
 
 export interface TriggerPreviewDeployParams {
     event: PreviewDeployEvent;
@@ -76,10 +78,12 @@ export async function triggerPreviewTeardown(params: TriggerPreviewTeardownParam
  * Best-effort graceful cancel of the in-flight workflow for an environment
  * before starting the next one. The explicit `cancel()` delivers the
  * cancellation signal so the old run aborts its build (releasing the buildkit
- * Job in seconds) and finalizes its build row cleanly. The caller still starts
- * with `TERMINATE_EXISTING` as the hard backstop for a wedged run that never
- * observes the cancel. A missing/closed run (first push, already torn down) is
- * the expected no-op path.
+ * Job in seconds) and finalizes its build row cleanly. We wait briefly for that
+ * graceful close before starting the replacement; otherwise `TERMINATE_EXISTING`
+ * can hard-kill the old run before its supersede cleanup activity records the
+ * build as `superseded`. The caller still starts with `TERMINATE_EXISTING` as
+ * the hard backstop for a wedged run that never observes the cancel. A
+ * missing/closed run (first push, already torn down) is the expected no-op path.
  */
 async function cancelInFlightPreviewWorkflow(
     client: Awaited<ReturnType<typeof getTemporalClient>>,
@@ -87,13 +91,58 @@ async function cancelInFlightPreviewWorkflow(
 ): Promise<void> {
     const handle = client.workflow.getHandle(workflowId);
     try {
-        await handle.describe();
+        const description = await handle.describe();
+        if (description.status.name !== "RUNNING") {
+            logger.info("No running preview workflow to cancel", {
+                extra: { workflowId, status: description.status.name },
+            });
+            return;
+        }
         await handle.cancel();
-        logger.info("Requested graceful cancel of in-flight preview workflow", { extra: { workflowId } });
-    } catch {
-        logger.info("No in-flight preview workflow to cancel (first push or already closed)", {
-            extra: { workflowId },
+        logger.info("Requested graceful cancel of in-flight preview workflow", {
+            extra: { workflowId, graceMs: SUPERSEDE_CANCEL_GRACE_MS },
         });
+        const closedGracefully = await waitForWorkflowClose(handle.result(), SUPERSEDE_CANCEL_GRACE_MS);
+        if (closedGracefully) {
+            logger.info("In-flight preview workflow closed after graceful cancel", { extra: { workflowId } });
+        } else {
+            logger.warn("Timed out waiting for graceful preview workflow cancel; starting with terminate backstop", {
+                extra: { workflowId, graceMs: SUPERSEDE_CANCEL_GRACE_MS },
+            });
+        }
+    } catch (err) {
+        if (err instanceof WorkflowNotFoundError) {
+            logger.info("No in-flight preview workflow to cancel (first push or already torn down)", {
+                extra: { workflowId },
+            });
+            return;
+        }
+        // A real failure talking to Temporal (unreachable / transient RPC error),
+        // not the benign "nothing to cancel" case. Don't block the supersede:
+        // fall through so the caller's start() still runs with TERMINATE_EXISTING
+        // as the backstop, but surface it as a warning (with the error) so a
+        // persistent Temporal problem is visible instead of silently mislabeled
+        // "already closed".
+        logger.warn("Failed to gracefully cancel in-flight preview workflow; relying on terminate backstop", {
+            extra: { workflowId, err },
+        });
+    }
+}
+
+async function waitForWorkflowClose(result: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+        return await Promise.race([
+            result.then(
+                () => true,
+                () => true,
+            ),
+            new Promise<false>((resolve) => {
+                timeout = setTimeout(() => resolve(false), timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timeout != null) clearTimeout(timeout);
     }
 }
 

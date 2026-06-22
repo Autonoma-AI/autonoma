@@ -702,4 +702,3 @@ function iconKeyFromExactValue(value: string): PreviewServiceIconKey | undefined
     }
     return undefined;
 }
-

@@ -669,10 +669,7 @@ export class PreviewPipeline {
             builtImages: Object.keys(imageTags),
         });
 
-        // Bail before each long deploy phase if a newer commit superseded this
-        // run, so we stop sinking work into an environment the successor owns.
-        signal?.throwIfAborted();
-        await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
+        await this.checkpoint(signal, repoFullName, prNumber, "deploying-services");
         logger.info("Deploy step 1/7 deploying infra (namespace, services, gatekeeper)", {
             repo: repoFullName,
             pr: prNumber,
@@ -684,7 +681,7 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
         });
 
-        await this.updatePhase(repoFullName, prNumber, "deploying", "pre-deploy-hooks");
+        await this.checkpoint(signal, repoFullName, prNumber, "pre-deploy-hooks");
         logger.info("Deploy step 2/7 running pre-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -705,8 +702,7 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
         });
 
-        signal?.throwIfAborted();
-        await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
+        await this.checkpoint(signal, repoFullName, prNumber, "deploying-apps");
         // Mark the apps that built (have an image) as `deploying`. Apps whose
         // build failed have no imageTag and stay `build_failed`.
         const deployingStates: AppStateUpdate[] = mergedConfig.apps
@@ -738,7 +734,7 @@ export class PreviewPipeline {
                 .map(([n]) => n),
         );
 
-        await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
+        await this.checkpoint(signal, repoFullName, prNumber, "post-deploy-hooks");
         logger.info("Deploy step 4/7 running post-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -760,6 +756,7 @@ export class PreviewPipeline {
             namespace: result.namespace,
         });
 
+        signal?.throwIfAborted();
         const crashedApps = Object.entries(result.appOutcomes).flatMap(([name, o]) => {
             if (o.status === "failed" && o.crashLoopBackOff === true) {
                 return [{ name, url: o.url }];
@@ -793,6 +790,8 @@ export class PreviewPipeline {
             });
         }
 
+        // Terminal, successor-owned writes below: bail explicitly before each.
+        signal?.throwIfAborted();
         logger.info("Deploy step 6/7 computing final outcomes + recording per-app states", {
             repo: repoFullName,
             pr: prNumber,
@@ -820,6 +819,7 @@ export class PreviewPipeline {
             totalCount,
         });
 
+        signal?.throwIfAborted();
         if (readyCount === 0) {
             throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
         }
@@ -835,6 +835,7 @@ export class PreviewPipeline {
             phase: "ready",
             urls: result.urls,
         });
+        signal?.throwIfAborted();
         await recordSafe(() =>
             recordEnvironmentReady({
                 namespace: result.namespace,
@@ -1327,6 +1328,23 @@ export class PreviewPipeline {
             logger.error("App build failed", err, { app: app.name });
             return { status: "failed", durationMs: Date.now() - start, error: message };
         }
+    }
+
+    /**
+     * Advance to the next deploy phase, bailing first if a newer commit
+     * superseded this run, so we stop sinking work into an environment the
+     * successor now owns. Every long deploy step opens by advancing the phase,
+     * so the cancellation check and the phase write are paired here. Writes that
+     * finalize the environment (`ready`) keep their own explicit checks.
+     */
+    private async checkpoint(
+        signal: AbortSignal | undefined,
+        repoFullName: string,
+        prNumber: number,
+        phase: string,
+    ): Promise<void> {
+        signal?.throwIfAborted();
+        await this.updatePhase(repoFullName, prNumber, "deploying", phase);
     }
 
     private async updatePhase(
