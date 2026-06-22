@@ -62,7 +62,9 @@ half-deleted namespace.
   `deployEnvironment` / `finalize` / `fail`), per-app build loop (`buildOneApp`), final-outcome
   computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
-  `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts`.
+  `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts` (legacy monorepo path).
+- `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
+  framework preset (`node`/`next`/`vite`/`bun`) when an app uses the new `build` config block.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
   validate), `revisions.ts` (`loadActiveConfig` reads the Application's active DB config revision),
   `dependency-config.ts` (`resolveDependencyConfig` - multirepo dependency repos resolve from their
@@ -75,7 +77,7 @@ half-deleted namespace.
   (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
 - `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type.
 - `addons/` - third-party resource providers (e.g. Neon) via a provider registry.
-- `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image).
+- `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
 - `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, AWS Secrets Manager.
 
@@ -120,14 +122,20 @@ Application's main webhook, and sends the `x-previewkit-bypass` header (decrypte
 
 ## Build strategies (precedence)
 
-`buildkit-builder.ts` `dispatchBuild` picks per app, in order:
-1. **User Dockerfile** - `dockerfile:` set, or a `Dockerfile` present in the app dir
-   (`resolveDockerfile` only detects an existing file - nothing is generated).
-2. **Turbo monorepo** - `monorepo: turbo` set (railpack from the repo root with a filter).
-3. **Railpack** - fallback auto-detection.
+Per app, `PreviewPipeline.resolveBuildInputs` (`pipeline/preview-pipeline.ts`) selects the build inputs,
+then `buildkit-builder.ts` `dispatchBuild` runs them:
 
-All paths run `buildctl` against a per-build BuildKit Job, push to `REGISTRY_URL` (ECR),
-and upload build logs to S3; the PR comment links logs via 7-day presigned URLs.
+1. **`build` block (preferred)** - the app's `build` is a discriminated union on `framework` (the
+   `previewConfigSchema` in `packages/types`):
+   - `framework: dockerfile` - use the user's Dockerfile at `build.dockerfile`.
+   - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
+     single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
+     sets the context (`root` enables a turbo `--filter` for monorepos).
+2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
+   or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
+
+All paths run `buildctl` against a per-build BuildKit Job and push to `REGISTRY_URL` (ECR). Build logs
+stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload.
 
 ## Data model (`packages/db/prisma/schema.prisma`, `Previewkit*`)
 
