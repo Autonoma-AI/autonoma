@@ -66,7 +66,7 @@ interface AppFinalOutcome {
 
 /**
  * Shared input to every per-app build. Computed once at the top of
- * `buildAllApps` and passed unchanged into each `buildOneApp` invocation —
+ * `buildAllApps` and passed unchanged into each `buildOneApp` invocation -
  * the per-app value (`app`) is the only parameter that varies across builds.
  */
 interface AppBuildContext {
@@ -187,6 +187,12 @@ export class PreviewPipeline {
 
         logger.info("Preparing preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
 
+        logger.info("Prepare step 1/6 resolving linked Application", {
+            repo: repoFullName,
+            pr: prNumber,
+            organizationId,
+            githubRepositoryId,
+        });
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
             select: { id: true },
@@ -200,7 +206,18 @@ export class PreviewPipeline {
             });
             return { skipped: true };
         }
+        logger.info("Prepare step 1/6 resolved linked Application", {
+            repo: repoFullName,
+            pr: prNumber,
+            applicationId: application.id,
+        });
 
+        logger.info("Prepare step 2/6 resolving active config revision", {
+            repo: repoFullName,
+            pr: prNumber,
+            applicationId: application.id,
+            pinnedRevisionId: configRevisionId,
+        });
         const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
         if (resolved == null) {
             logger.warn("No active config revision; skipping deployment", {
@@ -210,6 +227,11 @@ export class PreviewPipeline {
             });
             return { skipped: true };
         }
+        logger.info("Prepare step 2/6 resolved active config revision", {
+            repo: repoFullName,
+            pr: prNumber,
+            revisionId: resolved.revisionId,
+        });
 
         // Synthetic non-PR environments (prNumber 0 for an Application's main branch)
         // stay quiet on GitHub because there is no PR thread to comment on.
@@ -223,11 +245,14 @@ export class PreviewPipeline {
         }
 
         if (isPullRequest) {
+            logger.info("Prepare step 3/6 setting initial pending commit status", { repo: repoFullName, pr: prNumber });
             await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
+            logger.info("Prepare step 3/6 set initial pending commit status", { repo: repoFullName, pr: prNumber });
         }
 
         let commentId = "";
         if (isPullRequest) {
+            logger.info("Prepare step 4/6 posting initial PR comment", { repo: repoFullName, pr: prNumber });
             const result = await postOrUpdateCommentOnGithub({
                 client: this.provider,
                 store: createPreviewkitCommentStore(db),
@@ -252,15 +277,27 @@ export class PreviewPipeline {
             });
 
             commentId = result?.status === "posted" || result?.status === "updated" ? result.commentId : "";
+            logger.info("Prepare step 4/6 posted initial PR comment", {
+                repo: repoFullName,
+                pr: prNumber,
+                commentId,
+            });
         }
 
+        logger.info("Prepare step 5/6 ensuring namespace", { repo: repoFullName, pr: prNumber });
         const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {
             commentId,
             lastDeployedSha: headSha,
             status: "pending",
             phase: "initializing",
         });
+        logger.info("Prepare step 5/6 ensured namespace", { repo: repoFullName, pr: prNumber, namespace });
 
+        logger.info("Prepare step 6/6 recording environment-created event", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace,
+        });
         await recordSafe(() =>
             recordEnvironmentCreated({
                 repoFullName,
@@ -273,7 +310,18 @@ export class PreviewPipeline {
                 commentId,
             }),
         );
+        logger.info("Prepare step 6/6 recorded environment-created event", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace,
+        });
 
+        logger.info("Prepare phase complete", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace,
+            feedbackEnabled: isPullRequest,
+        });
         return { skipped: false, namespace, commentId, feedbackEnabled: isPullRequest };
     }
 
@@ -292,6 +340,14 @@ export class PreviewPipeline {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
+        logger.info("Building preview images", { repo: repoFullName, pr: prNumber, sha: shortSha, namespace });
+
+        logger.info("Build step 1/7 resolving linked Application", {
+            repo: repoFullName,
+            pr: prNumber,
+            organizationId,
+            githubRepositoryId,
+        });
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
             select: { id: true },
@@ -299,21 +355,43 @@ export class PreviewPipeline {
         if (application == null) {
             throw new Error(`Application not found for ${repoFullName} (org ${organizationId})`);
         }
+        logger.info("Build step 1/7 resolved linked Application", {
+            repo: repoFullName,
+            pr: prNumber,
+            applicationId: application.id,
+        });
 
+        logger.info("Build step 2/7 resolving active config revision", {
+            repo: repoFullName,
+            pr: prNumber,
+            applicationId: application.id,
+            pinnedRevisionId: configRevisionId,
+        });
         const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
         if (resolved == null) {
             throw new Error(`No active config revision for ${repoFullName} at ${shortSha}`);
         }
         const primaryConfig = resolved.config;
         const resolvedRevisionId = resolved.revisionId;
+        logger.info("Build step 2/7 resolved active config revision", {
+            repo: repoFullName,
+            pr: prNumber,
+            revisionId: resolvedRevisionId,
+        });
 
         let primaryDir: string | undefined;
         let dependencyEntries: DependencyEntry[] = [];
 
         try {
             await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
-            primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
+            logger.info("Build step 3/7 cloning primary + dependency repos", {
+                repo: repoFullName,
+                pr: prNumber,
+                sha: shortSha,
+                dependencyCount: deps.length,
+            });
+            primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             const convention = primaryConfig.config?.multirepo?.branch_convention;
             const [dependencyResults] = await Promise.all([
                 Promise.all(
@@ -322,7 +400,18 @@ export class PreviewPipeline {
                 this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
+            logger.info("Build step 3/7 cloned primary + dependency repos", {
+                repo: repoFullName,
+                pr: prNumber,
+                clonedDependencies: dependencyEntries.length,
+                skippedDependencies: deps.length - dependencyEntries.length,
+            });
 
+            logger.info("Build step 4/7 merging config + snapshotting + seeding app rows", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+            });
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
             // Snapshot the effective (merged) config. The summary + readiness views
             // project it for display and failure diagnostics; configRevisionId records
@@ -341,6 +430,14 @@ export class PreviewPipeline {
                     mergedConfig.apps.map((a) => ({ appName: a.name, port: a.port })),
                 ),
             );
+            logger.info("Build step 4/7 merged config + snapshotted + seeded app rows", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+                apps: mergedConfig.apps.map((a) => a.name),
+                services: mergedConfig.services.map((s) => s.name),
+                addons: mergedConfig.addons.map((a) => a.name),
+            });
 
             const appRepoDirs = new Map<string, string>();
             for (const app of primaryConfig.apps) {
@@ -359,6 +456,12 @@ export class PreviewPipeline {
             let addonOutputs: AddonOutputs = {};
             if (mergedConfig.addons.length > 0) {
                 await this.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
+                logger.info("Build step 5/7 provisioning addons", {
+                    repo: repoFullName,
+                    pr: prNumber,
+                    namespace,
+                    addonNames: mergedConfig.addons.map((a) => a.name),
+                });
                 const environmentRow = await db.previewkitEnvironment.findUnique({
                     where: { namespace },
                     select: { id: true },
@@ -366,7 +469,7 @@ export class PreviewPipeline {
                 if (environmentRow == null) {
                     logger.warn(
                         "Cannot provision addons: PreviewkitEnvironment row missing. " +
-                            "Continuing without addon outputs — apps that reference them will fail at template-resolve time.",
+                            "Continuing without addon outputs - apps that reference them will fail at template-resolve time.",
                         { namespace, addonNames: mergedConfig.addons.map((a) => a.name) },
                     );
                 } else {
@@ -382,7 +485,20 @@ export class PreviewPipeline {
                             .filter((o): o is Extract<AddonProvisionOutcome, { status: "ok" }> => o.status === "ok")
                             .map((o) => [o.name, o.outputs]),
                     );
+                    logger.info("Build step 5/7 provisioned addons", {
+                        repo: repoFullName,
+                        pr: prNumber,
+                        namespace,
+                        ok: addonOutcomes.filter((o) => o.status === "ok").map((o) => o.name),
+                        failed: addonOutcomes.filter((o) => o.status !== "ok").map((o) => o.name),
+                    });
                 }
+            } else {
+                logger.info("Build step 5/7 no addons declared; skipping addon provisioning", {
+                    repo: repoFullName,
+                    pr: prNumber,
+                    namespace,
+                });
             }
 
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
@@ -405,10 +521,12 @@ export class PreviewPipeline {
             });
             const arnByApp = new Map<string, string>();
             for (const s of secretRecords) arnByApp.set(s.appName, s.awsSecretArn);
-            logger.info("Resolved Application for build", {
+            logger.info("Build step 6/7 building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
+                namespace,
                 applicationId: application.id,
+                apps: mergedConfig.apps.map((a) => a.name),
                 registeredSecretApps: [...arnByApp.keys()].sort(),
             });
             const appBuilds = await this.buildAllApps(
@@ -429,7 +547,25 @@ export class PreviewPipeline {
                 if (outcome.status === "success") imageTags[name] = outcome.imageTag;
             }
             const allBuildsFailed = Object.values(appBuilds).every((o) => o.status === "failed");
+            logger.info("Build step 6/7 finished building images for all apps", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+                durationMs: buildDurationMs,
+                succeeded: Object.entries(appBuilds)
+                    .filter(([, o]) => o.status === "success")
+                    .map(([n]) => n),
+                failed: Object.entries(appBuilds)
+                    .filter(([, o]) => o.status === "failed")
+                    .map(([n]) => n),
+            });
 
+            logger.info("Build step 7/7 recording build outcomes", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+                allBuildsFailed,
+            });
             await recordSafe(() =>
                 recordBuildFinished({
                     namespace,
@@ -444,10 +580,22 @@ export class PreviewPipeline {
             // Transition each app's lifecycle row to `built` (with its imageTag)
             // or `build_failed` (with the error) - the per-app build verdict.
             await recordSafe(() => recordAppStates(namespace, this.toBuildStates(mergedConfig, appBuilds)));
+            logger.info("Build step 7/7 recorded build outcomes", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+            });
 
             if (allBuildsFailed) {
                 throw new Error("All app builds failed; see per-app build outcomes for details");
             }
+
+            logger.info("Build phase complete", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace,
+                builtImages: Object.keys(imageTags),
+            });
 
             const warnings = dependencyEntries
                 .filter((e) => e.usedFallback)
@@ -467,6 +615,11 @@ export class PreviewPipeline {
             };
         } finally {
             const dirsToClean = [primaryDir, ...dependencyEntries.map((e) => e.tmpDir)].filter((d) => d != null);
+            logger.info("Build cleanup removing temp clone dirs", {
+                repo: repoFullName,
+                pr: prNumber,
+                count: dirsToClean.length,
+            });
             await Promise.all(
                 dirsToClean.map((dir) =>
                     rm(dir, { recursive: true, force: true }).catch((err) =>
@@ -474,6 +627,7 @@ export class PreviewPipeline {
                     ),
                 ),
             );
+            logger.info("Build cleanup removed temp clone dirs", { repo: repoFullName, pr: prNumber });
         }
     }
 
@@ -507,13 +661,36 @@ export class PreviewPipeline {
             commentId,
         };
 
+        logger.info("Deploying preview environment", {
+            repo: repoFullName,
+            pr: prNumber,
+            apps: mergedConfig.apps.map((a) => a.name),
+            services: mergedConfig.services.map((s) => s.name),
+            builtImages: Object.keys(imageTags),
+        });
+
         // Bail before each long deploy phase if a newer commit superseded this
         // run, so we stop sinking work into an environment the successor owns.
         signal?.throwIfAborted();
         await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
+        logger.info("Deploy step 1/7 deploying infra (namespace, services, gatekeeper)", {
+            repo: repoFullName,
+            pr: prNumber,
+        });
         const infraResult = await this.deployer.deployInfra(deployOpts);
+        logger.info("Deploy step 1/7 deployed infra", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: infraResult.namespace,
+        });
 
         await this.updatePhase(repoFullName, prNumber, "deploying", "pre-deploy-hooks");
+        logger.info("Deploy step 2/7 running pre-deploy hooks", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: infraResult.namespace,
+            hooks: mergedConfig.hooks.pre_deploy.length,
+        });
         await this.runPreDeployHooks(
             mergedConfig,
             infraResult.namespace,
@@ -522,6 +699,11 @@ export class PreviewPipeline {
             imageTags,
             addonOutputs,
         );
+        logger.info("Deploy step 2/7 finished pre-deploy hooks", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: infraResult.namespace,
+        });
 
         signal?.throwIfAborted();
         await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
@@ -531,7 +713,24 @@ export class PreviewPipeline {
             .filter((a) => imageTags[a.name] != null && imageTags[a.name] !== "")
             .map((a) => ({ appName: a.name, status: "deploying", port: a.port, imageTag: imageTags[a.name]! }));
         await recordSafe(() => recordAppStates(infraResult.namespace, deployingStates));
+        logger.info("Deploy step 3/7 deploying apps wave-by-wave", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: infraResult.namespace,
+            deployingApps: deployingStates.map((s) => s.appName),
+        });
         const result = await this.deployer.deployApps(deployOpts, infraResult);
+        logger.info("Deploy step 3/7 finished deploying apps", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+            ready: Object.entries(result.appOutcomes)
+                .filter(([, o]) => o.status === "ok")
+                .map(([n]) => n),
+            notReady: Object.entries(result.appOutcomes)
+                .filter(([, o]) => o.status !== "ok")
+                .map(([n]) => n),
+        });
 
         const readyAppNamesForHooks = new Set(
             Object.entries(result.appOutcomes)
@@ -540,6 +739,12 @@ export class PreviewPipeline {
         );
 
         await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
+        logger.info("Deploy step 4/7 running post-deploy hooks", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+            hooks: mergedConfig.hooks.post_deploy.length,
+        });
         await this.runPostDeployHooks(
             mergedConfig,
             result,
@@ -549,6 +754,11 @@ export class PreviewPipeline {
             imageTags,
             addonOutputs,
         );
+        logger.info("Deploy step 4/7 finished post-deploy hooks", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+        });
 
         const crashedApps = Object.entries(result.appOutcomes).flatMap(([name, o]) => {
             if (o.status === "failed" && o.crashLoopBackOff === true) {
@@ -557,7 +767,9 @@ export class PreviewPipeline {
             return [];
         });
         if (crashedApps.length > 0) {
-            logger.info("Restarting crash-looped apps after post_deploy hooks", {
+            logger.info("Deploy step 5/7 restarting crash-looped apps after post_deploy hooks", {
+                repo: repoFullName,
+                pr: prNumber,
                 namespace: result.namespace,
                 apps: crashedApps.map((a) => a.name),
             });
@@ -565,8 +777,27 @@ export class PreviewPipeline {
             for (const [name, outcome] of Object.entries(recovered)) {
                 result.appOutcomes[name] = outcome;
             }
+            logger.info("Deploy step 5/7 finished restarting crash-looped apps", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace: result.namespace,
+                recovered: Object.entries(recovered)
+                    .filter(([, o]) => o.status === "ok")
+                    .map(([n]) => n),
+            });
+        } else {
+            logger.info("Deploy step 5/7 no crash-looped apps to restart", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace: result.namespace,
+            });
         }
 
+        logger.info("Deploy step 6/7 computing final outcomes + recording per-app states", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+        });
         const finalOutcomes = this.computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes);
         const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
         const readyCount = readyAppNames.size;
@@ -581,11 +812,24 @@ export class PreviewPipeline {
                 this.toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags),
             ),
         );
+        logger.info("Deploy step 6/7 recorded per-app states", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+            readyCount,
+            totalCount,
+        });
 
         if (readyCount === 0) {
             throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
         }
 
+        logger.info("Deploy step 7/7 marking environment ready", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+            urls: result.urls,
+        });
         await this.deployer.updateStatus(repoFullName, prNumber, {
             status: "ready",
             phase: "ready",
@@ -600,6 +844,11 @@ export class PreviewPipeline {
         );
         void this.logSink?.append(result.namespace, { kind: "status", message: "ready" });
         void this.logSink?.seal(result.namespace);
+        logger.info("Deploy step 7/7 marked environment ready", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: result.namespace,
+        });
 
         const services: PreviewServiceResult[] = finalOutcomes.map((o) => {
             const svc: PreviewServiceResult = { name: o.name, status: o.status === "ok" ? "ready" : "failed" };
@@ -648,7 +897,21 @@ export class PreviewPipeline {
     ): Promise<void> {
         const { repoFullName, prNumber, headSha } = event;
 
+        logger.info("Finalizing preview deploy", {
+            repo: repoFullName,
+            pr: prNumber,
+            ready: result.ready,
+            readyCount: result.readyCount,
+            totalCount: result.totalCount,
+            feedbackEnabled,
+        });
+
         if (feedbackEnabled && commentId !== "") {
+            logger.info("Finalize step 1/3 updating PR comment with result table", {
+                repo: repoFullName,
+                pr: prNumber,
+                commentId,
+            });
             await postOrUpdateCommentOnGithub({
                 client: this.provider,
                 store: createPreviewkitCommentStore(db),
@@ -658,9 +921,22 @@ export class PreviewPipeline {
                 commentId,
                 payload: await this.buildResultPayload(prNumber, headSha, result),
             });
+            logger.info("Finalize step 1/3 updated PR comment", { repo: repoFullName, pr: prNumber });
+        } else {
+            logger.info("Finalize step 1/3 skipping PR comment update", {
+                repo: repoFullName,
+                pr: prNumber,
+                feedbackEnabled,
+                hasCommentId: commentId !== "",
+            });
         }
 
         if (feedbackEnabled) {
+            logger.info("Finalize step 2/3 setting final commit status", {
+                repo: repoFullName,
+                pr: prNumber,
+                ready: result.ready,
+            });
             await this.provider.setCommitStatus(
                 repoFullName,
                 headSha,
@@ -668,6 +944,12 @@ export class PreviewPipeline {
                 result.ready ? "Preview environment ready" : `${result.readyCount}/${result.totalCount} apps ready`,
                 result.previewUrl,
             );
+            logger.info("Finalize step 2/3 set final commit status", { repo: repoFullName, pr: prNumber });
+        } else {
+            logger.info("Finalize step 2/3 skipping commit status (feedback disabled)", {
+                repo: repoFullName,
+                pr: prNumber,
+            });
         }
 
         try {
@@ -677,6 +959,10 @@ export class PreviewPipeline {
                     pr: prNumber,
                 });
             }
+            logger.info("Finalize step 3/3 creating GitHub deployment + status (triggers diffs)", {
+                repo: repoFullName,
+                pr: prNumber,
+            });
             const deploymentId = await this.provider.createDeployment(
                 repoFullName,
                 event.headRef,
@@ -690,6 +976,11 @@ export class PreviewPipeline {
                 result.primaryUrl,
                 result.ready ? "Preview environment ready" : `${result.readyCount}/${result.totalCount} apps ready`,
             );
+            logger.info("Finalize step 3/3 created GitHub deployment + status", {
+                repo: repoFullName,
+                pr: prNumber,
+                deploymentId,
+            });
         } catch (err) {
             logger.fatal("Failed to create GitHub deployment for diffs trigger", err, {
                 repo: repoFullName,
@@ -718,8 +1009,9 @@ export class PreviewPipeline {
         error: string,
     ): Promise<void> {
         const { repoFullName, prNumber, headSha } = event;
-        logger.error("Preview deployment failed", { repo: repoFullName, pr: prNumber, error });
+        logger.error("Preview deployment failed", { repo: repoFullName, pr: prNumber, namespace, error });
 
+        logger.info("Fail step 1/3 recording failed status", { repo: repoFullName, pr: prNumber, namespace });
         await this.deployer
             .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
             .catch((e) => logger.error("Failed to record failed status", e));
@@ -727,8 +1019,14 @@ export class PreviewPipeline {
         await recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error }));
         void this.logSink?.append(namespace, { kind: "status", message: "failed" });
         void this.logSink?.seal(namespace);
+        logger.info("Fail step 1/3 recorded failed status", { repo: repoFullName, pr: prNumber, namespace });
 
         if (feedbackEnabled && commentId !== "") {
+            logger.info("Fail step 2/3 updating PR comment with failure", {
+                repo: repoFullName,
+                pr: prNumber,
+                commentId,
+            });
             await postOrUpdateCommentOnGithub({
                 client: this.provider,
                 store: createPreviewkitCommentStore(db),
@@ -745,13 +1043,30 @@ export class PreviewPipeline {
                     details: [{ summary: "Preview deployment error", body: error }],
                 }),
             }).catch((e) => logger.error("Failed to update failure comment", e));
+            logger.info("Fail step 2/3 updated PR comment with failure", { repo: repoFullName, pr: prNumber });
+        } else {
+            logger.info("Fail step 2/3 skipping failure PR comment", {
+                repo: repoFullName,
+                pr: prNumber,
+                feedbackEnabled,
+                hasCommentId: commentId !== "",
+            });
         }
 
         if (feedbackEnabled) {
+            logger.info("Fail step 3/3 setting failure commit status", { repo: repoFullName, pr: prNumber });
             await this.provider
                 .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
                 .catch((e) => logger.error("Failed to set failure status", e));
+            logger.info("Fail step 3/3 set failure commit status", { repo: repoFullName, pr: prNumber });
+        } else {
+            logger.info("Fail step 3/3 skipping failure commit status (feedback disabled)", {
+                repo: repoFullName,
+                pr: prNumber,
+            });
         }
+
+        logger.info("Preview deployment failure finalizer complete", { repo: repoFullName, pr: prNumber, namespace });
     }
 
     private toAddonResults(config: PreviewConfig, addonOutcomes: AddonProvisionOutcome[]): PreviewAddonResult[] {
@@ -829,7 +1144,7 @@ export class PreviewPipeline {
 
         // Templating context for build_args. Resolves `{{name.host}}`,
         // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}`,
-        // and now `{{addonName.<key>}}` for successfully provisioned addons —
+        // and now `{{addonName.<key>}}` for successfully provisioned addons -
         // same grammar the deployer applies to runtime env. The URL form is
         // what makes Vite-baked VITE_*_URL vars point at this PR's specific
         // services (opaque hashed hostname, e.g. `https://a3f8b21c4d9e.preview.autonoma.app`).
@@ -844,13 +1159,13 @@ export class PreviewPipeline {
         const envInjector = this.deployer.getEnvInjector();
         const registry = config.registry ?? this.registryUrl;
 
-        // Each app is built independently — a failure in one app is captured
+        // Each app is built independently - a failure in one app is captured
         // into its own outcome and does not abort the other builds. `buildOneApp`
         // only throws for a supersede abort (BuildAbortedError), in which case we
         // want the whole build to reject and bail (Promise.all surfaces the
         // first rejection); every other error becomes a failed app outcome.
         // Each build spawns its own ephemeral BuildKit Job, so all builds run
-        // fully in parallel — Karpenter scales the node pool as needed.
+        // fully in parallel - Karpenter scales the node pool as needed.
         const entries = await Promise.all(
             config.apps.map(async (app) => {
                 const outcome = await this.buildOneApp(app, {
@@ -877,11 +1192,6 @@ export class PreviewPipeline {
         return Object.fromEntries(entries);
     }
 
-    /**
-     * Builds one app's image. Catches all failures and returns a structured
-     * outcome instead of throwing — the caller relies on this to keep the
-     * other apps' builds running when one fails.
-     */
     /**
      * Resolves an app's build inputs. An explicit `build` block is the single
      * source of strategy: a `dockerfile` framework builds the named Dockerfile;
@@ -932,6 +1242,11 @@ export class PreviewPipeline {
         };
     }
 
+    /**
+     * Builds one app's image. Catches all failures and returns a structured
+     * outcome instead of throwing - the caller relies on this to keep the other
+     * apps' builds running when one fails.
+     */
     private async buildOneApp(app: PreviewConfig["apps"][number], ctx: AppBuildContext): Promise<AppBuildOutcome> {
         const start = Date.now();
         try {
@@ -1044,7 +1359,7 @@ export class PreviewPipeline {
                 const imageTag = imageTags[hook.app];
                 if (imageTag == null) {
                     throw new Error(
-                        `Pre-deploy hook (type: job) for app "${hook.app}" has no built image — ` +
+                        `Pre-deploy hook (type: job) for app "${hook.app}" has no built image - ` +
                             `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
                     );
                 }
@@ -1071,15 +1386,18 @@ export class PreviewPipeline {
                         publicUrlInfo,
                         addonOutputs,
                     );
-                logger.info("Executing pre-deploy hook Job", { app: hook.app, command: hook.command });
+                logger.info("Executing pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
                 await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv);
+                logger.info("Finished pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
             } else {
-                logger.info("Executing pre-deploy hook", { app: hook.app, command: hook.command });
+                logger.info("Executing pre-deploy hook", { namespace, app: hook.app, command: hook.command });
                 const { stdout, stderr } = await execInDeploymentPod(kc, namespace, hook.app, hook.command);
                 if (stdout) logger.info("Pre-deploy hook stdout", { app: hook.app, stdout });
                 if (stderr) logger.warn("Pre-deploy hook stderr", { app: hook.app, stderr });
+                logger.info("Finished pre-deploy hook", { namespace, app: hook.app, command: hook.command });
             }
         }
+        logger.info("Finished running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
     }
 
     private async runPostDeployHooks(
@@ -1116,7 +1434,7 @@ export class PreviewPipeline {
                     const imageTag = imageTags[hook.app];
                     if (imageTag == null) {
                         throw new Error(
-                            `Post-deploy hook (type: job) for app "${hook.app}" has no built image — ` +
+                            `Post-deploy hook (type: job) for app "${hook.app}" has no built image - ` +
                                 `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
                         );
                     }
@@ -1149,6 +1467,12 @@ export class PreviewPipeline {
                     if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
                     if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
                 }
+                logger.info("Finished post-deploy hook", {
+                    namespace: result.namespace,
+                    app: hook.app,
+                    command: hook.command,
+                    type: hook.type,
+                });
             } catch (err) {
                 // Post-deploy hook failures are non-fatal: apps are already running and
                 // migrations are typically idempotent (already applied on re-deploys).
@@ -1159,6 +1483,7 @@ export class PreviewPipeline {
                 });
             }
         }
+        logger.info("Finished running post-deploy hooks", { namespace: result.namespace, hooks: runnable.length });
     }
 
     /**
