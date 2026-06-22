@@ -137,7 +137,6 @@ model Organization {
   signupHookStates       SignupHookState[]
   previewkitEnvironments PreviewkitEnvironment[]
   previewkitOrgSecrets   PreviewkitOrgSecret[]
-  gitHubWebhookEvents    GitHubWebhookEvent[]
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
@@ -1500,32 +1499,6 @@ enum GitHubWebhookEventType {
   push
 
   @@map("github_webhook_event_type")
-}
-
-model GitHubWebhookEvent {
-  id String @id @default(cuid())
-
-  // X-GitHub-Delivery — unique per delivery, dedup key across GitHub retries
-  deliveryId String @unique @map("delivery_id")
-
-  type           GitHubWebhookEventType
-  action         String?
-  installationId Int?                   @map("installation_id")
-
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  /// [GitHubWebhookPayload]
-  payload Json
-
-  processedAt DateTime? @map("processed_at")
-  error       String?
-
-  receivedAt DateTime @default(now()) @map("received_at")
-
-  @@index([organizationId, type, receivedAt])
-  @@index([installationId, receivedAt])
-  @@map("github_webhook_event")
 }
 
 // Stores GitHub ETags so we can make conditional requests (If-None-Match). An authorized

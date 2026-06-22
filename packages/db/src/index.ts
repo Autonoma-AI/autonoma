@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import type { ScenarioRecipeSchema, ScenarioStructureJsonSchema } from "@autonoma/types";
-import type { EmitterWebhookEvent } from "@octokit/webhooks/types";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { ModelMessage as AIModelMessage } from "ai";
 import type { z } from "zod";
@@ -141,7 +140,6 @@ declare global {
         export type RunFailure = SystemFailure | { kind: "replay_failed" };
 
         export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
-        export type GitHubWebhookPayload = EmitterWebhookEvent["payload"];
         export type PreviewkitManifest = {
             apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
             services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;

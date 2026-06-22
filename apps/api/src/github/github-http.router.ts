@@ -132,35 +132,21 @@ githubHttpRouter.post("/webhook", async (ctx) => {
     }
 
     // push fires for every branch of every connected repo; only one that
-    // updates a live main-branch preview environment is modeled. Checked
-    // before recording so the event log isn't flooded with unrelated pushes.
+    // updates a live main-branch preview environment is modeled. Irrelevant
+    // pushes are dropped here before any deploy work is dispatched.
     if (eventType === "push" && !(await pushUpdatesMainBranchPreview(organizationId, payload))) {
         logger.info("GitHub webhook: push does not update a main-branch preview", { organizationId, deliveryId });
         return ctx.json({ ok: true, ignored: true });
     }
 
-    await githubService.recordWebhookEvent({
-        deliveryId,
-        type: eventType,
-        action,
-        installationId,
-        organizationId,
-        payload,
-    });
-
-    let processingError: string | undefined;
     try {
         await dispatchWebhookEvent(eventType, installationId, organizationId, githubService, prCacheService, payload);
     } catch (error) {
         // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
         const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
         const causeMessage = cause instanceof Error ? cause.message : cause != null ? String(cause) : undefined;
-        processingError = error instanceof Error ? error.message : String(error);
-        if (causeMessage != null) processingError = `${processingError}: ${causeMessage}`;
         logger.fatal("Error processing GitHub webhook", error, { event, deliveryId, cause: causeMessage });
     }
-
-    await githubService.markWebhookEventProcessed(deliveryId, processingError);
 
     return ctx.json({ ok: true });
 });

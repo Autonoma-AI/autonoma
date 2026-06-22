@@ -1,4 +1,4 @@
-import type { GitHubWebhookEventType, PrismaClient } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { Prisma } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type {
@@ -57,38 +57,6 @@ export class GitHubInstallationService extends Service {
         });
 
         this.logger.info("Installation upserted", { installationId, orgId });
-    }
-
-    async recordWebhookEvent(input: {
-        deliveryId: string;
-        type: GitHubWebhookEventType;
-        action: string | undefined;
-        installationId: number | undefined;
-        organizationId: string;
-        payload: PrismaJson.GitHubWebhookPayload;
-    }): Promise<void> {
-        await this.db.gitHubWebhookEvent.upsert({
-            where: { deliveryId: input.deliveryId },
-            create: {
-                deliveryId: input.deliveryId,
-                type: input.type,
-                action: input.action,
-                installationId: input.installationId,
-                organizationId: input.organizationId,
-                payload: input.payload,
-            },
-            update: {},
-        });
-    }
-
-    async markWebhookEventProcessed(deliveryId: string, error?: string): Promise<void> {
-        await this.db.gitHubWebhookEvent.update({
-            where: { deliveryId },
-            data: {
-                processedAt: new Date(),
-                error: error ?? null,
-            },
-        });
     }
 
     async findOrganizationIdByInstallationId(installationId: number): Promise<string | undefined> {

@@ -30,9 +30,6 @@ catalogs:
     '@octokit/plugin-throttling':
       specifier: ^11.0.3
       version: 11.0.3
-    '@octokit/webhooks':
-      specifier: ^14.2.0
-      version: 14.2.0
     '@radix-ui/react-slot':
       specifier: ^1.2.4
       version: 1.2.4
@@ -1272,9 +1269,6 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../utils
-      '@octokit/webhooks':
-        specifier: 'catalog:'
-        version: 14.2.0
       '@prisma/adapter-pg':
         specifier: ^7.8.0
         version: 7.8.0
