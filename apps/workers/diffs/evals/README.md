@@ -91,18 +91,26 @@ affected:                                  # checks over the affected-test slug 
   include: [slug-a]                        #   must be present
   exclude: [slug-b]                        #   must be absent
   exact: [slug-a, slug-c]                  #   the exact set (order-insensitive)
+createdTests:                              # dedup guardrail for tests authored via create_test
+  count: { minCount: 0, maxCount: 1 }      #   how many new tests (maxCount: 0 = diff fully covered)
+  folders:                                 #   which flow folders the new tests land in
+    exclude: [Checkout]                    #     nothing new may be authored into an already-covered folder
+    include: [Auth]                        #     a new test MUST land here
 ---
 
 Free-text judge rubric. The judge sees only the agent's structured output plus this
 body - never the codebase or screenshots. Write it ADDITIVE to the frontmatter: grade
-qualities the deterministic checks cannot (sound reasoning; non-redundant, on-topic
-tests authored via `create_test` with a clear coverage justification).
+qualities the deterministic checks cannot (sound reasoning; whether each `create_test`
+proposal is genuinely non-redundant vs. the named existing tests; whether its
+coverage justification soundly explains why those tests do not already cover it).
 ```
 
-The diffs agent now authors tests directly via `create_test` (no candidate
-pre-gate). Grading the quality of those authored tests - dedup discipline,
-coverage justification - is a substantive judge concern (tracked in #1035), not a
-count-bounds check.
+The diffs agent authors tests directly via `create_test`, and nothing culls a
+passing-but-redundant test once it is created, so the analysis eval is the primary
+automated guardrail against suite bloat. `createdTests` bounds the *shape* of what
+was authored (how many, into which folders), and every created test is checked for a
+non-blank coverage justification; whether each test is *genuinely* non-redundant and
+its justification *sound* is graded by the judge.
 
 ### Reviewer frontmatter (generation + replay)
 
@@ -128,10 +136,16 @@ point, no hallucinated steps, correct engine-vs-app attribution?
 
 ### Healing frontmatter
 
-Healing only heals and culls; it authors no tests, so the frontmatter grades a
-single channel. `expectedActions` grades the **per-failure action union**: a modify
-is `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
-`report_engine_limitation`.
+Healing only heals and culls; it authors no tests, so the frontmatter grades two
+channels:
+
+- `expectedActions` grades the **per-failure action union**: a modify is
+  `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
+  `report_engine_limitation`.
+- `provenance` grades the **remove-vs-quarantine rule**. It is keyed by failing test
+  case and is semantic rather than kind-exact: `removed` means an invalid test authored *this*
+  snapshot must be `remove_test`-ed, and `quarantined` means a *pre-existing* failing
+  test must be kept under any quarantine action and never deleted.
 
 ```yaml
 ---
@@ -141,17 +155,27 @@ expectedActions:                  # one entry per failing test case in input.jso
     tc-abc: update_plan           # the kind the agent must emit for this test case
     tc-def: report_bug
     tc-ghi: remove_test
+provenance:                       # subset of the failing test cases; remove-vs-quarantine rule
+    tc-ghi: removed               # invalid new test -> remove_test (its failure must cite a review)
+    tc-def: quarantined           # pre-existing failing test -> kept, never remove_test
 ---
-Free-text judge rubric. Grade qualities the deterministic check cannot:
+Free-text judge rubric. Grade qualities the deterministic checks cannot:
     - For each update_plan: does the newPrompt actually address the cited failure?
     - For each report_bug / report_engine_limitation: is the triage correct?
-    - For each remove_test: is the cited reason plausible given the failure context?
+    - For each remove_test: is the cited reason plausible - an invalid test born this
+      snapshot or a deleted feature, not a pre-existing test that merely fails?
 ```
 
 Healing's runtime invariant is that every input failure is handled by exactly one
 action (the agent loop throws otherwise). The eval mirrors that: the `expectedActions`
 keyset must equal the set of `failures[].testCaseId` in `input.json`. A partial or
-mismatched map throws at load time rather than at run time.
+mismatched map throws at load time rather than at run time. `provenance` keys need
+not be exhaustive (only the dispositions that matter), but every key must be a failing
+test case. Because `remove_test` is rejected at the runtime boundary unless the
+failure carries a source review, any test case expected to be removed - via
+`expectedActions: remove_test` or `provenance: removed` - must have a failure that
+carries a `reviewLink`, or the case throws at load time (the in-repo enforcement of
+"no `remove_test` case lacks a cited review").
 
 ### Multimedia rehydration
 

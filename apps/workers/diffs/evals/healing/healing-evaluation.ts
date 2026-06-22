@@ -19,6 +19,8 @@ const CASE_TIMEOUT_MS = 900_000;
 export function validateHealingCase(testCase: HealingCase): void {
     if (testCase.frontmatter.skip === true) return;
     validateExpectedActions(testCase);
+    validateProvenance(testCase);
+    validateRemovalsAreCitable(testCase);
 }
 
 /**
@@ -47,6 +49,71 @@ function validateExpectedActions(testCase: HealingCase): void {
         `Healing case "${testCase.name}" has a malformed expectedActions: ${parts.join("; ")}. ` +
             "The keyset must equal the set of failing test cases in input.json.",
     );
+}
+
+/**
+ * Every `provenance` key must be one of this turn's failing test cases. Unlike
+ * `expectedActions` the keyset need not be exhaustive - provenance grades only
+ * the test cases whose remove-vs-quarantine disposition matters - but a key for
+ * a test case that did not fail this turn is an authoring mistake (the agent
+ * could never act on it).
+ */
+function validateProvenance(testCase: HealingCase): void {
+    const provenance = testCase.frontmatter.provenance;
+    if (provenance == null) return;
+
+    const failureIds = new Set(testCase.input.failures.map((f) => f.testCaseId));
+    const unknown = Object.keys(provenance).filter((id) => !failureIds.has(id));
+    if (unknown.length === 0) return;
+
+    throw new Error(
+        `Healing case "${testCase.name}" has provenance entries for test case(s) not in input.failures: ` +
+            `[${unknown.join(", ")}]. Every provenance key must be one of this turn's failing test cases.`,
+    );
+}
+
+/**
+ * A test case the case expects to be removed - via `expectedActions: remove_test`
+ * or `provenance: removed` - must fail through a citable failure. `remove_test`
+ * is rejected at the runtime boundary unless the failure carries a source review
+ * (`resolveReviewLink`), so a `removed` expectation whose failure has no
+ * `reviewLink` is unrunnable: the agent cannot emit the removal and the case can
+ * never pass. Catching it at load time is the in-repo enforcement of "no
+ * remove_test case lacks a cited review"; the fix is to re-capture against a
+ * failure that surfaced a review, or to expect a quarantine instead.
+ */
+function validateRemovalsAreCitable(testCase: HealingCase): void {
+    const expectedRemovals = collectExpectedRemovals(testCase.frontmatter);
+    if (expectedRemovals.size === 0) return;
+
+    const reviewLinkByTestCaseId = new Map(testCase.input.failures.map((f) => [f.testCaseId, f.reviewLink]));
+    const uncitable = [...expectedRemovals].filter((id) => reviewLinkByTestCaseId.get(id) == null);
+    if (uncitable.length === 0) return;
+
+    throw new Error(
+        `Healing case "${testCase.name}" expects remove_test for test case(s) whose failure carries no reviewLink: ` +
+            `[${uncitable.join(", ")}]. remove_test requires a cited source review, so the failing generation/run ` +
+            "must surface a review the removal can cite. Re-capture against a failure that carries a review, or expect " +
+            "a quarantine action instead.",
+    );
+}
+
+/** The set of failing test cases the case expects to be removed, across both check channels. */
+function collectExpectedRemovals(frontmatter: HealingFrontmatter): Set<string> {
+    const removals = new Set<string>();
+
+    if (frontmatter.expectedActions != null) {
+        for (const [testCaseId, kind] of Object.entries(frontmatter.expectedActions)) {
+            if (kind === "remove_test") removals.add(testCaseId);
+        }
+    }
+    if (frontmatter.provenance != null) {
+        for (const [testCaseId, disposition] of Object.entries(frontmatter.provenance)) {
+            if (disposition === "removed") removals.add(testCaseId);
+        }
+    }
+
+    return removals;
 }
 
 /**

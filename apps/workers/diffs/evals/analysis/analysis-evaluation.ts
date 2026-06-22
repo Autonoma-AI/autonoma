@@ -81,6 +81,7 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
         addInfo({
             affectedTests: result.affectedTests.map((t) => t.slug),
             createdTestCount: result.createdTests.length,
+            createdTestFolders: result.createdTests.map((t) => t.folderName),
             deterministicFailures,
             agentCost,
         });

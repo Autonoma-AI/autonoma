@@ -1,0 +1,189 @@
+import type { CreatedTest, DiffsAgentResult, HealingAction, HealingResult } from "@autonoma/diffs";
+import { describe, expect, it } from "vitest";
+import { checkAnalysisResult } from "../evals/analysis/analysis-frontmatter";
+import type { CodebaseCoords } from "../evals/framework";
+import { type HealingCase, validateHealingCase } from "../evals/healing/healing-evaluation";
+import { checkHealingResult } from "../evals/healing/healing-frontmatter";
+
+const coords: CodebaseCoords = {
+    owner: "acme",
+    repo: "web",
+    installationId: 1,
+    baseSha: "base000",
+    headSha: "head111",
+};
+
+function diffsResult(createdTests: CreatedTest[]): DiffsAgentResult {
+    return { affectedTests: [], createdTests, reasoning: "ok" };
+}
+
+function createdTest(overrides: Partial<CreatedTest> = {}): CreatedTest {
+    return {
+        name: "New checkout promo flow",
+        folderName: "Checkout",
+        plan: "Apply a promo code at checkout and verify the discount.",
+        coverageJustification: "No existing test exercises the promo-code field added by this diff.",
+        ...overrides,
+    };
+}
+
+function healingResult(actions: HealingAction[]): HealingResult {
+    return { actions, reasoning: "ok" };
+}
+
+function removeAction(testCaseId: string): HealingAction {
+    return {
+        kind: "remove_test",
+        testCaseId,
+        reason: "Test asserts a screen the diff deleted; never a viable flow.",
+        reviewLink: { runReviewId: "rr-1" },
+    };
+}
+
+function updatePlanAction(testCaseId: string): HealingAction {
+    return {
+        kind: "update_plan",
+        planId: "plan-1",
+        testCaseId,
+        newPrompt: "Updated instructions that follow the relocated pay button.",
+        reasoning: "The pay button moved behind a modal.",
+    };
+}
+
+function reportBugAction(testCaseId: string): HealingAction {
+    return {
+        kind: "report_bug",
+        testCaseId,
+        title: "Pay button unresponsive",
+        description: "Clicking pay does nothing.",
+        severity: "high",
+        evidence: [],
+        reasoning: "Application defect, not a test issue.",
+        reviewLink: { runReviewId: "rr-2" },
+    };
+}
+
+/** A minimal HealingCase carrying only what the load-time validators read. */
+function healingCase(
+    failures: { testCaseId: string; reviewLink?: { runReviewId: string } }[],
+    frontmatter: HealingCase["frontmatter"],
+): HealingCase {
+    const fullFailures = failures.map((f, i) => ({
+        key: `key-${i}`,
+        source: "replay" as const,
+        testCaseId: f.testCaseId,
+        testCaseSlug: `slug-${i}`,
+        testCaseName: `Test ${i}`,
+        planId: `plan-${i}`,
+        planPrompt: "Do a thing",
+        sourceId: `run-${i}`,
+        sourceStatus: "failed",
+        lineage: [],
+        reviewLink: f.reviewLink,
+    }));
+
+    return {
+        name: "case-under-test",
+        dir: "/tmp/case-under-test",
+        rubric: "",
+        frontmatter,
+        input: {
+            codebase: coords,
+            iteration: 1,
+            maxIterations: 3,
+            snapshotId: "snap-1",
+            applicationId: "app-1",
+            organizationId: "org-1",
+            priorActions: [],
+            failures: fullFailures,
+            existingTests: [],
+            flowIndex: [],
+            planAuthoring: { scenarios: [], flows: [] },
+            change: { baseSha: "base000", headSha: "head111" },
+            analysisReasoning: "",
+        },
+    };
+}
+
+describe("healing provenance grader", () => {
+    it("requires a removed test to be deleted", () => {
+        const passing = checkHealingResult(healingResult([removeAction("tc-1")]), {
+            provenance: { "tc-1": "removed" },
+        });
+        expect(passing).toEqual([]);
+
+        const failing = checkHealingResult(healingResult([updatePlanAction("tc-1")]), {
+            provenance: { "tc-1": "removed" },
+        });
+        expect(failing.map((f) => f.check)).toEqual(["provenance.tc-1"]);
+    });
+
+    it("accepts any quarantine action for a pre-existing failing test but rejects removal", () => {
+        // The rule is "kept, not deleted" - it does not pin which quarantine mechanism.
+        for (const action of [updatePlanAction("tc-1"), reportBugAction("tc-1")]) {
+            expect(checkHealingResult(healingResult([action]), { provenance: { "tc-1": "quarantined" } })).toEqual([]);
+        }
+
+        const removed = checkHealingResult(healingResult([removeAction("tc-1")]), {
+            provenance: { "tc-1": "quarantined" },
+        });
+        expect(removed.map((f) => f.check)).toEqual(["provenance.tc-1"]);
+    });
+
+    it("flags a provenance test case the agent never acted on", () => {
+        const failures = checkHealingResult(healingResult([]), { provenance: { "tc-1": "quarantined" } });
+        expect(failures.map((f) => f.check)).toEqual(["provenance.tc-1"]);
+    });
+});
+
+describe("validateHealingCase removal citability", () => {
+    it("throws when a removal is expected but its failure carries no review to cite", () => {
+        expect(() =>
+            validateHealingCase(healingCase([{ testCaseId: "tc-1" }], { provenance: { "tc-1": "removed" } })),
+        ).toThrow(/no reviewLink/);
+
+        expect(() =>
+            validateHealingCase(healingCase([{ testCaseId: "tc-1" }], { expectedActions: { "tc-1": "remove_test" } })),
+        ).toThrow(/no reviewLink/);
+    });
+
+    it("accepts a removal whose failure carries a review", () => {
+        expect(() =>
+            validateHealingCase(
+                healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
+                    provenance: { "tc-1": "removed" },
+                }),
+            ),
+        ).not.toThrow();
+    });
+
+    it("throws on a provenance key that is not a failing test case", () => {
+        expect(() =>
+            validateHealingCase(
+                healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
+                    provenance: { "tc-other": "quarantined" },
+                }),
+            ),
+        ).toThrow(/not in input.failures/);
+    });
+});
+
+describe("analysis dedup grader", () => {
+    it("bounds how many tests create_test may author", () => {
+        const result = diffsResult([createdTest(), createdTest({ name: "Second" })]);
+        const failures = checkAnalysisResult(result, { createdTests: { count: { maxCount: 1 } } });
+        expect(failures.map((f) => f.check)).toEqual(["createdTests.maxCount"]);
+    });
+
+    it("rejects a new test authored into an already-covered folder", () => {
+        const result = diffsResult([createdTest({ folderName: "Checkout" })]);
+        const failures = checkAnalysisResult(result, { createdTests: { folders: { exclude: ["Checkout"] } } });
+        expect(failures.map((f) => f.check)).toEqual(["createdTests.folders.exclude"]);
+    });
+
+    it("flags an authored test with a blank coverage justification regardless of frontmatter", () => {
+        const result = diffsResult([createdTest({ coverageJustification: "   " })]);
+        const failures = checkAnalysisResult(result, {});
+        expect(failures.map((f) => f.check)).toEqual(["createdTests.coverageJustification"]);
+    });
+});

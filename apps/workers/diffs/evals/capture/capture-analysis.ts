@@ -82,15 +82,28 @@ skip: true
 #   include: []   # slugs that MUST be reported affected
 #   exclude: []   # slugs that must NOT be reported affected
 #   exact: []     # the exact affected set (order-insensitive)
+# createdTests:               # dedup guardrail for tests authored via create_test
+#   count:
+#     minCount: 0             # how many new tests are expected (maxCount: 0 = diff fully covered)
+#     maxCount: 0
+#   folders:
+#     include: []             # folder names a new test MUST land in
+#     exclude: []             # folders nothing new may be authored into (already covered)
+#     exact: []               # the exact folder set new tests land in (order-insensitive)
 ---
 
 TODO: author the LLM-judge rubric here.
 
 The judge sees only the agent's structured output plus this body - never the
 codebase or screenshots. Grade qualities the deterministic checks above cannot
-express (was the reasoning sound? are the authored tests via create_test
-non-redundant and on-topic, with a clear coverage justification? was the right
-rationale given?). Keep every point additive to the frontmatter, and phrase each
-as something checkable from the output alone.
+express:
+  - Was the affected-test reasoning sound, with the right rationale?
+  - Is each test authored via create_test a genuinely new, on-topic flow - not
+    one already covered by an existing test? Name the closest existing test it
+    must not duplicate.
+  - Does each created test's coverageJustification soundly explain why those
+    existing tests do not already cover it (not a placeholder)?
+Keep every point additive to the frontmatter, and phrase each as something
+checkable from the output alone.
 `;
 }
