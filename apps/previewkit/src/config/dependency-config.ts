@@ -8,6 +8,12 @@ export interface ResolvedDependencyConfig {
     config: PreviewConfig;
     /** The branch the dependency's tarball should be fetched at. */
     branch: string;
+    /**
+     * The concrete commit SHA `branch` resolved to at deploy time. The tarball
+     * is fetched at this SHA (not the branch name) so the deployed code matches
+     * the recorded provenance even if the branch moves mid-deploy.
+     */
+    sha: string;
     usedFallback: boolean;
     revisionId: string;
 }
@@ -59,10 +65,12 @@ export async function resolveDependencyConfig(
         repo: dep.repo,
         revisionId: revision.revisionId,
         branch: branch.name,
+        sha: branch.sha,
     });
     return {
         config: revision.config,
         branch: branch.name,
+        sha: branch.sha,
         usedFallback: branch.usedFallback,
         revisionId: revision.revisionId,
     };
@@ -111,20 +119,22 @@ async function loadDependencyRevision(
 }
 
 /**
- * Picks the branch to clone for a revision-sourced dependency: the resolved
- * target branch when it exists, otherwise the configured fallback branch.
- * A failed branch lookup (404 or transient) counts as "branch missing" - the
- * error is logged so transient failures remain diagnosable.
+ * Picks the branch to clone for a revision-sourced dependency and resolves it to
+ * a concrete commit: the target branch when it exists, otherwise the configured
+ * fallback branch. `getBranchHead` returns the branch's head SHA, which is
+ * carried through as the recorded deploy provenance. A failed branch lookup (404
+ * or transient) counts as "branch missing" - the error is logged so transient
+ * failures remain diagnosable.
  */
 async function resolveCloneBranch(
     provider: GitProvider,
     dep: RepoDependency,
     targetBranch: string,
     logger: Logger,
-): Promise<{ name: string; usedFallback: boolean } | undefined> {
+): Promise<{ name: string; sha: string; usedFallback: boolean } | undefined> {
     try {
-        await provider.getBranchHead(dep.repo, targetBranch);
-        return { name: targetBranch, usedFallback: false };
+        const sha = await provider.getBranchHead(dep.repo, targetBranch);
+        return { name: targetBranch, sha, usedFallback: false };
     } catch (err) {
         logger.debug("Target branch not found for dependency repo, trying fallback", {
             repo: dep.repo,
@@ -136,8 +146,8 @@ async function resolveCloneBranch(
     if (targetBranch === dep.fallback_branch) return undefined;
 
     try {
-        await provider.getBranchHead(dep.repo, dep.fallback_branch);
-        return { name: dep.fallback_branch, usedFallback: true };
+        const sha = await provider.getBranchHead(dep.repo, dep.fallback_branch);
+        return { name: dep.fallback_branch, sha, usedFallback: true };
     } catch (err) {
         logger.warn("Fallback branch not found for dependency repo", {
             repo: dep.repo,

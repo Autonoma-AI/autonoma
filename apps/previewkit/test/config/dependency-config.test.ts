@@ -74,6 +74,7 @@ describe("resolveDependencyConfig", () => {
         expect(resolved).toMatchObject({
             revisionId: "rev_1",
             branch: "feature-x",
+            sha: "abc123",
             usedFallback: false,
         });
         expect(resolved?.config.apps[0]?.name).toBe("api");
@@ -89,7 +90,7 @@ describe("resolveDependencyConfig", () => {
 
         const resolved = await resolveDependencyConfig(provider, ORG_ID, DEP, "feature-x");
 
-        expect(resolved).toMatchObject({ branch: "main", usedFallback: true });
+        expect(resolved).toMatchObject({ branch: "main", sha: "def456", usedFallback: true });
         expect(getBranchHead).toHaveBeenNthCalledWith(1, "acme/api", "feature-x");
         expect(getBranchHead).toHaveBeenNthCalledWith(2, "acme/api", "main");
     });

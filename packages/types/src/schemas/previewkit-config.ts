@@ -94,6 +94,14 @@ const repoDependencySchema = z.object({
     name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
     repo: z.string(),
     fallback_branch: z.string().default("main"),
+    /**
+     * The concrete commit SHA the dependency was deployed at. Absent in
+     * user-authored config: previewkit resolves the dependency's branch to a
+     * commit at deploy time and records it here by enriching the stored
+     * `resolvedConfig` (deploy provenance, not authored input). Multi-repo
+     * grounding reads this back to inspect the exact code that was live.
+     */
+    sha: z.string().optional(),
 });
 
 const multirepoConfigSchema = z.object({

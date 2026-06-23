@@ -48,6 +48,7 @@ import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
+import { enrichDependencyShas } from "../multirepo/enrich-dependency-shas";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
@@ -84,6 +85,8 @@ interface DependencyEntry {
     tmpDir: string;
     usedFallback: boolean;
     targetBranch: string;
+    /** The concrete commit SHA this dependency was deployed at. */
+    sha: string;
 }
 
 interface PreviewPipelineOptions {
@@ -1074,11 +1077,15 @@ export class PreviewPipeline {
         if (resolved == null) return null;
 
         const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
-        await this.provider.fetchRepoTarball(dep.repo, resolved.branch, tmpDir);
+        // Fetch at the resolved SHA, not the branch name: this pins the deployed
+        // code to the exact commit recorded as provenance, even if the branch
+        // moves between branch-head resolution and this fetch.
+        await this.provider.fetchRepoTarball(dep.repo, resolved.sha, tmpDir);
         logger.info("Cloned dependency repo", {
             name: dep.name,
             repo: dep.repo,
             branch: resolved.branch,
+            sha: resolved.sha,
             usedFallback: resolved.usedFallback,
             revisionId: resolved.revisionId,
         });
@@ -1088,12 +1095,15 @@ export class PreviewPipeline {
             tmpDir,
             usedFallback: resolved.usedFallback,
             targetBranch,
+            sha: resolved.sha,
         };
     }
 
     private mergeConfigs(primaryConfig: PreviewConfig, deps: DependencyEntry[]): PreviewConfig {
+        const shaByDepName = new Map(deps.map((d) => [d.dep.name, d.sha]));
         return {
             ...primaryConfig,
+            config: enrichDependencyShas(primaryConfig.config, shaByDepName),
             apps: [...primaryConfig.apps, ...deps.flatMap((d) => d.config.apps)],
             services: [...primaryConfig.services, ...deps.flatMap((d) => d.config.services)],
             hooks: {

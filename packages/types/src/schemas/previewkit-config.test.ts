@@ -71,3 +71,34 @@ describe("previewConfigSchema build block", () => {
         }
     });
 });
+
+describe("previewConfigSchema multirepo dependency sha", () => {
+    function parseWithRepos(repos: unknown) {
+        return previewConfigSchema.safeParse({
+            version: 1,
+            apps: [{ name: "web", port: 3000 }],
+            config: { multirepo: { repos } },
+        });
+    }
+
+    it("defaults the dependency sha to undefined in authored config", () => {
+        const result = parseWithRepos([{ name: "api", repo: "acme/api" }]);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            const dep = result.data.config?.multirepo?.repos[0];
+            expect(dep?.fallback_branch).toBe("main");
+            expect(dep?.sha).toBeUndefined();
+        }
+    });
+
+    // The deploy-time enrichment writes `sha` back into resolvedConfig; readers
+    // re-parse that JSON, so the field must survive parsing (Zod strips unknown
+    // keys, so an absent schema field would silently drop the recorded SHA).
+    it("preserves a recorded dependency sha through parsing", () => {
+        const result = parseWithRepos([{ name: "api", repo: "acme/api", sha: "abc123def456" }]);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.config?.multirepo?.repos[0]?.sha).toBe("abc123def456");
+        }
+    });
+});

@@ -141,7 +141,7 @@ stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no
 
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
   pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
-  map), `resolvedConfig` + `configRevisionId` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column),
+  map), `resolvedConfig` + `configRevisionId` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
   `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`. Note:
   `superseded` is only ever written to `PreviewkitBuild`, never the env row (the successor run owns it).
 - `PreviewkitAppInstance` - the per-app lifecycle record (one row per `(environment, app)`), source of
