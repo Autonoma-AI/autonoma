@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.8.1](https://github.com/Autonoma-AI/agent/compare/v1.8.0...v1.8.1) (2026-06-23)
+
+
+### Features
+
+* add generation batch metrics table ([#1013](https://github.com/Autonoma-AI/agent/issues/1013)) ([a18dc87](https://github.com/Autonoma-AI/agent/commit/a18dc875656c78b45244f7104bf1bbf421c7291a))
+* add inject headers capability to api gateway recipe ([#1031](https://github.com/Autonoma-AI/agent/issues/1031)) ([6fe438d](https://github.com/Autonoma-AI/agent/commit/6fe438d426bd09212c8c43b4bfbf4ac289e644b3))
+* add replay metrics ([#1041](https://github.com/Autonoma-AI/agent/issues/1041)) ([30da960](https://github.com/Autonoma-AI/agent/commit/30da96056ee2ba62f896628a82c076b950827fd0))
+* **benchmark:** add generation and replay reviewers ([#1046](https://github.com/Autonoma-AI/agent/issues/1046)) ([65f6b40](https://github.com/Autonoma-AI/agent/commit/65f6b40c1b931a2dc40f276703873db6b051493f))
+* **benchmark:** add replay benchmark script and BenchmarkRun evals table ([#1012](https://github.com/Autonoma-AI/agent/issues/1012)) ([594a5e6](https://github.com/Autonoma-AI/agent/commit/594a5e61cb2f8b4a80a4cccb0b7ed0faa46f1856))
+* cut over the diff flow to candidate-free authoring ([#1036](https://github.com/Autonoma-AI/agent/issues/1036)) ([e392a20](https://github.com/Autonoma-AI/agent/commit/e392a203c10bef5f9eaeb6942d9f5c607439efa3))
+* **evals:** always save video and results folder, even on agent timeout ([#1034](https://github.com/Autonoma-AI/agent/issues/1034)) ([f1c7da3](https://github.com/Autonoma-AI/agent/commit/f1c7da3140484ef571bc5a002f7d6910f23f5d16))
+* evolve diffs + healing eval suites for the candidate-free model ([#1042](https://github.com/Autonoma-AI/agent/issues/1042)) ([a8f00ad](https://github.com/Autonoma-AI/agent/commit/a8f00addfb9d1bdac0f8eda5be6faef3f5d5b2d2))
+* filter db migrate command ([#1076](https://github.com/Autonoma-AI/agent/issues/1076)) ([73bde4a](https://github.com/Autonoma-AI/agent/commit/73bde4a0c26834d794ab02c45c813855a3902986))
+* harden remove_test with a required review link ([#1032](https://github.com/Autonoma-AI/agent/issues/1032)) ([ed6e12a](https://github.com/Autonoma-AI/agent/commit/ed6e12aa01c424b7e13bb01b03eb0a7dabf00b87))
+* **previewkit:** add depends_on annotation for gatekeeper  ([#1021](https://github.com/Autonoma-AI/agent/issues/1021)) ([b92cef2](https://github.com/Autonoma-AI/agent/commit/b92cef2ce0ca64cfc48b71b37b0a160efe5d933a))
+* **previewkit:** add runtime build option ([#1022](https://github.com/Autonoma-AI/agent/issues/1022)) ([b8770dd](https://github.com/Autonoma-AI/agent/commit/b8770dd08831032cef3f0a81255979ac996285b4))
+* **previewkit:** carry the deploy branch through pipeline logs ([#1049](https://github.com/Autonoma-AI/agent/issues/1049)) ([b677cdd](https://github.com/Autonoma-AI/agent/commit/b677cddafb2eac16554925286e8330ec87cd918e))
+* **previewkit:** default to app logs and persist log view in the URL ([#1074](https://github.com/Autonoma-AI/agent/issues/1074)) ([2ea3e47](https://github.com/Autonoma-AI/agent/commit/2ea3e4744f254b7f568e16df9809b907be857c1d))
+* **previewkit:** fail fast on terminal pod states during deploy ([#1047](https://github.com/Autonoma-AI/agent/issues/1047)) ([da150b0](https://github.com/Autonoma-AI/agent/commit/da150b0c69575d43bb0b38a7ef1484305912135b))
+* **previewkit:** log before/after every deploy + teardown step ([#1065](https://github.com/Autonoma-AI/agent/issues/1065)) ([899e2e7](https://github.com/Autonoma-AI/agent/commit/899e2e7b5bf19ad7b4160348c4321b00038e084f))
+* **previewkit:** preload most common psql extensions in PostgreSQL base image ([#1040](https://github.com/Autonoma-AI/agent/issues/1040)) ([7df7726](https://github.com/Autonoma-AI/agent/commit/7df772632336892ee5fa887a891abe001d2d1f0c))
+* record deployed dependency SHAs in previewkit resolvedConfig ([#1071](https://github.com/Autonoma-AI/agent/issues/1071)) ([80fbe56](https://github.com/Autonoma-AI/agent/commit/80fbe56610940a01cb0c2e5e9b0f1ffecac4352a))
+* surface candidate-free diff results in the API and UI ([#1044](https://github.com/Autonoma-AI/agent/issues/1044)) ([68be3fc](https://github.com/Autonoma-AI/agent/commit/68be3fcad7a66a65a69cfb8991e2667f8b5b4720))
+* triage-only final refinement round ([#1006](https://github.com/Autonoma-AI/agent/issues/1006)) ([6430558](https://github.com/Autonoma-AI/agent/commit/6430558812106669927d65b7b186e2eabf3a2fb2))
+* **ui:** add previewkit config edit page ([#1001](https://github.com/Autonoma-AI/agent/issues/1001)) ([59064d5](https://github.com/Autonoma-AI/agent/commit/59064d56af62883d32ad868c6aca8e4c7b610a1d))
+
+
+### Bug Fixes
+
+* **admin:** prevent a suspended GitHub installation from breaking the repo listing ([#1067](https://github.com/Autonoma-AI/agent/issues/1067)) ([040202a](https://github.com/Autonoma-AI/agent/commit/040202a63dbfdd919eb4b25283c9035633e73673))
+* **deps:** migrate gray-matter to @11ty/gray-matter for js-yaml 4 compatibility ([#1051](https://github.com/Autonoma-AI/agent/issues/1051)) ([82cd417](https://github.com/Autonoma-AI/agent/commit/82cd4173bfc88f9ee2d9f4cbf7207ca0d73629af))
+* force structured tool calls in the agent loop ([#1045](https://github.com/Autonoma-AI/agent/issues/1045)) ([6cdbfd9](https://github.com/Autonoma-AI/agent/commit/6cdbfd96190bb03fdb43a2debc4df29170dbc472))
+* **previewkit:** superseded preview deploy races ([#1066](https://github.com/Autonoma-AI/agent/issues/1066)) ([44c124c](https://github.com/Autonoma-AI/agent/commit/44c124c00924d038b36014f368d8e091a2850a95))
+* surface setup_failed as a distinct terminal outcome ([#997](https://github.com/Autonoma-AI/agent/issues/997)) ([3f88585](https://github.com/Autonoma-AI/agent/commit/3f885858f9c0b5d0636b4694119cdfde38fec983))
+
 ## [1.8.0](https://github.com/Autonoma-AI/agent/compare/v1.7.0...v1.8.0) (2026-06-17)
 
 
