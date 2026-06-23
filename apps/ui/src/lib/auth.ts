@@ -11,7 +11,7 @@ function getBaseURL() {
     if (host.endsWith(`.preview.${internalDomain}`)) {
         return env.VITE_API_URL;
     }
-    if (host.startsWith("alpha-")) {
+    if (host.startsWith("alpha-") || host.endsWith(`.alpha.${internalDomain}`)) {
         return `https://beta.api.${internalDomain}`;
     }
     return undefined;

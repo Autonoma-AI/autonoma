@@ -218,8 +218,10 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             const origin = request?.headers.get("origin") ?? "";
             const domainEscaped = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
             const alphaPattern = new RegExp(`^https://alpha-[a-f0-9]+\\.(?:alpha\\.)?${domainEscaped}$`);
+            // Hash-only alpha hosts: <hash>.alpha.<domain> (no `alpha-` prefix).
+            const hashAlphaPattern = new RegExp(`^https://[a-f0-9]+\\.alpha\\.${domainEscaped}$`);
             const previewPattern = new RegExp(`^https://[a-f0-9]+\\.preview\\.${domainEscaped}$`);
-            const isDynamic = alphaPattern.test(origin) || previewPattern.test(origin);
+            const isDynamic = alphaPattern.test(origin) || hashAlphaPattern.test(origin) || previewPattern.test(origin);
             return [...STATIC_ORIGINS, ...(isDynamic ? [origin] : [])];
         },
         advanced: {

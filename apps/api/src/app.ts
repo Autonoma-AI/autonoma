@@ -29,6 +29,8 @@ const corsOptions = {
     origin: (origin: string) => {
         if (ALLOWED_ORIGINS.includes(origin)) return origin;
         if (/^https:\/\/alpha-[a-f0-9]+\.alpha\.agent\.autonoma\.app$/.test(origin)) return origin;
+        // New alpha scheme (hash-only host <hash>.alpha.autonoma.app); migrating off the .alpha.agent.* hosts.
+        if (/^https:\/\/[a-f0-9]+\.alpha\.autonoma\.app$/.test(origin)) return origin;
         if (/^https:\/\/alpha-[a-f0-9]+\.agent\.autonoma\.app$/.test(origin)) return origin;
         if (PREVIEW_ORIGIN_PATTERN.test(origin)) return origin;
         return null;
