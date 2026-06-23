@@ -2,6 +2,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger, cn } from "@autonoma/blacklig
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
 
+/** Which log stream the tabs show: the build output or the running app's output. */
+export type PreviewLogSource = "build" | "app";
+
 interface PreviewLogsTabsProps {
   owner: string;
   repo: string;
@@ -14,6 +17,10 @@ interface PreviewLogsTabsProps {
   fill?: boolean | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
   headers?: Record<string, string> | undefined;
+  /** Controls the active tab. When omitted, the tabs are uncontrolled and default to App logs. */
+  source?: PreviewLogSource | undefined;
+  /** Called when the user switches tabs - use it to persist the choice (e.g. in the URL). */
+  onSourceChange?: ((source: PreviewLogSource) => void) | undefined;
   className?: string | undefined;
 }
 
@@ -22,22 +29,33 @@ interface PreviewLogsTabsProps {
  * stream) and the running apps' stdout/stderr (Loki-backed, `?source=app`).
  * Radix only mounts the active tab's content, so each SSE stream opens on
  * demand and closes when the user switches away.
+ *
+ * App logs are the default focus - the build output is the secondary tab.
  */
-export function PreviewLogsTabs({ owner, repo, pr, app, appBuilding, fill, headers, className }: PreviewLogsTabsProps) {
+export function PreviewLogsTabs({
+  owner,
+  repo,
+  pr,
+  app,
+  appBuilding,
+  fill,
+  headers,
+  source,
+  onSourceChange,
+  className,
+}: PreviewLogsTabsProps) {
   const contentClassName = fill === true ? "flex min-h-0 flex-col" : undefined;
   return (
-    <Tabs defaultValue="build" className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}>
+    <Tabs
+      value={source}
+      defaultValue="app"
+      onValueChange={(value) => onSourceChange?.(value === "build" ? "build" : "app")}
+      className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}
+    >
       <TabsList>
-        <TabsTrigger value="build">Build logs</TabsTrigger>
         <TabsTrigger value="app">App logs</TabsTrigger>
+        <TabsTrigger value="build">Build logs</TabsTrigger>
       </TabsList>
-      <TabsContent value="build" className={contentClassName}>
-        <BuildLogStreamViewer
-          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app)}
-          headers={headers}
-          fill={fill}
-        />
-      </TabsContent>
       <TabsContent value="app" className={contentClassName}>
         {appBuilding === true ? (
           <AppLogsBuildingPlaceholder fill={fill} />
@@ -50,6 +68,13 @@ export function PreviewLogsTabs({ owner, repo, pr, app, appBuilding, fill, heade
             fill={fill}
           />
         )}
+      </TabsContent>
+      <TabsContent value="build" className={contentClassName}>
+        <BuildLogStreamViewer
+          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app)}
+          headers={headers}
+          fill={fill}
+        />
       </TabsContent>
     </Tabs>
   );

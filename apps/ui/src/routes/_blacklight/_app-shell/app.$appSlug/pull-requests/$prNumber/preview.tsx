@@ -5,12 +5,12 @@ import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { formatRelativeTime } from "lib/format";
 import { ensurePreviewEnvironmentSummaryData, usePreviewEnvironmentSummary } from "lib/query/deployments.queries";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { type ReactNode, Suspense, useState } from "react";
+import { type ReactNode, Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { PREVIEW_STATUS_META, SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from "../-components/preview-status-meta";
@@ -18,12 +18,20 @@ import { PREVIEW_STATUS_META, SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from ".
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryByPr"];
 type PreviewService = PreviewSummary["services"][number];
 
+// Persisted in the URL so a refresh keeps the selected service and the chosen
+// log focus (build vs app). `service` is the selected service's key.
+type PreviewSearch = { service?: string; logs?: PreviewLogSource };
+
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/preview")({
   loader: async ({ context, params: { appSlug, prNumber } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
     await ensurePreviewEnvironmentSummaryData(context.queryClient, app.id, prNumber);
   },
+  validateSearch: (search: Record<string, unknown>): PreviewSearch => ({
+    service: typeof search.service === "string" ? search.service : undefined,
+    logs: search.logs === "build" || search.logs === "app" ? search.logs : undefined,
+  }),
   component: PreviewEnvironmentPage,
 });
 
@@ -150,11 +158,11 @@ function PreviewServicesExplorer({
   const services = summary.services;
   const apps = services.filter(isAppService);
   const dependencies = services.filter((service) => !isAppService(service));
-  const [selectedKey, setSelectedKey] = useState<string | undefined>(() =>
-    services[0] != null ? serviceKey(services[0]) : undefined,
-  );
+  const navigate = Route.useNavigate();
+  const { service: selectedKey } = Route.useSearch();
   const selectedService = services.find((service) => serviceKey(service) === selectedKey) ?? services[0];
-  const onSelect = (service: PreviewService) => setSelectedKey(serviceKey(service));
+  const onSelect = (service: PreviewService) =>
+    void navigate({ search: (prev) => ({ ...prev, service: serviceKey(service) }), replace: true });
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
@@ -336,6 +344,8 @@ function PreviewLogsBody({
 }) {
   const repository = useApplicationRepositoryFromGitHub(applicationId);
   const fullName = repository.data?.fullName;
+  const navigate = Route.useNavigate();
+  const { logs } = Route.useSearch();
 
   // Build and runtime logs are labeled per app (web/api/worker). Addons and managed services run
   // outside the build/deploy pipeline, so they carry no per-app logs.
@@ -364,6 +374,8 @@ function PreviewLogsBody({
       pr={prNumber}
       app={service?.name}
       appBuilding={service?.status === "building"}
+      source={logs}
+      onSourceChange={(next) => void navigate({ search: (prev) => ({ ...prev, logs: next }), replace: true })}
       fill
       className="border border-border-dim bg-surface-base p-3"
     />
