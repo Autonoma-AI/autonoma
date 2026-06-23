@@ -83,17 +83,40 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
       </div>
     );
   }
+  const timestamp = formatLogTimestamp(entry.id);
   return (
-    <div
-      className={cn(
-        "whitespace-pre-wrap break-words",
-        entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
-      )}
-    >
-      {entry.app != null && <span className="text-text-primary">{entry.app}&nbsp;</span>}
-      {entry.message}
+    <div className="flex items-start gap-3">
+      <span className="w-24 shrink-0 select-none text-text-secondary/70" title={timestamp?.full}>
+        {timestamp?.time ?? ""}
+      </span>
+      <span
+        className={cn(
+          "min-w-0 flex-1 whitespace-pre-wrap break-words",
+          entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
+        )}
+      >
+        {entry.message}
+      </span>
     </div>
   );
+}
+
+/**
+ * Render a log entry's id as a local wall-clock time. Loki tags every entry with
+ * a nanosecond epoch (relayed verbatim as the SSE id), so `time` is `HH:MM:SS.mmm`
+ * and `full` (for the hover tooltip) is the complete local date-time. Returns
+ * `undefined` for the rare non-Loki id - the `seq-*` placeholder the stream hook
+ * assigns when an SSE message arrives without an id.
+ */
+function formatLogTimestamp(id: string): { time: string; full: string } | undefined {
+  if (!/^\d+$/.test(id)) return undefined;
+  const date = new Date(Number(id) / 1e6);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  const ms = String(date.getMilliseconds()).padStart(3, "0");
+  return { time: `${hh}:${mm}:${ss}.${ms}`, full: date.toLocaleString() };
 }
 
 function StatusBadge({

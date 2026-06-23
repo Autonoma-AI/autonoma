@@ -467,14 +467,14 @@ function AppRow({ app }: { app: PreviewApp }) {
   );
 }
 
-// Build + app logs for the environment, optionally narrowed to a single app. The
-// app filter sets PreviewLogsTabs' `app` prop, which scopes both the build and
-// the runtime stream; "All apps" (undefined) streams the whole environment with
-// per-app line prefixes. The log-stream route is addressed by (owner, repo, pr).
+// Build + app logs for the environment, always scoped to a single app. The app
+// filter sets PreviewLogsTabs' `app` prop (defaulting to the first app), which
+// scopes both the build and the runtime stream. The log-stream route is
+// addressed by (owner, repo, pr).
 function EnvironmentLogsPanel({ environment }: { environment: PreviewEnvironment }) {
-  const [selectedApp, setSelectedApp] = useState<string | undefined>(undefined);
   const [owner = "", repo = ""] = environment.repoFullName.split("/");
   const appNames = environment.apps.map((app) => app.appName);
+  const [selectedApp, setSelectedApp] = useState<string | undefined>(() => appNames[0]);
 
   return (
     <div className="flex flex-col gap-2 border-t border-border-dim p-3">
@@ -484,9 +484,8 @@ function EnvironmentLogsPanel({ environment }: { environment: PreviewEnvironment
   );
 }
 
-// Segmented selector that scopes the logs to one app. "All apps" clears the
-// filter (undefined). Mirrors the card's other toggles: active = secondary,
-// inactive = outline.
+// Segmented selector that scopes the logs to one app (one is always selected).
+// Mirrors the card's other toggles: active = secondary, inactive = outline.
 function LogAppFilter({
   apps,
   selectedApp,
@@ -494,19 +493,11 @@ function LogAppFilter({
 }: {
   apps: string[];
   selectedApp: string | undefined;
-  onSelect: (app: string | undefined) => void;
+  onSelect: (app: string) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="mr-0.5 font-mono text-3xs uppercase tracking-widest text-text-secondary">App</span>
-      <Button
-        variant={selectedApp == null ? "secondary" : "outline"}
-        size="xs"
-        aria-pressed={selectedApp == null}
-        onClick={() => onSelect(undefined)}
-      >
-        All apps
-      </Button>
       {apps.map((app) => (
         <Button
           key={app}
