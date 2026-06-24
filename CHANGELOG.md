@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.2](https://github.com/Autonoma-AI/agent/compare/v1.8.1...v1.8.2) (2026-06-24)
+
+
+### Features
+
+* **alpha:** rename preview URLs to *.alpha.autonoma.app, off CloudFront ([#1080](https://github.com/Autonoma-AI/agent/issues/1080)) ([104e101](https://github.com/Autonoma-AI/agent/commit/104e101a30e2f16b40841356ffc9622907ac2259))
+* cascade step_output on step_input delete ([#1081](https://github.com/Autonoma-AI/agent/issues/1081)) ([7540cec](https://github.com/Autonoma-AI/agent/commit/7540cecf146d6a8ecf4ce8facdf0f47a356b90ce))
+* **ingress:** keep legacy domains serving (no redirect) for backwards compat ([#1084](https://github.com/Autonoma-AI/agent/issues/1084)) ([5bad46d](https://github.com/Autonoma-AI/agent/commit/5bad46da3c2d5332a30431a800d00c7e5a87d532))
+* make autonoma.app the canonical UI host, redirect agent.autonoma.app ([#1078](https://github.com/Autonoma-AI/agent/issues/1078)) ([cee0864](https://github.com/Autonoma-AI/agent/commit/cee0864b6f8def3d2a1c03c5adfaccec3602e446))
+* **previewkit:** surface pre/post-deploy hook output in the build-log viewer ([#1086](https://github.com/Autonoma-AI/agent/issues/1086)) ([3250325](https://github.com/Autonoma-AI/agent/commit/3250325618673b898b66aac1ef4ccbc96b0be221))
+* **previewkit:** timestamp preview logs and scope them to one app ([#1075](https://github.com/Autonoma-AI/agent/issues/1075)) ([576d416](https://github.com/Autonoma-AI/agent/commit/576d416e87360416a4b8dff6c2f5180c62939dee))
+
+
+### Bug Fixes
+
+* **ui:** alpha shared-beta auth points at api.beta.&lt;domain&gt; (not dead beta.api) ([#1082](https://github.com/Autonoma-AI/agent/issues/1082)) ([8d32c9d](https://github.com/Autonoma-AI/agent/commit/8d32c9d6a108c38be6cc1e3ec6cf5ad061e6713a))
+* use i18n for text assertions ([#1083](https://github.com/Autonoma-AI/agent/issues/1083)) ([5af88e8](https://github.com/Autonoma-AI/agent/commit/5af88e858446e5e8ba5979e57f73565470aeed6c))
+
 ## [1.8.1](https://github.com/Autonoma-AI/agent/compare/v1.8.0...v1.8.1) (2026-06-23)
 
 
