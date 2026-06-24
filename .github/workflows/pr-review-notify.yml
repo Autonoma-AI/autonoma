@@ -1,0 +1,94 @@
+name: PR Review Slack Notification
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Notify Slack of PR ready for review
+    runs-on: ubuntu-latest
+    # ready_for_review only fires on a draft -> ready transition, but opened and
+    # reopened can also fire while a PR is still a draft. Gate on draft == false
+    # so we notify exactly when a PR is set for review (marked ready, or opened/
+    # reopened as a non-draft).
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Post to Slack channel
+        env:
+          # Bot token (chat:write scope) for a Slack app invited to the channel.
+          # chat.postMessage is used so we can target the channel by ID; incoming
+          # webhooks post to a fixed channel and cannot be aimed at an ID.
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: C09R1PEH41M
+          # Untrusted PR fields are passed via env (never inlined into the shell)
+          # to avoid script injection, and escaped with jq when building the JSON.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          BRANCH_URL: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+            echo "SLACK_BOT_TOKEN is not set, skipping notification."
+            exit 0
+          fi
+
+          fallback="PR ready for review: #${PR_NUMBER} ${PR_TITLE}"
+
+          # PR fields are injected with jq --arg so they are safely JSON-escaped.
+          # The text blocks use Slack's CommonMark-based "markdown" block type.
+          payload=$(jq -n \
+            --arg channel "$SLACK_CHANNEL_ID" \
+            --arg title "$PR_TITLE" \
+            --arg number "$PR_NUMBER" \
+            --arg author "$PR_AUTHOR" \
+            --arg head "$PR_HEAD" \
+            --arg pr_url "$PR_URL" \
+            --arg branch_url "$BRANCH_URL" \
+            --arg fallback "$fallback" \
+            '{
+              channel: $channel,
+              text: $fallback,
+              blocks: [
+                { "type": "markdown", "text": ("### " + $title + " | # " + $number) },
+                { "type": "markdown", "text": ("Author: " + $author) },
+                { "type": "markdown", "text": ("Branch: `" + $head + "`") },
+                { "type": "divider" },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": ":github: Pull Request", "emoji": true },
+                      "url": $pr_url
+                    },
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": ":github: Branch", "emoji": true },
+                      "url": $branch_url
+                    }
+                  ]
+                }
+              ]
+            }')
+
+          response=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$payload")
+
+          # chat.postMessage returns HTTP 200 even on logical errors, so the only
+          # reliable success signal is the "ok" field in the JSON response.
+          if [ "$(printf '%s' "$response" | jq -r '.ok')" != "true" ]; then
+            echo "Slack API call failed: $response" >&2
+            exit 1
+          fi
+
+          echo "Sent PR review notification to Slack channel ${SLACK_CHANNEL_ID}."

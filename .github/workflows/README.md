@@ -46,6 +46,12 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - When a collaborator ticks the checkbox, the workflow applies the new title via `gh pr edit`
 - The existing CI check (`validate-pr-title`) still enforces the conventional commit format; this workflow helps authors get to a good title quickly
 
+### 8. **PR Review Slack Notification** (`pr-review-notify.yml`)
+- Triggers on `pull_request` events (`opened`, `reopened`, `ready_for_review`) and only runs when the PR is not a draft, so it fires exactly when a PR is set for review
+- Posts a Block Kit message to Slack channel `C09R1PEH41M` with the PR link, title, author, and branch
+- Uses `chat.postMessage` (not an incoming webhook) so the message can be targeted at the channel by ID
+- Requires a `SLACK_BOT_TOKEN` repo secret: a Slack app bot token with the `chat:write` scope, with the app invited to the target channel. If the secret is absent the step skips gracefully (e.g. on fork PRs, where secrets are not exposed)
+
 ## How to Deploy
 
 ### Standard Release Flow
