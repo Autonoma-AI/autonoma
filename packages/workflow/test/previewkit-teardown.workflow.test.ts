@@ -85,7 +85,9 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
 let testEnv: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping();
+    testEnv = await TestWorkflowEnvironment.createTimeSkipping({
+        server: { executable: { type: "cached-download", version: "v1.27.0" } },
+    });
 });
 
 afterAll(async () => {
