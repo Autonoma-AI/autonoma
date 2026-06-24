@@ -21,6 +21,14 @@ runWithSentry({ name: "worker-previewkit", dsn: env.SENTRY_DSN }, async () => {
         activities,
         workflowsPath,
         maxConcurrentActivityTaskExecutions: 5,
+        // Drain in-flight builds/deploys on shutdown instead of aborting them.
+        // The KEDA scaler (deployment/apps/keda-worker-previewkit.yaml) scales on
+        // Temporal queue size, not in-flight activities, so it routinely SIGTERMs
+        // a worker that is mid-build. Without a grace, the SDK default (0) cancels
+        // those builds instantly -> they surface as failed deploys. This sits
+        // under the pod's terminationGracePeriodSeconds (1800s in
+        // deployment/apps/worker-previewkit.yaml) so the build finishes first.
+        shutdownGraceTimeMs: 25 * 60_000,
         interceptors: {
             activity: [sentryServiceInterceptor],
         },

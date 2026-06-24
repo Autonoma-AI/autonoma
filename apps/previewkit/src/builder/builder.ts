@@ -66,17 +66,20 @@ export class BuildError extends Error {
 }
 
 /**
- * A build that was deliberately aborted because the deploy was superseded by a
- * newer commit (the build's `AbortSignal` fired) - NOT a build failure.
+ * A build whose `AbortSignal` fired - the build was cancelled, NOT a build
+ * failure. The signal fires for two reasons: a supersede (a newer commit
+ * cancelled this run) or a worker shutdown (the autoscaler scaling the pool down
+ * mid-build). Neither is a deploy failure.
  *
  * It extends `BuildError` so the builder's existing `instanceof BuildError`
  * handling still applies (never retried - `isTransient` stays false). But it is
  * a distinct type so callers can tell "we cancelled this on purpose" apart from
  * "the build genuinely broke": `buildOneApp` re-throws it instead of swallowing
  * it into a `failed` app outcome, so the build activity bails before
- * `recordBuildFinished` runs. That matters because the deploy workflow's
- * cancellation path already wrote the build row to `superseded`; letting a late
- * `recordBuildFinished` run would race and overwrite it back to `failed`.
+ * `recordBuildFinished` runs. The `buildPreviewImages` activity then converts it
+ * into a Temporal `CancelledFailure` so the deploy workflow's `isCancellation()`
+ * branch (not the failure finalizer) handles it - leaving the environment row
+ * untouched instead of stamping a healthy preview `failed`.
  */
 export class BuildAbortedError extends BuildError {
     constructor(message: string, options?: { cause?: unknown }) {

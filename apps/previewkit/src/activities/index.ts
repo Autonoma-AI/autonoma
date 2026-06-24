@@ -13,7 +13,7 @@ import type {
     PreviewkitActivities,
     TeardownPreviewEnvironmentInput,
 } from "@autonoma/workflow/activities";
-import { Context } from "@temporalio/activity";
+import { CancelledFailure, Context } from "@temporalio/activity";
 import { createPreviewkitServices, type PreviewkitServices } from "../create-services";
 import { markBuildSuperseded } from "../db";
 import { type Logger, type PreviewContext, extendObservabilityContext, logger as rootLogger } from "../logger";
@@ -53,6 +53,32 @@ function previewContext(event: PreviewDeployEvent): PreviewContext {
     };
 }
 
+/**
+ * Re-surface an aborted build as a Temporal `CancelledFailure`.
+ *
+ * The build pipeline translates a fired `AbortSignal` into its own domain error
+ * (`BuildAbortedError`, "buildctl aborted") rather than the `CancelledFailure`
+ * the deploy pipeline already throws via `signal.throwIfAborted()`. Normalizing
+ * both onto `CancelledFailure` - the error Temporal expects an activity to throw
+ * when its `cancellationSignal` fires - matters in two cases the signal fires
+ * for: a supersede (a newer commit cancelled this run), where the workflow's
+ * `isCancellation()` supersede branch must own the env row; and a worker
+ * shutdown (the autoscaler scaling the pool down mid-build), where confirming
+ * cancellation lets the SDK resolve the attempt as a retryable failure and
+ * reschedule it on a surviving worker instead of it reaching the workflow as a
+ * deploy failure. (The primary defense against shutdown aborts is the worker's
+ * `shutdownGraceTimeMs`, which drains in-flight builds rather than aborting
+ * them.) Only re-thrown when the signal actually fired; a genuine build failure
+ * (no abort) propagates unchanged to the failure finalizer.
+ */
+function rethrowAbortAsCancellation(err: unknown): never {
+    const { cancellationSignal } = Context.current();
+    if (!cancellationSignal.aborted) throw err;
+    const reason: unknown = cancellationSignal.reason;
+    if (reason instanceof CancelledFailure) throw reason;
+    throw new CancelledFailure("preview activity aborted by cancellation signal");
+}
+
 export async function preparePreviewDeploy(input: PreparePreviewDeployInput): Promise<PreparePreviewDeployOutput> {
     const logger = rootLogger.child({ name: "preparePreviewDeploy" });
     extendObservabilityContext({ preview: previewContext(input.event) });
@@ -79,14 +105,17 @@ export async function buildPreviewImages(input: BuildPreviewImagesInput): Promis
     const heartbeat = startHeartbeat();
     try {
         const { previewPipeline } = await getServices();
-        // `cancellationSignal` aborts the in-flight buildctl when a newer commit
-        // supersedes this run, so the buildkit Job is released in seconds.
+        // `cancellationSignal` aborts the in-flight buildctl when this run is
+        // superseded or the worker is shutting down, so the buildkit Job is
+        // released in seconds.
         return await previewPipeline.build(
             input.event,
             input.namespace,
             input.configRevisionId,
             Context.current().cancellationSignal,
         );
+    } catch (err) {
+        rethrowAbortAsCancellation(err);
     } finally {
         clearInterval(heartbeat);
     }
@@ -103,6 +132,8 @@ export async function deployPreviewEnvironment(
     try {
         const { previewPipeline } = await getServices();
         return await previewPipeline.deployEnvironment(input, Context.current().cancellationSignal);
+    } catch (err) {
+        rethrowAbortAsCancellation(err);
     } finally {
         clearInterval(heartbeat);
     }

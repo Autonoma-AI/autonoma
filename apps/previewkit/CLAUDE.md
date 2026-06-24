@@ -50,6 +50,27 @@ superseded`) and never the env row - the successor run owns it - so it must not 
 finalizer. Teardown runs its delete in a `nonCancellable` scope so a close-then-reopen can't leave a
 half-deleted namespace.
 
+**Abort != failure (don't stamp the env `failed` on a worker shutdown).** The cancellation signal
+fires for two reasons: a supersede (newer commit), or a **worker shutdown** - the KEDA scaler
+(`deployment/apps/keda-worker-previewkit.yaml`) scales on Temporal queue size, not in-flight
+activities, so it routinely SIGTERMs a worker mid-build (one worker runs up to 5 concurrent builds,
+so one scale-down can abort 5 at once). A shutdown abort is NOT a deploy failure, but the build
+pipeline used to surface it as `BuildAbortedError` ("buildctl aborted"), an ordinary
+`ActivityFailure` that the workflow ran the failure finalizer on - stamping a (possibly
+previously-ready) environment `failed`. Two layers fix this:
+- **Primary:** the worker sets `shutdownGraceTimeMs` (`worker/index.ts`; the SDK default is `0` =
+  cancel immediately) so `worker.shutdown()` drains in-flight builds within the pod's
+  `terminationGracePeriodSeconds` (1800s) instead of aborting them. A scaled-down worker finishes
+  its builds.
+- **Defense-in-depth:** `buildPreviewImages` / `deployPreviewEnvironment` (`activities/index.ts`,
+  `rethrowAbortAsCancellation`) normalize a fired signal onto a Temporal `CancelledFailure` (what
+  the deploy phase already throws via `throwIfAborted`). A genuinely cancelled run then routes to the
+  `isCancellation()` supersede branch; a shutdown abort that slips past the drain (build > grace,
+  hard node kill) confirms cancellation so the SDK retries the attempt on a surviving worker rather
+  than failing the deploy. Note: an activity-thrown `CancelledFailure` only reads as a cancellation
+  to the workflow when the run's scope was actually cancelled; otherwise it retries, then (if it can
+  never complete) still falls to the failure finalizer.
+
 ## Directory map (`src/`)
 
 - `worker/index.ts` - the process entrypoint (`worker.Dockerfile`); polls the `previewkit` task

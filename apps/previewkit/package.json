@@ -41,6 +41,7 @@
     },
     "devDependencies": {
         "@autonoma/integration-test": "workspace:*",
+        "@temporalio/testing": "catalog:",
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "@types/tar-fs": "^2.0.4",

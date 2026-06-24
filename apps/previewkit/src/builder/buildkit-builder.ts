@@ -142,9 +142,9 @@ export class BuildKitBuilder implements Builder {
         await this.ecr.ensureRepo(request.imageTag);
 
         for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
-            // A supersede between attempts must not spin up a fresh buildkit Job.
+            // A cancellation between attempts must not spin up a fresh buildkit Job.
             if (request.signal?.aborted === true) {
-                throw new BuildAbortedError("build aborted between attempts (deploy superseded)");
+                throw new BuildAbortedError("build aborted between attempts (cancelled)");
             }
             const isLastAttempt = attempt === BUILD_MAX_RETRIES;
             const logPath = this.buildLogPath(request.imageTag);
@@ -597,7 +597,7 @@ export class BuildKitBuilder implements Builder {
                 // non-transiently so the retry loop does not relaunch a build we
                 // are deliberately cancelling.
                 if (err.name === "AbortError" || signal?.aborted === true) {
-                    reject(new BuildAbortedError(`${command} aborted (deploy superseded)`, { cause: err }));
+                    reject(new BuildAbortedError(`${command} aborted (build cancelled)`, { cause: err }));
                     return;
                 }
                 const message = err.code === "ENOENT" ? `${command} binary not found` : err.message;
@@ -622,7 +622,7 @@ export class BuildKitBuilder implements Builder {
 
             child.on("close", (code) => {
                 if (signal?.aborted === true) {
-                    reject(new BuildAbortedError(`${command} aborted (deploy superseded)`));
+                    reject(new BuildAbortedError(`${command} aborted (build cancelled)`));
                 } else if (child.killed) {
                     reject(new BuildError(`${command} timed out after ${this.buildTimeoutMs / 1000}s`));
                 } else if (code === 0) {

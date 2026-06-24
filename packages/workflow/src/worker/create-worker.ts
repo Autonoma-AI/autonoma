@@ -11,6 +11,16 @@ export interface CreateWorkerOptions {
     activities?: object;
     maxConcurrentActivityTaskExecutions?: number;
     interceptors?: WorkerInterceptors;
+    /**
+     * Milliseconds `worker.shutdown()` waits for in-flight activities to drain
+     * before cancelling them. The SDK default is `0`, which cancels running
+     * activities the instant SIGTERM arrives - fine for short activities, but it
+     * aborts long ones (e.g. a multi-minute preview build) on every rollout /
+     * autoscaler scale-down. Workers that run long activities set this close to
+     * their pod's `terminationGracePeriodSeconds` so a scaled-down worker
+     * finishes its work instead of failing it.
+     */
+    shutdownGraceTimeMs?: number;
 }
 
 export async function createTemporalWorker(options: CreateWorkerOptions): Promise<Worker> {
@@ -40,6 +50,7 @@ export async function createTemporalWorker(options: CreateWorkerOptions): Promis
         activities: options.activities,
         maxConcurrentActivityTaskExecutions: options.maxConcurrentActivityTaskExecutions ?? 5,
         interceptors: options.interceptors,
+        shutdownGraceTime: options.shutdownGraceTimeMs,
     });
 
     log.info("Temporal worker created", { taskQueue: options.taskQueue });
