@@ -58,6 +58,18 @@ Every `assert:` step must say *where* on the page the element appears. Bare "tex
 - GOOD: `assert: text "Deal Created" is visible in the toast notification`
 - BAD: `assert: text "Status" is visible` (where? column header? form label? sidebar?)
 
+## Resolving i18n text before asserting
+
+When a component renders text through an i18n function (`t('key')`, `useTranslations`, `$t()`, `i18n.t()`, or similar), the plan must assert the **actual rendered string**, not the key name. Before writing any assertion on that text, read the locale file (e.g. `messages/en.json`, `locales/en.json`, `i18n/en.ts`) to resolve the key to its value.
+
+- GOOD (after reading `messages/en.json` and finding `"oktaSignInTitle": "Sign in with SSO"`):
+  `assert: text "Sign in with SSO" is visible in the card header`
+- BAD (key name used as text, or guessed without reading the file):
+  `assert: text "oktaSignInTitle" is visible`
+  `assert: text "Sign in with your email" is visible`
+
+If the codebase has multiple locale files, read the English one (`en.json`, `en.ts`, etc.). Never guess what a translation key renders to.
+
 ## Functional assertions
 
 Every plan must have a functional assertion — one that proves the feature did something, not just that UI appeared. The last assertion should describe the OUTCOME of the action, not the UI state on the way to it.
