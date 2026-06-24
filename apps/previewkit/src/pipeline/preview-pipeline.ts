@@ -41,7 +41,6 @@ import {
 import type { DeployResult, Deployer } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
-import { execInDeploymentPod } from "../deployer/pod-exec";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { env } from "../env";
@@ -1329,6 +1328,51 @@ export class PreviewPipeline {
         void this.logSink?.append(namespace, { kind: "log", app, stream, message });
     }
 
+    /**
+     * Runs one pre/post-deploy hook as a one-off Kubernetes Job built from the
+     * hook app's image, resolving the app's env and relaying the Job's output
+     * to the build-log viewer. Both hook phases run this way - there is no
+     * in-pod exec path. Throws on failure; the caller decides whether that is
+     * fatal (pre-deploy aborts the deploy, post-deploy logs and continues).
+     */
+    private async runHookJobStep(
+        hook: PreviewConfig["hooks"]["pre_deploy"][number],
+        config: PreviewConfig,
+        namespace: string,
+        repoFullName: string,
+        prNumber: number,
+        imageTags: Record<string, string>,
+        addonOutputs: AddonOutputs,
+    ): Promise<void> {
+        const imageTag = imageTags[hook.app];
+        if (imageTag == null) {
+            throw new Error(
+                `Deploy hook for app "${hook.app}" has no built image - ` +
+                    `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
+            );
+        }
+        const appConfig = config.apps.find((a) => a.name === hook.app);
+        if (appConfig == null) {
+            throw new Error(`Deploy hook references unknown app "${hook.app}"`);
+        }
+        const org = repoFullName.split("/")[0]!.toLowerCase();
+        const context = { pr: String(prNumber), namespace, owner: org };
+        const publicUrlInfo: PublicUrlInfo = {
+            domain: config.domain ?? this.deployer.getDomain(),
+            repoFullName,
+            secret: this.deployer.getSecret(),
+            prNumber,
+        };
+        const resolvedEnv = this.deployer
+            .getEnvInjector()
+            .resolve(appConfig.env, config.apps, config.services, namespace, context, publicUrlInfo, addonOutputs);
+        this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
+        const kc = this.deployer.getKubeConfig();
+        await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv, {
+            onLog: (line) => this.appendHookLog(namespace, hook.app, line),
+        });
+    }
+
     private async runPreDeployHooks(
         config: PreviewConfig,
         namespace: string,
@@ -1341,53 +1385,10 @@ export class PreviewPipeline {
 
         logger.info("Running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
 
-        const kc = this.deployer.getKubeConfig();
         for (const hook of config.hooks.pre_deploy) {
-            if (hook.type === "job") {
-                const imageTag = imageTags[hook.app];
-                if (imageTag == null) {
-                    throw new Error(
-                        `Pre-deploy hook (type: job) for app "${hook.app}" has no built image - ` +
-                            `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
-                    );
-                }
-                const appConfig = config.apps.find((a) => a.name === hook.app);
-                if (appConfig == null) {
-                    throw new Error(`Pre-deploy hook (type: job) references unknown app "${hook.app}"`);
-                }
-                const org = repoFullName.split("/")[0]!.toLowerCase();
-                const context = { pr: String(prNumber), namespace, owner: org };
-                const publicUrlInfo = {
-                    domain: config.domain ?? this.deployer.getDomain(),
-                    repoFullName,
-                    secret: this.deployer.getSecret(),
-                    prNumber,
-                };
-                const resolvedEnv = this.deployer
-                    .getEnvInjector()
-                    .resolve(
-                        appConfig.env,
-                        config.apps,
-                        config.services,
-                        namespace,
-                        context,
-                        publicUrlInfo,
-                        addonOutputs,
-                    );
-                logger.info("Executing pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
-                this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
-                await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv, {
-                    onLog: (line) => this.appendHookLog(namespace, hook.app, line),
-                });
-                logger.info("Finished pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
-            } else {
-                logger.info("Executing pre-deploy hook", { namespace, app: hook.app, command: hook.command });
-                this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
-                await execInDeploymentPod(kc, namespace, hook.app, hook.command, {
-                    onLine: (stream, line) => this.appendHookLog(namespace, hook.app, line, stream),
-                });
-                logger.info("Finished pre-deploy hook", { namespace, app: hook.app, command: hook.command });
-            }
+            logger.info("Executing pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
+            await this.runHookJobStep(hook, config, namespace, repoFullName, prNumber, imageTags, addonOutputs);
+            logger.info("Finished pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
         }
         logger.info("Finished running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
     }
@@ -1418,55 +1419,22 @@ export class PreviewPipeline {
             hooks: runnable.length,
         });
 
-        const kc = this.deployer.getKubeConfig();
         for (const hook of runnable) {
-            logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command, type: hook.type });
-            this.appendHookLog(result.namespace, hook.app, `$ ${hook.command}`);
+            logger.info("Executing post-deploy hook Job", { app: hook.app, command: hook.command });
             try {
-                if (hook.type === "job") {
-                    const imageTag = imageTags[hook.app];
-                    if (imageTag == null) {
-                        throw new Error(
-                            `Post-deploy hook (type: job) for app "${hook.app}" has no built image - ` +
-                                `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
-                        );
-                    }
-                    const appConfig = config.apps.find((a) => a.name === hook.app);
-                    if (appConfig == null) {
-                        throw new Error(`Post-deploy hook (type: job) references unknown app "${hook.app}"`);
-                    }
-                    const org = repoFullName.split("/")[0]!.toLowerCase();
-                    const context = { pr: String(prNumber), namespace: result.namespace, owner: org };
-                    const publicUrlInfo: PublicUrlInfo = {
-                        domain: config.domain ?? this.deployer.getDomain(),
-                        repoFullName,
-                        secret: this.deployer.getSecret(),
-                        prNumber,
-                    };
-                    const resolvedEnv = this.deployer
-                        .getEnvInjector()
-                        .resolve(
-                            appConfig.env,
-                            config.apps,
-                            config.services,
-                            result.namespace,
-                            context,
-                            publicUrlInfo,
-                            addonOutputs,
-                        );
-                    await runHookJob(kc, result.namespace, hook.app, imageTag, hook.command, resolvedEnv, {
-                        onLog: (line) => this.appendHookLog(result.namespace, hook.app, line),
-                    });
-                } else {
-                    await execInDeploymentPod(kc, result.namespace, hook.app, hook.command, {
-                        onLine: (stream, line) => this.appendHookLog(result.namespace, hook.app, line, stream),
-                    });
-                }
-                logger.info("Finished post-deploy hook", {
+                await this.runHookJobStep(
+                    hook,
+                    config,
+                    result.namespace,
+                    repoFullName,
+                    prNumber,
+                    imageTags,
+                    addonOutputs,
+                );
+                logger.info("Finished post-deploy hook Job", {
                     namespace: result.namespace,
                     app: hook.app,
                     command: hook.command,
-                    type: hook.type,
                 });
             } catch (err) {
                 // Post-deploy hook failures are non-fatal: apps are already running and

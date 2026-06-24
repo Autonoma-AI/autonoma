@@ -113,10 +113,12 @@ const configSchema = z.object({
     multirepo: multirepoConfigSchema.optional(),
 });
 
+// A pre/post-deploy hook step. Every hook runs as a one-off Kubernetes Job
+// built from the target app's image (see previewkit's hook-job-runner); there
+// is no in-pod exec variant.
 const hookStepSchema = z.object({
     app: z.string(),
     command: z.string(),
-    type: z.enum(["exec", "job"]).default("exec"),
 });
 
 const hooksSchema = z

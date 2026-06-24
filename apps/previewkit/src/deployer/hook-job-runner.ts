@@ -7,13 +7,13 @@ const POLL_INTERVAL_MS = 3_000;
  * Creates a one-off K8s Job in `namespace` using `image`, runs `command`
  * inside it, waits for completion, and throws on failure (with captured logs).
  *
- * Used by pre_deploy hooks (type: job) to run migrations — e.g. prisma db
- * push — before app Deployments start, so services never boot against a
- * missing schema.
+ * Every pre- and post-deploy hook runs this way. A pre_deploy hook typically
+ * runs migrations (e.g. prisma db push) before app Deployments start, so
+ * services never boot against a missing schema. The Job does not retry: a
+ * failure fails the Job immediately rather than re-running the command.
  */
 export interface RunHookJobOptions {
     timeoutMs?: number;
-    maxAttempts?: number;
     /**
      * Called for each line of the Job pod's output once it finishes (whether it
      * succeeded or failed). Job pods merge stdout and stderr into a single log,
@@ -33,37 +33,8 @@ export async function runHookJob(
 ): Promise<void> {
     const logger = rootLogger.child({ name: "runHookJob", namespace, app: appName });
     const timeoutMs = options?.timeoutMs ?? 300_000;
-    const maxAttempts = options?.maxAttempts ?? 3;
+    const onLog = options?.onLog;
 
-    let lastError: Error | undefined;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (attempt > 1) {
-            const delayMs = 15_000 * (attempt - 1);
-            logger.warn("Hook Job failed, retrying", { attempt, maxAttempts, delayMs });
-            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-        }
-        try {
-            await runHookJobOnce(kc, namespace, appName, image, command, env, logger, timeoutMs, options?.onLog);
-            return;
-        } catch (err) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            logger.error("Hook Job attempt failed", { attempt, maxAttempts, error: lastError.message });
-        }
-    }
-    throw lastError!;
-}
-
-async function runHookJobOnce(
-    kc: k8s.KubeConfig,
-    namespace: string,
-    appName: string,
-    image: string,
-    command: string,
-    env: Record<string, string>,
-    logger: ReturnType<typeof rootLogger.child>,
-    timeoutMs: number,
-    onLog?: (line: string) => void,
-): Promise<void> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const jobName = `${appName.slice(0, 48)}-hook-${suffix}`;
 
@@ -80,9 +51,14 @@ async function runHookJobOnce(
             labels: { "previewkit.dev/managed-by": "previewkit", "previewkit.dev/hook": "deploy" },
         },
         spec: {
+            // No retries: a failed hook fails the Job immediately (backoffLimit
+            // 0 + restartPolicy Never below), so a broken command is never
+            // silently re-run.
             backoffLimit: 0,
             activeDeadlineSeconds: Math.ceil(timeoutMs / 1000),
-            ttlSecondsAfterFinished: 300,
+            // Keep the finished Job (and its pod) around for 30 minutes so its
+            // logs stay inspectable via kubectl after the deploy completes.
+            ttlSecondsAfterFinished: 1800,
             template: {
                 spec: {
                     restartPolicy: "Never",
@@ -113,7 +89,7 @@ async function runHookJobOnce(
         },
     };
 
-    logger.info("Creating pre-deploy hook Job", { jobName, image, command });
+    logger.info("Creating hook Job", { jobName, image, command });
     await batchApi.createNamespacedJob({ namespace, body: job });
 
     const deadline = Date.now() + timeoutMs;
