@@ -50,7 +50,12 @@ export async function createTemporalWorker(options: CreateWorkerOptions): Promis
         activities: options.activities,
         maxConcurrentActivityTaskExecutions: options.maxConcurrentActivityTaskExecutions ?? 5,
         interceptors: options.interceptors,
-        shutdownGraceTime: options.shutdownGraceTimeMs,
+        // Only set this when a caller provided it. The SDK merges its own
+        // defaults via `{ ...defaults, ...userOptions }`, so an explicit
+        // `shutdownGraceTime: undefined` clobbers the default with `undefined`
+        // and then throws inside `msToNumber(undefined)` during option
+        // compilation - crashing every worker that does not pass a grace time.
+        ...(options.shutdownGraceTimeMs != null ? { shutdownGraceTime: options.shutdownGraceTimeMs } : {}),
     });
 
     log.info("Temporal worker created", { taskQueue: options.taskQueue });
