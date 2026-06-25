@@ -8,14 +8,14 @@ describe("resolveCommentAssetBaseUrl", () => {
         expect(
             resolveCommentAssetBaseUrl({
                 explicitAssetBaseUrl: "https://cdn.autonoma.app/github-comment/",
-                appUrl: "https://agent.autonoma.app",
+                appUrl: "https://autonoma.app",
             }),
         ).toBe("https://cdn.autonoma.app/github-comment/");
     });
 
     it("defaults to the app URL github-comment directory", () => {
-        expect(resolveCommentAssetBaseUrl({ appUrl: "https://agent.autonoma.app" })).toBe(
-            "https://agent.autonoma.app/github-comment/",
+        expect(resolveCommentAssetBaseUrl({ appUrl: "https://autonoma.app" })).toBe(
+            "https://autonoma.app/github-comment/",
         );
     });
 });
@@ -26,14 +26,14 @@ describe("payloadBuilder", () => {
             state: "critical",
             prNumber: 42,
             commitSha: "abc123456789",
-            summaryUrl: "https://agent.autonoma.app/summary",
+            summaryUrl: "https://autonoma.app/summary",
             previewUrl: "https://preview.example.com",
-            bugs: [{ title: "Checkout button is hidden", href: "https://agent.autonoma.app/bug/1" }],
+            bugs: [{ title: "Checkout button is hidden", href: "https://autonoma.app/bug/1" }],
         });
 
         expect(payload.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma", "See preview"]);
         expect(renderMarkdown(payload)).toContain(
-            "[↗ Open in Autonoma](https://agent.autonoma.app/summary) | [👁 See preview]",
+            "[↗ Open in Autonoma](https://autonoma.app/summary) | [👁 See preview]",
         );
     });
 
@@ -43,7 +43,7 @@ describe("payloadBuilder", () => {
                 state: "critical",
                 prNumber: 42,
                 assetBaseUrl: "https://cdn.autonoma.app/github-comment/",
-                summaryUrl: "https://agent.autonoma.app/summary",
+                summaryUrl: "https://autonoma.app/summary",
                 previewUrl: "https://preview.example.com",
                 bugs: [{ title: "Checkout button is hidden", occurrenceCount: 4 }],
             }),
@@ -63,7 +63,7 @@ describe("payloadBuilder", () => {
 
         // CTA buttons replace the text links.
         expect(markdown).toContain(
-            '<a href="https://agent.autonoma.app/summary"><img src="https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg" alt="Open in Autonoma" width="150" /></a>',
+            '<a href="https://autonoma.app/summary"><img src="https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg" alt="Open in Autonoma" width="150" /></a>',
         );
         expect(markdown).toContain(
             '<a href="https://preview.example.com"><img src="https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg" alt="See preview" width="150" /></a>',
@@ -77,21 +77,21 @@ describe("payloadBuilder", () => {
                 prNumber: 42,
                 commitSha: "abc123456789",
                 duration: "1m22s",
-                summaryUrl: "https://agent.autonoma.app/app/demo/pull-requests/42/snapshots/snap_123",
+                summaryUrl: "https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123",
                 previewUrl: "https://preview.example.com",
                 tests: { selected: 12, passed: 9, failed: 3 },
                 bugs: [
                     {
                         title: "Checkout button is hidden",
-                        href: "https://agent.autonoma.app/bug/1",
+                        href: "https://autonoma.app/bug/1",
                         occurrenceCount: 4,
                     },
                     {
                         title: "Plan selector loses focus",
-                        href: "https://agent.autonoma.app/bug/2",
+                        href: "https://autonoma.app/bug/2",
                         occurrenceCount: 2,
                     },
-                    { title: "Settings page 500s", href: "https://agent.autonoma.app/bug/3", occurrenceCount: 1 },
+                    { title: "Settings page 500s", href: "https://autonoma.app/bug/3", occurrenceCount: 1 },
                 ],
             }),
         );
@@ -104,9 +104,9 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**Failed** `3`");
         expect(markdown).toContain("**Duration** `1m22s`");
         expect(markdown).toContain("**Top issues**");
-        expect(markdown).toContain("🔴 [Checkout button is hidden](https://agent.autonoma.app/bug/1) `x4`");
+        expect(markdown).toContain("🔴 [Checkout button is hidden](https://autonoma.app/bug/1) `x4`");
         expect(markdown).toContain(
-            "[↗ Open in Autonoma](https://agent.autonoma.app/app/demo/pull-requests/42/snapshots/snap_123)",
+            "[↗ Open in Autonoma](https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123)",
         );
         expect(markdown).toContain("Triggered by commit `abc1234`");
     });
@@ -147,7 +147,7 @@ describe("payloadBuilder", () => {
             payloadBuilder({
                 state: "critical",
                 prNumber: 42,
-                bugs: [{ title: '<img src=x onerror="alert(1)">', href: "https://agent.autonoma.app/bug/1" }],
+                bugs: [{ title: '<img src=x onerror="alert(1)">', href: "https://autonoma.app/bug/1" }],
                 services: [{ name: "<api>", status: "failed", url: "https://api.example.com" }],
                 warnings: ["<script>alert(1)</script> & retry"],
             }),

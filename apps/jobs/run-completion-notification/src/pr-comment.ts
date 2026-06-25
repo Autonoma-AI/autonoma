@@ -299,9 +299,12 @@ function buildSnapshotSummaryUrl({ appSlug, prNumber }: { appSlug: string; prNum
 }
 
 function resolveAppUrl(): string {
-    if (env.SENTRY_ENV === "beta") return "https://beta.agent.autonoma.app";
-    if (env.SENTRY_ENV.startsWith("alpha-")) return `https://${env.SENTRY_ENV}.alpha.agent.autonoma.app`;
-    return "https://agent.autonoma.app";
+    if (env.SENTRY_ENV === "beta") return "https://beta.autonoma.app";
+    if (env.SENTRY_ENV.startsWith("alpha-")) {
+        const alphaHash = env.SENTRY_ENV.slice("alpha-".length);
+        return `https://${alphaHash}.alpha.autonoma.app`;
+    }
+    return "https://autonoma.app";
 }
 
 const UrlsRecordSchema = z.record(z.string(), z.unknown());
