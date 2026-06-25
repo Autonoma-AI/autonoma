@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkpointPresentationSummarySchema } from "./checkpoint-summary";
 
 export const reportHealthSchema = z.enum(["healthy", "critical", "running", "unknown"]);
 
@@ -102,5 +103,6 @@ export const snapshotReportSchema = z.object({
     firstIterationReasoning: z.string().optional(),
     health: reportHealthSchema,
     healthCounts: snapshotReportHealthCountsSchema,
+    summary: checkpointPresentationSummarySchema,
 });
 export type SnapshotReport = z.infer<typeof snapshotReportSchema>;

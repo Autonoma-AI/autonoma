@@ -4,6 +4,7 @@ import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { formatRelativeTime } from "lib/format";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
 import { AppLink } from "../../-app-link";
+import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
 
 export function OpenPrsList() {
   const prs = useLatestPullRequests();
@@ -91,27 +92,19 @@ function PrRow({ pr }: { pr: LatestPullRequest }) {
 }
 
 function HealthBadge({ pr }: { pr: LatestPullRequest }) {
-  if (pr.bugCount != null && pr.bugCount > 0) {
-    return (
-      <Badge variant="status-failed">
-        ● {pr.bugCount} {pr.bugCount === 1 ? "bug" : "bugs"}
-      </Badge>
-    );
-  }
-  if (pr.health === "critical") return <Badge variant="status-failed">● critical</Badge>;
-  if (pr.health === "running") return <Badge variant="status-running">● building</Badge>;
-  if (pr.health === "healthy") {
-    // Muted on purpose: a healthy PR should recede so only problems (red/amber) draw the eye.
+  if (pr.summary == null) return undefined;
+  // Healthy PRs render muted; only problems use red/amber.
+  if (pr.summary.tone === "success") {
     return (
       <Badge
         variant="outline"
         className="border-border-mid font-mono text-[10px] uppercase tracking-wider text-text-tertiary"
       >
-        ● passing
+        ● {pr.summary.label}
       </Badge>
     );
   }
-  return undefined;
+  return <CheckpointSummaryBadge summary={pr.summary} />;
 }
 
 export function OpenPrsListSkeleton() {

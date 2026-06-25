@@ -29,13 +29,15 @@ export function ReproductionSteps({ latest }: { latest: LatestOccurrence | undef
                 <div className="min-w-0">
                   <p
                     className={
-                      step.isFailing ? "text-sm font-medium text-status-critical" : "text-sm text-text-primary"
+                      step.isFailing
+                        ? "break-words text-sm font-medium text-status-critical"
+                        : "break-words text-sm text-text-primary"
                     }
                   >
                     {stepInstruction(step)}
                   </p>
                   {step.outcome != null && (
-                    <p className="mt-1 text-xs leading-relaxed text-text-tertiary">{step.outcome}</p>
+                    <p className="mt-1 break-words text-xs leading-relaxed text-text-tertiary">{step.outcome}</p>
                   )}
                   {(step.screenshotBeforeUrl != null || step.screenshotAfterUrl != null) && (
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">

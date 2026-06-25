@@ -4,7 +4,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound } from "@tanstack/react-router";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ShaRange } from "components/snapshot/sha-range";
 import {
@@ -28,6 +28,8 @@ import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useMemo } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { CheckpointSummaryBadge } from "../-components/checkpoint-summary-badge";
+import { ExecutedTestLink } from "../-components/executed-test-link";
 import { PRDetailHeader } from "../-components/pr-detail-header";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
@@ -85,8 +87,7 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
           targetBranchName={pr.data?.baseRef ?? app.mainBranch.name}
           pr={pr.data ?? undefined}
           prPending={pr.isPending}
-          health="unknown"
-          bugCount={0}
+          summary={undefined}
         />
         <div className="p-6">
           <NoSnapshotsPanel />
@@ -145,7 +146,6 @@ function PullRequestDetailWithCheckpoint({
 }) {
   const { data: detail } = useSnapshotDetail(latestSnapshot.id);
   const { data: bugs } = useBugsListByPr(applicationId, branchId, "open");
-  const health = detail.health === "healthy" && bugs.length === 0 ? "healthy" : "unhealthy";
 
   return (
     <>
@@ -158,8 +158,7 @@ function PullRequestDetailWithCheckpoint({
         targetBranchName={pr?.baseRef ?? appMainBranchName}
         pr={pr}
         prPending={prPending}
-        health={health}
-        bugCount={bugs.length}
+        summary={detail.summary}
       />
 
       <div className="flex flex-col gap-5 p-6">
@@ -306,6 +305,7 @@ function AggregatedCheckpointCard({
     [details, testChangeSections],
   );
   const testRunSummary = useMemo(() => buildTestRunSummary(testRunSections), [testRunSections]);
+  const suiteChangeCount = useMemo(() => countSuiteChanges(testChangeSections), [testChangeSections]);
   const hasBugs = bugs.length > 0;
 
   return (
@@ -359,9 +359,24 @@ function AggregatedCheckpointCard({
             <TestSuiteChangesButton prNumber={prNumber} snapshotId={latestSnapshot.id} />
           </div>
         )}
-        <CompactTestsRun sections={testRunSections} prNumber={prNumber} />
+        <CompactTestsRun
+          sections={testRunSections}
+          suiteChangeCount={suiteChangeCount}
+          prNumber={prNumber}
+          snapshotId={latestSnapshot.id}
+        />
       </div>
     </div>
+  );
+}
+
+function countSuiteChanges(sections: PRTestSection[]): number {
+  return sections.reduce(
+    (sum, section) =>
+      sum +
+      section.entries.filter((e) => e.category === "added" || e.category === "modified" || e.category === "removed")
+        .length,
+    0,
   );
 }
 
@@ -487,12 +502,36 @@ function TestSuiteChangesButton({ prNumber, snapshotId }: { prNumber: number; sn
   );
 }
 
-function CompactTestsRun({ sections, prNumber }: { sections: PRTestRunSection[]; prNumber: number }) {
-  const app = useCurrentApplication();
-
+function CompactTestsRun({
+  sections,
+  suiteChangeCount,
+  prNumber,
+  snapshotId,
+}: {
+  sections: PRTestRunSection[];
+  suiteChangeCount: number;
+  prNumber: number;
+  snapshotId: string;
+}) {
   if (sections.length === 0) {
+    // No executed tests yet; surface suite changes when the suite was edited.
     return (
-      <div className="bg-surface-void px-4 py-4 text-sm text-text-secondary">No test runs recorded across this PR.</div>
+      <div className="flex flex-col gap-2 bg-surface-void px-4 py-4 text-sm text-text-secondary">
+        <span>No tests have run for this PR yet.</span>
+        {suiteChangeCount > 0 && (
+          <span className="text-text-secondary">
+            {suiteChangeCount} test suite {suiteChangeCount === 1 ? "change" : "changes"} were made -{" "}
+            <AppLink
+              to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes"
+              params={{ prNumber, snapshotId }}
+              className="text-text-primary hover:underline"
+            >
+              view test suite changes
+            </AppLink>
+            .
+          </span>
+        )}
+      </div>
     );
   }
 
@@ -508,12 +547,7 @@ function CompactTestsRun({ sections, prNumber }: { sections: PRTestRunSection[];
           </summary>
           <ul>
             {section.entries.map((entry) => (
-              <ExecutedTestRunRow
-                key={`${entry.snapshotId}-${entry.testCase.id}`}
-                test={entry}
-                appSlug={app.slug}
-                prNumber={prNumber}
-              />
+              <ExecutedTestRunRow key={`${entry.snapshotId}-${entry.testCase.id}`} test={entry} />
             ))}
           </ul>
         </details>
@@ -522,13 +556,11 @@ function CompactTestsRun({ sections, prNumber }: { sections: PRTestRunSection[];
   );
 }
 
-function ExecutedTestRunRow({ test, appSlug, prNumber }: { test: PRExecutedTest; appSlug: string; prNumber: number }) {
+function ExecutedTestRunRow({ test }: { test: PRExecutedTest }) {
   return (
     <li className="border-t border-border-dim/60">
-      <Link
-        to="/app/$appSlug/pull-requests/$prNumber/suite"
-        params={{ appSlug, prNumber }}
-        search={{ testSlug: test.testCase.slug }}
+      <ExecutedTestLink
+        test={test}
         className="flex min-w-0 flex-col gap-1 py-2.5 transition-colors hover:text-primary-ink"
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -542,7 +574,7 @@ function ExecutedTestRunRow({ test, appSlug, prNumber }: { test: PRExecutedTest;
         {test.reviewReasoning != null && test.reviewReasoning.trim().length > 0 && (
           <p className="line-clamp-2 text-xs leading-relaxed text-text-tertiary">{test.reviewReasoning}</p>
         )}
-      </Link>
+      </ExecutedTestLink>
     </li>
   );
 }
@@ -649,51 +681,40 @@ function CheckpointRailItem({
   snapshot: Snapshot;
   isLatest: boolean;
 }) {
-  const isHealthy = snapshot.health === "healthy" && snapshot.bugCount === 0;
-
   return (
     <AppLink
       to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
       params={{ prNumber, snapshotId: snapshot.id }}
       className="flex flex-col gap-2 border-b border-border-dim px-4 py-3 transition-colors last:border-b-0 hover:bg-surface-raised"
     >
-      <div className="flex items-center gap-2">
-        {isLatest ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {isLatest && (
           <Badge
             variant="outline"
-            className={
-              isHealthy
-                ? "gap-1 border-primary-ink bg-primary-ink/10 font-mono uppercase tracking-wider text-primary-ink"
-                : "gap-1 border-status-critical/60 bg-status-critical/10 font-mono uppercase tracking-wider text-status-critical"
-            }
+            className="gap-1 border-border-mid font-mono uppercase tracking-wider text-text-secondary"
           >
-            <StatusDot status={isHealthy ? "success" : "critical"} />
+            {snapshot.summary != null && <StatusDot status={dotStatusForTone(snapshot.summary.tone)} />}
             Latest
           </Badge>
-        ) : isHealthy ? (
-          <Badge variant="success" className="font-mono uppercase tracking-wider">
-            Healthy
-          </Badge>
-        ) : snapshot.bugCount > 0 ? (
-          <Badge
-            variant="outline"
-            className="border-status-critical/60 bg-status-critical/10 font-mono uppercase tracking-wider text-status-critical"
-          >
-            {snapshot.bugCount} {snapshot.bugCount === 1 ? "bug" : "bugs"}
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="font-mono uppercase tracking-wider text-text-tertiary">
-            0 bugs
-          </Badge>
         )}
+        {snapshot.summary != null && <CheckpointSummaryBadge summary={snapshot.summary} />}
         <span className="ml-auto font-mono text-2xs text-text-tertiary">{formatRelativeTime(snapshot.createdAt)}</span>
       </div>
       <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
       <span className="font-mono text-2xs text-text-tertiary">
-        {checkpointMetricText(snapshot.healthCounts, snapshot.bugCount)}
+        {checkpointMetricText(snapshot.healthCounts, snapshot.summary?.openBugCount ?? snapshot.bugCount)}
       </span>
     </AppLink>
   );
+}
+
+function dotStatusForTone(
+  tone: "success" | "critical" | "warning" | "neutral",
+): "success" | "critical" | "warn" | "neutral" {
+  if (tone === "success") return "success";
+  if (tone === "critical") return "critical";
+  if (tone === "warning") return "warn";
+  return "neutral";
 }
 
 function checkpointMetricText(counts: SnapshotDetail["healthCounts"], bugCount: number): string {

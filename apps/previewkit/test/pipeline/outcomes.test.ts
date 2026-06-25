@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { PreviewBuildOutcome } from "@autonoma/workflow/activities";
+import { describe, expect, it } from "vitest";
 import type { AddonProvisionOutcome } from "../../src/addons/addon-manager";
 import { previewConfigSchema } from "../../src/config/schema";
 import type { AppBuildOutcome } from "../../src/db";
@@ -39,7 +39,10 @@ describe("computeFinalOutcomes", () => {
         const outcomes = computeFinalOutcomes(
             config,
             { web: buildOk, api: buildOk },
-            { web: { status: "skipped", reason: "dependency down" }, api: { status: "failed", url: "https://api", error: "crash" } },
+            {
+                web: { status: "skipped", reason: "dependency down" },
+                api: { status: "failed", url: "https://api", error: "crash" },
+            },
         );
         expect(outcomes[0]).toEqual({ name: "web", status: "failed", error: "Deploy skipped: dependency down" });
         expect(outcomes[1]).toEqual({ name: "api", status: "failed", url: "https://api", error: "crash" });
@@ -91,7 +94,12 @@ describe("toFinalAppStates", () => {
             { web: "img:web" },
         );
         // web built but deploy skipped -> skipped (no imageTag on a skip)
-        expect(states[0]).toEqual({ appName: "web", status: "skipped", port: 3000, error: "Deploy skipped: dependency down" });
+        expect(states[0]).toEqual({
+            appName: "web",
+            status: "skipped",
+            port: 3000,
+            error: "Deploy skipped: dependency down",
+        });
         // api build failed -> build_failed, deploy never considered
         expect(states[1]).toEqual({ appName: "api", status: "build_failed", port: 4000, error: "build boom" });
     });

@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   cn,
   Panel,
@@ -33,6 +32,7 @@ import {
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { CheckpointSummaryBadge } from "../../../-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
 
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
@@ -66,7 +66,6 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { data: report } = useSnapshotReport(snapshotId);
   const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
   const { isAdmin } = useAuth();
-  const bugCount = report.bugs.length;
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
@@ -99,10 +98,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
-              {report.health}
-              {bugCount > 0 ? ` · ${bugCount} ${bugCount === 1 ? "bug" : "bugs"}` : ""}
-            </Badge>
+            <CheckpointSummaryBadge summary={report.summary} />
             {isAdmin && (
               <div className="flex items-center gap-2">
                 <Button
@@ -244,11 +240,4 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
       <SnapshotReportDocumentSkeleton />
     </div>
   );
-}
-
-function healthVariant(health: string): "success" | "critical" | "status-running" | "outline" {
-  if (health === "healthy") return "success";
-  if (health === "critical") return "critical";
-  if (health === "running") return "status-running";
-  return "outline";
 }

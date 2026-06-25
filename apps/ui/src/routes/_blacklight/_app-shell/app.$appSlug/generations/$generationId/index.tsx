@@ -210,12 +210,12 @@ function GenerationDetailPage() {
             </div>
           ) : (
             !isSystemFailure(failure) && (
-              <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
-                <StackIcon size={24} className="text-text-tertiary" />
-                <p className="text-sm text-text-tertiary">
-                  {isActive ? "Steps will appear here as the AI generates them..." : "No steps recorded"}
-                </p>
-              </div>
+              <NoStepsEvidence
+                isActive={isActive}
+                finalScreenshot={generation.finalScreenshot ?? undefined}
+                conversationUrl={generation.conversationUrl ?? undefined}
+                isAdmin={isAdmin}
+              />
             )
           )}
         </div>
@@ -407,7 +407,7 @@ function StepCard({
           {screenshot != null && (
             <div
               role="button"
-              className="relative aspect-video w-52 shrink-0 overflow-hidden border-r border-border-dim bg-surface-base cursor-zoom-in"
+              className="relative aspect-video w-52 shrink-0 self-start overflow-hidden border-r border-border-dim bg-surface-base cursor-zoom-in"
               onClick={onImageClick}
             >
               <img
@@ -417,9 +417,9 @@ function StepCard({
               />
             </div>
           )}
-          <div className="flex flex-1 flex-col justify-center gap-2 px-4 py-3">
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 px-4 py-3">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-sm font-medium leading-snug text-text-primary">{instruction}</p>
+              <p className="min-w-0 break-words text-sm font-medium leading-snug text-text-primary">{instruction}</p>
               <span className="shrink-0 font-mono text-2xs font-medium text-text-tertiary">#{step.order}</span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -440,10 +440,71 @@ function StepCard({
                 </p>
               </div>
             )}
-            {step.output != null && <StepOutputDisplay output={step.output as Record<string, unknown>} />}
           </div>
         </div>
+        {/* Long output spans full width below the header. */}
+        {step.output != null && typeof step.output === "object" && Object.keys(step.output).length > 0 && (
+          <div className="min-w-0 px-4 pb-3">
+            <StepOutputDisplay output={step.output as Record<string, unknown>} />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Empty steps state: while active, steps are still coming; on a terminal failure, show the final
+// screenshot; otherwise show a "nothing persisted" message with an admin link to the conversation.
+function NoStepsEvidence({
+  isActive,
+  finalScreenshot,
+  conversationUrl,
+  isAdmin,
+}: {
+  isActive: boolean;
+  finalScreenshot?: string;
+  conversationUrl?: string;
+  isAdmin: boolean;
+}) {
+  if (isActive) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
+        <StackIcon size={24} className="text-text-secondary" />
+        <p className="text-sm text-text-secondary">Steps will appear here as the AI generates them...</p>
+      </div>
+    );
+  }
+
+  if (finalScreenshot != null) {
+    return (
+      <div className="flex flex-col gap-3 border border-dashed border-border-dim p-5">
+        <p className="text-sm text-text-secondary">
+          No browser steps were persisted. Here is the final state when the run stopped - see the failure reason for
+          what went wrong.
+        </p>
+        <ScreenshotLightbox
+          src={finalScreenshot}
+          alt="Final screenshot when the run stopped"
+          className="max-h-[480px] w-full border border-border-dim object-contain"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
+      <StackIcon size={24} className="text-text-secondary" />
+      <p className="text-sm text-text-secondary">No browser steps were persisted for this generation.</p>
+      {isAdmin && conversationUrl != null && (
+        <a
+          href={conversationUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-2xs uppercase tracking-widest text-primary-ink hover:underline"
+        >
+          View agent conversation
+        </a>
+      )}
     </div>
   );
 }
@@ -554,6 +615,12 @@ function NotFoundGeneration() {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <p className="text-sm font-medium text-text-primary">Generation not found</p>
       <p className="text-sm text-text-secondary">This generation may have been deleted.</p>
+      <AppLink
+        to="/app/$appSlug/pull-requests"
+        className="mt-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-primary transition-colors hover:underline"
+      >
+        Back to pull requests
+      </AppLink>
     </div>
   );
 }

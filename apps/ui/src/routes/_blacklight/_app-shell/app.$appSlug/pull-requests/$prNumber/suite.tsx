@@ -1,4 +1,4 @@
-import { Skeleton } from "@autonoma/blacklight";
+import { Panel, PanelBody, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ListChecksIcon } from "@phosphor-icons/react/ListChecks";
 import { createFileRoute, notFound } from "@tanstack/react-router";
@@ -18,8 +18,9 @@ import { EditTreePanel } from "../../edit/-test-suite/edit-tree";
 import type { TestCaseRecord } from "../../tests/-tests-tree/tree-types";
 
 type ActiveSnapshot = RouterOutputs["branches"]["activeSnapshot"];
-type TestCaseEntry = ActiveSnapshot["testSuite"]["testCases"][number];
-type SnapshotChange = ActiveSnapshot["changes"][number];
+type ActiveCheckpoint = Extract<ActiveSnapshot, { hasActiveCheckpoint: true }>;
+type TestCaseEntry = ActiveCheckpoint["testSuite"]["testCases"][number];
+type SnapshotChange = ActiveCheckpoint["changes"][number];
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/suite")({
   loader: async ({ context, params: { appSlug, prNumber } }) => {
@@ -51,6 +52,20 @@ function ActiveSuiteContent({ prNumber }: { prNumber: number }) {
   const app = useCurrentApplication();
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: active } = useActiveSnapshot(branch.id);
+
+  if (!active.hasActiveCheckpoint) {
+    return (
+      <>
+        <PageHeader prNumber={prNumber} />
+        <NoActiveCheckpointPanel prNumber={prNumber} />
+      </>
+    );
+  }
+
+  return <ActiveSuiteBody prNumber={prNumber} active={active} />;
+}
+
+function ActiveSuiteBody({ prNumber, active }: { prNumber: number; active: ActiveCheckpoint }) {
   const { testSlug } = Route.useSearch();
 
   const initialSelectedId =
@@ -172,6 +187,30 @@ function PageHeader({ prNumber }: { prNumber: number }) {
       </div>
       <h1 className="text-2xl font-medium tracking-tight text-text-primary">Active test suite</h1>
     </header>
+  );
+}
+
+function NoActiveCheckpointPanel({ prNumber }: { prNumber: number }) {
+  return (
+    <Panel>
+      <PanelBody>
+        <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-text-secondary">
+          <ListChecksIcon size={28} />
+          <p className="text-sm">No active checkpoint for this pull request yet</p>
+          <p className="max-w-sm text-xs text-text-secondary">
+            The active test suite appears once a checkpoint finishes running for this PR.
+          </p>
+          <AppLink
+            to="/app/$appSlug/pull-requests/$prNumber"
+            params={{ prNumber }}
+            className="mt-1 inline-flex items-center gap-1 font-mono text-2xs font-semibold uppercase tracking-widest text-text-primary transition-colors hover:underline"
+          >
+            <ArrowLeftIcon size={12} />
+            Back to pull request
+          </AppLink>
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 

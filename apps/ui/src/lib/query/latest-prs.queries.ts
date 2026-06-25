@@ -1,4 +1,5 @@
 import type { SnapshotHealth } from "@autonoma/blacklight";
+import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
@@ -18,6 +19,7 @@ export interface LatestPullRequest {
     branchName: string;
     baseBranchName: string;
     health: SnapshotHealth;
+    summary?: CheckpointPresentationSummary;
     testCount: number;
     createdAt: Date;
     // Enriched once the cached PR-overview procedure lands (undefined for now):
@@ -45,6 +47,7 @@ export function useLatestPullRequests(): LatestPullRequest[] {
                           branchName: branch.name,
                           baseBranchName,
                           health: branch.activeSnapshot?.health ?? "unknown",
+                          summary: branch.activeSnapshot?.summary ?? undefined,
                           testCount: branch.activeSnapshot?._count.testCaseAssignments ?? 0,
                           createdAt: branch.createdAt,
                           bugCount: branch.bugCount,

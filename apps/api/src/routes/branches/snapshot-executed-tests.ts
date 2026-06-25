@@ -59,6 +59,7 @@ const assignmentSelect = {
 } satisfies Prisma.TestCaseAssignmentSelect;
 
 const refinementLoopSelect = {
+    status: true,
     iterations: {
         orderBy: { number: "asc" },
         select: {
@@ -304,6 +305,9 @@ function computeFinalRefinementOutcomes({
         }));
 
         if (iteration.status !== "completed") {
+            // Once the loop has terminated, a trailing pending/running iteration is stale; skip it so
+            // its inputs resolve to their last completed iteration.
+            if (refinementLoop.status !== "running") continue;
             for (const input of inputs) {
                 if (!outcomes.has(input.testCase.id))
                     outcomes.set(input.testCase.id, unresolvedRefinementRow(input, iteration));

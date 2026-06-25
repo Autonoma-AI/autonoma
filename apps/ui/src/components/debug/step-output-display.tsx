@@ -7,7 +7,8 @@ interface StepOutputDisplayProps {
 
 function renderValue(value: unknown): React.ReactNode {
   if (value == null) return <span className="text-text-tertiary">null</span>;
-  if (typeof value === "string") return <span className="text-text-secondary">{value}</span>;
+  if (typeof value === "string")
+    return <span className="whitespace-pre-wrap break-words text-text-secondary">{value}</span>;
   if (typeof value === "number") return <span className="font-mono text-text-secondary">{value}</span>;
   if (typeof value === "boolean")
     return (
@@ -45,7 +46,7 @@ function KeyValueRow({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="flex items-start gap-2">
       <span className="shrink-0 font-mono text-3xs text-text-tertiary">{label}</span>
-      <span className="text-xs">{renderValue(value)}</span>
+      <span className="min-w-0 break-words text-xs">{renderValue(value)}</span>
     </div>
   );
 }

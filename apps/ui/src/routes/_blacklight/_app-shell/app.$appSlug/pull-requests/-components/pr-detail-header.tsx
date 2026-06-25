@@ -1,14 +1,15 @@
-import { Badge, Skeleton } from "@autonoma/blacklight";
+import { Skeleton } from "@autonoma/blacklight";
+import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { BranchPill } from "./branch-pill";
+import { CheckpointSummaryBadge } from "./checkpoint-summary-badge";
 import { PRAuthorStack } from "./pr-author-stack";
 import { PreviewEnvironmentHeaderButton } from "./preview-environment-section";
 
 type PullRequest = RouterOutputs["github"]["getPullRequest"];
-type PrHealth = "healthy" | "unhealthy" | "unknown";
 
 export function PRDetailHeader({
   applicationId,
@@ -18,8 +19,7 @@ export function PRDetailHeader({
   targetBranchName,
   pr,
   prPending,
-  health,
-  bugCount,
+  summary,
 }: {
   applicationId: string;
   prNumber: number;
@@ -28,8 +28,7 @@ export function PRDetailHeader({
   targetBranchName: string;
   pr: PullRequest | undefined;
   prPending: boolean;
-  health: PrHealth;
-  bugCount: number;
+  summary: CheckpointPresentationSummary | undefined;
 }) {
   // Prefer the live GitHub title, fall back to the cached PR title (same source as the PR list), and
   // only fall back to the branch name when neither is available.
@@ -38,7 +37,7 @@ export function PRDetailHeader({
   const showTitleSkeleton = prPending && pr?.title == null && cachedTitle == null;
 
   return (
-    <header className="border-b border-border-dim bg-surface-base px-6 py-5 h-36 flex items-center justify-between">
+    <header className="flex min-h-36 items-start justify-between gap-4 border-b border-border-dim bg-surface-base px-6 py-5">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <span className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
@@ -63,8 +62,8 @@ export function PRDetailHeader({
         />
       </div>
 
-      <div className="flex flex-col gap-3 items-end h-full justify-between">
-        <HealthBadge health={health} bugCount={bugCount} />
+      <div className="flex shrink-0 flex-col items-end gap-3">
+        {summary != null && <CheckpointSummaryBadge summary={summary} />}
         <Suspense fallback={null}>
           <PreviewEnvironmentHeaderButton applicationId={applicationId} prNumber={prNumber} />
         </Suspense>
@@ -117,32 +116,5 @@ function MetaRow({
 
       {createdAt != null && <span className="text-text-tertiary">· created {formatRelativeTime(createdAt)}</span>}
     </div>
-  );
-}
-
-function HealthBadge({ health, bugCount }: { health: PrHealth; bugCount: number }) {
-  if (health === "healthy") {
-    return (
-      <Badge variant="success" className="shrink-0 gap-1 font-mono uppercase tracking-wider">
-        Healthy
-      </Badge>
-    );
-  }
-  if (health === "unhealthy") {
-    return (
-      <Badge
-        variant="outline"
-        className="shrink-0 gap-2 border-status-critical/60 bg-status-critical/10 font-mono uppercase tracking-wider text-status-critical"
-      >
-        Unhealthy
-        <span className="text-text-tertiary">·</span>
-        {bugCount} {bugCount === 1 ? "bug" : "bugs"}
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="shrink-0 gap-1 font-mono uppercase tracking-wider text-text-tertiary">
-      Unknown
-    </Badge>
   );
 }

@@ -15,9 +15,9 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@11ty/gray-matter": "^2.1.0",
         "@autonoma/ai": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@11ty/gray-matter": "^2.1.0",
         "zod": "catalog:"
     },
     "devDependencies": {

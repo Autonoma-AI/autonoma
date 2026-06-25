@@ -245,6 +245,12 @@ function NotFoundTest() {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <p className="text-sm font-medium text-text-primary">Test not found</p>
       <p className="text-sm text-text-secondary">This test may have been deleted or the slug is incorrect.</p>
+      <AppLink
+        to="/app/$appSlug/tests"
+        className="mt-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-primary transition-colors hover:underline"
+      >
+        Back to tests
+      </AppLink>
     </div>
   );
 }

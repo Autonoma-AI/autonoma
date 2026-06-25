@@ -20,4 +20,5 @@ export * from "./previewkit-config";
 export * from "./previewkit-introspection";
 export * from "./healing-actions";
 export * from "./snapshot-report";
+export * from "./checkpoint-summary";
 export * from "./bug-detail";

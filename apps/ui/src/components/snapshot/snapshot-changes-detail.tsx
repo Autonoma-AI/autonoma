@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { ReasoningMarkdown } from "./reasoning-block";
 import { CATEGORY, type TestEntry } from "./snapshot-entries";
 import { useChangesDetailParams } from "./use-changes-params";
 import { useSnapshotEntry } from "./use-snapshot-sections";
@@ -228,11 +229,11 @@ function Prose({ children, className }: { children: React.ReactNode; className?:
   );
 }
 
-// Collapses long prose (e.g. test plans) to a fixed number of lines with a "Read more" toggle.
+// Renders a markdown test plan, collapsed to a fixed height with a "Read more" toggle.
 function ClampedProse({ children, className }: { children: string; className?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
-  const ref = useRef<HTMLParagraphElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -244,16 +245,9 @@ function ClampedProse({ children, className }: { children: string; className?: s
 
   return (
     <div className="flex flex-col items-start gap-1.5">
-      <p
-        ref={ref}
-        className={cn(
-          "whitespace-pre-wrap text-xs leading-relaxed text-text-primary",
-          !expanded && "line-clamp-5",
-          className,
-        )}
-      >
-        {children}
-      </p>
+      <div ref={ref} className={cn("w-full overflow-hidden", !expanded && "max-h-36", className)}>
+        <ReasoningMarkdown content={children} />
+      </div>
       {showToggle && (
         <button
           type="button"

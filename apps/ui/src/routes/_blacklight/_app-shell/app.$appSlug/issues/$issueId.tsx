@@ -8,7 +8,7 @@ import { ListChecksIcon } from "@phosphor-icons/react/ListChecks";
 import { ScalesIcon } from "@phosphor-icons/react/Scales";
 import { createFileRoute } from "@tanstack/react-router";
 import { DetailRow } from "components/detail-row";
-import { EvidenceLightbox } from "components/evidence-lightbox";
+import { EvidenceLightbox, type EvidenceMediaItem } from "components/evidence-lightbox";
 import { formatDate } from "lib/format";
 import { ensureIssueDetailData, useIssueDetail } from "lib/query/issues.queries";
 import { useState } from "react";
@@ -51,10 +51,10 @@ const EVIDENCE_TYPE_LABEL: Record<string, string> = {
   step_output: "Step Output",
 };
 
-interface EvidenceMedia {
-  type: "screenshot" | "video";
-  url: string;
+function isMediaItem(item: { type: string; url?: string }): item is { type: "screenshot" | "video"; url: string } & {
   description: string;
+} {
+  return item.url != null && (item.type === "screenshot" || item.type === "video");
 }
 
 function IssueDetailPage() {
@@ -64,8 +64,12 @@ function IssueDetailPage() {
 
   const failurePoint = issue.review.failurePoint as { stepOrder?: number; description?: string } | undefined;
   const evidence = (issue.review.evidence ?? []) as Array<{ type: string; description: string; url?: string }>;
+  // Only media evidence (screenshots/videos) is navigable in the lightbox; non-media rows stay inline.
+  const mediaEvidence: EvidenceMediaItem[] = evidence
+    .filter(isMediaItem)
+    .map((item) => ({ type: item.type, url: item.url, description: item.description }));
   const [reasoningOpen, setReasoningOpen] = useState(false);
-  const [activeMedia, setActiveMedia] = useState<EvidenceMedia | undefined>(undefined);
+  const [activeMediaIndex, setActiveMediaIndex] = useState<number | undefined>(undefined);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -193,13 +197,7 @@ function IssueDetailPage() {
                       key={`${item.type}-${item.description.slice(0, 20)}`}
                       type="button"
                       className={`flex w-full gap-4 px-5 py-4 text-left cursor-pointer transition-colors hover:bg-surface-base ${borderClass}`}
-                      onClick={() =>
-                        setActiveMedia({
-                          type: item.type as "screenshot" | "video",
-                          url: item.url!,
-                          description: item.description,
-                        })
-                      }
+                      onClick={() => setActiveMediaIndex(mediaEvidence.findIndex((m) => m.url === item.url))}
                     >
                       <Badge variant="secondary" className="shrink-0 font-mono text-3xs uppercase">
                         {EVIDENCE_TYPE_LABEL[item.type] ?? item.type}
@@ -251,15 +249,12 @@ function IssueDetailPage() {
         </div>
       </div>
 
-      {activeMedia != null && (
-        <EvidenceLightbox
-          open
-          onClose={() => setActiveMedia(undefined)}
-          type={activeMedia.type}
-          url={activeMedia.url}
-          description={activeMedia.description}
-        />
-      )}
+      <EvidenceLightbox
+        items={mediaEvidence}
+        activeIndex={activeMediaIndex}
+        onClose={() => setActiveMediaIndex(undefined)}
+        onNavigate={setActiveMediaIndex}
+      />
     </div>
   );
 }

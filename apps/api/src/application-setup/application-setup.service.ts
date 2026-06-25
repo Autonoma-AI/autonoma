@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import matter from "@11ty/gray-matter";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
@@ -18,7 +19,6 @@ import {
     TOTAL_SETUP_STEPS,
 } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
-import matter from "@11ty/gray-matter";
 import type { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 
 const log = logger.child({ name: "ApplicationSetupService" });

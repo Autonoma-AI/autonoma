@@ -19,9 +19,15 @@ export interface SnapshotHealthCounts {
     totalTests: number;
 }
 
+export interface QuarantineByKind {
+    engine: number;
+    app: number;
+}
+
 export interface SnapshotHealthResult {
     health: SnapshotHealth;
     counts: SnapshotHealthCounts;
+    quarantineByKind: QuarantineByKind;
 }
 
 export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHealthCounts): SnapshotHealth {
@@ -83,7 +89,12 @@ export async function aggregateSnapshotHealth(
     const [assignments, executedTestsBySnapshot] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId: { in: snapshotIds } },
-            select: { snapshotId: true, testCaseId: true, quarantineIssueId: true },
+            select: {
+                snapshotId: true,
+                testCaseId: true,
+                quarantineIssueId: true,
+                quarantineIssue: { select: { kind: true } },
+            },
         }),
         listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
@@ -94,8 +105,13 @@ export async function aggregateSnapshotHealth(
         const totalTests = snapAssignments.length;
 
         const quarantinedSet = new Set<string>();
+        let quarantineEngine = 0;
+        let quarantineApp = 0;
         for (const a of snapAssignments) {
-            if (a.quarantineIssueId != null) quarantinedSet.add(a.testCaseId);
+            if (a.quarantineIssueId == null) continue;
+            quarantinedSet.add(a.testCaseId);
+            if (a.quarantineIssue?.kind === "engine_limitation") quarantineEngine += 1;
+            else quarantineApp += 1;
         }
 
         const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
@@ -117,6 +133,7 @@ export async function aggregateSnapshotHealth(
         result.set(snapshot.id, {
             health: computeSnapshotHealth(snapshot.status, counts),
             counts,
+            quarantineByKind: { engine: quarantineEngine, app: quarantineApp },
         });
     }
 

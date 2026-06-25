@@ -16,6 +16,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@11ty/gray-matter": "^2.1.0",
         "@autonoma/ai": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
@@ -24,7 +25,6 @@
         "@autonoma/storage": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
-        "@11ty/gray-matter": "^2.1.0",
         "zod": "catalog:"
     },
     "devDependencies": {

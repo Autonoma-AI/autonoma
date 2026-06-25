@@ -1,8 +1,7 @@
 import { Badge, cn } from "@autonoma/blacklight";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
-import type { ReactNode } from "react";
-import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
+import { ExecutedTestLink } from "./executed-test-link";
 
 type ExecutedTest = RouterOutputs["branches"]["snapshotDetail"]["executedTests"][number];
 type RunStatus = ExecutedTest["status"];
@@ -67,7 +66,9 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
   return (
     <div className="border border-border-dim bg-surface-void px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
-        <TestNameLink test={test} className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary" />
+        <ExecutedTestLink test={test} className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
+          {test.testCase.name}
+        </ExecutedTestLink>
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge variant={FINAL_OUTCOME_BADGE[test.finalOutcome]}>{finalOutcomeLabel(test)}</Badge>
           {test.verdict != null && (
@@ -80,35 +81,6 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
         <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-primary">{reviewReasoning}</p>
       )}
     </div>
-  );
-}
-
-function TestNameLink({ test, className }: { test: ExecutedTest; className: string }) {
-  const content: ReactNode = test.testCase.name;
-  if (test.runId != null) {
-    return (
-      <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: test.runId }} className={className}>
-        {content}
-      </AppLink>
-    );
-  }
-
-  if (test.generationId != null) {
-    return (
-      <AppLink
-        to="/app/$appSlug/generations/$generationId"
-        params={{ generationId: test.generationId }}
-        className={className}
-      >
-        {content}
-      </AppLink>
-    );
-  }
-
-  return (
-    <AppLink to="/app/$appSlug/tests/$testSlug" params={{ testSlug: test.testCase.slug }} className={className}>
-      {content}
-    </AppLink>
   );
 }
 

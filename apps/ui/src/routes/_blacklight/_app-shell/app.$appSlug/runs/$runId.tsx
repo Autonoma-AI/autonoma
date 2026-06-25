@@ -291,8 +291,13 @@ function RunDetailPage() {
                 <p className="text-sm text-text-tertiary">
                   {status === "running" || status === "pending"
                     ? "Steps will appear here as the test runs..."
-                    : "No steps recorded"}
+                    : "No browser steps were persisted for this run."}
                 </p>
+                {status === "failed" && run.reasoning != null && (
+                  <p className="max-w-md text-xs text-text-secondary">
+                    See the failure reason below for what went wrong.
+                  </p>
+                )}
               </div>
             )
           )}
@@ -424,6 +429,7 @@ function RunDetailSidebar({
 function StepCard({ step, isLast, onImageClick }: { step: RunStep; isLast: boolean; onImageClick?: () => void }) {
   const screenshot = step.screenshotBefore ?? step.screenshotAfter;
   const instruction = stepInstruction(step);
+  const hasOutput = step.output != null && typeof step.output === "object" && Object.keys(step.output).length > 0;
 
   return (
     <div className="flex gap-4">
@@ -434,12 +440,12 @@ function StepCard({ step, isLast, onImageClick }: { step: RunStep; isLast: boole
         {!isLast && <div className="mt-1 h-full w-px bg-border-dim" />}
       </div>
 
-      <div className="mb-3 flex-1 overflow-hidden border border-border-dim bg-surface-raised">
+      <div className="mb-3 min-w-0 flex-1 overflow-hidden border border-border-dim bg-surface-raised">
         <div className="flex">
           {screenshot != null && (
             <div
               role="button"
-              className="relative aspect-video w-52 shrink-0 overflow-hidden border-r border-border-dim bg-surface-base cursor-zoom-in"
+              className="relative aspect-video w-52 shrink-0 self-start overflow-hidden border-r border-border-dim bg-surface-base cursor-zoom-in"
               onClick={onImageClick}
             >
               <img
@@ -449,14 +455,19 @@ function StepCard({ step, isLast, onImageClick }: { step: RunStep; isLast: boole
               />
             </div>
           )}
-          <div className="flex flex-1 flex-col justify-center gap-2 px-4 py-3">
-            <p className="text-sm font-medium leading-snug text-text-primary">{instruction}</p>
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 px-4 py-3">
+            <p className="break-words text-sm font-medium leading-snug text-text-primary">{instruction}</p>
             <Badge variant="outline" className="w-fit font-mono text-3xs uppercase">
               {step.interaction}
             </Badge>
-            <StepOutputDisplay output={step.output as Record<string, unknown>} />
           </div>
         </div>
+        {/* Long step output (e.g. assertion failures) spans the full width below the header. */}
+        {hasOutput && (
+          <div className="min-w-0 px-4 pb-3">
+            <StepOutputDisplay output={step.output as Record<string, unknown>} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -511,6 +522,12 @@ function NotFoundRun() {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <p className="text-sm font-medium text-text-primary">Run not found</p>
       <p className="text-sm text-text-secondary">This run may have been deleted.</p>
+      <AppLink
+        to="/app/$appSlug/pull-requests"
+        className="mt-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-primary transition-colors hover:underline"
+      >
+        Back to pull requests
+      </AppLink>
     </div>
   );
 }

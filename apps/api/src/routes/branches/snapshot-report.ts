@@ -4,6 +4,7 @@ import type { Logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
+import { buildCheckpointSummary } from "./checkpoint-summary";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
 import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
@@ -93,6 +94,16 @@ export async function loadSnapshotReport({
         reasoning: t.reasoning ?? undefined,
     }));
 
+    const openBugs = bugs.filter((b) => b.status === "open");
+    const issueOccurrenceCount = openBugs.reduce((sum, b) => sum + b.occurrences, 0);
+    const summary = buildCheckpointSummary({
+        snapshotStatus: snapshot.status,
+        counts: healthCounts,
+        openBugCount: openBugs.length,
+        issueOccurrenceCount,
+        quarantine: healthEntry?.quarantineByKind ?? { engine: 0, app: 0 },
+    });
+
     logger.info("Snapshot report assembled", {
         snapshotId,
         selectedTests: selected.length,
@@ -125,5 +136,6 @@ export async function loadSnapshotReport({
         firstIterationReasoning,
         health,
         healthCounts,
+        summary,
     };
 }

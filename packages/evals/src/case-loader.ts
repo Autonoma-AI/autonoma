@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import matter from "@11ty/gray-matter";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { z } from "zod";
 import { CASE_SCHEMA_VERSION } from "./frontmatter";
 

@@ -188,6 +188,63 @@ apiTestSuite({
             });
         });
 
+        test("summary reads 'No runs' (neutral), not unhealthy, for engine quarantine with no runs and no bugs", async ({
+            harness,
+        }) => {
+            // Assigned tests, an engine-limitation quarantine, zero runs, zero open bugs. Must not
+            // present as "unhealthy · 0 bugs".
+            const fixture = await createSnapshotDetailFixture(harness);
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.summary.executionState).toBe("not_started");
+            expect(detail.summary.tone).toBe("neutral");
+            expect(detail.summary.label).toBe("No runs");
+            expect(detail.summary.openBugCount).toBe(0);
+            expect(detail.summary.quarantine.engine).toBe(1);
+        });
+
+        test("resolves to the last completed outcome when a terminated loop has a trailing pending iteration", async ({
+            harness,
+        }) => {
+            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Healing check"] });
+            const { plan } = await attachPlan(harness, fixture.assignments.healing);
+
+            // Terminal `max_iterations` loop with a never-executed iteration #2 left in `pending`.
+            // The outcome should reflect iteration #1's failure, not appear as still running.
+            const loop = await harness.db.refinementLoop.create({
+                data: {
+                    snapshotId: fixture.snapshotId,
+                    triggeredBy: "diffs",
+                    status: "max_iterations",
+                    startedAt: new Date("2026-01-01T10:00:00Z"),
+                    finishedAt: new Date("2026-01-01T10:20:00Z"),
+                    organizationId: harness.organizationId,
+                },
+            });
+            await createRefinementIteration(harness, loop.id, plan.id, 1, {
+                startedAt: new Date("2026-01-01T10:00:00Z"),
+                finishedAt: new Date("2026-01-01T10:10:00Z"),
+            });
+            await createRefinementIteration(harness, loop.id, plan.id, 2, {
+                startedAt: new Date("2026-01-01T10:20:00Z"),
+                status: "pending",
+            });
+
+            // The only generation failed review and no replay ever ran.
+            await createFailedGeneration(harness, fixture.snapshotId, plan.id, new Date("2026-01-01T10:05:00Z"));
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.executedTests).toHaveLength(1);
+            expect(detail.executedTests[0]).toMatchObject({
+                finalOutcome: "failed",
+                runId: null,
+            });
+            expect(detail.executedTests[0]?.generationId).not.toBeNull();
+            expect(detail.healthCounts).toMatchObject({ failing: 1, running: 0, passing: 0 });
+        });
+
         test("surfaces a scenario_setup failure in a completed iteration as setup_failed", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
             const { plan } = await attachPlan(harness, fixture.assignments.checkout);
@@ -452,6 +509,29 @@ async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: s
             status: "completed",
             verdict: "success",
             reasoning: "Generation passed review.",
+            organizationId: harness.organizationId,
+        },
+    });
+    return generation;
+}
+
+async function createFailedGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {
+    const generation = await harness.db.testGeneration.create({
+        data: {
+            snapshotId,
+            testPlanId,
+            status: "failed",
+            createdAt: at,
+            updatedAt: at,
+            organizationId: harness.organizationId,
+        },
+    });
+    await harness.db.generationReview.create({
+        data: {
+            generationId: generation.id,
+            status: "completed",
+            verdict: "application_bug",
+            reasoning: "Generation could not satisfy the plan.",
             organizationId: harness.organizationId,
         },
     });

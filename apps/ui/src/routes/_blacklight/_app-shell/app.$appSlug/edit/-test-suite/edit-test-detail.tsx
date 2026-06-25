@@ -12,6 +12,7 @@ import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { ReasoningMarkdown } from "components/snapshot/reasoning-block";
 import { useRegenerateSteps, useRemoveTestFromEdit } from "lib/query/snapshot-edit.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { useState } from "react";
@@ -161,7 +162,7 @@ export function TestPlanView({ plan }: { plan: { prompt: string } | null }) {
 
   return (
     <div className="border border-border-mid bg-surface-base p-4">
-      <pre className="whitespace-pre-wrap font-mono text-2xs leading-relaxed text-text-secondary">{plan.prompt}</pre>
+      <ReasoningMarkdown content={plan.prompt} />
     </div>
   );
 }

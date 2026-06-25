@@ -8,13 +8,14 @@ import {
     fetchTestSuiteInfo,
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
-import type { SnapshotReport } from "@autonoma/types";
+import type { CheckpointPresentationSummary, SnapshotReport } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
+import { buildCheckpointSummary } from "./checkpoint-summary";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
@@ -23,8 +24,9 @@ import { listExecutedTestsForSnapshot, type SnapshotExecutedTest } from "./snaps
 import {
     aggregateSnapshotHealth,
     computeSnapshotHealth,
-    tallyExecutedTests,
+    type QuarantineByKind,
     type SnapshotHealthCounts,
+    tallyExecutedTests,
 } from "./snapshot-health";
 import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
@@ -107,6 +109,11 @@ export class BranchesService extends Service {
                           status: activeSnapshot.status,
                           _count: { testCaseAssignments: activeSnapshot._count.testCaseAssignments },
                           health: healthBySnapshot.get(activeSnapshot.id)?.health ?? "unknown",
+                          summary: summaryFromHealth(
+                              activeSnapshot.status,
+                              healthBySnapshot.get(activeSnapshot.id),
+                              bugCountBySnapshot.get(activeSnapshot.id) ?? 0,
+                          ),
                       }
                     : null,
         }));
@@ -281,21 +288,28 @@ export class BranchesService extends Service {
             this.countOpenBugsBySnapshot(snapshotIds),
         ]);
 
-        return snapshots.map((snapshot, index) => ({
-            ...snapshot,
-            changeSummary: changeSummaries[index] as SnapshotChangeSummary,
-            health: healthBySnapshot.get(snapshot.id)?.health ?? "unknown",
-            healthCounts: healthBySnapshot.get(snapshot.id)?.counts ?? {
-                failing: 0,
-                passing: 0,
-                running: 0,
-                setupFailed: 0,
-                quarantined: 0,
-                notAffected: snapshot._count.testCaseAssignments,
-                totalTests: snapshot._count.testCaseAssignments,
-            },
-            bugCount: bugCountBySnapshot.get(snapshot.id) ?? 0,
-        }));
+        return snapshots.map((snapshot, index) => {
+            const changeSummary = changeSummaries[index] as SnapshotChangeSummary;
+            const openBugCount = bugCountBySnapshot.get(snapshot.id) ?? 0;
+            return {
+                ...snapshot,
+                changeSummary,
+                health: healthBySnapshot.get(snapshot.id)?.health ?? "unknown",
+                healthCounts: healthBySnapshot.get(snapshot.id)?.counts ?? {
+                    failing: 0,
+                    passing: 0,
+                    running: 0,
+                    setupFailed: 0,
+                    quarantined: 0,
+                    notAffected: snapshot._count.testCaseAssignments,
+                    totalTests: snapshot._count.testCaseAssignments,
+                },
+                bugCount: openBugCount,
+                summary: summaryFromHealth(snapshot.status, healthBySnapshot.get(snapshot.id), openBugCount, {
+                    suiteChangeCount: changeSummary.added + changeSummary.removed + changeSummary.updated,
+                }),
+            };
+        });
     }
 
     private async countOpenBugsBySnapshot(snapshotIds: string[]): Promise<Map<string, number>> {
@@ -501,16 +515,35 @@ export class BranchesService extends Service {
             ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
             : Promise.resolve([]);
 
-        const [executedTests, assignmentsForHealth, createdTests] = await Promise.all([
+        const [executedTests, assignmentsForHealth, createdTests, openBugCountBySnapshot] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
             this.db.testCaseAssignment.findMany({
                 where: { snapshotId },
                 select: { testCaseId: true, quarantineIssueId: true },
             }),
             createdTestsPromise,
+            this.countOpenBugsBySnapshot([snapshotId]),
         ]);
         const counts = this.computeHealthCounts(assignmentsForHealth, executedTests);
         const health = computeSnapshotHealth(snapshot.status, counts);
+
+        // Split quarantine by kind from the already-loaded quarantined assignments.
+        const quarantineByKind: QuarantineByKind = { engine: 0, app: 0 };
+        for (const a of testCaseAssignments) {
+            if (a.quarantineIssue == null) continue;
+            if (a.quarantineIssue.kind === "engine_limitation") quarantineByKind.engine += 1;
+            else quarantineByKind.app += 1;
+        }
+        const suiteChangeCount = changes.filter(
+            (c) => c.type === "added" || c.type === "updated" || c.type === "removed",
+        ).length;
+        const summary = buildCheckpointSummary({
+            snapshotStatus: snapshot.status,
+            counts,
+            openBugCount: openBugCountBySnapshot.get(snapshotId) ?? 0,
+            quarantine: quarantineByKind,
+            suiteChangeCount,
+        });
 
         return {
             snapshot: flatSnapshot,
@@ -521,6 +554,7 @@ export class BranchesService extends Service {
             refinementLoop,
             health,
             healthCounts: counts,
+            summary,
             executedTests,
         };
     }
@@ -579,7 +613,14 @@ export class BranchesService extends Service {
         });
 
         if (branch == null) throw new NotFoundError("Branch not found");
-        if (branch.activeSnapshotId == null) throw new NotFoundError("Branch has no active snapshot");
+
+        // A branch can have no active checkpoint yet; return an explicit empty state.
+        if (branch.activeSnapshotId == null) {
+            return {
+                hasActiveCheckpoint: false as const,
+                branch: { id: branch.id, name: branch.name, prNumber: branch.prInfo?.prNumber },
+            };
+        }
 
         let comparisonSnapshotId = branch.baseSnapshotId;
         if (comparisonSnapshotId == null) {
@@ -600,6 +641,7 @@ export class BranchesService extends Service {
         );
 
         return {
+            hasActiveCheckpoint: true as const,
             snapshotId: branch.activeSnapshotId,
             testSuite,
             changes,
@@ -732,6 +774,24 @@ type PullRequestStateFilter = "open" | "closed" | "merged";
  */
 function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchInfoWhereInput {
     return { prState: state };
+}
+
+// Maps a bulk `aggregateSnapshotHealth` result into the shared presentation summary.
+function summaryFromHealth(
+    snapshotStatus: string,
+    healthResult: { counts: SnapshotHealthCounts; quarantineByKind: QuarantineByKind } | undefined,
+    openBugCount: number,
+    options?: { issueOccurrenceCount?: number; suiteChangeCount?: number },
+): CheckpointPresentationSummary | undefined {
+    if (healthResult == null) return undefined;
+    return buildCheckpointSummary({
+        snapshotStatus,
+        counts: healthResult.counts,
+        openBugCount,
+        issueOccurrenceCount: options?.issueOccurrenceCount,
+        quarantine: healthResult.quarantineByKind,
+        suiteChangeCount: options?.suiteChangeCount,
+    });
 }
 
 const PreviewUrlsSchema = z.record(z.string(), z.string());
