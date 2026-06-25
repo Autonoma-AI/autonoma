@@ -44,7 +44,16 @@ describe("scenarioUp", () => {
         expect(manager.up).toHaveBeenCalledWith(expect.anything(), "scen-1", { snapshotId: "snap-1" });
     });
 
-    it("throws when instance status is UP_FAILED", async () => {
+    it("returns the provisioned instance id", async () => {
+        const instance = fakeInstance({ id: "inst-42" });
+        const manager = { up: vi.fn().mockResolvedValue(instance) } as unknown as ScenarioManager;
+
+        const instanceId = await scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager });
+
+        expect(instanceId).toBe("inst-42");
+    });
+
+    it("throws the underlying error message when instance status is UP_FAILED", async () => {
         const instance = fakeInstance({
             status: "UP_FAILED",
             lastError: { message: "webhook 500" },
@@ -52,7 +61,7 @@ describe("scenarioUp", () => {
         const manager = { up: vi.fn().mockResolvedValue(instance) } as unknown as ScenarioManager;
 
         await expect(scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager })).rejects.toThrow(
-            "Scenario up failed",
+            "webhook 500",
         );
     });
 });

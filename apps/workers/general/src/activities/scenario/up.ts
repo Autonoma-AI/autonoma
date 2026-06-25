@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { db } from "@autonoma/db";
 import { scenarioUp as doScenarioUp } from "@autonoma/job-scenario/up";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -23,27 +22,11 @@ export async function scenarioUp(input: ScenarioUpInput): Promise<ScenarioUpOutp
     const encryption = new EncryptionHelper(getScenarioEncryptionKey());
     const manager = new ScenarioManager(db, encryption);
 
-    await doScenarioUp({ type, entityId: input.entityId, sdkUrlOverride: input.sdkUrlOverride }, { db, manager });
+    const scenarioInstanceId = await doScenarioUp(
+        { type, entityId: input.entityId, sdkUrlOverride: input.sdkUrlOverride },
+        { db, manager },
+    );
 
-    logger.info("Scenario up completed, reading instance ID", { entityId: input.entityId });
-
-    // The scenario job writes instance ID to /tmp/scenario-instance-id once it
-    // has successfully started the scenario environment.
-    let scenarioInstanceId: string;
-    try {
-        scenarioInstanceId = (await readFile("/tmp/scenario-instance-id", "utf-8")).trim();
-    } catch (cause) {
-        throw new Error(
-            "Scenario job completed but did not write the instance ID file at /tmp/scenario-instance-id. " +
-                "Check scenario job logs for errors.",
-            { cause },
-        );
-    }
-
-    if (scenarioInstanceId.length === 0) {
-        throw new Error("Scenario instance ID file is empty - the scenario job may have failed silently.");
-    }
-
-    logger.info("Scenario instance ID read", { entityId: input.entityId, scenarioInstanceId });
+    logger.info("Scenario up completed", { entityId: input.entityId, scenarioInstanceId });
     return { scenarioInstanceId };
 }

@@ -1,9 +1,6 @@
-import { writeFile } from "node:fs/promises";
 import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { GenerationSubject, RunSubject, type ScenarioManager, type ScenarioSubject } from "@autonoma/scenario";
-
-const INSTANCE_ID_OUTPUT_PATH = "/tmp/scenario-instance-id";
 
 export interface ScenarioUpParams {
     type: "run" | "generation";
@@ -16,7 +13,15 @@ export interface ScenarioUpDeps {
     manager: ScenarioManager;
 }
 
-export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps): Promise<void> {
+/**
+ * Provisions a scenario instance for a run/generation and returns the instance
+ * id. This function is free of any process-global state (no file I/O), so it is
+ * safe to invoke concurrently within a single process - the in-process worker
+ * activity runs up to 10 of these in parallel. Callers that need to surface the
+ * id across a process boundary (the standalone container entrypoint) own that
+ * side effect themselves.
+ */
+export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps): Promise<string> {
     const { type, entityId } = params;
     const { db, manager } = deps;
     const logger = rootLogger.child({ name: "scenarioUp", type, entityId });
@@ -40,7 +45,7 @@ export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps)
     }
 
     logger.info("Scenario instance started", { instanceId: instance.id });
-    await writeFile(INSTANCE_ID_OUTPUT_PATH, instance.id, "utf-8");
+    return instance.id;
 }
 
 function createSubject(type: "run" | "generation", db: PrismaClient, entityId: string): ScenarioSubject {
