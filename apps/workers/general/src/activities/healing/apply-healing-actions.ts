@@ -1,8 +1,9 @@
 import { db } from "@autonoma/db";
 import { BugMatcher, openModelSession } from "@autonoma/diffs";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
+import { Context } from "@temporalio/activity";
 import { applyRemoveTest } from "./apply-remove-test";
 import { applyReportBug } from "./apply-report-bug";
 import { applyReportEngineLimitation } from "./apply-report-engine-limitation";
@@ -34,6 +35,15 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
     });
     logger.info("Applying healing actions");
 
+    const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
+    try {
+        return await applyActions(input, logger);
+    } finally {
+        clearInterval(heartbeat);
+    }
+}
+
+async function applyActions(input: ApplyHealingActionsInput, logger: Logger): Promise<ApplyHealingActionsOutput> {
     const matcher = await buildBugMatcher(input);
 
     const nextIterationPlanIds: string[] = [];

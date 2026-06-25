@@ -8,7 +8,7 @@ import { WORKFLOW_TYPE } from "./workflow-types";
 
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",
-    heartbeatTimeout: "1m",
+    heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
 });
