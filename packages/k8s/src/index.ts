@@ -16,14 +16,7 @@ export interface K8sClient {
     getJobStatus(name: string, namespace: string): Promise<string>;
 }
 
-export type ImageKey =
-    | "ios"
-    | "android"
-    | "web"
-    | "workflow-device-locking"
-    | "workflow-scenario"
-    | "reviewer"
-    | "eval-job-finalizer";
+export type ImageKey = "ios" | "android" | "web" | "workflow-device-locking" | "reviewer" | "eval-job-finalizer";
 
 export function makeKubeConfig(): KubeConfig {
     const kc = new KubeConfig();

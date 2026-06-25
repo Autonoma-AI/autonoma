@@ -1,7 +1,7 @@
 import type { ScenarioInstance } from "@autonoma/db";
 import type { ScenarioManager } from "@autonoma/scenario";
 import { describe, expect, it, vi } from "vitest";
-import { scenarioDown } from "../src/scenario-down";
+import { scenarioDown } from "../src/activities/scenario/scenario-down";
 
 function fakeInstance(overrides: Partial<ScenarioInstance> = {}): ScenarioInstance {
     return {

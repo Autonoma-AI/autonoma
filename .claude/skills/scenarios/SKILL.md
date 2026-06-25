@@ -101,9 +101,7 @@ The package is structured around a clean separation of concerns:
 
 - **`ScenariosService`** (tRPC, in `apps/api`) - exposes `discover` and a manual dry-run for the scenarios UI.
 
-- **The scenario-up / scenario-down jobs** (in `apps/jobs/scenario`) - the production path. Each test run / generation triggers a job that resolves `(scenarioId, snapshotId)` from the run or generation row, builds the appropriate `ScenarioSubject`, and calls `ScenarioManager.up` / `down`.
-
-- **General-purpose worker activities** (in `apps/workers/general`) - the temporal-driven equivalents of the scenario jobs.
+- **The scenario-up / scenario-down worker activities** (in `apps/workers/general/src/activities/scenario`) - the production path, run in-process as Temporal activities. Each test run / generation resolves `(scenarioId, snapshotId)` from the run or generation row, builds the appropriate `ScenarioSubject`, and calls `ScenarioManager.up` / `down`.
 
 ## Conventions / gotchas
 

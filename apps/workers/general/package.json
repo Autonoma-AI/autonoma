@@ -17,7 +17,6 @@
         "@autonoma/diffs": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/job-run-completion-notification": "workspace:*",
-        "@autonoma/job-scenario": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
         "@autonoma/storage": "workspace:*",

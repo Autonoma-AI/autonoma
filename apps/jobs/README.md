@@ -6,7 +6,7 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 
 | Job | Package Name | Purpose |
 |-----|-------------|---------|
-| **scenario** | `@autonoma/job-scenario` | Manages test scenario lifecycle - "up" provisions a scenario instance before a run/generation, "down" tears it down afterward. |
+| **run-completion-notification** | `@autonoma/job-run-completion-notification` | Sends notifications when a run completes. |
 | **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/diffs`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |
 
@@ -37,14 +37,6 @@ pnpm build
 
 ### Run Locally
 
-Jobs that support local execution have a dedicated script:
-
-```bash
-# scenario (test mode)
-cd apps/jobs/scenario
-pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
-```
-
 For local diffs tooling - analysis, the full pipeline, and generation/replay reviewer inspection - see `@autonoma/worker-diffs` (e.g. `pnpm --filter @autonoma/worker-diffs diffs-agent`, `full-pipeline`, `review:generation <generationId>`, `review:replay <runId>`).
 
 ## Environment Variables
@@ -60,18 +52,8 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 | `SENTRY_ENV` | No | Sentry environment tag (default: `production`) |
 | `SENTRY_RELEASE` | No | Sentry release identifier (default: `unknown`) |
 
-### scenario
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SCENARIO_ENCRYPTION_KEY` | Yes | Key for encrypting/decrypting scenario credentials |
-| `SCENARIO_JOB_TYPE` | Yes (up) | `"run"` or `"generation"` |
-| `ENTITY_ID` | Yes (up) | ID of the run or generation entity |
-| `SCENARIO_INSTANCE_ID` | Yes (down) | ID of the scenario instance to tear down |
-
 ## Architecture Notes
 
 - **Each job is a separate Docker image.** Jobs never share images. They share logic through workspace packages (`@autonoma/ai`, `@autonoma/db`, `@autonoma/diffs`, etc.).
 - **Run-once semantics.** Jobs execute a `main()` function wrapped in `runWithSentry()` and exit. They are not long-running services.
 - **Error handling follows the `fx` pattern** from `@autonoma/try` - Go-style error tuples with `fx.runAsync` / `fx.run`.
-- **Scenario job has two entry points:** `up.ts` (provision before test) and `down.ts` (teardown after test), each with their own env validation.

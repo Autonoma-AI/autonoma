@@ -1,9 +1,9 @@
 import { db } from "@autonoma/db";
-import { scenarioDown as doScenarioDown } from "@autonoma/job-scenario/down";
 import { logger as rootLogger } from "@autonoma/logger";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { ScenarioDownInput } from "@autonoma/workflow/activities";
 import { getScenarioEncryptionKey } from "../../env";
+import { scenarioDown as doScenarioDown } from "./scenario-down";
 
 export async function scenarioDown(input: ScenarioDownInput): Promise<void> {
     const logger = rootLogger.child({ name: "scenarioDown", scenarioInstanceId: input.scenarioInstanceId });

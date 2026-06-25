@@ -1,7 +1,7 @@
 import type { PrismaClient, ScenarioInstance } from "@autonoma/db";
 import type { ScenarioManager } from "@autonoma/scenario";
 import { describe, expect, it, vi } from "vitest";
-import { scenarioUp } from "../src/scenario-up";
+import { scenarioUp } from "../src/activities/scenario/scenario-up";
 
 function fakeInstance(overrides: Partial<ScenarioInstance> = {}): ScenarioInstance {
     return {

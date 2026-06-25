@@ -10,7 +10,7 @@ Lightweight Kubernetes helpers for the Autonoma platform. Provides a `KubeConfig
 |--------|------|-------------|
 | `makeKubeConfig()` | Function | Creates a `KubeConfig` loaded from the default context (in-cluster or local kubeconfig) |
 | `getImage(key)` | Async function | Resolves a container image URI from the `image-version` ConfigMap in the configured namespace |
-| `ImageKey` | Type | Union of valid image identifiers (e.g. `"web"`, `"ios"`, `"workflow-scenario"`) |
+| `ImageKey` | Type | Union of valid image identifiers (e.g. `"web"`, `"ios"`, `"reviewer"`) |
 | `K8sClient` | Interface | Contract for creating, deleting, and querying K8s jobs |
 | `K8sJobOptions` | Interface | Options bag for `K8sClient.createJob` - name, namespace, image, env, labels |
 
@@ -21,8 +21,8 @@ Lightweight Kubernetes helpers for the Autonoma platform. Provides a `KubeConfig
 ```ts
 import { getImage } from "@autonoma/k8s";
 
-const image = await getImage("workflow-scenario");
-// => "us-docker.pkg.dev/autonoma/images/scenario:abc123"
+const image = await getImage("reviewer");
+// => "us-docker.pkg.dev/autonoma/images/reviewer:abc123"
 ```
 
 `getImage` reads the `image-version` ConfigMap in the namespace defined by the `NAMESPACE` environment variable, then looks up the key matching the provided `ImageKey`.

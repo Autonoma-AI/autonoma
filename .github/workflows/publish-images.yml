@@ -40,13 +40,6 @@ jobs:
               cp -r apps/ui/dist pruned/dist
             context: ./pruned
 
-          - name: Scenario
-            image: scenario
-            dockerfile: apps/jobs/scenario/Dockerfile
-            turbo-filter: "@autonoma/job-scenario..."
-            prepare: mkdir -p pruned && cp -r apps/jobs/scenario/dist pruned/dist
-            context: ./pruned
-
           - name: Run Completion Notification
             image: run-completion-notification
             dockerfile: apps/jobs/run-completion-notification/Dockerfile

@@ -1,9 +1,9 @@
 import { db } from "@autonoma/db";
-import { scenarioUp as doScenarioUp } from "@autonoma/job-scenario/up";
 import { logger as rootLogger } from "@autonoma/logger";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { ScenarioUpInput, ScenarioUpOutput } from "@autonoma/workflow/activities";
 import { getScenarioEncryptionKey } from "../../env";
+import { scenarioUp as doScenarioUp } from "./scenario-up";
 
 const VALID_SCENARIO_JOB_TYPES = ["run", "generation"] as const;
 type ScenarioJobType = (typeof VALID_SCENARIO_JOB_TYPES)[number];
