@@ -14,7 +14,7 @@
 
 /** Serializable mirror of apps/previewkit's `PullRequestEvent`. */
 export interface PreviewDeployEvent {
-    action: "opened" | "synchronize" | "closed" | "reopened";
+    action: "opened" | "synchronize" | "closed" | "reopened" | "ready_for_review";
     prNumber: number;
     repoFullName: string;
     organizationId: string;

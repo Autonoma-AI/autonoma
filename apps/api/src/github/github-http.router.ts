@@ -1,4 +1,4 @@
-import { db, type GitHubWebhookEventType } from "@autonoma/db";
+import { db } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
@@ -88,9 +88,13 @@ const WEBHOOK_EVENT_TYPES = {
     "pull_request.synchronize": "pull_request_synchronize",
     "pull_request.closed": "pull_request_closed",
     "pull_request.reopened": "pull_request_reopened",
+    "pull_request.ready_for_review": "pull_request_ready_for_review",
     // push payloads carry no `action`; the event name alone is the key.
     push: "push",
-} as const satisfies Record<string, GitHubWebhookEventType>;
+} as const;
+
+/** The internal event names this handler dispatches on, derived from the map. */
+type GitHubWebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[keyof typeof WEBHOOK_EVENT_TYPES];
 
 githubHttpRouter.post("/webhook", async (ctx) => {
     const body = await ctx.req.text();
@@ -188,6 +192,13 @@ async function dispatchWebhookEvent(
         case "pull_request_reopened":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("reopened", organizationId, payload);
+            return;
+        case "pull_request_ready_for_review":
+            // A draft marked ready for review is no longer a draft, so the
+            // draft gate in deployFromWebhook lets it through and the preview
+            // builds even for orgs that skip draft PRs.
+            await prCacheService.updateFromWebhook(organizationId, payload);
+            await startPullRequestDeploy("ready_for_review", organizationId, payload);
             return;
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);

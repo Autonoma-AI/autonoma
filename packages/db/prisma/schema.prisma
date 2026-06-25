@@ -1486,22 +1486,6 @@ model GitHubInstallation {
   @@map("github_installation")
 }
 
-enum GitHubWebhookEventType {
-  installation_created
-  installation_deleted
-  installation_suspend
-  installation_unsuspend
-  installation_repositories_added
-  installation_repositories_removed
-  pull_request_opened
-  pull_request_synchronize
-  pull_request_closed
-  pull_request_reopened
-  push
-
-  @@map("github_webhook_event_type")
-}
-
 // Stores GitHub ETags so we can make conditional requests (If-None-Match). An authorized
 // 304 Not Modified does not count against the primary rate limit, making revalidation
 // near-free. ETags are scoped per page URL and per installation token, so we key on

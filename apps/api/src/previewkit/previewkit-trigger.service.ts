@@ -7,7 +7,7 @@ import { Service } from "../routes/service";
 
 export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
 
-export type PreviewDeployAction = "opened" | "synchronize" | "reopened";
+export type PreviewDeployAction = "opened" | "synchronize" | "reopened" | "ready_for_review";
 
 export interface PreviewkitDeployRequest {
     repoFullName: string;
@@ -55,6 +55,7 @@ export type PreviewkitGitHubReader = Pick<GitHubInstallationService, "getReposit
 const pullRequestWebhookSchema = z.object({
     pull_request: z.object({
         number: z.number().int().positive(),
+        draft: z.boolean().optional(),
         head: z.object({ sha: z.string(), ref: z.string() }),
         base: z.object({ sha: z.string(), ref: z.string() }),
     }),
@@ -166,6 +167,17 @@ export class PreviewkitTriggerService extends Service {
         }
 
         const { pull_request: pr, repository: repo } = parsed.data;
+
+        if (pr.draft === true && !(await this.isDraftBuildEnabled(organizationId))) {
+            this.logger.info("Skipping preview deploy for draft PR: previewkitBuildDraft disabled", {
+                action,
+                organizationId,
+                repo: repo.full_name,
+                pr: pr.number,
+            });
+            return;
+        }
+
         await this.deploy(
             {
                 repoFullName: repo.full_name,
@@ -180,6 +192,19 @@ export class PreviewkitTriggerService extends Service {
             },
             action,
         );
+    }
+
+    /**
+     * Whether the organization opted into building previews for draft PRs.
+     * Defaults to false when no settings row exists, so draft PRs are skipped
+     * unless an org explicitly turns `previewkitBuildDraft` on.
+     */
+    private async isDraftBuildEnabled(organizationId: string): Promise<boolean> {
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { previewkitBuildDraft: true },
+        });
+        return settings?.previewkitBuildDraft ?? false;
     }
 
     /** Teardown entry point for `pull_request.closed` webhooks. */

@@ -1,5 +1,5 @@
 export interface PullRequestEvent {
-    action: "opened" | "synchronize" | "closed" | "reopened";
+    action: "opened" | "synchronize" | "closed" | "reopened" | "ready_for_review";
     prNumber: number;
     repoFullName: string;
     // Resolved by the upstream API from the installation that fired the webhook.

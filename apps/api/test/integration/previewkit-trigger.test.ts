@@ -8,10 +8,11 @@ import type { APITestHarness } from "../harness";
 const REPO_ID = 2001;
 const REPO_FULL_NAME = "acme/web";
 
-function pullRequestPayload(prNumber: number): Record<string, unknown> {
+function pullRequestPayload(prNumber: number, draft = false): Record<string, unknown> {
     return {
         pull_request: {
             number: prNumber,
+            draft,
             head: { sha: `head-${prNumber}`, ref: `feature/pr-${prNumber}` },
             base: { sha: "main-sha-2", ref: "main" },
         },
@@ -120,6 +121,53 @@ apiTestSuite({
                 },
                 configRevisionId: undefined,
             });
+        });
+
+        test("deployFromWebhook skips a draft PR when previewkitBuildDraft is disabled", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(20, true));
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployFromWebhook builds a draft PR when previewkitBuildDraft is enabled", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, previewkitBuildDraft: true },
+                update: { previewkitBuildDraft: true },
+            });
+
+            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(21, true));
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+
+            await harness.db.organizationSettings.delete({ where: { organizationId: harness.organizationId } });
+        });
+
+        test("deployFromWebhook builds a ready-for-review PR even when previewkitBuildDraft is disabled", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            // A PR marked ready for review is no longer a draft (draft: false),
+            // so it deploys regardless of the org's draft-build setting.
+            await service.deployFromWebhook("ready_for_review", harness.organizationId, pullRequestPayload(22, false));
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: expect.objectContaining({ action: "ready_for_review", prNumber: 22 }),
+                }),
+            );
         });
 
         test("deployFromWebhook skips an unparseable payload without triggering", async ({
