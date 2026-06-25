@@ -36,7 +36,7 @@ Images are pushed to a private registry and pulled by the preview cluster. You n
 
 ## Secrets
 
-Secrets such as API keys and third-party tokens are managed out-of-band via the REST API rather than stored with your stack configuration. They can be owner-scoped (every PR sees them) or PR-scoped (just this PR — useful for testing prod credentials in isolation). See [Secrets](/previewkit/secrets/).
+Secrets such as API keys and third-party tokens are managed out-of-band via the REST API rather than stored with your stack configuration. They can be owner-scoped (every PR sees them) or PR-scoped (just this PR — useful for testing prod credentials in isolation). Previewkit also injects a few [built-in environment variables](/previewkit/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/previewkit/secrets/).
 
 ## What's next
 

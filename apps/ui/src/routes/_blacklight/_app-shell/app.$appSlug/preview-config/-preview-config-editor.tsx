@@ -2,9 +2,11 @@ import { Button } from "@autonoma/blacklight";
 import { previewConfigSchema, validatePreviewConfigSemantics, zodIssuesToConfigIssues } from "@autonoma/types";
 import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePreviewkitConfig, useSavePreviewkitConfig } from "lib/onboarding/onboarding-api";
 import { toastManager } from "lib/toast-manager";
-import { useState } from "react";
+import { trpc } from "lib/trpc";
+import { useEffect, useRef, useState } from "react";
 // Reuse the onboarding PreviewKit editor building blocks. These are
 // route-excluded ("-") modules, so importing them from the settings subtree is
 // a normal cross-module import - it keeps one source of truth for the topology
@@ -17,6 +19,7 @@ import {
   type CompiledDocument,
   type DraftIssues,
   type TopologyDraft,
+  diffAppSecrets,
   documentsFromDraft,
   draftFromConfig,
   emptyAppDraft,
@@ -24,6 +27,7 @@ import {
   isUntouchedStarterApp,
   mapIssuesToDraft,
   snapshotDocument,
+  withSecretRows,
 } from "../../../onboarding/-components/previewkit/topology-draft";
 
 /**
@@ -37,6 +41,7 @@ import {
 export function PreviewConfigEditor({ appId }: { appId: string }) {
   const configQuery = usePreviewkitConfig(appId);
   const saveConfig = useSavePreviewkitConfig();
+  const queryClient = useQueryClient();
 
   const [draft, setDraft] = useState<TopologyDraft>(() =>
     draftFromConfig(configQuery.data.document, [], configQuery.data.saved ? "saved" : "starter"),
@@ -45,11 +50,64 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
     snapshotDocument(documentsFromDraft(draft).primary.document),
   );
 
+  // Secret keys each primary app loaded with, so a save can diff upserts/deletes.
+  // Values are never fetched (AWS is write-only) - only key names, shown masked.
+  const loadedSecretKeys = useRef<Map<string, string[]>>(new Map());
+  // Snapshot of the draft to revert to on Cancel; refreshed on load and on save.
+  const baselineDraft = useRef<TopologyDraft | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const apps = draft.apps.filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2);
+      const entries = await Promise.all(
+        apps.map(async (app) => {
+          const appName = app.name.trim();
+          try {
+            const list = await queryClient.fetchQuery(
+              trpc.secrets.list.queryOptions({ applicationId: appId, appName }),
+            );
+            return [appName, list.map((secret) => secret.key)] as const;
+          } catch (err) {
+            console.warn("Failed to load preview secrets for app", { appName, err });
+            return [appName, [] as string[]] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const keyMap = new Map(entries);
+      loadedSecretKeys.current = keyMap;
+      setDraft((current) => {
+        const next: TopologyDraft = {
+          ...current,
+          apps: current.apps.map((app) => {
+            if (app.repoKey !== PRIMARY_REPO_KEY) return app;
+            // Merge in existing secret keys (if any) and keep the merged list sorted.
+            const keys = keyMap.get(app.name.trim()) ?? [];
+            return { ...app, env: withSecretRows(app.env, keys) };
+          }),
+        };
+        baselineDraft.current = structuredClone(next);
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Load once for this application.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId]);
+
   const compiled = documentsFromDraft(draft);
   const issues = validatePrimaryDocument(compiled.primary);
   const hasUntouchedStarterApps = draft.apps.some(isUntouchedStarterApp);
   const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hasUntouchedStarterApps;
-  const isDirty = snapshotDocument(compiled.primary.document) !== savedSnapshot;
+  const secretsDirty = draft.apps.some((app) => {
+    if (app.repoKey !== PRIMARY_REPO_KEY) return false;
+    const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
+    return diff.upserts.length > 0 || diff.deletes.length > 0;
+  });
+  const isDirty = snapshotDocument(compiled.primary.document) !== savedSnapshot || secretsDirty;
   const canSave = isDirty && !hasBlockingIssues && !saveConfig.isPending;
 
   const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
@@ -96,15 +154,55 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
   function handleSave() {
     if (!canSave) return;
     const primaryDocument = documentsFromDraft(draft).primary.document;
+    const secrets = draft.apps
+      .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2)
+      .map((app) => {
+        const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
+        return { appName: app.name.trim(), upserts: diff.upserts, deletes: diff.deletes };
+      })
+      .filter((entry) => entry.upserts.length > 0 || entry.deletes.length > 0);
+
     saveConfig.mutate(
-      { applicationId: appId, document: previewConfigSchema.parse(primaryDocument) },
+      {
+        applicationId: appId,
+        document: previewConfigSchema.parse(primaryDocument),
+        secrets: secrets.length > 0 ? secrets : undefined,
+      },
       {
         onSuccess: () => {
           setSavedSnapshot(snapshotDocument(primaryDocument));
+          // Reflect the now-persisted secrets: clear typed values and mark rows
+          // as existing (masked) secrets so a re-save won't re-upload them.
+          setDraft((current) => {
+            const next: TopologyDraft = {
+              ...current,
+              apps: current.apps.map((app) => ({
+                ...app,
+                env: app.env.map((row) =>
+                  row.sensitive && row.key.trim() !== "" ? { ...row, value: "", origin: "secret" as const } : row,
+                ),
+              })),
+            };
+            const keyMap = new Map<string, string[]>();
+            for (const app of next.apps) {
+              if (app.repoKey !== PRIMARY_REPO_KEY) continue;
+              keyMap.set(
+                app.name.trim(),
+                app.env.filter((row) => row.sensitive && row.key.trim() !== "").map((row) => row.key.trim()),
+              );
+            }
+            loadedSecretKeys.current = keyMap;
+            baselineDraft.current = structuredClone(next);
+            return next;
+          });
           toastManager.add({ type: "success", title: "PreviewKit config saved" });
         },
       },
     );
+  }
+
+  function handleCancel() {
+    if (baselineDraft.current != null) setDraft(structuredClone(baselineDraft.current));
   }
 
   return (
@@ -120,6 +218,7 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
               issues={issues}
               dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
               referenceTokens={referenceTokens}
+              enableSecrets
               onChange={updateApp}
               onSetPrimary={setPrimaryApp}
               onRemove={removeApp}
@@ -164,6 +263,14 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
       ) : undefined}
 
       <div className="sticky bottom-0 -mx-1 flex items-center justify-end gap-3 border-t border-border-dim bg-surface-void/90 px-1 py-3 backdrop-blur">
+        <Button
+          variant="ghost"
+          onClick={handleCancel}
+          disabled={!isDirty || saveConfig.isPending}
+          aria-label="preview-config-cancel"
+        >
+          Cancel
+        </Button>
         <Button
           variant="accent"
           className="gap-2"

@@ -33,6 +33,7 @@ const baseOpts = {
     imageTag: "ghcr.io/my-org/web:pr-42-abc1234",
     resolvedEnv: { DATABASE_URL: "postgres://db:5432/preview" },
     prNumber: 42,
+    publicUrl: "https://abc123def456.preview.autonoma.app",
 };
 
 const baseRouteOpts = {
@@ -153,12 +154,34 @@ describe("buildAppDeployment", () => {
         });
     });
 
-    it("injects resolved environment variables", () => {
+    it("injects resolved environment variables plus the built-ins", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;
         expect(container.env).toEqual([
             { name: "DATABASE_URL", value: "postgres://db:5432/preview" },
             { name: "PORT", value: "3000" },
+            { name: "AUTONOMA_PREVIEWKIT", value: "true" },
+            { name: "AUTONOMA_PREVIEWKIT_PR", value: "42" },
+            { name: "AUTONOMA_PREVIEWKIT_URL", value: "https://abc123def456.preview.autonoma.app" },
+        ]);
+    });
+
+    it("overrides any user-set built-in keys with the canonical injected values", () => {
+        const dep = buildAppDeployment({
+            ...baseOpts,
+            resolvedEnv: {
+                DATABASE_URL: "postgres://db:5432/preview",
+                AUTONOMA_PREVIEWKIT_URL: "https://attacker.example.com",
+                AUTONOMA_PREVIEWKIT: "false",
+            },
+        });
+        const container = dep.spec!.template.spec!.containers[0]!;
+        const builtins = container.env!.filter((e) => e.name.startsWith("AUTONOMA_PREVIEWKIT"));
+        // Exactly one of each, with the real values - no duplicate env entries.
+        expect(builtins).toEqual([
+            { name: "AUTONOMA_PREVIEWKIT", value: "true" },
+            { name: "AUTONOMA_PREVIEWKIT_PR", value: "42" },
+            { name: "AUTONOMA_PREVIEWKIT_URL", value: "https://abc123def456.preview.autonoma.app" },
         ]);
     });
 

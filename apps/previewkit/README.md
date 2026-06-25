@@ -147,6 +147,18 @@ env:
 
 Templates resolve to Kubernetes service DNS names within the namespace (e.g. `db`, `api`).
 
+### Built-in Environment Variables
+
+Every app pod is injected with these at deploy time (`Deployer.deployApp`). The names are reserved - the secrets API rejects uploads using them, and they always override any user-set value (config `env` or a stored secret):
+
+| Variable | Value |
+| --- | --- |
+| `AUTONOMA_PREVIEWKIT` | `true` |
+| `AUTONOMA_PREVIEWKIT_PR` | The pull request number (e.g. `123`) |
+| `AUTONOMA_PREVIEWKIT_URL` | This app's public URL, `https://{hash}.{domain}` (per-app) |
+
+The reserved key set lives in `@autonoma/types` (`PREVIEWKIT_BUILTIN_ENV_VARS` / `isReservedPreviewkitEnvKey`).
+
 ## Secrets Management
 
 Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`. They are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (`build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.

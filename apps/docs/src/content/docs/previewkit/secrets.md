@@ -82,6 +82,30 @@ apps:
 
 Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the same way.
 
+## Built-in environment variables
+
+Previewkit injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved, so the API rejects any secret you try to set with one of these keys.
+
+| Variable | Value | Notes |
+|---|---|---|
+| `AUTONOMA_PREVIEWKIT` | `true` | Always set inside a preview. Use it to detect the environment. |
+| `AUTONOMA_PREVIEWKIT_PR` | `123` | The pull request number this preview was built from. |
+| `AUTONOMA_PREVIEWKIT_URL` | `https://<code>.preview.autonoma.app` | The public HTTPS URL of this app in the preview. In a multi-app preview, each app gets its own URL. |
+
+A common use is tagging your error reporter so preview errors are grouped per PR:
+
+```ts
+import * as Sentry from "@sentry/node";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  // "pr-123" in a preview, "production" everywhere else.
+  environment: process.env.AUTONOMA_PREVIEWKIT_PR != null
+    ? `pr-${process.env.AUTONOMA_PREVIEWKIT_PR}`
+    : "production",
+});
+```
+
 ## What goes where
 
 | Value type | Where it lives |
@@ -92,5 +116,6 @@ Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the
 | PR / owner / namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`) | Stack config `env` - resolved automatically, no upload needed |
 | Behaviour switches (`PLAID_ENV=sandbox`, `SEND_EMAILS_LOCALLY=false`) | Stack config `env` - pinned alongside the rest of the configuration |
 | Anything non-sensitive that varies between environments | Stack config `env` |
+| Preview metadata (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) | Injected automatically - reserved, no upload needed |
 
 If you're unsure, default to the Previewkit API. You only need to think about `build_secrets` when a value must be present *during* the build (the client-bundle case above).

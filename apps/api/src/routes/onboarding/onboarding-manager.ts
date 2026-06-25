@@ -6,6 +6,7 @@ import {
     previewConfigSchema,
     validatePreviewConfigSemantics,
     type PreviewConfig,
+    type PreviewkitConfigSecrets,
     type SecretItem,
 } from "@autonoma/types";
 import { triggerRefinementLoop } from "@autonoma/workflow";
@@ -236,11 +237,89 @@ export class OnboardingManager {
         organizationId: string,
         document: unknown,
         dependencyDocuments: PreviewkitDependencyDocument[] = [],
+        secrets: PreviewkitConfigSecrets = [],
     ): Promise<OnboardingPreviewkitConfig> {
-        this.logger.info("Saving onboarding PreviewKit config", { applicationId, organizationId });
+        this.logger.info("Saving onboarding PreviewKit config", {
+            applicationId,
+            organizationId,
+            secretApps: secrets.length,
+        });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
-        return this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
+
+        // AWS-first: upsert secrets before committing the config revision. If a
+        // secret write throws, the config never saves, so the two stores stay
+        // consistent (the rare residual - secrets written, config not - is the
+        // safe direction: extra secret values are harmless until referenced).
+        await this.upsertConfigSecrets(applicationId, organizationId, document, secrets);
+
+        const result = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
+
+        // Deletes run after the commit so a rolled-back config can never end up
+        // referencing a secret we already removed. Best-effort: a leftover secret
+        // is harmless, so we log and continue rather than fail the saved config.
+        await this.deleteConfigSecrets(applicationId, organizationId, secrets);
+
+        return result;
+    }
+
+    /** Validate secret app names against the document being saved, then upsert (AWS) before the DB commit. */
+    private async upsertConfigSecrets(
+        applicationId: string,
+        organizationId: string,
+        document: unknown,
+        secrets: PreviewkitConfigSecrets,
+    ): Promise<void> {
+        const withUpserts = secrets.filter((entry) => entry.upserts.length > 0);
+        const withDeletes = secrets.filter((entry) => entry.deletes.length > 0);
+        if (withUpserts.length === 0 && withDeletes.length === 0) return;
+
+        const parsed = previewConfigSchema.safeParse(document);
+        if (!parsed.success) {
+            throw new BadRequestError("Cannot save secrets: the PreviewKit config is invalid");
+        }
+        const appNames = new Set(parsed.data.apps.map((app) => app.name));
+        for (const entry of secrets) {
+            if (!appNames.has(entry.appName)) {
+                throw new NotFoundError(`PreviewKit app '${entry.appName}' is not defined in the config`);
+            }
+        }
+
+        const secretsService = this.requirePreviewkitSecretsService();
+        for (const entry of withUpserts) {
+            this.logger.info("Upserting config secrets", {
+                applicationId,
+                appName: entry.appName,
+                count: entry.upserts.length,
+            });
+            await secretsService.upsert(applicationId, entry.appName, entry.upserts, organizationId);
+        }
+    }
+
+    /** Best-effort delete of removed secret keys after the config revision has committed. */
+    private async deleteConfigSecrets(
+        applicationId: string,
+        organizationId: string,
+        secrets: PreviewkitConfigSecrets,
+    ): Promise<void> {
+        const withDeletes = secrets.filter((entry) => entry.deletes.length > 0);
+        if (withDeletes.length === 0) return;
+
+        const secretsService = this.requirePreviewkitSecretsService();
+        for (const entry of withDeletes) {
+            for (const key of entry.deletes) {
+                try {
+                    await secretsService.delete(applicationId, entry.appName, key, organizationId);
+                } catch (err) {
+                    this.logger.warn("Failed to delete a removed config secret (left in place)", {
+                        applicationId,
+                        appName: entry.appName,
+                        key,
+                        err,
+                    });
+                }
+            }
+        }
     }
 
     async validatePreviewkitConfig(

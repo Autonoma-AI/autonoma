@@ -508,6 +508,8 @@ export class Deployer {
 
         const templateContext = { pr: String(prNumber), namespace, owner };
         const publicUrlInfo = { domain, repoFullName, prNumber, secret };
+        const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
+        const url = `https://${host}`;
         const resolvedEnv = this.envInjector.resolve(
             app.env,
             config.apps,
@@ -524,9 +526,10 @@ export class Deployer {
             imageTag,
             resolvedEnv,
             prNumber,
+            publicUrl: url,
             awsSecretName: awsSecretsByApp.get(app.name),
         });
-        const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
+        const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber, publicUrl: url });
         const ingress = buildAppIngress({
             app,
             namespace,
@@ -543,8 +546,6 @@ export class Deployer {
 
         await this.waitForDeploymentReady(namespace, app.name);
 
-        const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
-        const url = `https://${host}`;
         logger.info("Deployed app", { app: app.name, url, namespace });
         return { name: app.name, url };
     }

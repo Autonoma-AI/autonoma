@@ -2,6 +2,7 @@ import {
     DeleteSecretInputSchema,
     IntrospectRepositoryInputSchema,
     ListSecretsInputSchema,
+    PreviewkitConfigSecretsSchema,
     UpsertSecretsInputSchema,
     previewConfigSchema,
 } from "@autonoma/types";
@@ -83,6 +84,7 @@ export const onboardingRouter = router({
                 applicationId: z.string(),
                 document: previewConfigSchema,
                 dependencyDocuments: z.array(z.object({ repo: z.string(), document: previewConfigSchema })).optional(),
+                secrets: PreviewkitConfigSecretsSchema.optional(),
             }),
         )
         .mutation(({ ctx, input }) =>
@@ -91,6 +93,7 @@ export const onboardingRouter = router({
                 ctx.organizationId,
                 input.document,
                 input.dependencyDocuments,
+                input.secrets,
             ),
         ),
 

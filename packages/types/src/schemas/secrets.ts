@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
 
 const SECRET_KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Mirrors the k8sNameRegex in apps/previewkit/src/config/schema.ts. Secret
@@ -21,7 +22,14 @@ export const AppNameSchema = z
     .regex(APP_NAME_REGEX, "App name must be lowercase alphanumeric with hyphens (Kubernetes label-compatible)");
 
 export const SecretItemSchema = z.object({
-    key: SecretKeySchema,
+    key: SecretKeySchema.superRefine((key, ctx) => {
+        if (isReservedPreviewkitEnvKey(key)) {
+            ctx.addIssue({
+                code: "custom",
+                message: `${key} is a reserved built-in variable and cannot be set.`,
+            });
+        }
+    }),
     value: z.string().min(1).max(65536),
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
@@ -56,3 +64,17 @@ export type SecretSummary = {
     maskedLength: number;
     updatedAt: Date;
 };
+
+// Per-app secret changes batched alongside a preview-config save, so the editor
+// can persist envs (config revision) and secrets (AWS Secrets Manager) in one
+// "Save config" call. `upserts` reuse SecretItemSchema (reserved keys rejected);
+// `deletes` are keys removed from the app's bundle.
+export const PreviewkitConfigAppSecretsSchema = z.object({
+    appName: AppNameSchema,
+    upserts: z.array(SecretItemSchema).max(200).default([]),
+    deletes: z.array(SecretKeySchema).max(200).default([]),
+});
+export type PreviewkitConfigAppSecrets = z.infer<typeof PreviewkitConfigAppSecretsSchema>;
+
+export const PreviewkitConfigSecretsSchema = z.array(PreviewkitConfigAppSecretsSchema).max(50);
+export type PreviewkitConfigSecrets = z.infer<typeof PreviewkitConfigSecretsSchema>;

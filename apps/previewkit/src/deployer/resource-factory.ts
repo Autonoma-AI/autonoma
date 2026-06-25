@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { isReservedPreviewkitEnvKey } from "@autonoma/types";
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
 
@@ -8,6 +9,8 @@ interface AppResourceOptions {
     imageTag: string;
     resolvedEnv: Record<string, string>;
     prNumber: number;
+    /** This app's own public preview URL (https://{hash}.{domain}), injected as AUTONOMA_PREVIEWKIT_URL. */
+    publicUrl: string;
     awsSecretName?: string;
 }
 
@@ -78,13 +81,20 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
     // Deployment annotation and scales dependencies up (and ready) before this app.
     const dependsOn = app.depends_on ?? [];
 
-    const envVars = Object.entries(resolvedEnv).map(([name, value]) => ({
-        name,
-        value,
-    }));
+    // Drop any reserved Previewkit built-in keys a user may have set (config
+    // `env` is not validated against the reserved set the way the secrets API
+    // is), then inject the canonical built-ins below so they always win.
+    const envVars = Object.entries(resolvedEnv)
+        .filter(([name]) => !isReservedPreviewkitEnvKey(name))
+        .map(([name, value]) => ({ name, value }));
     if (!resolvedEnv.PORT) {
         envVars.push({ name: "PORT", value: String(app.port) });
     }
+    envVars.push(
+        { name: "AUTONOMA_PREVIEWKIT", value: "true" },
+        { name: "AUTONOMA_PREVIEWKIT_PR", value: String(opts.prNumber) },
+        { name: "AUTONOMA_PREVIEWKIT_URL", value: opts.publicUrl },
+    );
 
     const envFrom: k8s.V1EnvFromSource[] = awsSecretName != null ? [{ secretRef: { name: awsSecretName } }] : [];
 

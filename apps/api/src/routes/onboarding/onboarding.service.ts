@@ -1,3 +1,4 @@
+import type { PreviewkitConfigSecrets } from "@autonoma/types";
 import { Service } from "../service";
 import type { OnboardingManager } from "./onboarding-manager";
 
@@ -47,8 +48,9 @@ export class OnboardingService extends Service {
         organizationId: string,
         document: unknown,
         dependencyDocuments?: Array<{ repo: string; document: unknown }>,
+        secrets?: PreviewkitConfigSecrets,
     ) {
-        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, dependencyDocuments);
+        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, dependencyDocuments, secrets);
     }
 
     async getDeploymentSignalStatus(applicationId: string, organizationId: string) {

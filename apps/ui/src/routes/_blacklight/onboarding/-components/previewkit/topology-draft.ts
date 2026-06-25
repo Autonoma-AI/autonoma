@@ -17,10 +17,20 @@ export const SERVICE_OPTIONS: Array<{
     { recipe: "temporal", label: "Temporal", defaultName: "temporal", meta: "· 7233" },
 ];
 
+/** Where an env/secret row came from on load, so a save can diff secret changes. */
+export type EnvRowOrigin = "config" | "secret" | "new";
+
 export interface EnvRowDraft {
     id: number;
     key: string;
     value: string;
+    /** When true the row is stored as a secret (AWS), not plaintext config `env`. */
+    sensitive: boolean;
+    origin: EnvRowOrigin;
+}
+
+export function envRow(key: string, value: string, sensitive = false, origin: EnvRowOrigin = "new"): EnvRowDraft {
+    return { id: nextDraftId(), key, value, sensitive, origin };
 }
 
 export type AppDraftOrigin = "saved" | "manual" | "suggestion" | "starter";
@@ -190,7 +200,7 @@ export function draftFromConfig(
                       recipe: toServiceRecipe(service.recipe),
                       name: service.name,
                       version: service.version ?? "",
-                      env: Object.entries(service.env).map(([key, value]) => ({ id: nextDraftId(), key, value })),
+                      env: Object.entries(service.env).map(([key, value]) => envRow(key, value, false, "config")),
                       s3: service.s3 === true,
                       sqs: service.sqs === true,
                       sns: service.sns === true,
@@ -213,8 +223,8 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     draft.healthCheck = app.health_check ?? "";
     draft.primary = app.primary === true;
     draft.dependsOn = app.depends_on ?? [];
-    draft.env = Object.entries(app.env).map(([key, value]) => ({ id: nextDraftId(), key, value }));
-    draft.buildArgs = Object.entries(app.build_args).map(([key, value]) => ({ id: nextDraftId(), key, value }));
+    draft.env = sortEnvRows(Object.entries(app.env).map(([key, value]) => envRow(key, value, false, "config")));
+    draft.buildArgs = Object.entries(app.build_args).map(([key, value]) => envRow(key, value, false, "config"));
     draft.buildSecrets = app.build_secrets;
     draft.replicas = String(app.replicas);
     if (app.monorepo != null) draft.monorepo = app.monorepo;
@@ -315,11 +325,61 @@ function compileApp(app: AppDraft): Record<string, unknown> {
 
     const env: Record<string, string> = {};
     for (const row of app.env) {
+        // Sensitive rows are persisted as secrets (AWS), never as plaintext config env.
+        if (row.sensitive) continue;
         if (row.key.trim() !== "") env[row.key.trim()] = row.value;
     }
     compiled.env = env;
 
     return compiled;
+}
+
+/** Sort env rows alphabetically by key; blank-key rows (freshly added) sink to the bottom. */
+export function sortEnvRows(rows: EnvRowDraft[]): EnvRowDraft[] {
+    return [...rows].sort((a, b) => {
+        const aKey = a.key.trim();
+        const bKey = b.key.trim();
+        if (aKey === "" && bKey === "") return 0;
+        if (aKey === "") return 1;
+        if (bKey === "") return -1;
+        return aKey.localeCompare(bKey, undefined, { sensitivity: "base" });
+    });
+}
+
+/**
+ * Seeds an app's env rows from its existing secret bundle: every secret key
+ * becomes a masked, sensitive row (value blank - AWS never returns it). Keys
+ * already present as config env rows are skipped (the config env value wins for
+ * display; the user can toggle it sensitive).
+ */
+export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): EnvRowDraft[] {
+    const existing = new Set(envRows.map((row) => row.key.trim()));
+    const secretRows = secretKeys.filter((key) => !existing.has(key)).map((key) => envRow(key, "", true, "secret"));
+    return sortEnvRows([...envRows, ...secretRows]);
+}
+
+export interface AppSecretsDiff {
+    upserts: Array<{ key: string; value: string }>;
+    deletes: string[];
+}
+
+/**
+ * Diffs an app's current env rows against the secret keys it loaded with:
+ *   - upserts: sensitive rows with a (re-)entered value.
+ *   - deletes: loaded secret keys no longer represented by a sensitive row
+ *     (removed, renamed, or toggled back to non-sensitive).
+ */
+export function diffAppSecrets(envRows: EnvRowDraft[], loadedSecretKeys: string[]): AppSecretsDiff {
+    const upserts: Array<{ key: string; value: string }> = [];
+    const sensitiveKeys = new Set<string>();
+    for (const row of envRows) {
+        const key = row.key.trim();
+        if (!row.sensitive || key === "") continue;
+        sensitiveKeys.add(key);
+        if (row.value !== "") upserts.push({ key, value: row.value });
+    }
+    const deletes = loadedSecretKeys.filter((key) => !sensitiveKeys.has(key));
+    return { upserts, deletes };
 }
 
 function compileMultirepo(draft: TopologyDraft): Record<string, unknown> | undefined {
