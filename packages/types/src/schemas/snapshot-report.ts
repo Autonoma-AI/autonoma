@@ -103,6 +103,6 @@ export const snapshotReportSchema = z.object({
     firstIterationReasoning: z.string().optional(),
     health: reportHealthSchema,
     healthCounts: snapshotReportHealthCountsSchema,
-    summary: checkpointPresentationSummarySchema,
+    summary: checkpointPresentationSummarySchema.optional(),
 });
 export type SnapshotReport = z.infer<typeof snapshotReportSchema>;

@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   cn,
   Panel,
@@ -98,7 +99,13 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <CheckpointSummaryBadge summary={report.summary} />
+            {report.summary != null ? (
+              <CheckpointSummaryBadge summary={report.summary} />
+            ) : (
+              <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
+                {report.health}
+              </Badge>
+            )}
             {isAdmin && (
               <div className="flex items-center gap-2">
                 <Button
@@ -240,4 +247,11 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
       <SnapshotReportDocumentSkeleton />
     </div>
   );
+}
+
+function healthVariant(health: string): "success" | "critical" | "status-running" | "outline" {
+  if (health === "healthy") return "success";
+  if (health === "critical") return "critical";
+  if (health === "running") return "status-running";
+  return "outline";
 }
