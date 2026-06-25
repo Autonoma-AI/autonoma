@@ -8,7 +8,7 @@ import { TestWorkflowEnvironment } from "@temporalio/testing";
  * explicit version tags resolve). Pin an explicit version so CI can fetch the
  * binary deterministically. Bump this when upgrading the Temporal SDK.
  */
-const TIME_SKIPPING_TEST_SERVER_VERSION = "v1.27.0";
+const TIME_SKIPPING_TEST_SERVER_VERSION = "v1.30.1";
 
 /**
  * Creates a time-skipping {@link TestWorkflowEnvironment} with a pinned test
