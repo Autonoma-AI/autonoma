@@ -172,7 +172,8 @@ export function mergeDiffJobContext(
  * Read every per-failure action emitted by *earlier* iterations of the same
  * loop, in emission order. Every kind in the table parses against
  * {@link healingActionSchema} (update_plan / report_bug /
- * report_engine_limitation / remove_test); healing authors no other rows.
+ * report_engine_limitation / report_unknown_issue / remove_test); healing
+ * authors no other rows.
  */
 export async function loadPriorActions(currentIterationId: string): Promise<HealingAction[]> {
     const current = await db.refinementIteration.findUniqueOrThrow({

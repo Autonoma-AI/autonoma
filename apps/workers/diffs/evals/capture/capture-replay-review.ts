@@ -119,7 +119,7 @@ function blankExpected(runId: string): string {
 description: "Captured from run ${runId} - TODO: describe what this case exercises"
 skip: true
 # Deterministic check (uncomment + fill in, then set skip: false):
-# verdict: application_bug   # one of: engine_error | application_bug
+# verdict: application_bug   # one of: engine_error | application_bug | unknown_issue
 ---
 
 TODO: author the LLM-judge rubric here.

@@ -2,12 +2,18 @@ import type { HealingResult } from "@autonoma/diffs";
 import { type CheckFailure, baseFrontmatterSchema } from "@autonoma/evals";
 import { z } from "zod";
 
-const ACTION_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "remove_test"] as const;
+const ACTION_KINDS = [
+    "update_plan",
+    "report_bug",
+    "report_engine_limitation",
+    "report_unknown_issue",
+    "remove_test",
+] as const;
 
 const actionKindSchema = z.enum(ACTION_KINDS);
 
 /** The non-removal actions that quarantine a failing test rather than deleting it from the suite. */
-const QUARANTINE_KINDS = ["update_plan", "report_bug", "report_engine_limitation"] as const;
+const QUARANTINE_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "report_unknown_issue"] as const;
 
 const provenanceDispositionSchema = z.enum(["removed", "quarantined"]);
 

@@ -13,7 +13,7 @@ export interface TestEntry {
     generation?: { id: string; status: string; reviewReasoning?: string };
     run?: { id: string; status: string; verdict?: string; reviewReasoning?: string };
     quarantine?: {
-        reason: "application_bug" | "engine_limitation";
+        reason: "application_bug" | "engine_limitation" | "unknown_issue";
         issueId: string;
         bugId?: string;
     };

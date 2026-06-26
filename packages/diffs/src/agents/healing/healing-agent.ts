@@ -25,6 +25,7 @@ import { HealingResultTool } from "./healing-result-tool";
 import { HealingRemoveTestTool } from "./tools/remove-test-tool";
 import { HealingReportBugTool } from "./tools/report-bug-tool";
 import { ReportEngineLimitationTool } from "./tools/report-engine-limitation-tool";
+import { ReportUnknownIssueTool } from "./tools/report-unknown-issue-tool";
 import { UpdatePlanTool } from "./tools/update-plan-tool";
 
 const SYSTEM_PROMPT_BASE = readFileSync(join(import.meta.dirname, "../../healing/system-prompt.md"), "utf-8");
@@ -51,8 +52,9 @@ export interface HealingInput extends SnapshotInfo {
      * The loop's iteration cap (3 for both diffs and onboarding). When
      * `iteration === maxIterations` this is the final turn: the retry tool
      * (`update_plan`) is withheld so the agent can only reach a terminal
-     * disposition (report_bug / report_engine_limitation / remove_test), making
-     * it structurally impossible to spawn a dangling iteration N+1.
+     * disposition (report_bug / report_engine_limitation / report_unknown_issue /
+     * remove_test), making it structurally impossible to spawn a dangling
+     * iteration N+1.
      */
     maxIterations: number;
     /** Actions emitted in earlier iterations of the same loop. */
@@ -105,6 +107,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
     private readonly updatePlanTool = new UpdatePlanTool();
     private readonly reportBugTool = new HealingReportBugTool();
     private readonly reportEngineLimitationTool = new ReportEngineLimitationTool();
+    private readonly reportUnknownIssueTool = new ReportUnknownIssueTool();
     private readonly removeTestTool = new HealingRemoveTestTool();
     private readonly resultTool = new HealingResultTool();
 
@@ -151,6 +154,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
                 this.readScenarioTool,
                 this.reportBugTool,
                 this.reportEngineLimitationTool,
+                this.reportUnknownIssueTool,
                 this.removeTestTool,
                 ...retryTools,
             ],

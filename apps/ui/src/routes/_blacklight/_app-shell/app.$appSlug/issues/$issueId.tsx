@@ -32,16 +32,18 @@ const SEVERITY_BADGE: Record<string, BadgeVariant> = {
   low: "secondary",
 };
 
-type KindBadgeVariant = "status-failed" | "warn";
+type KindBadgeVariant = "status-failed" | "warn" | "secondary";
 
 const KIND_BADGE: Record<string, KindBadgeVariant> = {
   application_bug: "status-failed",
   engine_limitation: "warn",
+  unknown_issue: "secondary",
 };
 
 const KIND_LABEL: Record<string, string> = {
   application_bug: "Application Bug",
   engine_limitation: "Engine Limitation",
+  unknown_issue: "Unknown Issue",
 };
 
 const EVIDENCE_TYPE_LABEL: Record<string, string> = {

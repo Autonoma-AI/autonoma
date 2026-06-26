@@ -59,7 +59,24 @@ function reportBugAction(testCaseId: string): HealingAction {
         severity: "high",
         evidence: [],
         reasoning: "Application defect, not a test issue.",
+        suspectedCause: {
+            explanation: "The pay handler swallows the click without dispatching the charge.",
+            codeReferences: [{ file: "src/checkout/PayButton.tsx", lines: "42-58" }],
+        },
         reviewLink: { runReviewId: "rr-2" },
+    };
+}
+
+function reportUnknownIssueAction(testCaseId: string): HealingAction {
+    return {
+        kind: "report_unknown_issue",
+        testCaseId,
+        title: "Pay flow looks broken",
+        description: "The charge never completes, but the cause appears to be a backend service not checked out here.",
+        severity: "medium",
+        evidence: [],
+        reasoning: "Suspected application issue we could not ground in the checked-out code.",
+        reviewLink: { runReviewId: "rr-3" },
     };
 }
 
@@ -120,7 +137,7 @@ describe("healing provenance grader", () => {
 
     it("accepts any quarantine action for a pre-existing failing test but rejects removal", () => {
         // The rule is "kept, not deleted" - it does not pin which quarantine mechanism.
-        for (const action of [updatePlanAction("tc-1"), reportBugAction("tc-1")]) {
+        for (const action of [updatePlanAction("tc-1"), reportBugAction("tc-1"), reportUnknownIssueAction("tc-1")]) {
             expect(checkHealingResult(healingResult([action]), { provenance: { "tc-1": "quarantined" } })).toEqual([]);
         }
 

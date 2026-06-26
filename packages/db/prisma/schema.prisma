@@ -769,6 +769,7 @@ enum GenerationReviewVerdict {
   agent_limitation
   application_bug
   plan_mismatch
+  unknown_issue
 
   @@map("generation_review_verdict")
 }
@@ -776,6 +777,7 @@ enum GenerationReviewVerdict {
 enum RunReviewVerdict {
   engine_error
   application_bug
+  unknown_issue
 
   @@map("run_review_verdict")
 }
@@ -840,6 +842,7 @@ enum IssueSeverity {
 enum IssueKind {
   application_bug
   engine_limitation
+  unknown_issue
 
   @@map("issue_kind")
 }
@@ -857,7 +860,8 @@ model Issue {
   description String        @db.Text
   dismissed   Boolean       @default(false)
 
-  // Set only when kind == engine_limitation. Engine quirks are snapshot-scoped.
+  // Set for the Bug-less, snapshot-scoped kinds (engine_limitation, unknown_issue):
+  // neither aggregates into a customer-facing Bug, so each lives with its snapshot.
   snapshotId String?         @map("snapshot_id")
   snapshot   BranchSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
@@ -953,6 +957,7 @@ enum RefinementActionKind {
   add_test
   report_bug
   report_engine_limitation
+  report_unknown_issue
   remove_test
 
   @@map("refinement_action_kind")

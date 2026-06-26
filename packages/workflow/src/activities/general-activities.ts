@@ -9,6 +9,7 @@ import type {
     HealingReviewLink,
     ReplayVerdict,
     ReplayVerdictKind,
+    SuspectedCause,
 } from "@autonoma/types";
 
 export type { HealingReviewLink };
@@ -250,10 +251,21 @@ export interface PersistedHealingAction {
               severity: HealingSeverity;
               evidence: HealingEvidenceItem[];
               reasoning: string;
+              suspectedCause: SuspectedCause;
               reviewLink: HealingReviewLink;
           }
         | {
               kind: "report_engine_limitation";
+              testCaseId: string;
+              title: string;
+              description: string;
+              severity: HealingSeverity;
+              evidence: HealingEvidenceItem[];
+              reasoning: string;
+              reviewLink: HealingReviewLink;
+          }
+        | {
+              kind: "report_unknown_issue";
               testCaseId: string;
               title: string;
               description: string;

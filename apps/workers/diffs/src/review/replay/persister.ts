@@ -1,7 +1,7 @@
 import type { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { ReplayVerdict } from "@autonoma/types";
+import type { ReplayVerdict, SuspectedCause } from "@autonoma/types";
 
 export interface PersistRunReviewParams {
     runId: string;
@@ -24,6 +24,18 @@ export class RunReviewPersister {
 
         const enrichedEvidence = enrichEvidence(verdict.evidence, params);
 
+        // `suspectedCause` rides in the analysis JSON (no dedicated column) and
+        // is only present on `application_bug` verdicts.
+        const analysis: {
+            failurePoint: ReplayVerdict["failurePoint"];
+            evidence: ReplayVerdict["evidence"];
+            suspectedCause?: SuspectedCause;
+        } = {
+            failurePoint: verdict.failurePoint,
+            evidence: enrichedEvidence,
+        };
+        if (verdict.verdict === "application_bug") analysis.suspectedCause = verdict.suspectedCause;
+
         const reviewId = await db.$transaction(async (tx) => {
             const review = await tx.runReview.update({
                 where: { runId },
@@ -31,7 +43,7 @@ export class RunReviewPersister {
                     status: "completed",
                     verdict: verdict.verdict,
                     reasoning: verdict.reasoning,
-                    analysis: { failurePoint: verdict.failurePoint, evidence: enrichedEvidence },
+                    analysis,
                 },
                 select: { id: true },
             });

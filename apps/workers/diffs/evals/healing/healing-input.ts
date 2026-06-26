@@ -62,7 +62,7 @@ const failureRecordSchema = z.object({
 });
 
 const quarantineInfoSchema = z.object({
-    reason: z.enum(["application_bug", "engine_limitation"]),
+    reason: z.enum(["application_bug", "engine_limitation", "unknown_issue"]),
     bugId: z.string().optional(),
     issueId: z.string().optional(),
 });

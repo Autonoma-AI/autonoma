@@ -1,12 +1,20 @@
 import { z } from "zod";
+import { suspectedCauseSchema } from "./suspected-cause";
 
-export const generationVerdictKindSchema = z.enum(["success", "agent_limitation", "application_bug", "plan_mismatch"]);
+export const generationVerdictKindSchema = z.enum([
+    "success",
+    "agent_limitation",
+    "application_bug",
+    "plan_mismatch",
+    "unknown_issue",
+]);
 export type GenerationVerdictKind = z.infer<typeof generationVerdictKindSchema>;
 
 export const GENERATION_FAILURE_VERDICTS = [
     "agent_limitation",
     "application_bug",
     "plan_mismatch",
+    "unknown_issue",
 ] as const satisfies readonly Exclude<GenerationVerdictKind, "success">[];
 
 export const reviewEvidenceSchema = z.object({
@@ -31,8 +39,8 @@ export type FailurePoint = z.infer<typeof failurePointSchema>;
  * rejects the `oneOf` that a discriminated union compiles to. {@link
  * generationVerdictSchema} pipes this flat shape into the discriminated union
  * below, so the model sees an object while consumers get per-kind narrowing.
- * Per-kind required fields (added in later slices) live here as optional fields
- * and are enforced by the union pipe.
+ * Per-kind required fields (e.g. `suspectedCause` on `application_bug`) live
+ * here as optional fields and are enforced by the union pipe.
  */
 const generationVerdictBaseSchema = z.object({
     verdict: generationVerdictKindSchema.describe(
@@ -46,18 +54,28 @@ const generationVerdictBaseSchema = z.object({
         "Where the failure occurred. For 'success', use this to indicate the final completed step.",
     ),
     evidence: z.array(reviewEvidenceSchema).describe("Supporting evidence from the analysis"),
+    suspectedCause: suspectedCauseSchema
+        .optional()
+        .describe(
+            "REQUIRED for 'application_bug': the concrete code cause grounding the bug (>= 1 code reference). If you cannot ground the bug in code, classify it as 'unknown_issue' instead. Ignored for other verdicts.",
+        ),
 });
 
 const successVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("success") });
 const agentLimitationVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("agent_limitation") });
-const applicationBugVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("application_bug") });
+const applicationBugVerdictSchema = generationVerdictBaseSchema.extend({
+    verdict: z.literal("application_bug"),
+    suspectedCause: suspectedCauseSchema,
+});
 const planMismatchVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("plan_mismatch") });
+const unknownIssueVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("unknown_issue") });
 
 const generationVerdictUnionSchema = z.discriminatedUnion("verdict", [
     successVerdictSchema,
     agentLimitationVerdictSchema,
     applicationBugVerdictSchema,
     planMismatchVerdictSchema,
+    unknownIssueVerdictSchema,
 ]);
 
 /**

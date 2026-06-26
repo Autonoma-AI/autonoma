@@ -3,11 +3,12 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
 import { applyRemoveTest } from "../src/activities/healing/apply-remove-test";
+import { applyReportUnknownIssue } from "../src/activities/healing/apply-report-unknown-issue";
 import { applyUpdatePlan } from "../src/activities/healing/apply-update-plan";
 import { initRefinementLoop } from "../src/activities/refinement/loop-lifecycle";
 
-// initRefinementLoop / applyRemoveTest / applyUpdatePlan read the `@autonoma/db`
-// singleton (the global `db` proxy resolves to globalThis.prisma). Point it at
+// initRefinementLoop / applyRemoveTest / applyUpdatePlan / applyReportUnknownIssue read the
+// `@autonoma/db` singleton (the global `db` proxy resolves to globalThis.prisma). Point it at
 // this suite's container so the activities and the fixtures share one database.
 declare global {
     // eslint-disable-next-line no-var
@@ -322,5 +323,53 @@ cutoverSuite((test) => {
             select: { generationId: true },
         });
         expect(linked.generationId).toBe(generation.id);
+    });
+
+    test("report_unknown_issue creates a Bug-less, snapshot-scoped quarantining Issue", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const subject = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+
+        // The failed generation review the unknown_issue cites.
+        const generation = await harness.db.testGeneration.create({
+            data: { snapshotId, testPlanId: subject.planId, organizationId, status: "failed" },
+            select: { id: true },
+        });
+        const review = await harness.db.generationReview.create({
+            data: { generationId: generation.id, organizationId, status: "completed", verdict: "unknown_issue" },
+            select: { id: true },
+        });
+
+        await applyReportUnknownIssue({
+            snapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Charge never completes",
+            description: "Looks like a backend issue we cannot see in the checked-out code.",
+            severity: "medium",
+            evidence: [],
+            reviewLink: { generationReviewId: review.id },
+        });
+
+        const issue = await harness.db.issue.findFirstOrThrow({
+            where: { generationReviewId: review.id },
+            select: { id: true, kind: true, snapshotId: true, bugId: true },
+        });
+        // unknown_issue: snapshot-scoped, and never a customer-facing Bug.
+        expect(issue.kind).toBe("unknown_issue");
+        expect(issue.snapshotId).toBe(snapshotId);
+        expect(issue.bugId).toBeNull();
+
+        const bugCount = await harness.db.bug.count({ where: { applicationId } });
+        expect(bugCount).toBe(0);
+
+        // The test is quarantined for this snapshot, pointing at the Issue.
+        const assignment = await harness.db.testCaseAssignment.findUniqueOrThrow({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId: subject.testCaseId } },
+            select: { quarantineIssueId: true },
+        });
+        expect(assignment.quarantineIssueId).toBe(issue.id);
     });
 });

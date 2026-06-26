@@ -13,7 +13,7 @@ export function buildHealingExpected(
 ): string {
     const expectedLines = failures.map(
         (f) =>
-            `#   ${f.testCaseId}: update_plan   # ${f.testCaseSlug} - pick: update_plan | report_bug | report_engine_limitation | remove_test`,
+            `#   ${f.testCaseId}: update_plan   # ${f.testCaseSlug} - pick: update_plan | report_bug | report_engine_limitation | report_unknown_issue | remove_test`,
     );
     const expectedBlock =
         expectedLines.length > 0 ? expectedLines.join("\n") : "#   (no failing test cases in this turn)";
@@ -39,7 +39,8 @@ ${expectedBlock}
 # failing test cases (only those whose disposition matters). Use \`removed\` for an
 # invalid test authored this snapshot (must be remove_test, and its failure must
 # carry a reviewLink) and \`quarantined\` for a pre-existing failing test (must NOT
-# be removed - any of update_plan / report_bug / report_engine_limitation).
+# be removed - any of update_plan / report_bug / report_engine_limitation /
+# report_unknown_issue).
 # provenance:
 ${provenanceBlock}
 ---
@@ -50,9 +51,10 @@ The judge sees only the agent's structured output plus this body - never the
 codebase or screenshots. Grade qualities the deterministic checks cannot express:
   - For each \`update_plan\`: does the \`newPrompt\` address the cited failure?
     Is it specific enough? Does it preserve the test's original intent?
-  - For each \`report_bug\` / \`report_engine_limitation\`: is the triage correct
-    (application defect vs. engine/agent limitation)? Are the description and
-    severity proportionate to the cited reasoning?
+  - For each \`report_bug\` / \`report_engine_limitation\` / \`report_unknown_issue\`: is the
+    triage correct (grounded application defect vs. engine/agent limitation vs. a suspected
+    bug that couldn't be grounded in code)? For \`report_bug\`, is the \`suspectedCause\`
+    genuinely grounded? Are the description and severity proportionate to the cited reasoning?
   - For each \`remove_test\`: is the cited reason plausible given the failure
     context - i.e. an invalid test born this snapshot or a feature removed from
     the app, not a pre-existing test that merely fails?

@@ -13,9 +13,10 @@ const RUN_STATUS_BADGE: Record<RunStatus, "status-pending" | "status-running" | 
   failed: "status-failed",
 };
 
-const VERDICT_BADGE: Record<NonNullable<RunVerdict>, { label: string; variant: "warn" | "critical" }> = {
+const VERDICT_BADGE: Record<NonNullable<RunVerdict>, { label: string; variant: "warn" | "critical" | "secondary" }> = {
   engine_error: { label: "engine error", variant: "warn" },
   application_bug: { label: "app bug", variant: "critical" },
+  unknown_issue: { label: "unknown issue", variant: "secondary" },
 };
 
 interface StageReplayProps {

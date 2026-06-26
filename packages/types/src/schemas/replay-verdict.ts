@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { failurePointSchema, reviewEvidenceSchema } from "./generation-verdict";
+import { suspectedCauseSchema } from "./suspected-cause";
 
-export const replayVerdictKindSchema = z.enum(["engine_error", "application_bug"]);
+export const replayVerdictKindSchema = z.enum(["engine_error", "application_bug", "unknown_issue"]);
 export type ReplayVerdictKind = z.infer<typeof replayVerdictKindSchema>;
 
 /**
@@ -16,20 +17,30 @@ export type ReplayVerdictKind = z.infer<typeof replayVerdictKindSchema>;
  */
 const replayVerdictBaseSchema = z.object({
     verdict: replayVerdictKindSchema.describe(
-        "Root cause of the replay failure. 'engine_error' means the recorded steps no longer match the application UI; 'application_bug' means the steps are correct but the app misbehaved.",
+        "Root cause of the replay failure. 'engine_error' means the recorded steps no longer match the application UI; 'application_bug' means the steps are correct but the app misbehaved; 'unknown_issue' means the app likely misbehaved but the cause cannot be grounded in the checked-out code.",
     ),
     title: z.string().describe("Short, bug-report-style title (under 100 chars)"),
     reasoning: z.string().describe("Detailed explanation of the verdict"),
     failurePoint: failurePointSchema.describe("Where the failure occurred"),
     evidence: z.array(reviewEvidenceSchema).describe("Supporting evidence from the analysis"),
+    suspectedCause: suspectedCauseSchema
+        .optional()
+        .describe(
+            "REQUIRED for 'application_bug': the concrete code cause grounding the bug (>= 1 code reference). If you cannot ground the bug in code, classify it as 'unknown_issue' instead. Ignored for other verdicts.",
+        ),
 });
 
 const engineErrorVerdictSchema = replayVerdictBaseSchema.extend({ verdict: z.literal("engine_error") });
-const applicationBugVerdictSchema = replayVerdictBaseSchema.extend({ verdict: z.literal("application_bug") });
+const applicationBugVerdictSchema = replayVerdictBaseSchema.extend({
+    verdict: z.literal("application_bug"),
+    suspectedCause: suspectedCauseSchema,
+});
+const unknownIssueVerdictSchema = replayVerdictBaseSchema.extend({ verdict: z.literal("unknown_issue") });
 
 const replayVerdictUnionSchema = z.discriminatedUnion("verdict", [
     engineErrorVerdictSchema,
     applicationBugVerdictSchema,
+    unknownIssueVerdictSchema,
 ]);
 
 /**

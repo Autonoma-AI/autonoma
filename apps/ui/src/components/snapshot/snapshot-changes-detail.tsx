@@ -11,8 +11,8 @@ import { useChangesDetailParams } from "./use-changes-params";
 import { useSnapshotEntry } from "./use-snapshot-sections";
 
 const QUARANTINE_REASON: Record<
-  "application_bug" | "engine_limitation",
-  { label: string; variant: "critical" | "high"; hint: string }
+  "application_bug" | "engine_limitation" | "unknown_issue",
+  { label: string; variant: "critical" | "high" | "secondary"; hint: string }
 > = {
   application_bug: {
     label: "application bug",
@@ -24,6 +24,11 @@ const QUARANTINE_REASON: Record<
     variant: "high",
     hint: "Quarantined because the test engine cannot reliably execute this test.",
   },
+  unknown_issue: {
+    label: "unknown issue",
+    variant: "secondary",
+    hint: "Quarantined because the test looked like it surfaced a bug we couldn't confirm in the code.",
+  },
 };
 
 const RUN_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "status-passed" | "status-failed"> = {
@@ -31,6 +36,12 @@ const RUN_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "st
   running: "status-running",
   success: "status-passed",
   failed: "status-failed",
+};
+
+const RUN_VERDICT_BADGE: Record<string, { label: string; variant: "critical" | "warn" | "secondary" }> = {
+  engine_error: { label: "engine error", variant: "warn" },
+  application_bug: { label: "app bug", variant: "critical" },
+  unknown_issue: { label: "unknown issue", variant: "secondary" },
 };
 
 const GENERATION_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "status-passed" | "status-failed"> =
@@ -207,8 +218,8 @@ function RunActions({ run }: { run: NonNullable<TestEntry["run"]> }) {
     <>
       <Badge variant={variant}>{run.status}</Badge>
       {run.verdict != null && (
-        <Badge variant={run.verdict === "application_bug" ? "critical" : "warn"}>
-          {run.verdict === "application_bug" ? "app bug" : run.verdict.replace("_", " ")}
+        <Badge variant={RUN_VERDICT_BADGE[run.verdict]?.variant ?? "warn"}>
+          {RUN_VERDICT_BADGE[run.verdict]?.label ?? run.verdict.replaceAll("_", " ")}
         </Badge>
       )}
       <AppLink

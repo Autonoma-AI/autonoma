@@ -33,6 +33,18 @@ export interface ApplyReportEngineLimitationInput {
     reviewLink: HealingReviewLink;
 }
 
+export interface ApplyReportUnknownIssueInput {
+    refinementActionId?: string;
+    snapshotId: string;
+    organizationId: string;
+    testCaseId: string;
+    title: string;
+    description: string;
+    severity: HealingSeverity;
+    evidence: HealingEvidenceItem[];
+    reviewLink: HealingReviewLink;
+}
+
 export interface ApplyRemoveTestInput {
     refinementActionId?: string;
     snapshotId: string;

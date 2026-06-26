@@ -20,7 +20,7 @@ export interface GenerationManagerParams {
 interface QuarantineSummary {
     quarantineIssueId: string | null;
     quarantineIssue: {
-        kind: "application_bug" | "engine_limitation";
+        kind: "application_bug" | "engine_limitation" | "unknown_issue";
         bugId: string | null;
     } | null;
 }

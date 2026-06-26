@@ -7,7 +7,7 @@ type ExecutedTest = RouterOutputs["branches"]["snapshotDetail"]["executedTests"]
 type RunStatus = ExecutedTest["status"];
 type FinalOutcome = ExecutedTest["finalOutcome"];
 type StatusBadgeVariant = "status-pending" | "status-running" | "status-passed" | "status-failed";
-type VerdictBadgeVariant = "success" | "warn" | "critical";
+type VerdictBadgeVariant = "success" | "warn" | "critical" | "secondary";
 
 interface CheckpointTestsRunProps {
   executedTests: ExecutedTest[];
@@ -119,4 +119,5 @@ const VERDICT_BADGE: Record<NonNullable<ExecutedTest["verdict"]>, { label: strin
   application_bug: { label: "app bug", variant: "critical" },
   agent_limitation: { label: "agent limitation", variant: "warn" },
   plan_mismatch: { label: "plan mismatch", variant: "warn" },
+  unknown_issue: { label: "unknown issue", variant: "secondary" },
 };

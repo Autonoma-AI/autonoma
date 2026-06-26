@@ -25,7 +25,7 @@ export class ConflictError extends APIError {
  */
 export class TestQuarantinedError extends APIError {
     constructor(
-        public readonly reason: "application_bug" | "engine_limitation",
+        public readonly reason: "application_bug" | "engine_limitation" | "unknown_issue",
         public readonly link: { bugId?: string; issueId?: string },
     ) {
         const linkText = link.bugId != null ? `Bug ${link.bugId}` : `Issue ${link.issueId ?? "?"}`;

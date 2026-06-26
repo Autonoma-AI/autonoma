@@ -7,9 +7,9 @@ AI agents that drive the diff-analysis, healing, and review pipeline. Every agen
 | Agent | Trigger | Decides |
 |---|---|---|
 | `DiffsAgent` | PR diffs | Which existing tests might be affected; and authors any missing tests directly via `create_test` (mints the test case + plan + a pending generation, with a required coverage justification) |
-| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test). It only heals and culls - it never authors tests |
-| `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug) |
-| `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug) |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / report_unknown_issue / remove_test). `report_bug` requires a re-grounded `suspectedCause`; when the cause can't be grounded it downgrades to `report_unknown_issue` (Issue without a customer-facing Bug). It only heals and culls - it never authors tests |
+| `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug / unknown_issue). `application_bug` requires a `suspectedCause` grounding the bug in code; ungroundable suspicions are `unknown_issue` |
+| `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug / unknown_issue). Same grounding rule: `application_bug` carries a `suspectedCause`, ungroundable suspicions are `unknown_issue` |
 
 All four extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
 

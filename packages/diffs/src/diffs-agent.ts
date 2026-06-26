@@ -13,7 +13,7 @@ export interface DiffAnalysis {
 
 /** Quarantine metadata for a single test case in a single snapshot. */
 export interface QuarantineInfo {
-    reason: "application_bug" | "engine_limitation";
+    reason: "application_bug" | "engine_limitation" | "unknown_issue";
     bugId?: string;
     issueId?: string;
 }

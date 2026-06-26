@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { suspectedCauseSchema } from "./suspected-cause";
 
 const reviewSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
 
@@ -39,6 +40,9 @@ const reportBugActionSchema = z.object({
     severity: reviewSeveritySchema,
     evidence: z.array(evidenceItemSchema).describe("Screenshots, videos, step outputs supporting the bug report"),
     reasoning: z.string().describe("Why this is an application bug rather than a test or engine issue"),
+    suspectedCause: suspectedCauseSchema.describe(
+        "The concrete code cause you re-grounded independently (>= 1 code reference). If you cannot reproduce the cause in the checked-out code, downgrade to report_unknown_issue instead of reporting a bug.",
+    ),
     reviewLink: healingReviewLinkSchema,
 });
 
@@ -50,6 +54,21 @@ const reportEngineLimitationActionSchema = z.object({
     severity: reviewSeveritySchema,
     evidence: z.array(evidenceItemSchema),
     reasoning: z.string(),
+    reviewLink: healingReviewLinkSchema,
+});
+
+const reportUnknownIssueActionSchema = z.object({
+    kind: z.literal("report_unknown_issue"),
+    testCaseId: z.string().describe("ID of the test case that surfaced the suspected issue"),
+    title: z.string(),
+    description: z
+        .string()
+        .describe("What the application appeared to do wrong, and why the cause could not be grounded in the code"),
+    severity: reviewSeveritySchema,
+    evidence: z.array(evidenceItemSchema),
+    reasoning: z
+        .string()
+        .describe("Why this is a suspected issue you could not ground in code rather than a confirmed application bug"),
     reviewLink: healingReviewLinkSchema,
 });
 
@@ -72,6 +91,7 @@ export const healingActionSchema = z.discriminatedUnion("kind", [
     updatePlanActionSchema,
     reportBugActionSchema,
     reportEngineLimitationActionSchema,
+    reportUnknownIssueActionSchema,
     removeTestActionSchema,
 ]);
 
@@ -79,12 +99,17 @@ export type HealingAction = z.infer<typeof healingActionSchema>;
 export type UpdatePlanAction = z.infer<typeof updatePlanActionSchema>;
 export type ReportBugAction = z.infer<typeof reportBugActionSchema>;
 export type ReportEngineLimitationAction = z.infer<typeof reportEngineLimitationActionSchema>;
+export type ReportUnknownIssueAction = z.infer<typeof reportUnknownIssueActionSchema>;
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
 // reviewLink is deterministic failure metadata attached by the runner, not authored by the model.
 export const reportBugInputSchema = reportBugActionSchema.omit({ kind: true, reviewLink: true });
 export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({
+    kind: true,
+    reviewLink: true,
+});
+export const reportUnknownIssueInputSchema = reportUnknownIssueActionSchema.omit({
     kind: true,
     reviewLink: true,
 });

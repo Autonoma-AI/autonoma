@@ -38,9 +38,9 @@ export function buildHealingPrompt(input: HealingInput): string {
         sections.push(
             `This is the **final iteration** (the loop's ${input.maxIterations}-iteration budget is exhausted). ` +
                 "There is no next turn, so retrying is not an option: `update_plan` is unavailable. " +
-                "Reach a terminal disposition for every failure - `report_bug`, `report_engine_limitation`, or " +
-                "`remove_test`. A plan that is still failing here but is not an application bug or engine limitation " +
-                "should be removed.",
+                "Reach a terminal disposition for every failure - `report_bug`, `report_engine_limitation`, " +
+                "`report_unknown_issue`, or `remove_test`. A plan that is still failing here but is not a grounded " +
+                "application bug, an engine limitation, or an ungroundable suspected issue should be removed.",
         );
     }
 
@@ -109,6 +109,8 @@ function formatPriorAction(a: HealingAction): string {
             return `- report_bug(testCaseId=${a.testCaseId}, title="${a.title}"): ${truncate(a.reasoning)}`;
         case "report_engine_limitation":
             return `- report_engine_limitation(testCaseId=${a.testCaseId}, title="${a.title}"): ${truncate(a.reasoning)}`;
+        case "report_unknown_issue":
+            return `- report_unknown_issue(testCaseId=${a.testCaseId}, title="${a.title}"): ${truncate(a.reasoning)}`;
         case "remove_test":
             return `- remove_test(testCaseId=${a.testCaseId}): ${truncate(a.reason)}`;
         default: {
@@ -130,8 +132,8 @@ function buildSnapshotSection(input: HealingInput): string {
 function buildFailuresSection(failures: FailureRecord[], finalTurn: boolean): string {
     const parts = [`# Failures (${failures.length})`];
     const actions = finalTurn
-        ? "report_bug, report_engine_limitation, or remove_test"
-        : "update_plan, report_bug, report_engine_limitation, or remove_test";
+        ? "report_bug, report_engine_limitation, report_unknown_issue, or remove_test"
+        : "update_plan, report_bug, report_engine_limitation, report_unknown_issue, or remove_test";
     parts.push(`Each failure must be addressed via ${actions} before you call finish.`);
 
     for (const f of failures) {
@@ -240,8 +242,8 @@ function buildInstructionsSection(input: HealingInput): string {
         "Read each failure and the reviewer's reasoning.",
         "Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
         isFinalTurn(input)
-            ? "For each failure, choose exactly one terminal action: `report_bug`, `report_engine_limitation`, or `remove_test`. There is no next turn, so `update_plan` is unavailable."
-            : "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
+            ? "For each failure, choose exactly one terminal action: `report_bug`, `report_engine_limitation`, `report_unknown_issue`, or `remove_test`. There is no next turn, so `update_plan` is unavailable."
+            : "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, `report_unknown_issue`, or `remove_test`.",
         "Call `finish` with a one-paragraph summary once every failure is handled.",
     ];
 
