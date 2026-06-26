@@ -1,9 +1,25 @@
-import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { env } from "env";
+import { useAuth } from "lib/auth";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
 export type PullRequestStateFilter = "open" | "closed" | "merged";
+
+/**
+ * The shadow investigation agent's report for a snapshot (a freshly-signed S3 URL). Internal-only: the query
+ * is enabled only for @autonoma.app users, and the API procedure also enforces it - external users never see
+ * it. Returns undefined when no shadow report exists for the snapshot. Not a suspense query (it's optional).
+ */
+export function useInvestigationReport(snapshotId: string) {
+    const { user } = useAuth();
+    const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
+    return useQuery({
+        ...trpc.branches.investigationReport.queryOptions({ snapshotId }),
+        enabled: isInternal,
+    });
+}
 
 export function useBranches(state: PullRequestStateFilter = "open") {
     const currentApp = useCurrentApplication();

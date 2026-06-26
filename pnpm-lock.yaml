@@ -12,6 +12,9 @@ catalogs:
     '@ai-sdk/groq':
       specifier: ^3.0.24
       version: 3.0.24
+    '@ai-sdk/openai':
+      specifier: ^3.0.0
+      version: 3.0.74
     '@better-auth/api-key':
       specifier: ^1.6.14
       version: 1.6.14
@@ -947,6 +950,70 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  apps/workers/investigation:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../../../packages/db
+      '@autonoma/diffs':
+        specifier: workspace:*
+        version: link:../../../packages/diffs
+      '@autonoma/github':
+        specifier: workspace:*
+        version: link:../../../packages/github
+      '@autonoma/investigation':
+        specifier: workspace:*
+        version: link:../../../packages/investigation
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../../../packages/logger
+      '@autonoma/storage':
+        specifier: workspace:*
+        version: link:../../../packages/storage
+      '@autonoma/workflow':
+        specifier: workspace:*
+        version: link:../../../packages/workflow
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.39.0
+      '@t3-oss/env-core':
+        specifier: 'catalog:'
+        version: 0.13.10(typescript@6.0.3)(valibot@1.2.0(typescript@6.0.3))(zod@4.3.6)
+      '@temporalio/activity':
+        specifier: 'catalog:'
+        version: 1.15.0
+      '@temporalio/worker':
+        specifier: 'catalog:'
+        version: 1.15.0(esbuild@0.28.1)(tslib@2.8.1)
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@autonoma/engine-web':
+        specifier: workspace:*
+        version: link:../../engine-web
+      '@autonoma/scenario':
+        specifier: workspace:*
+        version: link:../../../packages/scenario
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   apps/workers/mobile:
     dependencies:
       '@autonoma/engine-mobile':
@@ -1560,6 +1627,70 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/investigation:
+    dependencies:
+      '@ai-sdk/openai':
+        specifier: 'catalog:'
+        version: 3.0.74(zod@4.3.6)
+      '@autonoma/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
+      '@autonoma/github':
+        specifier: workspace:*
+        version: link:../github
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@autonoma/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.1048.0
+        version: 3.1048.0
+      '@t3-oss/env-core':
+        specifier: 'catalog:'
+        version: 0.13.10(typescript@6.0.3)(valibot@1.2.0(typescript@6.0.3))(zod@4.3.6)
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
+      diff:
+        specifier: ^8.0.4
+        version: 8.0.4
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@autonoma/integration-test':
+        specifier: workspace:*
+        version: link:../integration-test
+      '@autonoma/test-updates':
+        specifier: workspace:*
+        version: link:../test-updates
+      '@testcontainers/postgresql':
+        specifier: ^11.12.0
+        version: 11.12.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/k8s:
     dependencies:
       '@kubernetes/client-node':
@@ -1837,11 +1968,27 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/openai@3.0.74':
+    resolution: {integrity: sha512-LPDBWd2WCv0GQs29K2pHcNrGx24hm4D8QEP386HwUAUPr1URho6bNVXHNmIv0FxaW+xDkLpNMTen+mFCUBp2LA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/provider-utils@4.0.15':
     resolution: {integrity: sha512-8XiKWbemmCbvNN0CLR9u3PQiet4gtEVIrX4zzLxnCj06AwsEDJwJVBbKrEI4t6qE8XRSIvU2irka0dcpziKW6w==}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@4.0.30':
+    resolution: {integrity: sha512-VO7I+vPffqI5sMnPoUq5DCSqKIgQIk/naJWRdQVpz2ma2zoprC/lqiJiUEl2s6DfvTD76TbhD3q39ROjlA6rGw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider@3.0.10':
+    resolution: {integrity: sha512-Q3BZ27qfpYqnCYGvE3vt+Qi6LGOF9R5Nmzn+9JoM1lCRsD9mYaIhfJLkSunN48nfGXJ6n+XNV0J/XVpqGQl7Dw==}
+    engines: {node: '>=18'}
 
   '@ai-sdk/provider@3.0.8':
     resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
@@ -11784,12 +11931,29 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.15(zod@4.3.6)
       zod: 4.3.6
 
+  '@ai-sdk/openai@3.0.74(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.10
+      '@ai-sdk/provider-utils': 4.0.30(zod@4.3.6)
+      zod: 4.3.6
+
   '@ai-sdk/provider-utils@4.0.15(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
       zod: 4.3.6
+
+  '@ai-sdk/provider-utils@4.0.30(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.10
+      '@standard-schema/spec': 1.1.0
+      eventsource-parser: 3.1.0
+      zod: 4.3.6
+
+  '@ai-sdk/provider@3.0.10':
+    dependencies:
+      json-schema: 0.4.0
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
@@ -16170,7 +16334,7 @@ snapshots:
 
   '@slack/logger@4.0.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@slack/types@2.20.1': {}
 
@@ -17401,7 +17565,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/d3-array@3.2.2': {}
 
@@ -17435,13 +17599,13 @@ snapshots:
 
   '@types/docker-modem@3.0.6':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/dockerode@4.0.1':
     dependencies:
       '@types/docker-modem': 3.0.6
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/eslint-scope@3.7.7':
@@ -17482,7 +17646,7 @@ snapshots:
 
   '@types/mysql@2.15.27':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/nlcst@2.0.3':
     dependencies:
@@ -17490,7 +17654,7 @@ snapshots:
 
   '@types/node-fetch@2.6.13':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       form-data: 4.0.6
 
   '@types/node@18.19.130':
@@ -17515,13 +17679,13 @@ snapshots:
 
   '@types/pg@8.15.6':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       pg-protocol: 1.13.0
       pg-types: 2.2.0
 
   '@types/pg@8.20.0':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       pg-protocol: 1.13.0
       pg-types: 2.2.0
 
@@ -17543,11 +17707,11 @@ snapshots:
 
   '@types/ssh2-streams@0.1.13':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/ssh2@0.5.52':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2-streams': 0.1.13
 
   '@types/ssh2@1.15.5':
@@ -17558,7 +17722,7 @@ snapshots:
 
   '@types/stream-buffers@3.0.8':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/tar-fs@2.0.4':
     dependencies:
@@ -17567,11 +17731,11 @@ snapshots:
 
   '@types/tar-stream@3.1.4':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/tedious@4.0.14':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/trusted-types@2.0.7': {}
 
@@ -17585,11 +17749,11 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/yauzl@2.10.3':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
     optional: true
 
   '@ungap/structured-clone@1.3.0': {}
@@ -21747,7 +21911,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.1
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       long: 5.3.2
 
   proxy-addr@2.0.7:

@@ -558,9 +558,9 @@ integrationTestSuite({
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            await expect(
-                manager.savePreviewkitConfig(appId, orgId, { version: 1, apps: [] }),
-            ).rejects.toThrow("Invalid PreviewKit config");
+            await expect(manager.savePreviewkitConfig(appId, orgId, { version: 1, apps: [] })).rejects.toThrow(
+                "Invalid PreviewKit config",
+            );
         });
 
         test("PreviewKit secrets are scoped to apps in the active config", async ({
@@ -583,17 +583,13 @@ integrationTestSuite({
                 update: { step: "preview_environment" },
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
-            await manager.savePreviewkitConfig(
-                appId,
-                orgId,
-                {
-                    version: 1,
-                    apps: [
-                        { name: "web", path: ".", port: 3000, primary: true },
-                        { name: "api", path: "./apps/api", port: 4000 },
-                    ],
-                },
-            );
+            await manager.savePreviewkitConfig(appId, orgId, {
+                version: 1,
+                apps: [
+                    { name: "web", path: ".", port: 3000, primary: true },
+                    { name: "api", path: "./apps/api", port: 4000 },
+                ],
+            });
 
             await manager.listPreviewkitSecrets(appId, orgId, "api");
             await manager.upsertPreviewkitSecrets(appId, orgId, "api", [{ key: "DATABASE_URL", value: "postgres://" }]);

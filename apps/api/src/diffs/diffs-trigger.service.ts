@@ -2,7 +2,8 @@ import type { PrismaClient } from "@autonoma/db";
 import { TriggerSource } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import { BranchAlreadyHasPendingSnapshotError, TestSuiteUpdater } from "@autonoma/test-updates";
-import type { TriggerDiffsJobParams } from "@autonoma/workflow";
+import type { TriggerDiffsJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
+import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { Service } from "../routes/service";
 
@@ -62,8 +63,23 @@ export class DiffsTriggerService extends Service {
         private readonly githubInstallationService: GitHubInstallationService,
         private readonly triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>,
         private readonly cancelDiffsJob: (snapshotId: string) => Promise<void>,
+        private readonly triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>,
     ) {
         super();
+    }
+
+    /**
+     * Fire the shadow investigation workflow in PARALLEL with the diffs job, behind a feature flag. It must
+     * never block or fail the diffs trigger, so errors are swallowed (logged) and it is best-effort.
+     */
+    private async maybeTriggerInvestigation(snapshotId: string): Promise<void> {
+        if (!env.INVESTIGATION_SHADOW_ENABLED) return;
+        await this.triggerInvestigationJob({ snapshotId }).catch((error) => {
+            this.logger.warn("Failed to trigger shadow investigation", {
+                snapshot: { snapshotId },
+                extra: { error: String(error) },
+            });
+        });
     }
 
     async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
@@ -126,6 +142,7 @@ export class DiffsTriggerService extends Service {
         const snapshotId = await this.createSnapshot(branch.id, organizationId, headSha, baseSha);
 
         await this.triggerDiffsJob({ branchId: branch.id, snapshotId });
+        await this.maybeTriggerInvestigation(snapshotId);
 
         this.logger.info("PR diffs analysis triggered successfully", {
             branchId: branch.id,
@@ -191,6 +208,7 @@ export class DiffsTriggerService extends Service {
         const snapshotId = await this.createSnapshot(branchId, organizationId, headSha, baseSha);
 
         await this.triggerDiffsJob({ branchId, snapshotId });
+        await this.maybeTriggerInvestigation(snapshotId);
 
         this.logger.info("Main branch diffs analysis triggered successfully", {
             branchId,

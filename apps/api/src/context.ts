@@ -6,6 +6,7 @@ import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import {
     cancelDiffsJob,
     triggerDiffsJob,
+    triggerInvestigationJob,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
     triggerRunWorkflow,
@@ -65,6 +66,7 @@ export async function createContext(c: HonoContext) {
             githubApp,
             triggerDiffsJob,
             cancelDiffsJob,
+            triggerInvestigationJob,
             triggerPreviewDeploy,
             triggerPreviewTeardown,
         }),

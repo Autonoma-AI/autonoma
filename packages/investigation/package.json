@@ -1,0 +1,39 @@
+{
+    "name": "@autonoma/investigation",
+    "version": "1.0.0",
+    "type": "module",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "vitest",
+        "lint": "oxlint --fix src/ test/",
+        "build": "tsc",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@ai-sdk/openai": "catalog:",
+        "@autonoma/ai": "workspace:*",
+        "@autonoma/db": "workspace:*",
+        "@autonoma/github": "workspace:*",
+        "@autonoma/logger": "workspace:*",
+        "@autonoma/storage": "workspace:*",
+        "@autonoma/types": "workspace:*",
+        "@aws-sdk/client-secrets-manager": "^3.1048.0",
+        "@t3-oss/env-core": "catalog:",
+        "ai": "catalog:",
+        "diff": "^8.0.4",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@autonoma/test-updates": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
+        "@types/node": "catalog:",
+        "dotenv": "catalog:",
+        "tsx": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

@@ -139,6 +139,7 @@ model Organization {
   previewkitEnvironments PreviewkitEnvironment[]
   previewkitOrgSecrets   PreviewkitOrgSecret[]
   diffsJobs              DiffsJob[]
+  investigationReports   InvestigationReport[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
 
@@ -604,9 +605,10 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  diffsJob        DiffsJob?
-  issues          Issue[]
-  refinementLoop  RefinementLoop?
+  diffsJob            DiffsJob?
+  investigationReport InvestigationReport?
+  issues              Issue[]
+  refinementLoop      RefinementLoop?
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -2004,6 +2006,25 @@ model DiffsJob {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("diffs_job")
+}
+
+/// The shadow "investigation" agent's report for a snapshot - written to S3 in parallel with the diffs job.
+/// We persist the S3 KEY (sign a fresh URL on read so links never expire), plus quick counts for the PR view.
+/// Internal-only surface (the report is shown to @autonoma.app users to compare against the deployed agent).
+model InvestigationReport {
+  snapshotId String         @id @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  s3Key          String @map("s3_key")
+  testCount      Int    @default(0) @map("test_count")
+  clientBugCount Int    @default(0) @map("client_bug_count")
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("investigation_report")
 }
 
 model AffectedTest {

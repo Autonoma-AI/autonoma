@@ -4,6 +4,7 @@ export const TaskQueue = {
     GENERAL: "general",
     DIFFS: "diffs",
     PREVIEWKIT: "previewkit",
+    INVESTIGATION: "investigation",
 } as const;
 
 export type TaskQueue = (typeof TaskQueue)[keyof typeof TaskQueue];

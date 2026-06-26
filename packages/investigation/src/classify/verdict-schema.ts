@@ -1,0 +1,61 @@
+import { z } from "zod";
+import { Category, Confidence, EvidenceSource, PlanFidelity, type RunVerdict } from "../schema";
+
+/**
+ * The schema the MODEL produces. It mirrors RunVerdict but makes the optional fields NULLABLE-and-required
+ * rather than optional, because OpenAI's strict structured-output mode requires every property to appear in
+ * `required`. The result is normalized back to the public RunVerdict shape (null -> undefined).
+ */
+export const VerdictForModel = z.object({
+    category: Category,
+    isClientBug: z.boolean(),
+    ran: z.boolean(),
+    confidence: Confidence,
+    planFidelity: PlanFidelity,
+    headline: z.string(),
+    falsePositiveRisk: z.string(),
+    whatHappened: z.string(),
+    rootCause: z.string(),
+    remediation: z.string(),
+    suggestedTestUpdate: z.string().nullable(),
+    // App problems VISIBLE in the video that are independent of this test's pass/fail (broken images, empty
+    // content where data is expected, layout/overlap issues, things not loading). Null when the app looked healthy.
+    observedAppIssues: z.string().nullable(),
+    evidence: z
+        .array(
+            z.object({
+                source: EvidenceSource,
+                detail: z.string(),
+                file: z.string().nullable(),
+                lines: z.string().nullable(),
+                snippet: z.string().nullable(),
+            }),
+        )
+        .min(1),
+});
+export type VerdictForModel = z.infer<typeof VerdictForModel>;
+
+/** Normalize the model-output verdict (nullable fields) into the public RunVerdict shape (undefined for absent). */
+export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
+    return {
+        category: modelVerdict.category,
+        isClientBug: modelVerdict.isClientBug,
+        ran: modelVerdict.ran,
+        confidence: modelVerdict.confidence,
+        planFidelity: modelVerdict.planFidelity,
+        headline: modelVerdict.headline,
+        falsePositiveRisk: modelVerdict.falsePositiveRisk,
+        whatHappened: modelVerdict.whatHappened,
+        rootCause: modelVerdict.rootCause,
+        remediation: modelVerdict.remediation,
+        suggestedTestUpdate: modelVerdict.suggestedTestUpdate ?? undefined,
+        observedAppIssues: modelVerdict.observedAppIssues ?? undefined,
+        evidence: modelVerdict.evidence.map((item) => ({
+            source: item.source,
+            detail: item.detail,
+            file: item.file ?? undefined,
+            lines: item.lines ?? undefined,
+            snippet: item.snippet ?? undefined,
+        })),
+    };
+}

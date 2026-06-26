@@ -12,6 +12,7 @@ import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { TRPCError, initTRPC } from "@trpc/server";
 import superjson from "superjson";
+import { isInternalEmail } from "./auth";
 import type { Context } from "./context";
 
 export const t = initTRPC.context<Context>().create({ transformer: superjson });
@@ -97,6 +98,15 @@ export const protectedProcedure = t.procedure
 
 export const internalProcedure = protectedProcedure.use(async ({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Internal access required" });
+    }
+    return next({ ctx });
+});
+
+/** Gated on the Autonoma-internal email domain (@autonoma.app) rather than the admin role - for surfaces
+ * (like the shadow investigation report) shown only to Autonoma staff, regardless of their org role. */
+export const internalEmailProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+    if (!isInternalEmail(ctx.user.email)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Internal access required" });
     }
     return next({ ctx });

@@ -33,6 +33,9 @@ import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-cha
 
 export type { TestSuiteChangeRow } from "./test-suite-changes";
 
+/** Signed-URL lifetime for an investigation report - short, since it's re-signed on every read. */
+const INVESTIGATION_REPORT_TTL_SECONDS = 60 * 60;
+
 export class BranchesService extends Service {
     constructor(
         private readonly db: PrismaClient,
@@ -41,6 +44,37 @@ export class BranchesService extends Service {
         private readonly prCache: PullRequestCacheService,
     ) {
         super();
+    }
+
+    /**
+     * The shadow "investigation" agent's report for a snapshot, as a freshly-signed URL (the persisted value
+     * is the S3 key, so the link never goes stale). Internal/@autonoma.app surface only - returns undefined
+     * when the shadow job has not produced a report for this snapshot. Org-scoped like getSnapshotReport.
+     */
+    async getInvestigationReport(snapshotId: string, organizationId: string) {
+        this.logger.info("Getting investigation report", { extra: { snapshotId } });
+        try {
+            const report = await this.db.investigationReport.findFirst({
+                where: { snapshotId, organizationId },
+                select: { s3Key: true, testCount: true, clientBugCount: true, updatedAt: true },
+            });
+            if (report == null) return undefined;
+            const url = await this.storageProvider.getSignedUrl(report.s3Key, INVESTIGATION_REPORT_TTL_SECONDS);
+            return {
+                url,
+                testCount: report.testCount,
+                clientBugCount: report.clientBugCount,
+                updatedAt: report.updatedAt,
+            };
+        } catch (error) {
+            // Optional internal surface - a failure here (table not yet migrated in this env, an S3 hiccup,
+            // etc.) must never error the PR view. Degrade to "no report" so the link simply doesn't appear.
+            this.logger.warn("Could not load investigation report; treating as absent", {
+                extra: { snapshotId },
+                err: error,
+            });
+            return undefined;
+        }
     }
 
     async listBranches(applicationId: string, organizationId: string, state: PullRequestStateFilter = "open") {

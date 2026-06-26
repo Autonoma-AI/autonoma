@@ -14,6 +14,7 @@ import {
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { Link, Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
@@ -27,6 +28,7 @@ import {
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
   FULL_SNAPSHOT_DETAIL,
+  useInvestigationReport,
   useSnapshotDetail,
   useSnapshotReport,
 } from "lib/query/branches.queries";
@@ -67,6 +69,9 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { data: report } = useSnapshotReport(snapshotId);
   const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
   const { isAdmin } = useAuth();
+  // Internal-only: the shadow investigation agent's report, for comparing against the deployed agent. The
+  // hook is enabled only for @autonoma.app users, so `investigation` is undefined for everyone else.
+  const { data: investigation } = useInvestigationReport(snapshotId);
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
@@ -105,6 +110,22 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
               <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
                 {report.health}
               </Badge>
+            )}
+            {investigation?.url != null && (
+              <a
+                href={investigation.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open the shadow investigation agent report"
+              >
+                <Button variant="outline" size="sm">
+                  <MagnifyingGlassIcon size={14} />
+                  Investigation
+                  {investigation.clientBugCount > 0
+                    ? ` · ${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
+                    : ""}
+                </Button>
+              </a>
             )}
             {isAdmin && (
               <div className="flex items-center gap-2">

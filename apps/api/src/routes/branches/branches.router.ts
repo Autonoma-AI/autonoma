@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { internalEmailProcedure, protectedProcedure, router } from "../../trpc";
 
 export const branchesRouter = router({
     list: protectedProcedure
@@ -59,6 +59,14 @@ export const branchesRouter = router({
         .input(z.object({ snapshotId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
             services.branches.getSnapshotReport(input.snapshotId, organizationId),
+        ),
+
+    // The shadow investigation agent's report (a freshly-signed S3 URL), for comparing against the deployed
+    // agent. Internal-only: gated to @autonoma.app users. Returns undefined when no shadow report exists.
+    investigationReport: internalEmailProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getInvestigationReport(input.snapshotId, organizationId),
         ),
 
     activeSnapshot: protectedProcedure

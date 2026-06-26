@@ -21,6 +21,11 @@ function extractDomain(email: string): string {
     return parts[1] ?? email;
 }
 
+/** True for Autonoma-internal users (e.g. @autonoma.app) - gates internal-only surfaces. */
+export function isInternalEmail(email: string): boolean {
+    return email.endsWith(INTERNAL_DOMAIN);
+}
+
 function titleCase(str: string): string {
     return str.replace(/[-_.]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

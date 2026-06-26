@@ -189,17 +189,12 @@ integrationTestSuite({
             expect(loaded.dependencyConfigs[0]?.document?.apps[0]?.name).toBe("api-app");
 
             // A second save reuses the linked Application and bumps its revision.
-            const resaved = await manager.savePreviewkitConfig(
-                appId,
-                orgId,
-                primaryDocumentWithDependency(),
-                [
-                    {
-                        repo: "acme/api",
-                        document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4001 }] },
-                    },
-                ],
-            );
+            const resaved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
+                {
+                    repo: "acme/api",
+                    document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4001 }] },
+                },
+            ]);
             expect(applications.createMinimalApplication).toHaveBeenCalledOnce();
             expect(resaved.dependencyConfigs[0]?.revision).toBe(2);
         });
@@ -291,15 +286,11 @@ integrationTestSuite({
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption);
             await setStep(harness, appId, "preview_environment");
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
-            await manager.savePreviewkitConfig(
-                appId,
-                orgId,
-                {
-                    version: 1,
-                    apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
-                    services: [],
-                },
-            );
+            await manager.savePreviewkitConfig(appId, orgId, {
+                version: 1,
+                apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                services: [],
+            });
             await harness.db.onboardingState.update({
                 where: { applicationId: appId },
                 data: { step: "previewkit_deploying", previewVerificationStatus: "building" },

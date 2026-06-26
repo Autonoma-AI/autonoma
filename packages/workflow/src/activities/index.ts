@@ -75,4 +75,21 @@ export type {
     MarkPreviewDeploySupersededInput,
 } from "./previewkit-activities";
 
+export type {
+    InvestigationActivities,
+    InvestigationSelectedTest,
+    SelectInvestigationTestsInput,
+    SelectInvestigationTestsOutput,
+    InvestigationEvidence,
+    InvestigationVerdict,
+    InvestigationTestResult,
+    SuggestedNewTest,
+    QuarantineRecommendation,
+    TestValidationResult,
+    ClassifyInvestigationRunInput,
+    CreateValidationGenerationInput,
+    CreateValidationGenerationOutput,
+    WriteInvestigationReportInput,
+    WriteInvestigationReportOutput,
+} from "./investigation-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

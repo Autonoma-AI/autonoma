@@ -13,6 +13,7 @@ export const env = createEnv({
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
         COOKIE_DOMAIN: z.string().optional(),
         PREVIEWKIT_ENV: z.stringbool().default(false),
+        INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
         ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
         GOOGLE_CLIENT_ID: z.string().min(1),

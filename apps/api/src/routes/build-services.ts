@@ -7,6 +7,7 @@ import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import type {
     TriggerDiffsJobParams,
+    TriggerInvestigationJobParams,
     TriggerPreviewDeployParams,
     TriggerPreviewTeardownParams,
     TriggerRunWorkflowParams,
@@ -77,6 +78,7 @@ export interface ServicesParams {
     githubApp: GitHubApp;
     triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
     cancelDiffsJob: (snapshotId: string) => Promise<void>;
+    triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>;
     triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
 }
@@ -92,6 +94,7 @@ export function buildServices({
     githubApp,
     triggerDiffsJob,
     cancelDiffsJob,
+    triggerInvestigationJob,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
 }: ServicesParams): Services {
@@ -143,7 +146,13 @@ export function buildServices({
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
-        diffsTrigger: new DiffsTriggerService(conn, githubService, triggerDiffsJob, cancelDiffsJob),
+        diffsTrigger: new DiffsTriggerService(
+            conn,
+            githubService,
+            triggerDiffsJob,
+            cancelDiffsJob,
+            triggerInvestigationJob,
+        ),
         previewkitTrigger,
     };
 }

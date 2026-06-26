@@ -1,0 +1,37 @@
+{
+    "name": "@autonoma/worker-investigation",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix src/",
+        "start": "tsx --import ./src/preload.ts src/index.ts",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "@autonoma/db": "workspace:*",
+        "@autonoma/diffs": "workspace:*",
+        "@autonoma/github": "workspace:*",
+        "@autonoma/investigation": "workspace:*",
+        "@autonoma/logger": "workspace:*",
+        "@autonoma/storage": "workspace:*",
+        "@autonoma/workflow": "workspace:*",
+        "@sentry/node": "catalog:",
+        "@t3-oss/env-core": "catalog:",
+        "@temporalio/activity": "catalog:",
+        "@temporalio/worker": "catalog:",
+        "ai": "catalog:",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@autonoma/engine-web": "workspace:*",
+        "@autonoma/scenario": "workspace:*",
+        "@types/node": "catalog:",
+        "dotenv": "catalog:",
+        "tsx": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}
