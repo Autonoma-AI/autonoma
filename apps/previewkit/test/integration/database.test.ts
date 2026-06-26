@@ -2,6 +2,7 @@ import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import {
     markBuildSuperseded,
+    recordAppRedeployOutcome,
     recordAppsPending,
     recordAppStates,
     recordBuildFinished,
@@ -546,6 +547,92 @@ integrationTestSuite({
             const web = instances[0]!;
             expect(web.imageTag).toBe("web:new");
             expect(web.url).toBe("https://new");
+        });
+
+        test("recordAppRedeployOutcome merges one app's outcome and leaves siblings untouched", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            const ns = "preview-acme-web-pr-7";
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: ns,
+            });
+            await recordAppsPending(ns, [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+            ]);
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:v1", url: "https://web-old" },
+                { appName: "api", status: "ready", port: 4000, imageTag: "api:v1", url: "https://api" },
+            ]);
+            await recordEnvironmentReady({ namespace: ns, urls: { web: "https://web-old", api: "https://api" } });
+
+            await recordAppRedeployOutcome(ns, {
+                appName: "web",
+                status: "ready",
+                port: 3000,
+                imageTag: "web:v2",
+                url: "https://web-new",
+            });
+
+            const instances = await harness.db.previewkitAppInstance.findMany({ orderBy: { appName: "asc" } });
+            const byName = Object.fromEntries(instances.map((i) => [i.appName, i]));
+            expect(byName.web!.imageTag).toBe("web:v2");
+            expect(byName.web!.url).toBe("https://web-new");
+            // The sibling row is untouched.
+            expect(byName.api!.imageTag).toBe("api:v1");
+            expect(byName.api!.url).toBe("https://api");
+
+            const env = await harness.db.previewkitEnvironment.findUnique({ where: { namespace: ns } });
+            expect(env!.status).toBe("ready");
+            // Only web's url changed; api's is preserved.
+            expect(env!.urls).toEqual({ web: "https://web-new", api: "https://api" });
+        });
+
+        test("recordAppRedeployOutcome drops a failed app's url but keeps the env ready via siblings", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            const ns = "preview-acme-web-pr-7";
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: ns,
+            });
+            await recordAppsPending(ns, [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+            ]);
+            await recordAppStates(ns, [
+                { appName: "web", status: "ready", port: 3000, imageTag: "web:v1", url: "https://web" },
+                { appName: "api", status: "ready", port: 4000, imageTag: "api:v1", url: "https://api" },
+            ]);
+            await recordEnvironmentReady({ namespace: ns, urls: { web: "https://web", api: "https://api" } });
+
+            await recordAppRedeployOutcome(ns, {
+                appName: "web",
+                status: "deploy_failed",
+                port: 3000,
+                imageTag: "web:v2",
+                error: "CrashLoopBackOff",
+            });
+
+            const env = await harness.db.previewkitEnvironment.findUnique({ where: { namespace: ns } });
+            // web's url is removed; api remains and keeps the env ready.
+            expect(env!.urls).toEqual({ api: "https://api" });
+            expect(env!.status).toBe("ready");
+
+            const web = await harness.db.previewkitAppInstance.findFirstOrThrow({ where: { appName: "web" } });
+            expect(web.status).toBe("deploy_failed");
+            expect(web.error).toBe("CrashLoopBackOff");
         });
 
         test("recordEnvironmentTornDown marks env torn_down and stamps tornDownAt", async ({ harness }) => {

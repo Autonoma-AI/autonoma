@@ -19,7 +19,10 @@ export {
     triggerPreviewDeploy,
     type TriggerPreviewTeardownParams,
     triggerPreviewTeardown,
+    type TriggerPreviewRedeployAppParams,
+    triggerPreviewRedeployApp,
 } from "./triggers/previewkit";
+export type { PreviewRedeployAppMode } from "./workflows/previewkit-redeploy-app.workflow";
 export type { PreviewDeployEvent } from "./activities/previewkit-activities";
 export { getTemporalClient, resetTemporalClient } from "./client";
 export { TaskQueue } from "./task-queues";

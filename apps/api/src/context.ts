@@ -8,6 +8,7 @@ import {
     triggerDiffsJob,
     triggerInvestigationJob,
     triggerPreviewDeploy,
+    triggerPreviewRedeployApp,
     triggerPreviewTeardown,
     triggerRunWorkflow,
 } from "@autonoma/workflow";
@@ -69,6 +70,7 @@ export async function createContext(c: HonoContext) {
             triggerInvestigationJob,
             triggerPreviewDeploy,
             triggerPreviewTeardown,
+            triggerPreviewRedeployApp,
         }),
     };
 }

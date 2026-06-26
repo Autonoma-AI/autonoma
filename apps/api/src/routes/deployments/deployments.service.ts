@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import type { PreviewRedeployAppMode } from "@autonoma/workflow";
 import { env } from "../../env";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
@@ -102,6 +103,31 @@ export class DeploymentsService extends Service {
         }
 
         await this.previewkitTrigger.redeploy(environment.repoFullName, environment.prNumber);
+    }
+
+    /**
+     * Triggers a redeploy of a SINGLE app within a preview environment. `mode`
+     * "rebuild" rebuilds that app's image at the environment's current head SHA
+     * and redeploys only it; "restart" re-rolls its pods using the running
+     * image. Sibling apps are left untouched. The trigger service validates that
+     * the app exists in the environment. Admin-only.
+     */
+    async redeployApp(environmentId: string, app: string, mode: PreviewRedeployAppMode): Promise<void> {
+        this.logger.info("Redeploying previewkit app", { environmentId, app, mode });
+
+        const environment = await this.db.previewkitEnvironment.findUnique({
+            where: { id: environmentId },
+            select: { repoFullName: true, prNumber: true },
+        });
+        if (environment == null) {
+            throw new NotFoundError("Preview environment not found");
+        }
+
+        if (!env.PREVIEWKIT_ENABLED) {
+            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
+        }
+
+        await this.previewkitTrigger.redeployApp(environment.repoFullName, environment.prNumber, app, mode);
     }
 
     /**

@@ -88,6 +88,7 @@ export class APITestHarness implements IntegrationHarness {
             cancelDiffsJob: triggerWorkflow,
             triggerPreviewDeploy: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
+            triggerPreviewRedeployApp: triggerWorkflow,
         });
 
         const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp);

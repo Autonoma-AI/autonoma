@@ -77,6 +77,9 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
         async markPreviewDeploySuperseded() {
             calls.push("markSuperseded");
         },
+        async restartPreviewApp() {
+            calls.push("restart");
+        },
         ...overrides,
     };
 }

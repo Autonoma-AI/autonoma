@@ -7,6 +7,7 @@ export const WORKFLOW_TYPE = {
     RUN_GENERATION_PIPELINE: "runGenerationPipelineWorkflow",
     PREVIEW_DEPLOY: "previewDeployWorkflow",
     PREVIEW_TEARDOWN: "previewTeardownWorkflow",
+    PREVIEW_REDEPLOY_APP: "previewRedeployAppWorkflow",
     INVESTIGATION: "investigationWorkflow",
 } as const;
 

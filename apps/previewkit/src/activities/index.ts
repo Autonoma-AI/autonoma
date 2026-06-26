@@ -11,6 +11,7 @@ import type {
     PreparePreviewDeployOutput,
     PreviewDeployEvent,
     PreviewkitActivities,
+    RestartPreviewAppInput,
     TeardownPreviewEnvironmentInput,
 } from "@autonoma/workflow/activities";
 import { CancelledFailure, Context } from "@temporalio/activity";
@@ -107,12 +108,14 @@ export async function buildPreviewImages(input: BuildPreviewImagesInput): Promis
         const { previewPipeline } = await getServices();
         // `cancellationSignal` aborts the in-flight buildctl when this run is
         // superseded or the worker is shutting down, so the buildkit Job is
-        // released in seconds.
+        // released in seconds. `appName` (per-app redeploy) scopes the build to
+        // a single app.
         return await previewPipeline.build(
             input.event,
             input.namespace,
             input.configRevisionId,
             Context.current().cancellationSignal,
+            input.appName,
         );
     } catch (err) {
         rethrowAbortAsCancellation(err);
@@ -223,6 +226,34 @@ export async function markPreviewDeploySuperseded(input: MarkPreviewDeploySupers
     await markBuildSuperseded(input.namespace, input.event.headSha);
 }
 
+export async function restartPreviewApp(input: RestartPreviewAppInput): Promise<void> {
+    const logger = rootLogger.child({ name: "restartPreviewApp" });
+    extendObservabilityContext({ preview: previewContext(input.event) });
+    logger.info("Restarting preview app", {
+        repo: input.event.repoFullName,
+        pr: input.event.prNumber,
+        app: input.appName,
+    });
+
+    const heartbeat = startHeartbeat();
+    try {
+        const { previewPipeline } = await getServices();
+        // `cancellationSignal` stops the pod re-roll the moment a newer deploy or a
+        // teardown supersedes this run, so a cancelled restart can't keep deleting
+        // pods out from under the successor that owns the shared workflowId.
+        await previewPipeline.restartApp(
+            input.event,
+            input.namespace,
+            input.appName,
+            Context.current().cancellationSignal,
+        );
+    } catch (err) {
+        rethrowAbortAsCancellation(err);
+    } finally {
+        clearInterval(heartbeat);
+    }
+}
+
 // Compile-time check: ensure exported activities match the PreviewkitActivities contract.
 ({
     preparePreviewDeploy,
@@ -232,4 +263,5 @@ export async function markPreviewDeploySuperseded(input: MarkPreviewDeploySupers
     failPreviewDeploy,
     teardownPreviewEnvironment,
     markPreviewDeploySuperseded,
+    restartPreviewApp,
 }) satisfies PreviewkitActivities;

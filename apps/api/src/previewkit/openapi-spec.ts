@@ -168,13 +168,11 @@ export const openApiSpec = {
                     },
                 },
             },
-        },
-        "/v1/previewkit/environments/{owner}/{repo}/{pr}/redeploy": {
-            post: {
+            patch: {
                 tags: ["Environments"],
                 summary: "Re-run the pipeline for an existing environment",
                 description:
-                    "Fire-and-forget. Forwarded to Previewkit; re-runs the deploy at the environment's current head SHA.",
+                    "Fire-and-forget. Re-runs the deploy at the environment's current head SHA. To redeploy a single app, PATCH the `/apps/{app}` sub-resource instead.",
                 parameters: [ownerParam, repoParam, prParam],
                 responses: {
                     "202": {
@@ -183,6 +181,39 @@ export const openApiSpec = {
                     },
                     "404": {
                         description: "Environment not found",
+                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    },
+                    "409": {
+                        description: "Environment was torn down or predates redeploy support",
+                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    },
+                },
+            },
+        },
+        "/v1/previewkit/environments/{owner}/{repo}/{pr}/apps/{app}": {
+            patch: {
+                tags: ["Environments"],
+                summary: "Redeploy a single app within an environment",
+                description:
+                    "Fire-and-forget. `mode: rebuild` (default) rebuilds just this app's image at the environment's " +
+                    "current head SHA and redeploys only it; `mode: restart` re-rolls its pods using the running image. " +
+                    "Sibling apps are left untouched.",
+                parameters: [ownerParam, repoParam, prParam, appParam],
+                requestBody: {
+                    required: false,
+                    content: {
+                        "application/json": { schema: { $ref: "#/components/schemas/AppRedeployRequest" } },
+                    },
+                },
+                responses: {
+                    "202": {
+                        description: "Redeploy accepted",
+                        content: {
+                            "application/json": { schema: { $ref: "#/components/schemas/AppRedeployAccepted" } },
+                        },
+                    },
+                    "404": {
+                        description: "Environment or app not found",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                     "409": {
@@ -352,6 +383,29 @@ export const openApiSpec = {
                     prNumber: { type: "integer" },
                 },
                 required: ["accepted", "repoFullName", "prNumber"],
+            },
+            AppRedeployRequest: {
+                type: "object",
+                properties: {
+                    mode: {
+                        type: "string",
+                        enum: ["rebuild", "restart"],
+                        default: "rebuild",
+                        description:
+                            "`rebuild` rebuilds the app's image and redeploys it; `restart` re-rolls its pods using the running image.",
+                    },
+                },
+            },
+            AppRedeployAccepted: {
+                type: "object",
+                properties: {
+                    accepted: { type: "boolean", example: true },
+                    repoFullName: { type: "string" },
+                    prNumber: { type: "integer" },
+                    app: { type: "string" },
+                    mode: { type: "string", enum: ["rebuild", "restart"] },
+                },
+                required: ["accepted", "repoFullName", "prNumber", "app", "mode"],
             },
             PreviewStatus: {
                 type: "object",

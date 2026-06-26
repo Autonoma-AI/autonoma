@@ -319,6 +319,46 @@ export class Deployer {
     }
 
     /**
+     * Deploys exactly ONE app (per-app redeploy, rebuild mode), leaving siblings
+     * untouched. Assumes infra and the app's dependencies are already up, so it
+     * bypasses `computeDeployWaves` - a single app is its own wave, and feeding a
+     * one-element list with `depends_on` to the wave planner would throw on the
+     * missing upstream. The full merged `config` is still passed so env-template
+     * resolution can reference sibling hosts/services.
+     */
+    async deploySingleApp(opts: DeployOptions, infraResult: InfraDeployResult, appName: string): Promise<DeployResult> {
+        const { repoFullName, prNumber, config, imageTags, addonOutputs = {} } = opts;
+        const { namespace, awsSecretsByApp, bypassToken } = infraResult;
+        const domain = config.domain ?? this.domain;
+        const owner = repoFullName.split("/")[0]!;
+
+        const app = config.apps.find((a) => a.name === appName);
+        if (app == null) {
+            throw new Error(`App "${appName}" not found in resolved config for ${namespace}`);
+        }
+
+        const appCtx: AppDeployContext = {
+            namespace,
+            prNumber,
+            owner,
+            repoFullName,
+            domain,
+            secret: this.secret,
+            config,
+            imageTags,
+            awsSecretsByApp,
+            addonOutputs,
+        };
+
+        logger.info("Deploying single app", { namespace, app: appName });
+        const outcome = await this.tryDeployApp(app, appCtx);
+
+        const urls: Record<string, string> = {};
+        if (outcome.status !== "skipped") urls[app.name] = outcome.url;
+        return { namespace, urls, appOutcomes: { [app.name]: outcome }, bypassToken };
+    }
+
+    /**
      * Wraps `deployApp` with per-app error capture. Returns a structured outcome
      * instead of throwing so the wave loop can keep going for the remaining apps.
      */
@@ -373,6 +413,59 @@ export class Deployer {
             }
         }
         return results;
+    }
+
+    /**
+     * Re-rolls a single app's pods (per-app redeploy, restart mode) by deleting
+     * them so the Deployment controller recreates them with freshly-read
+     * ConfigMaps and Secrets, then waits for the Deployment to be ready again.
+     * The Deployment spec is untouched (no rebuild, same image) - this is the
+     * way to pick up a changed secret/env without a new image. An app scaled to
+     * zero (Gatekeeper idle) has no pods and is already "ready", so this is a
+     * no-op for it (it reads fresh config on its next wake).
+     */
+    async restartApp(
+        namespace: string,
+        appName: string,
+        signal?: AbortSignal,
+        timeoutMs = this.deployTimeoutMs,
+    ): Promise<void> {
+        logger.info("Restarting app pods", { namespace, app: appName });
+        signal?.throwIfAborted();
+        const pods = await this.coreApi.listNamespacedPod({ namespace, labelSelector: `app=${appName}` });
+
+        // Track deletions so we never report a successful restart when nothing was
+        // re-rolled. A pod-less Deployment (Gatekeeper-idle, scaled to zero) is a
+        // legitimate no-op, but if pods exist and every delete fails the old pods
+        // keep serving stale config - that must surface as a failure, not success.
+        let attempted = 0;
+        let deleted = 0;
+        const deleteErrors: string[] = [];
+        for (const pod of pods.items) {
+            const podName = pod.metadata?.name;
+            if (podName == null) continue;
+            signal?.throwIfAborted();
+            attempted += 1;
+            try {
+                await this.coreApi.deleteNamespacedPod({ namespace, name: podName });
+                deleted += 1;
+                logger.info("Deleted pod for app restart", { namespace, app: appName, pod: podName });
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                deleteErrors.push(`${podName}: ${message}`);
+                logger.warn("Failed to delete pod during app restart", { namespace, app: appName, pod: podName, err });
+            }
+        }
+
+        if (attempted > 0 && deleted === 0) {
+            throw new Error(
+                `Failed to restart "${appName}" in ${namespace}: no pods deleted (${deleteErrors.join("; ")})`,
+            );
+        }
+
+        signal?.throwIfAborted();
+        await this.waitForDeploymentReady(namespace, appName, timeoutMs);
+        logger.info("App restart complete", { namespace, app: appName, attempted, deleted });
     }
 
     private async deleteCrashedPods(namespace: string, appName: string): Promise<void> {

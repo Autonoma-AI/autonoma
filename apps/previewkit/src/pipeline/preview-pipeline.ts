@@ -30,6 +30,7 @@ import {
 import {
     type AppBuildOutcome,
     type AppStateUpdate,
+    recordAppRedeployOutcome,
     recordAppsPending,
     recordAppStates,
     recordBuildFinished,
@@ -332,11 +333,25 @@ export class PreviewPipeline {
         namespace: string,
         configRevisionId?: string | undefined,
         signal?: AbortSignal,
+        appName?: string | undefined,
     ): Promise<BuildPreviewImagesOutput> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
-        logger.info("Building preview images", { repo: repoFullName, pr: prNumber, sha: shortSha, namespace });
+        // Per-app redeploy (rebuild mode): build ONLY this app. The full config is
+        // still resolved + merged (build-arg templating needs sibling context) and
+        // the full mergedConfig is still returned, but only this app's image is
+        // built, only its lifecycle row is touched, and the environment's own
+        // status is left untouched (it stays `ready` - siblings keep serving).
+        const isScoped = appName != null && appName !== "";
+
+        logger.info("Building preview images", {
+            repo: repoFullName,
+            pr: prNumber,
+            sha: shortSha,
+            namespace,
+            scopedApp: isScoped ? appName : undefined,
+        });
 
         logger.info("Build step 1/7 resolving linked Application", {
             repo: repoFullName,
@@ -379,7 +394,9 @@ export class PreviewPipeline {
         let dependencyEntries: DependencyEntry[] = [];
 
         try {
-            await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
+            // Skip env-level phase writes when scoped: a per-app rebuild must not
+            // flip a live environment's status to pending/building.
+            if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
             logger.info("Build step 3/7 cloning primary + dependency repos", {
                 repo: repoFullName,
@@ -409,6 +426,11 @@ export class PreviewPipeline {
                 namespace,
             });
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
+            if (isScoped && !mergedConfig.apps.some((a) => a.name === appName)) {
+                throw new Error(`App "${appName}" not found in resolved config for ${repoFullName} PR ${prNumber}`);
+            }
+            // The apps to build: just the target when scoped, otherwise every app.
+            const buildApps = isScoped ? mergedConfig.apps.filter((a) => a.name === appName) : mergedConfig.apps;
             // Snapshot the effective (merged) config. The summary + readiness views
             // project it for display and failure diagnostics; configRevisionId records
             // which primary revision fed it. Overwritten on each deploy once resolved.
@@ -419,13 +441,17 @@ export class PreviewPipeline {
             // Moment 0: now that the merged config names every app, seed a
             // `pending` lifecycle row per app so each has a distinct status
             // record from the start (and stale rows from a prior commit are
-            // pruned/reset).
-            await recordSafe(() =>
-                recordAppsPending(
-                    namespace,
-                    mergedConfig.apps.map((a) => ({ appName: a.name, port: a.port })),
-                ),
-            );
+            // pruned/reset). Skipped when scoped - `recordAppsPending` prunes
+            // rows for apps not in the list, which would wipe every sibling; a
+            // per-app rebuild touches only the target's row (below).
+            if (!isScoped) {
+                await recordSafe(() =>
+                    recordAppsPending(
+                        namespace,
+                        mergedConfig.apps.map((a) => ({ appName: a.name, port: a.port })),
+                    ),
+                );
+            }
             logger.info("Build step 4/7 merged config + snapshotted + seeded app rows", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -451,7 +477,8 @@ export class PreviewPipeline {
             let addonOutcomes: AddonProvisionOutcome[] = [];
             let addonOutputs: AddonOutputs = {};
             if (mergedConfig.addons.length > 0) {
-                await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
+                if (!isScoped)
+                    await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
                 logger.info("Build step 5/7 provisioning addons", {
                     repo: repoFullName,
                     pr: prNumber,
@@ -497,11 +524,11 @@ export class PreviewPipeline {
                 });
             }
 
-            await this.statusWriter.updatePhase(repoFullName, prNumber, "building", "building-images");
+            if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "building", "building-images");
             await recordSafe(() =>
                 recordAppStates(
                     namespace,
-                    mergedConfig.apps.map((a) => ({ appName: a.name, status: "building", port: a.port })),
+                    buildApps.map((a) => ({ appName: a.name, status: "building", port: a.port })),
                 ),
             );
             const buildStart = Date.now();
@@ -535,6 +562,7 @@ export class PreviewPipeline {
                 application.id,
                 addonOutputs,
                 signal,
+                isScoped ? appName : undefined,
             );
             const buildDurationMs = Date.now() - buildStart;
 
@@ -562,27 +590,40 @@ export class PreviewPipeline {
                 namespace,
                 allBuildsFailed,
             });
-            await recordSafe(() =>
-                recordBuildFinished({
-                    namespace,
-                    headSha,
-                    status: allBuildsFailed ? "failed" : "building",
-                    durationMs: buildDurationMs,
-                    appBuilds,
-                    error: allBuildsFailed ? "All app builds failed" : undefined,
-                }),
-            );
+            // Skip the env-level build row when scoped: PreviewkitBuild is keyed
+            // by (environment, headSha) and already exists for this env from the
+            // full deploy - a scoped upsert would clobber its sibling app-build
+            // rows. The per-app verdict is captured on the app's instance row below.
+            if (!isScoped) {
+                await recordSafe(() =>
+                    recordBuildFinished({
+                        namespace,
+                        headSha,
+                        status: allBuildsFailed ? "failed" : "building",
+                        durationMs: buildDurationMs,
+                        appBuilds,
+                        error: allBuildsFailed ? "All app builds failed" : undefined,
+                    }),
+                );
+            }
 
-            // Transition each app's lifecycle row to `built` (with its imageTag)
-            // or `build_failed` (with the error) - the per-app build verdict.
-            await recordSafe(() => recordAppStates(namespace, toBuildStates(mergedConfig, appBuilds)));
+            // Transition each built app's lifecycle row to `built` (with its
+            // imageTag) or `build_failed` (with the error) - the per-app build
+            // verdict. Scoped to `buildApps` so a per-app rebuild does not map
+            // every sibling (absent from `appBuilds`) to `build_failed`.
+            await recordSafe(() =>
+                recordAppStates(namespace, toBuildStates({ ...mergedConfig, apps: buildApps }, appBuilds)),
+            );
             logger.info("Build step 7/7 recorded build outcomes", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
             });
 
-            if (allBuildsFailed) {
+            // A per-app rebuild never fails the whole environment: a failed target
+            // build is recorded on its instance row and the deploy step records
+            // its terminal state. Only a full deploy throws when every app failed.
+            if (allBuildsFailed && !isScoped) {
                 throw new Error("All app builds failed; see per-app build outcomes for details");
             }
 
@@ -636,6 +677,11 @@ export class PreviewPipeline {
         input: DeployPreviewEnvironmentInput,
         signal?: AbortSignal,
     ): Promise<DeployPreviewEnvironmentOutput> {
+        // Per-app redeploy (rebuild mode): deploy ONLY the target app and merge
+        // its outcome into the environment, leaving siblings running untouched.
+        if (input.appName != null && input.appName !== "") {
+            return this.deployScopedApp(input, input.appName, signal);
+        }
         const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         // Re-hydrate the merged config across the Temporal activity boundary. The
@@ -878,6 +924,217 @@ export class PreviewPipeline {
             urls: result.urls,
         });
         return output;
+    }
+
+    /**
+     * Per-app redeploy (rebuild mode): deploy a SINGLE app into a live
+     * environment and merge its outcome in, leaving siblings running untouched.
+     * Infra is (re)applied with the FULL config so sibling Gatekeeper routes and
+     * external secrets are preserved (idempotent - unchanged resources are a
+     * no-op); only the target app is (re)deployed, only its hooks run, and the
+     * environment row's status/urls are MERGED (`recordAppRedeployOutcome`),
+     * never overwritten. The caller skips `finalize`, so there is no PR-comment
+     * or commit-status churn.
+     */
+    private async deployScopedApp(
+        input: DeployPreviewEnvironmentInput,
+        appName: string,
+        signal?: AbortSignal,
+    ): Promise<DeployPreviewEnvironmentOutput> {
+        const { event, imageTags, addonOutputs, buildOutcomes, addons, warnings } = input;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
+
+        const targetApp = mergedConfig.apps.find((a) => a.name === appName);
+        if (targetApp == null) {
+            throw new Error(`App "${appName}" not found in resolved config for ${input.namespace}`);
+        }
+
+        const targetImage = imageTags[appName];
+        logger.info("Deploying single app into live environment", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace: input.namespace,
+            app: appName,
+            hasImage: targetImage != null && targetImage !== "",
+        });
+
+        const deployOpts = {
+            repoFullName,
+            prNumber,
+            headSha,
+            organizationId,
+            githubRepositoryId,
+            config: mergedConfig,
+            imageTags,
+            addonOutputs,
+            commentId: "",
+        };
+
+        signal?.throwIfAborted();
+        const infraResult = await this.deployer.deployInfra(deployOpts);
+        const namespace = infraResult.namespace;
+
+        // Reuse the hook runners, but with the hook set filtered to the target -
+        // a per-app redeploy must not re-run a sibling's migrations.
+        const scopedHookConfig = {
+            ...mergedConfig,
+            hooks: {
+                pre_deploy: mergedConfig.hooks.pre_deploy.filter((h) => h.app === appName),
+                post_deploy: mergedConfig.hooks.post_deploy.filter((h) => h.app === appName),
+            },
+        };
+
+        signal?.throwIfAborted();
+        await this.runPreDeployHooks(scopedHookConfig, namespace, repoFullName, prNumber, imageTags, addonOutputs);
+
+        // Mark the target `deploying` when it built; a build_failed target has no
+        // image and keeps its build_failed row.
+        if (targetImage != null && targetImage !== "") {
+            await recordSafe(() =>
+                recordAppStates(namespace, [
+                    { appName, status: "deploying", port: targetApp.port, imageTag: targetImage },
+                ]),
+            );
+        }
+
+        signal?.throwIfAborted();
+        const result = await this.deployer.deploySingleApp(deployOpts, infraResult, appName);
+
+        const ready = result.appOutcomes[appName]?.status === "ok";
+        await this.runPostDeployHooks(
+            scopedHookConfig,
+            result,
+            new Set(ready ? [appName] : []),
+            repoFullName,
+            prNumber,
+            imageTags,
+            addonOutputs,
+        );
+
+        // Recover a crash-looped target after its post_deploy hooks (e.g. migrations).
+        const outcome = result.appOutcomes[appName];
+        if (outcome != null && outcome.status === "failed" && outcome.crashLoopBackOff === true) {
+            const recovered = await this.deployer.restartCrashedApps(namespace, [{ name: appName, url: outcome.url }]);
+            const r = recovered[appName];
+            if (r != null) {
+                result.appOutcomes[appName] = r;
+                if (r.status !== "skipped") result.urls[appName] = r.url;
+            }
+        }
+
+        // Persist the target's terminal state and merge it into the environment
+        // (its url + recomputed env status) without disturbing siblings.
+        signal?.throwIfAborted();
+        const [targetState] = toFinalAppStates(
+            { ...mergedConfig, apps: [targetApp] },
+            buildOutcomes,
+            result.appOutcomes,
+            imageTags,
+        );
+        if (targetState != null) {
+            await recordSafe(() => recordAppRedeployOutcome(namespace, targetState));
+        }
+
+        const finalOutcomes = computeFinalOutcomes(
+            { ...mergedConfig, apps: [targetApp] },
+            buildOutcomes,
+            result.appOutcomes,
+        );
+        const services: PreviewServiceResult[] = finalOutcomes.map((o) => {
+            const svc: PreviewServiceResult = { name: o.name, status: o.status === "ok" ? "ready" : "failed" };
+            if (o.url != null) svc.url = o.url;
+            if (o.error != null) svc.error = o.error;
+            return svc;
+        });
+        const readyCount = finalOutcomes.filter((o) => o.status === "ok").length;
+
+        // Mirror the full deploy's all-failed guard: a scoped redeploy that brought
+        // up zero apps must FAIL the workflow (so it retries and alerts), not return
+        // a "successful" output. The target's terminal state is already persisted
+        // above, so the failure does not lose the per-app verdict.
+        if (readyCount === 0) {
+            throw new Error(
+                `App "${appName}" redeploy failed (0/${finalOutcomes.length} ready); see per-app outcome for details`,
+            );
+        }
+
+        const output: DeployPreviewEnvironmentOutput = {
+            ready: readyCount === finalOutcomes.length,
+            readyCount,
+            totalCount: finalOutcomes.length,
+            urls: result.urls,
+            services,
+            addons,
+            warnings,
+        };
+        const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
+        if (previewUrl != null) output.previewUrl = previewUrl;
+
+        logger.info("Single app redeploy complete", {
+            repo: repoFullName,
+            pr: prNumber,
+            namespace,
+            app: appName,
+            ready: readyCount > 0,
+        });
+        return output;
+    }
+
+    /**
+     * Per-app redeploy (restart mode): re-roll a single app's pods (so it picks
+     * up changed secrets/env without a rebuild), wait for readiness, then merge
+     * the app's outcome into the environment. Reads the app's current instance
+     * row to carry its port/imageTag/url through the wholesale-overwrite write.
+     * Re-throws on failure (after recording `deploy_failed`) so the activity's
+     * retry policy can ride out a transient k8s error.
+     */
+    async restartApp(event: PullRequestEvent, namespace: string, appName: string, signal?: AbortSignal): Promise<void> {
+        const { repoFullName, prNumber } = event;
+        logger.info("Restarting app", { repo: repoFullName, pr: prNumber, namespace, app: appName });
+
+        signal?.throwIfAborted();
+        const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+        if (envRow == null) {
+            throw new Error(`Environment not found for namespace ${namespace}`);
+        }
+        const appRow = await db.previewkitAppInstance.findUnique({
+            where: { environmentId_appName: { environmentId: envRow.id, appName } },
+            select: { port: true, imageTag: true, url: true },
+        });
+        if (appRow == null) {
+            throw new Error(`App "${appName}" not found in environment ${namespace}`);
+        }
+
+        const base: AppStateUpdate = {
+            appName,
+            port: appRow.port,
+            status: "ready",
+            imageTag: appRow.imageTag ?? undefined,
+            url: appRow.url ?? undefined,
+        };
+
+        try {
+            await this.deployer.restartApp(namespace, appName, signal);
+            await recordSafe(() => recordAppRedeployOutcome(namespace, { ...base, status: "ready" }));
+            logger.info("App restart succeeded", { repo: repoFullName, pr: prNumber, namespace, app: appName });
+        } catch (err) {
+            // A cancellation means a newer deploy/teardown has superseded this run
+            // and now owns the env row (same namespace). Writing `deploy_failed`
+            // here would clobber the successor's status, so on abort we only stop -
+            // we never touch the DB. (Matches `markPreviewDeploySuperseded`.)
+            if (signal?.aborted === true) {
+                logger.info("App restart aborted by cancellation; leaving env row to successor", {
+                    namespace,
+                    app: appName,
+                });
+                throw err;
+            }
+            const error = err instanceof Error ? err.message : String(err);
+            logger.error("App restart failed", err, { namespace, app: appName });
+            await recordSafe(() => recordAppRedeployOutcome(namespace, { ...base, status: "deploy_failed", error }));
+            throw err;
+        }
     }
 
     /**
@@ -1128,6 +1385,7 @@ export class PreviewPipeline {
         applicationId: string,
         addonOutputs: AddonOutputs,
         signal?: AbortSignal,
+        onlyAppName?: string,
     ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
@@ -1157,8 +1415,11 @@ export class PreviewPipeline {
         // first rejection); every other error becomes a failed app outcome.
         // Each build spawns its own ephemeral BuildKit Job, so all builds run
         // fully in parallel - Karpenter scales the node pool as needed.
+        // `onlyAppName` (per-app redeploy) narrows which apps build, while the
+        // full `config` is kept so build-arg templates can still reference siblings.
+        const appsToBuild = onlyAppName != null ? config.apps.filter((a) => a.name === onlyAppName) : config.apps;
         const entries = await Promise.all(
-            config.apps.map(async (app) => {
+            appsToBuild.map(async (app) => {
                 const outcome = await this.buildOneApp(app, {
                     config,
                     appRepoDirs,

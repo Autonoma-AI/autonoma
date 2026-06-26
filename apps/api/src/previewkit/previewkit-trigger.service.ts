@@ -1,6 +1,11 @@
 import type { PrismaClient } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
-import type { TriggerPreviewDeployParams, TriggerPreviewTeardownParams } from "@autonoma/workflow";
+import type {
+    PreviewRedeployAppMode,
+    TriggerPreviewDeployParams,
+    TriggerPreviewRedeployAppParams,
+    TriggerPreviewTeardownParams,
+} from "@autonoma/workflow";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { Service } from "../routes/service";
@@ -81,6 +86,9 @@ const pushWebhookSchema = z.object({
 /** `after` on a branch-deletion push (40 zeros for SHA-1 repos, 64 for SHA-256). */
 const ZERO_SHA = /^0+$/;
 
+/** Minimal shape for reading app names from a stored resolved config (fallback when app instance rows are absent). */
+const resolvedConfigAppsSchema = z.object({ apps: z.array(z.object({ name: z.string() })) });
+
 /**
  * Starts preview-environment Temporal workflows directly from the API - the
  * native replacement for forwarding deploy/teardown/redeploy over HTTP to
@@ -94,6 +102,7 @@ export class PreviewkitTriggerService extends Service {
         private readonly githubInstallationService: PreviewkitGitHubReader,
         private readonly triggerDeploy: (params: TriggerPreviewDeployParams) => Promise<void>,
         private readonly triggerTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>,
+        private readonly triggerRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>,
     ) {
         super();
     }
@@ -448,6 +457,88 @@ export class PreviewkitTriggerService extends Service {
             environment.configRevisionId ?? undefined,
         );
     }
+
+    /**
+     * Redeploys a SINGLE app within a live environment. `mode` "rebuild"
+     * rebuilds that app's image at the environment's current head SHA (pinning
+     * the deployed config revision) and redeploys only it; "restart" re-rolls
+     * its pods using the running image. Siblings are left untouched either way.
+     * `callerOrgId` narrows to the caller's own environments; pass undefined for
+     * admin/service callers.
+     */
+    async redeployApp(
+        repoFullName: string,
+        prNumber: number,
+        appName: string,
+        mode: PreviewRedeployAppMode,
+        callerOrgId?: string,
+    ): Promise<void> {
+        this.logger.info("Triggering per-app preview redeploy", { repo: repoFullName, pr: prNumber, app: appName, mode });
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: {
+                repoFullName,
+                prNumber,
+                ...(callerOrgId != null ? { organizationId: callerOrgId } : {}),
+            },
+            select: {
+                namespace: true,
+                headSha: true,
+                headRef: true,
+                organizationId: true,
+                githubRepositoryId: true,
+                status: true,
+                configRevisionId: true,
+                resolvedConfig: true,
+                appInstances: { select: { appName: true } },
+            },
+        });
+
+        if (environment == null) throw new NotFoundError("Environment not found");
+        if (environment.status === "torn_down") {
+            throw new ConflictError("Environment has been torn down and cannot be redeployed");
+        }
+        if (environment.githubRepositoryId == null) {
+            throw new ConflictError("Environment predates redeploy support and cannot be redeployed");
+        }
+        if (!environmentHasApp(environment.appInstances, environment.resolvedConfig, appName)) {
+            throw new NotFoundError(`App "${appName}" not found in this environment`);
+        }
+
+        await this.triggerRedeployApp({
+            event: {
+                action: "synchronize",
+                prNumber,
+                repoFullName,
+                organizationId: environment.organizationId,
+                githubRepositoryId: environment.githubRepositoryId,
+                headSha: environment.headSha,
+                headRef: environment.headRef,
+                baseSha: "",
+                baseRef: "",
+                cloneUrl: "",
+            },
+            namespace: environment.namespace,
+            appName,
+            mode,
+            configRevisionId: environment.configRevisionId ?? undefined,
+        });
+    }
+}
+
+/**
+ * True when the environment declares `appName` - checked against its per-app
+ * instance rows first (authoritative), falling back to the stored resolved
+ * config for environments that predate instance rows.
+ */
+function environmentHasApp(
+    appInstances: Array<{ appName: string }>,
+    resolvedConfig: unknown,
+    appName: string,
+): boolean {
+    if (appInstances.some((instance) => instance.appName === appName)) return true;
+    const parsed = resolvedConfigAppsSchema.safeParse(resolvedConfig);
+    return parsed.success && parsed.data.apps.some((app) => app.name === appName);
 }
 
 function normalizeBranchName(ref: string): string {

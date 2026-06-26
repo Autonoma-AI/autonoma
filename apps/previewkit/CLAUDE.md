@@ -117,7 +117,9 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
   in the API env; unset -> the stream route 503s): build logs are pushed by this worker's
   `LokiBuildLogSink`, app logs by an Alloy DaemonSet on the preview cluster
   (`deployment/previewkit/cluster/logging/alloy.yaml`) tailing `preview-*` pod logs.
-- **Lifecycle ops** (deploy / main-branch `POST /applications/:id/0` / teardown / redeploy):
+- **Lifecycle ops** (deploy / main-branch `POST /applications/:id/0` / teardown / redeploy
+  `PATCH /environments/:owner/:repo/:pr` / per-app redeploy
+  `PATCH /environments/:owner/:repo/:pr/apps/:app`):
   preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
   `diffs-trigger.service.ts`), then the Temporal workflow is started directly. 503 when the API's
   `PREVIEWKIT_ENABLED` is off (dev / self-host without preview infra); the GitHub webhook handler

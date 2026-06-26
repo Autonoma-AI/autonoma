@@ -397,3 +397,95 @@ export async function recordAppStates(namespace: string, updates: AppStateUpdate
         }
     });
 }
+
+// Per-app redeploy: write ONE app's terminal state and merge it into the
+// environment WITHOUT disturbing siblings. Unlike `recordEnvironmentReady`
+// (which overwrites the whole urls map and forces status `ready`), this splices
+// only this app's url in/out and recomputes the env status from all app rows.
+// `update` follows the same wholesale-overwrite contract as `recordAppStates`,
+// so callers must pass the app's complete intended state (carry imageTag/url so
+// they are not wiped). Runs in one transaction so the app row and the env
+// summary stay consistent.
+export async function recordAppRedeployOutcome(namespace: string, update: AppStateUpdate): Promise<void> {
+    const logger = rootLogger.child({ name: "recordAppRedeployOutcome" });
+    logger.info("Recording per-app redeploy outcome", { namespace, app: update.appName, status: update.status });
+
+    await db.$transaction(async (tx) => {
+        const envRow = await tx.previewkitEnvironment.findUnique({
+            where: { namespace },
+            select: { id: true, urls: true },
+        });
+        if (envRow == null) {
+            logger.warn("Cannot record per-app redeploy outcome: no environment row found", { namespace });
+            return;
+        }
+
+        const mutable = {
+            status: update.status,
+            port: update.port,
+            imageTag: update.imageTag ?? null,
+            url: update.url ?? null,
+            error: update.error ?? null,
+        };
+        await tx.previewkitAppInstance.upsert({
+            where: { environmentId_appName: { environmentId: envRow.id, appName: update.appName } },
+            create: { environmentId: envRow.id, appName: update.appName, ...mutable },
+            update: mutable,
+        });
+
+        // Splice this app's url into the env map: present only while ready.
+        const urls = { ...envRow.urls };
+        if (update.status === "ready" && update.url != null && update.url !== "") {
+            urls[update.appName] = update.url;
+        } else {
+            delete urls[update.appName];
+        }
+
+        // Recompute the env status from every app row (after this app's write).
+        // Mirrors the full deploy's "partial success still counts as ready"
+        // semantics: ready iff at least one app is ready; only an all-down
+        // environment is `failed`.
+        const instances = await tx.previewkitAppInstance.findMany({
+            where: { environmentId: envRow.id },
+            select: { appName: true, status: true, error: true },
+        });
+        const anyReady = instances.some((i) => i.status === "ready");
+        const status: PreviewkitStatus = anyReady ? "ready" : "failed";
+
+        // A `failed` env must always carry an error per the status-API contract.
+        // Writing `undefined` here leaves the prior value untouched, so a once-healthy
+        // env could go `failed` with a stale/empty error. Derive one from the failed
+        // app rows (or this app's own error) so the failure is never silent.
+        const failureError = anyReady
+            ? null
+            : (deriveEnvError(instances) ?? update.error ?? "All apps failed to deploy");
+
+        await tx.previewkitEnvironment.update({
+            where: { id: envRow.id },
+            data: {
+                status,
+                phase: status,
+                error: failureError,
+                urls,
+                deployedAt: new Date(),
+            },
+        });
+    });
+}
+
+// Build an env-level error message from the failed app rows. Prefers the rows
+// that carry their own error (the actionable reason), falling back to listing
+// the non-ready app names so the message is never empty.
+function deriveEnvError(
+    instances: Array<{ appName: string; status: string; error: string | null }>,
+): string | undefined {
+    const withError = instances.filter((i) => i.status !== "ready" && i.error != null && i.error !== "");
+    if (withError.length > 0) {
+        return withError.map((i) => `${i.appName}: ${i.error}`).join("; ");
+    }
+    const failedNames = instances.filter((i) => i.status !== "ready").map((i) => i.appName);
+    if (failedNames.length > 0) {
+        return `Apps failed to deploy: ${failedNames.join(", ")}`;
+    }
+    return undefined;
+}

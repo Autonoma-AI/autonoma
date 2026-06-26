@@ -49,6 +49,13 @@ export interface BuildPreviewImagesInput {
     namespace: string;
     /** Pin the config revision to reproduce a redeploy's original topology. */
     configRevisionId?: string | undefined;
+    /**
+     * Scope the build to a single app (per-app redeploy). The full config is
+     * still resolved + merged for build-arg templating context, but only this
+     * app's image is rebuilt and only its lifecycle row is reseeded. Undefined
+     * builds every app (the normal full deploy).
+     */
+    appName?: string | undefined;
 }
 
 /** Serializable mirror of apps/previewkit's per-app `AppBuildOutcome`. */
@@ -84,6 +91,14 @@ export interface DeployPreviewEnvironmentInput {
     addons: PreviewAddonResult[];
     warnings: string[];
     primaryAppNames: string[];
+    /**
+     * Scope the deploy to a single app (per-app redeploy). Infra still applies
+     * with the full config (so sibling Gatekeeper routes + external secrets are
+     * preserved), but only this app is (re)deployed, only its hooks run, and the
+     * outcome is merged into the environment rather than overwriting it.
+     * Undefined deploys every app (the normal full deploy).
+     */
+    appName?: string | undefined;
 }
 
 /** Flat, comment-ready per-app row. */
@@ -147,6 +162,14 @@ export interface MarkPreviewDeploySupersededInput {
     namespace: string;
 }
 
+export interface RestartPreviewAppInput {
+    event: PreviewDeployEvent;
+    /** The environment's namespace (resolved from the env row by the caller). */
+    namespace: string;
+    /** The single app to restart - re-rolls its pods using the running image. */
+    appName: string;
+}
+
 export interface PreviewkitActivities {
     preparePreviewDeploy(input: PreparePreviewDeployInput): Promise<PreparePreviewDeployOutput>;
     buildPreviewImages(input: BuildPreviewImagesInput): Promise<BuildPreviewImagesOutput>;
@@ -159,4 +182,10 @@ export interface PreviewkitActivities {
      * the newest run owns). Called from the deploy workflow's cancellation path.
      */
     markPreviewDeploySuperseded(input: MarkPreviewDeploySupersededInput): Promise<void>;
+    /**
+     * Re-rolls a single app's pods (per-app redeploy, restart mode) using the
+     * image it is already running, then merges the app's outcome into the
+     * environment. No build, no hooks, no PR-comment churn.
+     */
+    restartPreviewApp(input: RestartPreviewAppInput): Promise<void>;
 }

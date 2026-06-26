@@ -64,6 +64,11 @@ const requireStreamAuth: MiddlewareHandler<{ Variables: CallerAuthVariables }> =
     return requireAuth(c, next);
 };
 
+/** Request body for the per-app redeploy. `mode` defaults to a full rebuild of the app. */
+const redeployAppRequestSchema = z.object({
+    mode: z.enum(["rebuild", "restart"]).default("rebuild"),
+});
+
 /** Request body for `POST /environments` - mirrors Previewkit's deploy schema. */
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
@@ -362,7 +367,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
     })
-    .post("/environments/:owner/:repo/:pr/redeploy", requireAuth, async (c) => {
+    .patch("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
         if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
 
         const pr = parseEnvironmentNumber(c.req.param("pr"));
@@ -376,6 +381,41 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         }
 
         return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
+    })
+    .patch("/environments/:owner/:repo/:pr/apps/:app", requireAuth, async (c) => {
+        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
+
+        const pr = parseEnvironmentNumber(c.req.param("pr"));
+        if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
+
+        const app = c.req.param("app");
+
+        // Body is optional; an empty/absent body redeploys with the default mode.
+        // A present-but-malformed body must 400 rather than silently defaulting -
+        // collapsing a parse failure to {} would accept truncated JSON or the wrong
+        // content type as a default-mode redeploy the client never asked for.
+        const raw = await c.req.text();
+        let body: unknown = {};
+        if (raw.trim() !== "") {
+            try {
+                body = JSON.parse(raw);
+            } catch (error) {
+                logger.warn("Rejecting per-app redeploy: malformed JSON body", { app: c.req.param("app"), error });
+                return c.json({ error: "Request body must be valid JSON" }, 400);
+            }
+        }
+        const parsed = redeployAppRequestSchema.safeParse(body);
+        if (!parsed.success) return c.json({ error: "Invalid request body", details: parsed.error.issues }, 400);
+        const { mode } = parsed.data;
+
+        const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
+        try {
+            await previewkitTriggerService.redeployApp(repoFullName, pr, app, mode, callerOrgId(c.var.authCaller));
+        } catch (error) {
+            return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr, app });
+        }
+
+        return c.json({ accepted: true, repoFullName, prNumber: pr, app, mode }, 202);
     })
     .get("/openapi.json", (c) => c.json(openApiSpec));
 

@@ -33,6 +33,23 @@ export const adminRouter = router({
         .input(z.object({ environmentId: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.deployments.redeployEnvironment(input.environmentId)),
     /**
+     * Redeploys a SINGLE app within a preview environment. `mode: "rebuild"`
+     * rebuilds just that app at the PR's current head SHA and redeploys only it;
+     * `"restart"` re-rolls its pods using the running image. Sibling apps are
+     * left untouched. Admin-gated; delegates to the deployments service.
+     */
+    redeployPreviewkitApp: internalProcedure
+        .input(
+            z.object({
+                environmentId: z.string().min(1),
+                app: z.string().min(1),
+                mode: z.enum(["rebuild", "restart"]),
+            }),
+        )
+        .mutation(({ ctx: { services }, input }) =>
+            services.deployments.redeployApp(input.environmentId, input.app, input.mode),
+        ),
+    /**
      * Applications eligible for a main-branch preview deploy (linked to a GitHub
      * repository, owned by an org with an active installation). Admin-gated;
      * the picker source for the deploy action below.

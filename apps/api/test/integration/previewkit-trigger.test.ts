@@ -310,6 +310,7 @@ apiTestSuite({
                 },
                 deploySpy,
                 deploySpy,
+                deploySpy,
             );
             await expect(repoMissing.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
                 /Linked GitHub repository not found/,
@@ -328,6 +329,7 @@ apiTestSuite({
                         }),
                     getBranchHead: () => Promise.reject(notFound),
                 },
+                deploySpy,
                 deploySpy,
                 deploySpy,
             );
@@ -536,6 +538,131 @@ apiTestSuite({
             });
 
             await expect(service.redeploy(REPO_FULL_NAME, 14, "some-other-org")).rejects.toThrow(NotFoundError);
+        });
+
+        test("redeployApp reconstructs the event, namespace, app + mode and pins the config revision", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-20",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 20,
+                    headSha: "head-20",
+                    headRef: "feature/pr-20",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    configRevisionId: "rev_original",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+
+            await service.redeployApp(REPO_FULL_NAME, 20, "web", "rebuild", harness.organizationId);
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                event: {
+                    action: "synchronize",
+                    prNumber: 20,
+                    repoFullName: REPO_FULL_NAME,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: REPO_ID,
+                    headSha: "head-20",
+                    headRef: "feature/pr-20",
+                    baseSha: "",
+                    baseRef: "",
+                    cloneUrl: "",
+                },
+                namespace: "preview-acme-web-pr-20",
+                appName: "web",
+                mode: "rebuild",
+                configRevisionId: "rev_original",
+            });
+        });
+
+        test("redeployApp passes restart mode through", async ({ harness, seedResult: { service } }) => {
+            harness.triggerWorkflow.mockClear();
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-21",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 21,
+                    headSha: "head-21",
+                    headRef: "feature/pr-21",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+
+            await service.redeployApp(REPO_FULL_NAME, 21, "web", "restart", harness.organizationId);
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({ appName: "web", mode: "restart", namespace: "preview-acme-web-pr-21" }),
+            );
+        });
+
+        test("redeployApp rejects an app not in the environment", async ({ harness, seedResult: { service } }) => {
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-22",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 22,
+                    headSha: "head-22",
+                    headRef: "feature/pr-22",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+
+            await expect(
+                service.redeployApp(REPO_FULL_NAME, 22, "api", "rebuild", harness.organizationId),
+            ).rejects.toThrow(NotFoundError);
+        });
+
+        test("redeployApp rejects a torn-down environment", async ({ harness, seedResult: { service } }) => {
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-23",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 23,
+                    headSha: "head-23",
+                    headRef: "feature/pr-23",
+                    githubRepositoryId: REPO_ID,
+                    status: "torn_down",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+
+            await expect(
+                service.redeployApp(REPO_FULL_NAME, 23, "web", "rebuild", harness.organizationId),
+            ).rejects.toThrow(ConflictError);
+        });
+
+        test("redeployApp scopes to the caller's organization", async ({ harness, seedResult: { service } }) => {
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-24",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 24,
+                    headSha: "head-24",
+                    headRef: "feature/pr-24",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+
+            await expect(service.redeployApp(REPO_FULL_NAME, 24, "web", "rebuild", "some-other-org")).rejects.toThrow(
+                NotFoundError,
+            );
         });
     },
 });

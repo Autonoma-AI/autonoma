@@ -8,10 +8,15 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Input,
   Skeleton,
   cn,
 } from "@autonoma/blacklight";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowLineDownIcon } from "@phosphor-icons/react/ArrowLineDown";
 import { ArrowLineUpIcon } from "@phosphor-icons/react/ArrowLineUp";
@@ -20,6 +25,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
+import { HammerIcon } from "@phosphor-icons/react/Hammer";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
@@ -34,6 +40,7 @@ import {
   usePreviewkitEnvFactoryDown,
   usePreviewkitEnvFactoryOptions,
   usePreviewkitEnvFactoryUp,
+  useRedeployPreviewkitApp,
   useRedeployPreviewkitEnvironment,
 } from "lib/query/admin.queries";
 import type { RouterOutputs } from "lib/trpc";
@@ -391,7 +398,7 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
       {isOpen && (
         <DataTableRow>
           <DataTableCell colSpan={7} className="bg-surface-base p-0">
-            {showApps && <AppsDetail apps={environment.apps} />}
+            {showApps && <AppsDetail apps={environment.apps} environmentId={environment.id} />}
             {/* Manual Environment Factory up/down against this specific preview. */}
             {showEnvFactory && <EnvFactoryPanel environmentId={environment.id} />}
             {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
@@ -405,7 +412,7 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
 
 // The expanded per-app detail for an environment, as its own column-aligned
 // table: every configured app with its status, plus its URL when it has one.
-function AppsDetail({ apps }: { apps: PreviewApp[] }) {
+function AppsDetail({ apps, environmentId }: { apps: PreviewApp[]; environmentId: string }) {
   if (apps.length === 0) {
     return <p className="border-t border-border-dim px-3 py-2 font-mono text-2xs text-text-secondary">No apps yet</p>;
   }
@@ -414,14 +421,17 @@ function AppsDetail({ apps }: { apps: PreviewApp[] }) {
       <DataTable className="table-fixed">
         <DataTableHead>
           <DataTableRow>
-            <DataTableHeaderCell className="w-1/3 pr-3">App</DataTableHeaderCell>
-            <DataTableHeaderCell className="w-1/3 pr-3">Status</DataTableHeaderCell>
-            <DataTableHeaderCell className="w-1/3">URL</DataTableHeaderCell>
+            <DataTableHeaderCell className="w-1/4 pr-3">App</DataTableHeaderCell>
+            <DataTableHeaderCell className="w-40 pr-3">Status</DataTableHeaderCell>
+            <DataTableHeaderCell className="pr-3">URL</DataTableHeaderCell>
+            <DataTableHeaderCell align="right" className="w-20">
+              Actions
+            </DataTableHeaderCell>
           </DataTableRow>
         </DataTableHead>
         <DataTableBody>
           {apps.map((app) => (
-            <AppRow key={app.appName} app={app} />
+            <AppRow key={app.appName} app={app} environmentId={environmentId} />
           ))}
         </DataTableBody>
       </DataTable>
@@ -432,7 +442,7 @@ function AppsDetail({ apps }: { apps: PreviewApp[] }) {
 // One app row: name, lifecycle status badge, and its live URL when it has one.
 // A failed app shows its error instead; one with no URL yet (still building, or
 // skipped) shows a muted placeholder.
-function AppRow({ app }: { app: PreviewApp }) {
+function AppRow({ app, environmentId }: { app: PreviewApp; environmentId: string }) {
   return (
     <DataTableRow>
       <DataTableCell className="pr-3">
@@ -463,7 +473,45 @@ function AppRow({ app }: { app: PreviewApp }) {
           <span className="font-mono text-2xs text-text-secondary">No URL</span>
         )}
       </DataTableCell>
+      <DataTableCell align="right" className="w-20">
+        <AppRedeployControl environmentId={environmentId} appName={app.appName} />
+      </DataTableCell>
     </DataTableRow>
+  );
+}
+
+// Per-app redeploy: a compact menu offering the two modes. "Rebuild image"
+// rebuilds this app from source at the environment's current head SHA and
+// redeploys only it; "Restart pods" re-rolls its existing image (picks up
+// changed secrets/env, no build). Sibling apps are untouched either way.
+function AppRedeployControl({ environmentId, appName }: { environmentId: string; appName: string }) {
+  const redeploy = useRedeployPreviewkitApp();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="icon-xs"
+            disabled={redeploy.isPending}
+            aria-label={`Redeploy ${appName}`}
+            title="Redeploy app"
+          >
+            {redeploy.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <ArrowsClockwiseIcon size={12} />}
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => redeploy.mutate({ environmentId, app: appName, mode: "rebuild" })}>
+          <HammerIcon size={14} className="mr-2" />
+          Rebuild image
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => redeploy.mutate({ environmentId, app: appName, mode: "restart" })}>
+          <ArrowClockwiseIcon size={14} className="mr-2" />
+          Restart pods
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

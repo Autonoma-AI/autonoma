@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { triggerPreviewDeploy, triggerPreviewTeardown } from "@autonoma/workflow";
+import { triggerPreviewDeploy, triggerPreviewRedeployApp, triggerPreviewTeardown } from "@autonoma/workflow";
 import { env } from "../env";
 import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
@@ -16,4 +16,5 @@ export const previewkitTriggerService = new PreviewkitTriggerService(
     new GitHubInstallationService(db, buildGitHubApp(env)),
     triggerPreviewDeploy,
     triggerPreviewTeardown,
+    triggerPreviewRedeployApp,
 );

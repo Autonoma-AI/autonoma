@@ -4,6 +4,7 @@ import type { PreviewDeployEvent } from "../activities/previewkit-activities";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
+import type { PreviewRedeployAppMode } from "../workflows/previewkit-redeploy-app.workflow";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
 const SUPERSEDE_CANCEL_GRACE_MS = 30_000;
@@ -72,6 +73,45 @@ export async function triggerPreviewTeardown(params: TriggerPreviewTeardownParam
     });
 
     logger.info("Preview teardown workflow started", { extra: { workflowId } });
+}
+
+export interface TriggerPreviewRedeployAppParams {
+    event: PreviewDeployEvent;
+    /** The environment's namespace, resolved from the env row by the caller. */
+    namespace: string;
+    /** The single app to redeploy. */
+    appName: string;
+    /** `rebuild` re-builds the image then redeploys; `restart` re-rolls the running pods. */
+    mode: PreviewRedeployAppMode;
+    /** Pin the config revision so a rebuild reproduces the environment's deployed topology. */
+    configRevisionId?: string | undefined;
+}
+
+/**
+ * Starts (or supersedes) a per-app redeploy for a (repo, pr). Shares the deploy
+ * workflow's deterministic workflowId, so it supersedes any in-flight full
+ * deploy/teardown for the PR via the same per-environment mutex as
+ * {@link triggerPreviewDeploy}.
+ */
+export async function triggerPreviewRedeployApp(params: TriggerPreviewRedeployAppParams): Promise<void> {
+    const { event, namespace, appName, mode, configRevisionId } = params;
+    const workflowId = buildPreviewDeployWorkflowId(event.repoFullName, event.prNumber);
+
+    logger.info("Triggering preview per-app redeploy workflow", {
+        extra: { workflowId, repo: event.repoFullName, pr: event.prNumber, app: appName, mode },
+    });
+
+    const client = await getTemporalClient();
+    await cancelInFlightPreviewWorkflow(client, workflowId);
+    await client.workflow.start(WORKFLOW_TYPE.PREVIEW_REDEPLOY_APP, {
+        workflowId,
+        workflowIdConflictPolicy: WorkflowIdConflictPolicy.TERMINATE_EXISTING,
+        taskQueue: TaskQueue.PREVIEWKIT,
+        searchAttributes: getWorkflowSearchAttributes(),
+        args: [{ event, namespace, appName, mode, configRevisionId }],
+    });
+
+    logger.info("Preview per-app redeploy workflow started", { extra: { workflowId, app: appName, mode } });
 }
 
 /**

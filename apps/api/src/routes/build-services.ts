@@ -9,6 +9,7 @@ import type {
     TriggerDiffsJobParams,
     TriggerInvestigationJobParams,
     TriggerPreviewDeployParams,
+    TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
     TriggerRunWorkflowParams,
 } from "@autonoma/workflow";
@@ -81,6 +82,7 @@ export interface ServicesParams {
     triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>;
     triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
+    triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
 export function buildServices({
@@ -97,6 +99,7 @@ export function buildServices({
     triggerInvestigationJob,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
+    triggerPreviewRedeployApp,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
     const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn);
@@ -108,6 +111,7 @@ export function buildServices({
         githubService,
         triggerPreviewDeploy,
         triggerPreviewTeardown,
+        triggerPreviewRedeployApp,
     );
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, {
         previewkitClient: {

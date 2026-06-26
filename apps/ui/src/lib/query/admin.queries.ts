@@ -32,6 +32,19 @@ export function useRedeployPreviewkitEnvironment() {
     });
 }
 
+export function useRedeployPreviewkitApp() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.redeployPreviewkitApp.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.listPreviewkitEnvironments.queryKey() });
+            },
+        }),
+        successToast: { title: "App redeploy triggered" },
+        errorToast: { title: "Failed to trigger app redeploy" },
+    });
+}
+
 export function usePreviewkitDeployableApplications() {
     return useSuspenseQuery(trpc.admin.listPreviewkitDeployableApplications.queryOptions());
 }

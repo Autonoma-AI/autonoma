@@ -73,6 +73,7 @@ export type {
     FailPreviewDeployInput,
     TeardownPreviewEnvironmentInput,
     MarkPreviewDeploySupersededInput,
+    RestartPreviewAppInput,
 } from "./previewkit-activities";
 
 export type {
