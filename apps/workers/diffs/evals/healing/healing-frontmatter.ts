@@ -20,14 +20,14 @@ const provenanceDispositionSchema = z.enum(["removed", "quarantined"]);
 /**
  * Deterministic checks for a Healing case.
  *
- * `expectedActions` grades the per-failure action union. The healing runtime
- * enforces a strict 1:1 mapping (every input failure must be handled by exactly
- * one action, see `healing-result-tool.ts:UnhandledFailuresError`), so each
- * entry pins the expected action kind for a specific failing test case and the
- * keyset must equal the set of failing test cases (enforced at load time by
- * `validateHealingCase`): a modify is `update_plan`, a removal is `remove_test`,
- * a bug is `report_bug` / `report_engine_limitation`. Healing only heals and
- * culls - it authors no tests.
+ * `expectedActions` grades the per-failure action union for the test cases a
+ * rubric wants to pin exactly. Each entry pins the expected action kind for a
+ * specific failing test case; omitted failures are not checked by this
+ * deterministic grader and should be covered by the judge rubric or
+ * `provenance` when their disposition matters. A modify is `update_plan`, a
+ * removal is `remove_test`, and a bug is `report_bug` /
+ * `report_engine_limitation`. Healing only heals and culls - it authors no
+ * tests.
  *
  * `provenance` grades the remove-vs-quarantine rule. It is keyed by failing test
  * case and semantic rather than kind-exact:
@@ -38,8 +38,8 @@ const provenanceDispositionSchema = z.enum(["removed", "quarantined"]);
  *     failure carries no `reviewLink`, so a removal always cites a review.
  *   - `quarantined` - a *pre-existing* failing test, which is useful and must be
  *     kept: the agent must pick any quarantine action ({@link QUARANTINE_KINDS})
- *     and must NOT `remove_test` it. Unlike `expectedActions`, this does not pin
- *     which quarantine mechanism, only that the test is not deleted.
+ *     and must NOT `remove_test` it. This does not pin which quarantine
+ *     mechanism, only that the test is not deleted.
  *
  * Anything subtler (was the rewritten plan sensible? was the bug severity
  * proportionate? is the cited removal reason plausible?) belongs in the judge
@@ -64,9 +64,7 @@ function checkExpectedActions(result: HealingResult, expected: HealingFrontmatte
     if (expected == null) return [];
 
     const failures: CheckFailure[] = [];
-    const expectedIds = new Set(Object.keys(expected));
     const emittedByTestCaseId = new Map(result.actions.map((a) => [a.testCaseId, a]));
-    const emittedIds = new Set(emittedByTestCaseId.keys());
 
     // Coverage: every expected entry must have a matching emitted action with the right kind.
     for (const [testCaseId, expectedKind] of Object.entries(expected)) {
@@ -84,18 +82,6 @@ function checkExpectedActions(result: HealingResult, expected: HealingFrontmatte
                 message: `expected ${expectedKind} for ${testCaseId} but got ${action.kind}`,
             });
         }
-    }
-
-    // No extras: the agent must not act on test cases outside the expected set.
-    // The healing runtime guarantees every input failure is handled, so the
-    // emitted set should equal the expected set; surfacing both directions
-    // makes drift loud.
-    const unexpected = [...emittedIds].filter((id) => !expectedIds.has(id));
-    if (unexpected.length > 0) {
-        failures.push({
-            check: "expectedActions.unexpected",
-            message: `agent acted on test cases not listed in expectedActions: [${unexpected.join(", ")}]`,
-        });
     }
 
     return failures;

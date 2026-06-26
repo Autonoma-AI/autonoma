@@ -24,11 +24,11 @@ export function validateHealingCase(testCase: HealingCase): void {
 }
 
 /**
- * The `expectedActions` keyset must equal the set of `failures[].testCaseId` in
- * `input.json`. Healing's runtime invariant is that every input failure is
- * handled by exactly one action, so a partial map is almost certainly an
- * authoring mistake (and would let the agent silently get away with skipping or
- * hallucinating a test case). A case without `expectedActions` is not validated.
+ * Every `expectedActions` key must be one of this turn's failing test cases. The
+ * map may be partial: a case can pin the action kinds it cares about while
+ * leaving other failures to the judge rubric or `provenance`. A key for a test
+ * case that did not fail this turn is still an authoring mistake (the agent
+ * could never validly act on it).
  */
 function validateExpectedActions(testCase: HealingCase): void {
     const expected = testCase.frontmatter.expectedActions;
@@ -37,17 +37,12 @@ function validateExpectedActions(testCase: HealingCase): void {
     const expectedIds = new Set(Object.keys(expected));
     const failureIds = new Set(testCase.input.failures.map((f) => f.testCaseId));
 
-    const missing = [...failureIds].filter((id) => !expectedIds.has(id));
     const extra = [...expectedIds].filter((id) => !failureIds.has(id));
+    if (extra.length === 0) return;
 
-    if (missing.length === 0 && extra.length === 0) return;
-
-    const parts: string[] = [];
-    if (missing.length > 0) parts.push(`missing testCaseIds: [${missing.join(", ")}]`);
-    if (extra.length > 0) parts.push(`unknown testCaseIds (not in input.failures): [${extra.join(", ")}]`);
     throw new Error(
-        `Healing case "${testCase.name}" has a malformed expectedActions: ${parts.join("; ")}. ` +
-            "The keyset must equal the set of failing test cases in input.json.",
+        `Healing case "${testCase.name}" has expectedActions entries for test case(s) not in input.failures: ` +
+            `[${extra.join(", ")}]. Every expectedActions key must be one of this turn's failing test cases.`,
     );
 }
 

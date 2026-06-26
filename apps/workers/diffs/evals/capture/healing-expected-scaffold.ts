@@ -30,8 +30,9 @@ description: "Captured from ${sourceLabel} - TODO: describe what this case exerc
 skip: true
 # Deterministic checks (uncomment + fill in, then set skip: false).
 #
-# expectedActions: pins the exact action kind per failing test case. One entry
-# per failing test case in input.json; the keyset must match exactly.
+# expectedActions: pins the exact action kind for the failing test cases whose
+# action kind matters. You may leave entries commented out and cover them in the
+# judge rubric instead; every uncommented key must be in input.json failures.
 # expectedActions:
 ${expectedBlock}
 #

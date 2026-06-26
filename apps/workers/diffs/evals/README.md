@@ -153,7 +153,7 @@ channels:
 ---
 description: "what this case exercises"
 skip: false
-expectedActions:                  # one entry per failing test case in input.json
+expectedActions:                  # subset of failing test cases whose action kind matters
     tc-abc: update_plan           # the kind the agent must emit for this test case
     tc-def: report_bug
     tc-ghi: remove_test
@@ -171,15 +171,15 @@ Free-text judge rubric. Grade qualities the deterministic checks cannot:
 ```
 
 Healing's runtime invariant is that every input failure is handled by exactly one
-action (the agent loop throws otherwise). The eval mirrors that: the `expectedActions`
-keyset must equal the set of `failures[].testCaseId` in `input.json`. A partial or
-mismatched map throws at load time rather than at run time. `provenance` keys need
-not be exhaustive (only the dispositions that matter), but every key must be a failing
-test case. Because `remove_test` is rejected at the runtime boundary unless the
-failure carries a source review, any test case expected to be removed - via
-`expectedActions: remove_test` or `provenance: removed` - must have a failure that
-carries a `reviewLink`, or the case throws at load time (the in-repo enforcement of
-"no `remove_test` case lacks a cited review").
+action (the agent loop throws otherwise). `expectedActions` pins action kinds only
+for the failing test cases listed in the map; omitted failures are left to the judge
+rubric or `provenance`. `expectedActions` and `provenance` keys need not be
+exhaustive, but every key must be a failing test case in `input.json`. Because
+`remove_test` is rejected at the runtime boundary unless the failure carries a source
+review, any test case expected to be removed - via `expectedActions: remove_test` or
+`provenance: removed` - must have a failure that carries a `reviewLink`, or the case
+throws at load time (the in-repo enforcement of "no `remove_test` case lacks a cited
+review").
 
 ### Multimedia rehydration
 

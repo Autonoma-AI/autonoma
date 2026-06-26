@@ -153,6 +153,24 @@ describe("healing provenance grader", () => {
     });
 });
 
+describe("healing expectedActions grader", () => {
+    it("allows expectedActions to pin only the failures the case cares about", () => {
+        const failures = checkHealingResult(healingResult([reportBugAction("tc-1"), updatePlanAction("tc-2")]), {
+            expectedActions: { "tc-1": "report_bug" },
+        });
+
+        expect(failures).toEqual([]);
+    });
+
+    it("still flags a pinned action with the wrong kind", () => {
+        const failures = checkHealingResult(healingResult([updatePlanAction("tc-1"), reportBugAction("tc-2")]), {
+            expectedActions: { "tc-1": "report_bug" },
+        });
+
+        expect(failures.map((f) => f.check)).toEqual(["expectedActions.tc-1"]);
+    });
+});
+
 describe("validateHealingCase removal citability", () => {
     it("throws when a removal is expected but its failure carries no review to cite", () => {
         expect(() =>
@@ -179,6 +197,24 @@ describe("validateHealingCase removal citability", () => {
             validateHealingCase(
                 healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
                     provenance: { "tc-other": "quarantined" },
+                }),
+            ),
+        ).toThrow(/not in input.failures/);
+    });
+
+    it("allows expectedActions to omit failures but rejects unknown keys", () => {
+        expect(() =>
+            validateHealingCase(
+                healingCase([{ testCaseId: "tc-1" }, { testCaseId: "tc-2" }], {
+                    expectedActions: { "tc-1": "update_plan" },
+                }),
+            ),
+        ).not.toThrow();
+
+        expect(() =>
+            validateHealingCase(
+                healingCase([{ testCaseId: "tc-1" }], {
+                    expectedActions: { "tc-other": "update_plan" },
                 }),
             ),
         ).toThrow(/not in input.failures/);
