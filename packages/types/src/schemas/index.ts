@@ -19,6 +19,7 @@ export * from "./org-secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
 export * from "./previewkit-introspection";
+export * from "./snapshot-dependency-pin";
 export * from "./healing-actions";
 export * from "./snapshot-report";
 export * from "./checkpoint-summary";

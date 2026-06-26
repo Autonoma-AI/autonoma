@@ -596,6 +596,15 @@ model BranchSnapshot {
   prevSnapshot   BranchSnapshot?  @relation("SnapshotHistory", fields: [prevSnapshotId], references: [id])
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
+  // Per-dependency deployed commit SHAs (keyed by previewkit multirepo dependency
+  // name), pinned the first time grounding runs for this snapshot by resolving the
+  // headSha-exact PreviewkitEnvironment and copying its enriched resolvedConfig dep
+  // SHAs. All agents in the snapshot read this pinned copy so a later redeploy can
+  // not corrupt an in-flight snapshot's multi-repo fidelity. `null` = not yet
+  // pinned; `{}` = pinned with no matching/partial manifest (degrade, never error).
+  /// ![Record<string, string>]
+  pinnedDependencyShas Json? @map("pinned_dependency_shas")
+
   testCaseAssignments     TestCaseAssignment[]
   scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
   scenarioRecipeVersions  ScenarioRecipeVersion[]

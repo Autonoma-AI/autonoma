@@ -4,6 +4,7 @@ import type { AnalyzeDiffsInput, AnalyzeDiffsOutput } from "@autonoma/workflow/a
 import { Context } from "@temporalio/activity";
 import { runDiffsAnalysis } from "../analysis/run-analysis";
 import { withCodebaseForSnapshot } from "../codebase/resolve";
+import { SnapshotDependencyManifestPinner } from "../grounding/pin-dependency-manifest";
 
 export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput> {
     const logger = rootLogger.child({ name: "analyzeDiffs" });
@@ -16,6 +17,12 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
             where: { snapshotId },
             data: { status: "analyzing", startedAt: new Date() },
         });
+
+        // First grounding for this snapshot: pin the deployed dependency manifest
+        // so every downstream agent (both reviewers, every healing iteration)
+        // grounds against the exact multi-repo commit state that was live,
+        // immune to a later redeploy.
+        await new SnapshotDependencyManifestPinner(db).ensurePinned(snapshotId);
 
         const { replays, reasoning, conversationUrl } = await withCodebaseForSnapshot(snapshotId, {
             targetDirSeed: `analysis-${snapshotId}`,
