@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.5](https://github.com/Autonoma-AI/agent/compare/v1.8.4...v1.8.5) (2026-06-26)
+
+
+### Features
+
+* allow partial healing expected actions ([#1121](https://github.com/Autonoma-AI/agent/issues/1121)) ([e8a43a0](https://github.com/Autonoma-AI/agent/commit/e8a43a04a22b014e8634b1e10c1a343947408792))
+* **previewkit:** scope build-log viewer to the latest attempt ([#1115](https://github.com/Autonoma-AI/agent/issues/1115)) ([8fb7f8b](https://github.com/Autonoma-AI/agent/commit/8fb7f8bd4c90ea65ac41aaf0baf6d3594413b0fb))
+* snapshot pins the deployed dependency manifest ([#1063](https://github.com/Autonoma-AI/agent/issues/1063)) ([#1128](https://github.com/Autonoma-AI/agent/issues/1128)) ([52e2043](https://github.com/Autonoma-AI/agent/commit/52e204359de8ebbd4b989d332bf5f52cfb5deea3))
+
+
+### Bug Fixes
+
+* **investigation:** bound tool output to stop oversized-prompt failures ([#1131](https://github.com/Autonoma-AI/agent/issues/1131)) ([986b7df](https://github.com/Autonoma-AI/agent/commit/986b7df36f0aff0e1b5d39d2e07c6b7332279fad))
+
 ## [1.8.4](https://github.com/Autonoma-AI/agent/compare/v1.8.3...v1.8.4) (2026-06-26)
 
 
