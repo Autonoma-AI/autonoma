@@ -164,7 +164,7 @@ apiTestSuite({
             expect(scenarios).toHaveLength(0);
         });
 
-        test("uploadArtifacts records the commit sha on the branch and pending snapshot", async ({ harness }) => {
+        test("uploadArtifacts records the commit sha on the pending snapshot", async ({ harness }) => {
             const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Commit Sha");
             const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
@@ -175,9 +175,8 @@ apiTestSuite({
 
             const branch = await harness.db.branch.findFirstOrThrow({
                 where: { applicationId: app.id },
-                select: { lastHandledSha: true, pendingSnapshotId: true },
+                select: { pendingSnapshotId: true },
             });
-            expect(branch.lastHandledSha).toBe(sha);
 
             const pendingSnapshotId = branch.pendingSnapshotId;
             expect(pendingSnapshotId).not.toBeNull();

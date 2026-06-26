@@ -1,8 +1,23 @@
-import { ApplicationArchitecture } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
+import { ApplicationArchitecture, TriggerSource } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
+
+async function setActiveSnapshotHeadSha(db: PrismaClient, branchId: string, headSha: string): Promise<void> {
+    const branch = await db.branch.findUniqueOrThrow({
+        where: { id: branchId },
+        select: { activeSnapshotId: true },
+    });
+    if (branch.activeSnapshotId == null) {
+        throw new Error(`Branch ${branchId} has no active snapshot to update`);
+    }
+    await db.branchSnapshot.update({
+        where: { id: branch.activeSnapshotId },
+        data: { headSha },
+    });
+}
 
 apiTestSuite({
     name: "DiffsTriggerService",
@@ -75,8 +90,10 @@ apiTestSuite({
             expect(branch!.prInfo?.prNumber).toBe(10);
             expect(branch!.applicationId).toBe(app.id);
             expect(branch!.deploymentId).toBe(result.deploymentId);
-            // lastHandledSha is only updated on successful snapshot activation, not at trigger time
-            expect(branch!.lastHandledSha).toBeNull();
+            // The trigger creates a pending snapshot but does not activate it; the branch
+            // should have no active snapshot yet for this brand-new feature branch.
+            expect(branch!.activeSnapshotId).toBeNull();
+            expect(branch!.pendingSnapshotId).toBe(result.snapshotId);
 
             const deployment = await harness.db.branchDeployment.findUniqueOrThrow({
                 where: { id: result.deploymentId },
@@ -113,19 +130,38 @@ apiTestSuite({
             expect(result.branchId).toBe(existingBranch.id);
 
             const branch = await harness.db.branch.findUnique({ where: { id: result.branchId } });
-            // lastHandledSha is only updated on successful snapshot activation, not at trigger time
-            expect(branch!.lastHandledSha).toBeNull();
+            // The trigger creates a pending snapshot but does not activate it.
+            expect(branch!.activeSnapshotId).toBeNull();
+            expect(branch!.pendingSnapshotId).toBe(result.snapshotId);
         });
 
-        test("uses lastHandledSha as baseSha when available", async ({ harness, seedResult: { app, service } }) => {
-            await harness.db.branch.create({
+        test("uses active snapshot's headSha as baseSha when available", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            const branchId = (
+                await harness.db.branch.create({
+                    data: {
+                        name: "feature/branch-30",
+                        applicationId: app.id,
+                        organizationId: harness.organizationId,
+                        prInfo: { create: { applicationId: app.id, prNumber: 30 } },
+                    },
+                    select: { id: true },
+                })
+            ).id;
+            const activeSnapshot = await harness.db.branchSnapshot.create({
                 data: {
-                    name: "feature/branch-30",
-                    applicationId: app.id,
-                    organizationId: harness.organizationId,
-                    lastHandledSha: "previous-sha-999",
-                    prInfo: { create: { applicationId: app.id, prNumber: 30 } },
+                    branchId,
+                    status: "active",
+                    source: TriggerSource.WEBHOOK,
+                    headSha: "previous-sha-999",
                 },
+                select: { id: true },
+            });
+            await harness.db.branch.update({
+                where: { id: branchId },
+                data: { activeSnapshotId: activeSnapshot.id },
             });
 
             const result = await service.triggerPrDiffs({
@@ -287,10 +323,7 @@ apiTestSuite({
 
         test("triggers diffs for the main branch", async ({ harness, seedResult: { app, service } }) => {
             harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "main-head-sha-1");
-            await harness.db.branch.update({
-                where: { id: app.mainBranchId! },
-                data: { lastHandledSha: "previous-main-sha" },
-            });
+            await setActiveSnapshotHeadSha(harness.db, app.mainBranchId!, "previous-main-sha");
 
             const result = await service.triggerMainDiffs({
                 organizationId: harness.organizationId,
@@ -326,10 +359,7 @@ apiTestSuite({
             seedResult: { app, service },
         }) => {
             harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "dispatcher-main-sha");
-            await harness.db.branch.update({
-                where: { id: app.mainBranchId! },
-                data: { lastHandledSha: "dispatcher-base-sha" },
-            });
+            await setActiveSnapshotHeadSha(harness.db, app.mainBranchId!, "dispatcher-base-sha");
 
             const result = await service.triggerDiffs({
                 organizationId: harness.organizationId,
@@ -352,10 +382,7 @@ apiTestSuite({
             seedResult: { app, service },
         }) => {
             harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "main-wins-sha");
-            await harness.db.branch.update({
-                where: { id: app.mainBranchId! },
-                data: { lastHandledSha: "main-wins-base-sha" },
-            });
+            await setActiveSnapshotHeadSha(harness.db, app.mainBranchId!, "main-wins-base-sha");
 
             const result = await service.triggerDiffs({
                 organizationId: harness.organizationId,

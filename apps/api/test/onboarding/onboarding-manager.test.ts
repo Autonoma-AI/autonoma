@@ -299,9 +299,13 @@ integrationTestSuite({
                 where: { applicationId: appId, name: "main" },
                 select: { id: true },
             });
+            const activeSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "WEBHOOK", status: "active", headSha: "new-head-sha" },
+                select: { id: true },
+            });
             await harness.db.branch.update({
                 where: { id: branch.id },
-                data: { lastHandledSha: "new-head-sha" },
+                data: { activeSnapshotId: activeSnapshot.id },
             });
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },

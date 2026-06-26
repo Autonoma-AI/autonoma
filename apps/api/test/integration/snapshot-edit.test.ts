@@ -1,4 +1,4 @@
-import { ApplicationArchitecture } from "@autonoma/db";
+import { ApplicationArchitecture, TriggerSource } from "@autonoma/db";
 import { BranchAlreadyHasPendingSnapshotError, SnapshotNotPendingError } from "@autonoma/test-updates";
 import { TRPCError } from "@trpc/server";
 import { expect } from "vitest";
@@ -176,6 +176,43 @@ apiTestSuite({
             });
             expect(branch.activeSnapshotId).toBe(snapshotId);
             expect(branch.pendingSnapshotId).toBeNull();
+        });
+
+        test("start carries the active snapshot's headSha into the edit snapshot", async ({ harness }) => {
+            const { branchId } = await createBranch(harness);
+            const activeSnapshot = await harness.db.branchSnapshot.create({
+                data: {
+                    branchId,
+                    status: "active",
+                    source: TriggerSource.WEBHOOK,
+                    headSha: "handled-sha-123",
+                    baseSha: "handled-sha-123",
+                },
+                select: { id: true },
+            });
+            await harness.db.branch.update({
+                where: { id: branchId },
+                data: { activeSnapshotId: activeSnapshot.id },
+            });
+
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+
+            // A manual edit does not advance the commit, so the edit snapshot must keep
+            // the active snapshot's headSha (as both head and base) rather than null.
+            const editSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: snapshotId },
+                select: { headSha: true, baseSha: true },
+            });
+            expect(editSnapshot.headSha).toBe("handled-sha-123");
+            expect(editSnapshot.baseSha).toBe("handled-sha-123");
+
+            await harness.request().snapshotEdit.finalize({ branchId });
+
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: branchId },
+                select: { activeSnapshot: { select: { headSha: true } } },
+            });
+            expect(branch.activeSnapshot?.headSha).toBe("handled-sha-123");
         });
 
         test("discard clears the pending pointer and marks the snapshot cancelled", async ({ harness }) => {

@@ -76,7 +76,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
     async createBranch(
         organizationId: string,
         applicationId: string,
-        options?: { githubRef?: string; lastHandledSha?: string; prNumber?: number },
+        options?: { githubRef?: string; prNumber?: number },
     ): Promise<string> {
         const date = Date.now();
         const branch = await this.db.branch.create({
@@ -84,7 +84,6 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 name: `branch-${date}`,
                 organizationId,
                 applicationId,
-                lastHandledSha: options?.lastHandledSha,
                 prInfo:
                     options?.prNumber != null ? { create: { applicationId, prNumber: options.prNumber } } : undefined,
                 mainInfo:

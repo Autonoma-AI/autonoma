@@ -299,7 +299,7 @@ export async function buildPreviewkitReadiness(
         select: {
             githubRepositoryId: true,
             activeConfigRevisionId: true,
-            mainBranch: { select: { name: true, lastHandledSha: true } },
+            mainBranch: { select: { name: true, activeSnapshot: { select: { headSha: true } } } },
         },
     });
 
@@ -418,7 +418,7 @@ export async function buildPreviewkitReadiness(
     const degradedServiceCount = services.filter((service) => service.status === "fallback").length;
     const previewStatus = derivePreviewStatus({
         previewkitStatus: environment.status,
-        currentHeadSha: application.mainBranch?.lastHandledSha ?? environment.headSha,
+        currentHeadSha: application.mainBranch?.activeSnapshot?.headSha ?? environment.headSha,
         deployedHeadSha: environment.headSha,
         primaryUrl,
         failedServiceCount,

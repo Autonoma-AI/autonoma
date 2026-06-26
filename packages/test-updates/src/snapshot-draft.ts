@@ -590,23 +590,16 @@ export class SnapshotDraft {
                 });
             }
 
-            const branchUpdate: { activeSnapshotId: string; pendingSnapshotId: null; lastHandledSha?: string } = {
-                activeSnapshotId: this.snapshotId,
-                pendingSnapshotId: null,
-            };
-
-            if (this.headSha != null) {
-                branchUpdate.lastHandledSha = this.headSha;
-            }
-
             this.logger.info("Updating branch to point to new active snapshot and clear pending snapshot", {
                 branchId: snapshot.branchId,
                 newActiveSnapshotId: this.snapshotId,
-                lastHandledSha: this.headSha,
             });
             await tx.branch.update({
                 where: { id: snapshot.branchId },
-                data: branchUpdate,
+                data: {
+                    activeSnapshotId: this.snapshotId,
+                    pendingSnapshotId: null,
+                },
             });
             this.logger.info("Snapshot activation complete");
         });

@@ -50,9 +50,9 @@ export class UnsupportedGitHubRefError extends BadRequestError {
     }
 }
 
-export class NoLastHandledShaError extends InternalError {
+export class NoActiveSnapshotHeadShaError extends InternalError {
     constructor(public readonly branchId: string) {
-        super(`Branch ${branchId} has no lastHandledSha`);
+        super(`Branch ${branchId} has no active snapshot with a headSha`);
     }
 }
 
@@ -111,7 +111,7 @@ export class DiffsTriggerService extends Service {
         const headSha = pullRequest.headSha;
 
         const branch = await this.upsertBranch(app.id, organizationId, normalizedBranch, prNumber);
-        const baseSha = branch.lastHandledSha ?? pullRequest.baseSha;
+        const baseSha = branch.activeSnapshotHeadSha ?? pullRequest.baseSha;
 
         this.logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
 
@@ -153,7 +153,12 @@ export class DiffsTriggerService extends Service {
             },
             select: {
                 id: true,
-                mainBranch: { select: { id: true, lastHandledSha: true } },
+                mainBranch: {
+                    select: {
+                        id: true,
+                        activeSnapshot: { select: { headSha: true } },
+                    },
+                },
                 mainBranchInfo: { select: { githubRef: true } },
             },
         });
@@ -162,10 +167,11 @@ export class DiffsTriggerService extends Service {
 
         if (app.mainBranch == null || app.mainBranchInfo == null) throw new NoMainBranchError(app.id);
 
-        if (app.mainBranch.lastHandledSha == null) throw new NoLastHandledShaError(app.mainBranch.id);
+        const activeSnapshotHeadSha = app.mainBranch.activeSnapshot?.headSha;
+        if (activeSnapshotHeadSha == null) throw new NoActiveSnapshotHeadShaError(app.mainBranch.id);
 
         const branchId = app.mainBranch.id;
-        const baseSha = app.mainBranch.lastHandledSha;
+        const baseSha = activeSnapshotHeadSha;
         const headSha = await this.githubInstallationService.getBranchHead(
             organizationId,
             repoId,
@@ -214,7 +220,14 @@ export class DiffsTriggerService extends Service {
 
             const existing = await tx.featureBranchInfo.findUnique({
                 where: { applicationId_prNumber: { applicationId, prNumber } },
-                select: { branch: { select: { id: true, lastHandledSha: true } } },
+                select: {
+                    branch: {
+                        select: {
+                            id: true,
+                            activeSnapshot: { select: { headSha: true } },
+                        },
+                    },
+                },
             });
 
             if (existing != null) {
@@ -222,10 +235,13 @@ export class DiffsTriggerService extends Service {
                     where: { id: existing.branch.id },
                     data: { name: normalizedBranch },
                 });
-                return { id: existing.branch.id, lastHandledSha: existing.branch.lastHandledSha };
+                return {
+                    id: existing.branch.id,
+                    activeSnapshotHeadSha: existing.branch.activeSnapshot?.headSha,
+                };
             }
 
-            return tx.branch.create({
+            const created = await tx.branch.create({
                 data: {
                     name: normalizedBranch,
                     applicationId,
@@ -233,8 +249,12 @@ export class DiffsTriggerService extends Service {
                     baseSnapshotId,
                     prInfo: { create: { applicationId, prNumber } },
                 },
-                select: { id: true, lastHandledSha: true },
+                select: {
+                    id: true,
+                    activeSnapshot: { select: { headSha: true } },
+                },
             });
+            return { id: created.id, activeSnapshotHeadSha: created.activeSnapshot?.headSha };
         });
     }
 

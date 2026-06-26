@@ -250,17 +250,33 @@ export class SnapshotEditService extends Service {
     }
 
     private async startUpdate(branchId: string, organizationId: string) {
+        // A manual edit does not advance the branch's commit, so the new snapshot
+        // represents the same head as the current active snapshot and contains no
+        // code diff. Carry the active snapshot's headSha forward as both headSha and
+        // baseSha so that the next diffs trigger keeps using it as the base instead
+        // of falling back to the PR base sha.
+        const headSha = await this.activeSnapshotHeadSha(branchId);
         try {
             return await TestSuiteUpdater.startUpdate({
                 db: this.db,
                 branchId,
                 jobProvider: this.generationProvider,
                 organizationId,
+                headSha,
+                baseSha: headSha,
             });
         } catch (error) {
             if (error instanceof ApplicationNotFoundError) throw new NotFoundError("Branch not found");
             throw error;
         }
+    }
+
+    private async activeSnapshotHeadSha(branchId: string): Promise<string | undefined> {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: { activeSnapshot: { select: { headSha: true } } },
+        });
+        return branch?.activeSnapshot?.headSha ?? undefined;
     }
 
     private async continueUpdate(branchId: string, organizationId: string) {

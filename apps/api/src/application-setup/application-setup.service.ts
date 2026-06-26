@@ -205,9 +205,10 @@ export class ApplicationSetupService {
     }
 
     /**
-     * Stamps the commit the artifacts were generated from onto the branch
-     * (last_handled_sha) and the pending snapshot the updater just created
-     * (head_sha), mirroring how the GitHub diff flow records commits.
+     * Stamps the commit the artifacts were generated from onto the pending
+     * snapshot the updater just created (head_sha), mirroring how the GitHub
+     * diff flow records commits. Once that snapshot activates it becomes the
+     * branch's active snapshot, so its head_sha is the branch's handled commit.
      */
     private async recordCommit(branchId: string, commitSha: string) {
         const branch = await this.db.branch.findUnique({
@@ -215,18 +216,18 @@ export class ApplicationSetupService {
             select: { pendingSnapshotId: true },
         });
 
-        await this.db.$transaction(async (tx) => {
-            await tx.branch.update({ where: { id: branchId }, data: { lastHandledSha: commitSha } });
-            if (branch?.pendingSnapshotId != null) {
-                await tx.branchSnapshot.update({
-                    where: { id: branch.pendingSnapshotId },
-                    data: { headSha: commitSha },
-                });
-            }
+        if (branch?.pendingSnapshotId == null) {
+            log.warn("No pending snapshot to record commit on", { extra: { branchId, commitSha } });
+            return;
+        }
+
+        await this.db.branchSnapshot.update({
+            where: { id: branch.pendingSnapshotId },
+            data: { headSha: commitSha },
         });
 
         log.info("Recorded commit for uploaded artifacts", {
-            extra: { branchId, commitSha, pendingSnapshotId: branch?.pendingSnapshotId },
+            extra: { branchId, commitSha, pendingSnapshotId: branch.pendingSnapshotId },
         });
     }
 

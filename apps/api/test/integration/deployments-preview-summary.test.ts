@@ -1,4 +1,4 @@
-import { ApplicationArchitecture, type PreviewkitAppStatus } from "@autonoma/db";
+import { ApplicationArchitecture, type PreviewkitAppStatus, TriggerSource } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -7,7 +7,7 @@ apiTestSuite({
     name: "deployments.previewSummaryByPr",
     cases: (test) => {
         test("returns a ready preview summary with persisted service rows", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 201, lastHandledSha: "sha-ready" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 201, headSha: "sha-ready" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
@@ -60,7 +60,7 @@ apiTestSuite({
         });
 
         test("returns icon keys for Previewkit apps, recipes, addons, and fallbacks", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 207, lastHandledSha: "sha-icons" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 207, headSha: "sha-icons" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
@@ -158,7 +158,7 @@ apiTestSuite({
         });
 
         test("returns missing when no preview environment exists", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 202, lastHandledSha: "sha-missing" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 202, headSha: "sha-missing" });
 
             const summary = await harness.request().deployments.previewSummaryByPr({
                 applicationId: fixture.application.id,
@@ -173,7 +173,7 @@ apiTestSuite({
         });
 
         test("returns failed service detail from failed app build", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 203, lastHandledSha: "sha-failed" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 203, headSha: "sha-failed" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "failed",
@@ -205,7 +205,7 @@ apiTestSuite({
         });
 
         test("returns degraded when one app fails but primary preview is usable", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 204, lastHandledSha: "sha-degraded" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 204, headSha: "sha-degraded" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
@@ -254,7 +254,7 @@ apiTestSuite({
         });
 
         test("surfaces an app that built successfully but failed to deploy", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 208, lastHandledSha: "sha-deploy-fail" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 208, headSha: "sha-deploy-fail" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
@@ -319,7 +319,7 @@ apiTestSuite({
         });
 
         test("returns stale when branch head is newer than deployed head", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 205, lastHandledSha: "sha-new" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 205, headSha: "sha-new" });
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
@@ -355,7 +355,7 @@ apiTestSuite({
         });
 
         test("keeps deployments.listByPr backward-compatible", async ({ harness }) => {
-            const fixture = await createPreviewFixture(harness, { prNumber: 206, lastHandledSha: "sha-list" });
+            const fixture = await createPreviewFixture(harness, { prNumber: 206, headSha: "sha-list" });
             const deployment = await harness.db.branchDeployment.create({
                 data: {
                     branchId: fixture.branch.id,
@@ -389,7 +389,7 @@ async function createPreviewFixture(
     harness: APITestHarness,
     input: {
         prNumber: number;
-        lastHandledSha: string;
+        headSha: string;
     },
 ) {
     const application = await harness.services.applications.createApplication({
@@ -406,16 +406,29 @@ async function createPreviewFixture(
     const branch = await harness.db.branch.create({
         data: {
             name: `feat/preview-${input.prNumber}`,
-            lastHandledSha: input.lastHandledSha,
             applicationId: application.id,
             organizationId: harness.organizationId,
             prInfo: { create: { applicationId: application.id, prNumber: input.prNumber } },
         },
     });
+    const activeSnapshot = await harness.db.branchSnapshot.create({
+        data: {
+            branchId: branch.id,
+            status: "active",
+            source: TriggerSource.WEBHOOK,
+            headSha: input.headSha,
+        },
+        select: { id: true },
+    });
+    await harness.db.branch.update({
+        where: { id: branch.id },
+        data: { activeSnapshotId: activeSnapshot.id },
+    });
 
     return {
         application: { ...application, githubRepositoryId: 10_000 + input.prNumber },
         branch,
+        headSha: input.headSha,
         prNumber: input.prNumber,
     };
 }
@@ -454,7 +467,7 @@ async function createPreviewEnvironment(
         }>;
     },
 ) {
-    const headSha = input.headSha ?? fixture.branch.lastHandledSha ?? "sha";
+    const headSha = input.headSha ?? fixture.headSha ?? "sha";
     const environment = await harness.db.previewkitEnvironment.create({
         data: {
             namespace: `preview-test-pr-${fixture.prNumber}`,

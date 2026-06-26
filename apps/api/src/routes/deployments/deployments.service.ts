@@ -210,16 +210,18 @@ export class DeploymentsService extends Service {
             select: {
                 id: true,
                 name: true,
-                lastHandledSha: true,
+                activeSnapshot: { select: { headSha: true } },
                 application: { select: { githubRepositoryId: true } },
             },
         });
 
         if (branch == null) throw new NotFoundError();
 
+        const currentHeadSha = branch.activeSnapshot?.headSha ?? null;
+
         const githubRepositoryId = branch.application.githubRepositoryId;
         if (githubRepositoryId == null) {
-            return missingPreviewSummary(branch.lastHandledSha, "Application is not linked to a GitHub repository.");
+            return missingPreviewSummary(currentHeadSha, "Application is not linked to a GitHub repository.");
         }
 
         const environment = await this.db.previewkitEnvironment.findFirst({
@@ -310,14 +312,14 @@ export class DeploymentsService extends Service {
 
             if (legacyDeployment?.webDeployment != null && legacyDeployment.webDeployment.url !== "") {
                 return legacyPreviewSummary({
-                    headSha: branch.lastHandledSha,
+                    headSha: currentHeadSha,
                     url: legacyDeployment.webDeployment.url,
                     updatedAt: legacyDeployment.updatedAt,
                     deployedAt: legacyDeployment.webDeployment.updatedAt,
                 });
             }
 
-            return missingPreviewSummary(branch.lastHandledSha, "Preview environment is not configured for this PR.");
+            return missingPreviewSummary(currentHeadSha, "Preview environment is not configured for this PR.");
         }
 
         const latestBuild = environment.builds[0] ?? null;
@@ -338,7 +340,7 @@ export class DeploymentsService extends Service {
         const degradedServiceCount = services.filter((service) => service.status === "fallback").length;
         const status = derivePreviewStatus({
             previewkitStatus: environment.status,
-            currentHeadSha: branch.lastHandledSha,
+            currentHeadSha,
             deployedHeadSha: environment.headSha,
             primaryUrl,
             failedServiceCount,
@@ -351,7 +353,7 @@ export class DeploymentsService extends Service {
             primaryUrl,
             phase: environment.phase,
             error: environment.error,
-            headSha: branch.lastHandledSha ?? environment.headSha,
+            headSha: currentHeadSha ?? environment.headSha,
             lastDeployedSha: environment.headSha,
             updatedAt: environment.updatedAt,
             deployedAt: environment.deployedAt,
