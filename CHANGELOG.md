@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.8.3](https://github.com/Autonoma-AI/agent/compare/v1.8.2...v1.8.3) (2026-06-26)
+
+
+### Features
+
+* **db:** add organization_settings table ([#1105](https://github.com/Autonoma-AI/agent/issues/1105)) ([b9bab5a](https://github.com/Autonoma-AI/agent/commit/b9bab5a27d4a0aa95e472dfba6105eff12cbbd58))
+* **previewkit:** inject built-in env vars into preview pods ([#1092](https://github.com/Autonoma-AI/agent/issues/1092)) ([afb3383](https://github.com/Autonoma-AI/agent/commit/afb3383294b0937535a8cdcf0a61cfb01b5bf8ef))
+* **previewkit:** run all deploy hooks as Kubernetes Jobs ([#1088](https://github.com/Autonoma-AI/agent/issues/1088)) ([bd7ebd7](https://github.com/Autonoma-AI/agent/commit/bd7ebd70310bdd1d62ce122d96f2c569bd4eed6c))
+* **previewkit:** skip preview deploys for draft PRs unless org opts in ([#1109](https://github.com/Autonoma-AI/agent/issues/1109)) ([7939b3e](https://github.com/Autonoma-AI/agent/commit/7939b3e1c2da30f2146229ded93d636862837ab3))
+* **ui,api:** fix PR/checkpoint/generation/bug UI contradictions ([#972](https://github.com/Autonoma-AI/agent/issues/972)) ([d51899f](https://github.com/Autonoma-AI/agent/commit/d51899f3c2f396d226d18a827480207c7db15e24))
+
+
+### Bug Fixes
+
+* guard snapshot report summary to prevent crash on deploy skew ([#1114](https://github.com/Autonoma-AI/agent/issues/1114)) ([7beaf92](https://github.com/Autonoma-AI/agent/commit/7beaf9294a07b896484d80f170b5337a95d2f102))
+* heartbeat applyHealingActions to avoid timeout failures ([#1107](https://github.com/Autonoma-AI/agent/issues/1107)) ([eadbbb5](https://github.com/Autonoma-AI/agent/commit/eadbbb503fa8e14ad1dab54f8feb7ceb9092a69e))
+* persist PR comment id and repost PR comments at the bottom ([#871](https://github.com/Autonoma-AI/agent/issues/871)) ([9c290c8](https://github.com/Autonoma-AI/agent/commit/9c290c891056bc59a2433577ddc0d2ffe14b7d9e))
+* **pr-comment:** link PR comments to autonoma.app instead of agent.autonoma.app ([#1104](https://github.com/Autonoma-AI/agent/issues/1104)) ([02a628e](https://github.com/Autonoma-AI/agent/commit/02a628e0f4ce6293b20b6c080505f44abe032769))
+* **previewkit:** don't fail previews when the worker is scaled down mid-build ([#1090](https://github.com/Autonoma-AI/agent/issues/1090)) ([580fec3](https://github.com/Autonoma-AI/agent/commit/580fec3dc8f8413d87787b431a204e73ab68841c))
+* **scenario:** eliminate shared-file race in concurrent scenario provisioning ([#1102](https://github.com/Autonoma-AI/agent/issues/1102)) ([49d1487](https://github.com/Autonoma-AI/agent/commit/49d1487f5e5bc44a43337c34c33b78f5d3b3225b))
+* **workflow:** bump temporal test server to v1.30.1 for macOS arm64 ([#1094](https://github.com/Autonoma-AI/agent/issues/1094)) ([d257156](https://github.com/Autonoma-AI/agent/commit/d257156f3c18f884c1b213b6223a9a8bda6cd08d))
+* **workflow:** don't pass shutdownGraceTime: undefined to Temporal worker ([#1106](https://github.com/Autonoma-AI/agent/issues/1106)) ([30005c4](https://github.com/Autonoma-AI/agent/commit/30005c40695fefc440cabe26680342eb77018194))
+
 ## [1.8.2](https://github.com/Autonoma-AI/agent/compare/v1.8.1...v1.8.2) (2026-06-24)
 
 
