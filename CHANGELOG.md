@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.4](https://github.com/Autonoma-AI/agent/compare/v1.8.3...v1.8.4) (2026-06-26)
+
+
+### Features
+
+* forced grounding and unknown_issue lane ([#1077](https://github.com/Autonoma-AI/agent/issues/1077)) ([cdadbc0](https://github.com/Autonoma-AI/agent/commit/cdadbc02243d4f299b06fc22837a9b56127fd18b))
+* **investigator:** diff-driven PR test-runner agent (prototype) ([#1007](https://github.com/Autonoma-AI/agent/issues/1007)) ([b1768ab](https://github.com/Autonoma-AI/agent/commit/b1768ab2cfc810f27ea67bbd9dfb48b23c8cfcac))
+* **previewkit:** add per-app redeploy endpoint ([#1089](https://github.com/Autonoma-AI/agent/issues/1089)) ([b0822b4](https://github.com/Autonoma-AI/agent/commit/b0822b4e64ac8bb0a87235cfab3030942641ebd3))
+
+
+### Bug Fixes
+
+* **ci:** redeploy worker-investigation on deploy-manifest changes ([#1120](https://github.com/Autonoma-AI/agent/issues/1120)) ([4d1c738](https://github.com/Autonoma-AI/agent/commit/4d1c73889c6830341accd5c39120fb40985362a9))
+* **deploy:** worker-investigation crashes on first deploy (DATABASE_URL undefined) ([#1119](https://github.com/Autonoma-AI/agent/issues/1119)) ([3875510](https://github.com/Autonoma-AI/agent/commit/38755106aaf8012e1dfe94e8ca658ca232b3b05d))
+
 ## [1.8.3](https://github.com/Autonoma-AI/agent/compare/v1.8.2...v1.8.3) (2026-06-26)
 
 
