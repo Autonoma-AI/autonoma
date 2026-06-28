@@ -44,11 +44,23 @@ export const env = createEnv({
         PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
         // Enables preview environments: pull_request webhooks and the
-        // /v1/previewkit lifecycle routes start the preview Temporal workflows
-        // (the previewkit worker executes them). Leave off for dev / self-host
+        // /v1/previewkit lifecycle routes start the preview deploy/teardown
+        // (the previewkit runner executes them). Leave off for dev / self-host
         // without preview infrastructure - webhooks silently skip and the
         // lifecycle routes return 503.
         PREVIEWKIT_ENABLED: z.stringbool().default(false),
+        // How the preview lifecycle is executed. "temporal" (default) starts the
+        // Temporal workflow on the previewkit worker; "jobs" launches a
+        // Kubernetes Job per deploy/teardown (apps/previewkit/src/runner) via
+        // PreviewkitJobLauncher. The two are interchangeable behind the same
+        // fire-and-forget trigger seam; flip to "jobs" only where the API runs
+        // in-cluster with NAMESPACE set. The runner image is read at launch from
+        // the previewkit-runner-image ConfigMap, so it is not configured here.
+        PREVIEWKIT_EXECUTION_MODE: z.enum(["temporal", "jobs"]).default("temporal"),
+        // Kubernetes namespace the API creates runner Jobs in (the API's own
+        // namespace, shared with the previewkit ServiceAccount). Required when
+        // PREVIEWKIT_EXECUTION_MODE=jobs.
+        NAMESPACE: z.string().min(1).optional(),
         // Shared secret for incoming service-to-service calls: authenticates the
         // native /v1/previewkit/* routes (requireApiKeyOrService) and
         // /v1/diffs/internal/trigger (Authorization: Bearer <secret>).

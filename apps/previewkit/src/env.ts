@@ -119,6 +119,13 @@ export const env = createEnv({
         // TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE are read by @autonoma/workflow's
         // own env from process.env on the worker side.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
+
+        // The serialized {mode, event, configRevisionId} payload for a single
+        // deploy/teardown run, set by the API's PreviewkitJobLauncher on the
+        // runner Job. Present only when this process is a one-shot runner Job
+        // (src/runner); the long-lived Temporal worker never reads it. The JSON
+        // shape is re-validated at the boundary in src/runner/job-spec.ts.
+        PREVIEWKIT_JOB_SPEC: z.string().optional(),
     },
     runtimeEnv: process.env,
 });

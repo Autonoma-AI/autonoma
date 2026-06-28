@@ -73,10 +73,16 @@ previously-ready) environment `failed`. Two layers fix this:
 
 ## Directory map (`src/`)
 
-- `worker/index.ts` - the process entrypoint (`worker.Dockerfile`); polls the `previewkit` task
-  queue, registers `src/activities/`, readiness via `/tmp/worker-ready`.
+- `worker/index.ts` - the Temporal worker entrypoint (`worker.Dockerfile`); polls the `previewkit`
+  task queue, registers `src/activities/`, readiness via `/tmp/worker-ready`.
 - `activities/index.ts` - Temporal activity impls (prepare/build/deploy/finalize/fail/teardown);
   thin wrappers over the pipelines from `create-services.ts`.
+- `runner/` - the one-shot Kubernetes Job entrypoint, an alternative to the Temporal worker selected
+  by the API's `PREVIEWKIT_EXECUTION_MODE=jobs` (the API launches one Job per deploy/teardown via
+  `PreviewkitJobLauncher`). `run-preview-job.ts` is the Temporal-free re-implementation of the deploy
+  /teardown workflows (linear pipeline calls + a `signal.aborted` supersede branch); `index.ts` reads
+  the `PREVIEWKIT_JOB_SPEC` payload, builds the same `PreviewkitServices`, runs once, and exits
+  (SIGTERM = supersede for a deploy; ignored during teardown). Both paths share everything below.
 - `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/storage/env` + `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the activities drive (`prepare` / `build` /

@@ -7,9 +7,7 @@ import {
     cancelDiffsJob,
     triggerDiffsJob,
     triggerInvestigationJob,
-    triggerPreviewDeploy,
     triggerPreviewRedeployApp,
-    triggerPreviewTeardown,
     triggerRunWorkflow,
 } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
@@ -17,6 +15,7 @@ import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
 import { env } from "./env";
 import { buildGitHubApp } from "./github/github-app";
+import { resolvePreviewkitTriggers } from "./previewkit/previewkit-triggers";
 import { connectRedis } from "./redis";
 import { buildServices } from "./routes/build-services";
 
@@ -32,6 +31,9 @@ export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 export const generationProvider = new TemporalGenerationProvider();
 
 const githubApp = buildGitHubApp(env);
+
+// Temporal workflow start or Kubernetes Job launch, per PREVIEWKIT_EXECUTION_MODE.
+const previewkitTriggers = resolvePreviewkitTriggers();
 
 export async function createContext(c: HonoContext) {
     const rawSession = await auth.api.getSession({
@@ -68,8 +70,8 @@ export async function createContext(c: HonoContext) {
             triggerDiffsJob,
             cancelDiffsJob,
             triggerInvestigationJob,
-            triggerPreviewDeploy,
-            triggerPreviewTeardown,
+            triggerPreviewDeploy: previewkitTriggers.deploy,
+            triggerPreviewTeardown: previewkitTriggers.teardown,
             triggerPreviewRedeployApp,
         }),
     };
