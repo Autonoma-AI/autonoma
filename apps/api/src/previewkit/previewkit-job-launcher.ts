@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { TriggerPreviewDeployParams, TriggerPreviewTeardownParams } from "@autonoma/workflow";
+import type {
+    TriggerPreviewDeployParams,
+    TriggerPreviewRedeployAppParams,
+    TriggerPreviewTeardownParams,
+} from "@autonoma/workflow";
 import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
 import { ApiException, type V1Job } from "@kubernetes/client-node";
 
@@ -48,12 +52,26 @@ const DEPLOY_GRACE_SECONDS = 120;
 const TEARDOWN_GRACE_SECONDS = 300;
 const NAME_SLUG_MAX = 28;
 
+type JobType = "deploy" | "teardown" | "redeploy-app";
+
+// The "deploy family" - deploy and per-app redeploy share the per-environment
+// mutex (the Temporal workflows shared one workflowId), so launching either
+// supersedes any in-flight one. Teardown is excluded: a running teardown is
+// left to finish (the Jobs equivalent of its nonCancellable scope).
+const DEPLOY_FAMILY_SELECTOR = `${LABEL_TYPE} in (deploy,redeploy-app)`;
+
 /** Mirrors apps/previewkit/src/runner/job-spec.ts `PreviewJobSpec`. */
-interface PreviewJobInput {
-    mode: "deploy" | "teardown";
-    event: PreviewDeployEvent;
-    configRevisionId?: string;
-}
+type PreviewJobInput =
+    | { mode: "deploy"; event: PreviewDeployEvent; configRevisionId?: string }
+    | { mode: "teardown"; event: PreviewDeployEvent }
+    | {
+          mode: "redeploy-app";
+          event: PreviewDeployEvent;
+          namespace: string;
+          appName: string;
+          redeployMode: "rebuild" | "restart";
+          configRevisionId?: string;
+      };
 
 export interface PreviewkitJobLauncherOptions {
     batchApi: PreviewJobsApi;
@@ -108,13 +126,42 @@ export class PreviewkitJobLauncher {
         // supersede the in-flight deploy, so we never kill a running run we
         // cannot replace.
         const image = await this.resolveRunnerImage();
-        await this.supersedeInFlightDeploys(envKey);
+        await this.supersedeDeployFamily(envKey);
         const spec: PreviewJobInput = {
             mode: "deploy",
             event,
             ...(configRevisionId != null ? { configRevisionId } : {}),
         };
         await this.createJob("deploy", envKey, event, spec, image, this.deployDeadlineSeconds(), DEPLOY_GRACE_SECONDS);
+    }
+
+    async launchRedeployApp(params: TriggerPreviewRedeployAppParams): Promise<void> {
+        const { event, namespace, appName, mode, configRevisionId } = params;
+        const envKey = previewEnvKey(event.repoFullName, event.prNumber);
+        this.logger.info("Launching preview per-app redeploy job", {
+            extra: { envKey, repo: event.repoFullName, pr: event.prNumber, app: appName, mode },
+        });
+        const image = await this.resolveRunnerImage();
+        // A per-app redeploy supersedes any in-flight deploy/redeploy for the env
+        // (shared mutex), exactly like the Temporal redeploy-app workflow.
+        await this.supersedeDeployFamily(envKey);
+        const spec: PreviewJobInput = {
+            mode: "redeploy-app",
+            event,
+            namespace,
+            appName,
+            redeployMode: mode,
+            ...(configRevisionId != null ? { configRevisionId } : {}),
+        };
+        await this.createJob(
+            "redeploy-app",
+            envKey,
+            event,
+            spec,
+            image,
+            this.deployDeadlineSeconds(),
+            DEPLOY_GRACE_SECONDS,
+        );
     }
 
     async launchTeardown(params: TriggerPreviewTeardownParams): Promise<void> {
@@ -124,9 +171,9 @@ export class PreviewkitJobLauncher {
             extra: { envKey, repo: event.repoFullName, pr: event.prNumber },
         });
         const image = await this.resolveRunnerImage();
-        // Teardown supersedes an in-flight deploy (same env mutex) but never
-        // another teardown - a close-then-reopen lets the deletion finish first.
-        await this.supersedeInFlightDeploys(envKey);
+        // Teardown supersedes an in-flight deploy/redeploy (same env mutex) but
+        // never another teardown - a close-then-reopen lets the deletion finish.
+        await this.supersedeDeployFamily(envKey);
         const spec: PreviewJobInput = { mode: "teardown", event };
         await this.createJob("teardown", envKey, event, spec, image, this.teardownDeadlineSeconds(), TEARDOWN_GRACE_SECONDS);
     }
@@ -158,14 +205,15 @@ export class PreviewkitJobLauncher {
     }
 
     /**
-     * SIGTERMs every in-flight deploy Job for an env (Background propagation so
-     * the pod is deleted gracefully, triggering the runner's supersede drain).
-     * Best-effort: a list/delete failure is logged but never blocks the new
-     * launch - newest-wins ownership in the DB tolerates a brief overlap.
+     * SIGTERMs every in-flight deploy-family Job (deploy + redeploy-app) for an
+     * env (Background propagation so the pod is deleted gracefully, triggering
+     * the runner's supersede drain). Best-effort: a list/delete failure is
+     * logged but never blocks the new launch - newest-wins ownership in the DB
+     * tolerates a brief overlap.
      */
-    private async supersedeInFlightDeploys(envKey: string): Promise<void> {
+    private async supersedeDeployFamily(envKey: string): Promise<void> {
         const { namespace } = this.options;
-        const labelSelector = `${LABEL_ENV}=${envKey},${LABEL_TYPE}=deploy`;
+        const labelSelector = `${LABEL_ENV}=${envKey},${DEPLOY_FAMILY_SELECTOR}`;
         let jobs;
         try {
             jobs = await this.batchApi.listNamespacedJob({ namespace, labelSelector });
@@ -191,7 +239,7 @@ export class PreviewkitJobLauncher {
     }
 
     private async createJob(
-        type: "deploy" | "teardown",
+        type: JobType,
         envKey: string,
         event: PreviewDeployEvent,
         spec: PreviewJobInput,
@@ -208,7 +256,7 @@ export class PreviewkitJobLauncher {
     }
 
     private jobSpec(
-        type: "deploy" | "teardown",
+        type: JobType,
         envKey: string,
         event: PreviewDeployEvent,
         spec: PreviewJobInput,

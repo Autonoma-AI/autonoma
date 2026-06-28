@@ -67,7 +67,14 @@ function container(job: V1Job) {
     return c;
 }
 
-function jobSpecEnv(job: V1Job): { mode: string; event: PreviewDeployEvent; configRevisionId?: string } {
+function jobSpecEnv(job: V1Job): {
+    mode: string;
+    event: PreviewDeployEvent;
+    configRevisionId?: string;
+    namespace?: string;
+    appName?: string;
+    redeployMode?: string;
+} {
     const value = container(job).env?.find((e) => e.name === "PREVIEWKIT_JOB_SPEC")?.value;
     if (value == null) throw new Error("job has no PREVIEWKIT_JOB_SPEC env");
     return JSON.parse(value);
@@ -114,7 +121,9 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
         await launcher(api).launchDeploy({ event });
 
         const envKey = previewEnvKey(event.repoFullName, event.prNumber);
-        expect(api.listCalls[0]?.labelSelector).toBe(`previewkit.dev/env=${envKey},previewkit.dev/type=deploy`);
+        expect(api.listCalls[0]?.labelSelector).toBe(
+            `previewkit.dev/env=${envKey},previewkit.dev/type in (deploy,redeploy-app)`,
+        );
         expect(api.deleteCalls).toEqual([
             { name: "pk-deploy-acme-widgets-42-oldid", namespace: NAMESPACE, propagationPolicy: "Background" },
         ]);
@@ -144,11 +153,11 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
 });
 
 describe("PreviewkitJobLauncher.launchTeardown", () => {
-    it("creates a teardown job and supersedes only in-flight deploys", async () => {
+    it("creates a teardown job and supersedes the in-flight deploy family", async () => {
         const api = new FakeJobsApi();
         await launcher(api).launchTeardown({ event });
 
-        expect(api.listCalls[0]?.labelSelector).toContain("previewkit.dev/type=deploy");
+        expect(api.listCalls[0]?.labelSelector).toContain("previewkit.dev/type in (deploy,redeploy-app)");
         expect(api.createdJobs).toHaveLength(1);
 
         const job = api.createdJobs[0];
@@ -157,6 +166,38 @@ describe("PreviewkitJobLauncher.launchTeardown", () => {
         expect(job.metadata?.labels?.["previewkit.dev/type"]).toBe("teardown");
         expect(container(job).image).toBe(RUNNER_IMAGE);
         expect(jobSpecEnv(job).mode).toBe("teardown");
+    });
+});
+
+describe("PreviewkitJobLauncher.launchRedeployApp", () => {
+    it("creates a redeploy-app job carrying the app + mode, superseding the deploy family", async () => {
+        const api = new FakeJobsApi();
+        await launcher(api).launchRedeployApp({
+            event,
+            namespace: "preview-acme-widgets-pr-42",
+            appName: "web",
+            mode: "rebuild",
+            configRevisionId: "rev_9",
+        });
+
+        const envKey = previewEnvKey(event.repoFullName, event.prNumber);
+        expect(api.listCalls[0]?.labelSelector).toBe(
+            `previewkit.dev/env=${envKey},previewkit.dev/type in (deploy,redeploy-app)`,
+        );
+        expect(api.createdJobs).toHaveLength(1);
+
+        const job = api.createdJobs[0];
+        if (job == null) throw new Error("no job created");
+        expect(job.metadata?.generateName).toMatch(/^pk-redeploy-app-acme-widgets-42-$/);
+        expect(job.metadata?.labels?.["previewkit.dev/type"]).toBe("redeploy-app");
+        expect(container(job).image).toBe(RUNNER_IMAGE);
+
+        const spec = jobSpecEnv(job);
+        expect(spec.mode).toBe("redeploy-app");
+        expect(spec.namespace).toBe("preview-acme-widgets-pr-42");
+        expect(spec.appName).toBe("web");
+        expect(spec.redeployMode).toBe("rebuild");
+        expect(spec.configRevisionId).toBe("rev_9");
     });
 });
 

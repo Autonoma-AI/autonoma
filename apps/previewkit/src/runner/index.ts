@@ -47,24 +47,24 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
 });
 
 /**
- * Deploy jobs treat SIGTERM as a supersede: abort the in-flight build/deploy so
- * buildctl is killed and the buildkit Job released in seconds, then the deploy
- * branch finalizes only the superseded build row. Teardown jobs deliberately
+ * Deploy and per-app redeploy jobs treat SIGTERM as a supersede: abort the
+ * in-flight build/deploy so buildctl is killed and the buildkit Job released in
+ * seconds, then the run takes its supersede branch. Teardown jobs deliberately
  * ignore SIGTERM and run the (idempotent) namespace deletion to completion - a
  * half-deleted namespace is worse than a slightly longer shutdown. This is the
  * Jobs equivalent of the workflow's nonCancellable teardown scope; the pod's
  * terminationGracePeriodSeconds bounds both.
  */
 function installSignalHandler(spec: PreviewJobSpec, abortController: AbortController): void {
-    if (spec.mode === "deploy") {
+    if (spec.mode === "teardown") {
         process.once("SIGTERM", () => {
-            logger.warn("SIGTERM received; aborting deploy (superseded)");
-            abortController.abort(new Error("preview deploy superseded by SIGTERM"));
+            logger.warn("SIGTERM received during teardown; ignoring to finish namespace deletion");
         });
         return;
     }
     process.once("SIGTERM", () => {
-        logger.warn("SIGTERM received during teardown; ignoring to finish namespace deletion");
+        logger.warn("SIGTERM received; aborting run (superseded)", { extra: { mode: spec.mode } });
+        abortController.abort(new Error("preview run superseded by SIGTERM"));
     });
 }
 

@@ -26,11 +26,28 @@ const previewDeployEventSchema = z.object({
     cloneUrl: z.string(),
 }) satisfies z.ZodType<PreviewDeployEvent>;
 
-const previewJobSpecSchema = z.object({
-    mode: z.enum(["deploy", "teardown"]),
-    event: previewDeployEventSchema,
-    configRevisionId: z.string().optional(),
-});
+const previewJobSpecSchema = z.discriminatedUnion("mode", [
+    z.object({
+        mode: z.literal("deploy"),
+        event: previewDeployEventSchema,
+        configRevisionId: z.string().optional(),
+    }),
+    z.object({
+        mode: z.literal("teardown"),
+        event: previewDeployEventSchema,
+    }),
+    // Per-app redeploy: namespace comes from the env row (resolved by the API
+    // trigger), not from `prepare`. `rebuild` re-builds + redeploys the one app;
+    // `restart` re-rolls its pods.
+    z.object({
+        mode: z.literal("redeploy-app"),
+        event: previewDeployEventSchema,
+        namespace: z.string().min(1),
+        appName: z.string().min(1),
+        redeployMode: z.enum(["rebuild", "restart"]),
+        configRevisionId: z.string().optional(),
+    }),
+]);
 
 export type PreviewJobSpec = z.infer<typeof previewJobSpecSchema>;
 

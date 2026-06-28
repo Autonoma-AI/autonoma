@@ -1,5 +1,6 @@
 import type {
     BuildPreviewImagesOutput,
+    DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
     PreviewDeployEvent,
 } from "@autonoma/workflow/activities";
@@ -58,20 +59,32 @@ class FakeDeployPipeline implements DeployPipeline {
     buildError?: Error;
     deployError?: Error;
     finalizeError?: Error;
+    restartError?: Error;
     readonly calls: string[] = [];
     failError?: string;
+    buildAppName?: string;
+    deployAppName?: string;
+    restartAppName?: string;
 
     async prepare(): Promise<PreparePreviewResult> {
         this.calls.push("prepare");
         return this.prepareResult;
     }
-    async build(): Promise<BuildPreviewImagesOutput> {
+    async build(
+        _e: PreviewDeployEvent,
+        _ns: string,
+        _cfg?: string,
+        _signal?: AbortSignal,
+        appName?: string,
+    ): Promise<BuildPreviewImagesOutput> {
         this.calls.push("build");
+        this.buildAppName = appName;
         if (this.buildError != null) throw this.buildError;
         return buildOutput;
     }
-    async deployEnvironment(): Promise<DeployPreviewEnvironmentOutput> {
+    async deployEnvironment(input: DeployPreviewEnvironmentInput): Promise<DeployPreviewEnvironmentOutput> {
         this.calls.push("deploy");
+        this.deployAppName = input.appName;
         if (this.deployError != null) throw this.deployError;
         return deployOutput;
     }
@@ -82,6 +95,11 @@ class FakeDeployPipeline implements DeployPipeline {
     async fail(_e: unknown, _n: string, _c: string, _f: boolean, error: string): Promise<void> {
         this.calls.push("fail");
         this.failError = error;
+    }
+    async restartApp(_e: PreviewDeployEvent, _ns: string, appName: string): Promise<void> {
+        this.calls.push("restart");
+        this.restartAppName = appName;
+        if (this.restartError != null) throw this.restartError;
     }
 }
 
@@ -196,5 +214,79 @@ describe("runPreviewJob teardown mode", () => {
         expect(outcome).toBe("torn_down");
         expect(teardown.torndown).toHaveLength(1);
         expect(teardown.torndown[0]?.repoFullName).toBe("acme/widgets");
+    });
+});
+
+describe("runPreviewJob redeploy-app mode", () => {
+    const redeploySpec = (redeployMode: "rebuild" | "restart"): PreviewJobSpec => ({
+        mode: "redeploy-app",
+        event,
+        namespace: "preview-acme-widgets-pr-42",
+        appName: "web",
+        redeployMode,
+    });
+
+    it("rebuild: builds and deploys scoped to the one app", async () => {
+        const pipeline = new FakeDeployPipeline();
+        const outcome = await runPreviewJob(
+            runners(pipeline),
+            redeploySpec("rebuild"),
+            new AbortController().signal,
+            fakeDeps(),
+        );
+
+        expect(outcome).toBe("redeployed");
+        expect(pipeline.calls).toEqual(["build", "deploy"]);
+        expect(pipeline.buildAppName).toBe("web");
+        expect(pipeline.deployAppName).toBe("web");
+    });
+
+    it("restart: re-rolls the one app's pods (no build/deploy)", async () => {
+        const pipeline = new FakeDeployPipeline();
+        const outcome = await runPreviewJob(
+            runners(pipeline),
+            redeploySpec("restart"),
+            new AbortController().signal,
+            fakeDeps(),
+        );
+
+        expect(outcome).toBe("restarted");
+        expect(pipeline.calls).toEqual(["restart"]);
+        expect(pipeline.restartAppName).toBe("web");
+    });
+
+    it("reports redeploy_failed on a genuine failure (no env finalizer, no markSuperseded)", async () => {
+        const pipeline = new FakeDeployPipeline();
+        pipeline.buildError = new Error("app build broke");
+        const markSuperseded = vi.fn(async () => {});
+
+        const outcome = await runPreviewJob(
+            runners(pipeline),
+            redeploySpec("rebuild"),
+            new AbortController().signal,
+            fakeDeps(markSuperseded),
+        );
+
+        expect(outcome).toBe("redeploy_failed");
+        expect(pipeline.calls).toEqual(["build"]);
+        expect(markSuperseded).not.toHaveBeenCalled();
+    });
+
+    it("supersedes (no DB write) when aborted by SIGTERM", async () => {
+        const pipeline = new FakeDeployPipeline();
+        pipeline.buildError = new Error("buildctl aborted");
+        const markSuperseded = vi.fn(async () => {});
+        const controller = new AbortController();
+        controller.abort();
+
+        const outcome = await runPreviewJob(
+            runners(pipeline),
+            redeploySpec("rebuild"),
+            controller.signal,
+            fakeDeps(markSuperseded),
+        );
+
+        expect(outcome).toBe("superseded");
+        expect(markSuperseded).not.toHaveBeenCalled();
     });
 });

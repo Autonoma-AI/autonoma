@@ -22,6 +22,7 @@ export interface DeployPipeline {
         namespace: string,
         configRevisionId?: string | undefined,
         signal?: AbortSignal,
+        appName?: string,
     ): Promise<BuildPreviewImagesOutput>;
     deployEnvironment(
         input: DeployPreviewEnvironmentInput,
@@ -41,6 +42,7 @@ export interface DeployPipeline {
         feedbackEnabled: boolean,
         error: string,
     ): Promise<void>;
+    restartApp(event: PullRequestEvent, namespace: string, appName: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The slice of `TeardownPipeline` the runner drives. */
@@ -72,7 +74,16 @@ export interface RunPreviewJobDeps {
  * failure finalizer itself failing) propagates and exits non-zero, letting the
  * Job's `backoffLimit` retry a genuinely crashed attempt.
  */
-export type PreviewJobOutcome = "ready" | "deploy_failed" | "finalize_failed" | "superseded" | "skipped" | "torn_down";
+export type PreviewJobOutcome =
+    | "ready"
+    | "deploy_failed"
+    | "finalize_failed"
+    | "superseded"
+    | "skipped"
+    | "torn_down"
+    | "redeployed"
+    | "restarted"
+    | "redeploy_failed";
 
 /**
  * Runs one preview deploy or teardown to completion - the Temporal-free
@@ -90,6 +101,9 @@ export async function runPreviewJob(
     const logger = rootLogger.child({ name: "runPreviewJob" });
     if (spec.mode === "teardown") {
         return await runTeardown(runners.teardownPipeline, spec.event, deps, logger);
+    }
+    if (spec.mode === "redeploy-app") {
+        return await runRedeployApp(runners.previewPipeline, spec, signal, logger);
     }
     return await runDeploy(runners.previewPipeline, spec.event, spec.configRevisionId, signal, deps, logger);
 }
@@ -181,6 +195,61 @@ async function runTeardown(
     await teardownPipeline.teardown(resolvedEvent);
     logger.info("Preview environment torn down", ids);
     return "torn_down";
+}
+
+/**
+ * Re-implementation of `previewRedeployAppWorkflow` for a single app, scoped to
+ * the namespace the API resolved from the env row. Leaner than a full deploy:
+ * no `prepare` and no `finalize`, so it never posts the PR comment, flips the
+ * commit status, or re-triggers diffs - and there is no supersede-cleanup (a
+ * per-app run writes no `PreviewkitBuild` row; build/deploy record the target
+ * app's own terminal `PreviewkitAppInstance` state).
+ */
+async function runRedeployApp(
+    previewPipeline: DeployPipeline,
+    spec: Extract<PreviewJobSpec, { mode: "redeploy-app" }>,
+    signal: AbortSignal,
+    logger: Logger,
+): Promise<PreviewJobOutcome> {
+    const { event, namespace, appName, redeployMode, configRevisionId } = spec;
+    const ids = { extra: { repo: event.repoFullName, pr: event.prNumber, app: appName, mode: redeployMode } };
+    try {
+        if (redeployMode === "restart") {
+            await previewPipeline.restartApp(event, namespace, appName, signal);
+            logger.info("Preview per-app restart completed", ids);
+            return "restarted";
+        }
+        const built = await previewPipeline.build(event, namespace, configRevisionId, signal, appName);
+        const deployInput: DeployPreviewEnvironmentInput = {
+            event,
+            namespace,
+            commentId: "",
+            mergedConfigJson: built.mergedConfigJson,
+            imageTags: built.imageTags,
+            addonOutputs: built.addonOutputs,
+            buildOutcomes: built.buildOutcomes,
+            addons: built.addons,
+            warnings: built.warnings,
+            primaryAppNames: built.primaryAppNames,
+            appName,
+        };
+        await previewPipeline.deployEnvironment(deployInput, signal);
+        logger.info("Preview per-app redeploy completed", ids);
+        return "redeployed";
+    } catch (err) {
+        // Supersede: a newer deploy/redeploy/teardown aborted this run. There is
+        // no build row to mark and the successor owns the env, so just exit clean.
+        if (signal.aborted) {
+            logger.info("Preview per-app redeploy superseded", ids);
+            return "superseded";
+        }
+        // Genuine failure: build/deploy already recorded the app's terminal
+        // PreviewkitAppInstance state, so there is no env-level finalizer - capture
+        // for alerting and exit 0 (handled).
+        Sentry.captureException(err);
+        logger.error("Preview per-app redeploy failed", { extra: { ...ids.extra, message: errorMessage(err) } });
+        return "redeploy_failed";
+    }
 }
 
 function errorMessage(err: unknown): string {

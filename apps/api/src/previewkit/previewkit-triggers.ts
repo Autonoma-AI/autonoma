@@ -1,8 +1,10 @@
 import { logger } from "@autonoma/logger";
 import {
     type TriggerPreviewDeployParams,
+    type TriggerPreviewRedeployAppParams,
     type TriggerPreviewTeardownParams,
     triggerPreviewDeploy,
+    triggerPreviewRedeployApp,
     triggerPreviewTeardown,
 } from "@autonoma/workflow";
 import { BatchV1Api, CoreV1Api, KubeConfig } from "@kubernetes/client-node";
@@ -18,6 +20,7 @@ import { PreviewkitJobLauncher } from "./previewkit-job-launcher";
 export interface PreviewkitTriggers {
     deploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     teardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
+    redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
 let cached: PreviewkitTriggers | undefined;
@@ -34,7 +37,7 @@ export function resolvePreviewkitTriggers(): PreviewkitTriggers {
 }
 
 function temporalTriggers(): PreviewkitTriggers {
-    return { deploy: triggerPreviewDeploy, teardown: triggerPreviewTeardown };
+    return { deploy: triggerPreviewDeploy, teardown: triggerPreviewTeardown, redeployApp: triggerPreviewRedeployApp };
 }
 
 function jobsTriggers(): PreviewkitTriggers {
@@ -55,5 +58,6 @@ function jobsTriggers(): PreviewkitTriggers {
     return {
         deploy: (params) => launcher.launchDeploy(params),
         teardown: (params) => launcher.launchTeardown(params),
+        redeployApp: (params) => launcher.launchRedeployApp(params),
     };
 }
