@@ -4,6 +4,7 @@ import {
     defaultSettingsMiddleware,
     wrapLanguageModel,
 } from "ai";
+import type { VideoUploader } from "../object/video/video-processor";
 import type { CostCollector } from "./cost-collector";
 import type { CostFunction } from "./costs";
 import type { ModelEntry } from "./model-entries";
@@ -11,6 +12,24 @@ import { type MonitoringCallbacks, createLoggingMiddleware, mergeMonitoringCallb
 import { type ModelOptions, type ModelSettings, buildSettings } from "./options";
 
 export type LanguageModel = Extract<AISDKLanguageModel, { specificationVersion: "v3" }>;
+
+/**
+ * A video-capable model bundled with the {@link VideoUploader} its provider requires.
+ *
+ * Consumers that watch recordings (e.g. the reviewers) receive this single object rather than a
+ * model and an uploader chosen independently, so the two can never be mismatched.
+ */
+export interface VideoModel {
+    model: LanguageModel;
+    uploader: VideoUploader;
+}
+
+/** Thrown when {@link ModelRegistry.getVideoModel} is asked for a model that declares no uploader. */
+export class NotAVideoModelError extends Error {
+    constructor(modelName: string) {
+        super(`Model "${modelName}" is not a video model: its registry entry declares no createUploader`);
+    }
+}
 
 interface ModelRegistryConfig<TModel extends string> {
     models: Record<TModel, ModelEntry>;
@@ -26,21 +45,27 @@ interface ModelRegistryConfig<TModel extends string> {
 export class ModelRegistry<TModel extends string> {
     private readonly models: Record<TModel, LanguageModel>;
     private readonly pricing: Record<string, CostFunction>;
+    private readonly uploaders: Record<string, VideoUploader>;
     private readonly defaultSettings?: Omit<ModelSettings, "providerOptions">;
     private readonly monitoring?: MonitoringCallbacks;
 
     constructor({ models, defaultSettings, monitoring }: ModelRegistryConfig<TModel>) {
-        const createdModels = Object.fromEntries(
-            Object.entries(models).map(([key, entry]) => [key, (entry as ModelEntry).createModel()]),
-        ) as Record<TModel, LanguageModel>;
+        const entries: [TModel, ModelEntry][] = Object.entries(models).map(([key, entry]) => [
+            key as TModel,
+            entry as ModelEntry,
+        ]);
+
+        const createdModels = Object.fromEntries(entries.map(([key, entry]) => [key, entry.createModel()])) as Record<
+            TModel,
+            LanguageModel
+        >;
 
         this.models = createdModels;
 
-        this.pricing = Object.fromEntries(
-            Object.entries(models).map(([key, entry]) => [
-                createdModels[key as TModel].modelId,
-                (entry as ModelEntry).pricing,
-            ]),
+        this.pricing = Object.fromEntries(entries.map(([key, entry]) => [createdModels[key].modelId, entry.pricing]));
+
+        this.uploaders = Object.fromEntries(
+            entries.flatMap(([key, entry]) => (entry.createUploader != null ? [[key, entry.createUploader()]] : [])),
         );
 
         this.defaultSettings = defaultSettings;
@@ -70,6 +95,21 @@ export class ModelRegistry<TModel extends string> {
                 defaultSettingsMiddleware({ settings }),
             ],
         });
+    }
+
+    /**
+     * Acquire a {@link VideoModel} - the wrapped {@link LanguageModel} for the given options paired
+     * with the {@link VideoUploader} its registry entry declares.
+     *
+     * The model is wrapped exactly as {@link getModel} does (same monitoring/cost middleware), so
+     * cost attribution is unchanged. Throws {@link NotAVideoModelError} when the selected model
+     * declares no uploader - that is a wiring bug, not a runtime condition.
+     */
+    public getVideoModel(options: ModelOptions<TModel>, costCollector?: CostCollector): VideoModel {
+        const uploader = this.uploaders[options.model];
+        if (uploader == null) throw new NotAVideoModelError(options.model);
+
+        return { model: this.getModel(options, costCollector), uploader };
     }
 
     private buildMonitoringMiddleware(

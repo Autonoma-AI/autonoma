@@ -4,10 +4,19 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { env } from "../env";
 import type { LanguageModel } from "./model-registry";
 
-export type ProviderV3 = Exclude<typeof AI_SDK_DEFAULT_PROVIDER, undefined>;
+/**
+ * The minimal provider surface {@link LLMProvider} relies on: a `languageModel` factory. We only
+ * resolve language models, so we require just this rather than the full AI SDK `Provider` - which
+ * lets partial providers (e.g. OpenRouter's, which omits `embeddingModel` / `specificationVersion`)
+ * be wrapped. The `never` parameter keeps the constraint contravariantly permissive across providers
+ * whose `languageModel` accepts a narrower model-id union.
+ */
+interface LanguageModelProvider {
+    languageModel(modelId: never): LanguageModel;
+}
 
 /** Singleton class to create an LLM provider instance. */
-export class LLMProvider<TProvider extends ProviderV3> {
+export class LLMProvider<TProvider extends LanguageModelProvider> {
     private instance: TProvider | null = null;
 
     constructor(private readonly createProvider: () => TProvider) {}

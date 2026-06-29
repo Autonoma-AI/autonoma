@@ -1,4 +1,11 @@
-import { CostCollector, type LanguageModel, MODEL_ENTRIES, type ModelOptions, ModelRegistry } from "@autonoma/ai";
+import {
+    CostCollector,
+    type LanguageModel,
+    MODEL_ENTRIES,
+    type ModelOptions,
+    ModelRegistry,
+    type VideoModel,
+} from "@autonoma/ai";
 import { logger as rootLogger } from "@autonoma/logger";
 
 /**
@@ -26,6 +33,14 @@ export interface ModelSession {
      * `"assert"`), not the flow it belongs to.
      */
     getModel(options: ModelOptions<DiffsModelName>): LanguageModel;
+
+    /**
+     * Acquire a {@link VideoModel} - a model paired with the uploader its provider requires - for a
+     * single visual role within the run. Consumers that watch recordings receive this single object
+     * instead of choosing a model and an uploader separately. Metered into
+     * {@link ModelSession.costCollector} exactly like {@link getModel}.
+     */
+    getVideoModel(options: ModelOptions<DiffsModelName>): VideoModel;
 
     /** The collector that owns every cost record produced through this session. */
     readonly costCollector: CostCollector;
@@ -69,6 +84,7 @@ export function openModelSession(): ModelSession {
 
     return {
         getModel: (options) => registry.getModel(options, costCollector),
+        getVideoModel: (options) => registry.getVideoModel(options, costCollector),
         costCollector,
     };
 }

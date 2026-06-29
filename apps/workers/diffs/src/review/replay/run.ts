@@ -1,4 +1,3 @@
-import type { VideoProcessor } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { type Codebase, ReplayReviewer, StorageEvidenceLoader, openModelSession } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
@@ -9,7 +8,6 @@ import { RunReviewPersister } from "./persister";
 
 export interface RunReplayReviewDeps {
     codebase: Codebase;
-    videoProcessor?: VideoProcessor;
 }
 
 export interface RunReplayReviewResult {
@@ -66,15 +64,14 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
     }
 
     const session = openModelSession();
-    const model = session.getModel({ model: "smart-visual", tag: "replay-review" });
+    const videoModel = session.getVideoModel({ model: "smart-visual", tag: "replay-review" });
 
     const context = await new DiffJobContextLoader(db).load(runId);
 
     const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
     const reviewer = new ReplayReviewer({
-        model,
+        videoModel,
         evidenceLoader,
-        videoProcessor: deps.videoProcessor,
     });
     let verdict: ReplayVerdict | undefined;
     try {

@@ -1,4 +1,3 @@
-import type { VideoProcessor } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { type Codebase, GenerationReviewer, StorageEvidenceLoader, openModelSession } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
@@ -9,7 +8,6 @@ import { GenerationReviewPersister } from "./persister";
 
 export interface RunGenerationReviewDeps {
     codebase: Codebase;
-    videoProcessor?: VideoProcessor;
 }
 
 export interface RunGenerationReviewResult {
@@ -64,7 +62,7 @@ export async function runGenerationReview(
     }
 
     const session = openModelSession();
-    const model = session.getModel({ model: "smart-visual", tag: "generation-review" });
+    const videoModel = session.getVideoModel({ model: "smart-visual", tag: "generation-review" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new DiffJobContextLoader(db, storage);
@@ -72,9 +70,8 @@ export async function runGenerationReview(
 
     const evidenceLoader = new StorageEvidenceLoader(storage);
     const reviewer = new GenerationReviewer({
-        model,
+        videoModel,
         evidenceLoader,
-        videoProcessor: deps.videoProcessor,
     });
     let verdict: GenerationVerdict | undefined;
     try {

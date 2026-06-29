@@ -1,5 +1,3 @@
-import { VideoProcessor } from "@autonoma/ai";
-import { env as aiEnv } from "@autonoma/ai/env";
 import {
     type EvidenceLoader,
     type GenerationContext,
@@ -12,7 +10,6 @@ import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/eval
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { GenerationVerdict } from "@autonoma/types";
-import { GoogleGenAI } from "@google/genai";
 import { expect } from "vitest";
 import {
     type CodebaseCoords,
@@ -94,10 +91,9 @@ export class GenerationReviewEvaluation extends Evaluation<GenerationReviewCase>
         await this.probeReferencedEvidence(context, evidenceLoader, helpers, testCase.name);
 
         const session = openModelSession();
-        const model = session.getModel({ model: "smart-visual", tag: "generation-review" });
-        const videoProcessor = new VideoProcessor(new GoogleGenAI({ apiKey: aiEnv.GEMINI_API_KEY }));
+        const videoModel = session.getVideoModel({ model: "smart-visual", tag: "generation-review" });
 
-        const reviewer = new GenerationReviewer({ model, evidenceLoader, videoProcessor });
+        const reviewer = new GenerationReviewer({ videoModel, evidenceLoader });
 
         this.logger.info("Running generation reviewer for eval case", { extra: { case: testCase.name } });
         let verdict: GenerationVerdict;

@@ -3,7 +3,7 @@
  * and wrapping them with monitoring capabilities.
  */
 
-export { ModelRegistry, type LanguageModel } from "./registry/model-registry";
+export { ModelRegistry, type LanguageModel, type VideoModel, NotAVideoModelError } from "./registry/model-registry";
 export type { ModelOptions, ModelReasoningEffort } from "./registry/options";
 export { MODEL_ENTRIES, OPENROUTER_MODEL_ENTRIES } from "./registry/model-entries";
 export { openRouterProvider } from "./registry/providers";
@@ -16,11 +16,13 @@ export { ObjectGenerator, ObjectGenerationFailedError } from "./object/object-ge
 export { extractMessages, buildMessages } from "./object/build-messages";
 export {
     type UploadedVideo,
+    type VideoUploader,
     VideoProcessor,
     VideoUploadFailedError,
     MalformedVideoUploadResultError,
 } from "./object/video/video-processor";
 export { type VideoInput, InvalidVideoInputError } from "./object/video/video-input";
+export { InlineMp4VideoUploader } from "./object/video/inline-mp4-video-uploader";
 export { VisualConditionChecker, type VisualConditionCheckerConfig } from "./visual/visual-condition-checker";
 export { AssertChecker } from "./visual/assert-checker";
 export { TextExtractor } from "./visual/text-extractor";

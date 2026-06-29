@@ -1,4 +1,4 @@
-import type { UploadedVideo, VideoProcessor } from "@autonoma/ai";
+import type { UploadedVideo, VideoUploader } from "@autonoma/ai";
 import { logger } from "@autonoma/logger";
 
 export interface VideoDownloader {
@@ -8,10 +8,10 @@ export interface VideoDownloader {
 export async function tryUploadVideo(
     videoKey: string | undefined,
     downloader: VideoDownloader,
-    videoProcessor: VideoProcessor | undefined,
+    uploader: VideoUploader,
 ): Promise<UploadedVideo | undefined> {
-    if (videoKey == null || videoProcessor == null) {
-        logger.info("Skipping video upload - no video key or processor available");
+    if (videoKey == null) {
+        logger.info("Skipping video upload - no video key available");
         return undefined;
     }
 
@@ -25,7 +25,7 @@ export async function tryUploadVideo(
 
     let uploaded: UploadedVideo;
     try {
-        uploaded = await videoProcessor.uploadVideo({
+        uploaded = await uploader.uploadVideo({
             data: { type: "buffer", buffer: new Uint8Array(videoBuffer).buffer as ArrayBuffer },
             mimeType: "video/webm",
         });

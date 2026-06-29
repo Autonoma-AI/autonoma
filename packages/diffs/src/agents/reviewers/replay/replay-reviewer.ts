@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Agent, type AgentTool, FinishTool, type LanguageModel, type VideoProcessor } from "@autonoma/ai";
+import {
+    Agent,
+    type AgentTool,
+    FinishTool,
+    type LanguageModel,
+    type VideoModel,
+    type VideoUploader,
+} from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type ReplayVerdict, replayVerdictSchema } from "@autonoma/types";
 import type { ModelMessage } from "ai";
@@ -20,9 +27,9 @@ import { ReviewerLoop } from "../reviewer-loop";
 const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "../../../review/replay/review-prompt.md"), "utf-8");
 
 export interface ReplayReviewerConfig {
-    model: LanguageModel;
+    /** The video-capable model paired with its uploader. The reviewer runs on `videoModel.model`. */
+    videoModel: VideoModel;
     evidenceLoader: EvidenceLoader;
-    videoProcessor?: VideoProcessor;
 }
 
 export interface ReplayReviewInput {
@@ -40,7 +47,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
     private readonly logger: Logger;
     private readonly model: LanguageModel;
     private readonly evidenceLoader: EvidenceLoader;
-    private readonly videoProcessor?: VideoProcessor;
+    private readonly videoUploader: VideoUploader;
 
     private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
     private readonly viewFinalScreenshotTool = new ViewFinalScreenshotTool();
@@ -51,11 +58,11 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
         resultSchema: replayVerdictSchema,
     });
 
-    constructor({ model, evidenceLoader, videoProcessor }: ReplayReviewerConfig) {
+    constructor({ videoModel, evidenceLoader }: ReplayReviewerConfig) {
         super();
-        this.model = model;
+        this.model = videoModel.model;
+        this.videoUploader = videoModel.uploader;
         this.evidenceLoader = evidenceLoader;
-        this.videoProcessor = videoProcessor;
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
@@ -64,7 +71,7 @@ export class ReplayReviewer extends Agent<ReplayReviewInput, ReplayVerdict, Revi
             runId: input.context.runId,
             stepCount: input.context.steps.length,
         });
-        const video = await tryUploadVideo(input.context.videoS3Key, this.evidenceLoader, this.videoProcessor);
+        const video = await tryUploadVideo(input.context.videoS3Key, this.evidenceLoader, this.videoUploader);
         return buildReplayReviewMessages(input.context, video);
     }
 

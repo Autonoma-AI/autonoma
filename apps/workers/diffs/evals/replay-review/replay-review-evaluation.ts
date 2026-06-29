@@ -1,5 +1,3 @@
-import { VideoProcessor } from "@autonoma/ai";
-import { env as aiEnv } from "@autonoma/ai/env";
 import {
     type EvidenceLoader,
     openModelSession,
@@ -12,7 +10,6 @@ import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/eval
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
-import { GoogleGenAI } from "@google/genai";
 import { expect } from "vitest";
 import {
     type CodebaseCoords,
@@ -89,10 +86,9 @@ export class ReplayReviewEvaluation extends Evaluation<ReplayReviewCase> {
         await this.probeReferencedEvidence(context, evidenceLoader, helpers, testCase.name);
 
         const session = openModelSession();
-        const model = session.getModel({ model: "smart-visual", tag: "replay-review" });
-        const videoProcessor = new VideoProcessor(new GoogleGenAI({ apiKey: aiEnv.GEMINI_API_KEY }));
+        const videoModel = session.getVideoModel({ model: "smart-visual", tag: "replay-review" });
 
-        const reviewer = new ReplayReviewer({ model, evidenceLoader, videoProcessor });
+        const reviewer = new ReplayReviewer({ videoModel, evidenceLoader });
 
         this.logger.info("Running replay reviewer for eval case", { extra: { case: testCase.name } });
         let verdict: ReplayVerdict;

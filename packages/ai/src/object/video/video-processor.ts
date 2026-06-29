@@ -38,10 +38,21 @@ function getVideoData({ data }: VideoInput): string | Blob {
 }
 
 export interface UploadedVideo {
-    /** The URI of the uploaded video */
+    /** The URI of the uploaded video. A provider file reference (e.g. Google Files API) or a data URL. */
     uri: string;
     /** The MIME type of the uploaded video */
     mimeType: VideoInput["mimeType"];
+}
+
+/**
+ * Turns raw video bytes into an {@link UploadedVideo} reference a message can carry.
+ *
+ * {@link VideoProcessor} is the Google-Files-API implementation; other implementations (e.g. an
+ * inline data-URL uploader for OpenRouter-routed models) can be substituted wherever a reviewer
+ * accepts video, so video delivery is not bound to Google.
+ */
+export interface VideoUploader {
+    uploadVideo(videoInput: VideoInput): Promise<UploadedVideo>;
 }
 
 export interface VideoUploadOptions {
@@ -60,7 +71,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * This is a light wrapper around the GoogleGenAI class that uploads the video using the Files API, and returns a
  * URL to the uploaded video.
  */
-export class VideoProcessor {
+export class VideoProcessor implements VideoUploader {
     private readonly logger: Logger;
 
     constructor(
