@@ -4,11 +4,13 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
     test: {
-        // Unit/integration tests only. Live-model evals live in evals/ and are deliberately excluded
-        // here so they never run as part of `pnpm test` (turbo) - they make real, paid, non-deterministic
-        // API calls. Run them on demand with `pnpm eval` (see vitest.eval.config.ts).
+        // Deterministic, key-free unit/integration tests only. Two kinds of live-model tests (real,
+        // paid, non-deterministic API calls) are deliberately excluded so `pnpm test` (turbo, CI)
+        // never needs API keys: the scored evals under evals/, and the `*.live.test.ts` integration
+        // tests that sit alongside the unit tests in tests/. Run both on demand with `pnpm eval`
+        // (see vitest.eval.config.ts).
         include: ["tests/**/*.test.ts"],
-        exclude: ["**/dist/**", "**/node_modules/**"],
+        exclude: ["**/dist/**", "**/node_modules/**", "**/*.live.test.ts"],
         watch: false,
         env: { ...config({ path: join(__dirname, "../../.env") }).parsed },
     },
