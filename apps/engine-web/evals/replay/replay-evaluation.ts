@@ -17,6 +17,7 @@ import { provisionScenarioInstance, teardownScenarioInstance, type ProvisionedIn
 import { chromium } from "playwright";
 import { expect } from "vitest";
 import type { WebApplicationData, WebContext } from "../../src/platform";
+import { env } from "../../src/platform/env";
 import { buildWebApplicationData } from "../../src/platform/web-application-data-builder";
 import { WebInstaller } from "../../src/platform/web-installer";
 import type { ReplayWebCommandSpec } from "../../src/replay/web-command-spec";
@@ -112,7 +113,7 @@ export class ReplayEvaluation extends Evaluation<ReplayEvalCase> {
             viewport: DEFAULT_VIEWPORT,
             recordVideo: { dir: os.tmpdir() },
         });
-        const installer = new WebInstaller(browser, browserContext);
+        const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
 
         let result: ReplayResult<ReplayWebCommandSpec> | undefined;
         let videoPath: string | undefined;

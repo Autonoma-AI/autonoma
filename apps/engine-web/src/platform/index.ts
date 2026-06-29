@@ -1,5 +1,6 @@
 export * from "./drivers";
 export * from "./env";
+export * from "./native-dialog-handler";
 export * from "./playwright-image-stream";
 export * from "./previewkit-bypass-token";
 export * from "./web-application-data";

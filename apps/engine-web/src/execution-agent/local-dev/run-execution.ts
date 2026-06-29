@@ -24,7 +24,7 @@ async function main(testCasePath: string) {
         viewport: DEFAULT_VIEWPORT,
         recordVideo: { dir: os.tmpdir() },
     });
-    const installer = new WebInstaller(browser, browserContext);
+    const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
 
     const costCollector = new CostCollector();
 

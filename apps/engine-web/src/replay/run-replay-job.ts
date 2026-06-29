@@ -8,6 +8,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { Browser } from "playwright";
 import { DEFAULT_VIEWPORT, connectBrowser } from "../platform/connect-browser";
+import { env } from "../platform/env";
 import { WebInstaller } from "../platform/web-installer";
 import { WebRunAPIRunner } from "./run-api-runner";
 import type { ReplayWebCommandSpec } from "./web-command-spec";
@@ -43,7 +44,7 @@ export async function runWebReplayJob(runId: string, urlOverride?: string) {
         const commands = createWebCommands(models);
 
         const runner = new WebRunAPIRunner({
-            installer: new WebInstaller(browser, browserContext),
+            installer: new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED),
             commands,
             createWaitChecker: (screen) =>
                 new WaitConditionChecker(

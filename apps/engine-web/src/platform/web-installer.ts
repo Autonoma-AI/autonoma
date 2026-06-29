@@ -1,4 +1,4 @@
-import { Installer } from "@autonoma/engine";
+import { DialogObserver, Installer } from "@autonoma/engine";
 import { getScreenshotConfig } from "@autonoma/image";
 import type { Browser, BrowserContext, Page } from "playwright";
 import z from "zod";
@@ -9,6 +9,7 @@ import { PlaywrightKeyboardDriver } from "./drivers/playwright-keyboard.driver";
 import { PlaywrightMouseDriver } from "./drivers/playwright-mouse.driver";
 import { PlaywrightNavigationDriver } from "./drivers/playwright-navigation.driver";
 import { PlaywrightScreenDriver } from "./drivers/playwright-screen.driver";
+import { attachNativeDialogHandler } from "./native-dialog-handler";
 import { PlaywrightImageStream } from "./playwright-image-stream";
 import type { WebApplicationData } from "./web-application-data";
 import type { WebContext } from "./web-context";
@@ -40,6 +41,14 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
     constructor(
         private readonly browser: Browser,
         private readonly context: BrowserContext,
+        /**
+         * When true, native browser dialogs (alert / confirm / prompt) are auto-accepted and
+         * recorded. Enabled for both generation and replay: auto-accept is a deterministic policy
+         * (no agent decision), so replay resolves dialogs exactly as generation did - keeping a
+         * confirm()-gated delete/save consistent across both. The recorded dialogs are only read
+         * by the generation agent; in replay the observer is simply not drained.
+         */
+        private readonly handleNativeDialogs: boolean = false,
     ) {
         super();
     }
@@ -85,6 +94,13 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
 
         this.attachAuthDebugListeners(page, url);
 
+        const dialogObserver = this.handleNativeDialogs ? new DialogObserver() : undefined;
+        if (dialogObserver != null) {
+            this.logger.info("Native dialog handling enabled");
+            attachNativeDialogHandler(page, dialogObserver);
+            pageManager.onPageChange((newPage) => attachNativeDialogHandler(newPage, dialogObserver));
+        }
+
         if (file != null) {
             this.attachUploadListener(page, file);
             pageManager.onPageChange((newPage) => this.attachUploadListener(newPage, file));
@@ -100,6 +116,7 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
             clipboard: new PlaywrightClipboardDriver(pageManager),
             application: new PlaywrightApplicationDriver(pageManager),
             navigation: new PlaywrightNavigationDriver(pageManager),
+            dialogs: dialogObserver,
         };
 
         // Navigate to the URL

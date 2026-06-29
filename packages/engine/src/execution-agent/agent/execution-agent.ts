@@ -289,6 +289,8 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                 ? ["", "Stored variables (memory):", JSON.stringify(memoryEntries, null, 2)]
                 : [];
 
+        const dialogSection = this.buildDialogSection();
+
         const reminder =
             "IMPORTANT: Review the steps above. If you are repeating the same or similar actions and the page state is not changing (no tangible progress towards the goal), STOP and call execution-finished with success: false. Briefly explain which repeated actions indicate a loop.";
         const contextText = [
@@ -298,6 +300,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             "Steps executed so far (oldest to newest):",
             JSON.stringify(stepsSoFar, null, 2),
             ...memorySection,
+            ...dialogSection,
             "",
             reminder,
         ].join("\n");
@@ -310,6 +313,34 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                     { type: "text", text: contextText },
                 ],
             },
+        ];
+    }
+
+    /**
+     * Builds the context lines describing native browser dialogs (alert / confirm / prompt)
+     * that appeared since the previous step. These are browser chrome, not DOM, so they never
+     * show up in the screenshot - the agent only learns about them here. Empty when the platform
+     * has no dialog observer or no dialogs fired.
+     */
+    private buildDialogSection(): string[] {
+        const dialogs = this.params.drivers.dialogs?.takePending() ?? [];
+        if (dialogs.length === 0) return [];
+
+        this.logger.info("Including native dialogs in step context", { extra: { count: dialogs.length } });
+
+        const summarized = dialogs.map((dialog) => ({
+            type: dialog.type,
+            message: dialog.message,
+            outcome: dialog.outcome,
+            promptValue: dialog.promptValue,
+        }));
+
+        return [
+            "",
+            "Native browser dialogs appeared since the previous step and were handled automatically. " +
+                "These are browser chrome, NOT part of the page DOM or the screenshot - this is the only place you can see them:",
+            JSON.stringify(summarized, null, 2),
+            "An accepted dialog means the action behind it (e.g. a delete/save confirmation) has already proceeded - continue from that result rather than looking for an OK button on the page.",
         ];
     }
 

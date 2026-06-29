@@ -56,6 +56,8 @@ Platform-specific apps implement these interfaces:
 - **`ApplicationDriver`** - `waitUntilStable()`
 - **`NavigationDriver`** - `navigate(url)`, `getCurrentUrl()`
 
+`BaseCommandContext` also carries an optional **`dialogs?: DialogObserver`**. Platforms with native browser dialogs (web) wire this up to record auto-handled `alert`/`confirm`/`prompt`/`beforeunload` popups; the agent drains it once per step (`getStepContext`) and surfaces the dialogs as context, since native dialogs are browser chrome and never appear in a screenshot. Absent on platforms without native dialogs (mobile), in which case the agent skips dialog reporting. (Replay handles dialogs with the same deterministic auto-accept policy but has no agent, so it never drains the observer.) `DialogObserver`, `NativeDialogEvent`, and `NativeDialogType` are exported from `@autonoma/engine`.
+
 ## CommandSpec - The Command Type System
 
 Every command is defined by a `CommandSpec`:

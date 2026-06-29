@@ -27,6 +27,7 @@ src/
 │   │   └── connect-remote-browser.ts
 │   ├── web-installer.ts
 │   ├── web-context.ts
+│   ├── native-dialog-handler.ts        # auto-accept + record native alert/confirm/prompt dialogs
 │   ├── web-video-recorder.ts
 │   ├── finalize-webm.ts                # remux Playwright WebM into a seekable file
 │   ├── playwright-image-stream.ts
@@ -102,6 +103,7 @@ Defined in `src/execution-agent/env.ts` and `src/platform/env.ts` using `@t3-oss
 |----------|----------|-------------|
 | `REMOTE_BROWSER_URL` | No | WebSocket endpoint for a remote Chromium instance (e.g., `127.0.0.1:3000`). If unset, launches a local browser. |
 | `HEADLESS` | No | Set to `"true"` to run Chromium in headless mode. Defaults to headed. |
+| `NATIVE_DIALOGS_ENABLED` | No | Auto-handle native dialogs (alert/confirm/prompt) during generation and replay. Defaults to enabled; set to `"false"` to disable. |
 
 Additionally, environment variables are inherited from shared packages (`@autonoma/logger`, `@autonoma/db`, `@autonoma/ai`, `@autonoma/storage`).
 
@@ -112,5 +114,6 @@ Additionally, environment variables are inherited from shared packages (`@autono
 - **Remote browser support.** In production, the engine connects to a remote Chromium instance via WebSocket rather than launching a local browser.
 - **Video recording** uses Playwright's built-in video API, made seekable in two steps. (1) `WebVideoRecorder` reads the recording with `video.saveAs()`, never `video.path()`: the context-level recording is only flushed to disk when the browser context closes (during cleanup, after the upload), so `path()` returns a half-written, truncated file - the original cause of the unseekable, `duration=N/A` recordings. (2) `finalize-webm.ts` then remuxes the finalized file with ffmpeg (`-c copy`, no re-encode, via `@ffmpeg-installer/ffmpeg`) to add the Cues seek index. The upload is tagged `video/webm` so object storage does not serve it as `application/octet-stream`.
 - **ActivePageManager** tracks which page is currently active, handling new tabs/popups transparently so drivers always operate on the correct page.
+- **Native dialogs.** Playwright auto-DISMISSES native `alert`/`confirm`/`prompt`/`beforeunload` dialogs when no handler is registered, which silently cancels `confirm()`-gated flows (delete/save) and makes the agent flail clicking an "OK" button that is not in the DOM. `native-dialog-handler.ts` instead auto-ACCEPTS them (prompts submit their default value; `beforeunload` is accepted so intended navigation proceeds) and records each into a `DialogObserver` (from `@autonoma/engine`) exposed on `WebContext.dialogs`. The agent drains the observer once per step and surfaces the dialogs as context, so the model and the post-run classifier get ground truth about what the popup said. Decisions must be by policy: the action that opens a dialog blocks until it is resolved, so the outcome cannot be deferred to a later agent step. Enabled in **both generation and replay** (gated by the `WebInstaller` constructor + `NATIVE_DIALOGS_ENABLED`): because auto-accept is deterministic, replay resolves a `confirm()`-gated delete exactly as generation did, so the recorded step stays consistent. The `DialogObserver` is only drained by the generation agent; replay attaches it but never reads it.
 - **Default viewport** is 1920x1080 across all entry points.
 - **Agent tools** include: click, hover, drag, type, assert, scroll, refresh, read (text extraction), and save-clipboard.

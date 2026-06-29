@@ -19,6 +19,7 @@ import { expect } from "vitest";
 import type { WebCommandSpec } from "../../src/execution-agent/web-agent";
 import { createWebAgentFactory } from "../../src/execution-agent/web-agent";
 import type { WebApplicationData, WebContext } from "../../src/platform";
+import { env } from "../../src/platform/env";
 import { buildWebApplicationData } from "../../src/platform/web-application-data-builder";
 import { WebInstaller } from "../../src/platform/web-installer";
 import { frozenStepSchema, type ReplayEvalInput } from "../replay/replay-input";
@@ -122,7 +123,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             viewport: DEFAULT_VIEWPORT,
             recordVideo: { dir: os.tmpdir() },
         });
-        const installer = new WebInstaller(browser, browserContext);
+        const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
 
         let result: ExecutionResult<WebCommandSpec> | undefined;
         let videoPath: string | undefined;

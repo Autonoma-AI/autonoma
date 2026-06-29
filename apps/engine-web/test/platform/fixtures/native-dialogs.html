@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1024, height=768">
+  <title>Native dialogs</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px; }
+    button { display: block; margin: 12px 0; padding: 12px 20px; font-size: 16px; cursor: pointer; }
+    .status { margin: 4px 0 20px; font-family: monospace; color: #374151; }
+  </style>
+</head>
+<body>
+  <h1>Native dialogs fixture</h1>
+
+  <!-- alert(): no return value. The line after it only runs once the dialog is handled,
+       so "after-alert" proves the flow continued rather than hanging. -->
+  <button id="alert-btn"
+    onclick="alert('Your changes have been saved.'); setStatus('alert', 'after-alert');">
+    Save (alert)
+  </button>
+  <div class="status" id="alert-status">idle</div>
+
+  <!-- confirm(): the gated action runs ONLY if the dialog is accepted. With Playwright's
+       default auto-dismiss this returns false and the delete is silently skipped. -->
+  <button id="confirm-btn"
+    onclick="if (confirm('Delete invoice #42? This cannot be undone.')) { setStatus('confirm', 'deleted'); }">
+    Delete (confirm)
+  </button>
+  <div class="status" id="confirm-status">present</div>
+
+  <!-- prompt(): writes back whatever the dialog returns (its default value when accepted). -->
+  <button id="prompt-btn"
+    onclick="setStatus('prompt', prompt('Rename invoice to:', 'invoice-default') ?? 'cancelled');">
+    Rename (prompt)
+  </button>
+  <div class="status" id="prompt-status">idle</div>
+
+  <script>
+    function setStatus(kind, value) {
+      document.getElementById(kind + '-status').textContent = value;
+    }
+  </script>
+</body>
+</html>
