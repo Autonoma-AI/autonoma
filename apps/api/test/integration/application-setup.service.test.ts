@@ -1,7 +1,7 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { ScenarioRecipeStore } from "@autonoma/scenario";
 import { TOTAL_SETUP_STEPS } from "@autonoma/types";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { ApplicationSetupService } from "../../src/application-setup/application-setup.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -15,15 +15,19 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
         file: "s3://bucket/file.png",
     });
 
+    // Mirror production wiring: the HTTP router hands the service the real
+    // OnboardingManager (not the OnboardingService wrapper), so generation
+    // enqueue on setup completion resolves to a real method.
+    const onboardingManager = harness.services.onboarding.manager;
     const service = new ApplicationSetupService(
         harness.db,
         harness.generationProvider,
-        harness.services.onboarding,
+        onboardingManager,
         new ScenarioRecipeStore(harness.db),
     );
     const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
 
-    return { app, setupId, service };
+    return { app, setupId, service, onboardingManager };
 }
 
 apiTestSuite({
@@ -96,7 +100,49 @@ apiTestSuite({
             expect(setup.currentStep).toBe(TOTAL_SETUP_STEPS - 1);
             expect(setup.status).toBe("completed");
             expect(setup.completedAt).not.toBeNull();
-            expect(onboarding.step).toBe("webhook_configuring");
+            expect(onboarding.step).toBe("github");
+        });
+
+        test("PATCH completion enqueues generations once the app is live", async ({ harness }) => {
+            // The admin manual upload (and any CLI that finalizes over PATCH) marks
+            // the setup completed via updateSetup. Finish setup runs after go-live,
+            // so the artifacts it just uploaded leave pending generations that only
+            // get drained if completion here triggers the refinement loop.
+            const { app, setupId, service, onboardingManager } = await createSetupFixture(
+                harness,
+                "Application Setup PATCH Live",
+            );
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: app.id },
+                create: { applicationId: app.id, step: "completed" },
+                update: { step: "completed" },
+            });
+
+            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            expect(enqueueSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
+            enqueueSpy.mockRestore();
+        });
+
+        test("PATCH completion defers generation enqueue while onboarding is unfinished", async ({ harness }) => {
+            const { app, setupId, service, onboardingManager } = await createSetupFixture(
+                harness,
+                "Application Setup PATCH Not Live",
+            );
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: app.id },
+                create: { applicationId: app.id, step: "github" },
+                update: { step: "github" },
+            });
+
+            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            expect(enqueueSpy).not.toHaveBeenCalled();
+            enqueueSpy.mockRestore();
         });
 
         test("partial_failure update marks setup without completion timestamp", async ({ harness }) => {

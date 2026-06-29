@@ -32,6 +32,32 @@ export const PREVIEWKIT_BUILTIN_ENV_VARS = [
 
 export type PreviewkitBuiltinEnvVar = (typeof PREVIEWKIT_BUILTIN_ENV_VARS)[number];
 
+/**
+ * Secrets Autonoma provisions and mounts into the SDK (primary) app of a
+ * PreviewKit-managed preview - distinct from {@link PREVIEWKIT_BUILTIN_ENV_VARS}
+ * because they are managed AWS secrets (random, rotatable in Settings -> Secrets)
+ * rather than per-deploy computed values, and are injected into the primary app
+ * only, not every pod. Kept separate so the deployer's built-in injection and the
+ * reserved-key set are unaffected; this list drives the secrets UI hint rows only.
+ * The `example` is a placeholder - the real values are never surfaced.
+ */
+export const AUTONOMA_MANAGED_ENV_VARS = [
+    {
+        key: "AUTONOMA_SHARED_SECRET",
+        description:
+            "Shared secret Autonoma signs Environment Factory requests with; your /api/autonoma handler verifies the HMAC against it. Managed by Autonoma.",
+        example: "(managed secret)",
+    },
+    {
+        key: "AUTONOMA_SIGNING_SECRET",
+        description:
+            "Private secret your SDK handler uses to sign teardown refs tokens. Managed by Autonoma, rotatable in Settings -> Secrets.",
+        example: "(managed secret)",
+    },
+] as const;
+
+export type AutonomaManagedEnvVar = (typeof AUTONOMA_MANAGED_ENV_VARS)[number];
+
 const PREVIEWKIT_BUILTIN_ENV_KEYS: ReadonlySet<string> = new Set(
     PREVIEWKIT_BUILTIN_ENV_VARS.map((variable) => variable.key),
 );

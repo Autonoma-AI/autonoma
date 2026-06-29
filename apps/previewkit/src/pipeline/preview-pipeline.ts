@@ -20,7 +20,7 @@ import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manage
 import { BuildAbortedError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
-import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
+import { type ActiveConfig, loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import {
     type BranchConvention,
     type PreviewConfig,
@@ -151,22 +151,17 @@ export class PreviewPipeline {
     private async resolvePrimaryConfig(
         applicationId: string,
         pinnedRevisionId: string | undefined,
-    ): Promise<{ config: PreviewConfig; revisionId: string } | undefined> {
+    ): Promise<ActiveConfig | undefined> {
         if (pinnedRevisionId != null) {
             const pinned = await loadConfigRevision(applicationId, pinnedRevisionId);
-            if (pinned != null) {
-                return { config: pinned.config, revisionId: pinned.revisionId };
-            }
+            if (pinned != null) return pinned;
             logger.warn("Pinned config revision not found; resolving current config", {
                 applicationId,
                 pinnedRevisionId,
             });
         }
 
-        const active = await loadActiveConfig(applicationId);
-        if (active == null) return undefined;
-
-        return { config: active.config, revisionId: active.revisionId };
+        return await loadActiveConfig(applicationId);
     }
 
     /**
@@ -411,9 +406,20 @@ export class PreviewPipeline {
             });
             primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             const convention = primaryConfig.config?.multirepo?.branch_convention;
+            const dependencyConfigByRepo = new Map(
+                resolved.dependencyConfigs.map((entry) => [entry.repo, entry.config]),
+            );
             const [dependencyResults] = await Promise.all([
                 Promise.all(
-                    deps.map((dep) => this.cloneDependency(dep, prNumber, event.headRef, convention, organizationId)),
+                    deps.map((dep) =>
+                        this.cloneDependency(
+                            dep,
+                            prNumber,
+                            event.headRef,
+                            convention,
+                            dependencyConfigByRepo.get(dep.repo),
+                        ),
+                    ),
                 ),
                 this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
@@ -1342,11 +1348,11 @@ export class PreviewPipeline {
         prNumber: number,
         headRef: string,
         convention: BranchConvention | undefined,
-        organizationId: string,
+        dependencyConfig: PreviewConfig | undefined,
     ): Promise<DependencyEntry | null> {
         const targetBranch = resolveTargetBranch(headRef, convention, dep.fallback_branch);
 
-        const resolved = await resolveDependencyConfig(this.provider, organizationId, dep, targetBranch);
+        const resolved = await resolveDependencyConfig(this.provider, dep, targetBranch, dependencyConfig);
         if (resolved == null) return null;
 
         const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
@@ -1360,7 +1366,6 @@ export class PreviewPipeline {
             branch: resolved.branch,
             sha: resolved.sha,
             usedFallback: resolved.usedFallback,
-            revisionId: resolved.revisionId,
         });
         return {
             dep,

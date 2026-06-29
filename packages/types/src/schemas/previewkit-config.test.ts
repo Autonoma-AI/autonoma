@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewConfigSchema } from "./previewkit-config";
+import { previewConfigSchema, validateHookSteps } from "./previewkit-config";
 
 function parseWithBuild(build: unknown) {
     return previewConfigSchema.safeParse({
@@ -100,5 +100,71 @@ describe("previewConfigSchema multirepo dependency sha", () => {
         if (result.success) {
             expect(result.data.config?.multirepo?.repos[0]?.sha).toBe("abc123def456");
         }
+    });
+});
+
+describe("validateHookSteps", () => {
+    const appNames = new Set(["api", "web"]);
+
+    it("accepts a valid hook", () => {
+        const issues = validateHookSteps(
+            [{ app: "api", command: "npx prisma migrate deploy" }],
+            appNames,
+            "post_deploy",
+        );
+        expect(issues).toEqual([]);
+    });
+
+    it("ignores a fully-blank row", () => {
+        const issues = validateHookSteps([{ app: "  ", command: "" }], appNames, "post_deploy");
+        expect(issues).toEqual([]);
+    });
+
+    it("flags a missing app", () => {
+        const issues = validateHookSteps([{ app: "", command: "echo hi" }], appNames, "pre_deploy");
+        expect(issues).toEqual([
+            {
+                severity: "error",
+                code: "empty_hook_app",
+                path: ["hooks", "pre_deploy", 0, "app"],
+                message: "Hook is missing an app",
+            },
+        ]);
+    });
+
+    it("flags an unknown app", () => {
+        const issues = validateHookSteps([{ app: "worker", command: "echo hi" }], appNames, "post_deploy");
+        expect(issues).toEqual([
+            {
+                severity: "error",
+                code: "unknown_hook_app",
+                path: ["hooks", "post_deploy", 0, "app"],
+                message: 'Hook references unknown app "worker"',
+            },
+        ]);
+    });
+
+    it("flags a missing command", () => {
+        const issues = validateHookSteps([{ app: "api", command: "   " }], appNames, "post_deploy");
+        expect(issues).toEqual([
+            {
+                severity: "error",
+                code: "empty_hook_command",
+                path: ["hooks", "post_deploy", 0, "command"],
+                message: "Hook is missing a command",
+            },
+        ]);
+    });
+
+    it("flags both a missing app and a missing command on the same row", () => {
+        const issues = validateHookSteps(
+            [
+                { app: "", command: "deploy" },
+                { app: "api", command: "" },
+            ],
+            appNames,
+            "pre_deploy",
+        );
+        expect(issues.map((issue) => issue.code)).toEqual(["empty_hook_app", "empty_hook_command"]);
     });
 });

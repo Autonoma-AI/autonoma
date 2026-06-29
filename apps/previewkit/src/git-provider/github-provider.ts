@@ -66,11 +66,21 @@ export class GitHubProvider implements GitProvider {
 
     private async getInstallationOctokit(repoFullName: string) {
         const { owner, repo } = parseRepo(repoFullName);
-        const { data: installation } = await this.app.octokit.request("GET /repos/{owner}/{repo}/installation", {
-            owner,
-            repo,
-        });
-        return this.app.getInstallationOctokit(installation.id);
+        try {
+            const { data: installation } = await this.app.octokit.request("GET /repos/{owner}/{repo}/installation", {
+                owner,
+                repo,
+            });
+            return this.app.getInstallationOctokit(installation.id);
+        } catch (error) {
+            if (isNotFoundError(error)) {
+                logger.warn("GitHub App is not installed on repository", { repoFullName });
+                throw new Error(
+                    `Autonoma's GitHub App is not installed on ${repoFullName}. Install it on that repository (or grant it access), then redeploy.`,
+                );
+            }
+            throw error;
+        }
     }
 
     private getInstallationOctokitById(installationId: number) {

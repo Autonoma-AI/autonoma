@@ -189,6 +189,14 @@ describe("SdkClient (DB-free)", () => {
         expect(callCount).toBe(1);
     });
 
+    it("includes the SDK error code when the error message is blank", async () => {
+        server.onRequest(() => ({ status: 500, body: { error: "", code: "INTERNAL_ERROR" } }));
+
+        await expect(client.discover({ timeoutMs: 5_000 })).rejects.toThrow(
+            "SDK returned HTTP 500: code=INTERNAL_ERROR - the SDK endpoint returned an empty error message; check the preview app runtime logs",
+        );
+    });
+
     it("throws on response validation failure", async () => {
         let callCount = 0;
         server.onRequest(() => {

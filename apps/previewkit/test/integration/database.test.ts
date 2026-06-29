@@ -549,9 +549,7 @@ integrationTestSuite({
             expect(web.url).toBe("https://new");
         });
 
-        test("recordAppRedeployOutcome merges one app's outcome and leaves siblings untouched", async ({
-            harness,
-        }) => {
+        test("recordAppRedeployOutcome merges one app's outcome and leaves siblings untouched", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
             const ns = "preview-acme-web-pr-7";
             await recordEnvironmentCreated({

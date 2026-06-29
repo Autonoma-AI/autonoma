@@ -223,7 +223,7 @@ export function AppCard({
                 <DropdownMenuTrigger
                   render={
                     <Button variant="outline" size="xs" className="gap-1" disabled={dependencyOptions.length === 0}>
-                      {app.dependsOn.length === 0 ? "Add dependency" : "Edit"}
+                      Add app dep
                       <CaretDownIcon size={12} />
                     </Button>
                   }
@@ -249,6 +249,7 @@ export function AppCard({
               rows={app.env}
               referenceTokens={referenceTokens}
               showBuiltins
+              showManagedSecrets={app.primary}
               enableSecrets={enableSecrets}
               error={firstIssue(issues.fieldErrors, app.id, "env")}
               warning={firstIssue(issues.fieldWarnings, app.id, "env")}

@@ -44,10 +44,15 @@ export interface ScenarioDryRunResult {
 /**
  * Base class for the onboarding state machine (State pattern).
  *
- * Each step in the onboarding flow (webhook_configuring -> discovered ->
- * dry_run_passed -> github -> preview_environment -> preview_verified -> completed) is represented by a concrete
- * subclass that overrides only the transitions valid for that step. All other
- * transitions throw {@link InvalidOnboardingStepError}.
+ * The required path is `github (Add app) -> preview_environment ->
+ * (previewkit_configuring | existing_deploys_*) -> preview_verified ->
+ * diff_trigger -> completed`. Each step is a concrete subclass that overrides
+ * only the transitions valid for that step; all others throw
+ * {@link InvalidOnboardingStepError}.
+ *
+ * SDK implementation + dry-run validation are NOT part of this path - they are
+ * app-level capabilities run from the "Finish setup" tab and handled by
+ * {@link OnboardingSdkCapabilityService} without touching `step`.
  *
  * The {@link OnboardingManager} loads the appropriate subclass based on the
  * persisted step and delegates all mutations to it.
@@ -62,40 +67,6 @@ export abstract class OnboardingState {
         protected readonly deps: OnboardingStateDeps,
     ) {
         this.logger = logger.child({ name: this.constructor.name, applicationId });
-    }
-
-    /**
-     * Validate the supplied webhook config by calling discover, then persist it
-     * atomically on success. On failure, state is left at `webhook_configuring`
-     * with `lastDiscoveryError` populated — the URL/secret are never persisted.
-     */
-    configureAndDiscoverScenarios(
-        _organizationId: string,
-        _webhookUrl: string,
-        _signingSecret: string,
-        _webhookHeaders?: Record<string, string>,
-    ): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "configure scenarios");
-    }
-
-    /** Move from `discovered` / `dry_run_passed` back to `webhook_configuring` so the user can edit URL/secret. */
-    reconfigureWebhook(): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "reconfigure webhook");
-    }
-
-    /** Execute a scenario up + down cycle. Valid during `discovered` and `dry_run_passed`. */
-    runScenarioDryRun(_scenarioId: string): Promise<ScenarioDryRunResult> {
-        throw new InvalidOnboardingStepError(this.step, "run scenario dry run");
-    }
-
-    /** Transition from `dry_run_passed` to `github` (optionally setting a production URL). */
-    complete(_productionUrl?: string): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "complete onboarding");
-    }
-
-    /** Transition from `url` to `github`, storing the production URL. */
-    setUrl(_productionUrl: string): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "set url");
     }
 
     /** Transition from `github` to `preview_environment`. */
@@ -117,8 +88,13 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "confirm existing deploys setup");
     }
 
-    /** Transition from `preview_verified` to `completed`. */
+    /** Transition from `preview_verified` to `diff_trigger`. */
     completePreviewOnboarding(): Promise<void> {
         throw new InvalidOnboardingStepError(this.step, "complete preview onboarding");
+    }
+
+    /** Transition from `diff_trigger` to `completed`. */
+    goLive(): Promise<void> {
+        throw new InvalidOnboardingStepError(this.step, "go live");
     }
 }

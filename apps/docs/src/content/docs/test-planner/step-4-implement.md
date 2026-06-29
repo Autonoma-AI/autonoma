@@ -23,7 +23,8 @@ The implementation requires **two separate secrets** with different purposes:
 # 1. Shared secret — you AND Autonoma both know this one.
 #    Autonoma uses it to sign every request (HMAC-SHA256).
 #    Your endpoint uses it to verify the signature.
-#    You paste this into the Autonoma dashboard when connecting your app.
+#    PreviewKit-managed apps receive this automatically.
+#    Existing deploys set it in their own deployment secrets.
 openssl rand -hex 32
 # Example output: 4a8f...  → set as AUTONOMA_SHARED_SECRET
 
@@ -442,7 +443,7 @@ Tell the user:
 >    AUTONOMA_SIGNING_SECRET=<your-value>
 >    ```
 > 2. Proceed to Step 5 to validate the full up/down lifecycle against every scenario.
-> 3. When ready, paste `AUTONOMA_SHARED_SECRET` into the Autonoma dashboard."
+> 3. If this app uses PreviewKit, Autonoma will mount `AUTONOMA_SHARED_SECRET` for validation. For existing deploys, set it in the deployment secrets before validating."
 
 ---
 

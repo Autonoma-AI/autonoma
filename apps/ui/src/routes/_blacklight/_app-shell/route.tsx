@@ -48,8 +48,9 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
     throw redirect({
       to: "/onboarding",
       search: {
-        step: "cli-setup",
+        step: "add-app",
         appId: undefined,
+        error: undefined,
         apiKey: undefined,
         setupId: undefined,
         focusApp: undefined,

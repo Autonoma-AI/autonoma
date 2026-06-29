@@ -68,6 +68,9 @@ export type PostgresRestoreOptions = {
 };
 
 const PORT = 5432;
+const POSTGRES_USER = "preview";
+const POSTGRES_PASSWORD = "preview";
+const POSTGRES_DB = "preview";
 const DATA_MOUNT_PATH = "/var/lib/postgresql/data";
 
 // Pin PGDATA to a subdirectory of the mounted volume for every allowed image. A
@@ -83,7 +86,11 @@ export class PostgresRecipe extends BaseRecipe {
     readonly schema = passthroughOptionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
-        return { host: config.name, port: PORT };
+        return {
+            host: config.name,
+            port: PORT,
+            url: `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${config.name}:${PORT}/${POSTGRES_DB}`,
+        };
     }
 
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
@@ -143,9 +150,9 @@ export class PostgresRecipe extends BaseRecipe {
                                 ports: [{ containerPort: PORT }],
                                 args: postgresArgs,
                                 env: [
-                                    { name: "POSTGRES_USER", value: "preview" },
-                                    { name: "POSTGRES_PASSWORD", value: "preview" },
-                                    { name: "POSTGRES_DB", value: "preview" },
+                                    { name: "POSTGRES_USER", value: POSTGRES_USER },
+                                    { name: "POSTGRES_PASSWORD", value: POSTGRES_PASSWORD },
+                                    { name: "POSTGRES_DB", value: POSTGRES_DB },
                                     { name: "PGDATA", value: PGDATA_PATH },
                                     ...Object.entries(config.env).map(([name, value]) => ({
                                         name,
@@ -184,7 +191,7 @@ export class PostgresRecipe extends BaseRecipe {
                                         // socket. The postgres Docker image runs init scripts
                                         // in socket-only mode; without -h the probe succeeds
                                         // during init while external TCP connections still fail.
-                                        command: ["pg_isready", "-U", "preview", "-h", "127.0.0.1"],
+                                        command: ["pg_isready", "-U", POSTGRES_USER, "-h", "127.0.0.1"],
                                     },
                                     initialDelaySeconds: 5,
                                     periodSeconds: 5,

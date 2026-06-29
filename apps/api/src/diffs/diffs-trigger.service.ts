@@ -29,8 +29,10 @@ interface TriggerDiffsParams extends BaseTriggerDiffsParams {
 
 export interface TriggerDiffsResult {
     branchId: string;
-    snapshotId: string;
-    deploymentId: string;
+    snapshotId?: string;
+    deploymentId?: string;
+    /** True when the request was a no-op: the head sha was already analyzed, so no snapshot/diffs job was created. */
+    skipped?: boolean;
 }
 
 export class NoApplicationLinkedError extends NotFoundError {
@@ -131,6 +133,19 @@ export class DiffsTriggerService extends Service {
 
         this.logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
 
+        // Idempotency: a re-delivered webhook (GitHub retry, client repost) for an
+        // already-analyzed head has nothing new to diff. Drop it instead of
+        // re-running the full pipeline. `createSnapshot` still supersedes a pending
+        // snapshot if the head genuinely moved while one was in flight.
+        if (headSha === baseSha) {
+            this.logger.info("Skipping PR diffs: head already analyzed, no new commits", {
+                branchId: branch.id,
+                prNumber,
+                headSha,
+            });
+            return { branchId: branch.id, skipped: true };
+        }
+
         const deploymentId = await this.createDeployment({
             branchId: branch.id,
             organizationId,
@@ -196,6 +211,18 @@ export class DiffsTriggerService extends Service {
         );
 
         this.logger.info("Resolved main branch and shas", { branchId, headSha, baseSha });
+
+        // Idempotency: re-delivered webhooks (GitHub retry, client repost) for an
+        // unchanged main carry the same head as the active snapshot. Drop them
+        // rather than re-running diffs. A real new commit moves headSha, so this
+        // only collapses true duplicates.
+        if (headSha === baseSha) {
+            this.logger.info("Skipping main diffs: head matches active snapshot, no new commits", {
+                branchId,
+                headSha,
+            });
+            return { branchId, skipped: true };
+        }
 
         const deploymentId = await this.createDeployment({
             branchId,

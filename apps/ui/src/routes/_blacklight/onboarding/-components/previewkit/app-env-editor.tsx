@@ -22,7 +22,7 @@ import {
   TooltipTrigger,
   cn,
 } from "@autonoma/blacklight";
-import { PREVIEWKIT_BUILTIN_ENV_VARS, detectSensitive } from "@autonoma/types";
+import { AUTONOMA_MANAGED_ENV_VARS, PREVIEWKIT_BUILTIN_ENV_VARS, detectSensitive } from "@autonoma/types";
 import { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { InfoIcon } from "@phosphor-icons/react/Info";
@@ -52,6 +52,12 @@ interface AppEnvEditorProps {
   /** Show the read-only Previewkit built-in env vars above the editable rows. Only for the app env section. */
   showBuiltins?: boolean;
   /**
+   * Also list the Autonoma-managed SDK secrets (AUTONOMA_SHARED_SECRET /
+   * AUTONOMA_SIGNING_SECRET) in the injected card. Only the primary (SDK) app
+   * receives them, so callers pass this for that app alone.
+   */
+  showManagedSecrets?: boolean;
+  /**
    * Enable secret handling: a per-row "sensitive" toggle (auto-suggested via the
    * shared classifier after a debounce, user-overridable), masked existing-secret
    * rows, a secrets/envs filter, and an inline add-row. Only the app env section
@@ -74,10 +80,11 @@ export function AppEnvEditor({
   referenceTokens,
   title = "Environment variables",
   addLabel = "Add variable",
-  emptyLabel = "No environment variables. Secrets live in the secrets section below.",
+  emptyLabel = "No environment variables.",
   error,
   warning,
   showBuiltins = false,
+  showManagedSecrets = false,
   enableSecrets = false,
   onChange,
 }: AppEnvEditorProps) {
@@ -374,7 +381,7 @@ export function AppEnvEditor({
           </Button>
         )}
       </div>
-      {showBuiltins ? <BuiltInCard /> : undefined}
+      {showBuiltins ? <BuiltInCard showManagedSecrets={showManagedSecrets} /> : undefined}
 
       {enableSecrets ? (
         <div className="mt-3 space-y-2">
@@ -584,37 +591,49 @@ function EnvFilterControl({ filter, onChange }: { filter: EnvFilter; onChange: (
   );
 }
 
-// Built-in env vars Previewkit injects into every preview pod at deploy time.
-// Grouped into their own card so they read as separate from the editable rows.
-function BuiltInCard() {
+function BuiltInCard({ showManagedSecrets }: { showManagedSecrets: boolean }) {
   return (
     <div className="mt-2 rounded-md border border-border-dim bg-surface-base/40 p-3">
       <p className="mb-2 font-mono text-2xs uppercase tracking-widest text-text-secondary">Injected by Previewkit</p>
       <div className="space-y-1.5">
         {PREVIEWKIT_BUILTIN_ENV_VARS.map((variable) => (
-          <div
-            key={variable.key}
-            className="grid grid-cols-[minmax(8rem,0.6fr)_minmax(10rem,1fr)_auto] items-center gap-2"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-mono text-sm text-text-primary">{variable.key}</span>
-              <Badge variant="neutral" className="shrink-0">
-                Built-in
-              </Badge>
-            </div>
-            <div className="truncate rounded border border-border-dim bg-surface-void px-2 py-1 font-mono text-xs text-text-secondary">
-              {variable.example}
-            </div>
-            <Tooltip>
-              <TooltipTrigger render={<span className="cursor-help px-1 text-text-secondary" />}>
-                <InfoIcon size={14} />
-              </TooltipTrigger>
-              <TooltipContent>{variable.description}</TooltipContent>
-            </Tooltip>
-          </div>
+          <InjectedEnvRow key={variable.key} variable={variable} badge="Built-in" />
         ))}
+        {showManagedSecrets
+          ? AUTONOMA_MANAGED_ENV_VARS.map((variable) => (
+              <InjectedEnvRow key={variable.key} variable={variable} badge="Autonoma" />
+            ))
+          : undefined}
       </div>
       <p className="mt-2 text-2xs text-text-secondary">Injected automatically and reserved - you can't set these.</p>
+    </div>
+  );
+}
+
+function InjectedEnvRow({
+  variable,
+  badge,
+}: {
+  variable: { key: string; description: string; example: string };
+  badge: string;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(8rem,0.6fr)_minmax(10rem,1fr)_auto] items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-sm text-text-primary">{variable.key}</span>
+        <Badge variant="neutral" className="shrink-0">
+          {badge}
+        </Badge>
+      </div>
+      <div className="truncate rounded border border-border-dim bg-surface-void px-2 py-1 font-mono text-xs text-text-secondary">
+        {variable.example}
+      </div>
+      <Tooltip>
+        <TooltipTrigger render={<span className="cursor-help px-1 text-text-secondary" />}>
+          <InfoIcon size={14} />
+        </TooltipTrigger>
+        <TooltipContent>{variable.description}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

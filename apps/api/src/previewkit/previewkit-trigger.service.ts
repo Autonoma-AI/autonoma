@@ -473,7 +473,12 @@ export class PreviewkitTriggerService extends Service {
         mode: PreviewRedeployAppMode,
         callerOrgId?: string,
     ): Promise<void> {
-        this.logger.info("Triggering per-app preview redeploy", { repo: repoFullName, pr: prNumber, app: appName, mode });
+        this.logger.info("Triggering per-app preview redeploy", {
+            repo: repoFullName,
+            pr: prNumber,
+            app: appName,
+            mode,
+        });
 
         const environment = await this.db.previewkitEnvironment.findFirst({
             where: {

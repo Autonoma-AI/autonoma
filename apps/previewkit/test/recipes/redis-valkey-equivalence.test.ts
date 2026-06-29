@@ -40,8 +40,12 @@ describe("RedisRecipe", () => {
         expect(result.deployments[0]?.spec?.template?.spec?.containers?.[0]?.image).toBe("redis:8-alpine");
     });
 
-    it("connectionInfo returns the service name and redis port", () => {
-        expect(recipe.connectionInfo(baseService())).toEqual({ host: "cache", port: 6379 });
+    it("connectionInfo returns the service name, redis port and redis:// URL", () => {
+        expect(recipe.connectionInfo(baseService())).toEqual({
+            host: "cache",
+            port: 6379,
+            url: "redis://cache:6379",
+        });
     });
 });
 

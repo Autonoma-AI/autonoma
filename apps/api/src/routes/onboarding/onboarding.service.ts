@@ -15,10 +15,6 @@ export class OnboardingService extends Service {
         return this.manager.getLogs(applicationId);
     }
 
-    async setUrl(applicationId: string, productionUrl: string) {
-        return this.manager.setUrl(applicationId, productionUrl);
-    }
-
     async completeGithub(applicationId: string, organizationId: string) {
         return this.manager.completeGithub(applicationId, organizationId);
     }
@@ -91,6 +87,10 @@ export class OnboardingService extends Service {
         return this.manager.completePreviewOnboarding(applicationId, organizationId);
     }
 
+    async goLive(applicationId: string, organizationId: string) {
+        return this.manager.goLive(applicationId, organizationId);
+    }
+
     async configureAndDiscoverScenarios(
         applicationId: string,
         organizationId: string,
@@ -107,15 +107,19 @@ export class OnboardingService extends Service {
         );
     }
 
-    async runScenarioDryRun(applicationId: string, scenarioId: string) {
-        return this.manager.runScenarioDryRun(applicationId, scenarioId);
+    async prepareSdkTarget(applicationId: string, organizationId: string, targetId: string) {
+        return this.manager.prepareSdkTarget(applicationId, organizationId, targetId);
     }
 
-    async reconfigureWebhook(applicationId: string) {
-        return this.manager.reconfigureWebhook(applicationId);
+    async configureAndDiscoverSdkTarget(applicationId: string, organizationId: string, targetId: string) {
+        return this.manager.configureAndDiscoverSdkTarget(applicationId, organizationId, targetId);
     }
 
-    async complete(applicationId: string, productionUrl?: string) {
-        return this.manager.complete(applicationId, productionUrl);
+    async runScenarioDryRun(applicationId: string, organizationId: string, scenarioId: string, targetId?: string) {
+        return this.manager.runScenarioDryRun(applicationId, organizationId, scenarioId, targetId);
+    }
+
+    async listSdkDryRunTargets(applicationId: string, organizationId: string) {
+        return this.manager.listSdkDryRunTargets(applicationId, organizationId);
     }
 }

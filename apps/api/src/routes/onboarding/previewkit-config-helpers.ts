@@ -1,4 +1,4 @@
-import type { Prisma } from "@autonoma/db";
+import { Prisma } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
@@ -49,13 +49,46 @@ export function mergeConfigsForValidation(primary: PreviewConfig, dependencies: 
     };
 }
 
-/** Creates the next config revision for an Application and points its active revision at it. */
+/** A multirepo dependency's config, stored on the primary revision's `dependencyDocuments`. */
+export interface DependencyRevisionDocument {
+    /** Repo full name (`owner/repo`) declared in the primary's `config.multirepo.repos`. */
+    repo: string;
+    document: PreviewConfig;
+}
+
+const storedDependencyDocumentsSchema = z.array(z.object({ repo: z.string(), document: previewConfigSchema }));
+
+/**
+ * Parses the `dependencyDocuments` JSON stored on a config revision. Returns []
+ * for null/absent (single-repo project); `invalid: true` when a present value no
+ * longer validates, so the caller can log it rather than silently dropping
+ * dependencies.
+ */
+export function parseStoredDependencyDocuments(value: unknown): {
+    documents: DependencyRevisionDocument[];
+    invalid: boolean;
+} {
+    if (value == null) return { documents: [], invalid: false };
+    const parsed = storedDependencyDocumentsSchema.safeParse(value);
+    if (!parsed.success) return { documents: [], invalid: true };
+    return { documents: parsed.data, invalid: false };
+}
+
+/**
+ * Creates the next config revision for an Application and points its active
+ * revision at it. `dependencyDocuments` (primary-app saves only) carries the
+ * multirepo dependency configs the deploy reads - dependency repos are not
+ * separate Applications.
+ */
 export async function createAndActivateRevision(
     tx: Prisma.TransactionClient,
     applicationId: string,
     config: PreviewConfig,
+    dependencyDocuments: DependencyRevisionDocument[] = [],
 ): Promise<{ id: string; revision: number }> {
     const savedDocument = JSON.parse(JSON.stringify(config));
+    const savedDependencyDocuments =
+        dependencyDocuments.length > 0 ? JSON.parse(JSON.stringify(dependencyDocuments)) : Prisma.DbNull;
     const last = await tx.previewkitConfigRevision.findFirst({
         where: { applicationId },
         orderBy: { revision: "desc" },
@@ -69,6 +102,7 @@ export async function createAndActivateRevision(
             revision,
             schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
             document: savedDocument,
+            dependencyDocuments: savedDependencyDocuments,
         },
         select: { id: true, revision: true },
     });

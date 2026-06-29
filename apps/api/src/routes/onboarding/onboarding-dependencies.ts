@@ -1,13 +1,24 @@
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 
+export interface PreviewkitSecretsUpsertResult {
+    created: boolean;
+    changed: boolean;
+}
+
 export interface OnboardingPreviewkitClient {
     isConfigured(): boolean;
     deployApplicationMain(applicationId: string, organizationId: string): Promise<void>;
+    redeploy(repoFullName: string, prNumber: number, organizationId: string): Promise<void>;
 }
 
 export interface OnboardingPreviewkitSecretsService {
     list(applicationId: string, appName: string, callerOrgId: string | undefined): Promise<SecretSummary[]>;
-    upsert(applicationId: string, appName: string, items: SecretItem[], callerOrgId: string | undefined): Promise<void>;
+    upsert(
+        applicationId: string,
+        appName: string,
+        items: SecretItem[],
+        callerOrgId: string | undefined,
+    ): Promise<PreviewkitSecretsUpsertResult | void>;
     delete(applicationId: string, appName: string, key: string, callerOrgId: string | undefined): Promise<boolean>;
 }
 
@@ -36,10 +47,32 @@ export interface OnboardingApplicationsService {
     createMinimalApplication(name: string, organizationId: string): Promise<{ id: string }>;
 }
 
+/**
+ * The diff-trigger fan-out for the BYO path: a single `deployment_status` signal
+ * both records the preview URL and triggers diff analysis from the URL it
+ * carries (no second call). Structurally satisfied by `DiffsTriggerService`.
+ */
+export interface OnboardingDiffsTrigger {
+    triggerMainDiffs(params: {
+        organizationId: string;
+        repoId: number;
+        url: string;
+        webhookUrl?: string;
+    }): Promise<{ snapshotId?: string; skipped?: boolean }>;
+    triggerPrDiffs(params: {
+        organizationId: string;
+        repoId: number;
+        prNumber: number;
+        url: string;
+        webhookUrl?: string;
+    }): Promise<{ snapshotId?: string; skipped?: boolean }>;
+}
+
 export interface OnboardingManagerOptions {
     previewkitClient?: OnboardingPreviewkitClient;
     previewkitSecretsService?: OnboardingPreviewkitSecretsService;
     repoIntrospection?: OnboardingRepoIntrospection;
     github?: OnboardingGithubService;
     applications?: OnboardingApplicationsService;
+    diffsTrigger?: OnboardingDiffsTrigger;
 }

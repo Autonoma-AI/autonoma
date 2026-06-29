@@ -18,8 +18,12 @@ describe("MongoDbRecipe", () => {
         expect(recipe.name).toBe("mongodb");
     });
 
-    it("returns the service name and 27017 as connection info", () => {
-        expect(recipe.connectionInfo(baseService())).toEqual({ host: "db", port: 27017 });
+    it("returns the service name, 27017 and the directConnection URL as connection info", () => {
+        expect(recipe.connectionInfo(baseService())).toEqual({
+            host: "db",
+            port: 27017,
+            url: "mongodb://db:27017/?directConnection=true",
+        });
     });
 
     it("generates a StatefulSet, headless Service, and PVC (no Deployments or ConfigMaps)", () => {

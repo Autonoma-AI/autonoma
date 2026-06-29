@@ -141,7 +141,7 @@ integrationTestSuite({
             expect(result.issues.filter((issue) => issue.path[1] === 0)).toEqual([]);
         });
 
-        test("savePreviewkitConfig persists dependency repo revisions and links their Applications", async ({
+        test("savePreviewkitConfig stores dependency configs on the primary revision (no satellite apps)", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -159,44 +159,59 @@ integrationTestSuite({
             const saved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
                 {
                     repo: "acme/api",
-                    document: {
-                        version: 1,
-                        // depends_on crosses repo documents: "db" is a primary-repo
-                        // service. Semantics validate against the merged topology.
-                        apps: [{ name: "api-app", path: ".", port: 4000, depends_on: ["db"] }],
-                    },
+                    // depends_on crosses repo documents: "db" is a primary-repo
+                    // service. Semantics validate against the merged topology.
+                    document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4000, depends_on: ["db"] }] },
                 },
             ]);
 
             expect(saved.saved).toBe(true);
             expect(saved.dependencyConfigs).toHaveLength(1);
             const dependency = saved.dependencyConfigs[0];
-            expect(dependency).toMatchObject({ name: "api", repo: "acme/api", saved: true, revision: 1 });
-            expect(applications.createMinimalApplication).toHaveBeenCalledOnce();
-            expect(github.linkRepository).toHaveBeenCalledWith(orgId, dependency?.applicationId, depRepo.id);
+            expect(dependency).toMatchObject({ name: "api", repo: "acme/api", saved: true });
+            // Dependency repos are NOT separate Applications: the config + secrets
+            // live under the primary app, and no Application is created/linked.
+            expect(dependency?.applicationId).toBe(appId);
+            expect(applications.createMinimalApplication).not.toHaveBeenCalled();
+            expect(github.linkRepository).not.toHaveBeenCalled();
 
-            const dependencyApplication = await harness.db.application.findUniqueOrThrow({
-                where: { id: dependency?.applicationId ?? "" },
-                select: { githubRepositoryId: true, activeConfigRevisionId: true },
+            const dependencyApplication = await harness.db.application.findUnique({
+                where: { organizationId_githubRepositoryId: { organizationId: orgId, githubRepositoryId: depRepo.id } },
+                select: { id: true },
             });
-            expect(dependencyApplication.githubRepositoryId).toBe(depRepo.id);
-            expect(dependencyApplication.activeConfigRevisionId).toBe(dependency?.revisionId);
+            expect(dependencyApplication).toBeNull();
+
+            // The dependency document is persisted on the primary app's revision.
+            const primaryApp = await harness.db.application.findUniqueOrThrow({
+                where: { id: appId },
+                select: { activeConfigRevisionId: true },
+            });
+            const revision = await harness.db.previewkitConfigRevision.findUniqueOrThrow({
+                where: { id: primaryApp.activeConfigRevisionId ?? "" },
+                select: { dependencyDocuments: true },
+            });
+            expect(revision.dependencyDocuments).not.toBeNull();
 
             // getPreviewkitConfig hydrates the dependency documents back.
             const loaded = await manager.getPreviewkitConfig(appId, orgId);
             expect(loaded.dependencyConfigs).toHaveLength(1);
-            expect(loaded.dependencyConfigs[0]).toMatchObject({ name: "api", repo: "acme/api", saved: true });
+            expect(loaded.dependencyConfigs[0]).toMatchObject({
+                name: "api",
+                repo: "acme/api",
+                saved: true,
+                applicationId: appId,
+            });
             expect(loaded.dependencyConfigs[0]?.document?.apps[0]?.name).toBe("api-app");
 
-            // A second save reuses the linked Application and bumps its revision.
+            // A second save still creates no Application; the primary revision bumps.
             const resaved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
                 {
                     repo: "acme/api",
                     document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4001 }] },
                 },
             ]);
-            expect(applications.createMinimalApplication).toHaveBeenCalledOnce();
-            expect(resaved.dependencyConfigs[0]?.revision).toBe(2);
+            expect(applications.createMinimalApplication).not.toHaveBeenCalled();
+            expect(resaved.revision).toBe(2);
         });
 
         test("savePreviewkitConfig rejects undeclared dependency repos and merged duplicate names", async ({
@@ -248,6 +263,7 @@ integrationTestSuite({
                 previewkitClient: {
                     isConfigured: () => true,
                     deployApplicationMain: vi.fn(async () => undefined),
+                    redeploy: vi.fn(async () => undefined),
                 },
             });
             await setStep(harness, appId, "previewkit_configuring");
@@ -408,9 +424,21 @@ integrationTestSuite({
             expect(result.monorepoTool).toBe("pnpm-workspace");
             expect(result.dockerfiles).toEqual(["apps/api/Dockerfile"]);
             const web = result.apps.find((app) => app.name === "web");
-            expect(web).toMatchObject({ path: "apps/web", port: 3001, confidence: "high" });
+            // The detected start script flows into `command` (not just evidence) so
+            // it pre-fills the app's "Start command" field on accept.
+            expect(web).toMatchObject({
+                path: "apps/web",
+                port: 3001,
+                confidence: "high",
+                command: "next dev -p 3001",
+            });
             const api = result.apps.find((app) => app.name === "api");
-            expect(api).toMatchObject({ path: "apps/api", dockerfile: "Dockerfile", confidence: "high" });
+            expect(api).toMatchObject({
+                path: "apps/api",
+                dockerfile: "Dockerfile",
+                confidence: "high",
+                command: "node server.js",
+            });
         });
 
         test("RepoIntrospectionService degrades to unavailable when GitHub cannot be read", async ({ harness }) => {

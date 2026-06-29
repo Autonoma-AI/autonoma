@@ -25,7 +25,8 @@ export class ValkeyRecipe extends BaseRecipe<DockerImageOptions> {
     }
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
-        return { host: config.name, port: PORT };
+        // Valkey is wire-compatible with Redis, so clients use the redis:// scheme.
+        return { host: config.name, port: PORT, url: `redis://${config.name}:${PORT}` };
     }
 
     typedGenerate(config: ServiceConfig<DockerImageOptions>, namespace: string): RecipeResources {

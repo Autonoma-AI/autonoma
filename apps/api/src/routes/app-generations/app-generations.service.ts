@@ -1,9 +1,27 @@
 import type { PrismaClient } from "@autonoma/db";
-import { type ArtifactStatus, type ArtifactStatusItem, FileDataSchema } from "@autonoma/types";
+import type {
+    ArtifactStatus,
+    UpdateSetupBody,
+    UploadArtifactsBody,
+    UploadScenarioRecipeVersionsBody,
+} from "@autonoma/types";
+import type { ApplicationSetupService } from "../../application-setup/application-setup.service";
+import type { ApiKeysService } from "../api-keys/api-keys.service";
 import { Service } from "../service";
+import { computeArtifactStatus } from "./artifact-status";
+
+/** Result of preparing the in-app CLI deepening command: a fresh upload token plus its setup. */
+export interface PreparedCliSetup {
+    apiKey: string;
+    setupId: string;
+}
 
 export class ApplicationSetupsService extends Service {
-    constructor(private readonly db: PrismaClient) {
+    constructor(
+        private readonly db: PrismaClient,
+        private readonly applicationSetup: ApplicationSetupService,
+        private readonly apiKeys: ApiKeysService,
+    ) {
         super();
     }
 
@@ -33,44 +51,40 @@ export class ApplicationSetupsService extends Service {
      */
     async artifactStatus(organizationId: string, applicationId: string): Promise<ArtifactStatus> {
         this.logger.info("Fetching artifact status", { extra: { applicationId, organizationId } });
+        return computeArtifactStatus(this.db, applicationId, organizationId);
+    }
 
-        const setup = await this.db.applicationSetup.findFirst({
-            where: { applicationId, organizationId },
-            orderBy: { createdAt: "desc" },
-            select: {
-                status: true,
-                events: { where: { type: "file.created" }, select: { data: true } },
-            },
-        });
+    /**
+     * Mint an upload token + setup so the Finish setup tab can render a working
+     * planner CLI command (`AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID`). The
+     * key is the only piece that genuinely needs an API key; the in-app admin
+     * upload path uses session-authed tRPC and does not.
+     */
+    async prepareCliSetup(userId: string, organizationId: string, applicationId: string): Promise<PreparedCliSetup> {
+        this.logger.info("Preparing CLI setup", { extra: { applicationId, organizationId } });
+        const apiKey = await this.apiKeys.create(userId, organizationId, `finish-setup-${applicationId}`);
+        const setup = await this.applicationSetup.createSetup(userId, organizationId, applicationId);
+        return { apiKey: apiKey.key, setupId: setup.id };
+    }
 
-        const filePaths = (setup?.events ?? []).flatMap((event) => {
-            const parsed = FileDataSchema.safeParse(event.data);
-            return parsed.success ? [parsed.data.filePath] : [];
-        });
+    async uploadScenarioRecipeVersions(
+        setupId: string,
+        organizationId: string,
+        body: UploadScenarioRecipeVersionsBody,
+    ) {
+        this.logger.info("Uploading scenario recipe versions", { extra: { setupId, organizationId } });
+        return await this.applicationSetup.uploadScenarioRecipeVersions(setupId, organizationId, body);
+    }
 
-        const testCount = filePaths.filter((path) => path.startsWith("autonoma/qa-tests/")).length;
-        const hasKb = filePaths.includes("AUTONOMA.md");
-        const hasScenarios = filePaths.includes("scenarios.md");
+    async uploadArtifacts(setupId: string, organizationId: string, body: UploadArtifactsBody) {
+        this.logger.info("Uploading setup artifacts", { extra: { setupId, organizationId } });
+        await this.applicationSetup.uploadArtifacts(setupId, organizationId, body);
+        return { ok: true as const };
+    }
 
-        const scenarioCount = await this.db.scenario.count({
-            where: { applicationId, activeRecipeVersionId: { not: null } },
-        });
-
-        const artifacts: ArtifactStatusItem[] = [
-            {
-                key: "recipe",
-                received: scenarioCount > 0,
-                meta: scenarioCount > 0 ? `${scenarioCount} scenario${scenarioCount === 1 ? "" : "s"}` : undefined,
-            },
-            {
-                key: "tests",
-                received: testCount > 0,
-                meta: testCount > 0 ? `${testCount} file${testCount === 1 ? "" : "s"}` : undefined,
-            },
-            { key: "kb", received: hasKb },
-            { key: "scenarios", received: hasScenarios },
-        ];
-
-        return { complete: setup?.status === "completed", artifacts };
+    async updateSetup(setupId: string, organizationId: string, body: UpdateSetupBody) {
+        this.logger.info("Updating setup", { extra: { setupId, organizationId } });
+        await this.applicationSetup.updateSetup(setupId, organizationId, body);
+        return { ok: true as const };
     }
 }

@@ -1,7 +1,6 @@
 import { Badge, Button, Skeleton } from "@autonoma/blacklight";
 import type { RepoIntrospection, SuggestedApp } from "@autonoma/types";
 import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
-import { useState } from "react";
 
 interface SuggestionsBannerProps {
   /** Suggestions only load (and render) when the config has never been saved. */
@@ -10,8 +9,15 @@ interface SuggestionsBannerProps {
   data?: RepoIntrospection;
   /** App names already present in the draft - matching suggestions are hidden. */
   existingAppNames: Set<string>;
+  /**
+   * Keys of suggestions already accepted or dismissed. Tracked by the stable
+   * {@link suggestionKey} (not the editable draft name) and owned by the parent
+   * so it survives this component unmounting on step switches.
+   */
+  handled: Set<string>;
   onAccept: (suggestion: SuggestedApp) => void;
   onAcceptAll: (suggestions: SuggestedApp[]) => void;
+  onDismiss: (suggestion: SuggestedApp) => void;
 }
 
 /**
@@ -25,11 +31,11 @@ export function SuggestionsBanner({
   isPending,
   data,
   existingAppNames,
+  handled,
   onAccept,
   onAcceptAll,
+  onDismiss,
 }: SuggestionsBannerProps) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-
   if (!enabled) return undefined;
 
   if (isPending) {
@@ -39,13 +45,9 @@ export function SuggestionsBanner({
   if (data == null || data.status !== "ok") return undefined;
 
   const visible = data.apps.filter(
-    (suggestion) => !dismissed.has(suggestionKey(suggestion)) && !existingAppNames.has(suggestion.name),
+    (suggestion) => !handled.has(suggestionKey(suggestion)) && !existingAppNames.has(suggestion.name),
   );
   if (visible.length === 0) return undefined;
-
-  function dismiss(suggestion: SuggestedApp) {
-    setDismissed((current) => new Set([...current, suggestionKey(suggestion)]));
-  }
 
   return (
     <section className="border border-primary-ink/40 bg-primary-ink/5 p-5">
@@ -85,7 +87,7 @@ export function SuggestionsBanner({
               <Button variant="accent" size="xs" onClick={() => onAccept(suggestion)}>
                 Accept
               </Button>
-              <Button variant="ghost" size="xs" onClick={() => dismiss(suggestion)}>
+              <Button variant="ghost" size="xs" onClick={() => onDismiss(suggestion)}>
                 Dismiss
               </Button>
             </div>
@@ -96,7 +98,8 @@ export function SuggestionsBanner({
   );
 }
 
-function suggestionKey(suggestion: SuggestedApp): string {
+/** Stable identity for a suggestion - derived from the original detection, never the editable draft name. */
+export function suggestionKey(suggestion: SuggestedApp): string {
   return `${suggestion.name}:${suggestion.path}`;
 }
 

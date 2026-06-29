@@ -31,8 +31,12 @@ describe("PostgresRecipe", () => {
         expect(dataMount?.subPath).toBeUndefined();
     });
 
-    it("connectionInfo returns the service name and Postgres port", () => {
-        expect(recipe.connectionInfo(baseService())).toEqual({ host: "db", port: 5432 });
+    it("connectionInfo returns the service name, Postgres port and connection URL", () => {
+        expect(recipe.connectionInfo(baseService())).toEqual({
+            host: "db",
+            port: 5432,
+            url: "postgresql://preview:preview@db:5432/preview",
+        });
     });
 
     const initScript = (config: ServiceConfig): string => {

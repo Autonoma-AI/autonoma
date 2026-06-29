@@ -21,10 +21,6 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId)),
 
-    setUrl: protectedProcedure
-        .input(z.object({ applicationId: z.string(), productionUrl: z.string().url() }))
-        .mutation(({ ctx, input }) => ctx.services.onboarding.setUrl(input.applicationId, input.productionUrl)),
-
     configureAndDiscoverScenarios: protectedProcedure
         .input(
             z.object({
@@ -44,17 +40,38 @@ export const onboardingRouter = router({
             ),
         ),
 
+    prepareSdkTarget: protectedProcedure
+        .input(z.object({ applicationId: z.string(), targetId: z.string() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.prepareSdkTarget(input.applicationId, ctx.organizationId, input.targetId),
+        ),
+
+    configureAndDiscoverSdkTarget: protectedProcedure
+        .input(z.object({ applicationId: z.string(), targetId: z.string() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.configureAndDiscoverSdkTarget(
+                input.applicationId,
+                ctx.organizationId,
+                input.targetId,
+            ),
+        ),
+
     runScenarioDryRun: protectedProcedure
-        .input(z.object({ applicationId: z.string(), scenarioId: z.string() }))
-        .mutation(({ ctx, input }) => ctx.services.onboarding.runScenarioDryRun(input.applicationId, input.scenarioId)),
+        .input(z.object({ applicationId: z.string(), scenarioId: z.string(), targetId: z.string().optional() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.runScenarioDryRun(
+                input.applicationId,
+                ctx.organizationId,
+                input.scenarioId,
+                input.targetId,
+            ),
+        ),
 
-    reconfigureWebhook: protectedProcedure
+    listSdkDryRunTargets: protectedProcedure
         .input(applicationIdInput)
-        .mutation(({ ctx, input }) => ctx.services.onboarding.reconfigureWebhook(input.applicationId)),
-
-    complete: protectedProcedure
-        .input(z.object({ applicationId: z.string(), productionUrl: z.string().url().optional() }))
-        .mutation(({ ctx, input }) => ctx.services.onboarding.complete(input.applicationId, input.productionUrl)),
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.listSdkDryRunTargets(input.applicationId, ctx.organizationId),
+        ),
 
     completeGithub: protectedProcedure
         .input(applicationIdInput)
@@ -177,4 +194,8 @@ export const onboardingRouter = router({
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.completePreviewOnboarding(input.applicationId, ctx.organizationId),
         ),
+
+    goLive: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) => ctx.services.onboarding.goLive(input.applicationId, ctx.organizationId)),
 });

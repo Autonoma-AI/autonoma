@@ -1,8 +1,15 @@
-import type { ConfigIssue, PreviewConfig, SuggestedApp } from "@autonoma/types";
+import {
+    validateHookSteps,
+    type ConfigIssue,
+    type HookGroupKey,
+    type PreviewConfig,
+    type SuggestedApp,
+} from "@autonoma/types";
+import { z } from "zod";
 
 export const PRIMARY_REPO_KEY = "primary";
 
-export type ServiceRecipe = "postgres" | "redis" | "valkey" | "temporal";
+export type ServiceRecipe = "postgres" | "redis" | "valkey" | "temporal" | "mongodb" | "upstash" | "docker-image";
 
 export const SERVICE_OPTIONS: Array<{
     recipe: ServiceRecipe;
@@ -14,8 +21,35 @@ export const SERVICE_OPTIONS: Array<{
     { recipe: "postgres", label: "Postgres", defaultName: "db", version: "16", meta: "16 · 5432" },
     { recipe: "redis", label: "Redis", defaultName: "cache", version: "7", meta: "7 · 6379" },
     { recipe: "valkey", label: "Valkey", defaultName: "valkey", version: "7", meta: "7 · 6379" },
+    { recipe: "mongodb", label: "MongoDB", defaultName: "mongo", version: "7", meta: "7 · 27017" },
+    { recipe: "upstash", label: "Upstash", defaultName: "upstash", meta: "· 8000" },
     { recipe: "temporal", label: "Temporal", defaultName: "temporal", meta: "· 7233" },
+    { recipe: "docker-image", label: "Docker image", defaultName: "container", meta: "custom image" },
 ];
+
+/**
+ * Recipes whose container comes from a user-supplied image rather than a fixed
+ * catalog image. These expose the full custom-image option set (image, port,
+ * extra ports, command/args, readiness probe - compiled into the service
+ * `options` block) and hide the catalog `version`, which has no meaning for an
+ * arbitrary container.
+ */
+export function serviceRecipeUsesCustomImage(recipe: ServiceRecipe): boolean {
+    return recipe === "docker-image";
+}
+
+/**
+ * Whether a service recipe resolves `{{<name>.url}}` to an in-cluster
+ * connection string at deploy time (postgres -> `postgresql://…`,
+ * redis/valkey -> `redis://…`, mongodb -> `mongodb://…?directConnection=true`).
+ * Temporal speaks gRPC with no single-scheme URL, and Upstash exposes both a
+ * REST and a RESP endpoint with no single canonical URL, so only
+ * `{{<name>.host}}`/`{{<name>.port}}` are offered for those. Mirrors the recipe
+ * `connectionInfo.url` support in apps/previewkit.
+ */
+export function serviceRecipeSupportsUrlToken(recipe: ServiceRecipe): boolean {
+    return recipe === "postgres" || recipe === "redis" || recipe === "valkey" || recipe === "mongodb";
+}
 
 /** Where an env/secret row came from on load, so a save can diff secret changes. */
 export type EnvRowOrigin = "config" | "secret" | "new";
@@ -58,15 +92,51 @@ export interface AppDraft {
     origin: AppDraftOrigin;
 }
 
+/** The kind of readiness probe a custom-image service uses, or none. */
+export type ServiceReadinessKind = "none" | "http" | "exec" | "tcp";
+
+/**
+ * Readiness probe for a custom-image service, mirroring the recipe's `readiness`
+ * option (exactly one of http/exec/tcp). All values are strings the form edits;
+ * `compileServiceOptions` parses and drops blanks. A blank `port` for http/tcp
+ * falls back to the service's primary port at compile time.
+ */
+export interface ServiceReadinessDraft {
+    kind: ServiceReadinessKind;
+    /** HTTP probe path (e.g. `/healthz`). */
+    httpPath: string;
+    /** Port for http/tcp probes; blank means reuse the primary port. */
+    port: string;
+    /** Exec probe command, one argv token per line. */
+    execCommand: string;
+    initialDelaySeconds: string;
+    periodSeconds: string;
+}
+
+export function emptyServiceReadinessDraft(): ServiceReadinessDraft {
+    return { kind: "none", httpPath: "", port: "", execCommand: "", initialDelaySeconds: "", periodSeconds: "" };
+}
+
 export interface ServiceDraft {
     id: number;
     recipe: ServiceRecipe;
     name: string;
     version: string;
+    /** Container image for custom-image recipes (docker-image). Empty otherwise. */
+    image: string;
+    /** Primary container port for custom-image recipes (docker-image). Empty otherwise. */
+    port: string;
+    /** Optional name for the primary port (custom-image only). Empty otherwise. */
+    portName: string;
+    /** Extra ports for custom-image recipes, one `port` or `name:port` per line. */
+    additionalPorts: string;
+    /** Container command (entrypoint) override, one argv token per line. */
+    command: string;
+    /** Container args, one argv token per line. */
+    args: string;
+    /** Readiness probe (custom-image only). */
+    readiness: ServiceReadinessDraft;
     env: EnvRowDraft[];
-    s3: boolean;
-    sqs: boolean;
-    sns: boolean;
 }
 
 export interface RepoDraft {
@@ -85,14 +155,35 @@ export type BranchConventionDraft =
     | { type: "regex"; pattern: string; replacement: string }
     | { type: "manual" };
 
+/** Lifecycle phase a hook runs in. Mirrors the `hooks` group keys in the config document. */
+export type HookGroup = "pre_deploy" | "post_deploy";
+
+/**
+ * One deploy hook row in the editor. `id` is a stable React key (mirrors
+ * {@link ServiceDraft}). Every hook runs as a one-off Kubernetes Job built from
+ * the target app's image, so the row is just the app and the command.
+ */
+export interface HookDraft {
+    id: number;
+    app: string;
+    command: string;
+}
+
+export interface HooksDraft {
+    pre_deploy: HookDraft[];
+    post_deploy: HookDraft[];
+}
+
 /** Document-level fields the form doesn't expose but must survive a round-trip. */
-export type DocumentPassthrough = Pick<PreviewConfig, "domain" | "registry" | "hooks" | "addons">;
+export type DocumentPassthrough = Pick<PreviewConfig, "domain" | "registry" | "addons">;
 
 export interface TopologyDraft {
     apps: AppDraft[];
     services: ServiceDraft[];
     repos: RepoDraft[];
     branchConvention: BranchConventionDraft;
+    /** Pre/post-deploy hooks, authored on the primary repo. Empty groups by default. */
+    hooks: HooksDraft;
     passthrough: Partial<DocumentPassthrough>;
 }
 
@@ -133,6 +224,43 @@ export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"
         buildSecrets: [],
         replicas: "1",
         origin,
+    };
+}
+
+/**
+ * Generates a service name unique against `existing` (the current draft service
+ * names), starting from `base` and appending `-2`, `-3`, … on collision. Mirrors
+ * the unique-name constraint the previewkit schema enforces across
+ * apps/services/addons, so a freshly-added instance never immediately collides.
+ */
+export function uniqueServiceName(base: string, existing: string[]): string {
+    const taken = new Set(existing.map((name) => name.trim()).filter((name) => name !== ""));
+    if (!taken.has(base)) return base;
+    let suffix = 2;
+    while (taken.has(`${base}-${suffix}`)) suffix += 1;
+    return `${base}-${suffix}`;
+}
+
+/**
+ * Builds a fresh {@link ServiceDraft} for a recipe, seeding the catalog default
+ * name (deduped against `existingNames`) and version. Mirrors
+ * {@link emptyAppDraft} so the services picker's add handler stays a one-liner.
+ */
+export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: string[]): ServiceDraft {
+    const option = SERVICE_OPTIONS.find((candidate) => candidate.recipe === recipe);
+    return {
+        id: nextDraftId(),
+        recipe,
+        name: uniqueServiceName(option?.defaultName ?? recipe, existingNames),
+        version: option?.version ?? "",
+        image: "",
+        port: "",
+        portName: "",
+        additionalPorts: "",
+        command: "",
+        args: "",
+        readiness: emptyServiceReadinessDraft(),
+        env: [],
     };
 }
 
@@ -188,23 +316,38 @@ export function draftFromConfig(
     if (primary.domain != null) passthrough.domain = primary.domain;
     if (primary.registry != null) passthrough.registry = primary.registry;
     if (primary.addons.length > 0) passthrough.addons = primary.addons;
-    if (primary.hooks.pre_deploy.length > 0 || primary.hooks.post_deploy.length > 0) passthrough.hooks = primary.hooks;
+
+    const hooks: HooksDraft =
+        mode === "starter"
+            ? { pre_deploy: [], post_deploy: [] }
+            : {
+                  pre_deploy: primary.hooks.pre_deploy.map(hookDraftFromConfig),
+                  post_deploy: primary.hooks.post_deploy.map(hookDraftFromConfig),
+              };
 
     return {
         apps,
+        hooks,
         services:
             mode === "starter"
                 ? []
-                : primary.services.map((service) => ({
-                      id: nextDraftId(),
-                      recipe: toServiceRecipe(service.recipe),
-                      name: service.name,
-                      version: service.version ?? "",
-                      env: Object.entries(service.env).map(([key, value]) => envRow(key, value, false, "config")),
-                      s3: service.s3 === true,
-                      sqs: service.sqs === true,
-                      sns: service.sns === true,
-                  })),
+                : primary.services.map((service) => {
+                      const custom = customImageFieldsFromOptions(service.options);
+                      return {
+                          id: nextDraftId(),
+                          recipe: toServiceRecipe(service.recipe),
+                          name: service.name,
+                          version: service.version ?? "",
+                          image: custom.image,
+                          port: custom.port,
+                          portName: custom.portName,
+                          additionalPorts: custom.additionalPorts,
+                          command: custom.command,
+                          args: custom.args,
+                          readiness: custom.readiness,
+                          env: Object.entries(service.env).map(([key, value]) => envRow(key, value, false, "config")),
+                      };
+                  }),
         repos,
         branchConvention,
         passthrough,
@@ -231,13 +374,105 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     return draft;
 }
 
+function hookDraftFromConfig(step: PreviewConfig["hooks"]["pre_deploy"][number]): HookDraft {
+    return { id: nextDraftId(), app: step.app, command: step.command };
+}
+
 export function isUntouchedStarterApp(app: AppDraft): boolean {
     return app.origin === "starter";
 }
 
 function toServiceRecipe(recipe: string): ServiceRecipe {
-    if (recipe === "redis" || recipe === "valkey" || recipe === "temporal") return recipe;
+    if (
+        recipe === "redis" ||
+        recipe === "valkey" ||
+        recipe === "temporal" ||
+        recipe === "mongodb" ||
+        recipe === "upstash" ||
+        recipe === "docker-image"
+    ) {
+        return recipe;
+    }
     return "postgres";
+}
+
+// Lenient read-back schemas for the untyped `options` bag of a saved service.
+// Each top-level field is parsed independently so one malformed entry never
+// discards the rest of a partially-authored config.
+const readPortDefinitionSchema = z.object({ name: z.string().optional(), port: z.number() });
+const readReadinessSchema = z.object({
+    http: z.object({ path: z.string(), port_definition: readPortDefinitionSchema }).optional(),
+    exec: z.object({ command: z.array(z.string()) }).optional(),
+    tcp: z.object({ port_definition: readPortDefinitionSchema }).optional(),
+    initial_delay_seconds: z.number().optional(),
+    period_seconds: z.number().optional(),
+});
+
+interface CustomImageFields {
+    image: string;
+    port: string;
+    portName: string;
+    additionalPorts: string;
+    command: string;
+    args: string;
+    readiness: ServiceReadinessDraft;
+}
+
+/**
+ * Reads the custom-image draft fields back out of a saved service's `options`
+ * bag (only docker-image populates these). Returns empty fields for recipes that
+ * have no custom-image options, and tolerates partially-authored configs - this
+ * is untyped config data, so each field is probed independently.
+ */
+function customImageFieldsFromOptions(options: Record<string, unknown>): CustomImageFields {
+    const image = typeof options.image === "string" ? options.image : "";
+    const primary = readPortDefinitionSchema.safeParse(options.port_definition);
+    const additional = z.array(readPortDefinitionSchema).safeParse(options.additional_ports);
+    return {
+        image,
+        port: primary.success ? String(primary.data.port) : "",
+        portName: primary.success ? (primary.data.name ?? "") : "",
+        additionalPorts: additional.success ? additional.data.map(portDefinitionToLine).join("\n") : "",
+        command: readStringArrayLines(options.command),
+        args: readStringArrayLines(options.args),
+        readiness: readReadinessDraft(options.readiness),
+    };
+}
+
+/** Renders a recipe port definition back into a `port` / `name:port` editor line. */
+function portDefinitionToLine(definition: { name?: string; port: number }): string {
+    return definition.name != null && definition.name !== ""
+        ? `${definition.name}:${definition.port}`
+        : String(definition.port);
+}
+
+/** Joins a saved string array into one-token-per-line editor text, or "" when absent/malformed. */
+function readStringArrayLines(value: unknown): string {
+    const parsed = z.array(z.string()).safeParse(value);
+    return parsed.success ? parsed.data.join("\n") : "";
+}
+
+/** Maps a saved readiness probe back into its editable draft (none when absent/malformed). */
+function readReadinessDraft(value: unknown): ServiceReadinessDraft {
+    const parsed = readReadinessSchema.safeParse(value);
+    if (!parsed.success) return emptyServiceReadinessDraft();
+
+    const readiness = parsed.data;
+    const draft = emptyServiceReadinessDraft();
+    draft.initialDelaySeconds = readiness.initial_delay_seconds != null ? String(readiness.initial_delay_seconds) : "";
+    draft.periodSeconds = readiness.period_seconds != null ? String(readiness.period_seconds) : "";
+    if (readiness.http != null) {
+        draft.kind = "http";
+        draft.httpPath = readiness.http.path;
+        draft.port = String(readiness.http.port_definition.port);
+    } else if (readiness.exec != null) {
+        draft.kind = "exec";
+        draft.execCommand = readiness.exec.command.join("\n");
+    } else if (readiness.tcp != null) {
+        draft.kind = "tcp";
+        draft.port = String(readiness.tcp.port_definition.port);
+    }
+    return draft;
 }
 
 /** Compiles the form draft into the primary document plus one document per dependency repo. */
@@ -284,16 +519,162 @@ function compileDocument(
             if (row.key.trim() !== "") env[row.key.trim()] = row.value;
         }
         if (Object.keys(env).length > 0) compiled.env = env;
-        if (service.s3) compiled.s3 = true;
-        if (service.sqs) compiled.sqs = true;
-        if (service.sns) compiled.sns = true;
+        const options = compileServiceOptions(service);
+        if (options != null) compiled.options = options;
         return compiled;
     });
 
     if (isPrimary && draft.passthrough.addons != null) document.addons = draft.passthrough.addons;
-    if (isPrimary && draft.passthrough.hooks != null) document.hooks = draft.passthrough.hooks;
+    if (isPrimary) {
+        const hooks = compileHooks(draft.hooks);
+        if (hooks != null) document.hooks = hooks;
+    }
 
     return { document, indexToDraftId };
+}
+
+/**
+ * Compiles a service's recipe-specific `options` block. Only custom-image
+ * recipes (docker-image) have one today: the form's image, primary port (and
+ * optional port name), extra ports, command/args, and readiness probe map onto
+ * the recipe `options` shape. Blank fields are omitted so a half-authored
+ * service stays minimal; the previewkit recipe schema enforces the required ones
+ * at deploy time. Returns undefined when there are no options to emit.
+ */
+function compileServiceOptions(service: ServiceDraft): Record<string, unknown> | undefined {
+    if (!serviceRecipeUsesCustomImage(service.recipe)) return undefined;
+
+    const options: Record<string, unknown> = {};
+    if (service.image.trim() !== "") options.image = service.image.trim();
+
+    const portDefinition = compilePort(service.port, service.portName);
+    if (portDefinition != null) options.port_definition = portDefinition;
+
+    const additionalPorts = parsePortLines(service.additionalPorts);
+    if (additionalPorts.length > 0) options.additional_ports = additionalPorts;
+
+    const command = parseTokenLines(service.command);
+    if (command.length > 0) options.command = command;
+
+    const args = parseTokenLines(service.args);
+    if (args.length > 0) options.args = args;
+
+    const readiness = compileReadiness(service);
+    if (readiness != null) options.readiness = readiness;
+
+    return Object.keys(options).length > 0 ? options : undefined;
+}
+
+/** Splits a multiline field into trimmed, non-empty lines (one argv token / port per line). */
+function parseTokenLines(raw: string): string[] {
+    return raw
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+}
+
+/** Builds a `{ port, name? }` from a port string and optional name, or undefined when the port is unusable. */
+function compilePort(portRaw: string, nameRaw: string): { port: number; name?: string } | undefined {
+    const port = Number(portRaw);
+    if (portRaw.trim() === "" || !Number.isInteger(port)) return undefined;
+    const name = nameRaw.trim();
+    if (name === "") return { port };
+    return { port, name };
+}
+
+/** Parses `port` / `name:port` lines into recipe port definitions, dropping unparseable rows. */
+function parsePortLines(raw: string): Array<{ port: number; name?: string }> {
+    const ports: Array<{ port: number; name?: string }> = [];
+    for (const line of parseTokenLines(raw)) {
+        const colon = line.indexOf(":");
+        const definition =
+            colon === -1 ? compilePort(line, "") : compilePort(line.slice(colon + 1), line.slice(0, colon));
+        if (definition != null) ports.push(definition);
+    }
+    return ports;
+}
+
+/**
+ * Compiles the readiness draft into the recipe `readiness` shape (exactly one of
+ * http/exec/tcp). A blank http/tcp port reuses the service's primary port, since
+ * the recipe schema requires a port there. Returns undefined when the probe is
+ * disabled or too incomplete to be valid.
+ */
+function compileReadiness(service: ServiceDraft): Record<string, unknown> | undefined {
+    const readiness = service.readiness;
+    if (readiness.kind === "none") return undefined;
+
+    const probe = compileReadinessTarget(readiness, service.port);
+    if (probe == null) return undefined;
+
+    const initialDelay = Number(readiness.initialDelaySeconds);
+    if (readiness.initialDelaySeconds.trim() !== "" && Number.isInteger(initialDelay)) {
+        probe.initial_delay_seconds = initialDelay;
+    }
+    const period = Number(readiness.periodSeconds);
+    if (readiness.periodSeconds.trim() !== "" && Number.isInteger(period)) probe.period_seconds = period;
+    return probe;
+}
+
+/** Builds the http/exec/tcp branch of a readiness probe, or undefined when its required fields are blank. */
+function compileReadinessTarget(
+    readiness: ServiceReadinessDraft,
+    primaryPort: string,
+): Record<string, unknown> | undefined {
+    if (readiness.kind === "exec") {
+        const command = parseTokenLines(readiness.execCommand);
+        return command.length > 0 ? { exec: { command } } : undefined;
+    }
+
+    const port = compilePort(readiness.port.trim() === "" ? primaryPort : readiness.port, "");
+    if (port == null) return undefined;
+    if (readiness.kind === "tcp") return { tcp: { port_definition: port } };
+
+    const path = readiness.httpPath.trim();
+    return path === "" ? undefined : { http: { path, port_definition: port } };
+}
+
+/**
+ * Compiles the draft hooks into the document `hooks` block, dropping rows whose
+ * `app` and `command` are both blank. Returns undefined when no rows survive, so
+ * the document stays minimal (matches the pre-editor passthrough behavior).
+ */
+function compileHooks(hooks: HooksDraft): Record<string, unknown> | undefined {
+    const compileGroup = (steps: HookDraft[]) =>
+        steps
+            .filter((step) => step.app.trim() !== "" || step.command.trim() !== "")
+            .map((step) => ({ app: step.app.trim(), command: step.command.trim() }));
+    const preDeploy = compileGroup(hooks.pre_deploy);
+    const postDeploy = compileGroup(hooks.post_deploy);
+    if (preDeploy.length === 0 && postDeploy.length === 0) return undefined;
+    return { pre_deploy: preDeploy, post_deploy: postDeploy };
+}
+
+/**
+ * Per-row hook validation for the editor, keyed `${hookId}:${field}` (field is
+ * `app` or `command`) so the HooksSection can render the message inline on the
+ * offending input. Reuses {@link validateHookSteps} - the same rules the API and
+ * the worker config validate against - so the UI never green-lights a hook the
+ * backend would reject. `appNames` is the set of declared app names a hook may
+ * target.
+ */
+export function hookFieldErrors(hooks: HooksDraft, appNames: string[]): Map<string, string[]> {
+    const known = new Set(appNames);
+    const result = new Map<string, string[]>();
+    const collect = (steps: HookDraft[], group: HookGroupKey) => {
+        for (const issue of validateHookSteps(steps, known, group)) {
+            const index = issue.path[2];
+            const field = issue.path[3];
+            if (typeof index !== "number" || typeof field !== "string") continue;
+            const step = steps[index];
+            if (step == null) continue;
+            const key = `${step.id}:${field}`;
+            result.set(key, [...(result.get(key) ?? []), issue.message]);
+        }
+    };
+    collect(hooks.pre_deploy, "pre_deploy");
+    collect(hooks.post_deploy, "post_deploy");
+    return result;
 }
 
 function compileApp(app: AppDraft): Record<string, unknown> {
@@ -503,4 +884,24 @@ export function appFieldFromDocumentKey(key: string): AppDraftField | undefined 
 /** Stable serialization of a compiled topology, for per-repo saved/unsaved tracking. */
 export function snapshotDocument(document: Record<string, unknown>): string {
     return JSON.stringify(document);
+}
+
+/**
+ * Drops `depends_on` entries that no longer reference an existing app or service.
+ * Called after a deletion (an app removed, or a dependency repo's apps dropped) so
+ * a stale reference doesn't linger as a badge the dropdown can no longer deselect.
+ * Not called on rename - names stay valid there.
+ */
+export function pruneDanglingDependsOn(draft: TopologyDraft): TopologyDraft {
+    const validNames = new Set([
+        ...draft.apps.map((app) => app.name),
+        ...draft.services.map((service) => service.name),
+    ]);
+    return {
+        ...draft,
+        apps: draft.apps.map((app) => {
+            const filtered = app.dependsOn.filter((name) => validNames.has(name));
+            return filtered.length === app.dependsOn.length ? app : { ...app, dependsOn: filtered };
+        }),
+    };
 }

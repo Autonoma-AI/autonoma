@@ -121,8 +121,9 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
               void navigate({
                 to: "/onboarding",
                 search: {
-                  step: "cli-setup",
+                  step: "add-app",
                   appId: undefined,
+                  error: undefined,
                   apiKey: undefined,
                   setupId: undefined,
                   focusApp: undefined,

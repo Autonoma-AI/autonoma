@@ -1,11 +1,10 @@
 export const ONBOARDING_STEPS = [
-    "cli-setup",
-    "scenario-dry-run",
-    "github",
+    "add-app",
     "preview-environment",
     "previewkit-config",
     "existing-deploys",
     "deploy-verify",
+    "diff-trigger",
     "complete",
 ] as const;
 

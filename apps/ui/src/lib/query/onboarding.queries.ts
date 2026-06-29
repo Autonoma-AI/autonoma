@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
-import { trpc, trpcClient } from "lib/trpc";
+import { trpc } from "lib/trpc";
 
 /**
  * Returns an onError handler that, on a backend step-mismatch error
@@ -28,20 +28,6 @@ export function useOnboardingStateOptional(applicationId: string) {
     return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
 }
 
-export function useSetUrl(applicationId: string) {
-    const queryClient = useQueryClient();
-    const onStepMismatch = useStepMismatchHandler();
-    return useAPIMutation({
-        mutationFn: (input: { productionUrl: string }) =>
-            trpcClient.onboarding.setUrl.mutate({ ...input, applicationId }),
-        onSettled: () => {
-            void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
-        },
-        onError: onStepMismatch,
-        errorToast: { title: "Failed to set application URL" },
-    });
-}
-
 export function useConfigureAndDiscoverScenarios() {
     const queryClient = useQueryClient();
     const onStepMismatch = useStepMismatchHandler();
@@ -49,6 +35,7 @@ export function useConfigureAndDiscoverScenarios() {
         ...trpc.onboarding.configureAndDiscoverScenarios.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
             },
@@ -58,17 +45,38 @@ export function useConfigureAndDiscoverScenarios() {
     });
 }
 
-export function useReconfigureWebhook() {
+/**
+ * Provision the managed target's secrets (auto-run when the SDK step loads). It
+ * may kick off a one-time PreviewKit redeploy; the UI tracks readiness off the
+ * polled target status, so on settle we refresh the targets + onboarding state.
+ */
+export function usePrepareSdkTarget() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.prepareSdkTarget.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+            },
+        }),
+        errorToast: { title: "Failed to prepare preview environment" },
+    });
+}
+
+export function useConfigureAndDiscoverSdkTarget() {
     const queryClient = useQueryClient();
     const onStepMismatch = useStepMismatchHandler();
     return useAPIMutation({
-        ...trpc.onboarding.reconfigureWebhook.mutationOptions({
+        ...trpc.onboarding.configureAndDiscoverSdkTarget.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
             },
             onError: (error) => onStepMismatch(error),
         }),
-        errorToast: { title: "Failed to reconfigure webhook" },
+        errorToast: { title: "Failed to validate SDK target" },
     });
 }
 
@@ -77,28 +85,34 @@ export function useOnboardingScenarios(applicationId: string) {
 }
 
 export function useRunScenarioDryRun() {
-    const onStepMismatch = useStepMismatchHandler();
+    const queryClient = useQueryClient();
     return useAPIMutation({
         ...trpc.onboarding.runScenarioDryRun.mutationOptions({
-            onError: (error) => onStepMismatch(error),
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+            },
         }),
         errorToast: { title: "Scenario dry run failed" },
     });
 }
 
-export function useCompleteOnboarding() {
-    const queryClient = useQueryClient();
-    const onStepMismatch = useStepMismatchHandler();
-    return useAPIMutation({
-        ...trpc.onboarding.complete.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
-                void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+/** Preview envs the SDK dry-run can target (open-PR previews + main, with auto-detect). */
+export function useSdkDryRunTargets(applicationId: string) {
+    return useSuspenseQuery(
+        trpc.onboarding.listSdkDryRunTargets.queryOptions(
+            { applicationId },
+            {
+                refetchInterval: (query) => {
+                    const targets = query.state.data?.targets ?? [];
+                    const hasBuildingPreviewkitTarget = targets.some(
+                        (target) =>
+                            target.source === "previewkit" && target.status != null && target.status !== "ready",
+                    );
+                    return hasBuildingPreviewkitTarget ? 5_000 : false;
+                },
             },
-            onError: (error) => onStepMismatch(error),
-        }),
-        errorToast: { title: "Failed to complete onboarding" },
-    });
+        ),
+    );
 }
 
 export function useCompleteGithub() {
@@ -196,10 +210,10 @@ export function useDeploymentSignalStatus(applicationId: string) {
  * suspense query: it only runs on a fresh (never-saved) config, and any error
  * or empty result silently falls back to manual setup.
  */
-export function useRepoSuggestions(applicationId: string, enabled: boolean) {
+export function useRepoSuggestions(applicationId: string, enabled: boolean, githubRepositoryId?: number) {
     return useQuery(
         trpc.onboarding.introspectRepository.queryOptions(
-            { applicationId },
+            { applicationId, githubRepositoryId },
             { enabled, staleTime: Number.POSITIVE_INFINITY, retry: false, refetchOnWindowFocus: false },
         ),
     );
@@ -215,6 +229,15 @@ export function useValidatePreviewkitConfig() {
 
 export function usePreviewkitSecrets(applicationId: string, appName: string) {
     return useSuspenseQuery(trpc.onboarding.listPreviewkitSecrets.queryOptions({ applicationId, appName }));
+}
+
+export function usePreviewkitSecretsOptional(applicationId: string, appName: string | undefined) {
+    return useQuery(
+        trpc.onboarding.listPreviewkitSecrets.queryOptions(
+            { applicationId, appName: appName ?? "" },
+            { enabled: appName != null && appName.length > 0 },
+        ),
+    );
 }
 
 export function useUpsertPreviewkitSecrets() {
@@ -278,5 +301,22 @@ export function useCompletePreviewOnboarding() {
             onError: (error) => onStepMismatch(error),
         }),
         errorToast: { title: "Failed to complete preview onboarding" },
+    });
+}
+
+export function useGoLive() {
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.goLive.mutationOptions({
+            onSettled: async () => {
+                await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                await router.invalidate();
+            },
+            onError: (error) => onStepMismatch(error),
+        }),
+        errorToast: { title: "Failed to go live" },
     });
 }

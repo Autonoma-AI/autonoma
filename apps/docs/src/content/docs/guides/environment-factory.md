@@ -11,6 +11,10 @@ This guide covers the SDK-based setup for the Environment Factory. For framework
 For the exact JSON contract of the recipe file that drives this endpoint at runtime, see the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/).
 :::
 
+:::note
+Implementing the Environment Factory is **optional and not required to go live**. Onboarding gets you reviewing pull requests first; you add the SDK afterward from the **Finish setup** tab to let Autonoma provision real test data. Mount the endpoint at the conventional path `/api/autonoma`. From Finish setup you can validate it against any preview environment (Autonoma auto-detects an open `feat: autonoma-sdk` PR) so you iterate on a branch instead of pushing to main.
+:::
+
 ## The Big Picture
 
 Before Autonoma runs an E2E test, it needs two things:
@@ -154,7 +158,7 @@ Three layers of security protect your endpoint, using **two separate secrets** w
 
 | Secret | Env Variable | Who knows it | Purpose |
 | --- | --- | --- | --- |
-| **Shared secret** | `AUTONOMA_SHARED_SECRET` | You + Autonoma | HMAC-SHA256 signature on every request. Autonoma signs; your SDK verifies. You paste this into the Autonoma dashboard. |
+| **Shared secret** | `AUTONOMA_SHARED_SECRET` | You + Autonoma | HMAC-SHA256 signature on every request. Autonoma signs; your SDK verifies. PreviewKit-managed apps receive this automatically; existing deploys set it manually. |
 | **Signing secret** | `AUTONOMA_SIGNING_SECRET` | Only you | Signs the `refsToken` during `up`, verifies during `down`. Autonoma stores the token opaquely — it cannot read or modify it. |
 
 The two secrets **must be different values**. The SDK throws an error at startup if they match.
@@ -744,7 +748,7 @@ export const POST = createHandler({
 
 ## Connect to Autonoma
 
-Deploy your endpoint and paste `AUTONOMA_SHARED_SECRET` into the Autonoma dashboard when connecting your app. The platform will:
+Deploy your endpoint. If PreviewKit manages the environment, Autonoma mounts `AUTONOMA_SHARED_SECRET` into the target app before validation. For existing deploys, set the same `AUTONOMA_SHARED_SECRET` value in your deployment secrets when connecting your app. The platform will:
 
 1. Call `discover` to learn your schema
 2. Generate scenario data based on your models
@@ -755,7 +759,7 @@ Deploy your endpoint and paste `AUTONOMA_SHARED_SECRET` into the Autonoma dashbo
 
 | Problem | Cause | Fix |
 | --- | --- | --- |
-| `INVALID_SIGNATURE` (401) | Shared secret mismatch | Check `AUTONOMA_SHARED_SECRET` matches between your server and the Autonoma dashboard |
+| `INVALID_SIGNATURE` (401) | Shared secret mismatch | Check `AUTONOMA_SHARED_SECRET` matches the value Autonoma uses for your app |
 | `SAME_SECRETS` (500) | Both secrets are identical | Use two different values from `openssl rand -hex 32` |
 | `PRODUCTION_BLOCKED` (404) | Running in production mode | Set `allowProduction: true` or ensure `NODE_ENV` is not `production` |
 | `INVALID_REFS_TOKEN` (403) | Signing secret changed between `up` and `down` | Ensure the same `AUTONOMA_SIGNING_SECRET` is used for both |

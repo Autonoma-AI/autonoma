@@ -140,29 +140,27 @@ export class ApplicationSetupService {
         });
 
         if (setupCompleted && applicationId != null) {
-            const onboardingState = await this.onboardingManager.getState(applicationId);
-            if (onboardingState.step === "completed") {
-                await this.onboardingManager.enqueueGenerations(applicationId, organizationId);
-                log.info("Queued pending generations after setup completion (onboarding completed)", {
-                    setupId,
-                    applicationId,
-                });
-            }
+            await this.enqueueGenerationsAfterSetupCompletion(setupId, applicationId, organizationId);
         }
 
         log.info("Added setup event", { setupId, type: event.type });
     }
 
     async updateSetup(setupId: string, organizationId: string, body: UpdateSetupBody) {
+        let setupCompleted = false;
+        let applicationId: string | undefined;
+
         await this.db.$transaction(async (tx) => {
             const setup = await tx.applicationSetup.findUnique({ where: { id: setupId, organizationId } });
             if (setup == null) throw new NotFoundError("Application setup not found");
+            applicationId = setup.applicationId;
 
             const data: Record<string, unknown> = {};
             if (body.name != null) data.name = body.name;
             if (body.status === "completed") {
                 data.status = "completed";
                 data.completedAt = new Date();
+                setupCompleted = true;
             }
             if (body.status === "partial_failure") {
                 data.status = "partial_failure";
@@ -181,7 +179,40 @@ export class ApplicationSetupService {
             });
         });
 
+        if (setupCompleted && applicationId != null) {
+            await this.enqueueGenerationsAfterSetupCompletion(setupId, applicationId, organizationId);
+        }
+
         log.info("Updated application setup", { setupId, ...body });
+    }
+
+    /**
+     * Drain the pending generations a setup just produced. Finish setup (SDK +
+     * CLI artifact upload) runs after the app is already live, so the snapshot
+     * the artifact upload creates exists only now - long after onboarding's
+     * `goLive` enqueue ran (and no-oped on an empty snapshot). Both completion
+     * paths reach this: the planner's final `step.completed` event and the admin
+     * manual upload's `PATCH {status:"completed"}`. Gated on the app being live so
+     * a half-onboarded app is never refined; `triggerRefinementLoop` itself is
+     * idempotent, so a double signal is harmless.
+     */
+    private async enqueueGenerationsAfterSetupCompletion(
+        setupId: string,
+        applicationId: string,
+        organizationId: string,
+    ): Promise<void> {
+        const onboardingState = await this.onboardingManager.getState(applicationId);
+        if (onboardingState.step !== "completed") {
+            log.info("Setup completed but app is not live yet - deferring generation enqueue to go-live", {
+                setupId,
+                applicationId,
+                step: onboardingState.step,
+            });
+            return;
+        }
+
+        await this.onboardingManager.enqueueGenerations(applicationId, organizationId);
+        log.info("Queued pending generations after setup completion", { setupId, applicationId });
     }
 
     async uploadArtifacts(setupId: string, organizationId: string, body: UploadArtifactsBody) {

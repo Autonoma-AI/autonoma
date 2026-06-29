@@ -26,9 +26,11 @@ import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AppCard } from "./-components/previewkit/app-card";
+import { HooksSection } from "./-components/previewkit/hooks-section";
+import { MultirepoSection } from "./-components/previewkit/multirepo-section";
 import { SecretsSection, type SecretsApp } from "./-components/previewkit/secrets-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
-import { SuggestionsBanner } from "./-components/previewkit/suggestions-banner";
+import { SuggestionsBanner, suggestionKey } from "./-components/previewkit/suggestions-banner";
 import {
   PRIMARY_REPO_KEY,
   appDraftFromSuggestion,
@@ -38,12 +40,17 @@ import {
   emptyAppDraft,
   emptyDraftIssues,
   fieldIssueKey,
+  hookFieldErrors,
   isUntouchedStarterApp,
   mapIssuesToDraft,
+  pruneDanglingDependsOn,
+  serviceRecipeSupportsUrlToken,
   snapshotDocument,
   type AppDraft,
   type AppDraftField,
   type DraftIssues,
+  type RepoDraft,
+  type ServiceDraft,
   type TopologyDraft,
 } from "./-components/previewkit/topology-draft";
 
@@ -59,14 +66,12 @@ export interface PreviewkitConfigPageProps {
   focusSection?: "config" | "secrets" | "logs";
 }
 
-type ConfigStepId = "apps" | "services" | "save" | "secrets" | "deploy";
+type ConfigStepId = "apps" | "hooks" | "secrets";
 
 const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string }> = [
-  { id: "apps", label: "Repo apps", description: "Entrypoints and paths" },
-  { id: "services", label: "Services", description: "Managed dependencies" },
-  { id: "save", label: "Save config", description: "Persist revision" },
-  { id: "secrets", label: "Secrets", description: "Runtime values" },
-  { id: "deploy", label: "Deploy", description: "Start preview" },
+  { id: "apps", label: "Apps & services", description: "Apps, services + dependency repos" },
+  { id: "hooks", label: "Hooks", description: "Pre/post-deploy commands" },
+  { id: "secrets", label: "Secrets", description: "Runtime values + deploy" },
 ];
 
 export function PreviewkitConfigPage({ appId, focusApp, focusField, focusSection }: PreviewkitConfigPageProps) {
@@ -103,7 +108,6 @@ function PreviewkitConfigContent({
   const navigate = useNavigate();
   const configQuery = usePreviewkitConfig(appId);
   const repositoryQuery = useApplicationRepositoryFromGitHub(appId);
-  const suggestionsQuery = useRepoSuggestions(appId, !configQuery.data.saved);
   const saveConfig = useSavePreviewkitConfig();
   const validateConfig = useValidatePreviewkitConfig();
   const deploy = useTriggerPreviewkitMainDeploy();
@@ -121,6 +125,7 @@ function PreviewkitConfigContent({
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "secrets" : "apps"));
+  const [handledSuggestions, setHandledSuggestions] = useState<Set<string>>(new Set());
 
   function setDraft(updater: (current: TopologyDraft) => TopologyDraft) {
     setDraftState(updater);
@@ -133,7 +138,14 @@ function PreviewkitConfigContent({
   const clientIssues = validateDraftClientSide(compiled);
   const issues = mergeIssues(clientIssues, serverIssues);
   const hasUntouchedStarterApps = draft.apps.some(isUntouchedStarterApp);
-  const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hasUntouchedStarterApps;
+  // Names a hook may target: declared (non-starter) apps. Hooks reference apps only.
+  const hookAppNames = draft.apps
+    .filter((app) => !isUntouchedStarterApp(app))
+    .map((app) => app.name)
+    .filter((name) => name.trim() !== "");
+  const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
+  const hasBlockingIssues =
+    issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hasUntouchedStarterApps || hookErrors.size > 0;
 
   const groupSaved = (repoKey: string): boolean => {
     const document =
@@ -149,19 +161,19 @@ function PreviewkitConfigContent({
   const stepCompletion = getConfigStepCompletion({
     draft,
     issues,
-    configSaved: configReadyForSecrets,
     canDeploy,
+    hooksValid: hookErrors.size === 0,
   });
   const completedStepCount = CONFIG_STEPS.filter((step) => stepCompletion[step.id]).length;
 
   useEffect(() => {
-    if (focusSection === "secrets") setActiveStep(configReadyForSecrets ? "secrets" : "save");
+    if (focusSection === "secrets") setActiveStep(configReadyForSecrets ? "secrets" : "apps");
     if (focusSection === "config") setActiveStep("apps");
   }, [configReadyForSecrets, focusSection]);
 
   useEffect(() => {
-    if ((activeStep === "secrets" || activeStep === "deploy") && !configReadyForSecrets) {
-      setActiveStep("save");
+    if (activeStep === "secrets" && !configReadyForSecrets) {
+      setActiveStep("apps");
     }
   }, [activeStep, configReadyForSecrets]);
 
@@ -177,18 +189,29 @@ function PreviewkitConfigContent({
   useFocusDeepLink(draft, shouldFocusConfig ? focusApp : undefined, focusField, clearFocusParams);
 
   function updateApp(id: number, patch: Partial<AppDraft>) {
-    setDraft((current) => ({
-      ...current,
-      apps: current.apps.map((app) =>
-        app.id === id
-          ? {
-              ...app,
-              ...patch,
-              origin: app.origin === "starter" ? "manual" : (patch.origin ?? app.origin),
-            }
-          : app,
-      ),
-    }));
+    setDraft((current) => {
+      const previousName = current.apps.find((app) => app.id === id)?.name;
+      const rename =
+        patch.name != null &&
+        patch.name !== "" &&
+        previousName != null &&
+        previousName !== "" &&
+        patch.name !== previousName
+          ? { from: previousName, to: patch.name }
+          : undefined;
+      return {
+        ...current,
+        apps: current.apps.map((app) => {
+          if (app.id === id) {
+            return { ...app, ...patch, origin: app.origin === "starter" ? "manual" : (patch.origin ?? app.origin) };
+          }
+          if (rename != null && app.dependsOn.includes(rename.from)) {
+            return { ...app, dependsOn: app.dependsOn.map((name) => (name === rename.from ? rename.to : name)) };
+          }
+          return app;
+        }),
+      };
+    });
   }
 
   function setPrimaryApp(id: number) {
@@ -207,15 +230,48 @@ function PreviewkitConfigContent({
   }
 
   function removeApp(id: number) {
-    setDraft((current) => ({ ...current, apps: current.apps.filter((app) => app.id !== id) }));
+    setDraft((current) => pruneDanglingDependsOn({ ...current, apps: current.apps.filter((app) => app.id !== id) }));
   }
 
-  function acceptSuggestion(suggestion: SuggestedApp) {
-    setDraft((current) => addSuggestionsReplacingStarters(current, [suggestion], PRIMARY_REPO_KEY));
+  function markSuggestionsHandled(repoKey: string, suggestions: SuggestedApp[]) {
+    setHandledSuggestions(
+      (current) =>
+        new Set([...current, ...suggestions.map((suggestion) => `${repoKey}::${suggestionKey(suggestion)}`)]),
+    );
   }
 
-  function acceptAllSuggestions(suggestions: SuggestedApp[]) {
-    setDraft((current) => addSuggestionsReplacingStarters(current, suggestions, PRIMARY_REPO_KEY));
+  function acceptSuggestion(repoKey: string, suggestion: SuggestedApp) {
+    markSuggestionsHandled(repoKey, [suggestion]);
+    setDraft((current) => addSuggestionsReplacingStarters(current, [suggestion], repoKey));
+  }
+
+  function acceptAllSuggestions(repoKey: string, suggestions: SuggestedApp[]) {
+    markSuggestionsHandled(repoKey, suggestions);
+    setDraft((current) => addSuggestionsReplacingStarters(current, suggestions, repoKey));
+  }
+
+  function dismissSuggestion(repoKey: string, suggestion: SuggestedApp) {
+    markSuggestionsHandled(repoKey, [suggestion]);
+  }
+
+  function handleReposChange(repos: RepoDraft[]) {
+    setDraft((current) => {
+      const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
+      const renameByOldName = new Map<string, string>();
+      for (const repo of repos) {
+        const oldName = oldNameById.get(repo.id);
+        if (oldName != null && oldName !== repo.name) renameByOldName.set(oldName, repo.name);
+      }
+      const validKeys = new Set([PRIMARY_REPO_KEY, ...repos.map((repo) => repo.name)]);
+      const apps = current.apps
+        .map((app) => {
+          const renamed = renameByOldName.get(app.repoKey);
+          return renamed != null ? { ...app, repoKey: renamed } : app;
+        })
+        .filter((app) => validKeys.has(app.repoKey));
+      // Removing a repo drops its apps; prune any depends_on that referenced them.
+      return pruneDanglingDependsOn({ ...current, repos, apps });
+    });
   }
 
   function save() {
@@ -291,19 +347,27 @@ function PreviewkitConfigContent({
     );
   }
 
-  const repoGroups: Array<{ key: string; label: string; badge: string }> = [
+  const repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }> = [
     { key: PRIMARY_REPO_KEY, label: repoName, badge: "primary repo" },
-    ...draft.repos.map((repo) => ({ key: repo.name, label: repo.repo, badge: "dependency" })),
+    ...draft.repos.map((repo) => ({
+      key: repo.name,
+      label: repo.repo,
+      badge: "dependency",
+      githubRepositoryId: repo.githubRepositoryId,
+    })),
   ];
+  const appCountByRepoKey = new Map(
+    draft.repos.map((repo) => [repo.name, draft.apps.filter((app) => app.repoKey === repo.name).length]),
+  );
 
   const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
   const allNames = [...deployableApps.map((app) => app.name), ...draft.services.map((service) => service.name)];
   const referenceTokens = [
-    ...draft.services.flatMap((service) =>
-      service.name.trim() !== ""
-        ? [`{{${service.name}.url}}`, `{{${service.name}.host}}`, `{{${service.name}.port}}`]
-        : [],
-    ),
+    ...draft.services.flatMap((service) => {
+      if (service.name.trim() === "") return [];
+      const hostPort = [`{{${service.name}.host}}`, `{{${service.name}.port}}`];
+      return serviceRecipeSupportsUrlToken(service.recipe) ? [`{{${service.name}.url}}`, ...hostPort] : hostPort;
+    }),
     ...deployableApps.flatMap((app) => (app.name.trim() !== "" ? [`{{${app.name}.url}}`] : [])),
   ];
 
@@ -322,7 +386,6 @@ function PreviewkitConfigContent({
     : [];
   const activeStepIndex = CONFIG_STEPS.findIndex((step) => step.id === activeStep);
   const previousStep = activeStepIndex > 0 ? CONFIG_STEPS[activeStepIndex - 1] : undefined;
-  const nextStep = activeStepIndex < CONFIG_STEPS.length - 1 ? CONFIG_STEPS[activeStepIndex + 1] : undefined;
 
   return (
     <>
@@ -361,29 +424,54 @@ function PreviewkitConfigContent({
       <div className="grid gap-6">
         <div className="space-y-6">
           {activeStep === "apps" ? (
-            <AppsStep
-              suggestionsEnabled={!configQuery.data.saved}
-              suggestionsPending={suggestionsQuery.isPending}
-              suggestionsData={suggestionsQuery.data}
-              draftApps={draft.apps}
-              repoGroups={repoGroups}
-              issues={issues}
-              allNames={allNames}
-              referenceTokens={referenceTokens}
-              groupSaved={groupSaved}
-              onAcceptSuggestion={acceptSuggestion}
-              onAcceptAllSuggestions={acceptAllSuggestions}
-              onAddApp={addApp}
-              onUpdateApp={updateApp}
-              onSetPrimaryApp={setPrimaryApp}
-              onRemoveApp={removeApp}
-            />
+            <div className="space-y-6">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+                <div className="min-w-0 space-y-6">
+                  <AppsStep
+                    appId={appId}
+                    suggestionsEnabled={!configQuery.data.saved}
+                    handledSuggestions={handledSuggestions}
+                    draftApps={draft.apps}
+                    repoGroups={repoGroups}
+                    issues={issues}
+                    allNames={allNames}
+                    referenceTokens={referenceTokens}
+                    groupSaved={groupSaved}
+                    onAcceptSuggestion={acceptSuggestion}
+                    onAcceptAllSuggestions={acceptAllSuggestions}
+                    onDismissSuggestion={dismissSuggestion}
+                    onAddApp={addApp}
+                    onUpdateApp={updateApp}
+                    onSetPrimaryApp={setPrimaryApp}
+                    onRemoveApp={removeApp}
+                  />
+                </div>
+                <div className="xl:sticky xl:top-20 xl:self-start">
+                  <MultirepoSection
+                    repos={draft.repos}
+                    branchConvention={draft.branchConvention}
+                    primaryRepoFullName={repositoryQuery.data?.fullName}
+                    appCountByRepoKey={appCountByRepoKey}
+                    onReposChange={handleReposChange}
+                    onBranchConventionChange={(branchConvention) =>
+                      setDraft((current) => ({ ...current, branchConvention }))
+                    }
+                  />
+                </div>
+              </div>
+              <ServicesSection
+                services={draft.services}
+                onChange={(services) => setDraft((current) => applyServicesChange(current, services))}
+              />
+            </div>
           ) : undefined}
 
-          {activeStep === "services" ? (
-            <ServicesSection
-              services={draft.services}
-              onChange={(services) => setDraft((current) => ({ ...current, services }))}
+          {activeStep === "hooks" ? (
+            <HooksSection
+              hooks={draft.hooks}
+              appNames={hookAppNames}
+              errors={hookErrors}
+              onChange={(hooks) => setDraft((current) => ({ ...current, hooks }))}
             />
           ) : undefined}
 
@@ -398,27 +486,25 @@ function PreviewkitConfigContent({
             />
           ) : undefined}
 
-          {activeStep === "save" ? (
-            <SaveConfigStep
+          {activeStep === "apps" || activeStep === "hooks" ? (
+            <ConfigIssuesBanner
               issues={issues}
-              hasBlockingIssues={hasBlockingIssues}
               hasUntouchedStarterApps={hasUntouchedStarterApps}
               configReadyForSecrets={configReadyForSecrets}
-              isSaving={saveConfig.isPending}
-              onSave={save}
             />
-          ) : undefined}
-
-          {activeStep === "deploy" ? (
-            <DeployStep canDeploy={canDeploy} isDeploying={deploy.isPending} onDeploy={startDeploy} />
           ) : undefined}
 
           <ConfigStepFooter
             previousStep={previousStep}
-            nextStep={nextStep}
             activeStep={activeStep}
+            hasBlockingIssues={hasBlockingIssues}
             configReadyForSecrets={configReadyForSecrets}
+            isSaving={saveConfig.isPending}
+            isDeploying={deploy.isPending}
+            canDeploy={canDeploy}
             onSelect={setActiveStep}
+            onSave={save}
+            onDeploy={startDeploy}
           />
         </div>
       </div>
@@ -447,7 +533,7 @@ function ConfigStepper({
           {completedStepCount}/{CONFIG_STEPS.length} complete
         </span>
       </div>
-      <div className="grid gap-px bg-border-dim md:grid-cols-5">
+      <div className="grid gap-px bg-border-dim md:grid-cols-3">
         {CONFIG_STEPS.map((step, index) => {
           const active = step.id === activeStep;
           const complete = completion[step.id];
@@ -493,9 +579,9 @@ function ConfigStepper({
 }
 
 function AppsStep({
+  appId,
   suggestionsEnabled,
-  suggestionsPending,
-  suggestionsData,
+  handledSuggestions,
   draftApps,
   repoGroups,
   issues,
@@ -504,22 +590,24 @@ function AppsStep({
   groupSaved,
   onAcceptSuggestion,
   onAcceptAllSuggestions,
+  onDismissSuggestion,
   onAddApp,
   onUpdateApp,
   onSetPrimaryApp,
   onRemoveApp,
 }: {
+  appId: string;
   suggestionsEnabled: boolean;
-  suggestionsPending: boolean;
-  suggestionsData: ReturnType<typeof useRepoSuggestions>["data"];
+  handledSuggestions: Set<string>;
   draftApps: AppDraft[];
-  repoGroups: Array<{ key: string; label: string; badge: string }>;
+  repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }>;
   issues: DraftIssues;
   allNames: string[];
   referenceTokens: string[];
   groupSaved: (repoKey: string) => boolean;
-  onAcceptSuggestion: (suggestion: SuggestedApp) => void;
-  onAcceptAllSuggestions: (suggestions: SuggestedApp[]) => void;
+  onAcceptSuggestion: (repoKey: string, suggestion: SuggestedApp) => void;
+  onAcceptAllSuggestions: (repoKey: string, suggestions: SuggestedApp[]) => void;
+  onDismissSuggestion: (repoKey: string, suggestion: SuggestedApp) => void;
   onAddApp: (repoKey: string, prefilled?: AppDraft) => void;
   onUpdateApp: (id: number, patch: Partial<AppDraft>) => void;
   onSetPrimaryApp: (id: number) => void;
@@ -527,82 +615,130 @@ function AppsStep({
 }) {
   return (
     <>
-      <SuggestionsBanner
-        enabled={suggestionsEnabled}
-        isPending={suggestionsPending}
-        data={suggestionsData}
-        existingAppNames={new Set(draftApps.filter((app) => !isUntouchedStarterApp(app)).map((app) => app.name))}
-        onAccept={onAcceptSuggestion}
-        onAcceptAll={onAcceptAllSuggestions}
-      />
-
       {repoGroups.map((group) => {
         const groupApps = draftApps.filter((app) => app.repoKey === group.key);
         const dependencyOptions = allNames.filter((name) => name.trim() !== "");
+        const handledForGroup = new Set(
+          [...handledSuggestions]
+            .filter((key) => key.startsWith(`${group.key}::`))
+            .map((key) => key.slice(group.key.length + 2)),
+        );
         return (
-          <section key={group.key} className="border border-border-dim bg-surface-base">
-            <div className="flex flex-wrap items-center gap-3 border-b border-border-dim bg-surface-raised px-5 py-4">
-              <h2
-                className="truncate font-mono text-sm font-bold uppercase tracking-widest text-text-primary"
-                title={group.label}
-              >
-                {group.label}
-              </h2>
-              <Badge variant="outline">{group.badge}</Badge>
-              <Badge variant={groupSaved(group.key) ? "success" : "secondary"}>
-                {groupSaved(group.key) ? "Saved" : "Unsaved"}
-              </Badge>
-              <Button variant="outline" size="xs" className="ml-auto gap-1" onClick={() => onAddApp(group.key)}>
-                <PlusIcon size={12} weight="bold" />
-                Add app
-              </Button>
-            </div>
-            <div className="space-y-4 p-5">
-              {groupApps.length === 0 ? (
-                <p className="text-sm text-text-secondary">
-                  No deployable apps mapped yet. Accept a suggestion or add an app.
-                </p>
-              ) : (
-                groupApps.map((app) => (
-                  <AppCard
-                    key={app.id}
-                    app={app}
-                    issues={issues}
-                    dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
-                    referenceTokens={referenceTokens}
-                    onChange={onUpdateApp}
-                    onSetPrimary={onSetPrimaryApp}
-                    onRemove={onRemoveApp}
-                  />
-                ))
-              )}
-            </div>
-          </section>
+          <div key={group.key} className="space-y-4">
+            <RepoSuggestions
+              appId={appId}
+              enabled={suggestionsEnabled}
+              githubRepositoryId={group.githubRepositoryId}
+              existingAppNames={new Set(groupApps.filter((app) => !isUntouchedStarterApp(app)).map((app) => app.name))}
+              handled={handledForGroup}
+              onAccept={(suggestion) => onAcceptSuggestion(group.key, suggestion)}
+              onAcceptAll={(suggestions) => onAcceptAllSuggestions(group.key, suggestions)}
+              onDismiss={(suggestion) => onDismissSuggestion(group.key, suggestion)}
+            />
+
+            <section className="border border-border-dim bg-surface-base">
+              <div className="flex flex-wrap items-center gap-3 border-b border-border-dim bg-surface-raised px-5 py-4">
+                <h2
+                  className="truncate font-mono text-sm font-bold uppercase tracking-widest text-text-primary"
+                  title={group.label}
+                >
+                  {group.label}
+                </h2>
+                <Badge variant="outline">{group.badge}</Badge>
+                <Badge variant={groupSaved(group.key) ? "success" : "secondary"}>
+                  {groupSaved(group.key) ? "Saved" : "Unsaved"}
+                </Badge>
+                <Button variant="outline" size="xs" className="ml-auto gap-1" onClick={() => onAddApp(group.key)}>
+                  <PlusIcon size={12} weight="bold" />
+                  Add app
+                </Button>
+              </div>
+              <div className="space-y-4 p-5">
+                {groupApps.length === 0 ? (
+                  <p className="text-sm text-text-secondary">
+                    No deployable apps mapped yet. Accept a suggestion or add an app.
+                  </p>
+                ) : (
+                  groupApps.map((app) => (
+                    <AppCard
+                      key={app.id}
+                      app={app}
+                      issues={issues}
+                      dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
+                      referenceTokens={referenceTokens}
+                      onChange={onUpdateApp}
+                      onSetPrimary={onSetPrimaryApp}
+                      onRemove={onRemoveApp}
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
         );
       })}
     </>
   );
 }
 
+/**
+ * Repo-introspection suggestions for one repo group. The primary group passes no
+ * `githubRepositoryId` (introspects the app's linked repo); each dependency group
+ * passes its repo id so detected apps are scoped to that repo.
+ */
+function RepoSuggestions({
+  appId,
+  enabled,
+  githubRepositoryId,
+  existingAppNames,
+  handled,
+  onAccept,
+  onAcceptAll,
+  onDismiss,
+}: {
+  appId: string;
+  enabled: boolean;
+  githubRepositoryId?: number;
+  existingAppNames: Set<string>;
+  handled: Set<string>;
+  onAccept: (suggestion: SuggestedApp) => void;
+  onAcceptAll: (suggestions: SuggestedApp[]) => void;
+  onDismiss: (suggestion: SuggestedApp) => void;
+}) {
+  const { data, isPending } = useRepoSuggestions(appId, enabled, githubRepositoryId);
+  return (
+    <SuggestionsBanner
+      enabled={enabled}
+      isPending={isPending}
+      data={data}
+      existingAppNames={existingAppNames}
+      handled={handled}
+      onAccept={onAccept}
+      onAcceptAll={onAcceptAll}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
 function isConfigStepEnabled(step: ConfigStepId, configReadyForSecrets: boolean): boolean {
-  if (step === "secrets" || step === "deploy") return configReadyForSecrets;
+  if (step === "secrets") return configReadyForSecrets;
   return true;
 }
 
-function SaveConfigStep({
+/**
+ * Document-level findings (schema/semantic errors, warnings, untouched starter
+ * apps) for the authoring steps. Errors block the Save action in the footer;
+ * warnings never block. Lives above the footer on the `apps` and `hooks` steps
+ * so the disabled reason for Save is always visible next to it.
+ */
+function ConfigIssuesBanner({
   issues,
-  hasBlockingIssues,
   hasUntouchedStarterApps,
   configReadyForSecrets,
-  isSaving,
-  onSave,
 }: {
   issues: DraftIssues;
-  hasBlockingIssues: boolean;
   hasUntouchedStarterApps: boolean;
   configReadyForSecrets: boolean;
-  isSaving: boolean;
-  onSave: () => void;
 }) {
   return (
     <>
@@ -634,84 +770,43 @@ function SaveConfigStep({
           </p>
         </div>
       ) : undefined}
-
-      <section className="border border-border-dim bg-surface-base p-5">
-        <div className="flex flex-wrap gap-3">
-          <Button
-            variant="accent"
-            className="gap-2 px-6 py-3"
-            onClick={onSave}
-            disabled={hasBlockingIssues || isSaving}
-          >
-            <FloppyDiskIcon size={16} weight="bold" />
-            {isSaving ? "Saving..." : configReadyForSecrets ? "Save changes" : "Save config"}
-          </Button>
-        </div>
-        {configReadyForSecrets ? (
-          <p className="mt-4 text-sm text-text-secondary">Config is saved. Continue to secrets before deploying.</p>
-        ) : (
-          <p className="mt-4 text-sm text-text-secondary">
-            Save a valid config revision before adding secrets. Secrets are scoped to the apps in the saved revision.
-          </p>
-        )}
-      </section>
+      {configReadyForSecrets ? (
+        <p className="text-sm text-text-secondary">Config saved. Continue to secrets, then deploy.</p>
+      ) : undefined}
     </>
   );
 }
 
-function DeployStep({
-  canDeploy,
-  isDeploying,
-  onDeploy,
-}: {
-  canDeploy: boolean;
-  isDeploying: boolean;
-  onDeploy: () => void;
-}) {
-  return (
-    <section className="border border-border-dim bg-surface-base p-5">
-      <div>
-        <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Deploy saved config</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">
-          Deploy starts from the saved PreviewKit revision and uses any secrets you added for those apps.
-        </p>
-      </div>
-      <Button variant="accent" className="mt-5 gap-2 px-6 py-3" onClick={onDeploy} disabled={!canDeploy || isDeploying}>
-        {isDeploying ? "Starting deploy..." : "Start main deploy"}
-        <ArrowRightIcon size={16} weight="bold" />
-      </Button>
-      {!canDeploy ? <p className="mt-4 text-sm text-text-secondary">Save the config before deploying.</p> : undefined}
-    </section>
-  );
-}
-
+/**
+ * The footer's primary button performs the active step's real work rather than
+ * just navigating: `apps` advances to hooks, `hooks` saves the config (or, once
+ * saved and clean, advances to secrets), and `secrets` starts the deploy. This
+ * replaces the former single-button `Save config` / `Deploy` steps.
+ */
 function ConfigStepFooter({
   previousStep,
-  nextStep,
   activeStep,
+  hasBlockingIssues,
   configReadyForSecrets,
+  isSaving,
+  isDeploying,
+  canDeploy,
   onSelect,
+  onSave,
+  onDeploy,
 }: {
   previousStep: { id: ConfigStepId; label: string } | undefined;
-  nextStep: { id: ConfigStepId; label: string } | undefined;
   activeStep: ConfigStepId;
+  hasBlockingIssues: boolean;
   configReadyForSecrets: boolean;
+  isSaving: boolean;
+  isDeploying: boolean;
+  canDeploy: boolean;
   onSelect: (step: ConfigStepId) => void;
+  onSave: () => void;
+  onDeploy: () => void;
 }) {
-  if (activeStep === "deploy") {
-    return (
-      <div className="flex justify-start border-t border-border-dim pt-4">
-        {previousStep != null ? (
-          <Button variant="outline" className="gap-2" onClick={() => onSelect(previousStep.id)}>
-            <ArrowLeftIcon size={14} />
-            {previousStep.label}
-          </Button>
-        ) : undefined}
-      </div>
-    );
-  }
-
-  const canGoNext = nextStep != null && isConfigStepEnabled(nextStep.id, configReadyForSecrets);
+  const primaryAction = getPrimaryAction();
 
   return (
     <div className="flex justify-between border-t border-border-dim pt-4">
@@ -723,14 +818,41 @@ function ConfigStepFooter({
       ) : (
         <span />
       )}
-      {nextStep != null ? (
-        <Button variant="accent" className="gap-2" disabled={!canGoNext} onClick={() => onSelect(nextStep.id)}>
-          {nextStep.label}
-          <ArrowRightIcon size={14} />
-        </Button>
-      ) : undefined}
+      <Button variant="accent" className="gap-2" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
+        {primaryAction.icon === "save" ? <FloppyDiskIcon size={14} weight="bold" /> : undefined}
+        {primaryAction.label}
+        {primaryAction.icon === "next" ? <ArrowRightIcon size={14} /> : undefined}
+      </Button>
     </div>
   );
+
+  function getPrimaryAction(): { label: string; onClick: () => void; disabled: boolean; icon: "save" | "next" } {
+    if (activeStep === "apps") {
+      return {
+        label: "Continue to hooks",
+        onClick: () => onSelect("hooks"),
+        disabled: hasBlockingIssues,
+        icon: "next",
+      };
+    }
+    if (activeStep === "hooks") {
+      if (configReadyForSecrets) {
+        return { label: "Continue to secrets", onClick: () => onSelect("secrets"), disabled: false, icon: "next" };
+      }
+      return {
+        label: isSaving ? "Saving..." : "Save config",
+        onClick: onSave,
+        disabled: hasBlockingIssues || isSaving,
+        icon: "save",
+      };
+    }
+    return {
+      label: isDeploying ? "Starting deploy..." : "Start deploy",
+      onClick: onDeploy,
+      disabled: !canDeploy || isDeploying,
+      icon: "next",
+    };
+  }
 }
 
 function addSuggestionsReplacingStarters(
@@ -771,16 +893,41 @@ function uniqueNewApps(apps: AppDraft[], existingNames: Set<string>): AppDraft[]
   return unique;
 }
 
+/**
+ * Applies a services edit while keeping name-based depends_on links intact:
+ * renamed services (matched by stable id) are remapped in every app's
+ * depends_on, then a reference to a now-removed service is pruned. Remap before
+ * prune so a rename is never mistaken for a delete.
+ */
+function applyServicesChange(current: TopologyDraft, services: ServiceDraft[]): TopologyDraft {
+  const oldNameById = new Map(current.services.map((service) => [service.id, service.name]));
+  const renameByOldName = new Map<string, string>();
+  for (const service of services) {
+    const oldName = oldNameById.get(service.id);
+    if (oldName != null && oldName !== "" && service.name !== "" && oldName !== service.name) {
+      renameByOldName.set(oldName, service.name);
+    }
+  }
+  const apps =
+    renameByOldName.size === 0
+      ? current.apps
+      : current.apps.map((app) => ({
+          ...app,
+          dependsOn: app.dependsOn.map((name) => renameByOldName.get(name) ?? name),
+        }));
+  return pruneDanglingDependsOn({ ...current, services, apps });
+}
+
 function getConfigStepCompletion({
   draft,
   issues,
-  configSaved,
   canDeploy,
+  hooksValid,
 }: {
   draft: TopologyDraft;
   issues: DraftIssues;
-  configSaved: boolean;
   canDeploy: boolean;
+  hooksValid: boolean;
 }): Record<ConfigStepId, boolean> {
   const noBlockingDocumentErrors = issues.documentErrors.length === 0;
   const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
@@ -800,11 +947,11 @@ function getConfigStepCompletion({
     noBlockingDocumentErrors;
 
   return {
-    apps: appsComplete,
-    services: servicesComplete,
-    save: configSaved,
-    secrets: configSaved,
-    deploy: canDeploy,
+    apps: appsComplete && servicesComplete,
+    // Hooks are optional, so the step is complete unless a row is invalid
+    // (missing/unknown app or missing command). Empty rows are dropped on save.
+    hooks: hooksValid,
+    secrets: canDeploy,
   };
 }
 

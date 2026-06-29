@@ -1,0 +1,12 @@
+{
+    "awsRegion": "<aws-region, e.g. us-east-1>",
+    "dbSecretId": "<AWS Secrets Manager secret id whose JSON has a DATABASE_URL key>",
+    "notionDatabaseId": "<Notion 'Client PRs' database id>",
+    "notionDataSourceId": "<Notion data source id (from API-retrieve-a-database with Notion-Version 2025-09-03)>",
+    "linkBase": "https://<app-host>/app",
+    "dateProperty": "Created At",
+    "clients": {
+        "<ClientLabel>": "<organization-slug>",
+        "<AnotherClient>": "<another-org-slug>"
+    }
+}

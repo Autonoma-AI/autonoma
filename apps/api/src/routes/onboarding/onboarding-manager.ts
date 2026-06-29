@@ -11,6 +11,7 @@ import {
 } from "@autonoma/types";
 import { triggerRefinementLoop } from "@autonoma/workflow";
 import { z } from "zod";
+import { computeArtifactStatus } from "../app-generations/artifact-status";
 import {
     type DeploymentSignalInput,
     isCommitSha,
@@ -19,53 +20,48 @@ import {
 } from "./deployment-signal";
 import type { OnboardingManagerOptions, OnboardingPreviewkitSecretsService } from "./onboarding-dependencies";
 import {
+    type ConfigureAndDiscoverSdkTargetResult,
+    OnboardingSdkCapabilityService,
+    type PrepareSdkTargetResult,
+} from "./onboarding-sdk-capability";
+import {
     buildExistingDeploysReadiness,
     buildPreviewkitReadiness,
     idleReadiness,
     writePreviewUrl,
     type PreviewReadiness,
 } from "./preview-readiness";
+import { parseStoredDependencyDocuments } from "./previewkit-config-helpers";
 import {
     PreviewkitConfigService,
     type OnboardingPreviewkitConfig,
     type PreviewkitConfigValidationResult,
     type PreviewkitDependencyDocument,
 } from "./previewkit-config-service";
+import { listSdkDryRunTargets } from "./sdk-dry-run-targets";
+import { buildSdkUrl } from "./sdk-url";
 import { CompletedState } from "./states/completed-state";
-import { DiscoveredState } from "./states/discovered-state";
-import { DiscoveringState } from "./states/discovering-state";
-import { DryRunPassedState } from "./states/dry-run-passed-state";
+import { DiffTriggerState } from "./states/diff-trigger-state";
 import { ExistingDeploysConfiguringState } from "./states/existing-deploys-configuring-state";
 import { ExistingDeploysWaitingState } from "./states/existing-deploys-waiting-state";
 import { GitHubState } from "./states/github-state";
-import type { OnboardingState, OnboardingStateDeps } from "./states/onboarding-state";
+import type { OnboardingState, OnboardingStateDeps, ScenarioDryRunResult } from "./states/onboarding-state";
 import { PreviewEnvironmentState } from "./states/preview-environment-state";
 import { PreviewVerifiedState } from "./states/preview-verified-state";
 import { PreviewkitConfiguringState } from "./states/previewkit-configuring-state";
 import { PreviewkitDeployingState } from "./states/previewkit-deploying-state";
-import { UrlState } from "./states/url-state";
-import { WebhookConfiguringState } from "./states/webhook-configuring-state";
 
 /**
- * If a row has been stuck at `discovering` for longer than this, assume the
- * API died mid-call and auto-recover to `webhook_configuring` with an error.
- * Longer than the webhook's own timeout+retry budget, short enough that the
- * user isn't locked out for long after a real crash.
+ * Required onboarding path: "Add app" (github) is the first step now that SDK +
+ * CLI work moved out into the Finish setup tab.
  */
-const DISCOVERING_TIMEOUT_MS = 2 * 60 * 1000;
+const INITIAL_STEP: OnboardingState["step"] = "github";
 
 /**
  * Ordered list of onboarding steps. Used to determine whether an operation
  * from an earlier step should be allowed when the user is at a later step.
  */
-const INITIAL_STEP: OnboardingState["step"] = "webhook_configuring";
-
 const STEP_ORDER: OnboardingState["step"][] = [
-    "webhook_configuring",
-    "discovering",
-    "discovered",
-    "dry_run_passed",
-    "url",
     "github",
     "preview_environment",
     "previewkit_configuring",
@@ -73,6 +69,7 @@ const STEP_ORDER: OnboardingState["step"][] = [
     "existing_deploys_configuring",
     "existing_deploys_waiting",
     "preview_verified",
+    "diff_trigger",
     "completed",
 ];
 
@@ -83,18 +80,20 @@ const STEP_ORDER: OnboardingState["step"][] = [
  * database and delegates the operation to it. This keeps the manager thin while
  * the state subclasses enforce which transitions are valid at each step.
  *
- * For backwards-compatible operations (e.g. re-running a scenario dry run from
- * the github step), the manager loads the state that implements the operation
- * instead of the current state. This allows users to go back and redo earlier
- * steps without the state machine rejecting them.
+ * For backwards-compatible operations (e.g. completing github again from a later
+ * step), the manager loads the state that implements the operation instead of
+ * the current state. This allows users to go back and redo earlier steps without
+ * the state machine rejecting them.
  *
- * Flow: webhook_configuring -> discovered -> dry_run_passed -> github ->
- * preview_environment -> preview_verified -> completed.
- * Reset is available from any step.
+ * Flow: github (Add app) -> preview_environment ->
+ * (previewkit_configuring | existing_deploys_*) -> preview_verified ->
+ * diff_trigger -> completed. SDK implement + dry-run are app-level capabilities
+ * outside this flow. Reset is available from any step.
  */
 export class OnboardingManager {
     private readonly logger: Logger;
     private readonly previewkitConfig: PreviewkitConfigService;
+    private readonly sdkCapability: OnboardingSdkCapabilityService;
 
     private static readonly states: Partial<
         Record<
@@ -102,11 +101,6 @@ export class OnboardingManager {
             new (applicationId: string, db: PrismaClient, deps: OnboardingStateDeps) => OnboardingState
         >
     > = {
-        webhook_configuring: WebhookConfiguringState,
-        discovering: DiscoveringState,
-        discovered: DiscoveredState,
-        dry_run_passed: DryRunPassedState,
-        url: UrlState,
         github: GitHubState,
         preview_environment: PreviewEnvironmentState,
         previewkit_configuring: PreviewkitConfiguringState,
@@ -114,6 +108,7 @@ export class OnboardingManager {
         existing_deploys_configuring: ExistingDeploysConfiguringState,
         existing_deploys_waiting: ExistingDeploysWaitingState,
         preview_verified: PreviewVerifiedState,
+        diff_trigger: DiffTriggerState,
         completed: CompletedState,
     };
 
@@ -125,32 +120,31 @@ export class OnboardingManager {
     ) {
         this.logger = logger.child({ name: "OnboardingManager" });
         this.previewkitConfig = new PreviewkitConfigService(db, options);
+        this.sdkCapability = new OnboardingSdkCapabilityService(db, scenarioManager, encryption, options);
     }
 
     async getState(applicationId: string) {
         this.logger.info("Getting onboarding state", { applicationId });
 
-        // The upsert and crash-recovery write target the same row and must be
-        // consistent under concurrent polling, so run them in one transaction.
         const row = await this.db.$transaction(async (tx) => {
-            let current = await tx.onboardingState.upsert({
-                where: { applicationId },
-                create: { applicationId, step: INITIAL_STEP },
-                update: {},
-            });
+            // Read-first: getState is polled, so avoid a write on every call.
+            // Only create the row the first time, and only update when recovering
+            // a stuck discovery.
+            let current = await tx.onboardingState.findUnique({ where: { applicationId } });
+            if (current == null) {
+                current = await tx.onboardingState.create({
+                    data: { applicationId, step: INITIAL_STEP },
+                });
+            }
 
-            // Crash recovery: if a prior discover call died mid-flight, the row is
-            // stuck at `discovering` with `discoveringStartedAt` set. Roll back to
-            // `webhook_configuring` so the user can retry.
-            if (current.step === "discovering" && this.isDiscoveryStuck(current.discoveringStartedAt)) {
-                this.logger.warn("Recovering stuck `discovering` state", {
+            if (OnboardingSdkCapabilityService.isDiscoveryStuck(current.discoveringStartedAt)) {
+                this.logger.warn("Recovering stuck discover capability", {
                     applicationId,
                     discoveringStartedAt: current.discoveringStartedAt,
                 });
                 current = await tx.onboardingState.update({
                     where: { applicationId },
                     data: {
-                        step: "webhook_configuring",
                         discoveringStartedAt: null,
                         lastDiscoveryError: "Discovery timed out or crashed. Please retry.",
                     },
@@ -160,17 +154,31 @@ export class OnboardingManager {
             return current;
         });
 
-        const stepIndex = STEP_ORDER.indexOf(row.step);
-        const discoveredIndex = STEP_ORDER.indexOf("discovered");
-        const webhookConfigured = stepIndex >= discoveredIndex;
-        const discoveryInProgress = row.step === "discovering";
+        const sdkConfigured = row.lastDiscoveredAt != null;
+        const dryRunPassed = row.dryRunPassedAt != null;
+        const discoveryInProgress = row.discoveringStartedAt != null;
 
-        return { ...row, webhookConfigured, discoveryInProgress };
-    }
+        const { complete: artifactsUploaded } = await computeArtifactStatus(this.db, applicationId);
 
-    private isDiscoveryStuck(startedAt: Date | null): boolean {
-        if (startedAt == null) return false;
-        return Date.now() - startedAt.getTime() > DISCOVERING_TIMEOUT_MS;
+        // `hasContent` only needs existence, so probe with `findFirst` (take: 1)
+        // rather than two full `count`s on every poll.
+        const [scenario, testCase] = await Promise.all([
+            this.db.scenario.findFirst({ where: { applicationId }, select: { id: true } }),
+            this.db.testCase.findFirst({ where: { applicationId }, select: { id: true } }),
+        ]);
+        const hasContent = scenario != null && testCase != null;
+
+        const setupComplete = (sdkConfigured && dryRunPassed && artifactsUploaded) || hasContent;
+
+        return {
+            ...row,
+            sdkConfigured,
+            dryRunPassed,
+            discoveryInProgress,
+            artifactsUploaded,
+            hasContent,
+            setupComplete,
+        };
     }
 
     /** Return the agent log entries for the application. */
@@ -181,14 +189,6 @@ export class OnboardingManager {
         });
 
         return { logs: row?.agentLogs ?? [] };
-    }
-
-    /** Store the production URL, move from `url` to `github`. Works from url or any later step. */
-    async setUrl(applicationId: string, productionUrl: string) {
-        this.logger.info("Setting production URL", { applicationId });
-        const state = await this.loadStateOrEarlier(applicationId, "url");
-        await state.setUrl(productionUrl);
-        return this.getState(applicationId);
     }
 
     /** Move from `github` to `preview_environment`. Works from github or any later step. */
@@ -253,14 +253,16 @@ export class OnboardingManager {
         // safe direction: extra secret values are harmless until referenced).
         await this.upsertConfigSecrets(applicationId, organizationId, document, secrets);
 
-        const result = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
+        const saved = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
 
         // Deletes run after the commit so a rolled-back config can never end up
         // referencing a secret we already removed. Best-effort: a leftover secret
         // is harmless, so we log and continue rather than fail the saved config.
         await this.deleteConfigSecrets(applicationId, organizationId, secrets);
 
-        return result;
+        await this.sdkCapability.ensureManagedSharedSecretForConfig(applicationId, organizationId, saved.document);
+
+        return saved;
     }
 
     /** Validate secret app names against the document being saved, then upsert (AWS) before the DB commit. */
@@ -428,6 +430,7 @@ export class OnboardingManager {
         );
     }
 
+    /** Verify the preview is ready and advance `preview_verified` -> `diff_trigger`. */
     async completePreviewOnboarding(applicationId: string, organizationId: string) {
         this.logger.info("Completing preview onboarding", { applicationId, organizationId });
         const readiness = await this.getPreviewReadiness(applicationId, organizationId);
@@ -437,6 +440,18 @@ export class OnboardingManager {
 
         const state = await this.loadStateOrEarlier(applicationId, "preview_verified");
         await state.completePreviewOnboarding();
+        return this.getState(applicationId);
+    }
+
+    /**
+     * Go live: advance `diff_trigger` -> `completed` and seed the first
+     * generation on main. For BYO this is optimistic - the first real PR
+     * `deployment_status` self-confirms via `diffTriggerConfirmedAt`.
+     */
+    async goLive(applicationId: string, organizationId: string) {
+        this.logger.info("Going live", { applicationId, organizationId });
+        const state = await this.loadStateOrEarlier(applicationId, "diff_trigger");
+        await state.goLive();
         await this.enqueueGenerations(applicationId, organizationId);
         return this.getState(applicationId);
     }
@@ -449,9 +464,10 @@ export class OnboardingManager {
             select: {
                 id: true,
                 organizationId: true,
+                githubRepositoryId: true,
                 signingSecretEnc: true,
                 mainBranch: { select: { deploymentId: true, name: true } },
-                onboardingState: { select: { previewEnvironmentMode: true } },
+                onboardingState: { select: { previewEnvironmentMode: true, step: true, diffTriggerConfirmedAt: true } },
             },
         });
 
@@ -470,18 +486,31 @@ export class OnboardingManager {
             throw new ConflictError("Application is not configured for external deployment signals");
         }
 
-        // Only the main branch deploy backs the tracked preview/production URL.
-        // Signals for other branches are accepted but ignored, so a sender that
-        // reports every branch deploy doesn't clobber the tracked URL.
         const mainBranchName = application.mainBranch?.name;
         const branchIsProviderCommitRef = body.branch != null && isCommitSha(body.branch);
-        if (
+        const isNonMainBranch =
             body.branch != null &&
             mainBranchName != null &&
             body.branch !== mainBranchName &&
-            !branchIsProviderCommitRef
-        ) {
-            this.logger.info("Ignoring deployment signal for non-main branch", {
+            !branchIsProviderCommitRef;
+
+        if (body.prNumber != null && isNonMainBranch) {
+            const triggered = await this.triggerDiffsFromSignal(application.id, application.organizationId, {
+                repoId: application.githubRepositoryId ?? undefined,
+                prNumber: body.prNumber,
+                previewUrl: body.previewUrl,
+            });
+            if (triggered && application.onboardingState.diffTriggerConfirmedAt == null) {
+                await this.db.onboardingState.update({
+                    where: { applicationId: application.id },
+                    data: { diffTriggerConfirmedAt: new Date() },
+                });
+            }
+            return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: false };
+        }
+
+        if (isNonMainBranch) {
+            this.logger.info("Ignoring deployment signal for non-main branch with no PR number", {
                 applicationId: application.id,
                 signalBranch: body.branch,
                 mainBranch: mainBranchName,
@@ -494,8 +523,67 @@ export class OnboardingManager {
             organizationId: application.organizationId,
             previewUrl: body.previewUrl,
         });
+        if (application.onboardingState.step === "completed") {
+            await this.triggerDiffsFromSignal(application.id, application.organizationId, {
+                repoId: application.githubRepositoryId ?? undefined,
+                previewUrl: body.previewUrl,
+            });
+        }
 
         return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: false };
+    }
+
+    /**
+     * Fan a deployment signal out to diff analysis using the preview URL it
+     * carries. Best-effort: a diff-trigger failure must not fail the signal (the
+     * URL is already recorded). Returns whether a diff job was triggered.
+     */
+    private async triggerDiffsFromSignal(
+        applicationId: string,
+        organizationId: string,
+        params: { repoId?: number; prNumber?: number; previewUrl: string },
+    ): Promise<boolean> {
+        const diffsTrigger = this.options.diffsTrigger;
+        if (diffsTrigger == null || params.repoId == null) {
+            this.logger.info("Skipping diff trigger from signal (no diffs trigger or repo)", {
+                applicationId,
+                hasDiffsTrigger: diffsTrigger != null,
+                hasRepo: params.repoId != null,
+            });
+            return false;
+        }
+
+        const webhookUrl = buildSdkUrl(params.previewUrl);
+        try {
+            if (params.prNumber != null) {
+                await diffsTrigger.triggerPrDiffs({
+                    organizationId,
+                    repoId: params.repoId,
+                    prNumber: params.prNumber,
+                    url: params.previewUrl,
+                    webhookUrl,
+                });
+            } else {
+                await diffsTrigger.triggerMainDiffs({
+                    organizationId,
+                    repoId: params.repoId,
+                    url: params.previewUrl,
+                    webhookUrl,
+                });
+            }
+            this.logger.info("Triggered diff analysis from deployment signal", {
+                applicationId,
+                prNumber: params.prNumber,
+            });
+            return true;
+        } catch (err) {
+            this.logger.error("Failed to trigger diff analysis from deployment signal", {
+                applicationId,
+                prNumber: params.prNumber,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            return false;
+        }
     }
 
     async getDeploymentSignalStatus(applicationId: string, organizationId: string) {
@@ -525,39 +613,70 @@ export class OnboardingManager {
         };
     }
 
+    /**
+     * SDK capability: validate the customer's environment-factory endpoint via
+     * discover and persist it. Tracked outside the linear `step` (run from the
+     * Finish setup tab), so it never advances onboarding.
+     */
     async configureAndDiscoverScenarios(
         applicationId: string,
         organizationId: string,
         webhookUrl: string,
         signingSecret: string,
         webhookHeaders?: Record<string, string>,
-    ) {
-        this.logger.info("Configuring webhook for dry run", { applicationId });
-        const state = await this.loadStateOrEarlier(applicationId, "webhook_configuring");
-        return state.configureAndDiscoverScenarios(organizationId, webhookUrl, signingSecret, webhookHeaders);
-    }
-
-    /** Execute a scenario up + down cycle. Works from discovered or any later step. */
-    async runScenarioDryRun(applicationId: string, scenarioId: string) {
-        this.logger.info("Running scenario dry run", { applicationId, scenarioId });
-        const state = await this.loadStateOrEarlier(applicationId, "discovered");
-        return state.runScenarioDryRun(scenarioId);
-    }
-
-    /** Return to `webhook_configuring` so the user can edit URL/secret. */
-    async reconfigureWebhook(applicationId: string) {
-        this.logger.info("Reconfiguring webhook", { applicationId });
-        const state = await this.loadState(applicationId);
-        await state.reconfigureWebhook();
+    ): Promise<OnboardingStateView> {
+        this.logger.info("Configuring SDK endpoint and discovering scenarios", { applicationId });
+        await this.sdkCapability.configureAndDiscover(
+            applicationId,
+            organizationId,
+            webhookUrl,
+            signingSecret,
+            webhookHeaders,
+        );
         return this.getState(applicationId);
     }
 
-    /** Advance from `dry_run_passed` to `github`, optionally storing a production URL. */
-    async complete(applicationId: string, productionUrl?: string) {
-        this.logger.info("Advancing to github step", { applicationId, hasProductionUrl: productionUrl != null });
-        const state = await this.loadStateOrEarlier(applicationId, "dry_run_passed");
-        await state.complete(productionUrl);
-        return this.getState(applicationId);
+    async prepareSdkTarget(
+        applicationId: string,
+        organizationId: string,
+        targetId: string,
+    ): Promise<PrepareSdkTargetResult> {
+        this.logger.info("Preparing managed SDK target", { applicationId, targetId });
+        return this.sdkCapability.prepareManagedTarget(applicationId, organizationId, targetId);
+    }
+
+    async configureAndDiscoverSdkTarget(
+        applicationId: string,
+        organizationId: string,
+        targetId: string,
+    ): Promise<ConfigureAndDiscoverSdkTargetResult> {
+        this.logger.info("Configuring managed SDK target and discovering scenarios", { applicationId, targetId });
+        return this.sdkCapability.configureAndDiscoverTarget(applicationId, organizationId, targetId);
+    }
+
+    /**
+     * SDK capability: execute a scenario up + down cycle. Records `dryRunPassedAt`
+     * on success. When `targetId` is given, the dry run is pointed at that preview
+     * env (the auto-detected SDK PR or main); otherwise it reuses the last
+     * configured endpoint.
+     */
+    async runScenarioDryRun(
+        applicationId: string,
+        organizationId: string,
+        scenarioId: string,
+        targetId?: string,
+    ): Promise<ScenarioDryRunResult> {
+        this.logger.info("Running scenario dry run", { applicationId, scenarioId, extra: { targetId } });
+        return this.sdkCapability.runDryRun(applicationId, organizationId, scenarioId, targetId);
+    }
+
+    /**
+     * SDK capability: list the preview envs the dry-run can target (open-PR
+     * previews + main), flagging the auto-detected SDK implementation PR.
+     */
+    async listSdkDryRunTargets(applicationId: string, organizationId: string) {
+        this.logger.info("Listing SDK dry-run targets", { applicationId, organizationId });
+        return listSdkDryRunTargets(this.db, applicationId, organizationId);
     }
 
     /** Upsert the onboarding row and instantiate the matching state subclass. */
@@ -660,9 +779,34 @@ export class OnboardingManager {
         organizationId: string,
         appName: string,
     ): Promise<void> {
-        const config = await this.ensureActivePreviewkitConfig(applicationId, organizationId);
-        const app = config.apps.find((item) => item.name === appName);
-        if (app == null) {
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { activeConfigRevisionId: true },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        if (application.activeConfigRevisionId == null) {
+            throw new ConflictError("Save a valid PreviewKit config before managing secrets");
+        }
+
+        const revision = await this.db.previewkitConfigRevision.findFirst({
+            where: { id: application.activeConfigRevisionId, applicationId },
+            select: { document: true, dependencyDocuments: true },
+        });
+        if (revision == null) {
+            throw new ConflictError("Save a valid PreviewKit config before managing secrets");
+        }
+
+        const primary = previewConfigSchema.safeParse(revision.document);
+        if (!primary.success) {
+            throw new ConflictError(`Active PreviewKit config is invalid: ${z.prettifyError(primary.error)}`);
+        }
+
+        const { documents } = parseStoredDependencyDocuments(revision.dependencyDocuments);
+        const appNames = new Set([
+            ...primary.data.apps.map((app) => app.name),
+            ...documents.flatMap((dependency) => dependency.document.apps.map((app) => app.name)),
+        ]);
+        if (!appNames.has(appName)) {
             throw new NotFoundError(`PreviewKit app '${appName}' is not defined in the active config`);
         }
     }
@@ -733,3 +877,10 @@ export class OnboardingManager {
         }
     }
 }
+
+/**
+ * The resolved onboarding state returned by `getState`: the persisted row plus
+ * the derived flags (`sdkConfigured`, `setupComplete`, ...). `Awaited<...>`
+ * unwraps the promise so callers annotate a flat value, not `Promise<Promise<T>>`.
+ */
+export type OnboardingStateView = Awaited<ReturnType<OnboardingManager["getState"]>>;

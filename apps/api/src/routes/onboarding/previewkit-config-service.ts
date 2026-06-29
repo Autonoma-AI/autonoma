@@ -17,6 +17,7 @@ import {
     mergeConfigsForValidation,
     normalizeRepoPath,
     parseConfigShapeOrThrow,
+    parseStoredDependencyDocuments,
 } from "./previewkit-config-helpers";
 
 export interface OnboardingPreviewkitDependencyConfig {
@@ -96,6 +97,7 @@ export class PreviewkitConfigService {
                 id: true,
                 revision: true,
                 document: true,
+                dependencyDocuments: true,
             },
         });
         if (revision == null) {
@@ -118,73 +120,54 @@ export class PreviewkitConfigService {
             revisionId: revision.id,
             revision: revision.revision,
             document: validation.data,
-            dependencyConfigs: await this.loadDependencyConfigs(organizationId, validation.data),
+            dependencyConfigs: await this.loadDependencyConfigs(
+                applicationId,
+                organizationId,
+                validation.data,
+                revision.dependencyDocuments,
+            ),
         };
     }
 
     /**
-     * Resolves each dependency repo declared in the primary document onto the
-     * org's Application rows and their active config revisions. GitHub being
-     * unreachable degrades to unsaved entries (alias + repo only) - the config
-     * screen must stay usable without GitHub.
+     * Builds the dependency-config entries for each repo declared in the primary
+     * document's `config.multirepo.repos`, sourcing each config from the primary
+     * revision's stored `dependencyDocuments` (dependency repos are not separate
+     * Applications). GitHub is consulted only to resolve each repo's id for the
+     * UI; being unreachable degrades to entries without it. The owning
+     * `applicationId` is the primary app - dependency-app secrets live there.
      */
     private async loadDependencyConfigs(
+        primaryApplicationId: string,
         organizationId: string,
         primaryConfig: PreviewConfig,
+        storedDependencyDocuments: unknown,
     ): Promise<OnboardingPreviewkitDependencyConfig[]> {
         const repos = primaryConfig.config?.multirepo?.repos ?? [];
         if (repos.length === 0) return [];
 
+        const { documents, invalid } = parseStoredDependencyDocuments(storedDependencyDocuments);
+        if (invalid) {
+            this.logger.warn("Stored dependencyDocuments did not validate; treating as empty", {
+                organizationId,
+                applicationId: primaryApplicationId,
+            });
+        }
+        const documentByRepo = new Map(documents.map((entry) => [entry.repo, entry.document]));
         const repoByFullName = await this.resolveInstallationRepos(organizationId);
 
-        return await Promise.all(
-            repos.map(async (dep): Promise<OnboardingPreviewkitDependencyConfig> => {
-                const entry: OnboardingPreviewkitDependencyConfig = {
-                    name: dep.name,
-                    repo: dep.repo,
-                    saved: false,
-                };
-
-                const githubRepo = repoByFullName?.get(dep.repo);
-                if (githubRepo == null) return entry;
-                entry.githubRepositoryId = githubRepo.id;
-
-                const application = await this.db.application.findUnique({
-                    where: {
-                        organizationId_githubRepositoryId: {
-                            organizationId,
-                            githubRepositoryId: githubRepo.id,
-                        },
-                    },
-                    select: { id: true, activeConfigRevisionId: true },
-                });
-                if (application == null) return entry;
-                entry.applicationId = application.id;
-                if (application.activeConfigRevisionId == null) return entry;
-
-                const revision = await this.db.previewkitConfigRevision.findFirst({
-                    where: { id: application.activeConfigRevisionId, applicationId: application.id },
-                    select: { id: true, revision: true, document: true },
-                });
-                if (revision == null) return entry;
-
-                const parsed = previewConfigSchema.safeParse(revision.document);
-                if (!parsed.success) {
-                    this.logger.warn("Dependency repo has an invalid active config revision", {
-                        organizationId,
-                        repo: dep.repo,
-                        revisionId: revision.id,
-                    });
-                    return entry;
-                }
-
-                entry.saved = true;
-                entry.revisionId = revision.id;
-                entry.revision = revision.revision;
-                entry.document = parsed.data;
-                return entry;
-            }),
-        );
+        return repos.map((dep): OnboardingPreviewkitDependencyConfig => {
+            const document = documentByRepo.get(dep.repo);
+            const githubRepo = repoByFullName?.get(dep.repo);
+            return {
+                name: dep.name,
+                repo: dep.repo,
+                githubRepositoryId: githubRepo?.id,
+                applicationId: primaryApplicationId,
+                saved: document != null,
+                document,
+            };
+        });
     }
 
     /** Lists the org installation's repos keyed by full name; undefined when GitHub is unavailable. */
@@ -235,33 +218,28 @@ export class PreviewkitConfigService {
             throw new BadRequestError(`Invalid PreviewKit config: ${issueText}`);
         }
 
-        // One transaction for every revision so a multi-repo save can never
-        // activate the primary topology while a dependency's half is missing.
-        const created = await this.db.$transaction(async (tx) => {
-            const primary = await createAndActivateRevision(tx, applicationId, config);
-            const dependencyRows = await Promise.all(
-                dependencies.map(async (dependency) => ({
-                    dependency,
-                    row: await createAndActivateRevision(tx, dependency.applicationId, dependency.config),
-                })),
-            );
-            return { primary, dependencyRows };
-        });
+        const created = await this.db.$transaction((tx) =>
+            createAndActivateRevision(
+                tx,
+                applicationId,
+                config,
+                dependencies.map((dependency) => ({ repo: dependency.repo, document: dependency.config })),
+            ),
+        );
 
         return {
             applicationId,
             saved: true,
-            revisionId: created.primary.id,
-            revision: created.primary.revision,
+            revisionId: created.id,
+            revision: created.revision,
             document: config,
-            dependencyConfigs: created.dependencyRows.map(({ dependency, row }) => ({
+            dependencyConfigs: dependencies.map((dependency) => ({
                 name: dependency.alias,
                 repo: dependency.repo,
                 githubRepositoryId: dependency.githubRepositoryId,
-                applicationId: dependency.applicationId,
+                // Dependency-app secrets live under the primary Application.
+                applicationId,
                 saved: true,
-                revisionId: row.id,
-                revision: row.revision,
                 document: dependency.config,
             })),
         };
@@ -269,10 +247,9 @@ export class PreviewkitConfigService {
 
     /**
      * Validates each dependency document, checks merged-topology name uniqueness,
-     * and resolves (creating + linking when missing) the dependency repos'
-     * Application rows. Application creation happens outside the revision
-     * transaction - it's idempotent on retry, while revision activation must be
-     * all-or-nothing.
+     * and resolves each dependency repo's GitHub id (for the UI / clone). Does NOT
+     * create Applications - the dependency configs are stored on the primary
+     * revision and the deploy clones each repo for source only.
      */
     private async prepareDependencySaves(
         organizationId: string,
@@ -283,15 +260,13 @@ export class PreviewkitConfigService {
             alias: string;
             repo: string;
             githubRepositoryId: number;
-            applicationId: string;
             config: PreviewConfig;
         }>
     > {
         if (dependencyDocuments.length === 0) return [];
 
         const github = this.options.github;
-        const applications = this.options.applications;
-        if (github == null || applications == null) {
+        if (github == null) {
             throw new BadRequestError("GitHub is not configured for this environment");
         }
 
@@ -315,7 +290,6 @@ export class PreviewkitConfigService {
             alias: string;
             repo: string;
             githubRepositoryId: number;
-            applicationId: string;
             config: PreviewConfig;
         }> = [];
 
@@ -345,55 +319,15 @@ export class PreviewkitConfigService {
             }
             collectTopologyNames(config, dependencyDocument.repo, seenNames);
 
-            const applicationId = await this.findOrCreateDependencyApplication(organizationId, githubRepo);
             prepared.push({
                 alias,
                 repo: dependencyDocument.repo,
                 githubRepositoryId: githubRepo.id,
-                applicationId,
                 config,
             });
         }
 
         return prepared;
-    }
-
-    private async findOrCreateDependencyApplication(
-        organizationId: string,
-        repo: OnboardingGithubRepository,
-    ): Promise<string> {
-        const existing = await this.db.application.findUnique({
-            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repo.id } },
-            select: { id: true },
-        });
-        if (existing != null) return existing.id;
-
-        const applications = this.options.applications;
-        const github = this.options.github;
-        if (applications == null || github == null) {
-            throw new BadRequestError("GitHub is not configured for this environment");
-        }
-
-        this.logger.info("Creating Application for dependency repo", {
-            organizationId,
-            repo: repo.fullName,
-            githubRepositoryId: repo.id,
-        });
-
-        let created: { id: string };
-        try {
-            created = await applications.createMinimalApplication(repo.name, organizationId);
-        } catch (err) {
-            if (err instanceof ConflictError) {
-                // Application name collision - retry with the owner-qualified name.
-                created = await applications.createMinimalApplication(repo.fullName.replace("/", "-"), organizationId);
-            } else {
-                throw err;
-            }
-        }
-
-        await github.linkRepository(organizationId, created.id, repo.id);
-        return created.id;
     }
 
     /**

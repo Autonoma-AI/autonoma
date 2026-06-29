@@ -330,14 +330,58 @@ describe("EnvInjector", () => {
         );
     });
 
-    it("throws when {{name.url}} is used on a service (no public URL)", () => {
+    it("resolves {{name.url}} to the in-cluster connection string for a postgres service", () => {
         const configEnv = {
-            FAIL: "postgres://{{db.url}}",
+            DATABASE_URL: "{{db.url}}",
+        };
+
+        const resolved = injector.resolve(
+            configEnv,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
+        expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
+    });
+
+    it("resolves {{name.url}} to the redis:// connection string for a redis service", () => {
+        const configEnv = {
+            REDIS_URL: "{{cache.url}}",
+        };
+
+        const resolved = injector.resolve(
+            configEnv,
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
+        expect(resolved["REDIS_URL"]).toBe("redis://cache:6379");
+    });
+
+    it("throws when {{name.url}} is used on a service whose recipe defines no connection URL", () => {
+        // Temporal speaks gRPC and has no single-scheme connection string, so
+        // its recipe leaves `url` undefined - `{{temporal.url}}` must still throw.
+        const temporalServices: ServiceConfig[] = [
+            ...services,
+            {
+                name: "temporal",
+                recipe: "temporal",
+                env: {},
+                resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
+                options: undefined,
+            },
+        ];
+        const configEnv = {
+            FAIL: "{{temporal.url}}",
         };
 
         expect(() =>
-            injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
-        ).toThrow(/only available for apps/);
+            injector.resolve(configEnv, apps, temporalServices, "preview-ns", defaultContext, defaultPublicUrlInfo),
+        ).toThrow(/exposes no connection URL/);
     });
 
     it("applyTemplates exposes the same grammar without secret merging (used for build_args)", () => {

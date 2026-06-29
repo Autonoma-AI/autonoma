@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { NotFoundError } from "@autonoma/errors";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import { triggerRefinementLoop } from "@autonoma/workflow";
@@ -21,6 +22,51 @@ const fakeScenarioManager = {
 } as unknown as ScenarioManager;
 const fakeEncryption = new EncryptionHelper("0".repeat(64));
 
+/**
+ * Seed an application so all four artifacts are "received" (a scenario with an
+ * active recipe version + qa-tests/AUTONOMA.md/scenarios.md file events) under a
+ * setup with the given currentStep/status, to exercise the artifactsUploaded
+ * discriminator (manual upload vs CLI run).
+ */
+async function seedReceivedArtifacts(
+    harness: OnboardingTestHarness,
+    appId: string,
+    orgId: string,
+    setup: { status: string },
+): Promise<void> {
+    // Recipe received: a scenario with an active recipe version (also creates the
+    // snapshot the recipe version needs).
+    await harness.seedScenarioWithRecipe(appId, orgId);
+
+    const user = await harness.db.user.create({
+        data: { name: "Artifacts User", email: `artifacts-${appId}@example.com` },
+    });
+    const setupRow = await harness.db.applicationSetup.create({
+        data: {
+            applicationId: appId,
+            organizationId: orgId,
+            userId: user.id,
+            status: setup.status,
+        },
+    });
+    // tests / kb / scenarios received: file.created events on the setup.
+    await harness.db.applicationSetupEvent.createMany({
+        data: [
+            { setupId: setupRow.id, type: "file.created", data: { filePath: "autonoma/qa-tests/home.md" } },
+            { setupId: setupRow.id, type: "file.created", data: { filePath: "AUTONOMA.md" } },
+            { setupId: setupRow.id, type: "file.created", data: { filePath: "scenarios.md" } },
+        ],
+    });
+}
+const DISCOVER_RESPONSE = {
+    schema: {
+        models: [{ name: "User", fields: [] }],
+        edges: [],
+        relations: [],
+        scopeField: "organizationId",
+    },
+};
+
 integrationTestSuite({
     name: "OnboardingManager",
     createHarness: () => OnboardingTestHarness.create(),
@@ -33,29 +79,12 @@ integrationTestSuite({
         test("getState upserts if no record exists", async ({ seedResult: { manager, createApp } }) => {
             const appId = await createApp();
             const state = await manager.getState(appId);
-            expect(state.step).toBe("webhook_configuring");
+            expect(state.step).toBe("github");
             expect(state.agentConnectedAt).toBeNull();
             expect(state.completedAt).toBeNull();
         });
 
-        test("getState recovers a stale discovering state", async ({ seedResult: { manager, createApp }, harness }) => {
-            const appId = await createApp();
-            await harness.db.onboardingState.create({
-                data: {
-                    applicationId: appId,
-                    step: "discovering",
-                    discoveringStartedAt: new Date(Date.now() - 3 * 60 * 1000),
-                },
-            });
-
-            const state = await manager.getState(appId);
-
-            expect(state.step).toBe("webhook_configuring");
-            expect(state.discoveringStartedAt).toBeNull();
-            expect(state.lastDiscoveryError).toBe("Discovery timed out or crashed. Please retry.");
-        });
-
-        test("getState keeps a recent discovering state in progress", async ({
+        test("getState clears a stale in-flight discover capability", async ({
             seedResult: { manager, createApp },
             harness,
         }) => {
@@ -63,19 +92,47 @@ integrationTestSuite({
             await harness.db.onboardingState.create({
                 data: {
                     applicationId: appId,
-                    step: "discovering",
+                    step: "github",
+                    discoveringStartedAt: new Date(Date.now() - 3 * 60 * 1000),
+                },
+            });
+
+            const state = await manager.getState(appId);
+
+            // Discover is a capability, not a step: the step is untouched, only the
+            // stuck in-flight flag is cleared.
+            expect(state.step).toBe("github");
+            expect(state.discoveringStartedAt).toBeNull();
+            expect(state.discoveryInProgress).toBe(false);
+            expect(state.lastDiscoveryError).toBe("Discovery timed out or crashed. Please retry.");
+        });
+
+        test("getState keeps a recent in-flight discover capability in progress", async ({
+            seedResult: { manager, createApp },
+            harness,
+        }) => {
+            const appId = await createApp();
+            await harness.db.onboardingState.create({
+                data: {
+                    applicationId: appId,
+                    step: "github",
                     discoveringStartedAt: new Date(Date.now() - 30 * 1000),
                 },
             });
 
             const state = await manager.getState(appId);
 
-            expect(state.step).toBe("discovering");
             expect(state.discoveryInProgress).toBe(true);
             expect(state.lastDiscoveryError).toBeNull();
         });
 
-        test("full onboarding flow: webhook_configuring -> dry_run_passed -> github -> preview_verified -> completed", async ({
+        test("listSdkDryRunTargets throws for an unknown or unauthorized application", async ({
+            seedResult: { manager, orgId },
+        }) => {
+            await expect(manager.listSdkDryRunTargets("does-not-exist", orgId)).rejects.toThrow(NotFoundError);
+        });
+
+        test("full onboarding flow: github -> preview_environment -> preview_verified -> diff_trigger -> completed", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -83,15 +140,8 @@ integrationTestSuite({
 
             await harness.seedScenarioWithRecipe(appId, orgId);
 
-            // Advance to dry_run_passed
-            await harness.db.onboardingState.upsert({
-                where: { applicationId: appId },
-                create: { applicationId: appId, step: "dry_run_passed" },
-                update: { step: "dry_run_passed" },
-            });
-            const afterComplete = await manager.complete(appId, "https://example.com");
-            expect(afterComplete.step).toBe("github");
-            expect(afterComplete.productionUrl).toBe("https://example.com");
+            // Add app: a row starts at github now that SDK + CLI moved out.
+            expect((await manager.getState(appId)).step).toBe("github");
 
             await linkRepository(harness, appId, 91_001);
             const afterGithub = await manager.completeGithub(appId, orgId);
@@ -111,47 +161,38 @@ integrationTestSuite({
             expect(afterSignal.step).toBe("preview_verified");
             expect(afterSignal.previewUrl).toBe("https://preview.example.com");
 
+            // Preview verified -> diff_trigger (not yet completed).
             const afterPreview = await manager.completePreviewOnboarding(appId, orgId);
-            expect(afterPreview.step).toBe("completed");
-            expect(afterPreview.completedAt).not.toBeNull();
+            expect(afterPreview.step).toBe("diff_trigger");
+            expect(afterPreview.completedAt).toBeNull();
+
+            // Go live -> completed.
+            const afterLive = await manager.goLive(appId, orgId);
+            expect(afterLive.step).toBe("completed");
+            expect(afterLive.completedAt).not.toBeNull();
         });
 
-        test("cannot complete from webhook_configuring step", async ({
+        test("cannot go live before the preview is verified", async ({
             harness,
-            seedResult: { manager, createApp },
+            seedResult: { orgId, manager, createApp },
         }) => {
             const appId = await createApp();
+            await linkRepository(harness, appId, 91_021);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
-                create: { applicationId: appId, step: "webhook_configuring" },
-                update: { step: "webhook_configuring" },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
             });
-            await expect(manager.complete(appId)).rejects.toThrow(InvalidOnboardingStepError);
+            await expect(manager.goLive(appId, orgId)).rejects.toThrow(InvalidOnboardingStepError);
         });
 
-        test("cannot set url from webhook_configuring step", async ({
+        test("completeGithub remains callable from a completed onboarding", async ({
             harness,
-            seedResult: { manager, createApp },
+            seedResult: { orgId, manager, createApp },
         }) => {
-            const appId = await createApp();
-            await harness.db.onboardingState.upsert({
-                where: { applicationId: appId },
-                create: { applicationId: appId, step: "webhook_configuring" },
-                update: { step: "webhook_configuring" },
-            });
-            await expect(manager.setUrl(appId, "https://example.com")).rejects.toThrow(InvalidOnboardingStepError);
-        });
-
-        test("cannot advance from completed step", async ({ harness, seedResult: { orgId, manager, createApp } }) => {
             const appId = await createApp();
             await harness.seedScenarioWithRecipe(appId, orgId);
             await linkRepository(harness, appId, 91_002);
-            await harness.db.onboardingState.upsert({
-                where: { applicationId: appId },
-                create: { applicationId: appId, step: "dry_run_passed" },
-                update: { step: "dry_run_passed" },
-            });
-            await manager.complete(appId);
             await manager.completeGithub(appId, orgId);
             await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
             await manager.acceptDeploymentSignal({
@@ -162,11 +203,9 @@ integrationTestSuite({
                 ),
             });
             await manager.completePreviewOnboarding(appId, orgId);
+            await manager.goLive(appId, orgId);
 
-            // Backwards-compatible operations should succeed from completed step.
-            // setUrl moves state to github via loadStateOrEarlier
-            await expect(manager.setUrl(appId, "https://x.com")).resolves.toBeDefined();
-            // completeGithub moves forward to preview_environment.
+            // Backwards-compatible operation should still succeed from completed.
             await expect(manager.completeGithub(appId, orgId)).resolves.toBeDefined();
         });
 
@@ -531,6 +570,7 @@ integrationTestSuite({
                 previewkitClient: {
                     isConfigured: () => true,
                     deployApplicationMain: async () => undefined,
+                    redeploy: async () => undefined,
                 },
             });
             await harness.db.onboardingState.upsert({
@@ -860,7 +900,7 @@ integrationTestSuite({
             expect(state.step).toBe("existing_deploys_configuring");
         });
 
-        test("completePreviewOnboarding enqueues generations from preview_verified", async ({
+        test("goLive enqueues generations and completes from diff_trigger", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -898,9 +938,14 @@ integrationTestSuite({
                 },
             });
 
-            const state = await manager.completePreviewOnboarding(appId, orgId);
+            // Verifying the preview moves to diff_trigger without seeding generations.
+            const verified = await manager.completePreviewOnboarding(appId, orgId);
+            expect(verified.step).toBe("diff_trigger");
+            expect(triggerRefinementLoop).not.toHaveBeenCalled();
 
-            expect(state.step).toBe("completed");
+            // Going live completes onboarding and seeds the first generation on main.
+            const live = await manager.goLive(appId, orgId);
+            expect(live.step).toBe("completed");
             expect(triggerRefinementLoop).toHaveBeenCalledWith({
                 snapshotId: pendingSnapshot.id,
                 triggeredBy: "onboarding",
@@ -924,17 +969,648 @@ integrationTestSuite({
             ).rejects.toThrow(OnboardingApplicationNotFoundError);
         });
 
-        test("runScenarioDryRun throws InvalidOnboardingStepError from webhook_configuring", async ({
+        test("deployment signal with a prNumber triggers PR diffs and self-confirms the BYO wiring", async ({
             harness,
-            seedResult: { manager, createApp },
+            seedResult: { createApp },
         }) => {
             const appId = await createApp();
+            await linkRepository(harness, appId, 91_031);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
-                create: { applicationId: appId, step: "webhook_configuring" },
-                update: { step: "webhook_configuring" },
+                create: { applicationId: appId, step: "completed", previewEnvironmentMode: "existing_deploys" },
+                update: { step: "completed", previewEnvironmentMode: "existing_deploys" },
             });
-            await expect(manager.runScenarioDryRun(appId, "some-scenario")).rejects.toThrow(InvalidOnboardingStepError);
+            const diffsTrigger = {
+                triggerMainDiffs: vi.fn(async () => ({ snapshotId: "main-snap" })),
+                triggerPrDiffs: vi.fn(async () => ({ snapshotId: "pr-snap" })),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, { diffsTrigger });
+            const bodyText = JSON.stringify({
+                applicationId: appId,
+                previewUrl: "https://pr-42.example.com",
+                branch: "feature/login",
+                prNumber: 42,
+            });
+
+            const result = await manager.acceptDeploymentSignal({
+                bodyText,
+                signature: deploymentSignalSignature(bodyText, "shared-secret"),
+            });
+
+            expect(result.ignored).toBe(false);
+            expect(diffsTrigger.triggerPrDiffs).toHaveBeenCalledWith({
+                organizationId: expect.any(String),
+                repoId: 91_031,
+                prNumber: 42,
+                url: "https://pr-42.example.com",
+                webhookUrl: "https://pr-42.example.com/api/autonoma",
+            });
+            expect(diffsTrigger.triggerMainDiffs).not.toHaveBeenCalled();
+            const state = await manager.getState(appId);
+            expect(state.diffTriggerConfirmedAt).not.toBeNull();
+            // The PR preview URL must not clobber the tracked main preview URL.
+            expect(state.previewUrl).toBeNull();
+        });
+
+        test("a completed main-branch signal keeps the suite fresh by triggering main diffs", async ({
+            harness,
+            seedResult: { createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_032);
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "completed", previewEnvironmentMode: "existing_deploys" },
+                update: { step: "completed", previewEnvironmentMode: "existing_deploys" },
+            });
+            const diffsTrigger = {
+                triggerMainDiffs: vi.fn(async () => ({ snapshotId: "main-snap" })),
+                triggerPrDiffs: vi.fn(async () => ({ snapshotId: "pr-snap" })),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, { diffsTrigger });
+            const bodyText = deploymentSignalBody(appId, "https://main-preview.example.com");
+
+            await manager.acceptDeploymentSignal({
+                bodyText,
+                signature: deploymentSignalSignature(bodyText, "shared-secret"),
+            });
+
+            expect(diffsTrigger.triggerMainDiffs).toHaveBeenCalledWith({
+                organizationId: expect.any(String),
+                repoId: 91_032,
+                url: "https://main-preview.example.com",
+                webhookUrl: "https://main-preview.example.com/api/autonoma",
+            });
+            expect(diffsTrigger.triggerPrDiffs).not.toHaveBeenCalled();
+            const state = await manager.getState(appId);
+            expect(state.previewUrl).toBe("https://main-preview.example.com");
+        });
+
+        test("a main-branch signal during onboarding records the URL without triggering main diffs", async ({
+            harness,
+            seedResult: { createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_033);
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: {
+                    applicationId: appId,
+                    step: "existing_deploys_waiting",
+                    previewEnvironmentMode: "existing_deploys",
+                },
+                update: { step: "existing_deploys_waiting", previewEnvironmentMode: "existing_deploys" },
+            });
+            const diffsTrigger = {
+                triggerMainDiffs: vi.fn(async () => ({ snapshotId: "main-snap" })),
+                triggerPrDiffs: vi.fn(async () => ({ snapshotId: "pr-snap" })),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, { diffsTrigger });
+            const bodyText = deploymentSignalBody(appId, "https://onboarding-preview.example.com");
+
+            await manager.acceptDeploymentSignal({
+                bodyText,
+                signature: deploymentSignalSignature(bodyText, "shared-secret"),
+            });
+
+            expect(diffsTrigger.triggerMainDiffs).not.toHaveBeenCalled();
+            const state = await manager.getState(appId);
+            expect(state.step).toBe("preview_verified");
+            expect(state.previewUrl).toBe("https://onboarding-preview.example.com");
+        });
+
+        test("listSdkDryRunTargets returns the main env and auto-detects the SDK PR", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await manager.getState(appId);
+            // An open PR implementing the SDK, with its own preview deployment.
+            const prBranch = await harness.db.branch.create({
+                data: {
+                    name: "ignacio/feat-autonoma-sdk",
+                    applicationId: appId,
+                    organizationId: orgId,
+                    prInfo: {
+                        create: {
+                            applicationId: appId,
+                            prNumber: 7,
+                            prTitle: "feat: autonoma-sdk endpoint",
+                            prState: "open",
+                        },
+                    },
+                },
+            });
+            const prDeployment = await harness.db.branchDeployment.create({
+                data: {
+                    branchId: prBranch.id,
+                    organizationId: orgId,
+                    webDeployment: { create: { url: "https://pr-7.example.com", file: "", organizationId: orgId } },
+                },
+            });
+            await harness.db.branch.update({
+                where: { id: prBranch.id },
+                data: { deploymentId: prDeployment.id },
+            });
+
+            const result = await manager.listSdkDryRunTargets(appId, orgId);
+
+            const main = result.targets.find((t) => t.kind === "main");
+            expect(main?.sdkUrl).toBe("https://placeholder.example.com/api/autonoma");
+            expect(main?.source).toBe("external");
+            expect(main?.requiresSharedSecretInput).toBe(true);
+            const prTarget = result.targets.find((t) => t.id === "pr-7");
+            expect(prTarget?.isAutoDetected).toBe(true);
+            expect(prTarget?.sdkUrl).toBe("https://pr-7.example.com/api/autonoma");
+            expect(prTarget?.source).toBe("external");
+            expect(prTarget?.requiresSharedSecretInput).toBe(true);
+            expect(result.autoDetectedTargetId).toBe("pr-7");
+        });
+
+        test("listSdkDryRunTargets includes managed PreviewKit metadata and uses the primary app URL", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await manager.getState(appId);
+            const repoId = 778_899;
+            await harness.db.application.update({ where: { id: appId }, data: { githubRepositoryId: repoId } });
+            // A deployed PR preview exists, but the diffs flow has not created a
+            // branch/prInfo row for it yet - it must still be selectable.
+            const environment = await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-no-branch-${appId}-pr-9`,
+                    repoFullName: "acme/app",
+                    prNumber: 9,
+                    headSha: "sha-9",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    urls: {
+                        api: "https://api-pr-9.preview.example.com",
+                        web: "https://web-pr-9.preview.example.com",
+                    },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [
+                            { name: "api", path: "apps/api", port: 4000 },
+                            { name: "web", path: "apps/web", port: 3000, primary: true },
+                        ],
+                    },
+                },
+            });
+
+            const result = await manager.listSdkDryRunTargets(appId, orgId);
+
+            const prTarget = result.targets.find((t) => t.id === "pr-9");
+            expect(prTarget?.source).toBe("previewkit");
+            expect(prTarget?.environmentId).toBe(environment.id);
+            expect(prTarget?.sdkAppName).toBe("web");
+            expect(prTarget?.status).toBe("ready");
+            expect(prTarget?.requiresSharedSecretInput).toBe(false);
+            expect(prTarget?.previewUrl).toBe("https://web-pr-9.preview.example.com");
+            expect(prTarget?.sdkUrl).toBe("https://web-pr-9.preview.example.com/api/autonoma");
+            // Auto-detected from the env's headRef even without a tracked PR title.
+            expect(prTarget?.isAutoDetected).toBe(true);
+            expect(prTarget?.label).toBe("feat-autonoma-sdk");
+            expect(result.autoDetectedTargetId).toBe("pr-9");
+        });
+
+        test("configureAndDiscoverSdkTarget validates via discover without touching secrets or redeploying", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_901;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({
+                data: {
+                    applicationId: appId,
+                    step: "github",
+                    lastDiscoveryError: "stale error from a previous attempt",
+                },
+            });
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-8`,
+                    repoFullName: "acme/app",
+                    prNumber: 8,
+                    headSha: "sha-8",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    bypassToken: "bypass-token",
+                    urls: { web: "https://web-pr-8.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            const secretsService = {
+                list: vi.fn(async () => [{ key: "AUTONOMA_SIGNING_SECRET", maskedLength: 32, updatedAt: new Date() }]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+                return new Response(JSON.stringify(DISCOVER_RESPONSE), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                });
+            });
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                const result = await manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-8");
+
+                expect(result.status).toBe("discovered");
+                // Validate only validates - prepareSdkTarget owns secret provisioning,
+                // so discover never reads or writes PreviewKit secrets.
+                expect(secretsService.upsert).not.toHaveBeenCalled();
+                expect(secretsService.list).not.toHaveBeenCalled();
+                expect(fetchMock).toHaveBeenCalledTimes(1);
+                expect(fetchMock.mock.calls[0]?.[0]).toBe("https://web-pr-8.preview.example.com/api/autonoma");
+                expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+                    "x-previewkit-bypass": "bypass-token",
+                });
+
+                const application = await harness.db.application.findUniqueOrThrow({
+                    where: { id: appId },
+                    select: {
+                        onboardingState: { select: { lastDiscoveredModels: true, lastDiscoveryError: true } },
+                        mainBranch: { select: { deployment: { select: { webhookUrl: true, webhookHeaders: true } } } },
+                    },
+                });
+                expect(application.onboardingState?.lastDiscoveredModels).toBe(1);
+                expect(application.onboardingState?.lastDiscoveryError).toBeNull();
+                expect(application.mainBranch?.deployment?.webhookUrl).toBe(
+                    "https://web-pr-8.preview.example.com/api/autonoma",
+                );
+                expect(application.mainBranch?.deployment?.webhookHeaders).toMatchObject({
+                    "x-previewkit-bypass": "bypass-token",
+                });
+                expect(previewkitClient.redeploy).not.toHaveBeenCalled();
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("prepareSdkTarget generates AUTONOMA_SIGNING_SECRET when missing and redeploys", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_904;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-11`,
+                    repoFullName: "acme/app",
+                    prNumber: 11,
+                    headSha: "sha-11",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-11.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // Only the shared secret exists; the signing secret must be generated.
+            const secretsService = {
+                list: vi.fn(async () => [{ key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() }]),
+                upsert: vi.fn(
+                    async (_applicationId: string, _appName: string, items: { key: string; value: string }[]) => ({
+                        created: items.some((item) => item.key === "AUTONOMA_SIGNING_SECRET"),
+                        changed: items.some((item) => item.key === "AUTONOMA_SIGNING_SECRET"),
+                    }),
+                ),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            const fetchMock = vi.fn(async () => new Response(JSON.stringify(DISCOVER_RESPONSE), { status: 200 }));
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                const result = await manager.prepareSdkTarget(appId, orgId, "pr-11");
+
+                expect(result.status).toBe("redeploy_started");
+                const signingCall = secretsService.upsert.mock.calls.find((call) =>
+                    call[2].some((item) => item.key === "AUTONOMA_SIGNING_SECRET"),
+                );
+                const generated = signingCall?.[2].find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
+                expect(generated).toMatch(/^[0-9a-f]{64}$/);
+                expect(generated).not.toBe("shared-secret");
+                expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 11, orgId);
+                // Prepare provisions secrets only - it never discovers.
+                expect(fetchMock).not.toHaveBeenCalled();
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("prepareSdkTarget is a no-op when both managed secrets already exist", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_905;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-12`,
+                    repoFullName: "acme/app",
+                    prNumber: 12,
+                    headSha: "sha-12",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-12.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // Both secrets already present, and the shared upsert reports no change.
+            const secretsService = {
+                list: vi.fn(async () => [
+                    { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
+                    { key: "AUTONOMA_SIGNING_SECRET", maskedLength: 64, updatedAt: new Date() },
+                ]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+
+            const result = await manager.prepareSdkTarget(appId, orgId, "pr-12");
+
+            expect(result.status).toBe("ready");
+            // Only the shared secret is re-asserted; the existing signing secret is left untouched.
+            expect(secretsService.upsert).toHaveBeenCalledTimes(1);
+            expect(secretsService.upsert).toHaveBeenCalledWith(
+                appId,
+                "web",
+                [{ key: "AUTONOMA_SHARED_SECRET", value: "shared-secret" }],
+                orgId,
+            );
+            expect(previewkitClient.redeploy).not.toHaveBeenCalled();
+        });
+
+        test("prepareSdkTarget redeploys a stale preview whose secrets were provisioned after its deploy", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_906;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            // Deployed an hour ago...
+            const deployedAt = new Date(Date.now() - 60 * 60 * 1000);
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-13`,
+                    repoFullName: "acme/app",
+                    prNumber: 13,
+                    headSha: "sha-13",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt,
+                    urls: { web: "https://web-pr-13.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // ...but the secret bundle row is newer than the deploy, so the running
+            // pod booted before these secrets and is stale.
+            await harness.db.previewkitSecret.create({
+                data: { applicationId: appId, appName: "web", awsSecretArn: "arn:aws:secretsmanager:test:web" },
+            });
+            // Both secrets already exist; nothing changes on this prepare call.
+            const secretsService = {
+                list: vi.fn(async () => [
+                    { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
+                    { key: "AUTONOMA_SIGNING_SECRET", maskedLength: 64, updatedAt: new Date() },
+                ]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+
+            const result = await manager.prepareSdkTarget(appId, orgId, "pr-13");
+
+            // Stale-vs-secrets must redeploy even though no secret changed.
+            expect(result.status).toBe("redeploy_started");
+            expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 13, orgId);
+        });
+
+        test("savePreviewkitConfig mounts BOTH managed secrets on the primary PreviewKit app", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 778_903);
+            // No secrets exist yet, so both the shared and signing secret must be written.
+            const secretsService = {
+                list: vi.fn(async () => []),
+                upsert: vi.fn(async () => ({ created: true, changed: true })),
+                delete: vi.fn(async () => true),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+            });
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
+            });
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
+
+            await manager.savePreviewkitConfig(appId, orgId, {
+                version: 1,
+                apps: [
+                    { name: "web", path: "apps/web", port: 3000 },
+                    { name: "api", path: "apps/api", port: 4000, primary: true },
+                ],
+            });
+
+            // The shared secret is mounted so Autonoma's HMAC verifies...
+            expect(secretsService.upsert).toHaveBeenCalledWith(
+                appId,
+                "api",
+                [{ key: "AUTONOMA_SHARED_SECRET", value: "shared-secret" }],
+                orgId,
+            );
+            // ...and a distinct signing secret is generated and mounted in the same
+            // save, so the preview's first deploy mounts both (no signing-secret gap).
+            const signingCall = secretsService.upsert.mock.calls.find((call) =>
+                call[2].some((item) => item.key === "AUTONOMA_SIGNING_SECRET"),
+            );
+            expect(signingCall).toBeDefined();
+            const generated = signingCall?.[2].find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
+            expect(generated).toMatch(/^[0-9a-f]{64}$/);
+            expect(generated).not.toBe("shared-secret");
+        });
+
+        test("setupComplete derives from sdk + artifacts + dry-run", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+
+            const initial = await manager.getState(appId);
+            expect(initial.sdkConfigured).toBe(false);
+            expect(initial.dryRunPassed).toBe(false);
+            expect(initial.artifactsUploaded).toBe(false);
+            expect(initial.setupComplete).toBe(false);
+
+            // SDK validated + dry-run passed, but the CLI artifacts are not uploaded
+            // yet -> still not complete (all three are compulsory).
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { lastDiscoveredAt: new Date(), dryRunPassedAt: new Date() },
+            });
+            const partial = await manager.getState(appId);
+            expect(partial.sdkConfigured).toBe(true);
+            expect(partial.dryRunPassed).toBe(true);
+            expect(partial.artifactsUploaded).toBe(false);
+            expect(partial.setupComplete).toBe(false);
+
+            // Latest artifact setup marked completed -> all three done -> complete.
+            const user = await harness.db.user.create({
+                data: { name: "Setup User", email: `setup-${Date.now()}@example.com` },
+            });
+            await harness.db.applicationSetup.create({
+                data: { applicationId: appId, organizationId: orgId, userId: user.id, status: "completed" },
+            });
+            const complete = await manager.getState(appId);
+            expect(complete.artifactsUploaded).toBe(true);
+            expect(complete.setupComplete).toBe(true);
+        });
+
+        test("setupComplete is true when the app already has recipes + tests, without the capability steps", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+
+            // A freshly-onboarded app with no content is not yet set up.
+            expect((await manager.getState(appId)).setupComplete).toBe(false);
+
+            // Establish content: a scenario (recipe) and a test case.
+            await harness.db.scenario.create({
+                data: { applicationId: appId, organizationId: orgId, name: "Checkout flow" },
+            });
+            const folder = await harness.db.folder.create({
+                data: { applicationId: appId, organizationId: orgId, name: "Default" },
+            });
+            await harness.db.testCase.create({
+                data: {
+                    applicationId: appId,
+                    organizationId: orgId,
+                    folderId: folder.id,
+                    name: "Homepage",
+                    slug: "homepage",
+                },
+            });
+
+            const state = await manager.getState(appId);
+            expect(state.hasContent).toBe(true);
+            // Operational despite none of the three deepening steps being done.
+            expect(state.sdkConfigured).toBe(false);
+            expect(state.artifactsUploaded).toBe(false);
+            expect(state.dryRunPassed).toBe(false);
+            expect(state.setupComplete).toBe(true);
+        });
+
+        test("hasContent requires both recipes and tests - test cases alone do not complete setup", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            const folder = await harness.db.folder.create({
+                data: { applicationId: appId, organizationId: orgId, name: "Default" },
+            });
+            await harness.db.testCase.create({
+                data: {
+                    applicationId: appId,
+                    organizationId: orgId,
+                    folderId: folder.id,
+                    name: "Homepage",
+                    slug: "homepage",
+                },
+            });
+
+            const state = await manager.getState(appId);
+            expect(state.hasContent).toBe(false);
+            expect(state.setupComplete).toBe(false);
+        });
+
+        test("artifactsUploaded stays false while the setup is still running, even with all artifacts received", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await seedReceivedArtifacts(harness, appId, orgId, { status: "running" });
+
+            expect((await manager.getState(appId)).artifactsUploaded).toBe(false);
+        });
+
+        test("artifactsUploaded is true once the setup is marked completed", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await seedReceivedArtifacts(harness, appId, orgId, { status: "completed" });
+
+            expect((await manager.getState(appId)).artifactsUploaded).toBe(true);
         });
 
         test("DryRunSubject.resolveDeployment throws OnboardingSdkNotConfiguredError when SDK not configured", async ({

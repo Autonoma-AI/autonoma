@@ -9,6 +9,7 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
+import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
 
 /**
  * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
@@ -113,7 +114,7 @@ export class PreviewkitSecretsService {
         appName: string,
         items: SecretItem[],
         callerOrgId: string | undefined,
-    ): Promise<void> {
+    ): Promise<PreviewkitSecretsUpsertResult> {
         if (items.length === 0) {
             throw new Error("Refusing to upsert: items must contain at least one entry");
         }
@@ -130,8 +131,10 @@ export class PreviewkitSecretsService {
 
         if (existing == null) {
             await this.createAppSecret(app, app.organization.slug, appName, items);
+            return { created: true, changed: true };
         } else {
-            await this.mergeIntoSecret(existing.awsSecretArn, items);
+            const changed = await this.mergeIntoSecret(existing.awsSecretArn, items);
+            return { created: false, changed };
         }
     }
 
@@ -230,8 +233,10 @@ export class PreviewkitSecretsService {
         this.logger.info("AWS secret created and registered", { applicationId: app.id, appName, arn });
     }
 
-    private async mergeIntoSecret(awsSecretArn: string, items: SecretItem[]): Promise<void> {
+    private async mergeIntoSecret(awsSecretArn: string, items: SecretItem[]): Promise<boolean> {
         const values = await this.fetchSecretValue(awsSecretArn);
+        const changed = items.some((item) => values[item.key] !== item.value);
+        if (!changed) return false;
 
         for (const item of items) {
             values[item.key] = item.value;
@@ -243,6 +248,7 @@ export class PreviewkitSecretsService {
                 SecretString: JSON.stringify(values),
             }),
         );
+        return true;
     }
 
     private async fetchSecretValue(secretArn: string): Promise<Record<string, string>> {

@@ -14,27 +14,24 @@ import { ensureSessionData } from "lib/query/auth.queries";
 import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
 import { Component, useState, type ReactNode } from "react";
-import { CliSetupPage } from "./-cli-setup";
 import { StepProgress } from "./-components/step-progress";
+import { AddAppPage } from "./add-app";
 import { CompletePage } from "./complete";
+import { DiffTriggerPage } from "./diff-trigger";
 import { ExistingDeploysPage } from "./existing-deploys";
-import { GitHubPage } from "./github";
 import { PreviewDeployVerifyPage } from "./preview-deploy-verify";
 import { PreviewEnvironmentPage } from "./preview-environment";
 import { PreviewkitConfigPage } from "./previewkit-config";
-import { DeployPage } from "./scenario-dry-run";
 
 function mapBackendStepToViewStep(step: string | undefined): OnboardingStep {
-  if (step === "webhook_configuring" || step === "discovering" || step === "discovered" || step === "dry_run_passed")
-    return "scenario-dry-run";
-  if (step === "url") return "github";
-  if (step === "github") return "github";
   if (step === "preview_environment") return "preview-environment";
   if (step === "previewkit_configuring") return "previewkit-config";
   if (step === "existing_deploys_configuring" || step === "existing_deploys_waiting") return "existing-deploys";
   if (step === "previewkit_deploying" || step === "preview_verified") return "deploy-verify";
+  if (step === "diff_trigger") return "diff-trigger";
   if (step === "completed") return "complete";
-  return "cli-setup";
+  // "github" (Add app) and any legacy SDK/CLI step start at the merged Add app step.
+  return "add-app";
 }
 
 export const Route = createFileRoute("/_blacklight/onboarding")({
@@ -42,6 +39,8 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
   validateSearch: (search: Record<string, unknown>) => {
     const step = typeof search.step === "string" && isOnboardingStep(search.step) ? search.step : undefined;
     const appId = typeof search.appId === "string" ? search.appId : undefined;
+    // A GitHub OAuth/App-install callback can redirect back here with an error.
+    const error = typeof search.error === "string" ? search.error : undefined;
     // The CLI upload credentials for the setup step live in the URL (not
     // localStorage) so a refresh keeps the same setup the CLI uploads to.
     const apiKey = typeof search.apiKey === "string" ? search.apiKey : undefined;
@@ -51,7 +50,7 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     const focusApp = typeof search.focusApp === "string" ? search.focusApp : undefined;
     const focusField = typeof search.focusField === "string" ? search.focusField : undefined;
     const focusSection = readFocusSection(search.focusSection);
-    return { step, appId, apiKey, setupId, focusApp, focusField, focusSection };
+    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection };
   },
   loader: async ({ context: { queryClient }, location }) => {
     const session = await ensureSessionData(queryClient);
@@ -86,15 +85,8 @@ function resolveViewStep(
 ): OnboardingStep {
   const backendViewStep = mapBackendStepToViewStep(backendStep);
   if (backendStep === "completed" && hasApplication) return backendViewStep;
-  if (isSdkBackendStep(backendStep) && requestedStep !== "cli-setup" && requestedStep !== "scenario-dry-run") {
-    return backendViewStep;
-  }
   if (requestedStep == null) return backendViewStep;
   return requestedStep;
-}
-
-function isSdkBackendStep(step: string | undefined): boolean {
-  return step === "webhook_configuring" || step === "discovering" || step === "discovered" || step === "dry_run_passed";
 }
 
 function GridBackground() {
@@ -153,14 +145,14 @@ function OnboardingLayout() {
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
-  const { step, appId, focusApp, focusField, focusSection } = Route.useSearch();
+  const { step, appId, error, focusApp, focusField, focusSection } = Route.useSearch();
   const currentStepId = resolveViewStep(step, backendStep, appId != null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const deleteApp = useDeleteApplication();
 
   function goToSetup() {
-    void navigate({ to: "/onboarding", search: buildOnboardingSearch("cli-setup") });
+    void navigate({ to: "/onboarding", search: buildOnboardingSearch("add-app") });
   }
 
   // Reset deletes the current (half-onboarded) app and returns to the name
@@ -192,9 +184,7 @@ function OnboardingLayout() {
   }
 
   function renderStep() {
-    if (currentStepId === "cli-setup") return <CliSetupPage appId={appId} />;
-    if (currentStepId === "scenario-dry-run") return <DeployPage appId={appId} />;
-    if (currentStepId === "github") return <GitHubPage appId={appId} />;
+    if (currentStepId === "add-app") return <AddAppPage appId={appId} error={error} />;
     if (currentStepId === "preview-environment") return <PreviewEnvironmentPage appId={appId} />;
     if (currentStepId === "previewkit-config")
       return (
@@ -202,6 +192,7 @@ function OnboardingLayout() {
       );
     if (currentStepId === "existing-deploys") return <ExistingDeploysPage appId={appId} />;
     if (currentStepId === "deploy-verify") return <PreviewDeployVerifyPage appId={appId} />;
+    if (currentStepId === "diff-trigger") return <DiffTriggerPage appId={appId} />;
     return <CompletePage appId={appId} />;
   }
 
@@ -242,7 +233,7 @@ function OnboardingLayout() {
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-secondary">New Application</h3>
-          <StepProgress currentStepId={currentStepId} appId={appId} />
+          <StepProgress currentStepId={currentStepId} />
         </div>
 
         <div className="border-t border-border-dim px-8 py-6">

@@ -16,6 +16,24 @@ export interface ListedRepository extends Repository {
     applicationName: string | undefined;
 }
 
+/** Bound for the GitHub repo listing - a stale/uninstalled app can hang the token mint. */
+const LIST_REPOSITORIES_TIMEOUT_MS = 8_000;
+
+/** Reject `promise` if it doesn't settle within `ms`, clearing the timer either way. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+            }),
+        ]);
+    } finally {
+        if (timer != null) clearTimeout(timer);
+    }
+}
+
 export class GitHubInstallationService extends Service {
     constructor(
         private readonly db: PrismaClient,
@@ -273,37 +291,43 @@ export class GitHubInstallationService extends Service {
         });
         if (installation == null) return [];
 
-        let client;
         try {
-            client = await this.githubApp.getInstallationClient(installation.installationId);
+            const repos = await withTimeout(
+                (async () => {
+                    const client = await this.githubApp.getInstallationClient(installation.installationId);
+                    return client.listInstallationRepos();
+                })(),
+                LIST_REPOSITORIES_TIMEOUT_MS,
+                "listInstallationRepos",
+            );
+
+            const linkedApps = await this.db.application.findMany({
+                where: {
+                    organizationId: orgId,
+                    githubRepositoryId: { not: null },
+                },
+                select: { id: true, name: true, githubRepositoryId: true },
+            });
+
+            const appByRepoId = new Map(
+                linkedApps.map((app) => [app.githubRepositoryId!, { id: app.id, name: app.name }]),
+            );
+
+            return repos.map((repo) => {
+                const linkedApp = appByRepoId.get(repo.id);
+                return {
+                    ...repo,
+                    applicationId: linkedApp?.id,
+                    applicationName: linkedApp?.name,
+                };
+            });
         } catch (err) {
-            this.logger.warn("Failed to get installation client - installation may be stale", {
+            this.logger.warn("Failed to list installation repositories - installation may be stale or uninstalled", {
                 installationId: installation.installationId,
                 error: err instanceof Error ? err.message : String(err),
             });
             return [];
         }
-
-        const repos = await client.listInstallationRepos();
-
-        const linkedApps = await this.db.application.findMany({
-            where: {
-                organizationId: orgId,
-                githubRepositoryId: { not: null },
-            },
-            select: { id: true, name: true, githubRepositoryId: true },
-        });
-
-        const appByRepoId = new Map(linkedApps.map((app) => [app.githubRepositoryId!, { id: app.id, name: app.name }]));
-
-        return repos.map((repo) => {
-            const linkedApp = appByRepoId.get(repo.id);
-            return {
-                ...repo,
-                applicationId: linkedApp?.id,
-                applicationName: linkedApp?.name,
-            };
-        });
     }
 
     async linkRepository(orgId: string, applicationId: string, githubRepoId: number): Promise<void> {

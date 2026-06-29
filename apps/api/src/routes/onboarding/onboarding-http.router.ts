@@ -4,9 +4,12 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { encryptionHelper, scenarioManager } from "../../context";
+import { diffsTriggerService } from "../../diffs/diffs-service";
 import { OnboardingManager } from "./onboarding-manager";
 
-const manager = new OnboardingManager(db, scenarioManager, encryptionHelper);
+const manager = new OnboardingManager(db, scenarioManager, encryptionHelper, {
+    diffsTrigger: diffsTriggerService,
+});
 
 export const onboardingHttpRouter = new Hono()
     .use("*", cors({ origin: "*" }))

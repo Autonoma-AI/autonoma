@@ -113,7 +113,7 @@ hooks:
 | `monorepo` | No | | Workspace build tool. Currently only `turbo`; builds from the repo root with a filter for this app |
 | `build_args` | No | `{}` | Docker build arguments |
 | `build_secrets` | No | `[]` | Names of uploaded secrets to expose at build time (e.g. `NEXT_PUBLIC_*`); each must already be uploaded via the secrets API |
-| `env` | No | `{}` | Environment variables. Supports `{{name.host}}` and `{{name.port}}` templates |
+| `env` | No | `{}` | Environment variables. Supports `{{name.host}}`, `{{name.port}}` and `{{name.url}}` templates |
 | `command` | No | | Override the container command |
 | `health_check` | No | | HTTP path for readiness/liveness probes |
 | `replicas` | No | `1` | Number of pod replicas. Capped at 3 (platform policy); higher values are clamped, not rejected |
@@ -134,18 +134,30 @@ hooks:
 
 ### Template Syntax
 
-Use `{{name.host}}` and `{{name.port}}` in `env` values to reference other apps or services within the preview namespace:
+Use `{{name.host}}`, `{{name.port}}` and `{{name.url}}` in `env` values to reference other apps or services within the preview namespace:
 
 ```yaml
 env:
-  # Reference a service
+  # Reference a service by host/port
   DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview"
+
+  # Or let the recipe build the whole connection string with `.url`
+  DATABASE_URL: "{{db.url}}"
 
   # Reference another app
   API_URL: "http://{{api.host}}:{{api.port}}"
 ```
 
-Templates resolve to Kubernetes service DNS names within the namespace (e.g. `db`, `api`).
+`{{name.host}}` / `{{name.port}}` resolve to the Kubernetes service DNS name and port within the namespace (e.g. `db`, `api`).
+
+`{{name.url}}` resolves to:
+- an **app**'s public HTTPS preview URL, or
+- a **service**'s in-cluster connection string, when the recipe defines a well-known scheme:
+  - `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`
+  - `redis` / `valkey` -> `redis://<host>:<port>`
+  - `mongodb` -> `mongodb://<host>:<port>/?directConnection=true`
+
+Recipes without a single-scheme URL (e.g. `temporal`, `api-gateway`) don't support `{{name.url}}` - use `{{name.host}}` / `{{name.port}}` for those.
 
 ### Built-in Environment Variables
 

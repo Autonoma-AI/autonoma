@@ -41,7 +41,11 @@ export class MongoDbRecipe extends BaseRecipe {
     readonly schema = passthroughOptionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
-        return { host: config.name, port: PORT };
+        return {
+            host: config.name,
+            port: PORT,
+            url: `mongodb://${config.name}:${PORT}/?directConnection=true`,
+        };
     }
 
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {

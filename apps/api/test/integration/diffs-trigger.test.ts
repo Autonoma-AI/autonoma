@@ -176,6 +176,47 @@ apiTestSuite({
             expect(snapshot!.baseSha).toBe("previous-sha-999");
         });
 
+        test("skips PR diffs when the head was already analyzed (re-delivered webhook)", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            const branchId = (
+                await harness.db.branch.create({
+                    data: {
+                        name: "feature/branch-60",
+                        applicationId: app.id,
+                        organizationId: harness.organizationId,
+                        prInfo: { create: { applicationId: app.id, prNumber: 60 } },
+                    },
+                    select: { id: true },
+                })
+            ).id;
+            // Active snapshot head equals PR 60's head ("head-sha-60"), so a fresh
+            // signal for the same head has nothing new to diff.
+            const activeSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId, status: "active", source: TriggerSource.WEBHOOK, headSha: "head-sha-60" },
+                select: { id: true },
+            });
+            await harness.db.branch.update({
+                where: { id: branchId },
+                data: { activeSnapshotId: activeSnapshot.id },
+            });
+
+            const result = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 60,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            expect(result.skipped).toBe(true);
+            expect(result.snapshotId).toBeUndefined();
+            // No new snapshot beyond the pre-existing active one.
+            const snapshots = await harness.db.branchSnapshot.findMany({ where: { branchId } });
+            expect(snapshots).toHaveLength(1);
+        });
+
         test("handles pending snapshot conflict", async ({ harness, seedResult: { service } }) => {
             const first = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
@@ -352,6 +393,28 @@ apiTestSuite({
                 branchId: result.branchId,
                 snapshotId: result.snapshotId,
             });
+        });
+
+        test("skips main diffs when the head already matches the active snapshot", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "unchanged-main-sha");
+            await setActiveSnapshotHeadSha(harness.db, app.mainBranchId!, "unchanged-main-sha");
+            const before = await harness.db.branchSnapshot.count({ where: { branchId: app.mainBranchId! } });
+
+            const result = await service.triggerMainDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            expect(result.skipped).toBe(true);
+            expect(result.snapshotId).toBeUndefined();
+            // No new snapshot was created for the unchanged head.
+            const after = await harness.db.branchSnapshot.count({ where: { branchId: app.mainBranchId! } });
+            expect(after).toBe(before);
         });
 
         test("triggerDiffs dispatches to main flow when ref matches main branch", async ({

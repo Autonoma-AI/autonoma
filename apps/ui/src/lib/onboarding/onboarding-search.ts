@@ -3,6 +3,7 @@ import type { OnboardingStep } from "./onboarding-steps";
 type FocusSection = "config" | "secrets" | "logs";
 
 interface OnboardingSearchOverrides {
+    error?: string;
     apiKey?: string;
     setupId?: string;
     focusApp?: string;
@@ -19,6 +20,7 @@ export function buildOnboardingSearch(step: OnboardingStep, appId?: string, over
     return {
         step,
         appId,
+        error: overrides.error,
         apiKey: overrides.apiKey,
         setupId: overrides.setupId,
         focusApp: overrides.focusApp,

@@ -83,7 +83,9 @@ export class EnvInjector {
      *   - `{{pr}}`, `{{namespace}}`, `{{owner}}`
      *   - `{{<name>.host}}` — in-cluster DNS of an app or service
      *   - `{{<name>.port}}` — in-cluster port of an app or service
-     *   - `{{<name>.url}}`  — public HTTPS URL of an app (apps only)
+     *   - `{{<name>.url}}`  — public HTTPS URL of an app, or the in-cluster
+     *     connection string of a service whose recipe defines one (postgres ->
+     *     `postgresql://…`, redis/valkey -> `redis://…`, mongodb -> `mongodb://…`)
      *   - `{{<addonName>.<key>}}` — provider-defined output from a
      *     successfully provisioned addon (e.g. `{{db.connectionString}}`).
      *     Apps/services take precedence over addons; the config schema
@@ -137,8 +139,8 @@ export class EnvInjector {
             if (field === "url") {
                 if (svc.url == null) {
                     throw new Error(
-                        `{{${name}.url}} is only available for apps. ` +
-                            `"${name}" is a service (no public URL). Use {{${name}.host}} for in-cluster access.`,
+                        `{{${name}.url}} is not available: the "${name}" service exposes no connection URL. ` +
+                            `Use {{${name}.host}} and {{${name}.port}} for in-cluster access.`,
                     );
                 }
                 return svc.url;
@@ -204,7 +206,7 @@ export class EnvInjector {
             map[svc.name] = {
                 host: connInfo.host,
                 port: connInfo.port,
-                // url intentionally omitted — services aren't publicly exposed
+                url: connInfo.url,
             };
         }
 

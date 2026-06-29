@@ -197,6 +197,18 @@ function extractResponseDetail(responseBody: unknown): string | undefined {
     if (responseBody == null || typeof responseBody !== "object") return undefined;
     const body = responseBody as Record<string, unknown>;
     const detail = body.message ?? body.error ?? body.detail;
-    if (detail == null) return undefined;
-    return typeof detail === "string" ? detail : JSON.stringify(detail);
+    if (detail != null) {
+        if (typeof detail === "string") {
+            const trimmed = detail.trim();
+            if (trimmed.length > 0) return trimmed;
+        } else {
+            return JSON.stringify(detail);
+        }
+    }
+
+    const code = body.code;
+    if (typeof code === "string" && code.trim().length > 0) {
+        return `code=${code.trim()} - the SDK endpoint returned an empty error message; check the preview app runtime logs`;
+    }
+    return undefined;
 }

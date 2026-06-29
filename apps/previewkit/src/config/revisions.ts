@@ -1,12 +1,24 @@
 import { db } from "@autonoma/db";
+import { z } from "zod";
 import { logger as rootLogger } from "../logger";
 import { resolveConfig } from "./resolver";
 import type { PreviewConfig } from "./schema";
 
+/** A multirepo dependency's config, resolved from the primary revision's `dependencyDocuments`. */
+export interface DependencyConfig {
+    /** Repo full name (`owner/repo`). */
+    repo: string;
+    config: PreviewConfig;
+}
+
 export interface ActiveConfig {
     config: PreviewConfig;
     revisionId: string;
+    /** Dependency-repo configs owned by this (primary) revision; [] for single-repo projects. */
+    dependencyConfigs: DependencyConfig[];
 }
+
+const storedDependencyDocumentsSchema = z.array(z.object({ repo: z.string(), document: z.unknown() }));
 
 /**
  * Loads and resolves a specific config revision, scoped to the owning Application.
@@ -23,7 +35,7 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
 
     const revision = await db.previewkitConfigRevision.findFirst({
         where: { id: revisionId, applicationId },
-        select: { id: true, schemaVersion: true, document: true },
+        select: { id: true, schemaVersion: true, document: true, dependencyDocuments: true },
     });
     if (revision == null) return undefined;
 
@@ -39,7 +51,31 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
         schemaVersion: revision.schemaVersion,
         allowCustomResources: true,
     });
-    return { config, revisionId: revision.id };
+    const dependencyConfigs = resolveDependencyConfigs(revision.dependencyDocuments, revision.schemaVersion, logger);
+    return { config, revisionId: revision.id, dependencyConfigs };
+}
+
+/**
+ * Resolves the primary revision's stored `dependencyDocuments` (one validated
+ * config per multirepo dependency) through the same upgrade/validate pipeline as
+ * the primary. A shape that no longer parses degrades to [] (logged) rather than
+ * failing the whole deploy on a corrupt sidecar.
+ */
+function resolveDependencyConfigs(
+    value: unknown,
+    schemaVersion: number,
+    logger: ReturnType<typeof rootLogger.child>,
+): DependencyConfig[] {
+    if (value == null) return [];
+    const parsed = storedDependencyDocumentsSchema.safeParse(value);
+    if (!parsed.success) {
+        logger.warn("Stored dependencyDocuments did not parse; treating as single-repo");
+        return [];
+    }
+    return parsed.data.map((entry) => ({
+        repo: entry.repo,
+        config: resolveConfig({ document: entry.document, schemaVersion, allowCustomResources: true }),
+    }));
 }
 
 /**

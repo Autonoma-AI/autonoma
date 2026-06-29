@@ -276,12 +276,16 @@ export type ConfigIssueCode =
     | "unknown_depends_on"
     | "self_depends_on"
     | "unknown_hook_app"
+    | "empty_hook_app"
+    | "empty_hook_command"
     | "no_primary"
     | "multiple_primary"
     | "duplicate_name"
     | "unknown_env_reference"
     | "path_not_found"
     | "dockerfile_not_found";
+
+export type HookGroupKey = "pre_deploy" | "post_deploy";
 
 /**
  * A single validation finding on a PreviewKit config document. `path` is a Zod-style
@@ -380,23 +384,56 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
         }
     }
 
-    const hookGroups = [
-        { key: "pre_deploy", steps: config.hooks.pre_deploy },
-        { key: "post_deploy", steps: config.hooks.post_deploy },
-    ];
-    for (const group of hookGroups) {
-        group.steps.forEach((step, stepIndex) => {
-            if (!appNames.has(step.app)) {
-                issues.push({
-                    severity: "error",
-                    code: "unknown_hook_app",
-                    path: ["hooks", group.key, stepIndex, "app"],
-                    message: `Hook references unknown app "${step.app}"`,
-                });
-            }
-        });
-    }
+    issues.push(...validateHookSteps(config.hooks.pre_deploy, appNames, "pre_deploy"));
+    issues.push(...validateHookSteps(config.hooks.post_deploy, appNames, "post_deploy"));
 
+    return issues;
+}
+
+/**
+ * Validates one group of deploy hooks. A hook is invalid when it is missing its
+ * target app, names an app that isn't declared in the config, or is missing the
+ * command to run. A fully-blank row (no app and no command) is ignored - the
+ * authoring UI drops those before save, and they carry no intent. Shared by the
+ * semantic validator above and the dashboard's hooks editor so client and server
+ * apply the exact same rules.
+ */
+export function validateHookSteps(
+    steps: ReadonlyArray<{ app: string; command: string }>,
+    appNames: ReadonlySet<string>,
+    group: HookGroupKey,
+): ConfigIssue[] {
+    const issues: ConfigIssue[] = [];
+    steps.forEach((step, index) => {
+        const app = step.app.trim();
+        const command = step.command.trim();
+        if (app === "" && command === "") return;
+
+        if (app === "") {
+            issues.push({
+                severity: "error",
+                code: "empty_hook_app",
+                path: ["hooks", group, index, "app"],
+                message: "Hook is missing an app",
+            });
+        } else if (!appNames.has(app)) {
+            issues.push({
+                severity: "error",
+                code: "unknown_hook_app",
+                path: ["hooks", group, index, "app"],
+                message: `Hook references unknown app "${app}"`,
+            });
+        }
+
+        if (command === "") {
+            issues.push({
+                severity: "error",
+                code: "empty_hook_command",
+                path: ["hooks", group, index, "command"],
+                message: "Hook is missing a command",
+            });
+        }
+    });
     return issues;
 }
 

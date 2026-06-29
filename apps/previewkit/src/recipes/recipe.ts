@@ -13,6 +13,16 @@ export interface RecipeResources {
 export interface RecipeConnectionInfo {
     host: string;
     port: number;
+    /**
+     * In-cluster connection string the env-injector returns for
+     * `{{<service>.url}}`, when the service speaks a well-known scheme
+     * (e.g. postgres -> `postgresql://preview:preview@<host>:<port>/preview`,
+     * redis -> `redis://<host>:<port>`). Recipes whose `.url` has no
+     * unambiguous meaning (temporal gRPC, api-gateway HTTP) leave this
+     * undefined, and `{{<name>.url}}` throws with a helpful message pointing
+     * at `.host`/`.port`.
+     */
+    url?: string;
 }
 
 // Recipes that need typed options (e.g. docker-image) set TOptions to a

@@ -162,6 +162,7 @@ enum OnboardingStep {
   existing_deploys_configuring
   existing_deploys_waiting
   preview_verified
+  diff_trigger
   completed
 
   @@map("onboarding_step")
@@ -186,7 +187,7 @@ enum OnboardingPreviewVerificationStatus {
 model OnboardingState {
   id                        String                              @id @default(cuid())
   applicationId             String                              @unique @map("application_id")
-  step                      OnboardingStep                      @default(webhook_configuring) @map("step")
+  step                      OnboardingStep                      @default(github) @map("step")
   agentConnectedAt          DateTime?                           @map("agent_connected_at")
   /// [AgentLogEntry]
   agentLogs                 Json                                @default("[]") @map("agent_logs")
@@ -199,6 +200,12 @@ model OnboardingState {
   lastDiscoveredAt          DateTime?                           @map("last_discovered_at")
   lastDiscoveredModels      Int?                                @map("last_discovered_models")
   discoveringStartedAt      DateTime?                           @map("discovering_started_at")
+  // SDK dry-run succeeded (a capability tracked outside the linear `step` so it
+  // can be (re)run from the Finish setup tab at any time, not just onboarding).
+  dryRunPassedAt            DateTime?                           @map("dry_run_passed_at")
+  // First real per-PR `deployment_status` observed. Backs the optimistic BYO
+  // diff-trigger self-confirmation (Live is marked before this is set).
+  diffTriggerConfirmedAt    DateTime?                           @map("diff_trigger_confirmed_at")
   createdAt                 DateTime                            @default(now()) @map("created_at")
   updatedAt                 DateTime                            @updatedAt @map("updated_at")
 
@@ -1924,6 +1931,15 @@ model PreviewkitConfigRevision {
   // Opaque config document; validated by previewConfigSchema on read.
   /// ![object]
   document Json
+
+  // Multirepo dependency configs owned by this (primary) revision: an array of
+  // { repo, document } where document is a previewConfigSchema-validated config
+  // for a repo declared in `document.config.multirepo.repos`. Dependency repos
+  // are NOT separate Applications - the primary app owns the whole topology and
+  // the deploy reads each dependency's config from here (cloning the repo for
+  // source only). Null/absent means a single-repo project.
+  /// ![object]
+  dependencyDocuments Json?  @map("dependency_documents")
 
   createdAt DateTime @default(now()) @map("created_at")
 

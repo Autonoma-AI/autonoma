@@ -25,7 +25,7 @@ export class RedisRecipe extends BaseRecipe<DockerImageOptions> {
     }
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
-        return { host: config.name, port: PORT };
+        return { host: config.name, port: PORT, url: `redis://${config.name}:${PORT}` };
     }
 
     typedGenerate(config: ServiceConfig<DockerImageOptions>, namespace: string): RecipeResources {

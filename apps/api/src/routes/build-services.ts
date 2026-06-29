@@ -2,7 +2,7 @@ import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
-import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import type {
@@ -15,6 +15,7 @@ import type {
     TriggerInvestigationJobParams,
     TriggerRunWorkflowParams,
 } from "@autonoma/workflow";
+import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
@@ -121,6 +122,9 @@ export function buildServices({
             deployApplicationMain: async (applicationId, organizationId) => {
                 await previewkitTrigger.deployMainBranch(applicationId, organizationId);
             },
+            redeploy: async (repoFullName, prNumber, organizationId) => {
+                await previewkitTrigger.redeploy(repoFullName, prNumber, organizationId);
+            },
         },
         previewkitSecretsService,
         repoIntrospection: repoIntrospectionService,
@@ -128,11 +132,18 @@ export function buildServices({
         applications: applicationsService,
     });
     const prCacheService = new PullRequestCacheService(conn, githubService);
+    const apiKeysService = new ApiKeysService(conn);
+    const applicationSetupService = new ApplicationSetupService(
+        conn,
+        generationProvider,
+        onboardingManager,
+        new ScenarioRecipeStore(conn),
+    );
 
     return {
         admin: new AdminService(conn, auth, githubApp),
         auth: new AuthService(conn),
-        apiKeys: new ApiKeysService(conn),
+        apiKeys: apiKeysService,
         branches: new BranchesService(conn, githubService, storageProvider, prCacheService),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
@@ -151,7 +162,7 @@ export function buildServices({
         onboarding: new OnboardingService(onboardingManager),
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
         billing: billingService,
-        applicationSetups: new ApplicationSetupsService(conn),
+        applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),
         diffsTrigger: new DiffsTriggerService(
             conn,
             githubService,

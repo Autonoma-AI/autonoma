@@ -73,8 +73,9 @@ export function useDeleteApplication() {
     const router = useRouter();
     return useAPIMutation(
         trpc.applications.delete.mutationOptions({
-            onSettled: async () => {
+            onSuccess: async () => {
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
                 await router.invalidate();
             },
         }),

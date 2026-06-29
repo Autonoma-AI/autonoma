@@ -12,10 +12,12 @@ import { HouseIcon } from "@phosphor-icons/react/House";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
+import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { CHECKOUT_TYPE_SUBSCRIPTION } from "lib/billing/formatters";
+import { useOnboardingStateOptional } from "lib/onboarding/onboarding-api";
 import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
 import { useEffect, useState } from "react";
@@ -56,11 +58,10 @@ function useAppNav() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const params = useParams({ strict: false }) as { appSlug?: string };
   const { isAdmin } = useAuth();
+  const app = params.appSlug != null ? applications.find((a) => a.slug === params.appSlug) : undefined;
+  const { data: onboardingState } = useOnboardingStateOptional(app?.id ?? "");
 
-  if (params.appSlug == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
-
-  const app = applications.find((a) => a.slug === params.appSlug);
-  if (app == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
+  if (params.appSlug == null || app == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
 
   const base = `/app/${params.appSlug}`;
 
@@ -71,7 +72,12 @@ function useAppNav() {
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
   ];
 
-  const tools: NavItem[] = [{ icon: GearSixIcon, label: "Settings", href: `${base}/settings` }];
+  const tools: NavItem[] = [];
+  // Show "Finish setup" until all three deepening steps are complete.
+  if (onboardingState != null && !onboardingState.setupComplete) {
+    tools.push({ icon: SlidersHorizontalIcon, label: "Finish setup", href: `${base}/finish-setup` });
+  }
+  tools.push({ icon: GearSixIcon, label: "Settings", href: `${base}/settings` });
 
   if (isAdmin) {
     tools.push({ icon: ShieldCheckIcon, label: "App admin", href: `${base}/admin` });

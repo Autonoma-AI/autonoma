@@ -16,6 +16,7 @@ const deploymentSignalBodySchema = z.object({
         .optional(),
     sha: z.union([z.string().regex(/^[A-Za-z0-9._-]{1,128}$/), z.literal("").transform(() => undefined)]).optional(),
     provider: z.union([z.string().min(1), z.literal("").transform(() => undefined)]).optional(),
+    prNumber: z.coerce.number().int().positive().optional(),
 });
 
 const deploymentSignalBodyTextSchema = z

@@ -315,7 +315,7 @@ export class ApplicationsService extends Service {
                 });
 
                 await tx.onboardingState.create({
-                    data: { applicationId: app.id, step: "webhook_configuring" },
+                    data: { applicationId: app.id, step: "github" },
                 });
 
                 this.logger.info("Minimal application created", { applicationId: app.id });

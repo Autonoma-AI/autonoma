@@ -14,13 +14,13 @@ import { Route as BlacklightRouteImport } from './routes/_blacklight'
 import { Route as BlacklightOnboardingRouteRouteImport } from './routes/_blacklight/onboarding/route'
 import { Route as BlacklightAppShellRouteRouteImport } from './routes/_blacklight/_app-shell/route'
 import { Route as BlacklightAppShellIndexRouteImport } from './routes/_blacklight/_app-shell/index'
-import { Route as BlacklightOnboardingScenarioDryRunRouteImport } from './routes/_blacklight/onboarding/scenario-dry-run'
 import { Route as BlacklightOnboardingPreviewkitConfigRouteImport } from './routes/_blacklight/onboarding/previewkit-config'
 import { Route as BlacklightOnboardingPreviewEnvironmentRouteImport } from './routes/_blacklight/onboarding/preview-environment'
 import { Route as BlacklightOnboardingPreviewDeployVerifyRouteImport } from './routes/_blacklight/onboarding/preview-deploy-verify'
-import { Route as BlacklightOnboardingGithubRouteImport } from './routes/_blacklight/onboarding/github'
 import { Route as BlacklightOnboardingExistingDeploysRouteImport } from './routes/_blacklight/onboarding/existing-deploys'
+import { Route as BlacklightOnboardingDiffTriggerRouteImport } from './routes/_blacklight/onboarding/diff-trigger'
 import { Route as BlacklightOnboardingCompleteRouteImport } from './routes/_blacklight/onboarding/complete'
+import { Route as BlacklightOnboardingAddAppRouteImport } from './routes/_blacklight/onboarding/add-app'
 import { Route as BlacklightauthRejectedRouteImport } from './routes/_blacklight/(auth)/rejected'
 import { Route as BlacklightauthPendingRouteImport } from './routes/_blacklight/(auth)/pending'
 import { Route as BlacklightauthLoginRouteRouteImport } from './routes/_blacklight/(auth)/login/route'
@@ -40,6 +40,7 @@ import { Route as BlacklightAppShellAppAppSlugPreviewConfigIndexRouteImport } fr
 import { Route as BlacklightAppShellAppAppSlugHistoryIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/history/index'
 import { Route as BlacklightAppShellAppAppSlugGithubIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/github/index'
 import { Route as BlacklightAppShellAppAppSlugGenerationProgressIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/generation-progress/index'
+import { Route as BlacklightAppShellAppAppSlugFinishSetupIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/finish-setup/index'
 import { Route as BlacklightAppShellAppAppSlugEditIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/edit/index'
 import { Route as BlacklightAppShellAppAppSlugBugsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/bugs/index'
 import { Route as BlacklightAppShellAppAppSlugBillingIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/billing/index'
@@ -87,12 +88,6 @@ const BlacklightAppShellIndexRoute = BlacklightAppShellIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BlacklightAppShellRouteRoute,
 } as any)
-const BlacklightOnboardingScenarioDryRunRoute =
-  BlacklightOnboardingScenarioDryRunRouteImport.update({
-    id: '/scenario-dry-run',
-    path: '/scenario-dry-run',
-    getParentRoute: () => BlacklightOnboardingRouteRoute,
-  } as any)
 const BlacklightOnboardingPreviewkitConfigRoute =
   BlacklightOnboardingPreviewkitConfigRouteImport.update({
     id: '/previewkit-config',
@@ -111,22 +106,28 @@ const BlacklightOnboardingPreviewDeployVerifyRoute =
     path: '/preview-deploy-verify',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
-const BlacklightOnboardingGithubRoute =
-  BlacklightOnboardingGithubRouteImport.update({
-    id: '/github',
-    path: '/github',
-    getParentRoute: () => BlacklightOnboardingRouteRoute,
-  } as any)
 const BlacklightOnboardingExistingDeploysRoute =
   BlacklightOnboardingExistingDeploysRouteImport.update({
     id: '/existing-deploys',
     path: '/existing-deploys',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
+const BlacklightOnboardingDiffTriggerRoute =
+  BlacklightOnboardingDiffTriggerRouteImport.update({
+    id: '/diff-trigger',
+    path: '/diff-trigger',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
 const BlacklightOnboardingCompleteRoute =
   BlacklightOnboardingCompleteRouteImport.update({
     id: '/complete',
     path: '/complete',
+    getParentRoute: () => BlacklightOnboardingRouteRoute,
+  } as any)
+const BlacklightOnboardingAddAppRoute =
+  BlacklightOnboardingAddAppRouteImport.update({
+    id: '/add-app',
+    path: '/add-app',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
 const BlacklightauthRejectedRoute = BlacklightauthRejectedRouteImport.update({
@@ -239,6 +240,12 @@ const BlacklightAppShellAppAppSlugGenerationProgressIndexRoute =
   BlacklightAppShellAppAppSlugGenerationProgressIndexRouteImport.update({
     id: '/generation-progress/',
     path: '/generation-progress/',
+    getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
+  } as any)
+const BlacklightAppShellAppAppSlugFinishSetupIndexRoute =
+  BlacklightAppShellAppAppSlugFinishSetupIndexRouteImport.update({
+    id: '/finish-setup/',
+    path: '/finish-setup/',
     getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
   } as any)
 const BlacklightAppShellAppAppSlugEditIndexRoute =
@@ -399,13 +406,13 @@ export interface FileRoutesByFullPath {
   '/login': typeof BlacklightauthLoginRouteRouteWithChildren
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
+  '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
-  '/onboarding/github': typeof BlacklightOnboardingGithubRoute
   '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
   '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
-  '/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
   '/login/': typeof BlacklightauthLoginIndexRoute
   '/admin/': typeof BlacklightAppShellAdminIndexRoute
@@ -427,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/app/$appSlug/bugs/': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
+  '/app/$appSlug/finish-setup/': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/app/$appSlug/github/': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/app/$appSlug/history/': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
@@ -451,13 +459,13 @@ export interface FileRoutesByTo {
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
+  '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
-  '/onboarding/github': typeof BlacklightOnboardingGithubRoute
   '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
   '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
-  '/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/login': typeof BlacklightauthLoginIndexRoute
   '/admin': typeof BlacklightAppShellAdminIndexRoute
   '/admin/issues': typeof BlacklightAppShellAdminIssuesIndexRoute
@@ -475,6 +483,7 @@ export interface FileRoutesByTo {
   '/app/$appSlug/billing': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/app/$appSlug/bugs': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/app/$appSlug/edit': typeof BlacklightAppShellAppAppSlugEditIndexRoute
+  '/app/$appSlug/finish-setup': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/app/$appSlug/generation-progress': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/app/$appSlug/github': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/app/$appSlug/history': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
@@ -500,13 +509,13 @@ export interface FileRoutesById {
   '/_blacklight/(auth)/login': typeof BlacklightauthLoginRouteRouteWithChildren
   '/_blacklight/(auth)/pending': typeof BlacklightauthPendingRoute
   '/_blacklight/(auth)/rejected': typeof BlacklightauthRejectedRoute
+  '/_blacklight/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/_blacklight/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
+  '/_blacklight/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/_blacklight/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
-  '/_blacklight/onboarding/github': typeof BlacklightOnboardingGithubRoute
   '/_blacklight/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/_blacklight/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
   '/_blacklight/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
-  '/_blacklight/onboarding/scenario-dry-run': typeof BlacklightOnboardingScenarioDryRunRoute
   '/_blacklight/_app-shell/': typeof BlacklightAppShellIndexRoute
   '/_blacklight/_app-shell/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
   '/_blacklight/(auth)/login/': typeof BlacklightauthLoginIndexRoute
@@ -529,6 +538,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/bugs/': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
+  '/_blacklight/_app-shell/app/$appSlug/finish-setup/': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/github/': typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/history/': typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
@@ -556,13 +566,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/pending'
     | '/rejected'
+    | '/onboarding/add-app'
     | '/onboarding/complete'
+    | '/onboarding/diff-trigger'
     | '/onboarding/existing-deploys'
-    | '/onboarding/github'
     | '/onboarding/preview-deploy-verify'
     | '/onboarding/preview-environment'
     | '/onboarding/previewkit-config'
-    | '/onboarding/scenario-dry-run'
     | '/app/$appSlug'
     | '/login/'
     | '/admin/'
@@ -584,6 +594,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/billing/'
     | '/app/$appSlug/bugs/'
     | '/app/$appSlug/edit/'
+    | '/app/$appSlug/finish-setup/'
     | '/app/$appSlug/generation-progress/'
     | '/app/$appSlug/github/'
     | '/app/$appSlug/history/'
@@ -608,13 +619,13 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/pending'
     | '/rejected'
+    | '/onboarding/add-app'
     | '/onboarding/complete'
+    | '/onboarding/diff-trigger'
     | '/onboarding/existing-deploys'
-    | '/onboarding/github'
     | '/onboarding/preview-deploy-verify'
     | '/onboarding/preview-environment'
     | '/onboarding/previewkit-config'
-    | '/onboarding/scenario-dry-run'
     | '/login'
     | '/admin'
     | '/admin/issues'
@@ -632,6 +643,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/billing'
     | '/app/$appSlug/bugs'
     | '/app/$appSlug/edit'
+    | '/app/$appSlug/finish-setup'
     | '/app/$appSlug/generation-progress'
     | '/app/$appSlug/github'
     | '/app/$appSlug/history'
@@ -656,13 +668,13 @@ export interface FileRouteTypes {
     | '/_blacklight/(auth)/login'
     | '/_blacklight/(auth)/pending'
     | '/_blacklight/(auth)/rejected'
+    | '/_blacklight/onboarding/add-app'
     | '/_blacklight/onboarding/complete'
+    | '/_blacklight/onboarding/diff-trigger'
     | '/_blacklight/onboarding/existing-deploys'
-    | '/_blacklight/onboarding/github'
     | '/_blacklight/onboarding/preview-deploy-verify'
     | '/_blacklight/onboarding/preview-environment'
     | '/_blacklight/onboarding/previewkit-config'
-    | '/_blacklight/onboarding/scenario-dry-run'
     | '/_blacklight/_app-shell/'
     | '/_blacklight/_app-shell/app/$appSlug'
     | '/_blacklight/(auth)/login/'
@@ -685,6 +697,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/billing/'
     | '/_blacklight/_app-shell/app/$appSlug/bugs/'
     | '/_blacklight/_app-shell/app/$appSlug/edit/'
+    | '/_blacklight/_app-shell/app/$appSlug/finish-setup/'
     | '/_blacklight/_app-shell/app/$appSlug/generation-progress/'
     | '/_blacklight/_app-shell/app/$appSlug/github/'
     | '/_blacklight/_app-shell/app/$appSlug/history/'
@@ -746,13 +759,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightAppShellIndexRouteImport
       parentRoute: typeof BlacklightAppShellRouteRoute
     }
-    '/_blacklight/onboarding/scenario-dry-run': {
-      id: '/_blacklight/onboarding/scenario-dry-run'
-      path: '/scenario-dry-run'
-      fullPath: '/onboarding/scenario-dry-run'
-      preLoaderRoute: typeof BlacklightOnboardingScenarioDryRunRouteImport
-      parentRoute: typeof BlacklightOnboardingRouteRoute
-    }
     '/_blacklight/onboarding/previewkit-config': {
       id: '/_blacklight/onboarding/previewkit-config'
       path: '/previewkit-config'
@@ -774,13 +780,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightOnboardingPreviewDeployVerifyRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
-    '/_blacklight/onboarding/github': {
-      id: '/_blacklight/onboarding/github'
-      path: '/github'
-      fullPath: '/onboarding/github'
-      preLoaderRoute: typeof BlacklightOnboardingGithubRouteImport
-      parentRoute: typeof BlacklightOnboardingRouteRoute
-    }
     '/_blacklight/onboarding/existing-deploys': {
       id: '/_blacklight/onboarding/existing-deploys'
       path: '/existing-deploys'
@@ -788,11 +787,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightOnboardingExistingDeploysRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
+    '/_blacklight/onboarding/diff-trigger': {
+      id: '/_blacklight/onboarding/diff-trigger'
+      path: '/diff-trigger'
+      fullPath: '/onboarding/diff-trigger'
+      preLoaderRoute: typeof BlacklightOnboardingDiffTriggerRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
     '/_blacklight/onboarding/complete': {
       id: '/_blacklight/onboarding/complete'
       path: '/complete'
       fullPath: '/onboarding/complete'
       preLoaderRoute: typeof BlacklightOnboardingCompleteRouteImport
+      parentRoute: typeof BlacklightOnboardingRouteRoute
+    }
+    '/_blacklight/onboarding/add-app': {
+      id: '/_blacklight/onboarding/add-app'
+      path: '/add-app'
+      fullPath: '/onboarding/add-app'
+      preLoaderRoute: typeof BlacklightOnboardingAddAppRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
     '/_blacklight/(auth)/rejected': {
@@ -926,6 +939,13 @@ declare module '@tanstack/react-router' {
       path: '/generation-progress'
       fullPath: '/app/$appSlug/generation-progress/'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/finish-setup/': {
+      id: '/_blacklight/_app-shell/app/$appSlug/finish-setup/'
+      path: '/finish-setup'
+      fullPath: '/app/$appSlug/finish-setup/'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugFinishSetupIndexRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/edit/': {
@@ -1197,6 +1217,7 @@ interface BlacklightAppShellAppAppSlugRouteRouteChildren {
   BlacklightAppShellAppAppSlugBillingIndexRoute: typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   BlacklightAppShellAppAppSlugBugsIndexRoute: typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   BlacklightAppShellAppAppSlugEditIndexRoute: typeof BlacklightAppShellAppAppSlugEditIndexRoute
+  BlacklightAppShellAppAppSlugFinishSetupIndexRoute: typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   BlacklightAppShellAppAppSlugGenerationProgressIndexRoute: typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
   BlacklightAppShellAppAppSlugGithubIndexRoute: typeof BlacklightAppShellAppAppSlugGithubIndexRoute
   BlacklightAppShellAppAppSlugHistoryIndexRoute: typeof BlacklightAppShellAppAppSlugHistoryIndexRoute
@@ -1233,6 +1254,8 @@ const BlacklightAppShellAppAppSlugRouteRouteChildren: BlacklightAppShellAppAppSl
       BlacklightAppShellAppAppSlugBugsIndexRoute,
     BlacklightAppShellAppAppSlugEditIndexRoute:
       BlacklightAppShellAppAppSlugEditIndexRoute,
+    BlacklightAppShellAppAppSlugFinishSetupIndexRoute:
+      BlacklightAppShellAppAppSlugFinishSetupIndexRoute,
     BlacklightAppShellAppAppSlugGenerationProgressIndexRoute:
       BlacklightAppShellAppAppSlugGenerationProgressIndexRoute,
     BlacklightAppShellAppAppSlugGithubIndexRoute:
@@ -1282,29 +1305,28 @@ const BlacklightAppShellRouteRouteWithChildren =
   )
 
 interface BlacklightOnboardingRouteRouteChildren {
+  BlacklightOnboardingAddAppRoute: typeof BlacklightOnboardingAddAppRoute
   BlacklightOnboardingCompleteRoute: typeof BlacklightOnboardingCompleteRoute
+  BlacklightOnboardingDiffTriggerRoute: typeof BlacklightOnboardingDiffTriggerRoute
   BlacklightOnboardingExistingDeploysRoute: typeof BlacklightOnboardingExistingDeploysRoute
-  BlacklightOnboardingGithubRoute: typeof BlacklightOnboardingGithubRoute
   BlacklightOnboardingPreviewDeployVerifyRoute: typeof BlacklightOnboardingPreviewDeployVerifyRoute
   BlacklightOnboardingPreviewEnvironmentRoute: typeof BlacklightOnboardingPreviewEnvironmentRoute
   BlacklightOnboardingPreviewkitConfigRoute: typeof BlacklightOnboardingPreviewkitConfigRoute
-  BlacklightOnboardingScenarioDryRunRoute: typeof BlacklightOnboardingScenarioDryRunRoute
 }
 
 const BlacklightOnboardingRouteRouteChildren: BlacklightOnboardingRouteRouteChildren =
   {
+    BlacklightOnboardingAddAppRoute: BlacklightOnboardingAddAppRoute,
     BlacklightOnboardingCompleteRoute: BlacklightOnboardingCompleteRoute,
+    BlacklightOnboardingDiffTriggerRoute: BlacklightOnboardingDiffTriggerRoute,
     BlacklightOnboardingExistingDeploysRoute:
       BlacklightOnboardingExistingDeploysRoute,
-    BlacklightOnboardingGithubRoute: BlacklightOnboardingGithubRoute,
     BlacklightOnboardingPreviewDeployVerifyRoute:
       BlacklightOnboardingPreviewDeployVerifyRoute,
     BlacklightOnboardingPreviewEnvironmentRoute:
       BlacklightOnboardingPreviewEnvironmentRoute,
     BlacklightOnboardingPreviewkitConfigRoute:
       BlacklightOnboardingPreviewkitConfigRoute,
-    BlacklightOnboardingScenarioDryRunRoute:
-      BlacklightOnboardingScenarioDryRunRoute,
   }
 
 const BlacklightOnboardingRouteRouteWithChildren =

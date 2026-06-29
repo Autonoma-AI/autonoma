@@ -270,6 +270,7 @@ export class RepoIntrospectionService extends Service {
         if (dockerfilePath != null) suggestion.dockerfile = dockerfilePath;
         if (monorepoTool === "turbo" && dockerfilePath == null && packageJson != null) suggestion.monorepo = "turbo";
         if (port != null) suggestion.port = port;
+        if (startScript != null) suggestion.command = startScript;
         return suggestion;
     }
 
@@ -300,6 +301,7 @@ export class RepoIntrospectionService extends Service {
         };
         if (hasRootDockerfile) suggestion.dockerfile = "Dockerfile";
         if (port != null) suggestion.port = port;
+        if (startScript != null) suggestion.command = startScript;
         return suggestion;
     }
 

@@ -78,10 +78,11 @@ function CompletePageContent({ appId }: { appId?: string }) {
           />
         </div>
 
-        <h1 className="mt-4 text-5xl font-medium tracking-tight text-text-primary">You're connected</h1>
+        <h1 className="mt-4 text-5xl font-medium tracking-tight text-text-primary">You're live</h1>
 
         <p className="mt-5 max-w-md text-base leading-relaxed text-text-secondary">
-          The preview is live and Autonoma can now generate and run browser tests against it.
+          Open a pull request and Autonoma will review the change on its preview environment. Deepen coverage anytime
+          from Finish setup - implement the SDK and upload test artifacts.
         </p>
 
         {application != null ? (
