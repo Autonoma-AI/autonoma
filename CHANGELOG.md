@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.6](https://github.com/Autonoma-AI/agent/compare/v1.8.5...v1.8.6) (2026-06-29)
+
+
+### Features
+
+* **previewkit:** Kubernetes Jobs execution path behind a flag (Phase 1) ([#1122](https://github.com/Autonoma-AI/agent/issues/1122)) ([187e618](https://github.com/Autonoma-AI/agent/commit/187e618273dd17e5a48535bb3d36803a211718ca))
+* **previewkit:** per-env runner-image ConfigMap, Jobs in the previewkit namespace ([#1146](https://github.com/Autonoma-AI/agent/issues/1146)) ([6a18234](https://github.com/Autonoma-AI/agent/commit/6a182346a9b6a938e78f293f60f6770330bfe1a9))
+* **previewkit:** route per-app redeploy through the Jobs path (Phase 3a) ([#1137](https://github.com/Autonoma-AI/agent/issues/1137)) ([408f83a](https://github.com/Autonoma-AI/agent/commit/408f83ac9ec98186c42f575af93cb6df623dcf54))
+* re-sequence onboarding ([#1018](https://github.com/Autonoma-AI/agent/issues/1018)) ([833e609](https://github.com/Autonoma-AI/agent/commit/833e609df9dfe020cb7ce4a2261e0a5e02403054))
+
+
+### Bug Fixes
+
+* **ui:** keep PR health pill within its column to stop table scroll ([#1145](https://github.com/Autonoma-AI/agent/issues/1145)) ([314b79b](https://github.com/Autonoma-AI/agent/commit/314b79b6a966975fbd9891d046070cdca169988f))
+
 ## [1.8.5](https://github.com/Autonoma-AI/agent/compare/v1.8.4...v1.8.5) (2026-06-26)
 
 
