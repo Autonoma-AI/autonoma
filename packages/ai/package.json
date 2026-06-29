@@ -13,7 +13,8 @@
         "./evaluation": "./evals/index.ts"
     },
     "scripts": {
-        "eval": "vitest",
+        "test": "vitest",
+        "eval": "vitest --config vitest.eval.config.ts",
         "lint-files": "oxlint --fix",
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
