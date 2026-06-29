@@ -11,6 +11,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@autonoma/blacklight";
+import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
@@ -71,7 +72,7 @@ type PullRequestRow = {
   activeSnapshot: {
     status: string;
     _count: { testCaseAssignments: number };
-    health: "healthy" | "critical" | "running" | "unknown";
+    summary?: CheckpointPresentationSummary;
   } | null;
 };
 

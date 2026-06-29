@@ -13,18 +13,24 @@ export function PRHealthCell({ activeSnapshot }: HealthCellProps) {
   if (summary == null) {
     return (
       <span className="inline-flex items-center gap-2 whitespace-nowrap border border-border-dim bg-surface-raised px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-widest text-text-secondary">
-        <span className="size-1.5 bg-text-tertiary" />-
+        <span className="size-1.5 shrink-0 bg-text-tertiary" />-
       </span>
     );
   }
 
+  // Keep the pill within its fixed-width column: the dot and label never shrink, while the
+  // optional reason truncates. Without this the `nowrap` reason overflows and forces the table
+  // to scroll horizontally. The full text stays available via the title attribute.
   return (
     <span
-      className={`inline-flex items-center gap-2 whitespace-nowrap border px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-widest ${toneClasses(summary.tone)}`}
+      title={summary.reason != null ? `${summary.label} · ${summary.reason}` : summary.label}
+      className={`flex min-w-0 max-w-full items-center gap-2 border px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-widest ${toneClasses(summary.tone)}`}
     >
-      <span className={`size-1.5 ${toneDotClass(summary.tone)}`} />
-      {summary.label}
-      {summary.reason != null && <span className="font-normal normal-case opacity-70">· {summary.reason}</span>}
+      <span className={`size-1.5 shrink-0 ${toneDotClass(summary.tone)}`} />
+      <span className="shrink-0 whitespace-nowrap">{summary.label}</span>
+      {summary.reason != null && (
+        <span className="min-w-0 truncate font-normal normal-case opacity-70">· {summary.reason}</span>
+      )}
     </span>
   );
 }
