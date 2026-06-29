@@ -497,8 +497,6 @@ model Branch {
   id   String @id @default(cuid())
   name String
 
-  lastHandledSha String? @map("last_handled_sha")
-
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
