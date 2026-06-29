@@ -47,6 +47,7 @@ function findingFromVerdict(id: string, test: TestReport, verdict: ReportableVer
         plan: test.plan,
         runSuccess: test.runSuccess,
         stepCount: test.stepCount,
+        runSteps: test.runSteps,
         videoUrl: test.videoUrl,
         finalScreenshotUrl: test.finalScreenshotUrl,
     };
@@ -63,6 +64,7 @@ function findingFromError(id: string, test: TestReport, error: string | undefine
         plan: test.plan,
         runSuccess: test.runSuccess,
         stepCount: test.stepCount,
+        runSteps: test.runSteps,
         videoUrl: test.videoUrl,
         finalScreenshotUrl: test.finalScreenshotUrl,
     };

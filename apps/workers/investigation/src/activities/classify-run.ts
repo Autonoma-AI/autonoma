@@ -116,6 +116,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             plan: generation.testPlan.prompt,
             runSuccess: runArtifacts.success,
             stepCount: runArtifacts.stepCount,
+            runSteps: runArtifacts.steps,
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
             finalScreenshotUrl: generation.finalScreenshot ?? undefined,

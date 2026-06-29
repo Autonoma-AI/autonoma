@@ -37,6 +37,13 @@ export const investigationFindingSchema = z.object({
     plan: z.string().optional(),
     runSuccess: z.boolean().optional(),
     stepCount: z.number().optional(),
+    /**
+     * The step-by-step trace of what the run ACTUALLY did - each step's interaction, status, and per-step
+     * error (e.g. "click OK ... failed"). This is the run agent's own observation log, embedded so a reader
+     * can audit the verdict against what happened on screen instead of trusting the narrative. Absent on
+     * legacy reports written before the trace was surfaced.
+     */
+    runSteps: z.array(z.string()).optional(),
     /** Browser-openable HTTPS URL (the API signs the stored s3:// key on read). */
     videoUrl: z.string().optional(),
     finalScreenshotUrl: z.string().optional(),

@@ -37,6 +37,8 @@ export interface TestReport {
     plan: string;
     runSuccess: boolean;
     stepCount: number;
+    /** The step-by-step run trace (interaction + status + per-step error) - the run agent's observation log. */
+    runSteps?: string[];
     verdicts: ModelVerdict[];
     videoUrl?: string;
     finalScreenshotUrl?: string;
@@ -108,6 +110,22 @@ function renderEvidence(verdict: ReportableVerdict): string[] {
     return lines;
 }
 
+/** The step-by-step run trace - what the run ACTUALLY did, so the verdict can be audited against it. */
+function renderRunTrace(test: TestReport): string[] {
+    if (test.runSteps == null || test.runSteps.length === 0) return [];
+    return [
+        "<details>",
+        "<summary>Run trace (what the run actually did, step by step)</summary>",
+        "",
+        "```",
+        ...test.runSteps,
+        "```",
+        "",
+        "</details>",
+        "",
+    ];
+}
+
 /** App problems the agent saw in the video INDEPENDENT of the test's pass/fail - surfaced prominently. */
 function renderObservedIssues(verdict: ReportableVerdict): string[] {
     if (verdict.observedAppIssues == null || verdict.observedAppIssues.trim() === "") return [];
@@ -133,6 +151,7 @@ function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
         `**Remediation:** ${verdict.remediation}`,
         "",
         ...renderPlanOrFix(test, verdict),
+        ...renderRunTrace(test),
         "<details>",
         "<summary>Root cause &amp; evidence</summary>",
         "",
@@ -179,6 +198,7 @@ function renderTest(test: TestReport): string[] {
     for (const entry of test.verdicts) {
         if (entry.verdict == null) {
             lines.push(`## ${test.slug} - classification error`, "", entry.error ?? "(no verdict)", "");
+            lines.push(...renderRunTrace(test));
             continue;
         }
         lines.push(...renderVerdict(test, entry.verdict), "");

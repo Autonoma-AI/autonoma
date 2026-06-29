@@ -108,6 +108,7 @@ function toTestReport(result: InvestigationTestResult): TestReport {
         plan: result.plan,
         runSuccess: result.runSuccess,
         stepCount: result.stepCount,
+        runSteps: result.runSteps,
         verdicts: [modelVerdict],
         videoUrl: result.videoUrl,
         finalScreenshotUrl: result.finalScreenshotUrl,

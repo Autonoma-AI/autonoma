@@ -89,6 +89,12 @@ function FindingBody({
         </Section>
       )}
 
+      {finding.runSteps != null && finding.runSteps.length > 0 && (
+        <Section title="Run trace - what the run actually did">
+          <RunTrace steps={finding.runSteps} />
+        </Section>
+      )}
+
       {finding.remediation != null && (
         <Section title="Remediation">
           <p className="text-sm leading-relaxed text-text-primary">{finding.remediation}</p>
@@ -233,6 +239,26 @@ function EvidenceItem({
         )
       )}
     </div>
+  );
+}
+
+/**
+ * The step-by-step run trace - the run agent's own observation log (interaction + status + per-step error).
+ * Steps that errored or failed are highlighted so the verdict can be audited against what actually happened
+ * (e.g. a "delete failed" that was really a native dialog the engine could not click).
+ */
+function RunTrace({ steps }: { steps: string[] }) {
+  return (
+    <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-surface-void p-4 font-mono text-2xs leading-relaxed">
+      {steps.map((step, i) => {
+        const failed = /\bERROR\b|\bfailed\b/i.test(step);
+        return (
+          <div key={i} className={failed ? "text-status-critical" : "text-text-secondary"}>
+            {step}
+          </div>
+        );
+      })}
+    </pre>
   );
 }
 

@@ -78,6 +78,8 @@ export interface InvestigationTestResult {
     plan: string;
     runSuccess: boolean;
     stepCount: number;
+    /** The step-by-step run trace (interaction + status + per-step error) - the run agent's observation log. */
+    runSteps?: string[];
     verdict?: InvestigationVerdict;
     error?: string;
     videoUrl?: string;

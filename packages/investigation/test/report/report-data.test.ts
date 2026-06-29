@@ -16,6 +16,7 @@ const INPUT: InvestigationReportInput = {
             plan: "Steps:\n1. assert: row is hidden",
             runSuccess: false,
             stepCount: 5,
+            runSteps: ["1. [click filter] success", "2. [assert row hidden] failed - ERROR: row still visible"],
             videoUrl: "s3://autonoma-assets/test-generation/run-1/video.webm",
             finalScreenshotUrl: "s3://autonoma-assets/test-generation/run-1/final-screenshot.png",
             verdicts: [
@@ -71,6 +72,9 @@ describe("buildReportData", () => {
         expect(finding?.finalScreenshotUrl).toContain("final-screenshot.png");
         expect(finding?.evidence).toHaveLength(2);
         expect(finding?.evidence[0]?.file).toBe("apps/audit/query.ts");
+        // the run trace (the agent's own step-by-step observation log) is carried into the finding so a
+        // reader can audit the verdict against what actually happened, not just the narrative.
+        expect(finding?.runSteps).toContain("2. [assert row hidden] failed - ERROR: row still visible");
         expect(data.suggested[0]?.name).toBe("Multi-language guard");
         expect(data.quarantine[0]?.slug).toBe("legacy-export");
     });
