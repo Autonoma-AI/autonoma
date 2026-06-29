@@ -1,0 +1,51 @@
+name: OpenCode Comment Trigger
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+# Serialize runs per PR/issue so two triggers don't push to the same branch at
+# once. Don't cancel in-progress runs - that could interrupt a commit/push.
+concurrency:
+  group: opencode-comment-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+# The build agent can push commits and open PRs, so it needs write scopes.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  opencode:
+    name: Run OpenCode from comment
+    runs-on: ubuntu-latest
+    # Only fire on an explicit /oc or /opencode mention, and only when the
+    # commenter has write access (author_association). Anyone able to comment
+    # could otherwise push code and spend OpenRouter credits.
+    if: >-
+      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Keep persisted credentials so the action can fetch the PR branch and
+          # push commits back to it.
+          fetch-depth: 0
+
+      - name: Run OpenCode
+        # Pinned to a commit SHA (not a moving tag) - the action runs with write
+        # tokens, so a force-updated tag would be a supply-chain risk. Bump
+        # deliberately. Currently v1.17.11.
+        uses: anomalyco/opencode/github@67aec2212010d67775c35e696d8b8b54902eb338
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Use the runner's built-in token so we don't need the OpenCode
+          # GitHub App installed (see use_github_token below).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          use_github_token: true
+          model: openrouter/z-ai/glm-5.2

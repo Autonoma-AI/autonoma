@@ -52,6 +52,21 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Uses `chat.postMessage` (not an incoming webhook) so the message can be targeted at the channel by ID
 - Requires a `SLACK_BOT_TOKEN` repo secret: a Slack app bot token with the `chat:write` scope, with the app invited to the target channel. If the secret is absent the step skips gracefully (e.g. on fork PRs, where secrets are not exposed)
 
+### 9. **OpenCode PR Review** (`opencode-review.yml`)
+- Triggers on `pull_request` events (`opened`, `reopened`, `ready_for_review`, `synchronize`) and only runs on non-draft, non-bot, same-repo PRs (fork PRs are skipped because secrets are not exposed to them)
+- Runs the OpenCode GitHub Action (`anomalyco/opencode/github`, pinned to a commit SHA) with the `openrouter/z-ai/glm-5.2` model to review the diff and post comments only (it never modifies files)
+- Authenticates the model with `OPENROUTER_API_KEY` and posts via the built-in `GITHUB_TOKEN` (`use_github_token: true`), so the OpenCode GitHub App does not need to be installed
+- The prompt checks for bugs/security/edge cases, convention violations against the root and nested `CLAUDE.md` files plus the `ui-conventions` skill, and documentation left stale by the change
+- `cancel-in-progress` concurrency drops in-flight reviews when new commits land, so a burst of pushes does not pile up reviews
+- Requires the `OPENROUTER_API_KEY` repo secret (already used by `ci.yml`)
+
+### 10. **OpenCode Comment Trigger** (`opencode-comment.yml`)
+- Triggers on `issue_comment` and `pull_request_review_comment` (`created`) events when the body contains `/oc` or `/opencode`
+- Gated to commenters with write access (`author_association` of `OWNER`/`MEMBER`/`COLLABORATOR`) - anyone able to comment could otherwise push code and spend OpenRouter credits
+- Runs the OpenCode build agent (`anomalyco/opencode/github`, pinned to a commit SHA) with `openrouter/z-ai/glm-5.2`, so it can make code changes, commit, and push to the PR branch (not just comment)
+- Authenticates with `OPENROUTER_API_KEY` and the built-in `GITHUB_TOKEN` (`use_github_token: true`), so the OpenCode GitHub App does not need to be installed
+- Note: `issue_comment`/`pull_request_review_comment` workflows only run from the version on the **default branch**, so this must be merged to `main` before comment triggers take effect
+
 ## How to Deploy
 
 ### Standard Release Flow

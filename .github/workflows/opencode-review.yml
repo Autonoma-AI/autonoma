@@ -1,0 +1,73 @@
+name: OpenCode PR Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+# Re-running cancels an in-flight review for the same PR so a burst of pushes
+# does not pile up reviews (synchronize fires on every push to the branch).
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    name: Review PR with OpenCode
+    runs-on: ubuntu-latest
+    # Skip drafts and bot-authored PRs (dependabot, release-please, ...).
+    # Fork PRs are skipped because secrets (OPENROUTER_API_KEY) and a writable
+    # GITHUB_TOKEN are not exposed to pull_request runs from forks, so the
+    # review would silently fail. Check pull_request.user (the PR author), not
+    # sender (whoever triggered the event - a human pushing to a bot's PR).
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Keep persisted credentials so the OpenCode action can `git fetch`
+          # the PR branch.
+          fetch-depth: 0
+
+      - name: Review
+        # Pinned to a commit SHA (not a moving tag) - the action runs with
+        # pull-requests/issues write tokens, so a force-updated tag would be a
+        # supply-chain risk. Bump deliberately. Currently v1.17.11.
+        uses: anomalyco/opencode/github@67aec2212010d67775c35e696d8b8b54902eb338
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Use the runner's built-in token so we don't need the OpenCode
+          # GitHub App installed (see use_github_token below).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Post via GITHUB_TOKEN instead of an OpenCode App installation token.
+          use_github_token: true
+          model: openrouter/z-ai/glm-5.2
+          prompt: |
+            Review this pull request. Leave comments only - never modify files.
+
+            Focus on, in priority order:
+            - Bugs, security issues, and unhandled edge cases.
+            - Convention violations: read the root CLAUDE.md and any nested
+              CLAUDE.md under the changed packages/apps, and for changes under
+              apps/ui read the ui-conventions skill
+              (.claude/skills/ui-conventions). Flag code that contradicts them
+              (e.g. `as` casts, `.js` import extensions, `null` over
+              `undefined`, truthy checks instead of `!= null`, em dashes,
+              missing instance loggers, direct `process.env` access).
+            - Outdated documentation: if the change touches an app/package's
+              exports, env vars, architecture, or user-facing behavior, check
+              that the relevant README.md and apps/docs pages were updated to
+              match. Flag docs the change left stale.
+
+            Prefix each comment with a category and severity, e.g.
+            [BUG][HIGH], [SECURITY][MED], [CONVENTION][LOW], [DOCS][LOW].
+            Be concise. Skip nitpicks and style preferences. If you find
+            nothing worth raising, say so in a single short comment.
