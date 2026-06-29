@@ -1,21 +1,18 @@
 import { logger } from "@autonoma/logger";
-import {
-    type TriggerPreviewDeployParams,
-    type TriggerPreviewRedeployAppParams,
-    type TriggerPreviewTeardownParams,
-    triggerPreviewDeploy,
-    triggerPreviewRedeployApp,
-    triggerPreviewTeardown,
-} from "@autonoma/workflow";
+import type {
+    TriggerPreviewDeployParams,
+    TriggerPreviewRedeployAppParams,
+    TriggerPreviewTeardownParams,
+} from "@autonoma/types";
 import { BatchV1Api, CoreV1Api, KubeConfig } from "@kubernetes/client-node";
-import { env } from "../env";
 import { PreviewkitJobLauncher } from "./previewkit-job-launcher";
 
 /**
- * The fire-and-forget seam PreviewkitTriggerService is constructed with. Both
- * the Temporal path and the Kubernetes Jobs path satisfy it, so the trigger
- * service - and every caller (webhooks, HTTP routes, admin redeploy) - is
- * identical regardless of PREVIEWKIT_EXECUTION_MODE.
+ * The fire-and-forget seam PreviewkitTriggerService is constructed with. The
+ * preview lifecycle runs as one Kubernetes Job per operation (deploy / teardown
+ * / per-app redeploy) via {@link PreviewkitJobLauncher}; this seam keeps the
+ * trigger service - and every caller (webhooks, HTTP routes, admin redeploy) -
+ * decoupled from how the Job is launched.
  */
 export interface PreviewkitTriggers {
     deploy: (params: TriggerPreviewDeployParams) => Promise<void>;
@@ -23,41 +20,40 @@ export interface PreviewkitTriggers {
     redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
-let cached: PreviewkitTriggers | undefined;
+// All previewkit resources (runner Jobs + their SA / secret / ConfigMaps, and
+// the buildkitd Jobs) live in this dedicated control-cluster namespace - the
+// API creates runner Jobs here cross-namespace (see deployment/apps/previewkit.yaml).
+const PREVIEWKIT_NAMESPACE = "previewkit";
+
+let launcher: PreviewkitJobLauncher | undefined;
 
 /**
- * Resolves how preview deploys/teardowns are triggered, memoized per process.
- * "jobs" builds an in-cluster {@link PreviewkitJobLauncher} (lazily, so the
- * default "temporal" path never touches a kubeconfig in dev/test).
+ * Lazily builds the in-cluster launcher on first use. Deferred (not built at
+ * module load) so importing this module never touches a kubeconfig: dev/test
+ * and any environment with `PREVIEWKIT_ENABLED=false` never invoke a trigger,
+ * so `loadFromCluster()` only runs in a real preview-enabled API pod.
  */
-export function resolvePreviewkitTriggers(): PreviewkitTriggers {
-    if (cached != null) return cached;
-    cached = env.PREVIEWKIT_EXECUTION_MODE === "jobs" ? jobsTriggers() : temporalTriggers();
-    return cached;
-}
-
-function temporalTriggers(): PreviewkitTriggers {
-    return { deploy: triggerPreviewDeploy, teardown: triggerPreviewTeardown, redeployApp: triggerPreviewRedeployApp };
-}
-
-function jobsTriggers(): PreviewkitTriggers {
-    if (env.NAMESPACE == null) {
-        throw new Error("NAMESPACE is required when PREVIEWKIT_EXECUTION_MODE=jobs");
-    }
+function getLauncher(): PreviewkitJobLauncher {
+    if (launcher != null) return launcher;
     const kc = new KubeConfig();
     kc.loadFromCluster();
     // The runner image is read at launch from the previewkit-runner-image
     // ConfigMap (written by the previewkit deploy), so it is SHA-pinned to the
     // currently-deployed previewkit image - no image is wired through the API env.
-    const launcher = new PreviewkitJobLauncher({
+    launcher = new PreviewkitJobLauncher({
         batchApi: kc.makeApiClient(BatchV1Api),
         coreApi: kc.makeApiClient(CoreV1Api),
-        namespace: env.NAMESPACE,
+        namespace: PREVIEWKIT_NAMESPACE,
     });
-    logger.info("Previewkit lifecycle uses Kubernetes Jobs", { extra: { namespace: env.NAMESPACE } });
+    logger.info("Previewkit launcher initialized", { extra: { namespace: PREVIEWKIT_NAMESPACE } });
+    return launcher;
+}
+
+/** The preview lifecycle triggers - each launches a Kubernetes Job. */
+export function resolvePreviewkitTriggers(): PreviewkitTriggers {
     return {
-        deploy: (params) => launcher.launchDeploy(params),
-        teardown: (params) => launcher.launchTeardown(params),
-        redeployApp: (params) => launcher.launchRedeployApp(params),
+        deploy: (params) => getLauncher().launchDeploy(params),
+        teardown: (params) => getLauncher().launchTeardown(params),
+        redeployApp: (params) => getLauncher().launchRedeployApp(params),
     };
 }

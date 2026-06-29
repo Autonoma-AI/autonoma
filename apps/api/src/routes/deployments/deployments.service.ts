@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { PreviewRedeployAppMode } from "@autonoma/workflow";
+import type { PreviewRedeployAppMode } from "@autonoma/types";
 import { env } from "../../env";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";

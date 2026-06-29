@@ -15,7 +15,7 @@ import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
     PreviewServiceResult,
-} from "@autonoma/workflow/activities";
+} from "@autonoma/types";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildAbortedError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";

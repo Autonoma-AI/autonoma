@@ -6,11 +6,11 @@ import { PreviewkitTriggerService } from "./previewkit-trigger.service";
 import { resolvePreviewkitTriggers } from "./previewkit-triggers";
 
 /**
- * Starts the preview deploy/teardown/redeploy lifecycle. `PREVIEWKIT_EXECUTION_MODE`
- * selects the backend (Temporal workflow or a Kubernetes Job per operation) behind
- * the same trigger seam. Used by the public `/v1/previewkit/*` router and the
- * GitHub webhook handler; gated by `PREVIEWKIT_ENABLED` at the call sites.
- * Mirrors the diffs wiring in `../diffs/diffs-service.ts`.
+ * Starts the preview deploy/teardown/redeploy lifecycle by launching a
+ * Kubernetes Job per operation (apps/previewkit/src/runner), behind the trigger
+ * seam. Used by the public `/v1/previewkit/*` router and the GitHub webhook
+ * handler; gated by `PREVIEWKIT_ENABLED` at the call sites. Mirrors the diffs
+ * wiring in `../diffs/diffs-service.ts`.
  */
 const triggers = resolvePreviewkitTriggers();
 

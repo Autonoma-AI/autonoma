@@ -20,16 +20,16 @@ import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager"
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 
 /**
- * Everything the HTTP server and the Temporal worker both need. Both entry
- * points (`src/index.ts` and `src/worker/index.ts`) build the same object so
- * the deploy/teardown logic is constructed identically regardless of how it is
- * triggered (in-process webhook vs Temporal activity).
+ * Everything a preview run needs (pipelines + GitHub provider + heavy
+ * k8s/AWS/buildkit clients). The one-shot runner entry point
+ * (`src/runner/index.ts`) builds this once per Job before executing the
+ * deploy/teardown/redeploy pipeline.
  */
 export interface PreviewkitServices {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
     githubProvider: GitHubProvider;
-    /** Build-log sink; exposed so the worker can drain it on shutdown. */
+    /** Build-log sink; exposed so the runner can drain it before it exits. */
     buildLogSink?: BuildLogSink;
 }
 

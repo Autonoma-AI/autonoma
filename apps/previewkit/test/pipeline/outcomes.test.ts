@@ -1,4 +1,4 @@
-import type { PreviewBuildOutcome } from "@autonoma/workflow/activities";
+import type { PreviewBuildOutcome } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import type { AddonProvisionOutcome } from "../../src/addons/addon-manager";
 import { previewConfigSchema } from "../../src/config/schema";

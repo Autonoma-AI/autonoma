@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
+import type { PreviewDeployEvent } from "@autonoma/types";
 import { markBuildSuperseded } from "../db";
 import { logger as rootLogger } from "../logger";
 import type { RunPreviewJobDeps } from "./run-preview-job";

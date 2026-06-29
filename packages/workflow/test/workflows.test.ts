@@ -1,15 +1,6 @@
-import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyzeDiffsInput, ReviewGenerationInput, ReviewReplayInput, ScenarioUpInput } from "../src/activities";
-
-function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((r) => {
-        resolve = r;
-    });
-    return { promise, resolve };
-}
 
 // Mock the Temporal client used by triggers
 vi.mock("../src/client", () => {
@@ -126,51 +117,6 @@ describe("trigger functions", () => {
         const result = await findLatestWorkflowByRunId("run-1");
 
         expect(result).toEqual({ workflowId: "wf-1", runId: "run-1" });
-    });
-
-    it("triggerPreviewDeploy waits for graceful supersede cleanup before starting replacement", async () => {
-        const { triggerPreviewDeploy } = await import("../src/triggers/previewkit");
-        const { getTemporalClient } = await import("../src/client");
-        const client = await getTemporalClient();
-        const cancelled = deferred<void>();
-        const inFlightHandle = {
-            describe: vi.fn().mockResolvedValue({ status: { name: "RUNNING" } }),
-            cancel: vi.fn().mockResolvedValue({}),
-            result: vi.fn().mockReturnValue(
-                cancelled.promise.then(() => {
-                    throw new Error("workflow cancelled");
-                }),
-            ),
-        };
-        vi.mocked(client.workflow.getHandle).mockReturnValueOnce(inFlightHandle as never);
-
-        const pending = triggerPreviewDeploy({
-            event: {
-                action: "synchronize",
-                prNumber: 7,
-                repoFullName: "acme/web",
-                organizationId: "org_1",
-                githubRepositoryId: 123,
-                headSha: "abc1234def5678",
-                headRef: "feature/login",
-                baseSha: "",
-                baseRef: "",
-                cloneUrl: "https://github.com/acme/web.git",
-            },
-        });
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(inFlightHandle.cancel).toHaveBeenCalledOnce();
-        expect(client.workflow.start).not.toHaveBeenCalled();
-
-        cancelled.resolve();
-        await pending;
-
-        expect(client.workflow.start).toHaveBeenCalledOnce();
-        const options = vi.mocked(client.workflow.start).mock.calls[0]?.[1];
-        expect(options?.workflowId).toBe("previewkit-acme-web-7");
-        expect(options?.workflowIdConflictPolicy).toBe(WorkflowIdConflictPolicy.TERMINATE_EXISTING);
     });
 });
 

@@ -3,7 +3,7 @@ import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
     PreviewDeployEvent,
-} from "@autonoma/workflow/activities";
+} from "@autonoma/types";
 import * as Sentry from "@sentry/node";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import { logger as rootLogger, type Logger } from "../logger";

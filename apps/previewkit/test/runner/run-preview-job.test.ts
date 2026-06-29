@@ -3,7 +3,7 @@ import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
     PreviewDeployEvent,
-} from "@autonoma/workflow/activities";
+} from "@autonoma/types";
 import { describe, expect, it, vi } from "vitest";
 import type { PreparePreviewResult } from "../../src/pipeline/preview-pipeline";
 import type { PreviewJobSpec } from "../../src/runner/job-spec";

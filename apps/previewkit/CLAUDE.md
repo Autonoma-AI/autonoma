@@ -17,20 +17,20 @@ When in doubt, read the source - this doc is a map, not the source of truth.
 
 ## End-to-end flow
 
-Previewkit is a standalone Temporal worker - it has no HTTP server. The autonoma API owns the
-public surface and starts the workflows; this app executes them.
+Previewkit has no long-running process - it runs as a one-shot Kubernetes Job per operation. The
+autonoma API owns the public surface and launches the Jobs; this app's `src/runner` executes them.
 
 ```
 GitHub pull_request webhook
   -> apps/api  (PreviewkitTriggerService; gated by the API's PREVIEWKIT_ENABLED - see below)
-  -> triggerPreviewDeploy() starts previewDeployWorkflow on the `previewkit` task queue
-  -> worker-previewkit runs the activities (src/activities/):
+  -> PreviewkitJobLauncher.launchDeploy() creates a `pk-deploy-*` Job (runs apps/previewkit/src/runner):
        clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
        -> deploy infra services + addons -> deploy app Deployments + Gatekeeper proxy + Ingress
-       -> run pre/post-deploy hooks -> post/update the PR comment
+       -> run pre/post-deploy hooks -> post/update the PR comment, then exit
 ```
-On `pull_request.closed`, `triggerPreviewTeardown()` starts `previewTeardownWorkflow`, whose
-single activity runs `TeardownPipeline` (addon deprovision + namespace delete + PR comment).
+On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
+`TeardownPipeline` (addon deprovision + namespace delete + PR comment). A per-app redeploy
+(`PATCH .../apps/:app`) creates a `pk-redeploy-app-*` Job (`rebuild` or `restart`).
 
 Main-branch environments (environment 0, created via `POST /v1/previewkit/applications/:id/0`)
 ride the same deploy path: a GitHub `push` webhook to the branch a live environment 0 tracks
@@ -38,58 +38,40 @@ redeploys it at the pushed head (`deployMainBranchFromPushWebhook`, action `sync
 Pushes that don't update such an environment are dropped by the webhook handler before they
 are even recorded - push fires for every branch of every connected repo.
 
-**Concurrency model:** every workflow start for a (repo, pr) - deploy, redeploy, AND teardown -
-uses the same deterministic workflowId `previewkit-{slug}-{pr}`, the per-environment mutex. The
-trigger (`triggers/previewkit.ts`) first issues a graceful `handle.cancel()` on the in-flight run,
-then starts the new one with `TERMINATE_EXISTING` as a backstop. The graceful cancel is what frees
-compute promptly: the deploy workflow observes the cancellation, the build activity's
-`Context.current().cancellationSignal` aborts the `buildctl` spawn, and the builder's `finally`
-releases the buildkit Job in seconds (instead of letting it run to the Job's ~31-min deadline). On
-cancellation the deploy workflow writes ONLY the superseded build row (`PreviewkitBuild.status =
-superseded`) and never the env row - the successor run owns it - so it must not run the failure
-finalizer. Teardown runs its delete in a `nonCancellable` scope so a close-then-reopen can't leave a
-half-deleted namespace.
+**Concurrency model:** the per-environment mutex is the `previewkit.dev/env={hash}-{pr}` label on
+each Job (`PreviewkitJobLauncher`, apps/api). Launching a deploy or per-app redeploy first deletes
+any in-flight "deploy-family" Job for that env (`previewkit.dev/type in (deploy,redeploy-app)`,
+Background propagation), then creates the new one - async newest-wins. The deleted pod gets SIGTERM,
+which `src/runner/index.ts` turns into an `AbortController` abort: the build's
+`signal.throwIfAborted()` / aborted `buildctl` spawn releases the buildkit Job in seconds, and the
+deploy branch writes ONLY the superseded build row (`PreviewkitBuild.status = superseded`), never the
+env row - the successor owns it. Teardown ignores SIGTERM and runs its (idempotent) namespace delete
+to completion, and the deploy-family supersede never targets a running teardown, so a
+close-then-reopen can't leave a half-deleted namespace.
 
-**Abort != failure (don't stamp the env `failed` on a worker shutdown).** The cancellation signal
-fires for two reasons: a supersede (newer commit), or a **worker shutdown** - the KEDA scaler
-(`deployment/apps/keda-worker-previewkit.yaml`) scales on Temporal queue size, not in-flight
-activities, so it routinely SIGTERMs a worker mid-build (one worker runs up to 5 concurrent builds,
-so one scale-down can abort 5 at once). A shutdown abort is NOT a deploy failure, but the build
-pipeline used to surface it as `BuildAbortedError` ("buildctl aborted"), an ordinary
-`ActivityFailure` that the workflow ran the failure finalizer on - stamping a (possibly
-previously-ready) environment `failed`. Two layers fix this:
-- **Primary:** the worker sets `shutdownGraceTimeMs` (`worker/index.ts`; the SDK default is `0` =
-  cancel immediately) so `worker.shutdown()` drains in-flight builds within the pod's
-  `terminationGracePeriodSeconds` (1800s) instead of aborting them. A scaled-down worker finishes
-  its builds.
-- **Defense-in-depth:** `buildPreviewImages` / `deployPreviewEnvironment` (`activities/index.ts`,
-  `rethrowAbortAsCancellation`) normalize a fired signal onto a Temporal `CancelledFailure` (what
-  the deploy phase already throws via `throwIfAborted`). A genuinely cancelled run then routes to the
-  `isCancellation()` supersede branch; a shutdown abort that slips past the drain (build > grace,
-  hard node kill) confirms cancellation so the SDK retries the attempt on a surviving worker rather
-  than failing the deploy. Note: an activity-thrown `CancelledFailure` only reads as a cancellation
-  to the workflow when the run's scope was actually cancelled; otherwise it retries, then (if it can
-  never complete) still falls to the failure finalizer.
+**Abort != failure.** A deploy/redeploy Job pod gets SIGTERM only on a deliberate supersede (a newer
+push deleting the in-flight Job), so the runner treats SIGTERM as a supersede - it writes the
+superseded build row and exits 0, never stamping a (possibly previously-ready) environment `failed`.
+Every *handled* outcome (ready / build_failed / deploy_failed / superseded / skipped) exits 0; only
+an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just genuine pod death
+(OOM / eviction) and the idempotent DB upserts make that re-run safe. Internal timeouts
+(`BUILD_TIMEOUT_MS`, the readiness budgets) record clean failures before the Job's
+`activeDeadlineSeconds` backstop fires.
 
 ## Directory map (`src/`)
 
-- `worker/index.ts` - the Temporal worker entrypoint (`worker.Dockerfile`); polls the `previewkit`
-  task queue, registers `src/activities/`, readiness via `/tmp/worker-ready`.
-- `activities/index.ts` - Temporal activity impls (prepare/build/deploy/finalize/fail/teardown);
-  thin wrappers over the pipelines from `create-services.ts`.
-- `runner/` - the one-shot Kubernetes Job entrypoint, an alternative to the Temporal worker selected
-  by the API's `PREVIEWKIT_EXECUTION_MODE=jobs` (the API launches one Job per deploy / teardown /
-  per-app redeploy via `PreviewkitJobLauncher`). `run-preview-job.ts` is the Temporal-free
-  re-implementation of the deploy / teardown / redeploy-app workflows (linear pipeline calls + a
-  `signal.aborted` supersede branch); the `redeploy-app` mode is `rebuild` (build+deploy one app) or
-  `restart` (re-roll its pods). `index.ts` reads the `PREVIEWKIT_JOB_SPEC` payload, builds the same
-  `PreviewkitServices`, runs once, and exits (SIGTERM = supersede for deploy/redeploy-app; ignored
-  during teardown). Both paths share everything below.
+- `runner/` - the one-shot Kubernetes Job entrypoint (built by `Dockerfile`); the API launches one Job
+  per deploy / teardown / per-app redeploy via `PreviewkitJobLauncher` (apps/api). `index.ts` reads
+  the `PREVIEWKIT_JOB_SPEC` payload, builds `PreviewkitServices`, runs once, and exits (SIGTERM =
+  supersede for deploy/redeploy-app; ignored during teardown). `run-preview-job.ts` is the
+  orchestration (linear pipeline calls + a `signal.aborted` supersede branch); the `redeploy-app`
+  mode is `rebuild` (build+deploy one app) or `restart` (re-roll its pods). `job-spec.ts` Zod-validates
+  the payload; `deps.ts` wires the DB-backed side effects.
 - `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/storage/env` + `@autonoma/logger/env`.
-- `pipeline/preview-pipeline.ts` - the deploy steps the activities drive (`prepare` / `build` /
-  `deployEnvironment` / `finalize` / `fail`), per-app build loop (`buildOneApp`), final-outcome
-  computation, PR-comment payload.
+- `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /
+  `deployEnvironment` / `finalize` / `fail` / `restartApp`), per-app build loop (`buildOneApp`),
+  final-outcome computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts` (legacy monorepo path).
 - `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
@@ -122,14 +104,14 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
   (`PreviewkitSecretsService` - AWS Secrets Manager + DB), and `openapi.json`. Secret values are
   kept out of the API request log via a body-log blocklist
   prefix on `/v1/previewkit/secrets`. Loki is a VPC-internal EC2 instance (`PREVIEWKIT_LOKI_URL`
-  in the API env; unset -> the stream route 503s): build logs are pushed by this worker's
+  in the API env; unset -> the stream route 503s): build logs are pushed by the runner's
   `LokiBuildLogSink`, app logs by an Alloy DaemonSet on the preview cluster
   (`deployment/previewkit/cluster/logging/alloy.yaml`) tailing `preview-*` pod logs.
 - **Lifecycle ops** (deploy / main-branch `POST /applications/:id/0` / teardown / redeploy
   `PATCH /environments/:owner/:repo/:pr` / per-app redeploy
   `PATCH /environments/:owner/:repo/:pr/apps/:app`):
   preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
-  `diffs-trigger.service.ts`), then the Temporal workflow is started directly. 503 when the API's
+  `diffs-trigger.service.ts`), then the Kubernetes Job is launched (PreviewkitJobLauncher). 503 when the API's
   `PREVIEWKIT_ENABLED` is off (dev / self-host without preview infra); the GitHub webhook handler
   (`apps/api/src/github/github-http.router.ts`) silently skips in that case, and admin redeploy
   (`apps/api/src/routes/deployments/deployments.service.ts`) errors. `PREVIEWKIT_SERVICE_SECRET`
@@ -196,7 +178,7 @@ app lines in a recent window.
 - `PreviewkitBuild` + `PreviewkitAppBuild` - per-push build + per-app build rows (normalized out
   of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok"). `PreviewkitBuild`
   is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across
-  activity retries; a superseded build's row is marked `superseded`.
+  Job retries; a superseded build's row is marked `superseded`.
 - `PreviewkitConfigRevision` - DB-stored config revisions (the "config in DB" path).
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - AWS Secrets Manager ARNs per app / per org.
 - `PreviewkitAddon` - provisioned addon state/outputs.
@@ -236,14 +218,14 @@ pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `GATEKEEPER_IMAGE`/`GATEKEEPER_IDLE_TIMEOUT`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
-`TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` are read by `@autonoma/workflow`'s own env.
+`PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `LOKI_URL` (optional) - the build-log tier. When set, the builder tees each output chunk and the
 pipeline mirrors phase/status transitions into Grafana Loki (`LokiBuildLogSink` behind the
 `BuildLogSink` seam from `@autonoma/logger/build-log-sink`, batched + best-effort); the autonoma
 API reads them back over the same `LogStore` seam and relays to clients over SSE. Loki's 31d
 retention is the archive - there is no Redis tier or S3 log upload anymore (the per-attempt temp
 file on disk is removed after each build attempt). Unset disables build-log publishing entirely.
-The worker drains the sink's buffer on shutdown.
+The runner drains the sink's buffer before it exits.
 
 ## Build / test
 

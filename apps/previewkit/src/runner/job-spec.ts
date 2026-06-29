@@ -1,4 +1,4 @@
-import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
+import type { PreviewDeployEvent } from "@autonoma/types";
 import { z } from "zod";
 
 /**
@@ -8,10 +8,10 @@ import { z } from "zod";
  * spec into the runner as untrusted input, so it is checked rather than
  * trusted).
  *
- * Contract: keep `event` in sync with `PreviewDeployEvent`
- * (`@autonoma/workflow/activities`) - the `satisfies` below fails the build if
- * the schema drifts from the interface - and with the object the launcher
- * builds in `apps/api/src/previewkit/previewkit-job-launcher.ts`.
+ * Contract: keep `event` in sync with `PreviewDeployEvent` (`@autonoma/types`)
+ * - the `satisfies` below fails the build if the schema drifts from the
+ * interface - and with the object the launcher builds in
+ * `apps/api/src/previewkit/previewkit-job-launcher.ts`.
  */
 const previewDeployEventSchema = z.object({
     action: z.enum(["opened", "synchronize", "closed", "reopened", "ready_for_review"]),

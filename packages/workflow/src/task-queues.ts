@@ -3,7 +3,6 @@ export const TaskQueue = {
     MOBILE: "mobile",
     GENERAL: "general",
     DIFFS: "diffs",
-    PREVIEWKIT: "previewkit",
     INVESTIGATION: "investigation",
 } as const;
 

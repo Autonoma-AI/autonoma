@@ -1,4 +1,4 @@
-import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
+import type { PreviewDeployEvent } from "@autonoma/types";
 import type { V1Job } from "@kubernetes/client-node";
 import { describe, expect, it } from "vitest";
 import {

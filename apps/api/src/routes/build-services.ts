@@ -6,11 +6,13 @@ import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
 import type {
-    TriggerDiffsJobParams,
-    TriggerInvestigationJobParams,
     TriggerPreviewDeployParams,
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
+} from "@autonoma/types";
+import type {
+    TriggerDiffsJobParams,
+    TriggerInvestigationJobParams,
     TriggerRunWorkflowParams,
 } from "@autonoma/workflow";
 import type { Auth } from "../auth";

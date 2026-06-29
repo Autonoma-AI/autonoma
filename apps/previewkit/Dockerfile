@@ -1,14 +1,12 @@
-# Previewkit Temporal worker image.
+# Previewkit runner image.
 #
-# Unlike apps/previewkit/Dockerfile (a rolldown single-bundle of the HTTP
-# server), the worker runs from source via tsx - the Temporal worker needs the
-# native @temporalio/core-bridge (cannot be bundled) and `workflowsPath` source
-# at runtime. The core-bridge prebuilt addon is glibc-only (-gnu), so this image
-# MUST use a glibc base (node:24-slim / Debian), like apps/workers/{diffs,general}
-# - the alpine/musl HTTP image only loads @temporalio/client (pure JS), but the
-# worker loads the native bridge. It still needs the build tooling
-# (buildctl/railpack/mise/bun, glibc variants) because the build activity drives
-# real image builds.
+# The one-shot deploy/teardown/redeploy runner (src/runner) runs from source via
+# tsx (not bundled) and needs the real build tooling - buildctl, railpack, mise,
+# bun - because it drives real container image builds. Those tools are installed
+# as glibc builds, so this image uses a glibc base (node:24-slim / Debian), like
+# apps/workers/{diffs,general}. The API launches it as a Kubernetes Job
+# (PreviewkitJobLauncher), overriding the command with the runner entrypoint and
+# injecting the PREVIEWKIT_JOB_SPEC payload.
 FROM node:24-slim
 
 ARG BUILDKIT_VERSION=0.30.0
@@ -49,4 +47,4 @@ RUN pnpm install --frozen-lockfile
 
 ENV NODE_ENV=production
 WORKDIR /app/apps/previewkit
-CMD ["/app/node_modules/.bin/tsx", "--import", "./src/worker/preload.ts", "src/worker/index.ts"]
+CMD ["/app/node_modules/.bin/tsx", "src/runner/index.ts"]

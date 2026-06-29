@@ -1,5 +1,5 @@
 import { runWithSentry } from "@autonoma/logger";
-import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
+import type { PreviewDeployEvent } from "@autonoma/types";
 import { createPreviewkitServices } from "../create-services";
 import { env } from "../env";
 import { logger, type PreviewContext, withObservabilityContext } from "../logger";

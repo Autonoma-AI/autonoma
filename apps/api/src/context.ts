@@ -26,7 +26,7 @@ export const generationProvider = new TemporalGenerationProvider();
 
 const githubApp = buildGitHubApp(env);
 
-// Temporal workflow start or Kubernetes Job launch, per PREVIEWKIT_EXECUTION_MODE.
+// Launches the preview lifecycle (deploy / teardown / per-app redeploy) as Kubernetes Jobs.
 const previewkitTriggers = resolvePreviewkitTriggers();
 
 export async function createContext(c: HonoContext) {

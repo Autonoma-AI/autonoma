@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type {
+    PreviewDeployEvent,
     TriggerPreviewDeployParams,
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
-} from "@autonoma/workflow";
-import type { PreviewDeployEvent } from "@autonoma/workflow/activities";
+} from "@autonoma/types";
 import { ApiException, type V1Job } from "@kubernetes/client-node";
 
 /**
@@ -31,7 +31,7 @@ const LABEL_PR = "previewkit.dev/pr";
 const ANNOTATION_REPO = "previewkit.dev/repo";
 const ANNOTATION_HEAD_SHA = "previewkit.dev/head-sha";
 
-// Reused from the previewkit worker (deployment/apps/worker-previewkit.yaml): the
+// Reused from the previewkit shared resources (deployment/apps/previewkit.yaml): the
 // runner Job runs as the same ServiceAccount, on the same node pool, and pulls
 // the same env (the secret bundle plus a small non-secret ConfigMap).
 const RUNNER_SERVICE_ACCOUNT = "previewkit";
@@ -95,15 +95,14 @@ export interface PreviewkitJobLauncherOptions {
  * in-flight Job for the same (repo, PR) - the per-environment mutex, carried on
  * the `previewkit.dev/env` label - then creates a fresh Job. The old pod
  * self-drains (aborts buildctl, writes the superseded build row); the new pod
- * owns the environment row, exactly as the Temporal supersede did.
+ * owns the environment row.
  *
  * The runner image is SHA-pinned: it is read from the `previewkit-runner-image`
  * ConfigMap that the previewkit deploy writes, so Jobs always run the exact
  * currently-deployed previewkit image regardless of the API's own deploy SHA.
  *
- * `launchDeploy` / `launchTeardown` match the `triggerPreviewDeploy` /
- * `triggerPreviewTeardown` signatures, so they drop into the same injection
- * seam in PreviewkitTriggerService.
+ * `launchDeploy` / `launchTeardown` / `launchRedeployApp` are the
+ * `PreviewkitTriggers` seam consumed by `PreviewkitTriggerService`.
  */
 export class PreviewkitJobLauncher {
     private readonly batchApi: PreviewJobsApi;

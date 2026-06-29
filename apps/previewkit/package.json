@@ -5,13 +5,12 @@
     "description": "Preview environments for pull requests - deploy any stack to Kubernetes",
     "type": "module",
     "scripts": {
-        "dev": "tsx watch --import ./src/worker/preload.ts src/worker/index.ts",
         "test": "vitest run --config vitest.config.ts",
         "test:watch": "vitest --config vitest.config.ts",
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
         "test:kind": "vitest run --config vitest.kind.config.ts",
         "typecheck": "tsc --noEmit",
-        "start:worker": "tsx --import ./src/worker/preload.ts src/worker/index.ts"
+        "start:runner": "tsx src/runner/index.ts"
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
@@ -20,7 +19,6 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
-        "@autonoma/workflow": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",
         "@aws-sdk/client-ecr": "^3.1048.0",
         "@aws-sdk/client-eks": "^3.1048.0",
@@ -34,14 +32,11 @@
         "@smithy/protocol-http": "^5.3.14",
         "@smithy/signature-v4": "^5.3.14",
         "@t3-oss/env-core": "catalog:",
-        "@temporalio/activity": "catalog:",
-        "@temporalio/worker": "catalog:",
         "tar-fs": "^3.1.2",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@autonoma/integration-test": "workspace:*",
-        "@temporalio/testing": "catalog:",
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "@types/tar-fs": "^2.0.4",

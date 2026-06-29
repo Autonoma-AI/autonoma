@@ -5,7 +5,7 @@ import type {
     TriggerPreviewDeployParams,
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
-} from "@autonoma/workflow";
+} from "@autonoma/types";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { Service } from "../routes/service";

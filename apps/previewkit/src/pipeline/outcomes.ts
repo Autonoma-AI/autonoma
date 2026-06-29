@@ -1,4 +1,4 @@
-import type { PreviewAddonResult, PreviewBuildOutcome } from "@autonoma/workflow/activities";
+import type { PreviewAddonResult, PreviewBuildOutcome } from "@autonoma/types";
 import type { AddonProvisionOutcome } from "../addons/addon-manager";
 import type { PreviewConfig } from "../config/schema";
 import type { AppBuildOutcome, AppStateUpdate } from "../db";
