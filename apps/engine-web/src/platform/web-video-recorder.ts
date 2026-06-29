@@ -3,6 +3,7 @@ import path from "node:path";
 import { VideoRecorder } from "@autonoma/engine";
 import type { Page } from "playwright";
 import { runPlaywright } from "./drivers/playwright-error";
+import { finalizeWebm } from "./finalize-webm";
 
 export class NoPageVideoError extends Error {
     constructor() {
@@ -29,17 +30,24 @@ export class WebVideoRecorder extends VideoRecorder {
     }
 
     protected async computeVideoPath(): Promise<string> {
+        const recordedPath = await this.resolveRecordedPath();
+
+        // Even once finalized, Playwright's WebM has no Cues (the seek index), so
+        // the browser can play it but not scrub it. Remux it into a seekable file
+        // before upload.
+        return finalizeWebm(recordedPath, this.logger);
+    }
+
+    private async resolveRecordedPath(): Promise<string> {
         const video = this.page.video();
         if (video == null) throw new NoPageVideoError();
 
-        // Try local path first; falls back to saveAs for remote browsers
-        try {
-            const localPath = await runPlaywright(() => video.path());
-            if (localPath != null) return localPath;
-        } catch {
-            // Fall through to saveAs
-        }
-
+        // Never use video.path() here: the context-level recording is only flushed
+        // to disk when the browser context closes (which happens during cleanup,
+        // after this runs), so path() returns a half-written, unreadable file - the
+        // root cause of the truncated, non-seekable recordings. saveAs() waits for
+        // the recording to finalize (the page is already closed) and writes a
+        // complete file we can safely remux.
         const savePath = path.join(os.tmpdir(), `video-${Date.now()}.webm`);
         await runPlaywright(() => video.saveAs(savePath));
         return savePath;

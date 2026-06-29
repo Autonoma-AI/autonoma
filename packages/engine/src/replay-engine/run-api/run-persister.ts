@@ -4,6 +4,7 @@ import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { CommandOutput, CommandParams, CommandSpec } from "../../commands";
+import { videoContentType } from "../../platform/video-content-type";
 import type { ReplayRunResult } from "../runner/replay-runner";
 
 export interface PersistableRunStep<TSpec extends CommandSpec> {
@@ -269,7 +270,11 @@ export class RunPersister<TSpec extends CommandSpec> {
 
         this.logger.info("Uploading run video", { videoPath });
         const videoBuffer = await readFile(videoPath);
-        await this.config.storageProvider.upload(this.videoKey(this.id), videoBuffer);
+        await this.config.storageProvider.upload(
+            this.videoKey(this.id),
+            videoBuffer,
+            videoContentType(this.config.videoExtension),
+        );
 
         this.logger.info("Run completed and video uploaded");
     }

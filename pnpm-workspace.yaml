@@ -6,6 +6,10 @@ packages:
   - "!apps/**/.nitro/**"
 
 allowBuilds:
+  '@ffmpeg-installer/darwin-arm64': true
+  '@ffmpeg-installer/darwin-x64': true
+  '@ffmpeg-installer/linux-arm64': true
+  '@ffmpeg-installer/linux-x64': true
   '@google/genai': true
   '@prisma/engines': true
   '@swc/core': true

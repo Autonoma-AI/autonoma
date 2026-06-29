@@ -28,6 +28,7 @@ src/
 │   ├── web-installer.ts
 │   ├── web-context.ts
 │   ├── web-video-recorder.ts
+│   ├── finalize-webm.ts                # remux Playwright WebM into a seekable file
 │   ├── playwright-image-stream.ts
 │   ├── active-page-manager.ts
 │   ├── scenario-auth.ts
@@ -109,7 +110,7 @@ Additionally, environment variables are inherited from shared packages (`@autono
 - **Platform-agnostic core.** All AI agent logic, command abstractions, and the execution loop live in `@autonoma/engine`. This app only provides Playwright-specific driver implementations.
 - **WebContext** bundles all Playwright drivers (screen, mouse, keyboard, clipboard, application, navigation) into a single object the agent commands operate on.
 - **Remote browser support.** In production, the engine connects to a remote Chromium instance via WebSocket rather than launching a local browser.
-- **Video recording** uses Playwright's built-in per-page video API.
+- **Video recording** uses Playwright's built-in video API, made seekable in two steps. (1) `WebVideoRecorder` reads the recording with `video.saveAs()`, never `video.path()`: the context-level recording is only flushed to disk when the browser context closes (during cleanup, after the upload), so `path()` returns a half-written, truncated file - the original cause of the unseekable, `duration=N/A` recordings. (2) `finalize-webm.ts` then remuxes the finalized file with ffmpeg (`-c copy`, no re-encode, via `@ffmpeg-installer/ffmpeg`) to add the Cues seek index. The upload is tagged `video/webm` so object storage does not serve it as `application/octet-stream`.
 - **ActivePageManager** tracks which page is currently active, handling new tabs/popups transparently so drivers always operate on the correct page.
 - **Default viewport** is 1920x1080 across all entry points.
 - **Agent tools** include: click, hover, drag, type, assert, scroll, refresh, read (text extraction), and save-clipboard.

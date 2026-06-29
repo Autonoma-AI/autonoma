@@ -74,19 +74,19 @@ export class S3Storage implements StorageProvider {
         return `s3://${this.config.bucket}/${key}`;
     }
 
-    private putObjectCommand(urlOrKey: string, data: Buffer) {
+    private putObjectCommand(urlOrKey: string, data: Buffer, contentType?: string) {
         const key = stripProtocolIfPresent(urlOrKey);
 
         return new PutObjectCommand({
             Bucket: this.config.bucket,
             Key: key,
             Body: data,
-            ContentType: "application/octet-stream",
+            ContentType: contentType ?? "application/octet-stream",
         });
     }
 
-    async upload(urlOrKey: string, data: Buffer): Promise<string> {
-        await this.s3.send(this.putObjectCommand(urlOrKey, data));
+    async upload(urlOrKey: string, data: Buffer, contentType?: string): Promise<string> {
+        await this.s3.send(this.putObjectCommand(urlOrKey, data, contentType));
 
         return this.urlForKey(stripProtocolIfPresent(urlOrKey));
     }

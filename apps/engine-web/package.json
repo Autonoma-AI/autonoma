@@ -36,6 +36,7 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
+        "@ffmpeg-installer/ffmpeg": "^1.1.0",
         "@google/genai": "^1.42.0",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",

@@ -5,6 +5,7 @@ import { type Logger, logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
 import type { CommandSpec } from "../../commands";
+import { videoContentType } from "../../platform/video-content-type";
 import type { FailedStep, GeneratedStep } from "../agent";
 import type { HeadlessRunResult } from "../runner";
 import type { AttemptData } from "../runner/events";
@@ -372,7 +373,11 @@ export class GenerationPersister<TSpec extends CommandSpec> {
 
         this.logger.info("Uploading video", { videoPath });
         const videoBuffer = await readFile(videoPath);
-        const videoUrl = await this.config.storageProvider.upload(this.videoKey(this.id), videoBuffer);
+        const videoUrl = await this.config.storageProvider.upload(
+            this.videoKey(this.id),
+            videoBuffer,
+            videoContentType(this.config.videoExtension),
+        );
 
         this.logger.info("Saving video URL to database");
         await this.db.testGeneration.update({
