@@ -19,6 +19,38 @@ async function setActiveSnapshotHeadSha(db: PrismaClient, branchId: string, head
     });
 }
 
+/**
+ * Pre-create the PR branch with its own active snapshot carrying one pinned-plan assignment, so a subsequent
+ * triggerPrDiffs forks both the diffs snapshot and the investigation twin from that baseline. Self-contained
+ * (no shared main branch) so it does not collide with other tests in the shared-DB suite.
+ */
+async function setupBranchWithBaseline(
+    db: PrismaClient,
+    organizationId: string,
+    applicationId: string,
+    prNumber: number,
+    headRef: string,
+): Promise<{ branchId: string; testCaseId: string }> {
+    const branch = await db.branch.create({
+        data: { name: headRef, applicationId, organizationId, prInfo: { create: { applicationId, prNumber } } },
+    });
+    const folder = await db.folder.create({ data: { name: `flow-${prNumber}`, applicationId, organizationId } });
+    const testCase = await db.testCase.create({
+        data: { name: `tc-${prNumber}`, slug: `tc-${prNumber}`, applicationId, organizationId, folderId: folder.id },
+    });
+    const plan = await db.testPlan.create({
+        data: { testCaseId: testCase.id, prompt: "Open homepage", organizationId },
+    });
+    const activeSnapshot = await db.branchSnapshot.create({
+        data: { branchId: branch.id, status: "active", source: TriggerSource.WEBHOOK, headSha: `base-${prNumber}` },
+    });
+    await db.testCaseAssignment.create({
+        data: { snapshotId: activeSnapshot.id, testCaseId: testCase.id, planId: plan.id },
+    });
+    await db.branch.update({ where: { id: branch.id }, data: { activeSnapshotId: activeSnapshot.id } });
+    return { branchId: branch.id, testCaseId: testCase.id };
+}
+
 apiTestSuite({
     name: "DiffsTriggerService",
     seed: async ({ harness }) => {
@@ -56,8 +88,11 @@ apiTestSuite({
             data: { githubRepositoryId: 1001 },
         });
 
+        // Distinct installation id per suite: the integration suites share one DB with no
+        // per-suite truncation, and installation_id is globally unique, so reusing the same id
+        // across suites collides on the shared table when files run concurrently.
         await harness.services.github.handleInstallation(
-            12345,
+            33333,
             harness.organizationId,
             "test-org",
             999,
@@ -505,6 +540,150 @@ apiTestSuite({
                     webhookUrl: "https://webhook.example.com/hook",
                 }),
             ).rejects.toThrow(NotFoundError);
+        });
+
+        test("creates a detached, paired investigation snapshot forked from the baseline; hidden from history; report resolves via FK", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            // An earlier test in this shared-DB suite deletes the installation; restore it (upsert by org).
+            await harness.services.github.handleInstallation(
+                33333,
+                harness.organizationId,
+                "test-org",
+                999,
+                "Organization",
+            );
+
+            const { testCaseId } = await setupBranchWithBaseline(
+                harness.db,
+                harness.organizationId,
+                app.id,
+                70,
+                "feature/branch-70",
+            );
+
+            const result = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 70,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            const diffsSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: result.snapshotId },
+                select: { investigationSnapshotId: true, branchId: true },
+            });
+            const twinId = diffsSnapshot.investigationSnapshotId;
+            expect(twinId).not.toBeNull();
+
+            // The twin is on the same branch, but wired to NO branch pointer (it is detached).
+            const twin = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: twinId! },
+                select: { branchId: true, status: true },
+            });
+            expect(twin.branchId).toBe(diffsSnapshot.branchId);
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: result.branchId },
+                select: { pendingSnapshotId: true, activeSnapshotId: true, baseSnapshotId: true },
+            });
+            expect(branch.pendingSnapshotId).toBe(result.snapshotId);
+            expect([branch.pendingSnapshotId, branch.activeSnapshotId, branch.baseSnapshotId]).not.toContain(twinId);
+
+            // The twin carries the baseline suite copied with its PINNED plan.
+            const twinAssignments = await harness.db.testCaseAssignment.findMany({
+                where: { snapshotId: twinId! },
+                select: { testCaseId: true, planId: true },
+            });
+            expect(twinAssignments).toHaveLength(1);
+            expect(twinAssignments[0]!.testCaseId).toBe(testCaseId);
+            expect(twinAssignments[0]!.planId).not.toBeNull();
+
+            // The investigation workflow runs on the twin, not the diffs snapshot.
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({ snapshotId: twinId });
+
+            // The twin is hidden from user-facing snapshot history; the diffs snapshot is not.
+            const history = await harness.services.branches.listSnapshots(result.branchId!, harness.organizationId);
+            expect(history.map((s) => s.id)).toContain(result.snapshotId);
+            expect(history.map((s) => s.id)).not.toContain(twinId);
+
+            // The report lives on the twin but resolves from the PR snapshot id via the pairing FK.
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: twinId!,
+                    s3Key: "investigation/app/twin.md",
+                    testCount: 3,
+                    clientBugCount: 1,
+                    organizationId: harness.organizationId,
+                },
+            });
+            const report = await harness.services.branches.getInvestigationReport(
+                result.snapshotId!,
+                harness.organizationId,
+            );
+            expect(report?.testCount).toBe(3);
+            expect(report?.clientBugCount).toBe(1);
+        });
+
+        test("supersession cancels the in-flight investigation twin and its workflow", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            await harness.services.github.handleInstallation(
+                33333,
+                harness.organizationId,
+                "test-org",
+                999,
+                "Organization",
+            );
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 90,
+                title: "Test PR #90",
+                headRef: "feature/branch-90",
+                baseSha: "initial-sha",
+                commits: ["head-sha-90"],
+            });
+            await setupBranchWithBaseline(harness.db, harness.organizationId, app.id, 90, "feature/branch-90");
+
+            const first = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 90,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+            const firstTwinId = (
+                await harness.db.branchSnapshot.findUniqueOrThrow({
+                    where: { id: first.snapshotId },
+                    select: { investigationSnapshotId: true },
+                })
+            ).investigationSnapshotId;
+            expect(firstTwinId).not.toBeNull();
+
+            const second = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 90,
+                url: "https://preview-v2.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+            expect(second.snapshotId).not.toBe(first.snapshotId);
+
+            // The stale twin is marked terminal, and its workflow was cancelled by id.
+            const staleTwin = await harness.db.branchSnapshot.findUniqueOrThrow({ where: { id: firstTwinId! } });
+            expect(staleTwin.status).toBe("cancelled");
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith(firstTwinId);
+
+            // The fresh diffs snapshot has its own, distinct twin.
+            const secondTwinId = (
+                await harness.db.branchSnapshot.findUniqueOrThrow({
+                    where: { id: second.snapshotId },
+                    select: { investigationSnapshotId: true },
+                })
+            ).investigationSnapshotId;
+            expect(secondTwinId).not.toBeNull();
+            expect(secondTwinId).not.toBe(firstTwinId);
         });
 
         test("throws when PR not found on GitHub", async ({ harness, seedResult: { service } }) => {

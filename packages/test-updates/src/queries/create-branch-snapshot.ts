@@ -1,12 +1,32 @@
 import { type Prisma, TriggerSource } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
 
-interface SourceBranchInfo {
+export interface SourceBranchInfo {
     activeSnapshotId: string | null;
     application: {
         mainBranchId: string | null;
         mainBranch: { activeSnapshotId: string | null } | null;
     };
+}
+
+/**
+ * Resolves the snapshot a new snapshot should fork from: the branch's own active
+ * snapshot, else the application's main branch active snapshot (so a brand new PR
+ * branch inherits the live suite from main), else none. `sourceSnapshotId` is
+ * `undefined` only when there is no baseline suite anywhere to copy from.
+ */
+export function resolveSnapshotSource(
+    branchId: string,
+    branch: SourceBranchInfo,
+): { sourceSnapshotId?: string; sourceKind: "branch-active" | "main-branch" | "none" } {
+    const isMainBranch = branch.application.mainBranchId === branchId;
+    const mainBranchActiveSnapshotId = isMainBranch
+        ? undefined
+        : (branch.application.mainBranch?.activeSnapshotId ?? undefined);
+    const sourceSnapshotId = branch.activeSnapshotId ?? mainBranchActiveSnapshotId;
+    const sourceKind =
+        branch.activeSnapshotId != null ? "branch-active" : sourceSnapshotId != null ? "main-branch" : "none";
+    return { sourceSnapshotId, sourceKind };
 }
 
 interface CreateBranchSnapshotParams {
@@ -42,13 +62,7 @@ export async function createBranchSnapshot({
     baseSha,
     logger,
 }: CreateBranchSnapshotParams): Promise<{ snapshotId: string }> {
-    const isMainBranch = branch.application.mainBranchId === branchId;
-    const mainBranchActiveSnapshotId = isMainBranch
-        ? undefined
-        : (branch.application.mainBranch?.activeSnapshotId ?? undefined);
-    const sourceSnapshotId = branch.activeSnapshotId ?? mainBranchActiveSnapshotId;
-    const sourceKind =
-        branch.activeSnapshotId != null ? "branch-active" : sourceSnapshotId != null ? "main-branch" : "none";
+    const { sourceSnapshotId, sourceKind } = resolveSnapshotSource(branchId, branch);
 
     logger.info("Creating new branch snapshot", { branchId, prevSnapshotId: sourceSnapshotId, sourceKind });
     const created = await tx.branchSnapshot.create({

@@ -22,6 +22,11 @@ export class TestGenerationsService extends Service {
             where: {
                 id: generationId,
                 organizationId,
+                // Shadow generations live on the detached investigation twin (a snapshot with a
+                // non-null investigationParent). They are an internal A/B measurement, not part of
+                // the customer's suite, so they 404 even by direct id - same hiding rule the
+                // branch/snapshot read surface applies.
+                snapshot: { investigationParent: { is: null } },
             },
             select: {
                 id: true,
@@ -267,6 +272,9 @@ export class TestGenerationsService extends Service {
         const generations = await this.db.testGeneration.findMany({
             where: {
                 organizationId,
+                // Exclude shadow generations on the detached investigation twin - they are an
+                // internal A/B measurement, not part of the customer's suite history.
+                snapshot: { investigationParent: { is: null } },
                 ...(applicationId != null ? { testPlan: { testCase: { applicationId } } } : {}),
             },
             select: {

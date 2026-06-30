@@ -7,7 +7,7 @@ import { type ToolCap, createToolBudget } from "../tool-output";
 import type { SelectorDeps } from "./dependencies";
 
 /** The slice of TestCatalog the get_test_plan tool needs (testable without a real Prisma client). */
-type PlanReader = Pick<TestCatalog, "getLatestPlan">;
+type PlanReader = Pick<TestCatalog, "getSnapshotPlan">;
 
 const DIFF_STAT_MAX_CHARS = 24_000;
 const TEST_PLAN_MAX_CHARS = 40_000;
@@ -33,14 +33,14 @@ export function createDiffStatTool(codebase: CodebaseReader, cap: ToolCap): Tool
 }
 
 /** Read one test's FULL plan (steps), to confirm a shortlisted candidate is really affected by the diff. */
-export function createGetTestPlanTool(catalog: PlanReader, applicationId: string, cap: ToolCap): Tool {
+export function createGetTestPlanTool(catalog: PlanReader, snapshotId: string, cap: ToolCap): Tool {
     return tool({
         description:
             "Read the full plan (Setup / Steps / Verification) of one test by its slug, to confirm whether the diff actually affects what it does. The catalog of test descriptions is already in your prompt.",
         inputSchema: z.object({ slug: z.string() }),
         execute: async ({ slug }) => {
             try {
-                return cap((await catalog.getLatestPlan(applicationId, slug)) ?? `no plan found for "${slug}"`, {
+                return cap((await catalog.getSnapshotPlan(snapshotId, slug)) ?? `no plan found for "${slug}"`, {
                     tool: "get_test_plan",
                     mode: "narrow",
                     maxChars: TEST_PLAN_MAX_CHARS,
@@ -61,6 +61,6 @@ export function buildSelectorTools(deps: SelectorDeps): Record<string, Tool> {
         git_diff: createGitDiffTool(deps.codebase, cap),
         read_code: createReadCodeTool(deps.codebase, cap),
         grep_code: createGrepCodeTool(deps.codebase, cap),
-        get_test_plan: createGetTestPlanTool(deps.catalog, deps.applicationId, cap),
+        get_test_plan: createGetTestPlanTool(deps.catalog, deps.snapshotId, cap),
     };
 }

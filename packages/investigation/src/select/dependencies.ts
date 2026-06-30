@@ -6,14 +6,11 @@ import type { TestCatalog } from "../db/test-catalog";
 export interface SelectorDeps {
     codebase: CodebaseReader;
     catalog: TestCatalog;
-    applicationId: string;
-    /** The snapshot under investigation - we select only the tests assigned to it (this branch's suite). */
-    snapshotId: string;
     /**
-     * Only consider tests created before this time (the PR snapshot's createdAt) - excludes tests the
-     * deployed agent created for this same PR, so our selection stays independent for a fair comparison.
+     * The investigation snapshot under analysis. Selection is scoped to the tests assigned to it (the branch's
+     * frozen baseline suite), and each test runs from the plan that snapshot pinned - never a latest-plan lookup.
      */
-    testsCreatedBefore?: Date;
+    snapshotId: string;
     reasoningModel: LanguageModel;
     maxSteps: number;
 }

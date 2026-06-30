@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { cancelDiffsJob, triggerDiffsJob, triggerInvestigationJob } from "@autonoma/workflow";
+import { cancelDiffsJob, cancelInvestigationJob, triggerDiffsJob, triggerInvestigationJob } from "@autonoma/workflow";
 import { env } from "../env";
 import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
@@ -14,4 +14,5 @@ export const diffsTriggerService = new DiffsTriggerService(
     triggerDiffsJob,
     cancelDiffsJob,
     triggerInvestigationJob,
+    cancelInvestigationJob,
 );

@@ -7,15 +7,15 @@ const TOOL_OPTIONS = { toolCallId: "test-call", messages: [] };
 describe("selector tools", () => {
     it("get_test_plan returns the full plan for a slug, or a clear miss", async () => {
         const catalog = {
-            getLatestPlan: async (_applicationId: string, slug: string) =>
+            getSnapshotPlan: async (_snapshotId: string, slug: string) =>
                 slug === "login" ? "Setup: on the page\nSteps:\n1. click the button" : undefined,
         };
-        const found = await createGetTestPlanTool(catalog, "app1", createToolBudget()).execute?.(
+        const found = await createGetTestPlanTool(catalog, "snap1", createToolBudget()).execute?.(
             { slug: "login" },
             TOOL_OPTIONS,
         );
         expect(found).toContain("Steps:");
-        const missing = await createGetTestPlanTool(catalog, "app1", createToolBudget()).execute?.(
+        const missing = await createGetTestPlanTool(catalog, "snap1", createToolBudget()).execute?.(
             { slug: "nope" },
             TOOL_OPTIONS,
         );

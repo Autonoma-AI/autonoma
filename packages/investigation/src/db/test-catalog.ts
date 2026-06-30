@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 
 /** A test case as the selector sees it (to decide which tests a diff affects). */
 export interface TestCaseInfo {
@@ -29,57 +29,55 @@ export class TestCatalog {
     }
 
     /**
-     * The tests ASSIGNED to one snapshot - the branch's own copy of the suite, NOT the whole org catalog.
-     * This is what "only this branch's tests" means: a snapshot has its own `TestCaseAssignment` set. We also
-     * drop any test created AFTER the snapshot (`createdBefore` = the snapshot's createdAt) so tests the
-     * deployed agent added FOR this same PR don't leak into our independent selection. Scoping to the snapshot
-     * set first is what makes the date filter safe (the base tests provably predate the snapshot they were
-     * copied into) - a bare createdAt cutoff over the full catalog is fragile when the suite is regenerated.
+     * The tests assigned to one snapshot - the branch's own pinned copy of the suite - grouped by flow, the
+     * candidate set the selector chooses from. A snapshot is a frozen baseline, so its assignment set IS the
+     * pre-PR suite (no time cutoff needed). Quarantined and plan-less assignments are excluded: they are not
+     * runnable tests. The description comes from each assignment's PINNED plan, not a test case's latest plan.
      */
-    async listSnapshotTestCases(snapshotId: string, createdBefore?: Date): Promise<TestCaseInfo[]> {
-        return this.findTestCases({
-            assignments: { some: { snapshotId } },
-            createdAt: createdBefore != null ? { lt: createdBefore } : undefined,
+    async listSnapshotTestCases(snapshotId: string): Promise<TestCaseInfo[]> {
+        const assignments = await this.db.testCaseAssignment.findMany({
+            where: { snapshotId, quarantineIssueId: null, planId: { not: null } },
+            select: {
+                testCase: { select: { slug: true, name: true, folder: { select: { name: true } } } },
+                plan: { select: { prompt: true } },
+            },
         });
+        return assignments
+            .map((assignment) => ({
+                slug: assignment.testCase.slug,
+                name: assignment.testCase.name,
+                flow: assignment.testCase.folder.name,
+                description: planSummary(assignment.plan?.prompt ?? undefined),
+            }))
+            .sort((a, b) => a.flow.localeCompare(b.flow) || a.name.localeCompare(b.name));
     }
 
     /**
-     * Every test case for an application, grouped by flow (folder). The whole-org view - used only as a
-     * fallback when a snapshot has no usable assigned tests, so we never select from an empty set.
+     * The pinned plan prompt for one test on a snapshot (the instruction the browser agent runs), if any.
+     * Reads the assignment's pinned plan - the baseline the snapshot captured - not the test case's latest plan.
      */
-    async listTestCases(applicationId: string, createdBefore?: Date): Promise<TestCaseInfo[]> {
-        return this.findTestCases({
-            applicationId,
-            createdAt: createdBefore != null ? { lt: createdBefore } : undefined,
+    async getSnapshotPlan(snapshotId: string, testSlug: string): Promise<string | undefined> {
+        const assignment = await this.db.testCaseAssignment.findFirst({
+            where: { snapshotId, testCase: { slug: testSlug } },
+            select: { plan: { select: { prompt: true } } },
         });
+        return assignment?.plan?.prompt ?? undefined;
     }
 
-    /** Shared read + projection for the catalog views (slug + flow + one-line description, sorted). */
-    private async findTestCases(where: Prisma.TestCaseWhereInput): Promise<TestCaseInfo[]> {
-        const testCases = await this.db.testCase.findMany({
-            where,
-            select: {
-                slug: true,
-                name: true,
-                folder: { select: { name: true } },
-                plans: { select: { prompt: true }, orderBy: { createdAt: "desc" }, take: 1 },
-            },
-            orderBy: [{ folder: { name: "asc" } }, { name: "asc" }],
+    /**
+     * Resolve the runnable pinned plan for one test on a snapshot: the assignment's pinned `planId` and the
+     * scenario that plan needs. Returns `undefined` when the test is not assigned to the snapshot, is
+     * quarantined, or has no pinned plan (not a runnable test).
+     */
+    async resolveSnapshotPlan(
+        snapshotId: string,
+        testSlug: string,
+    ): Promise<{ planId: string; scenarioId?: string } | undefined> {
+        const assignment = await this.db.testCaseAssignment.findFirst({
+            where: { snapshotId, testCase: { slug: testSlug }, quarantineIssueId: null },
+            select: { planId: true, plan: { select: { scenarioId: true } } },
         });
-        return testCases.map((testCase) => ({
-            slug: testCase.slug,
-            name: testCase.name,
-            flow: testCase.folder.name,
-            description: planSummary(testCase.plans[0]?.prompt),
-        }));
-    }
-
-    /** The latest test plan prompt for one test case (the instruction the browser agent runs), if any. */
-    async getLatestPlan(applicationId: string, testSlug: string): Promise<string | undefined> {
-        const testCase = await this.db.testCase.findFirst({
-            where: { applicationId, slug: testSlug },
-            select: { plans: { select: { prompt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
-        });
-        return testCase?.plans[0]?.prompt;
+        if (assignment?.planId == null) return undefined;
+        return { planId: assignment.planId, scenarioId: assignment.plan?.scenarioId ?? undefined };
     }
 }

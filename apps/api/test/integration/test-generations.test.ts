@@ -314,6 +314,47 @@ apiTestSuite({
             ).rejects.toThrowError();
         });
 
+        test("excludes investigation shadow generations from the list and 404s them by id", async ({
+            harness,
+            seedResult: { application, testPlan },
+        }) => {
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/investigation-twin",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+            // The investigation agent runs on a detached twin snapshot, paired to a parent via
+            // investigationSnapshotId. The twin is the one carrying investigationParent, so its
+            // shadow generations must stay out of the customer's suite history and 404 by id.
+            const parentSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH" },
+            });
+            const twinSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH" },
+            });
+            await harness.db.branchSnapshot.update({
+                where: { id: parentSnapshot.id },
+                data: { investigationSnapshotId: twinSnapshot.id },
+            });
+
+            const shadowGeneration = await harness.db.testGeneration.create({
+                data: {
+                    testPlanId: testPlan.id,
+                    snapshotId: twinSnapshot.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            const list = await harness.request().generations.list();
+            expect(list.map((g) => g.id)).not.toContain(shadowGeneration.id);
+
+            await expect(
+                harness.request().generations.detail({ generationId: shadowGeneration.id }),
+            ).rejects.toThrowError();
+        });
+
         test("throws when generationId belongs to a different organization", async ({
             harness,
             seedResult: { generationWithSteps },

@@ -83,6 +83,7 @@ export interface ServicesParams {
     triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
     cancelDiffsJob: (snapshotId: string) => Promise<void>;
     triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>;
+    cancelInvestigationJob: (snapshotId: string) => Promise<void>;
     triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
@@ -100,6 +101,7 @@ export function buildServices({
     triggerDiffsJob,
     cancelDiffsJob,
     triggerInvestigationJob,
+    cancelInvestigationJob,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
@@ -169,6 +171,7 @@ export function buildServices({
             triggerDiffsJob,
             cancelDiffsJob,
             triggerInvestigationJob,
+            cancelInvestigationJob,
         ),
         previewkitTrigger,
     };

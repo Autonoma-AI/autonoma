@@ -62,8 +62,10 @@ export class BranchesService extends Service {
     async getInvestigationReport(snapshotId: string, organizationId: string) {
         this.logger.info("Getting investigation report", { extra: { snapshotId } });
         try {
+            // The report lives on the detached investigation twin, not the PR snapshot the UI navigates by.
+            // Hop the pairing FK in one query: the report whose snapshot is THIS PR snapshot's investigation twin.
             const report = await this.db.investigationReport.findFirst({
-                where: { snapshotId, organizationId },
+                where: { organizationId, snapshot: { investigationParent: { id: snapshotId } } },
                 select: { s3Key: true, testCount: true, clientBugCount: true, updatedAt: true },
             });
             if (report == null) return undefined;
@@ -97,8 +99,9 @@ export class BranchesService extends Service {
     ): Promise<InvestigationReportData | undefined> {
         this.logger.info("Getting investigation report data", { extra: { snapshotId } });
         try {
+            // One-hop follow of the pairing FK: the structured report lives on the PR snapshot's investigation twin.
             const report = await this.db.investigationReport.findFirst({
-                where: { snapshotId, organizationId },
+                where: { organizationId, snapshot: { investigationParent: { id: snapshotId } } },
                 select: { s3Key: true },
             });
             if (report == null) return undefined;
@@ -349,7 +352,14 @@ export class BranchesService extends Service {
         const snapshots = await this.db.branchSnapshot.findMany({
             // Canceled snapshots are abandoned drafts kept only for observability; they are
             // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
-            where: { branchId, branch: { application: { organizationId } }, status: { not: "cancelled" } },
+            // Investigation twins (detached A/B snapshots, identified by a non-null investigationParent)
+            // are likewise hidden - they are not part of the branch's user-facing lineage.
+            where: {
+                branchId,
+                branch: { application: { organizationId } },
+                status: { not: "cancelled" },
+                investigationParent: { is: null },
+            },
             select: {
                 id: true,
                 status: true,
@@ -763,7 +773,8 @@ export class BranchesService extends Service {
                 snapshots: {
                     // Exclude cancelled snapshots so the PR-wide rollup reflects the real
                     // lineage; a cancelled draft must never become the latest rollup target.
-                    where: { status: { not: "cancelled" } },
+                    // Investigation twins are detached A/B snapshots, not part of the lineage either.
+                    where: { status: { not: "cancelled" }, investigationParent: { is: null } },
                     select: snapshotSelect,
                     orderBy: { createdAt: "asc" },
                 },

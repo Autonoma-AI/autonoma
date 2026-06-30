@@ -9,7 +9,11 @@ export {
     type TriggerDiffsJobParams,
     triggerDiffsJob,
 } from "./triggers/diffs";
-export { type TriggerInvestigationJobParams, triggerInvestigationJob } from "./triggers/investigation";
+export {
+    cancelInvestigationJob,
+    type TriggerInvestigationJobParams,
+    triggerInvestigationJob,
+} from "./triggers/investigation";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";
 export { findLatestWorkflowByRunId, type TriggerRunWorkflowParams, triggerRunWorkflow } from "./triggers/run-replay";

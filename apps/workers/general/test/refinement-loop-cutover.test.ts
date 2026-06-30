@@ -372,4 +372,40 @@ cutoverSuite((test) => {
         });
         expect(assignment.quarantineIssueId).toBe(issue.id);
     });
+
+    test("a pending generation on the investigation twin does NOT trip the diffs loop's per-plan invariant", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+
+        // The diffs agent authored a test with a pending generation on its own snapshot.
+        const authored = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+        });
+        await harness.createPendingGeneration({ organizationId, snapshotId, planId: authored.planId });
+
+        // The investigation agent, running on its OWN detached twin snapshot, created a shadow generation for
+        // the SAME plan. Before the snapshot split this lived on the diffs snapshot and made pendingGenerationPlanIds
+        // see two pending rows for one plan, throwing "Multiple pending generations…". On a separate snapshot it is
+        // invisible to the diffs loop's snapshot-scoped query.
+        const { branchId } = await harness.db.branchSnapshot.findUniqueOrThrow({
+            where: { id: snapshotId },
+            select: { branchId: true },
+        });
+        const twin = await harness.db.branchSnapshot.create({ data: { branchId, source: "WEBHOOK" } });
+        await harness.db.branchSnapshot.update({
+            where: { id: snapshotId },
+            data: { investigationSnapshotId: twin.id },
+        });
+        await harness.createPendingGeneration({ organizationId, snapshotId: twin.id, planId: authored.planId });
+
+        // The diffs loop initializes without throwing, and seeds only its own snapshot's plan.
+        const result = await initRefinementLoop({ snapshotId, triggeredBy: "diffs" });
+        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([authored.planId]);
+        expect(result.runFirstIterationPipeline).toBe(true);
+    });
 });

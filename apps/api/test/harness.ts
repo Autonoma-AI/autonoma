@@ -86,6 +86,8 @@ export class APITestHarness implements IntegrationHarness {
             githubApp,
             triggerDiffsJob: triggerWorkflow,
             cancelDiffsJob: triggerWorkflow,
+            triggerInvestigationJob: triggerWorkflow,
+            cancelInvestigationJob: triggerWorkflow,
             triggerPreviewDeploy: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,

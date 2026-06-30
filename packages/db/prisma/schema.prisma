@@ -601,6 +601,16 @@ model BranchSnapshot {
   prevSnapshot   BranchSnapshot?  @relation("SnapshotHistory", fields: [prevSnapshotId], references: [id])
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
+  // The detached investigation twin paired with this snapshot, if any. The
+  // investigation agent runs on its own snapshot so its shadow generations never
+  // pollute this snapshot's pending-generation set (which the refinement loop
+  // reads). The twin is never wired to a branch pointer; it is reachable only via
+  // this FK. `investigationParent` (the reverse side) is the canonical signal that
+  // a snapshot IS such a twin, used to hide it from user-facing snapshot queries.
+  investigationSnapshotId String?         @unique @map("investigation_snapshot_id")
+  investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
+  investigationParent     BranchSnapshot? @relation("InvestigationPair")
+
   // Per-dependency deployed commit SHAs (keyed by previewkit multirepo dependency
   // name), pinned the first time grounding runs for this snapshot by resolving the
   // headSha-exact PreviewkitEnvironment and copying its enriched resolvedConfig dep

@@ -18,6 +18,7 @@ export {
 } from "./queries/snapshot-changes";
 export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
+export { createDetachedSnapshot, type CreateDetachedSnapshotParams } from "./queries/create-detached-snapshot";
 export {
     findMergeSourceSnapshot,
     type FindMergeSourceSnapshotParams,

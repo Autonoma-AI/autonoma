@@ -27,8 +27,11 @@ apiTestSuite({
             where: { id: app.id },
             data: { githubRepositoryId: 7001 },
         });
+        // Distinct installation id per suite: the integration suites share one DB with no
+        // per-suite truncation, and installation_id is globally unique, so reusing the same id
+        // across suites collides on the shared table when files run concurrently.
         await harness.services.github.handleInstallation(
-            12345,
+            22222,
             harness.organizationId,
             "test-org",
             999,

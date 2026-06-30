@@ -9,6 +9,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | Export | Type | Description |
 |--------|------|-------------|
 | `TestSuiteUpdater` | Class | Top-level orchestrator for a test suite update session |
+| `createDetachedSnapshot` | Function | Clones a branch's baseline suite (pinned assignments + scenario recipe versions) into a snapshot wired to NO branch pointer - a detached fork. Used by the shadow investigation agent so its generations never touch the branch's pending/active snapshot. Returns `undefined` when there is no baseline to fork from. |
 | `MissingJobProviderError` | Error | Thrown when `queuePendingGenerations` is called without a job provider |
 | `IncompleteGenerationsError` | Error | Thrown when finalizing a snapshot that still has pending/queued/running generations |
 | `FakeGenerationProvider` | Class | In-memory stub for tests - records fired batches |

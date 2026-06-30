@@ -1,9 +1,12 @@
 # @autonoma/investigation
 
 The core logic of the **shadow investigation agent** - a low-risk comparison agent that runs in parallel
-with the production diffs job. For a PR snapshot it selects the affected tests, runs each as a shadow
-generation, classifies the outcome (the true cause of pass/fail), and renders a markdown report compared
-against the deployed agent's result.
+with the production diffs job. For a PR it runs on its **own detached snapshot** (a baseline clone the diffs
+agent never mutates), selects the affected tests **from that snapshot's pinned `TestCaseAssignment`s**, runs
+each as a shadow generation **using the assignment's pinned plan**, classifies the outcome (the true cause of
+pass/fail), and renders a markdown report compared against the deployed agent's result. Because selection is
+scoped to the frozen snapshot, there is no time cutoff, no whole-catalog fallback, and no latest-plan lookup -
+quarantined and plan-less assignments are simply skipped.
 
 This package is **platform-agnostic logic only** - every capability (DB, S3, GitHub, the cloned repo, the
 models, the preview env) is injected. The Temporal worker (`apps/workers/investigation`) wires the real
@@ -19,7 +22,7 @@ src/
   db/
     prior-runs.ts               PriorRuns      - has this test ever passed? (the classifier baseline)
     deployed-comparison.ts      DeployedComparison - the deployed diffs agent's result (by head SHA / by PR)
-    test-catalog.ts             TestCatalog    - an app's test cases + plans (for the selector)
+    test-catalog.ts             TestCatalog    - a snapshot's assigned tests + their pinned plans (for the selector)
   preview/
     preview-secrets.ts          PreviewSecrets     - read a repo's previewkit env (AWS SDK)
     preview-environment.ts      PreviewEnvironment - PreviewAccess impl + the run_script harness (temp dir)

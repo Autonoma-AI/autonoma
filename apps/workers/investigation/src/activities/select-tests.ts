@@ -34,21 +34,19 @@ export async function selectInvestigationTests(
         const prMeta = await resolvePrMeta(context);
         const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
         const session = createModelSession();
+        const catalog = new TestCatalog(db);
 
         const selection = await selectAffectedTests(
             { appSlug: context.appSlug, prNumber: prMeta.prNumber, prTitle: prMeta.prTitle, prBody: prMeta.prBody },
             {
                 codebase: reader,
-                catalog: new TestCatalog(db),
-                applicationId: context.applicationId,
-                // Select only from the tests assigned to THIS snapshot (the branch's copy of the suite), not
-                // the whole org catalog, and drop any created after the snapshot (the deployed agent's same-PR
-                // additions). Scoping to the snapshot's assignment set first makes the createdAt filter safe -
-                // unlike a bare cutoff over the full catalog, which a suite regeneration can empty out.
-                snapshotId,
-                testsCreatedBefore: context.createdAt,
+                catalog,
+                // Select from the tests assigned to THIS (investigation) snapshot - the branch's frozen baseline
+                // suite. The snapshot is detached and never mutated by the diffs agent, so its assignment set is
+                // exactly the pre-PR suite; no time cutoff or org-catalog fallback is needed or wanted.
                 // Use the reliable text classifier model (gpt-5.5), not gemini/smart-visual: selection reads
                 // the diff + code (no vision needed), and gemini repeatedly returned no structured output.
+                snapshotId,
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-select" }),
                 maxSteps: env.INVESTIGATION_SELECT_MAX_STEPS,
             },
@@ -56,7 +54,7 @@ export async function selectInvestigationTests(
 
         const tests: InvestigationSelectedTest[] = [];
         for (const affected of selection.affected) {
-            const shadow = await createShadowGeneration(snapshotId, context, affected.slug);
+            const shadow = await createShadowGeneration(catalog, snapshotId, context, affected.slug);
             if (shadow == null) {
                 logger.warn("Skipping affected test - it has no test plan to run (empty/bad test)", {
                     extra: { slug: affected.slug },
@@ -91,27 +89,20 @@ export async function selectInvestigationTests(
 }
 
 /**
- * Create a shadow TestGeneration for an affected test, run from the test's LATEST plan. A test IS its plan
- * (the platform has no replays), so we run any affected test we have a plan for - regardless of whether it
- * is attached to this PR's snapshot - against the PR's preview. A test with no plan at all isn't a runnable
- * test (an empty/bad test) and is skipped.
+ * Create a shadow TestGeneration for an affected test, run from the plan the snapshot PINNED for that test (a
+ * test IS its plan - the platform has no replays). Running the pinned baseline plan, not the test case's latest
+ * plan, keeps the investigation independent of any same-PR plan edit the diffs agent makes. A test that is not
+ * assigned to the snapshot, is quarantined, or has no pinned plan isn't a runnable baseline test and is skipped.
+ * The generation is created on the (detached) investigation snapshot, so it never touches the diffs snapshot.
  */
 async function createShadowGeneration(
+    catalog: TestCatalog,
     snapshotId: string,
     context: SnapshotContext,
     slug: string,
 ): Promise<ShadowGeneration | undefined> {
-    const testCase = await db.testCase.findFirst({
-        where: { applicationId: context.applicationId, slug },
-        select: {
-            id: true,
-            plans: { select: { id: true, scenarioId: true }, orderBy: { createdAt: "desc" }, take: 1 },
-        },
-    });
-    if (testCase == null) return undefined;
-
-    const plan = testCase.plans[0];
-    if (plan == null) return undefined;
+    const pinned = await catalog.resolveSnapshotPlan(snapshotId, slug);
+    if (pinned == null) return undefined;
 
     const application = await db.application.findUniqueOrThrow({
         where: { id: context.applicationId },
@@ -121,14 +112,14 @@ async function createShadowGeneration(
     if (application.architecture !== "WEB") return undefined;
 
     const generation = await db.testGeneration.create({
-        data: { testPlanId: plan.id, snapshotId, organizationId: context.organizationId },
+        data: { testPlanId: pinned.planId, snapshotId, organizationId: context.organizationId },
         select: { id: true },
     });
 
     const architecture: WorkflowArchitecture = "WEB";
     return {
         testGenerationId: generation.id,
-        scenarioId: plan.scenarioId ?? undefined,
+        scenarioId: pinned.scenarioId,
         architecture,
     };
 }
