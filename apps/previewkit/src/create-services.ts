@@ -112,6 +112,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         storage,
         ...(logSink != null ? { logSink } : {}),
+        ...(env.BUILDKIT_WARM_HOST != null ? { warmHost: env.BUILDKIT_WARM_HOST } : {}),
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.

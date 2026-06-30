@@ -1,5 +1,19 @@
 import type { BuildLogEvent } from "./build-log-event";
 
+/** Structured per-build summary recorded by {@link BuildLogSink.markFinished}. */
+export interface BuildFinishSummary {
+    /** The app that finished building. */
+    app: string;
+    /** Total build duration in milliseconds (provision + dispatch). */
+    durationMs: number;
+    /**
+     * The buildkit endpoint that served the build - the warm pool's Service
+     * host, or an ephemeral build Job's per-build DNS. Lets build-speed queries
+     * split warm vs ephemeral timings.
+     */
+    host?: string;
+}
+
 /**
  * Write side of the previewkit build-log relay - the producer-facing mirror of
  * the read-side `LogStore`. The build pipeline appends raw output chunks,
@@ -30,6 +44,14 @@ export interface BuildLogSink {
      * deploy.
      */
     markDeploymentStart(environmentId: string): Promise<void>;
+    /**
+     * Record a structured per-build summary as a `kind="finish"` marker on the
+     * build stream. Pure telemetry: the marker sits outside the display kinds
+     * (`log`/`phase`/`status`) so the viewer never renders it, but build-speed
+     * queries aggregate it (`{source="build", kind="finish"} | json | unwrap
+     * durationMs`). Optional and best-effort like the rest of the sink.
+     */
+    markFinished?(environmentId: string, summary: BuildFinishSummary): Promise<void>;
     /** Mark the environment's stream finished (e.g. flush buffered lines). */
     seal(environmentId: string): Promise<void>;
     /** Drain buffers and stop timers; called on process shutdown. */

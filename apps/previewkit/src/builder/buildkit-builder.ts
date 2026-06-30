@@ -15,7 +15,7 @@ import {
     type BuildResult,
     type BuildRuntime,
 } from "./builder";
-import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manager";
+import type { BuildKitJobManager } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
 
@@ -53,6 +53,11 @@ interface BuildKitBuilderOptions {
     jobManager: BuildKitJobManager;
     buildTimeoutMs: number;
     storage: S3Storage;
+    /** Phase-1 warm-builder spike. When set, every build dials this long-lived
+     *  buildkitd endpoint (tcp://host:1234) instead of provisioning an
+     *  ephemeral Job per build, keeping its node-local cache hot across builds.
+     *  Release is then a no-op (the pod outlives the build). */
+    warmHost?: string;
     /** When set, every build-output chunk is mirrored to this sink (keyed by
      *  `request.namespace`) for live streaming + durable history, in addition
      *  to the disk + S3 log. Optional so builds work unchanged when no sink is
@@ -116,6 +121,7 @@ export class BuildKitBuilder implements Builder {
     private ecr: EcrRegistryClient;
     private readonly storage: S3Storage;
     private readonly logSink?: BuildLogSink;
+    private readonly warmHost?: string;
 
     constructor(options: BuildKitBuilderOptions) {
         this.jobManager = options.jobManager;
@@ -123,6 +129,7 @@ export class BuildKitBuilder implements Builder {
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
         this.logSink = options.logSink;
+        this.warmHost = options.warmHost;
     }
 
     /**
@@ -134,7 +141,12 @@ export class BuildKitBuilder implements Builder {
      */
     private buildCacheArgs(cacheKey: string): string[] {
         const common = `type=s3,region=${this.storage.region},bucket=${this.storage.bucket},name=${cacheKey},blobs_prefix=buildctl/blobs/,manifests_prefix=buildctl/manifests/`;
-        return ["--import-cache", common, "--export-cache", `${common},mode=max`];
+        // `mode=min` exports only the final image's layers, not the whole
+        // intermediate graph. In warm-builder mode the node-local cache is the
+        // hot path, so S3 is just a cold-start fallback (import) plus a light
+        // final-layer export - which avoids the full-graph upload that made the
+        // `exporting layers` step run for minutes under `mode=max`.
+        return ["--import-cache", common, "--export-cache", `${common},mode=min`];
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
@@ -155,14 +167,17 @@ export class BuildKitBuilder implements Builder {
                 this.logSink != null && request.namespace != null
                     ? new TeeBuildLog(fileStream, this.logSink, request.namespace, request.appName)
                     : fileStream;
-            // Fresh buildkitd per attempt: a transient failure usually means the
-            // previous buildkit Job's pod is in a bad state (evicted, gracefully
-            // stopped, etc.), so retrying against the same pod is pointless.
-            let instance: BuildKitInstance | undefined;
+            // Fresh buildkitd per attempt (ephemeral mode): a transient failure
+            // usually means the previous buildkit Job's pod is in a bad state
+            // (evicted, gracefully stopped, etc.), so retrying against the same
+            // pod is pointless. In warm mode the long-lived daemon is reused and
+            // release is a no-op.
+            let releaseBuilder: (() => Promise<void>) | undefined;
 
             try {
-                instance = await this.jobManager.provision();
-                const build = await this.dispatchBuild(request, instance.host, logStream);
+                const acquired = await this.acquireBuilder();
+                releaseBuilder = acquired.release;
+                const build = await this.dispatchBuild(request, acquired.host, logStream);
                 const durationMs = Date.now() - start;
                 logger.info("Build complete", {
                     app: request.appName,
@@ -170,6 +185,16 @@ export class BuildKitBuilder implements Builder {
                     runtime: build.runtime,
                     durationMs,
                 });
+                // Structured build-speed marker (best-effort telemetry). Lets
+                // LogQL chart per-build duration over the same Loki stream the
+                // raw output already flows to, split by warm vs ephemeral host.
+                if (request.namespace != null) {
+                    void this.logSink?.markFinished?.(request.namespace, {
+                        app: request.appName,
+                        durationMs,
+                        host: acquired.host,
+                    });
+                }
                 return { imageTag: build.imageTag, durationMs, runtime: build.runtime };
             } catch (err) {
                 // A supersede abort is not a build failure: re-throw it as-is so
@@ -189,12 +214,10 @@ export class BuildKitBuilder implements Builder {
                 await this.closeLog(logStream).catch((closeErr) => {
                     logger.warn("Failed to close build log stream", { app: request.appName, closeErr });
                 });
-                const toRelease = instance;
-                if (toRelease != null) {
-                    await this.jobManager.release(toRelease).catch((releaseErr) => {
-                        logger.fatal("Failed to release buildkit Job", {
+                if (releaseBuilder != null) {
+                    await releaseBuilder().catch((releaseErr) => {
+                        logger.fatal("Failed to release buildkit builder", {
                             app: request.appName,
-                            name: toRelease.name,
                             releaseErr,
                         });
                     });
@@ -204,6 +227,22 @@ export class BuildKitBuilder implements Builder {
         }
 
         throw new BuildError("buildkit build loop exited without returning");
+    }
+
+    /**
+     * Resolves the buildkitd endpoint for one build attempt and a matching
+     * release callback. In warm mode (BUILDKIT_WARM_HOST set) every build dials
+     * the same long-lived daemon so its node-local cache stays hot, and release
+     * is a no-op since the pod outlives the build. Otherwise a fresh ephemeral
+     * Job is provisioned and torn down per attempt.
+     */
+    private async acquireBuilder(): Promise<{ host: string; release: () => Promise<void> }> {
+        if (this.warmHost != null) {
+            logger.info("Using warm buildkit host", { host: this.warmHost });
+            return { host: this.warmHost, release: () => Promise.resolve() };
+        }
+        const instance = await this.jobManager.provision();
+        return { host: instance.host, release: () => this.jobManager.release(instance) };
     }
 
     private dispatchBuild(

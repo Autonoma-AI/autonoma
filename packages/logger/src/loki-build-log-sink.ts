@@ -1,5 +1,5 @@
 import type { BuildLogEvent } from "./build-log-event";
-import type { BuildLogSink } from "./build-log-sink";
+import type { BuildFinishSummary, BuildLogSink } from "./build-log-sink";
 import { rootLogger } from "./logger-backend";
 
 /**
@@ -83,6 +83,18 @@ export class LokiBuildLogSink implements BuildLogSink {
      */
     async markDeploymentStart(environmentId: string): Promise<void> {
         this.bufferLine({ namespace: environmentId, source: "app", kind: "start" }, "");
+        await this.flush();
+    }
+
+    /**
+     * Push a `kind="finish"` marker carrying a JSON build summary, then flush so
+     * the metric lands promptly. The kind sits outside the display set
+     * (`log`/`phase`/`status`), so the read side never surfaces it as a log
+     * line; build-speed queries read it with `| json | unwrap durationMs`.
+     */
+    async markFinished(environmentId: string, summary: BuildFinishSummary): Promise<void> {
+        const line = JSON.stringify({ durationMs: summary.durationMs, app: summary.app, host: summary.host });
+        this.bufferLine({ namespace: environmentId, source: "build", kind: "finish" }, line);
         await this.flush();
     }
 

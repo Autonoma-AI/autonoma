@@ -55,6 +55,13 @@ export const env = createEnv({
         BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
         BUILDKIT_IMAGE: z.string().default("moby/buildkit:v0.21.1"),
         BUILDKIT_BUILDER_SERVICE_ACCOUNT: z.string().default("buildkitd"),
+        // Phase-1 warm-builder spike. When set to a buildkitd endpoint
+        // (e.g. tcp://pk-buildkit-warm.buildkit.svc.cluster.local:1234) every
+        // build dials this single long-lived daemon instead of provisioning an
+        // ephemeral Job per build, so its node-local layer cache stays hot
+        // across builds and the slow S3 cache import/export drops off the hot
+        // path. Unset -> current per-build ephemeral Job behavior.
+        BUILDKIT_WARM_HOST: z.string().optional(),
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
         // Provisioning budget: how long to wait for a freshly-created buildkit

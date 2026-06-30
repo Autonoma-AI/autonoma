@@ -83,6 +83,8 @@ All of a PR's logs share one append-only Loki stream per source (keyed by `names
 
 In both cases `LokiLogStore` falls back to the per-source window default when no marker exists (build: full retention replay; app: tail the newest lines), and the markers themselves are excluded from the relayed timeline. Reconnects resume from a real nanosecond cursor, so they are unaffected.
 
+The sink also emits a non-display `kind="finish"` telemetry marker via `LokiBuildLogSink.markFinished` at the end of each successful build, carrying a JSON `{ durationMs, app, host }` summary on the build stream. It is excluded from the viewer (like `start`) but lets build-speed dashboards aggregate duration with `{source="build", kind="finish"} | json | unwrap durationMs`, split by the serving buildkit `host` (warm pool vs ephemeral Job).
+
 This path is intentionally separate from telemetry logging: customer build output may echo secrets, so it must not flow into Sentry. The sink only uses the root logger to observe delivery failures.
 
 ### Running a job with Sentry
