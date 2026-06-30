@@ -19,7 +19,7 @@ interface AddTestInput {
     name: string;
     plan: string;
     folderId: string;
-    description?: string;
+    description: string;
     scenarioId?: string;
 }
 

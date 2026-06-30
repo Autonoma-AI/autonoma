@@ -64,6 +64,7 @@ apiTestSuite({
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Login test",
+                description: "Verifies that a user can log in with valid credentials.",
                 plan: "Navigate to login and verify form",
                 folderId,
             });
@@ -104,6 +105,7 @@ apiTestSuite({
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Updatable test",
+                description: "Confirms the test plan can be updated after creation.",
                 plan: "Original plan",
                 folderId,
             });
@@ -129,6 +131,7 @@ apiTestSuite({
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Test to remove",
+                description: "A throwaway test that exists only to be removed.",
                 plan: "Will be removed",
                 folderId,
             });
@@ -150,6 +153,7 @@ apiTestSuite({
             await harness.request().snapshotEdit.addTest({
                 branchId,
                 name: "Generate me",
+                description: "Ensures generation jobs fire when the test is queued.",
                 plan: "Run generation",
                 folderId,
             });

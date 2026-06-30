@@ -56,6 +56,7 @@ export function AddTestDialog({ branchId, open, onOpenChange }: AddTestDialogPro
 // ─── Form ────────────────────────────────────────────────────────────────────
 
 const NO_SCENARIO_VALUE = "__none__";
+const MIN_DESCRIPTION_LENGTH = 20;
 type AddTab = "text" | "upload";
 
 function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: () => void }) {
@@ -65,6 +66,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
 
   const [activeTab, setActiveTab] = useState<AddTab>("text");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [text, setText] = useState("");
   const [scenarioId, setScenarioId] = useState("");
   const [folderId, setFolderId] = useState(folders[0]?.id ?? "");
@@ -76,6 +78,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
 
   function resetForm() {
     setName("");
+    setDescription("");
     setText("");
     setFiles([]);
   }
@@ -86,7 +89,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
 
     if (activeTab === "text") {
       addTest.mutate(
-        { branchId, name, plan: text, folderId, scenarioId: selectedScenarioId },
+        { branchId, name, description, plan: text, folderId, scenarioId: selectedScenarioId },
         {
           onSuccess: () => {
             resetForm();
@@ -115,7 +118,8 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
   }
 
   const hasFolderId = folderId !== "";
-  const isTextValid = name.trim() !== "" && text.trim() !== "" && hasFolderId;
+  const isDescriptionValid = description.trim().length >= MIN_DESCRIPTION_LENGTH;
+  const isTextValid = name.trim() !== "" && isDescriptionValid && text.trim() !== "" && hasFolderId;
   const isUploadValid = files.length > 0 && hasFolderId;
   const isValid = activeTab === "text" ? isTextValid : isUploadValid;
 
@@ -181,6 +185,22 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
                 value={name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="add-test-description">
+                Description <span className="text-status-critical">*</span>
+              </Label>
+              <Textarea
+                id="add-test-description"
+                placeholder="State what the test verifies: what the user does, what should happen, and why it matters..."
+                value={description}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+                className="min-h-20 resize-none"
+              />
+              <p className="text-2xs text-text-secondary">
+                State what the test does - a specific, falsifiable claim about the expected behavior, not the steps. Set
+                once at creation and cannot be edited later (at least {MIN_DESCRIPTION_LENGTH} characters).
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="add-test-plan">

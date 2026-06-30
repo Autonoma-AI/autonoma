@@ -21,7 +21,12 @@ export const snapshotEditRouter = router({
                 name: z.string().min(1),
                 plan: z.string().min(1),
                 folderId: z.string(),
-                description: z.string().optional(),
+                description: z
+                    .string()
+                    .min(
+                        20,
+                        "State what the test does - a falsifiable behavioral claim, not the steps - in at least 20 characters.",
+                    ),
                 scenarioId: z.string().optional(),
             }),
         )
