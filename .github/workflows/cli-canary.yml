@@ -98,7 +98,7 @@ jobs:
         if: steps.npm_check.outputs.already_published == 'false'
         run: pnpm --filter @autonoma-ai/planner publish --access public --no-git-checks --tag canary
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.CLI_NPM_TOKEN }}
 
       - name: Job summary
         if: steps.npm_check.outputs.already_published == 'false'

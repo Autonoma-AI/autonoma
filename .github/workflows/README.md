@@ -29,13 +29,13 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - **Guarded to `cli-v*` releases only** - root `v*` releases never publish to npm
 - Verifies the tag is on `main`, then typechecks/tests/builds `@autonoma-ai/planner`
 - Idempotently publishes to npm (skips if the version is already published)
-- Requires the `NPM_TOKEN` repo secret (publish rights to the `@autonoma-ai` scope)
+- Requires the `CLI_NPM_TOKEN` repo secret (an npm token with publish rights to `@autonoma-ai/planner` and 2FA bypass enabled)
 
 ### 2c. **Publish CLI canary to npm** (`cli-canary.yml`)
 - Triggers on push to the `cli-canary` branch (apps/cli changes), a daily schedule, or manual dispatch
 - Publishes `@autonoma-ai/planner` under the `canary` dist-tag as `<next-patch>-canary.<sha>`
 - Never touches release-please tags/manifest; the stable `@latest` channel is untouched
-- Scoped to the CLI only - bumps and publishes `apps/cli` and nothing else; also uses `NPM_TOKEN`
+- Scoped to the CLI only - bumps and publishes `apps/cli` and nothing else; also uses `CLI_NPM_TOKEN`
 
 ### 3. **Production Rollback** (`production-rollback.yml`)
 - Manual workflow to rollback to a previous version
