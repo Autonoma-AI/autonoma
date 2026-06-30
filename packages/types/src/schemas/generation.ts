@@ -104,6 +104,23 @@ const UploadFileSchema = z.object({
     folder: z.string().optional(),
 });
 
+/**
+ * Structured frontmatter carried by an uploaded E2E test-case markdown file,
+ * parsed out of each {@link UploadFileSchema} `content` blob during artifact
+ * ingestion. Unknown frontmatter keys are ignored.
+ */
+export const TestCaseFrontmatterSchema = z.object({
+    /** Name of the scenario the test runs against; matched against uploaded scenario recipes. */
+    scenario: z.string().optional(),
+    /**
+     * The test's intent: a falsifiable behavioral claim. Read straight into the
+     * created test case's `description`. Optional at the creation boundary for
+     * now (tightened in a later slice); when present it must be at least 20 chars.
+     */
+    description: z.string().min(20).optional(),
+});
+export type TestCaseFrontmatter = z.infer<typeof TestCaseFrontmatterSchema>;
+
 export const UploadArtifactsBodySchema = z.object({
     skills: z.array(UploadFileSchema).optional(),
     testCases: z.array(UploadFileSchema).optional(),

@@ -16,6 +16,7 @@ import {
     type UpdateSetupBody,
     type UploadArtifactsBody,
     type UploadScenarioRecipeVersionsBody,
+    TestCaseFrontmatterSchema,
     TOTAL_SETUP_STEPS,
 } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
@@ -407,8 +408,9 @@ export class ApplicationSetupService {
         const folderCache = new Map<string, string>();
 
         for (const testCase of testCases) {
-            const { data: frontmatter, content: plan } = matter(testCase.content);
-            const scenarioName = frontmatter.scenario as string | undefined;
+            const { data, content: plan } = matter(testCase.content);
+            const frontmatter = TestCaseFrontmatterSchema.parse(data);
+            const scenarioName = frontmatter.scenario;
 
             let scenarioId: string | undefined;
             if (scenarioName != null) {
@@ -435,7 +437,14 @@ export class ApplicationSetupService {
             const folderId = await this.findOrCreateFolder(applicationId, organizationId, folderName, folderCache);
 
             await updater.apply(
-                new AddTest({ name: testCase.name, plan: plan.trim(), folderId, scenarioId, scenarioName }),
+                new AddTest({
+                    name: testCase.name,
+                    description: frontmatter.description,
+                    plan: plan.trim(),
+                    folderId,
+                    scenarioId,
+                    scenarioName,
+                }),
             );
         }
     }

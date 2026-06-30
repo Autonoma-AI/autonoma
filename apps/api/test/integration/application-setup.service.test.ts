@@ -390,5 +390,26 @@ apiTestSuite({
             });
             expect(planAfter.scenarioId).toBe(scenario.id);
         });
+
+        test("uploadArtifacts threads the frontmatter description into the created test case", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Description Threading Test");
+            const description = "The login form rejects an incorrect password and shows an inline error.";
+
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [
+                    {
+                        name: "login-test.md",
+                        folder: "auth",
+                        content: `---\ndescription: ${description}\n---\n\nNavigate to /login and sign in`,
+                    },
+                ],
+            });
+
+            const testCase = await harness.db.testCase.findFirstOrThrow({
+                where: { applicationId: app.id },
+                select: { description: true },
+            });
+            expect(testCase.description).toBe(description);
+        });
     },
 });
