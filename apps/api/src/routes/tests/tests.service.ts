@@ -114,19 +114,6 @@ export class TestsService extends Service {
         };
     }
 
-    async updateTestDescription(id: string, description: string, organizationId: string) {
-        this.logger.info("Updating test description", { id });
-
-        const { count } = await this.db.testCase.updateMany({
-            where: { id, application: { organizationId } },
-            data: { description },
-        });
-
-        if (count === 0) throw new NotFoundError();
-
-        this.logger.info("Test description updated", { id });
-    }
-
     async renameTest(id: string, name: string, organizationId: string) {
         this.logger.info("Renaming test", { id, name });
 

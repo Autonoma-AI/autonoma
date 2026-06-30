@@ -43,19 +43,6 @@ export function useRenameTest() {
     });
 }
 
-export function useUpdateTestDescription() {
-    const queryClient = useQueryClient();
-    return useAPIMutation({
-        ...trpc.tests.updateDescription.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.tests.detail.queryKey() });
-                void queryClient.invalidateQueries({ queryKey: trpc.tests.list.queryKey() });
-            },
-        }),
-        errorToast: { title: "Failed to update test description" },
-    });
-}
-
 export function useDeleteTest() {
     const queryClient = useQueryClient();
     return useAPIMutation({

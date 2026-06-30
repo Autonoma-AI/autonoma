@@ -8,7 +8,7 @@ import { DetailRow } from "components/detail-row";
 import { formatDate } from "lib/format";
 import { ensureBranchSnapshotId } from "lib/query/branches.queries";
 import { useRunTest } from "lib/query/runs.queries";
-import { ensureTestDetailData, useRenameTest, useUpdateTestDescription } from "lib/query/tests.queries";
+import { ensureTestDetailData, useRenameTest } from "lib/query/tests.queries";
 import { trpc } from "lib/trpc";
 import { useMainBranch } from "../-use-main-branch";
 import { AppLink } from "../../-app-link";
@@ -63,7 +63,6 @@ function TestDetailPanel({ slug }: { slug: string }) {
   );
 
   const _renameTest = useRenameTest();
-  const _updateDescription = useUpdateTestDescription();
   const runTest = useRunTest();
 
   function handleRunTest() {

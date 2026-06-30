@@ -16,12 +16,6 @@ export const testsRouter = router({
             services.tests.getTestDetail(input.applicationId, input.slug, input.snapshotId, organizationId),
         ),
 
-    updateDescription: protectedProcedure
-        .input(z.object({ testId: z.string(), description: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.tests.updateTestDescription(input.testId, input.description, organizationId),
-        ),
-
     rename: protectedProcedure
         .input(z.object({ testId: z.string(), name: z.string().min(1) }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
