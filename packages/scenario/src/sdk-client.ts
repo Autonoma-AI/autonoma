@@ -4,6 +4,7 @@ import type { DiscoverResponse, DownResponse, UpResponse } from "@autonoma/types
 import { DiscoverResponseSchema, DownResponseSchema, UpResponseSchema } from "@autonoma/types";
 import type { z } from "zod";
 import { NOOP_RECORDER, type SdkAction, type SdkCallRecorder } from "./sdk-call-recorder";
+import { SdkHttpError } from "./sdk-http-error";
 
 export interface SdkCallOptions {
     timeoutMs?: number;
@@ -140,7 +141,7 @@ export class SdkClient {
             const detail = extractResponseDetail(responseBody);
             const message = detail != null ? `SDK returned HTTP ${status}: ${detail}` : `SDK returned HTTP ${status}`;
             this.logger.warn(`SDK ${action} returned ${status}`, { status, responseBody });
-            throw new Error(message);
+            throw new SdkHttpError(status, message, detail);
         }
 
         const parsed = responseSchema.safeParse(responseBody);

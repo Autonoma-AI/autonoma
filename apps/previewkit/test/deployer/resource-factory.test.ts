@@ -145,6 +145,25 @@ describe("buildAppDeployment", () => {
         expect(container.ports![0]!.containerPort).toBe(3000);
     });
 
+    it("mounts the app's secret via envFrom and rolls pods on a secret-version change", () => {
+        const v1 = buildAppDeployment({ ...baseOpts, awsSecretName: "web-secrets", secretVersion: "12345" });
+        const container = v1.spec!.template.spec!.containers[0]!;
+        expect(container.envFrom).toEqual([{ secretRef: { name: "web-secrets" } }]);
+        // The pod template carries the secret version, so a changed version
+        // produces a different template and forces a rollout onto the new secret.
+        expect(v1.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBe("12345");
+
+        const v2 = buildAppDeployment({ ...baseOpts, awsSecretName: "web-secrets", secretVersion: "67890" });
+        expect(v2.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBe("67890");
+    });
+
+    it("omits the secret-version annotation when the app has no secret", () => {
+        const dep = buildAppDeployment(baseOpts);
+        const container = dep.spec!.template.spec!.containers[0]!;
+        expect(container.envFrom).toBeUndefined();
+        expect(dep.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBeUndefined();
+    });
+
     it("requests cpu and memory separately from the memory limit, with no cpu limit", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;

@@ -254,7 +254,12 @@ The runner drains the sink's buffer before it exits.
 ## Gotchas
 
 - ConfigMap-derived env/volumes are captured at pod start: changing a ConfigMap (e.g. Gatekeeper's
-  `gatekeeper-routes`, or a `subPath` mount) does NOT reach a running pod - restart/redeploy it.
+  `gatekeeper-routes`, or a `subPath` mount) does NOT reach a running pod - restart/redeploy it. The
+  same is true of `envFrom` Secret refs, which is why `AwsExternalSecretManager.applyForNamespace`
+  force-syncs ESO and waits for each target K8s Secret to be populated BEFORE app rollout, and
+  `buildAppDeployment` stamps the Secret's resourceVersion as the `previewkit.dev/secret-version`
+  pod-template annotation so a secret change rolls the pods. Without this, a pod can boot "ready"
+  with a missing/stale `AUTONOMA_SHARED_SECRET` and every signed SDK call 401s until a manual redeploy.
 - App-build status enum is `success`, not `ok`.
 - The autonoma API uses `apps/api/src/routes/*.router.ts` + service classes (not the
   `routers/`+`controllers/` layout the root CLAUDE.md describes).

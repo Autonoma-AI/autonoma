@@ -111,8 +111,13 @@ export class OnboardingService extends Service {
         return this.manager.prepareSdkTarget(applicationId, organizationId, targetId);
     }
 
-    async configureAndDiscoverSdkTarget(applicationId: string, organizationId: string, targetId: string) {
-        return this.manager.configureAndDiscoverSdkTarget(applicationId, organizationId, targetId);
+    async configureAndDiscoverSdkTarget(
+        applicationId: string,
+        organizationId: string,
+        targetId: string,
+        allowSelfHeal: boolean,
+    ) {
+        return this.manager.configureAndDiscoverSdkTarget(applicationId, organizationId, targetId, allowSelfHeal);
     }
 
     async runScenarioDryRun(applicationId: string, organizationId: string, scenarioId: string, targetId?: string) {

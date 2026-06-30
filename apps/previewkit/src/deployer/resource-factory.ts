@@ -12,6 +12,13 @@ interface AppResourceOptions {
     /** This app's own public preview URL (https://{hash}.{domain}), injected as AUTONOMA_PREVIEWKIT_URL. */
     publicUrl: string;
     awsSecretName?: string;
+    /**
+     * resourceVersion of the ESO-managed K8s Secret at deploy time. Stamped onto
+     * the pod template so a secret change rolls the pods - `envFrom` is captured
+     * at pod start, so without this a running pod keeps a stale/missing secret
+     * (e.g. AUTONOMA_SHARED_SECRET) until something else restarts it.
+     */
+    secretVersion?: string;
 }
 
 interface AppRouteOptions {
@@ -53,6 +60,11 @@ export const GATEKEEPER_HEALTH_PATH = "/gatekeeper-health";
 // and ready before the app itself is woken.
 export const GATEKEEPER_DEPENDS_ON_ANNOTATION = "gatekeeper.dev/depends-on";
 
+// Pod-template annotation carrying the ESO-managed K8s Secret's resourceVersion
+// at deploy time, so a secret change produces a new pod template and rolls the
+// pods (env vars from `envFrom` are only read at pod start).
+export const SECRET_VERSION_ANNOTATION = "previewkit.dev/secret-version";
+
 export function buildAppHostname(
     appName: string,
     prNumber: number,
@@ -70,7 +82,7 @@ export function buildAppHostname(
 }
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
-    const { app, namespace, imageTag, resolvedEnv, awsSecretName } = opts;
+    const { app, namespace, imageTag, resolvedEnv, awsSecretName, secretVersion } = opts;
     const labels = {
         ...BASE_LABELS,
         app: app.name,
@@ -113,7 +125,15 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
             replicas: app.replicas,
             selector: { matchLabels: { app: app.name } },
             template: {
-                metadata: { labels: { ...labels, app: app.name } },
+                metadata: {
+                    labels: { ...labels, app: app.name },
+                    // Roll the pods whenever the mounted secret changes: envFrom is
+                    // captured at pod start, so a new secret version only reaches a
+                    // running pod via a rollout (which a pod-template change forces).
+                    ...(secretVersion != null && {
+                        annotations: { [SECRET_VERSION_ANNOTATION]: secretVersion },
+                    }),
+                },
                 spec: {
                     nodeSelector: { "kubernetes.io/arch": "amd64" },
                     containers: [

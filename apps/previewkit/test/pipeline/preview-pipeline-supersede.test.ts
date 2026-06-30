@@ -38,7 +38,7 @@ describe("PreviewPipeline deploy supersede handling", () => {
         const deployer = {
             deployInfra: vi.fn().mockResolvedValue({
                 namespace,
-                awsSecretsByApp: new Map<string, string>(),
+                awsSecretsByApp: new Map(),
                 bypassToken: "bypass-token",
             }),
             deployApps: vi.fn().mockImplementation(async () => {

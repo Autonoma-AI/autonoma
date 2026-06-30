@@ -47,12 +47,22 @@ export const onboardingRouter = router({
         ),
 
     configureAndDiscoverSdkTarget: protectedProcedure
-        .input(z.object({ applicationId: z.string(), targetId: z.string() }))
+        .input(
+            z.object({
+                applicationId: z.string(),
+                targetId: z.string(),
+                // Bounded fallback for legacy previews: the UI sends true only on
+                // the user's first click and false on its single auto-retry, so a
+                // 401 that survives one redeploy surfaces instead of looping.
+                allowSelfHeal: z.boolean().default(false),
+            }),
+        )
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.configureAndDiscoverSdkTarget(
                 input.applicationId,
                 ctx.organizationId,
                 input.targetId,
+                input.allowSelfHeal,
             ),
         ),
 

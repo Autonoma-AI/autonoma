@@ -5,7 +5,7 @@ import { logger } from "../logger";
 import { computeDeployWaves } from "../pipeline/deploy-graph";
 import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
-import type { AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
+import type { AppSecretInfo, AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
 import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict } from "./k8s-errors";
@@ -59,7 +59,7 @@ export interface DeployResult {
  */
 export interface InfraDeployResult {
     namespace: string;
-    awsSecretsByApp: Map<string, string>;
+    awsSecretsByApp: Map<string, AppSecretInfo>;
     bypassToken: string;
 }
 
@@ -72,7 +72,7 @@ interface AppDeployContext {
     secret: string;
     config: PreviewConfig;
     imageTags: Record<string, string>;
-    awsSecretsByApp: Map<string, string>;
+    awsSecretsByApp: Map<string, AppSecretInfo>;
     addonOutputs: AddonOutputs;
 }
 
@@ -173,7 +173,7 @@ export class Deployer {
         const awsSecretsByApp =
             this.awsExternalSecretManager != null
                 ? await this.awsExternalSecretManager.applyForNamespace(organizationId, namespace, appNames)
-                : new Map<string, string>();
+                : new Map<string, AppSecretInfo>();
 
         // 4. Deploy service recipes (postgres, redis, etc.)
         for (const svcConfig of config.services) {
@@ -613,6 +613,7 @@ export class Deployer {
             addonOutputs,
         );
 
+        const secretInfo = awsSecretsByApp.get(app.name);
         const deployment = buildAppDeployment({
             app,
             namespace,
@@ -620,7 +621,8 @@ export class Deployer {
             resolvedEnv,
             prNumber,
             publicUrl: url,
-            awsSecretName: awsSecretsByApp.get(app.name),
+            awsSecretName: secretInfo?.secretName,
+            secretVersion: secretInfo?.secretVersion,
         });
         const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber, publicUrl: url });
         const ingress = buildAppIngress({

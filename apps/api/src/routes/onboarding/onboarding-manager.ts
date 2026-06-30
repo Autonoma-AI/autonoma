@@ -649,9 +649,10 @@ export class OnboardingManager {
         applicationId: string,
         organizationId: string,
         targetId: string,
+        allowSelfHeal: boolean,
     ): Promise<ConfigureAndDiscoverSdkTargetResult> {
         this.logger.info("Configuring managed SDK target and discovering scenarios", { applicationId, targetId });
-        return this.sdkCapability.configureAndDiscoverTarget(applicationId, organizationId, targetId);
+        return this.sdkCapability.configureAndDiscoverTarget(applicationId, organizationId, targetId, allowSelfHeal);
     }
 
     /**

@@ -1232,7 +1232,7 @@ integrationTestSuite({
             vi.stubGlobal("fetch", fetchMock);
 
             try {
-                const result = await manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-8");
+                const result = await manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-8", false);
 
                 expect(result.status).toBe("discovered");
                 // Validate only validates - prepareSdkTarget owns secret provisioning,
@@ -1264,6 +1264,359 @@ integrationTestSuite({
             } finally {
                 vi.unstubAllGlobals();
             }
+        });
+
+        test("configureAndDiscoverSdkTarget self-heals a managed 401 by redeploying and returns redeploy_started", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_910;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({
+                data: {
+                    applicationId: appId,
+                    step: "github",
+                    lastDiscoveryError: "stale error from a previous attempt",
+                },
+            });
+            const environment = await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-21`,
+                    repoFullName: "acme/app",
+                    prNumber: 21,
+                    headSha: "sha-21",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-21.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // The shared secret upsert reports a change - clear drift evidence.
+            const secretsService = {
+                list: vi.fn(async () => [
+                    { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
+                    { key: "AUTONOMA_SIGNING_SECRET", maskedLength: 64, updatedAt: new Date() },
+                ]),
+                upsert: vi.fn(async () => ({ created: false, changed: true })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            const fetchMock = vi.fn(
+                async () =>
+                    new Response(JSON.stringify({ error: "Invalid HMAC signature" }), {
+                        status: 401,
+                        headers: { "content-type": "application/json" },
+                    }),
+            );
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                const result = await manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-21", true);
+
+                expect(result.status).toBe("redeploy_started");
+                expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 21, orgId);
+                // The redeploy flips the env off "ready" so the frontend keeps polling
+                // instead of racing discover against the still-stale pod.
+                const env = await harness.db.previewkitEnvironment.findUniqueOrThrow({
+                    where: { id: environment.id },
+                    select: { status: true },
+                });
+                expect(env.status).toBe("building");
+                // A self-healing 401 is not a terminal failure: no error is persisted.
+                const state = await harness.db.onboardingState.findUniqueOrThrow({
+                    where: { applicationId: appId },
+                    select: { lastDiscoveryError: true, discoveringStartedAt: true },
+                });
+                expect(state.lastDiscoveryError).toBeNull();
+                expect(state.discoveringStartedAt).toBeNull();
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("configureAndDiscoverSdkTarget redeploys on a managed 401 even when DB/AWS state looks current", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_911;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            const environment = await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-22`,
+                    repoFullName: "acme/app",
+                    prNumber: 22,
+                    headSha: "sha-22",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-22.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // DB/AWS look perfectly current: secrets present and unchanged, no
+            // previewkit secret row newer than the deploy, deploy recorded, status
+            // ready. The running pod can still hold a stale secret it captured at
+            // boot, so the 401 itself - not these signals - must drive the redeploy.
+            const secretsService = {
+                list: vi.fn(async () => [
+                    { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
+                    { key: "AUTONOMA_SIGNING_SECRET", maskedLength: 64, updatedAt: new Date() },
+                ]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            const fetchMock = vi.fn(
+                async () =>
+                    new Response(JSON.stringify({ error: "Invalid HMAC signature" }), {
+                        status: 401,
+                        headers: { "content-type": "application/json" },
+                    }),
+            );
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                const result = await manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-22", true);
+
+                expect(result.status).toBe("redeploy_started");
+                expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 22, orgId);
+                const env = await harness.db.previewkitEnvironment.findUniqueOrThrow({
+                    where: { id: environment.id },
+                    select: { status: true },
+                });
+                expect(env.status).toBe("building");
+                const state = await harness.db.onboardingState.findUniqueOrThrow({
+                    where: { applicationId: appId },
+                    select: { lastDiscoveryError: true },
+                });
+                expect(state.lastDiscoveryError).toBeNull();
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("configureAndDiscoverSdkTarget surfaces a managed 401 as terminal when allowSelfHeal is false", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_913;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            const environment = await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-24`,
+                    repoFullName: "acme/app",
+                    prNumber: 24,
+                    headSha: "sha-24",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-24.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            const secretsService = {
+                list: vi.fn(async () => [{ key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() }]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            const fetchMock = vi.fn(
+                async () =>
+                    new Response(JSON.stringify({ error: "Invalid HMAC signature" }), {
+                        status: 401,
+                        headers: { "content-type": "application/json" },
+                    }),
+            );
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                // The single auto-retry passes allowSelfHeal=false, so a surviving
+                // 401 must surface terminally rather than redeploy again.
+                await expect(manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-24", false)).rejects.toThrow(
+                    "SDK returned HTTP 401: Invalid HMAC signature",
+                );
+
+                expect(previewkitClient.redeploy).not.toHaveBeenCalled();
+                const env = await harness.db.previewkitEnvironment.findUniqueOrThrow({
+                    where: { id: environment.id },
+                    select: { status: true },
+                });
+                expect(env.status).toBe("ready");
+                const state = await harness.db.onboardingState.findUniqueOrThrow({
+                    where: { applicationId: appId },
+                    select: { lastDiscoveryError: true },
+                });
+                expect(state.lastDiscoveryError).toBe("SDK returned HTTP 401: Invalid HMAC signature");
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("configureAndDiscoverSdkTarget does not self-heal a 401 that is not an HMAC rejection", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_914;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-25`,
+                    repoFullName: "acme/app",
+                    prNumber: 25,
+                    headSha: "sha-25",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    deployedAt: new Date(),
+                    urls: { web: "https://web-pr-25.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            const secretsService = {
+                list: vi.fn(async () => [{ key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() }]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+            // A 401 from a Gatekeeper/auth wall is not our secret drift - a redeploy
+            // would not fix it, so even on the first click it must stay terminal.
+            const fetchMock = vi.fn(
+                async () =>
+                    new Response(JSON.stringify({ error: "Unauthorized" }), {
+                        status: 401,
+                        headers: { "content-type": "application/json" },
+                    }),
+            );
+            vi.stubGlobal("fetch", fetchMock);
+
+            try {
+                await expect(manager.configureAndDiscoverSdkTarget(appId, orgId, "pr-25", true)).rejects.toThrow(
+                    "SDK returned HTTP 401: Unauthorized",
+                );
+
+                expect(previewkitClient.redeploy).not.toHaveBeenCalled();
+                const state = await harness.db.onboardingState.findUniqueOrThrow({
+                    where: { applicationId: appId },
+                    select: { lastDiscoveryError: true },
+                });
+                expect(state.lastDiscoveryError).toBe("SDK returned HTTP 401: Unauthorized");
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        test("prepareSdkTarget redeploys a ready preview that has a secret bundle but no recorded deploy", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const repoId = 778_912;
+            await linkRepository(harness, appId, repoId);
+            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
+            // Ready, but no deployedAt was ever recorded (legacy/edge): we cannot
+            // prove the pod booted after the secret landed.
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-managed-${appId}-pr-23`,
+                    repoFullName: "acme/app",
+                    prNumber: 23,
+                    headSha: "sha-23",
+                    headRef: "feat-autonoma-sdk",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "ready",
+                    urls: { web: "https://web-pr-23.preview.example.com" },
+                    resolvedConfig: {
+                        version: 1,
+                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                    },
+                },
+            });
+            // A secret bundle exists - so there is something to mount.
+            await harness.db.previewkitSecret.create({
+                data: { applicationId: appId, appName: "web", awsSecretArn: "arn:aws:secretsmanager:test:web-23" },
+            });
+            const secretsService = {
+                list: vi.fn(async () => [
+                    { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
+                    { key: "AUTONOMA_SIGNING_SECRET", maskedLength: 64, updatedAt: new Date() },
+                ]),
+                upsert: vi.fn(async () => ({ created: false, changed: false })),
+                delete: vi.fn(async () => true),
+            };
+            const previewkitClient = {
+                isConfigured: () => true,
+                deployApplicationMain: vi.fn(async () => undefined),
+                redeploy: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+                previewkitClient,
+            });
+
+            const result = await manager.prepareSdkTarget(appId, orgId, "pr-23");
+
+            expect(result.status).toBe("redeploy_started");
+            expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 23, orgId);
         });
 
         test("prepareSdkTarget generates AUTONOMA_SIGNING_SECRET when missing and redeploys", async ({

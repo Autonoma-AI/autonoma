@@ -340,6 +340,11 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   );
   const [signingSecret, setSigningSecret] = useState("");
   const [logsExpanded, setLogsExpanded] = useState(true);
+  // Set to a target id while a managed discover that 401'd is self-healing via
+  // redeploy; the effect below retries discover exactly once when that target
+  // returns to "ready". The retry sends allowSelfHeal=false, so a 401 that
+  // survives the redeploy throws and surfaces instead of re-arming.
+  const [retryDiscoverTargetId, setRetryDiscoverTargetId] = useState<string | undefined>(undefined);
 
   const serverSecret = sharedSecretQuery.data?.sharedSecret;
   useEffect(() => {
@@ -355,6 +360,25 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
     if (selectedTargetId == null || selectedTargetSource !== "previewkit") return;
     prepareMutate({ applicationId, targetId: selectedTargetId });
   }, [applicationId, selectedTargetId, selectedTargetSource, prepareMutate]);
+
+  const managedDiscoverMutate = managedDiscover.mutate;
+  const managedDiscoverPending = managedDiscover.isPending;
+  useEffect(() => {
+    if (retryDiscoverTargetId == null) return;
+    if (selectedTarget == null || selectedTarget.id !== retryDiscoverTargetId) return;
+    if (selectedTarget.source !== "previewkit" || selectedTarget.status !== "ready") return;
+    if (managedDiscoverPending) return;
+    // Disarm before firing so this retry cannot re-trigger itself. allowSelfHeal
+    // is false here, so the only success outcome is "discovered" - a surviving
+    // 401 throws (terminal) and surfaces via the mutation's error toast.
+    setRetryDiscoverTargetId(undefined);
+    managedDiscoverMutate(
+      { applicationId, targetId: retryDiscoverTargetId, allowSelfHeal: false },
+      {
+        onSuccess: () => toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" }),
+      },
+    );
+  }, [retryDiscoverTargetId, selectedTarget, managedDiscoverPending, managedDiscoverMutate, applicationId]);
 
   const preparing =
     prepareTarget.isPending ||
@@ -375,9 +399,26 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
       return;
     }
 
+    const targetId = selectedTarget.id;
     managedDiscover.mutate(
-      { applicationId, targetId: selectedTarget.id },
-      { onSuccess: () => toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" }) },
+      { applicationId, targetId, allowSelfHeal: true },
+      {
+        onSuccess: (data) => {
+          if (data.status === "redeploy_started") {
+            // The API found secret drift and kicked off a redeploy (the target
+            // flips off "ready"), so the "Preparing preview..." poll resumes;
+            // arm the single auto-retry for when it returns to ready.
+            setRetryDiscoverTargetId(targetId);
+            toastManager.add({
+              type: "info",
+              title: "Updating preview secrets",
+              description: "Redeploying the preview - validation will retry automatically once it is ready.",
+            });
+            return;
+          }
+          toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" });
+        },
+      },
     );
   }
 

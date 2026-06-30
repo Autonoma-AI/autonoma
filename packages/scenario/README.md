@@ -9,6 +9,7 @@ Manages scenario lifecycle (sync from recipes, up, down) for test environments p
 | `ScenarioManager`         | DB-backed orchestrator for the up/down lifecycle and discover                                                            |
 | `ScenarioRecipeStore`     | Persistence layer for recipe ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`)                       |
 | `SdkClient`               | HMAC-signed HTTP client for the customer's SDK endpoint. Pure: no Prisma, single attempt per call                       |
+| `SdkHttpError`            | Thrown on a non-2xx SDK response. Carries `status` (and `detail`) as structured fields so callers can branch (e.g. on 401) without parsing the message |
 | `SdkCallRecorder`         | Per-call observability seam. Default `NOOP_RECORDER` for tests; production uses `DbSdkCallRecorder`                      |
 | `DbSdkCallRecorder`       | Prisma-backed `SdkCallRecorder` that persists each call to the `webhookCall` table                                       |
 | `EncryptionHelper`        | AES-256-GCM encryption/decryption for SDK shared secrets stored in the database                                          |

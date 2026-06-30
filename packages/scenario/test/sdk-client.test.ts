@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { DbSdkCallRecorder } from "../src/db-sdk-call-recorder";
 import { type SdkCallEvent, type SdkCallRecorder } from "../src/sdk-call-recorder";
 import { SdkClient } from "../src/sdk-client";
+import { SdkHttpError } from "../src/sdk-http-error";
 import { ScenarioTestHarness } from "./scenario-harness";
 
 const SIGNING_SECRET = "test-secret";
@@ -187,6 +188,18 @@ describe("SdkClient (DB-free)", () => {
 
         await expect(client.discover({ timeoutMs: 5_000 })).rejects.toThrow("SDK returned HTTP 500");
         expect(callCount).toBe(1);
+    });
+
+    it("throws SdkHttpError carrying the HTTP status and detail on a non-2xx response", async () => {
+        server.onRequest(() => ({ status: 401, body: { error: "Invalid HMAC signature" } }));
+
+        const error = await client.discover({ timeoutMs: 5_000 }).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(SdkHttpError);
+        if (!(error instanceof SdkHttpError)) throw new Error("expected SdkHttpError");
+        expect(error.status).toBe(401);
+        expect(error.detail).toBe("Invalid HMAC signature");
+        expect(error.message).toBe("SDK returned HTTP 401: Invalid HMAC signature");
     });
 
     it("includes the SDK error code when the error message is blank", async () => {
