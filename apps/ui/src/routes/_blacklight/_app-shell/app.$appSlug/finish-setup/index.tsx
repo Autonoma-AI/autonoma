@@ -753,11 +753,16 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const sharedSecret = sharedSecretData?.sharedSecret;
   const sharedSecretEnv = sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${sharedSecret} ` : "";
   const distinctIdEnv = user != null ? `AUTONOMA_DISTINCT_ID=${user.id} ` : "";
-  const uploadEnv =
-    setup.status === "ready" ? `AUTONOMA_API_TOKEN=${setup.apiKey} AUTONOMA_GENERATION_ID=${setup.setupId} ` : "";
-  const command = `${sharedSecretEnv}${distinctIdEnv}${uploadEnv}npx @autonoma-ai/planner@latest`;
+  // AUTONOMA_API_TOKEN authenticates the CLI against our managed LLM proxy, so it
+  // is now required for the planner to run (not just to upload artifacts). Only
+  // surface a runnable command once that token has been provisioned.
+  const command =
+    setup.status === "ready"
+      ? `${sharedSecretEnv}${distinctIdEnv}AUTONOMA_API_TOKEN=${setup.apiKey} AUTONOMA_GENERATION_ID=${setup.setupId} npx @autonoma-ai/planner@latest`
+      : undefined;
 
   function handleCopy() {
+    if (command == null) return;
     void navigator.clipboard.writeText(command).then(() => {
       setCopied(true);
       toastManager.add({ type: "success", title: "Command copied" });
@@ -768,26 +773,28 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
     <div className="flex flex-col gap-4">
       <div className="relative border border-border-dim bg-surface-raised p-3 pr-12">
         <code className="block whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
-          {command}
+          {command ?? "Preparing your CLI command..."}
         </code>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="absolute right-2 top-2 text-text-secondary hover:text-primary-ink"
-          title={copied ? "Copied" : "Copy command"}
-          onClick={handleCopy}
-        >
-          <CopyIcon size={14} />
-        </Button>
+        {command != null && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="absolute right-2 top-2 text-text-secondary hover:text-primary-ink"
+            title={copied ? "Copied" : "Copy command"}
+            onClick={handleCopy}
+          >
+            <CopyIcon size={14} />
+          </Button>
+        )}
       </div>
       {setup.status === "loading" && (
         <p className="font-mono text-3xs text-text-secondary">
-          Preparing an upload token so the CLI can attach its artifacts...
+          Preparing your access token so the CLI can run on your Autonoma credits...
         </p>
       )}
       {setup.status === "error" && (
         <p className="font-mono text-3xs text-status-critical">
-          Couldn't prepare the upload token - the command still runs, but won't auto-upload.
+          Couldn't prepare your access token - the planner needs it to run. Refresh to try again.
         </p>
       )}
 

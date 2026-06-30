@@ -7,7 +7,7 @@ import { getModel } from "../../../core/model";
 import { buildReadFileTool, buildGlobTool, buildGrepTool, buildBashTool } from "../../../tools";
 import { ALL_ADAPTERS, ADAPTER_HINTS, adapterKey, adapterLabel, findAdapter, type TechStack } from "../state";
 
-const DOCS_BASE = "https://docs.agent.autonoma.app";
+const DOCS_BASE = "https://docs.autonoma.app";
 
 const SYSTEM_PROMPT = `You are a backend technology detector. Your job is to identify the programming language and web framework used by a project's backend/API server.
 

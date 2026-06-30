@@ -9,6 +9,7 @@ import { auth, createContext, storageProvider } from "./context";
 import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
+import { llmProxyHttpRouter } from "./llm-proxy/llm-proxy-http.router";
 import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
 import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
 import { onboardingHttpRouter } from "./routes/onboarding/onboarding-http.router";
@@ -103,6 +104,24 @@ export function createApiApp() {
     // ─── GitHub ───────────────────────────────────────────────────────
 
     app.route("/v1/github", githubHttpRouter);
+
+    // ─── LLM Proxy (planner CLI managed credits) ───────────────────────
+    // The CLI points its OpenRouter provider here with its Autonoma API key;
+    // the proxy forwards to OpenRouter with our key and meters credits. No CORS
+    // mount - the caller is the CLI, not a browser. Mounted only when explicitly
+    // enabled AND billing is on: metering depends on billing, so requiring both
+    // makes "the proxy is always metered" an invariant and fails closed - a
+    // billing-disabled environment can never become a free, unmetered gateway.
+
+    if (env.LLM_PROXY_ENABLED && env.STRIPE_ENABLED) {
+        app.route("/v1/llm-proxy", llmProxyHttpRouter);
+    } else if (env.LLM_PROXY_ENABLED && !env.STRIPE_ENABLED) {
+        logger.error(
+            "LLM proxy NOT mounted: LLM_PROXY_ENABLED=true but STRIPE_ENABLED=false. Enable billing so usage can be metered.",
+        );
+    } else {
+        logger.info("LLM proxy routes disabled (LLM_PROXY_ENABLED=false)");
+    }
 
     // ─── Previewkit ────────────────────────────────────────────────────
 

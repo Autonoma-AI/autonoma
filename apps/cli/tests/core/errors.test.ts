@@ -192,8 +192,8 @@ describe("describeKnownError", () => {
 
     test("recognizes the missing-auth-header failure", () => {
         const known = describeKnownError(new Error("Missing Authentication header"));
-        expect(known?.title).toContain("API key");
-        expect(known?.hint).toContain("OPENROUTER_API_KEY");
+        expect(known?.title).toContain("API token");
+        expect(known?.hint).toContain("AUTONOMA_API_TOKEN");
     });
 
     test("recognizes auth failures through the cause chain", () => {
@@ -215,13 +215,11 @@ describe("describeKnownError", () => {
         expect(describeKnownError(apiError(429))?.title).toContain("rate-limit");
     });
 
-    test("recognizes the 'fewer max_tokens'/affordability failure with a top-up hint", () => {
-        const msg =
-            "This request requires more credits, or fewer max_tokens. You requested up to " +
-            "65536 tokens, but can only afford 32000.";
+    test("maps an out-of-credits message to the Autonoma top-up hint", () => {
+        const msg = "This request requires more credits. Insufficient credits.";
         const known = describeKnownError(new AgentError(`agent "kb" (model x) failed: ${msg}`, "kb", new Error(msg)));
         expect(known?.title).toContain("credit");
-        expect(known?.hint).toContain("openrouter.ai/settings/credits");
+        expect(known?.hint).toContain("autonoma.app");
     });
 
     test("returns null for unrecognized errors", () => {

@@ -18,11 +18,13 @@ import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
 import { CrownSimpleIcon } from "@phosphor-icons/react/CrownSimple";
 import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
+import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import {
   CHECKOUT_TYPE_SUBSCRIPTION,
   CHECKOUT_TYPE_TOPUP,
   type CheckoutType,
   formatSubscriptionStatus,
+  formatTransactionType,
 } from "lib/billing/formatters";
 import { formatDate } from "lib/format";
 import {
@@ -116,7 +118,7 @@ export function BillingPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Panel>
           <PanelHeader>
             <PanelTitle>Total credits</PanelTitle>
@@ -152,6 +154,19 @@ export function BillingPanel() {
               <LightningIcon size={14} />
               Buy top-up
             </Button>
+          </PanelBody>
+        </Panel>
+
+        <Panel>
+          <PanelHeader>
+            <PanelTitle className="flex items-center gap-2">
+              <TerminalWindowIcon size={14} />
+              AI CLI usage
+            </PanelTitle>
+          </PanelHeader>
+          <PanelBody className="space-y-1">
+            <p className="text-3xl font-semibold text-text-primary">{data.cliCreditsSpent.toLocaleString()}</p>
+            <p className="text-2xs text-text-secondary">credits spent all-time on the planner CLI</p>
           </PanelBody>
         </Panel>
       </div>
@@ -287,8 +302,8 @@ export function BillingPanel() {
                   className="flex items-center justify-between rounded-md border border-border-dim px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-2xs text-text-primary">{tx.type}</p>
-                    <p className="font-mono text-3xs text-text-tertiary">{formatDate(tx.createdAt)}</p>
+                    <p className="truncate text-2xs text-text-primary">{formatTransactionType(tx.type)}</p>
+                    <p className="font-mono text-3xs text-text-secondary">{formatDate(tx.createdAt)}</p>
                   </div>
                   <p className={`font-mono text-xs ${tx.amount >= 0 ? "text-status-success" : "text-text-primary"}`}>
                     {tx.amount > 0 ? "+" : ""}

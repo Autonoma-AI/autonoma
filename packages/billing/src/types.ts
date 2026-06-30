@@ -65,6 +65,8 @@ export type BillingStatusResult = {
     gracePeriodEndsAt: Date | undefined;
     autoTopUpEnabled: boolean;
     autoTopUpThreshold: number;
+    /** All-time credits spent through the managed LLM proxy (planner CLI). */
+    cliCreditsSpent: number;
     transactions: CreditTransaction[];
 };
 
@@ -86,6 +88,8 @@ export interface BillingService {
     ): Promise<void>;
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext): Promise<boolean>;
     deductCreditsForRun(runId: string): Promise<boolean>;
+    hasPositiveCreditBalance(organizationId: string): Promise<boolean>;
+    deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string): Promise<boolean>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;
     listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;

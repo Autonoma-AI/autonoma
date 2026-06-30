@@ -48,10 +48,9 @@ If the upload credentials are not set, the CLI just leaves the artifacts on disk
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `OPENROUTER_API_KEY` | yes | LLM access (create one at https://openrouter.ai/keys). Prompted and cached to `~/.autonoma/.env` if missing. |
-| `OPENROUTER_MODEL` | no | Override the default model. |
-| `AUTONOMA_API_URL` | no | Base URL of the Autonoma API. Defaults to `https://agent.autonoma.app`; override to target an alpha/preview host. |
-| `AUTONOMA_API_TOKEN` | for upload | Bearer token used to upload artifacts. Injected by onboarding. |
+| `AUTONOMA_API_TOKEN` | yes | Autonoma API token. Authenticates the planner, which runs on managed Autonoma credits through our LLM proxy - no LLM key needed. Injected by the Autonoma app; create one at https://autonoma.app/settings/api-keys to run standalone. Also used to upload artifacts. |
+| `OPENROUTER_MODEL` | no | Override the default model (OpenRouter-style model id, forwarded by the proxy). |
+| `AUTONOMA_API_URL` | no | Base URL of the Autonoma API. Defaults to `https://autonoma.app`; override to target an alpha/preview host. |
 | `AUTONOMA_GENERATION_ID` | for upload | The setup id artifacts are uploaded against. Injected by onboarding. |
 | `AUTONOMA_SHARED_SECRET` | no | Per-application secret used to sign SDK/webhook requests. Injected by onboarding. |
 | `AUTONOMA_DISTINCT_ID` | no | PostHog identity so CLI events join the signup funnel. Injected by onboarding. |

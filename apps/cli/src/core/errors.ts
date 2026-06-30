@@ -129,52 +129,50 @@ export function describeKnownError(err: unknown): KnownError | undefined {
     const looksLikeAuth =
         msg.includes("missing authentication header") ||
         msg.includes("no auth credentials") ||
-        msg.includes("openrouter_api_key") ||
+        msg.includes("not authenticated") ||
+        msg.includes("unauthorized") ||
         msg.includes("user not found") ||
         status === 401 ||
         status === 403;
     if (looksLikeAuth) {
         return {
-            title: "OpenRouter rejected the request - your API key looks missing or invalid.",
-            hint: "Set a valid OPENROUTER_API_KEY (https://openrouter.ai/keys). If it's already set, the key may be revoked, empty, or have a stray space.",
+            title: "Autonoma rejected the request - your API token looks missing or invalid.",
+            hint: "Launch the planner from the Autonoma app, or set a valid AUTONOMA_API_TOKEN (create one at https://autonoma.app/settings/api-keys).",
         };
     }
 
-    // OpenRouter rejects a request when the account balance can't cover the
-    // tokens it would reserve - the message literally reads "requires more
-    // credits, or fewer max_tokens ... can only afford N". This is the most
-    // common paid-tier blocker and almost always means an empty/near-empty
-    // balance, so point straight at the top-up page.
-    if (msg.includes("fewer max_tokens") || msg.includes("can only afford")) {
+    // The managed proxy returns 402 (out_of_credits) once the org's credit
+    // balance is exhausted. Point straight at billing.
+    if (
+        msg.includes("out_of_credits") ||
+        msg.includes("insufficient") ||
+        msg.includes("credits") ||
+        msg.includes("quota") ||
+        status === 402
+    ) {
         return {
-            title: "Your OpenRouter account doesn't have enough credit for this run.",
-            hint: "Add credit (even a few dollars goes a long way) at https://openrouter.ai/settings/credits, then re-run. A free balance can't cover a full request.",
-        };
-    }
-
-    if (msg.includes("insufficient") || msg.includes("credits") || msg.includes("quota") || status === 402) {
-        return {
-            title: "OpenRouter ran out of credits for this account.",
-            hint: "Add credit at https://openrouter.ai/settings/credits, then re-run.",
+            title: "You're out of Autonoma credits.",
+            hint: "Top up your credits at https://autonoma.app, then re-run.",
         };
     }
 
     if (
         NoSuchModelError.isInstance(err) ||
+        msg.includes("model_not_allowed") ||
         msg.includes("not a valid model") ||
         msg.includes("no endpoints found") ||
         msg.includes("model not found")
     ) {
         return {
-            title: "The requested model isn't available on OpenRouter.",
+            title: "The requested model isn't available.",
             hint: "Check OPENROUTER_MODEL, or unset it to use the default.",
         };
     }
 
     if (msg.includes("rate limit") || msg.includes("too many requests") || status === 429) {
         return {
-            title: "OpenRouter is rate-limiting this account.",
-            hint: "Wait a minute and re-run. If it persists, your key may be on a low-throughput tier.",
+            title: "Autonoma is rate-limiting this account.",
+            hint: "Wait a minute and re-run. If it persists, reach out to support.",
         };
     }
 

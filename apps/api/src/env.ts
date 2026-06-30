@@ -24,6 +24,17 @@ export const env = createEnv({
         GEMINI_API_KEY: z.string().min(1),
         GROQ_KEY: z.string().min(1).optional(),
         OPENROUTER_API_KEY: z.string().min(1).optional(),
+        // Master switch for the managed LLM proxy (planner CLI). Off by default so
+        // the route is never mounted unless explicitly enabled - a billing-disabled
+        // environment with OPENROUTER_API_KEY set must NOT silently become a free,
+        // unmetered LLM gateway. Metering only happens when STRIPE_ENABLED is also on.
+        LLM_PROXY_ENABLED: z.stringbool().default(false),
+        // Comma-separated allowlist of OpenRouter model ids the managed LLM proxy
+        // (planner CLI) may request. Defaults to the single model the planner uses
+        // (see LLM_PROXY_DEFAULT_MODELS in llm-proxy-http.router.ts). Set to
+        // widen/narrow without a deploy. The proxy is a free, credit-metered gateway,
+        // so the allowlist is the primary guard against it being used as a general LLM API.
+        LLM_PROXY_ALLOWED_MODELS: z.string().optional(),
         REDIS_URL: z.string().min(1),
 
         // Secrets for GitHub HTTP app authentication.

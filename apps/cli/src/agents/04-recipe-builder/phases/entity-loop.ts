@@ -735,7 +735,7 @@ export async function runEntityLoop(
                 projectRoot,
                 outputDir,
             );
-            const DOCS_BASE = "https://docs.agent.autonoma.app";
+            const DOCS_BASE = "https://docs.autonoma.app";
 
             p.log.info(
                 `Next: implement the ${entityName} factory. The block below is a copy-paste guide -\n` +

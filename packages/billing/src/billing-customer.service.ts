@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
+import { CreditTransactionType } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { BILLING_CHECKOUT_TYPES, BILLING_PAYMENT_INTENT_TYPES, type BillingCheckoutType } from "@autonoma/types";
 import { ensureBillingProvisioning } from "./billing-provisioning";
@@ -192,9 +193,19 @@ export class BillingCustomerService extends Service {
                 gracePeriodEndsAt: undefined,
                 autoTopUpEnabled: false,
                 autoTopUpThreshold: 0,
+                cliCreditsSpent: 0,
                 transactions: [],
             };
         }
+
+        // All-time spend through the managed LLM proxy (planner CLI). The
+        // transactions list above is capped at 20, so we aggregate separately to
+        // surface the lifetime total in the billing UI.
+        const llmProxyAggregate = await this.db.creditTransaction.aggregate({
+            where: { organizationId, type: CreditTransactionType.LLM_PROXY_CONSUMPTION },
+            _sum: { amount: true },
+        });
+        const cliCreditsSpent = Math.abs(llmProxyAggregate._sum.amount ?? 0);
 
         return {
             creditBalance: customer.creditBalance,
@@ -206,6 +217,7 @@ export class BillingCustomerService extends Service {
             gracePeriodEndsAt: customer.gracePeriodEndsAt ?? undefined,
             autoTopUpEnabled: customer.autoTopUpEnabled,
             autoTopUpThreshold: customer.autoTopUpThreshold,
+            cliCreditsSpent,
             transactions: customer.transactions,
         };
     }

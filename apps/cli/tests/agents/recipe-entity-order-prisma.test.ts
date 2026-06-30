@@ -168,8 +168,9 @@ describe("recipe entity order - Autonoma Prisma schema", () => {
 
 /**
  * Live validation that the AI itself ranks this schema sensibly. Skipped unless
- * OPENROUTER_API_KEY is set (keeps CI offline/deterministic), mirroring the
- * gated 00-pages-finder agent test.
+ * AUTONOMA_API_TOKEN is set (keeps CI offline/deterministic), mirroring the
+ * gated 00-pages-finder agent test. When run live it goes through the managed
+ * LLM proxy at AUTONOMA_API_URL with that token.
  */
 function renderAuditMarkdown(models: AuditedModel[]): string {
     const lines = ["---", `model_count: ${models.length}`, "models:"];
@@ -194,7 +195,7 @@ function renderAuditMarkdown(models: AuditedModel[]): string {
     return lines.join("\n");
 }
 
-describe.skipIf(!process.env.OPENROUTER_API_KEY)("recipe entity order - live AI ranking", () => {
+describe.skipIf(!process.env.AUTONOMA_API_TOKEN)("recipe entity order - live AI ranking", () => {
     test("the AI ranks core entities above the niche client table", async () => {
         const auditMarkdown = renderAuditMarkdown(SCHEMA_MODELS);
         const rank = await rankEntitiesByImportance(SCHEMA_MODELS, auditMarkdown, getModel());

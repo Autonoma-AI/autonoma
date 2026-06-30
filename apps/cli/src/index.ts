@@ -6,7 +6,6 @@ import type { AgentResult } from "./core/agent";
 import { track, trackError, flushAnalytics } from "./core/analytics";
 import { type ProjectContext, saveContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
-import { setGlobalEnv, getGlobalEnvPath } from "./core/global-env";
 import { installInterruptHandler, restoreTerminal } from "./core/interrupt";
 import { DEFAULT_MODEL } from "./core/model";
 import { ensureOutputDir } from "./core/output";
@@ -345,32 +344,19 @@ const BANNER = `
 `;
 
 /**
- * Make sure an OpenRouter API key is available before we ask anything else.
- * If it's already in the environment (shell, project .env, or global
- * ~/.autonoma/.env) we use it silently. Otherwise we prompt for it as the very
- * first input and persist it to the global env so it's reused on future runs.
- * Returns false if the user cancels.
+ * Make sure the CLI is authenticated before doing anything else. The planner
+ * runs on managed Autonoma credits via the Autonoma API token (AUTONOMA_API_TOKEN),
+ * which the web app injects when it launches the CLI. There's no LLM key to
+ * paste anymore - if the token is missing we error with instructions rather than
+ * prompting. Returns false when unauthenticated.
  */
-async function ensureOpenRouterKey(nonInteractive?: boolean): Promise<boolean> {
-    if (readEnv().OPENROUTER_API_KEY) return true;
+function ensureAutonomaAuth(): boolean {
+    if (readEnv().AUTONOMA_API_TOKEN?.trim()) return true;
 
-    if (nonInteractive) {
-        p.log.error("OPENROUTER_API_KEY is not set. Set it in your environment or run interactively once to save it.");
-        return false;
-    }
-
-    p.log.info("You'll need an OpenRouter API key to run the planner. Get one at https://openrouter.ai/keys");
-
-    const key = await p.password({
-        message: "Paste your OpenRouter API key",
-        validate: (value) => ((value ?? "").trim().length === 0 ? "API key cannot be empty" : undefined),
-    });
-
-    if (p.isCancel(key)) return false;
-
-    setGlobalEnv("OPENROUTER_API_KEY", key.trim());
-    p.log.success(`Saved your API key to ${getGlobalEnvPath()} - you won't be asked again.`);
-    return true;
+    p.log.error(
+        "Not authenticated. Launch the planner from the Autonoma app, or set AUTONOMA_API_TOKEN (create a key at https://autonoma.app/settings/api-keys).",
+    );
+    return false;
 }
 
 async function gatherProjectContext(): Promise<ProjectContext | undefined> {
@@ -448,11 +434,11 @@ async function main() {
         slug: strArg(args, "slug"),
     });
 
-    const nonInteractive = !!args["non-interactive"];
-    if (!(await ensureOpenRouterKey(nonInteractive))) {
-        p.log.warn("Cancelled.");
+    if (!ensureAutonomaAuth()) {
         return;
     }
+
+    const nonInteractive = !!args["non-interactive"];
 
     const modelName = config.modelId ?? readEnv().OPENROUTER_MODEL ?? DEFAULT_MODEL;
 

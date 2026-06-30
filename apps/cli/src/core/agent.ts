@@ -2,11 +2,8 @@ import { type LanguageModel, type ModelMessage, type ToolSet, ToolLoopAgent, has
 import { track } from "./analytics";
 import { createStepLogger, type StepInfo } from "./display";
 import { AgentError, classifyAgentError, sleep } from "./errors";
-import { getModel } from "./model";
 
-const FALLBACK_MODELS = ["moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro", "openai/gpt-5.4-nano"];
-
-const RETRIES_BEFORE_FALLBACK = 3;
+const MAX_RETRIES = 3;
 const STEP_TIMEOUT_MS = 120_000;
 
 // The tool loop stops as soon as the model calls `finish` - even when the
@@ -108,13 +105,13 @@ export async function runAgent<T>(
     extractResult: () => T | undefined,
 ): Promise<T | undefined> {
     const stepTimeout = config.stepTimeoutMs ?? STEP_TIMEOUT_MS;
-    const modelsToTry = [config.model, ...FALLBACK_MODELS.map((id) => getModel(id))];
+    const model = config.model;
 
     const modelIdOf = (m: LanguageModel) => (typeof m === "string" ? m : m.modelId);
 
     // Tag a terminal failure with the agent and model it came from, preserving the
     // original error as the cause so the known-error matcher can still read it.
-    const fail = (err: unknown, model: LanguageModel): never => {
+    const fail = (err: unknown): never => {
         const msg = err instanceof Error ? err.message : String(err);
         throw new AgentError(`agent "${config.id}" (model ${modelIdOf(model)}) failed: ${msg}`, config.id, err);
     };
@@ -122,78 +119,64 @@ export async function runAgent<T>(
     const YELLOW = "\x1b[33m";
     const RESET = "\x1b[0m";
 
-    for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
-        const model = modelsToTry[modelIdx]!;
+    for (let retry = 0; retry < MAX_RETRIES; retry++) {
+        const heartbeat = () => {};
+        const tools = typeof config.tools === "function" ? await config.tools(heartbeat) : config.tools;
 
-        for (let retry = 0; retry < RETRIES_BEFORE_FALLBACK; retry++) {
-            const heartbeat = () => {};
-            const tools = typeof config.tools === "function" ? await config.tools(heartbeat) : config.tools;
+        const agent = new ToolLoopAgent({
+            model,
+            instructions: config.systemPrompt,
+            tools,
+            temperature: config.temperature,
+            stopWhen: [stepCountIs(config.maxSteps), hasToolCall("finish")],
+            onStepFinish: buildStepHandler(config),
+        });
 
-            const agent = new ToolLoopAgent({
-                model,
-                instructions: config.systemPrompt,
-                tools,
-                temperature: config.temperature,
-                stopWhen: [stepCountIs(config.maxSteps), hasToolCall("finish")],
-                onStepFinish: buildStepHandler(config),
+        try {
+            const messages: ModelMessage[] = [{ role: "user", content: prompt }];
+            let generation = await agent.generate({
+                messages,
+                timeout: { stepMs: stepTimeout },
             });
 
-            try {
-                const messages: ModelMessage[] = [{ role: "user", content: prompt }];
-                let generation = await agent.generate({
+            let nudges = 0;
+            while (extractResult() === undefined && nudges < MAX_NUDGES) {
+                nudges++;
+                console.log(
+                    `  ${YELLOW}[${config.id}] agent stopped without finishing - nudging (${nudges}/${MAX_NUDGES})...${RESET}`,
+                );
+                track("cli_agent_nudged", { agent: config.id, nudge: nudges });
+                messages.push(...generation.response.messages);
+                messages.push({ role: "user", content: NUDGE_PROMPT });
+                generation = await agent.generate({
                     messages,
                     timeout: { stepMs: stepTimeout },
                 });
-
-                let nudges = 0;
-                while (extractResult() === undefined && nudges < MAX_NUDGES) {
-                    nudges++;
-                    console.log(
-                        `  ${YELLOW}[${config.id}] agent stopped without finishing - nudging (${nudges}/${MAX_NUDGES})...${RESET}`,
-                    );
-                    track("cli_agent_nudged", { agent: config.id, nudge: nudges });
-                    messages.push(...generation.response.messages);
-                    messages.push({ role: "user", content: NUDGE_PROMPT });
-                    generation = await agent.generate({
-                        messages,
-                        timeout: { stepMs: stepTimeout },
-                    });
-                }
-
-                return extractResult();
-            } catch (err) {
-                const errorClass = classifyAgentError(err);
-
-                if (errorClass === "fatal") fail(err, model);
-
-                const msg = err instanceof Error ? err.message : String(err);
-                if (errorClass === "timeout") {
-                    console.log(`  ${YELLOW}[${config.id}] step timed out after ${stepTimeout / 1000}s${RESET}`);
-                } else {
-                    console.log(`  ${YELLOW}[${config.id}] provider error: ${msg}${RESET}`);
-                }
-                track("cli_agent_retryable_error", { agent: config.id, error_class: errorClass, retry });
-
-                if (retry < RETRIES_BEFORE_FALLBACK - 1) {
-                    console.log(
-                        `  ${YELLOW}[${config.id}] retrying (${retry + 1}/${RETRIES_BEFORE_FALLBACK})...${RESET}`,
-                    );
-                    if (errorClass === "transient") {
-                        await sleep(Math.min(2000 * 2 ** retry, 10_000));
-                    }
-                    continue;
-                }
-
-                if (modelIdx < modelsToTry.length - 1) {
-                    const nextModel = FALLBACK_MODELS[modelIdx];
-                    console.log(
-                        `  ${YELLOW}[${config.id}] ${RETRIES_BEFORE_FALLBACK} failed attempts, switching to ${nextModel}${RESET}`,
-                    );
-                    break;
-                }
-
-                fail(err, model);
             }
+
+            return extractResult();
+        } catch (err) {
+            const errorClass = classifyAgentError(err);
+
+            if (errorClass === "fatal") fail(err);
+
+            const msg = err instanceof Error ? err.message : String(err);
+            if (errorClass === "timeout") {
+                console.log(`  ${YELLOW}[${config.id}] step timed out after ${stepTimeout / 1000}s${RESET}`);
+            } else {
+                console.log(`  ${YELLOW}[${config.id}] provider error: ${msg}${RESET}`);
+            }
+            track("cli_agent_retryable_error", { agent: config.id, error_class: errorClass, retry });
+
+            if (retry < MAX_RETRIES - 1) {
+                console.log(`  ${YELLOW}[${config.id}] retrying (${retry + 1}/${MAX_RETRIES})...${RESET}`);
+                if (errorClass === "transient") {
+                    await sleep(Math.min(2000 * 2 ** retry, 10_000));
+                }
+                continue;
+            }
+
+            fail(err);
         }
     }
 

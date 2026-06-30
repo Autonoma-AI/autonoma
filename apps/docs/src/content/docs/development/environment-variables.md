@@ -79,6 +79,9 @@ The API server extends the database, storage, logger, and billing environments, 
 | `POSTHOG_KEY` | No | - | PostHog project API key for server-side analytics. Omit to disable analytics. |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion endpoint. Override for self-hosted PostHog instances. |
 | `GEMINI_API_KEY` | Yes | - | Google Gemini API key. Used by the API for AI features like test generation. |
+| `OPENROUTER_API_KEY` | No | - | Server-side OpenRouter key the managed LLM proxy (`/v1/llm-proxy`, planner CLI) forwards requests with. The proxy returns `503` without it. |
+| `LLM_PROXY_ENABLED` | No | `false` | Master switch for the managed LLM proxy. The route mounts only when this and `STRIPE_ENABLED` are both `true`, so usage is always metered. |
+| `LLM_PROXY_ALLOWED_MODELS` | No | `google/gemini-3-flash-preview` | Comma-separated allowlist of OpenRouter model ids the proxy may route. Empty falls back to the default. |
 | `REDIS_URL` | Yes | - | Redis connection string (e.g., `redis://localhost:6379`). Used for device locking, caching, and pub/sub. |
 | `TESTING` | No | `false` | Set to `true` in test environments. Prevents importing certain modules. Not for general use. |
 | `ENGINE_BILLING_SECRET` | No | - | Shared secret for authenticating billing calls from the engine. |

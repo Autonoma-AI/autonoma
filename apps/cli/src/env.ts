@@ -6,7 +6,7 @@ import { z } from "zod";
 // .env / the global ~/.autonoma/.env into process.env, never arbitrary keys
 // like PATH or NODE_OPTIONS that happen to live in the target project's .env.
 const ENV_SCHEMA = {
-    OPENROUTER_API_KEY: z.string().optional(),
+    // Model id override (OpenRouter-style id, forwarded by the managed proxy).
     OPENROUTER_MODEL: z.string().optional(),
     DATABASE_URL: z.string().optional(),
     SDK_ENDPOINT_URL: z.string().optional(),
@@ -31,11 +31,11 @@ export const ENV_KEYS: readonly string[] = Object.keys(ENV_SCHEMA);
  * Single, validated entry point for the CLI's environment (AGENTS.md rule 25).
  *
  * Unlike a server app, the CLI populates process.env at RUNTIME - from the
- * target project's .env, the global ~/.autonoma/.env, and a prompted
- * OPENROUTER_API_KEY (see config.ts and core/global-env.ts) - so the env is
- * validated on demand through this accessor rather than snapshotted once at
- * import. Every key is optional; callers supply defaults or prompt when a value
- * is missing. This is the only module that reads process.env for configuration.
+ * target project's .env and the global ~/.autonoma/.env (see config.ts and
+ * core/global-env.ts) - so the env is validated on demand through this accessor
+ * rather than snapshotted once at import. Every key is optional; callers supply
+ * defaults or error when a required value (e.g. AUTONOMA_API_TOKEN) is missing.
+ * This is the only module that reads process.env for configuration.
  */
 export function readEnv() {
     return createEnv({

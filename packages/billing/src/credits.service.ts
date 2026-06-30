@@ -389,6 +389,154 @@ export class CreditsService extends Service {
         return didDeduct;
     }
 
+    /**
+     * Pre-flight gate for the managed LLM proxy (CLI). The proxy doesn't know
+     * the request's cost up front, so the gate is intentionally coarse: it only
+     * blocks once the wallet is empty. The trailing request that takes the
+     * balance to zero is still served and billed (clamped at zero by
+     * `deductCreditsForLlmProxy`); the *next* request is the one that gets a 402.
+     */
+    async hasPositiveCreditBalance(organizationId: string): Promise<boolean> {
+        const customer = await this.db.billingCustomer.findUnique({
+            where: { organizationId },
+            select: { creditBalance: true, gracePeriodEndsAt: true },
+        });
+        const balance = customer?.creditBalance ?? 0;
+        const gracePeriodEndsAt = customer?.gracePeriodEndsAt ?? null;
+
+        // Mirror the generation/run gate: an expired subscription grace period
+        // blocks consumption regardless of balance.
+        if (gracePeriodEndsAt != null && Date.now() > gracePeriodEndsAt.getTime()) {
+            this.logger.info("LLM proxy gate blocked by expired grace period", {
+                organizationId,
+                gracePeriodEndsAt: gracePeriodEndsAt.toISOString(),
+                balance,
+            });
+            return false;
+        }
+
+        this.logger.info("Checked credit balance for LLM proxy gate", { organizationId, balance });
+        return balance > 0;
+    }
+
+    /**
+     * Deduct credits for a single managed LLM proxy request. `costUsd` is the
+     * dollar amount OpenRouter charged us (from the response's usage accounting).
+     * We convert to credits at the same rate top-ups are priced
+     * (`creditsPerTopup` per `stripeTopupAmountCents`), so the existing margin
+     * carries over and there's no separate pricing knob.
+     *
+     * Unlike generation/run deductions, this does NOT require a sufficient
+     * balance: the balance floors at zero so a single over-budget request can't
+     * push the wallet negative, while still always recording the consumption.
+     * Idempotent on `requestId` (the OpenRouter generation id).
+     */
+    async deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string): Promise<boolean> {
+        this.logger.info("Deducting LLM proxy credits", { organizationId, costUsd, requestId });
+
+        if (!(costUsd > 0)) {
+            this.logger.info("Skipping LLM proxy deduction for non-positive cost", {
+                organizationId,
+                costUsd,
+                requestId,
+            });
+            return false;
+        }
+
+        const pricing = await this.pricingService.getOrCreatePricing(organizationId);
+        const creditsPerUsd = pricing.creditsPerTopup / (pricing.stripeTopupAmountCents / 100);
+        const cost = Math.max(1, Math.ceil(costUsd * creditsPerUsd));
+        const transactionId = `ctr_llm_${requestId}`;
+
+        const didDeduct = await this.db
+            .$transaction(async (tx) => {
+                const rawTx = this.asRawTx(tx);
+                const [result] = await rawTx.$queryRaw<Array<DeductCreditsResultRow>>`
+                    WITH customer AS (
+                        SELECT organization_id, credit_balance, subscription_credit_balance
+                        FROM billing_customer
+                        WHERE organization_id = ${organizationId}
+                        FOR UPDATE
+                    ),
+                    eligible AS (
+                        SELECT
+                            organization_id,
+                            credit_balance,
+                            subscription_credit_balance,
+                            LEAST(subscription_credit_balance, ${cost}) AS subscription_consumed
+                        FROM customer
+                    ),
+                    inserted AS (
+                        INSERT INTO credit_transaction (
+                            id,
+                            organization_id,
+                            type,
+                            amount,
+                            balance_after
+                        )
+                        SELECT
+                            ${transactionId},
+                            organization_id,
+                            'LLM_PROXY_CONSUMPTION'::credit_transaction_type,
+                            ${-cost},
+                            GREATEST(credit_balance - ${cost}, 0)
+                        FROM eligible
+                        ON CONFLICT (id) DO NOTHING
+                        RETURNING id
+                    ),
+                    updated AS (
+                        UPDATE billing_customer bc
+                        SET
+                            credit_balance = GREATEST(eligible.credit_balance - ${cost}, 0),
+                            subscription_credit_balance =
+                                GREATEST(eligible.subscription_credit_balance - eligible.subscription_consumed, 0)
+                        FROM eligible
+                        WHERE bc.organization_id = eligible.organization_id
+                          AND EXISTS (SELECT 1 FROM inserted)
+                        RETURNING bc.credit_balance, bc.subscription_credit_balance
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::bigint FROM inserted) AS inserted_count,
+                        (SELECT credit_balance FROM updated LIMIT 1) AS new_balance,
+                        (SELECT subscription_credit_balance FROM updated LIMIT 1) AS new_subscription_balance
+                `;
+                if (result == null) {
+                    this.logger.warn("LLM proxy deduction query returned no result row", {
+                        organizationId,
+                        requestId,
+                    });
+                    return false;
+                }
+
+                if (result.inserted_count === 0n) {
+                    this.logger.info("LLM proxy deduction already recorded, skipping", { organizationId, requestId });
+                    return false;
+                }
+
+                this.logger.info("LLM proxy credits deducted", {
+                    organizationId,
+                    requestId,
+                    costUsd,
+                    cost,
+                    newBalance: result.new_balance,
+                    newSubscriptionBalance: result.new_subscription_balance,
+                });
+                return true;
+            })
+            .catch((error: unknown) => {
+                if (isUniqueConstraintError(error)) {
+                    this.logger.info("LLM proxy deduction already recorded, skipping", { organizationId, requestId });
+                    return false;
+                }
+                throw error;
+            });
+
+        if (didDeduct) {
+            await this.autoTopUpService.triggerAutoTopUp(organizationId, pricing);
+        }
+        return didDeduct;
+    }
+
     async refundCreditsForGeneration(generationId: string) {
         const generation = await this.db.testGeneration.findUnique({
             where: { id: generationId },

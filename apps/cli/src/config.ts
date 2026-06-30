@@ -75,7 +75,7 @@ export function loadConfig(args: { project?: string; model?: string; slug?: stri
         signingSecret: env.AUTONOMA_SIGNING_SECRET,
         // Endpoint the CLI talks to. Defaults to production; override with
         // AUTONOMA_API_URL to point at an alpha/preview host (alpha-<sha>.autonoma.app, ...).
-        autonomaApiUrl: env.AUTONOMA_API_URL ?? "https://agent.autonoma.app",
+        autonomaApiUrl: env.AUTONOMA_API_URL ?? "https://autonoma.app",
         autonomaApiToken: env.AUTONOMA_API_TOKEN,
         autonomaGenerationId: env.AUTONOMA_GENERATION_ID,
     };

@@ -1547,6 +1547,7 @@ enum CreditTransactionType {
   GENERATION_CONSUMPTION
   GENERATION_REFUND
   RUN_CONSUMPTION
+  LLM_PROXY_CONSUMPTION
 
   @@map("credit_transaction_type")
 }
@@ -1636,6 +1637,8 @@ model CreditTransaction {
   promoRedemption BillingPromoRedemption? @relation(fields: [promoRedemptionId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
+  // Backs the per-type aggregate in getBillingStatus (e.g. all-time LLM_PROXY_CONSUMPTION).
+  @@index([organizationId, type])
   @@map("credit_transaction")
 }
 

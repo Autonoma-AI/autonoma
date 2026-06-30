@@ -1,4 +1,5 @@
 import { verifyApiKey } from "@autonoma/auth";
+import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
@@ -23,6 +24,11 @@ export const encryptionHelper = new EncryptionHelper(env.SCENARIO_ENCRYPTION_KEY
 export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
 export const generationProvider = new TemporalGenerationProvider();
+
+// Billing service for the managed LLM proxy (planner CLI) credit gate +
+// metering. The tRPC layer builds its own instance via build-services; the raw
+// Hono proxy router needs one too. Stateless wrapper over `db`.
+export const billingService = createBillingService(db);
 
 const githubApp = buildGitHubApp(env);
 

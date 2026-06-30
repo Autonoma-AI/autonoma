@@ -45,6 +45,9 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `AGENT_VERSION` | No | `latest` | Version tag for Temporal worker agent images |
 | `POSTHOG_KEY` | No | - | PostHog API key (analytics disabled if absent) |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingest host |
+| `LLM_PROXY_ENABLED` | No | `false` | Master switch for the managed LLM proxy (`/v1/llm-proxy`, planner CLI). Mounted only when this AND `STRIPE_ENABLED` are true. |
+| `OPENROUTER_API_KEY` | No | - | Server-side OpenRouter key the LLM proxy forwards with. Required for the proxy (`503` without it). |
+| `LLM_PROXY_ALLOWED_MODELS` | No | planner model | Comma-separated allowlist of models the proxy may route. Defaults to `google/gemini-3-flash-preview`. |
 | `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No | `5` | Throttle window for the read-triggered PR-metadata cache revalidate (per app); one open-list call, plus one closed-list call when PRs need merged-vs-closed classification |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
 
@@ -61,8 +64,38 @@ Hono HTTP server
   ├── /v1/github/**        - GitHub webhooks and API endpoints
   ├── /v1/previewkit/**    - Previewkit environments + secrets (secrets/status/schema native; deploy/teardown/redeploy forwarded to Previewkit)
   ├── /v1/setup/**         - test planner setup (API key): setups, events, artifacts, scenario-recipe-versions
+  ├── /v1/llm-proxy/**     - managed LLM proxy for the planner CLI (API key): chat/completions
   └── /v1/trpc/*           - tRPC fetch adapter
 ```
+
+### Managed LLM proxy (`/v1/llm-proxy`)
+
+The planner CLI (`@autonoma-ai/planner`) runs on managed Autonoma credits instead of a
+user-supplied OpenRouter key. It points its OpenRouter AI-SDK provider at
+`${AUTONOMA_API_URL}/v1/llm-proxy` and authenticates with its Autonoma API token (same
+`requireApiKey` path as `/v1/setup`).
+
+The route is gated on `LLM_PROXY_ENABLED` (default `false`) so it is never an accidental
+unmetered gateway - it is only mounted where explicitly enabled. Metering requires
+`STRIPE_ENABLED=true`; when the proxy is enabled with billing off (e.g. a test environment)
+requests are served but **not** metered and a startup warning is logged. The proxy:
+
+1. Gates on the org having a positive credit balance (`402 out_of_credits` otherwise).
+2. Enforces a model allowlist (`LLM_PROXY_ALLOWED_MODELS`, default = the single model the planner uses, `google/gemini-3-flash-preview`).
+3. Forwards `chat/completions` to OpenRouter with the server `OPENROUTER_API_KEY`, streaming the
+   response back unchanged.
+4. Meters the dollar cost OpenRouter reports (usage accounting) into credits at the top-up rate and
+   deducts from `BillingCustomer.creditBalance`, recording a `LLM_PROXY_CONSUMPTION` transaction
+   (idempotent on the OpenRouter generation id). Surfaced in the billing UI as "AI CLI usage".
+
+Returns `503` when `OPENROUTER_API_KEY` is unset.
+
+**Known limitation (concurrency):** the balance gate and the deduction are separate reads, so an
+org near zero balance that fires N concurrent requests can have all N served (each costing real
+OpenRouter tokens) while the balance only floors at zero. Per-call cost is tiny and the gate still
+blocks once the wallet is empty, so the overspend is bounded; tighten with per-API-key rate limiting
+(the `ApiKey` model already carries `rateLimit*` fields) or an atomic check-and-reserve if CLI volume
+grows.
 
 ### tRPC Routers
 

@@ -47,7 +47,7 @@ const emptyGeneration = { response: { messages: [] as ModelMessage[] } };
 
 beforeAll(() => {
     process.env.DONT_TRACK = "1";
-    process.env.OPENROUTER_API_KEY ||= "test-key";
+    process.env.AUTONOMA_API_TOKEN ||= "test-token";
 });
 
 beforeEach(() => {

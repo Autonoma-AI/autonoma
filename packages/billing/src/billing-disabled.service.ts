@@ -55,6 +55,14 @@ export class DisabledBillingService implements BillingService {
         return Promise.resolve(false);
     }
 
+    hasPositiveCreditBalance(_organizationId: string) {
+        return Promise.resolve(true);
+    }
+
+    deductCreditsForLlmProxy(_organizationId: string, _costUsd: number, _requestId: string) {
+        return Promise.resolve(false);
+    }
+
     refundCreditsForGeneration(_generationId: string) {
         return Promise.resolve();
     }
