@@ -81,7 +81,8 @@ apiTestSuite({
                     {
                         name: "login.md",
                         folder: "auth",
-                        content: "---\nscenario: standard\n---\n\nNavigate to /login and sign in",
+                        content:
+                            "---\nscenario: standard\ndescription: Logging in with valid credentials lands the user on the dashboard.\n---\n\nNavigate to /login and sign in",
                     },
                 ],
                 artifacts: [

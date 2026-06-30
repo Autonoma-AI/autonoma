@@ -215,7 +215,14 @@ apiTestSuite({
             const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
             await service.uploadArtifacts(setupId, harness.organizationId, {
-                testCases: [{ name: "login.md", folder: "auth", content: "---\n---\n\nNavigate to /login" }],
+                testCases: [
+                    {
+                        name: "login.md",
+                        folder: "auth",
+                        content:
+                            "---\ndescription: Logging in with valid credentials lands the user on the dashboard.\n---\n\nNavigate to /login",
+                    },
+                ],
                 commitSha: sha,
             });
 
@@ -351,7 +358,8 @@ apiTestSuite({
                     {
                         name: "login-test.md",
                         folder: "auth",
-                        content: "---\nscenario: standard\n---\n\nNavigate to /login and sign in",
+                        content:
+                            "---\nscenario: standard\ndescription: Logging in with valid credentials lands the user on the dashboard.\n---\n\nNavigate to /login and sign in",
                     },
                 ],
             });
@@ -410,6 +418,22 @@ apiTestSuite({
                 select: { description: true },
             });
             expect(testCase.description).toBe(description);
+        });
+
+        test("uploadArtifacts rejects a test whose frontmatter omits a description", async ({ harness }) => {
+            const { setupId, service } = await createSetupFixture(harness, "Missing Description Test");
+
+            await expect(
+                service.uploadArtifacts(setupId, harness.organizationId, {
+                    testCases: [
+                        {
+                            name: "login-test.md",
+                            folder: "auth",
+                            content: "---\nscenario: standard\n---\n\nNavigate to /login and sign in",
+                        },
+                    ],
+                }),
+            ).rejects.toThrow();
         });
     },
 });

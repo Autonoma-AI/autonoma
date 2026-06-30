@@ -112,12 +112,8 @@ const UploadFileSchema = z.object({
 export const TestCaseFrontmatterSchema = z.object({
     /** Name of the scenario the test runs against; matched against uploaded scenario recipes. */
     scenario: z.string().optional(),
-    /**
-     * The test's intent: a falsifiable behavioral claim. Read straight into the
-     * created test case's `description`. Optional at the creation boundary for
-     * now (tightened in a later slice); when present it must be at least 20 chars.
-     */
-    description: z.string().min(20).optional(),
+    /** Falsifiable behavioral claim read into the test case's `description`. 20-char floor matches the CLI generator. */
+    description: z.string().min(20),
 });
 export type TestCaseFrontmatter = z.infer<typeof TestCaseFrontmatterSchema>;
 

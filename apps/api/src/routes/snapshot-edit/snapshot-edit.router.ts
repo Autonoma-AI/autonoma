@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
 
+// 20-char floor matches the CLI generator; a higher floor would reject conformant CLI output.
+const descriptionSchema = z
+    .string()
+    .min(20, "State what the test does - a falsifiable behavioral claim, not the steps - in at least 20 characters.");
+
 export const snapshotEditRouter = router({
     start: protectedProcedure
         .input(z.object({ branchId: z.string() }))
@@ -21,12 +26,7 @@ export const snapshotEditRouter = router({
                 name: z.string().min(1),
                 plan: z.string().min(1),
                 folderId: z.string(),
-                description: z
-                    .string()
-                    .min(
-                        20,
-                        "State what the test does - a falsifiable behavioral claim, not the steps - in at least 20 characters.",
-                    ),
+                description: descriptionSchema,
                 scenarioId: z.string().optional(),
             }),
         )
@@ -44,7 +44,7 @@ export const snapshotEditRouter = router({
                             name: z.string().min(1),
                             plan: z.string().min(1),
                             folderId: z.string(),
-                            description: z.string().optional(),
+                            description: descriptionSchema,
                         }),
                     )
                     .min(1),

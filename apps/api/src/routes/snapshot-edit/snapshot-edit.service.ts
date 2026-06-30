@@ -24,7 +24,7 @@ interface AddTestInput {
 }
 
 interface AddTestsInput {
-    tests: Array<{ name: string; plan: string; folderId: string; description?: string }>;
+    tests: Array<{ name: string; plan: string; folderId: string; description: string }>;
     scenarioId?: string;
 }
 

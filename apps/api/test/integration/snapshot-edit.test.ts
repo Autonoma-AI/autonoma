@@ -84,9 +84,9 @@ apiTestSuite({
             await harness.request().snapshotEdit.addTests({
                 branchId,
                 tests: [
-                    { name: "Test A", plan: "Plan A", folderId },
-                    { name: "Test B", plan: "Plan B", folderId },
-                    { name: "Test C", plan: "Plan C", folderId },
+                    { name: "Test A", plan: "Plan A", folderId, description: "Exercises behavior A end to end." },
+                    { name: "Test B", plan: "Plan B", folderId, description: "Exercises behavior B end to end." },
+                    { name: "Test C", plan: "Plan C", folderId, description: "Exercises behavior C end to end." },
                 ],
             });
 

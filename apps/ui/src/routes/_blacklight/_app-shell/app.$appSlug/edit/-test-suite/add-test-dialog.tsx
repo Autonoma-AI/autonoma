@@ -24,9 +24,12 @@ import {
 } from "@autonoma/blacklight";
 import { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";
 import { XIcon } from "@phosphor-icons/react/X";
+import * as Sentry from "@sentry/react";
+import { parseTestMarkdown } from "lib/parse-test-markdown";
 import { useFolders } from "lib/query/folders.queries";
 import { useScenariosForApp } from "lib/query/scenarios.queries";
 import { useAddTestToEdit, useAddTestsToEdit } from "lib/query/snapshot-edit.queries";
+import { toastManager } from "lib/toast-manager";
 import { Suspense, useRef, useState } from "react";
 import { useCurrentApplication } from "../../../-use-current-application";
 
@@ -98,13 +101,23 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
         },
       );
     } else {
-      const tests = await Promise.all(
-        files.map(async (file) => ({
-          name: file.name.replace(/\.(md|markdown)$/i, ""),
-          plan: await file.text(),
-          folderId,
-        })),
-      );
+      let tests: Array<{ name: string; description: string; plan: string; folderId: string }>;
+      try {
+        tests = await Promise.all(
+          files.map(async (file) => {
+            const { description, plan } = parseTestMarkdown(await file.text());
+            return { name: file.name.replace(/\.(md|markdown)$/i, ""), description, plan, folderId };
+          }),
+        );
+      } catch (error) {
+        Sentry.captureException(error);
+        toastManager.add({
+          title: "Could not read uploaded tests",
+          description: `Each file must start with YAML frontmatter that includes a description of at least ${MIN_DESCRIPTION_LENGTH} characters.`,
+          type: "critical",
+        });
+        return;
+      }
       addTests.mutate(
         { branchId, tests, scenarioId: selectedScenarioId },
         {
@@ -216,8 +229,12 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
             </div>
           </TabsContent>
 
-          <TabsContent value="upload" className="mt-3">
+          <TabsContent value="upload" className="mt-3 flex flex-col gap-2">
             <MarkdownFileInput files={files} onChange={setFiles} />
+            <p className="text-2xs text-text-secondary">
+              Each file must start with YAML frontmatter that includes a <code>description</code> (at least{" "}
+              {MIN_DESCRIPTION_LENGTH} characters) stating what the test verifies.
+            </p>
           </TabsContent>
         </Tabs>
       </DialogBody>
