@@ -127,4 +127,46 @@ describe("PostgresRecipe", () => {
 
         expect(args.some((arg) => arg.startsWith("shared_preload_libraries="))).toBe(false);
     });
+
+    describe("opt-in TLS (options.ssl)", () => {
+        it("stays plain Postgres by default - no ssl args, init container, volume or mount", () => {
+            const spec = recipe.generate(baseService({ options: {} }), "ns").statefulSets[0]?.spec?.template?.spec;
+            const container = spec?.containers?.[0];
+
+            expect(container?.args?.some((arg) => arg.startsWith("ssl="))).toBe(false);
+            expect(spec?.initContainers ?? []).toHaveLength(0);
+            expect(spec?.volumes?.some((v) => v.name === "ssl-certs")).toBe(false);
+            expect(container?.volumeMounts?.some((m) => m.name === "ssl-certs")).toBe(false);
+        });
+
+        it("serves TLS when ssl is true: ssl=on args plus a cert-generating init container", () => {
+            const spec = recipe.generate(baseService({ options: { ssl: true } }), "ns").statefulSets[0]?.spec?.template
+                ?.spec;
+            const container = spec?.containers?.[0];
+
+            expect(container?.args).toEqual([
+                "-c",
+                "max_connections=300",
+                "-c",
+                "ssl=on",
+                "-c",
+                "ssl_cert_file=/ssl/server.crt",
+                "-c",
+                "ssl_key_file=/ssl/server.key",
+            ]);
+
+            // The init container shares the postgres image (so openssl is present)
+            // and writes the throwaway cert onto the shared emptyDir.
+            const init = spec?.initContainers?.[0];
+            expect(init?.name).toBe("ssl-cert-init");
+            expect(init?.image).toBe(container?.image);
+            expect(init?.command?.[2]).toContain("openssl req");
+            expect(init?.command?.[2]).toContain("chown 999:999");
+            expect(init?.command?.[2]).toContain("chmod 600");
+            expect(init?.volumeMounts?.[0]).toEqual({ name: "ssl-certs", mountPath: "/ssl" });
+
+            expect(spec?.volumes?.some((v) => v.name === "ssl-certs" && v.emptyDir != null)).toBe(true);
+            expect(container?.volumeMounts?.some((m) => m.name === "ssl-certs" && m.mountPath === "/ssl")).toBe(true);
+        });
+    });
 });
