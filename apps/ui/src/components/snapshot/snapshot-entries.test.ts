@@ -20,7 +20,7 @@ function addedChange(): SnapshotChange {
 function createdTest(): CreatedTest {
     return {
         testCase: NEW_TEST_CASE,
-        coverageJustification: "No existing test exercises the guest (unauthenticated) checkout path.",
+        description: "A guest user can complete checkout without signing in and reach the order confirmation page.",
         plan: "authored plan",
         generation: { id: "gen-new", status: "success", verdict: "success", reviewReasoning: "Generated cleanly." },
         run: { id: "run-new", status: "success", verdict: undefined, reviewReasoning: undefined },
@@ -146,7 +146,9 @@ describe("buildSections - created tests", () => {
         });
 
         const entry = sections.find((s) => s.title === "Added")?.entries.find((e) => e.urlId === NEW_TEST_CASE.id);
-        expect(entry?.reasoning).toBe("No existing test exercises the guest (unauthenticated) checkout path.");
+        expect(entry?.reasoning).toBe(
+            "A guest user can complete checkout without signing in and reach the order confirmation page.",
+        );
         expect(entry?.plan).toBe("authored plan");
         expect(entry?.generation?.id).toBe("gen-new");
         expect(entry?.run?.id).toBe("run-new");

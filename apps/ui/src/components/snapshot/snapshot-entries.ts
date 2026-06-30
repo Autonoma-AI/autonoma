@@ -72,7 +72,7 @@ export function buildSections({
                 category: "added",
                 testName: change.testCaseName,
                 testSlug: change.testCaseSlug,
-                reasoning: created?.coverageJustification,
+                reasoning: created?.description,
                 plan: created?.plan ?? change.plan,
                 generation: createdGeneration(created),
                 run: createdRun(created) ?? executedRun(executedByTestCaseId.get(change.testCaseId)),

@@ -21,6 +21,7 @@ function createdTest(overrides: Partial<CreatedTest> = {}): CreatedTest {
     return {
         name: "New checkout promo flow",
         folderName: "Checkout",
+        description: "A shopper applying a valid promo code at checkout sees the order total drop by the discount.",
         plan: "Apply a promo code at checkout and verify the discount.",
         coverageJustification: "No existing test exercises the promo-code field added by this diff.",
         ...overrides,
@@ -238,5 +239,11 @@ describe("analysis dedup grader", () => {
         const result = diffsResult([createdTest({ coverageJustification: "   " })]);
         const failures = checkAnalysisResult(result, {});
         expect(failures.map((f) => f.check)).toEqual(["createdTests.coverageJustification"]);
+    });
+
+    it("flags an authored test with a trivial description regardless of frontmatter", () => {
+        const result = diffsResult([createdTest({ description: "checkout" })]);
+        const failures = checkAnalysisResult(result, {});
+        expect(failures.map((f) => f.check)).toEqual(["createdTests.description"]);
     });
 });

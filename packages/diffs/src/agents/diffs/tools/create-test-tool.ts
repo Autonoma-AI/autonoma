@@ -2,9 +2,34 @@ import { AgentTool, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
 import type { DiffsAgentLoop } from "../diffs-agent-loop";
 
+/**
+ * Minimum length (after trimming) for a created test's `description`.
+ *
+ * The runner persists `description` as the test case's immutable
+ * `TestCase.description`, and downstream consumers (e.g. `scenario_unsupported`)
+ * anchor on it as the test's durable, loop-stable intent. A blank or one-word
+ * placeholder is worse than no description at all for those consumers, so the
+ * schema requires a real, falsifiable behavioral claim here.
+ */
+export const MIN_DESCRIPTION_LENGTH = 20;
+
 export const createTestSchema = z.object({
     name: z.string().describe("Test name"),
     folderName: z.string().describe("Name of the folder (flow) to add the test to"),
+    description: z
+        .string()
+        .min(MIN_DESCRIPTION_LENGTH)
+        .refine((value) => value.trim().length >= MIN_DESCRIPTION_LENGTH, {
+            message:
+                `Description must be a specific, falsifiable behavioral claim of at least ` +
+                `${MIN_DESCRIPTION_LENGTH} characters - describe the behavior being tested, not a placeholder.`,
+        })
+        .describe(
+            "The test's durable intent, persisted as its immutable description. A specific, falsifiable claim " +
+                "about what the feature does: what the user does, what should happen, and why it matters. Focus on " +
+                "the OUTCOME, not UI mechanics or the dedup argument. This is the loop-stable north star (at least " +
+                `${MIN_DESCRIPTION_LENGTH} characters) - it must stand on its own, independent of any other test.`,
+        ),
     plan: z
         .string()
         .min(1)
@@ -25,9 +50,11 @@ export const createTestSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "Why existing tests do not already cover this flow. Name the closest existing tests (by slug) and " +
-                "explain what behavior this test exercises that they do not. Required: nothing culls a " +
-                "passing-but-redundant test once it is created, so deduplication happens here.",
+            "Creation-time deduplication gate (NOT the description): why existing tests do not already cover this " +
+                "flow. Name the closest existing tests (by slug) and explain what behavior this test exercises that " +
+                "they do not. Required because nothing culls a passing-but-redundant test once it is created, so " +
+                "deduplication happens here. Unlike `description`, this is discarded after authoring - it is " +
+                "relational (it names sibling tests) and captures only the novel delta, so it is never persisted.",
         ),
 });
 
@@ -64,8 +91,9 @@ class UnknownScenarioError extends FixableToolError {
  * mints the test case + plan + a pending generation immediately, and the test is
  * generated, run, and healed alongside the affected tests. There is no pre-gate
  * that culls a passing-but-redundant test, so the boundary validates the folder
- * + scenario and the schema forces a `coverageJustification`; redundancy must be
- * ruled out here.
+ * + scenario and the schema forces both a `description` (the durable intent,
+ * length-checked, persisted) and a `coverageJustification` (the creation-time
+ * dedup gate, transient); redundancy must be ruled out here.
  */
 export class CreateTestTool extends AgentTool<CreatedTest, CreateTestOutput, DiffsAgentLoop> {
     constructor() {
@@ -75,8 +103,9 @@ export class CreateTestTool extends AgentTool<CreatedTest, CreateTestOutput, Dif
                 "Author a brand-new test for user-facing behavior the diff introduces that no existing test covers. " +
                 "The test is created immediately (test case + plan + a pending generation) and is generated, run, and " +
                 "healed alongside the affected tests - there is no later review gate, so only create tests you are " +
-                "confident are real, non-redundant flows. Provide a `coverageJustification` that names why existing " +
-                "tests do not already cover this.",
+                "confident are real, non-redundant flows. Provide a `description` (the durable intent: a specific, " +
+                "falsifiable claim about what the feature does) and a separate `coverageJustification` (the " +
+                "creation-time argument for why existing tests do not already cover this).",
             inputSchema: createTestSchema,
         });
     }

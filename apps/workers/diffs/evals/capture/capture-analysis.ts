@@ -103,6 +103,9 @@ express:
     must not duplicate.
   - Does each created test's coverageJustification soundly explain why those
     existing tests do not already cover it (not a placeholder)?
+  - Is each created test's description a specific, falsifiable claim about what
+    the feature does (what the user does, what should happen, why it matters) -
+    not a restatement of the steps or the coverage justification?
 Keep every point additive to the frontmatter, and phrase each as something
 checkable from the output alone.
 `;

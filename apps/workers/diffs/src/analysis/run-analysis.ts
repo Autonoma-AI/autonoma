@@ -101,8 +101,12 @@ interface CreateAuthoredTestsParams {
 
 /**
  * Mints each test the diffs agent authored as a TestCase + plan + assignment +
- * pending generation, storing the coverage justification as the test case's
- * description.
+ * pending generation, storing the agent's `description` as the test case's
+ * immutable `description`. The `create_test` schema requires a meaningful
+ * (length-checked) description, so the value minted here is always a real,
+ * non-trivial, durable statement of what the test does - which downstream
+ * consumers (e.g. `scenario_unsupported`) rely on. The `coverageJustification`
+ * is a creation-time dedup gate only and is deliberately not persisted.
  *
  * The folder name was already validated against this flow index at the tool
  * boundary, so an unresolved folder here is a hard invariant violation.
@@ -123,7 +127,7 @@ async function createAuthoredTests(params: CreateAuthoredTestsParams): Promise<v
             new AddTest({
                 name: test.name,
                 plan: test.plan,
-                description: test.coverageJustification,
+                description: test.description,
                 folderId: folder.id,
                 scenarioId: test.scenarioId,
             }),

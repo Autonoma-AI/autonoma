@@ -25,13 +25,13 @@ export interface CreatedTestRun {
 
 /**
  * A test the diffs agent (or onboarding) authored during this snapshot's
- * analysis. Each carries the dedup justification that gated its creation (stored
- * as the test case's description) plus the `generation -> run` pipeline that
- * generated and validated it in the refinement loop.
+ * analysis. Each carries the durable description (the test's intent) plus the
+ * `generation -> run` pipeline that generated and validated it in the refinement
+ * loop.
  */
 export interface SnapshotCreatedTest {
     testCase: { id: string; name: string; slug: string; folderId: string };
-    coverageJustification?: string;
+    description?: string;
     plan: string;
     generation?: CreatedTestGeneration;
     run?: CreatedTestRun;
@@ -70,8 +70,8 @@ type RunRow = Prisma.RunGetPayload<{ select: typeof runSelect }>;
 /**
  * Loads the tests created in this snapshot (those whose assignment is new
  * relative to the previous snapshot, identified by the caller from the snapshot
- * changes) together with their coverage justification and the latest
- * generation + run that authored and validated each one.
+ * changes) together with their description (the test's durable intent) and the
+ * latest generation + run that authored and validated each one.
  *
  * Sourced from the assignments + generations created during analysis.
  */
@@ -132,7 +132,7 @@ function buildCreatedTest(
             slug: assignment.testCase.slug,
             folderId: assignment.testCase.folderId,
         },
-        coverageJustification: assignment.testCase.description ?? undefined,
+        description: assignment.testCase.description ?? undefined,
         plan: assignment.plan?.prompt ?? "",
         generation:
             generation != null

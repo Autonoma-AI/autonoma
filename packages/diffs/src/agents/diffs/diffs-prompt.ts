@@ -118,7 +118,8 @@ You are the sole author of new tests in this flow. Each \`create_test\` mints a 
 
 - **Only author tests you are confident are real, non-redundant flows.** When in doubt, do not create the test.
 - **Write the complete, generation-ready plan body** in \`plan\` - the full instructions a generator turns into steps, not a high-level summary. There is no later step that fills in the details.
-- **Justify coverage.** Every \`create_test\` requires a \`coverageJustification\`: browse the suite first with \`list_tests\` / \`read_tests\`, then name the closest existing tests and explain what behavior this test exercises that they do not.
+- **Write the description (intent).** Every \`create_test\` requires a \`description\`: the test's durable intent - a specific, falsifiable claim about what the feature does (what the user does, what should happen, and why it matters). This is persisted as the test's immutable description and must stand on its own, independent of any other test.
+- **Justify coverage separately.** Every \`create_test\` also requires a \`coverageJustification\`, which is distinct from the description: it is the creation-time dedup gate. Browse the suite first with \`list_tests\` / \`read_tests\`, then name the closest existing tests and explain what behavior this test exercises that they do not. It is discarded after authoring and is never persisted.
 - **Bind a scenario when needed.** If the test depends on seeded preconditions (an authenticated user, pre-existing records), pick a \`scenarioId\` via \`list_scenarios\` / \`read_scenario\`; omit it for tests that start from a fresh, unauthenticated state.
 
 ## Available Tools

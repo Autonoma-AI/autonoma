@@ -16,11 +16,11 @@ interface CreatedTestRowProps {
 }
 
 export function CreatedTestRow({ test }: CreatedTestRowProps) {
-  const justification = test.coverageJustification?.trim() ?? "";
+  const description = test.description?.trim() ?? "";
   const generationReview = test.generation?.reviewReasoning?.trim() ?? "";
   const runReview = test.run?.reviewReasoning?.trim() ?? "";
   const plan = test.plan.trim();
-  const hasDetails = justification.length > 0 || plan.length > 0 || generationReview.length > 0 || runReview.length > 0;
+  const hasDetails = description.length > 0 || plan.length > 0 || generationReview.length > 0 || runReview.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-raised">
@@ -48,9 +48,7 @@ export function CreatedTestRow({ test }: CreatedTestRowProps) {
       />
       {hasDetails && (
         <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
-          {justification.length > 0 && (
-            <ReasoningSection label="Why existing tests do not cover this" content={justification} />
-          )}
+          {description.length > 0 && <ReasoningSection label="Description" content={description} />}
           {plan.length > 0 && <ReasoningSection label="Plan" content={plan} />}
           {generationReview.length > 0 && <ReasoningSection label="Generation review" content={generationReview} />}
           {runReview.length > 0 && <ReasoningSection label="Run review" content={runReview} />}

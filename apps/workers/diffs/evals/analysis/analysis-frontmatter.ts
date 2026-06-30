@@ -1,4 +1,4 @@
-import type { DiffsAgentResult } from "@autonoma/diffs";
+import { type DiffsAgentResult, MIN_DESCRIPTION_LENGTH } from "@autonoma/diffs";
 import {
     type CheckFailure,
     baseFrontmatterSchema,
@@ -24,9 +24,10 @@ import { z } from "zod";
  *
  * Whether each authored test is *genuinely* non-redundant, and whether its
  * coverage justification soundly names why existing tests do not cover it, is a
- * judge concern (the judge sees every authored test's plan + justification). The
- * deterministic side only bounds the shape and guarantees a justification is
- * present (see {@link checkCoverageJustifications}).
+ * judge concern (the judge sees every authored test's plan + description +
+ * justification). The deterministic side only bounds the shape and guarantees a
+ * non-trivial description (see {@link checkDescriptions}) and a present coverage
+ * justification (see {@link checkCoverageJustifications}).
  */
 const createdTestsCheckSchema = z.object({
     count: countBoundsSchema.optional(),
@@ -55,6 +56,7 @@ export function checkAnalysisResult(result: DiffsAgentResult, frontmatter: Analy
     return [
         ...checkAffected(result, frontmatter.affected),
         ...checkCreatedTests(result, frontmatter.createdTests),
+        ...checkDescriptions(result),
         ...checkCoverageJustifications(result),
     ];
 }
@@ -88,13 +90,35 @@ function checkCreatedTests(result: DiffsAgentResult, spec: AnalysisFrontmatter["
 }
 
 /**
- * Every authored test must carry a non-blank coverage justification - the
+ * Every authored test must carry a meaningful `description` - the durable,
+ * falsifiable statement of what the test does, persisted as the test case's
+ * immutable description. The `create_test` schema enforces a non-trivial string
+ * (at least {@link MIN_DESCRIPTION_LENGTH} characters after trimming) upstream;
+ * this backstops it at the grading boundary (blank or too-short is treated as
+ * trivial) so the eval never silently scores a placeholder-description proposal
+ * as a pass. The description's *quality* is graded by the judge. Always on - a
+ * case need not opt in for the invariant to hold.
+ */
+function checkDescriptions(result: DiffsAgentResult): CheckFailure[] {
+    const trivial = result.createdTests.filter((t) => t.description.trim().length < MIN_DESCRIPTION_LENGTH);
+    if (trivial.length === 0) return [];
+
+    return [
+        {
+            check: "createdTests.description",
+            message: `authored test(s) [${trivial.map((t) => t.name).join(", ")}] carry a trivial description`,
+        },
+    ];
+}
+
+/**
+ * Every authored test must carry a coverage justification - the creation-time
  * deduplication argument for why existing tests do not already cover it. The
- * `create_test` schema enforces a non-empty string upstream; this backstops it
- * at the grading boundary (whitespace-only is treated as absent) so the eval
- * never silently scores a justification-less proposal as a pass. The
- * justification's *soundness* is graded by the judge. Always on - a case need
- * not opt in for the invariant to hold.
+ * `create_test` schema enforces a non-empty string upstream; this backstops it at
+ * the grading boundary (whitespace-only is treated as absent) so the eval never
+ * silently scores a justification-less proposal as a pass. Unlike the intent, the
+ * justification is never persisted - it gates creation only. Its *soundness* is
+ * graded by the judge. Always on - a case need not opt in for the invariant to hold.
  */
 function checkCoverageJustifications(result: DiffsAgentResult): CheckFailure[] {
     const missing = result.createdTests.filter((t) => t.coverageJustification.trim() === "");

@@ -55,6 +55,7 @@ export {
     type SubagentInput,
     type SubagentResult,
     type CreatedTest,
+    MIN_DESCRIPTION_LENGTH,
     type TestLookupLoop,
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,

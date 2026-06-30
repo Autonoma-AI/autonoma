@@ -25,7 +25,7 @@ export {
     type AffectedReason,
     type AffectedTest,
 } from "./diffs/affected-test";
-export { createTestSchema, type CreatedTest } from "./diffs/tools/create-test-tool";
+export { MIN_DESCRIPTION_LENGTH, createTestSchema, type CreatedTest } from "./diffs/tools/create-test-tool";
 
 export {
     BashTool,

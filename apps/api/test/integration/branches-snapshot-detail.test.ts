@@ -80,7 +80,7 @@ apiTestSuite({
 
             await harness.db.testCase.update({
                 where: { id: assignment.testCaseId },
-                data: { description: "No existing test covers the unauthenticated guest checkout path." },
+                data: { description: "A guest can complete checkout without signing in and reach order confirmation." },
             });
             const { plan } = await attachPlan(harness, assignment);
 
@@ -103,7 +103,7 @@ apiTestSuite({
             expect(detail.createdTests).toHaveLength(1);
             expect(detail.createdTests[0]).toMatchObject({
                 testCase: { id: assignment.testCaseId, slug: "guest-check" },
-                coverageJustification: "No existing test covers the unauthenticated guest checkout path.",
+                description: "A guest can complete checkout without signing in and reach order confirmation.",
                 plan: "Complete checkout",
                 generation: { id: generation.id, status: "success", verdict: "success" },
                 run: { id: run.id, status: "success" },
