@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.14](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.13...cli-v0.1.14) (2026-06-30)
+
+
+### Features
+
+* **cli:** integrate @autonoma-ai/planner into the monorepo ([#1176](https://github.com/Autonoma-AI/agent/issues/1176)) ([38bb20f](https://github.com/Autonoma-AI/agent/commit/38bb20f54f1487780893e20c3cd921932c4d214b))
+
+
+### Bug Fixes
+
+* **cli:** decouple CLI release-please from the root flow ([#1184](https://github.com/Autonoma-AI/agent/issues/1184)) ([c626482](https://github.com/Autonoma-AI/agent/commit/c62648233a5fccac7cbc9f184b3c2668daa8dc9e))
+* **cli:** use CLI_NPM_TOKEN secret for npm publish ([#1189](https://github.com/Autonoma-AI/agent/issues/1189)) ([fc4f706](https://github.com/Autonoma-AI/agent/commit/fc4f706117e141fee3ddc0c61495dd91df679f82))
+
 ## [0.1.13](https://github.com/Autonoma-AI/cli/compare/v0.1.12...v0.1.13) (2026-06-16)
 
 
