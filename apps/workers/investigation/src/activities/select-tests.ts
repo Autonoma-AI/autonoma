@@ -41,9 +41,12 @@ export async function selectInvestigationTests(
                 codebase: reader,
                 catalog: new TestCatalog(db),
                 applicationId: context.applicationId,
-                // The selector considers ALL tests in the catalog (the user's model). No createdAt cutoff:
-                // the suite is regenerated independently of PR snapshots, so a base-relative cutoff can wrongly
-                // exclude the entire catalog when every test postdates an older snapshot.
+                // Select only from the tests assigned to THIS snapshot (the branch's copy of the suite), not
+                // the whole org catalog, and drop any created after the snapshot (the deployed agent's same-PR
+                // additions). Scoping to the snapshot's assignment set first makes the createdAt filter safe -
+                // unlike a bare cutoff over the full catalog, which a suite regeneration can empty out.
+                snapshotId,
+                testsCreatedBefore: context.createdAt,
                 // Use the reliable text classifier model (gpt-5.5), not gemini/smart-visual: selection reads
                 // the diff + code (no vision needed), and gemini repeatedly returned no structured output.
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-select" }),

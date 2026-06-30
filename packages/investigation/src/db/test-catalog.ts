@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { Prisma, PrismaClient } from "@autonoma/db";
 
 /** A test case as the selector sees it (to decide which tests a diff affects). */
 export interface TestCaseInfo {
@@ -29,13 +29,35 @@ export class TestCatalog {
     }
 
     /**
-     * Every test case for an application, grouped by flow (folder) - the catalog the selector chooses from.
-     * `createdBefore` scopes to tests that existed before that time (the PR snapshot): this EXCLUDES tests
-     * the deployed agent just created FOR this PR, keeping our selection independent for a fair comparison.
+     * The tests ASSIGNED to one snapshot - the branch's own copy of the suite, NOT the whole org catalog.
+     * This is what "only this branch's tests" means: a snapshot has its own `TestCaseAssignment` set. We also
+     * drop any test created AFTER the snapshot (`createdBefore` = the snapshot's createdAt) so tests the
+     * deployed agent added FOR this same PR don't leak into our independent selection. Scoping to the snapshot
+     * set first is what makes the date filter safe (the base tests provably predate the snapshot they were
+     * copied into) - a bare createdAt cutoff over the full catalog is fragile when the suite is regenerated.
+     */
+    async listSnapshotTestCases(snapshotId: string, createdBefore?: Date): Promise<TestCaseInfo[]> {
+        return this.findTestCases({
+            assignments: { some: { snapshotId } },
+            createdAt: createdBefore != null ? { lt: createdBefore } : undefined,
+        });
+    }
+
+    /**
+     * Every test case for an application, grouped by flow (folder). The whole-org view - used only as a
+     * fallback when a snapshot has no usable assigned tests, so we never select from an empty set.
      */
     async listTestCases(applicationId: string, createdBefore?: Date): Promise<TestCaseInfo[]> {
+        return this.findTestCases({
+            applicationId,
+            createdAt: createdBefore != null ? { lt: createdBefore } : undefined,
+        });
+    }
+
+    /** Shared read + projection for the catalog views (slug + flow + one-line description, sorted). */
+    private async findTestCases(where: Prisma.TestCaseWhereInput): Promise<TestCaseInfo[]> {
         const testCases = await this.db.testCase.findMany({
-            where: { applicationId, createdAt: createdBefore != null ? { lt: createdBefore } : undefined },
+            where,
             select: {
                 slug: true,
                 name: true,

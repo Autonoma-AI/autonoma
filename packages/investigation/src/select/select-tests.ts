@@ -32,10 +32,18 @@ export async function selectAffectedTests(context: SelectContext, deps: Selector
 
     const tools = buildSelectorTools(deps);
     const diffStat = await deps.codebase.diffStat();
-    // The whole catalog (slug + flow + description) goes in the prompt up front - progressive disclosure, so
-    // the model always sees every test instead of relying on a tool it may skip.
-    const catalog = await deps.catalog.listTestCases(deps.applicationId, deps.testsCreatedBefore);
-    logger.info("Catalog loaded for selection", { extra: { tests: catalog.length } });
+    // Scope to the tests ASSIGNED to this snapshot - the branch's own copy of the suite, not the whole org
+    // catalog - excluding any created after the snapshot (the deployed agent's same-PR additions). This goes
+    // in the prompt up front (progressive disclosure) so the model always sees the candidate set. Fall back to
+    // the full catalog only if the snapshot has no usable assigned tests, so we never select from nothing - and
+    // keep the same createdBefore cutoff on the fallback so it doesn't re-admit the post-snapshot tests we just
+    // excluded (if that empties it too, there genuinely are no independent pre-PR tests to run).
+    const scoped = await deps.catalog.listSnapshotTestCases(deps.snapshotId, deps.testsCreatedBefore);
+    const catalog =
+        scoped.length > 0 ? scoped : await deps.catalog.listTestCases(deps.applicationId, deps.testsCreatedBefore);
+    logger.info("Catalog loaded for selection", {
+        extra: { tests: catalog.length, snapshotAssigned: scoped.length, usedFallback: scoped.length === 0 },
+    });
 
     const selection = await withRetry(
         () =>
