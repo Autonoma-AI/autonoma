@@ -84,7 +84,7 @@ function FinishSetupPage() {
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">Finish setup</h1>
         <p className="max-w-2xl text-sm text-text-secondary">
-          Deepen what Autonoma can test - implement the SDK so it can provision real test data, upload CLI artifacts,
+          Deepen what Autonoma can test - upload CLI artifacts, implement the SDK so it can provision real test data,
           and dry-run your scenarios. Finish once all three are done.
         </p>
       </header>
@@ -104,7 +104,7 @@ function FinishSetupSteps({ applicationId }: { applicationId: string }) {
   const artifactsUploaded = state.artifactsUploaded;
   const dryRunPassed = state.dryRunPassed;
 
-  const stepDone = [sdkImplemented, artifactsUploaded, dryRunPassed];
+  const stepDone = [artifactsUploaded, sdkImplemented, dryRunPassed];
   const activeStepIndex = stepDone.findIndex((done) => !done);
 
   // BYO go-live is optimistic: the app is marked live before we ever see a PR
@@ -133,8 +133,20 @@ function FinishSetupSteps({ applicationId }: { applicationId: string }) {
       )}
       <Step
         index={1}
-        done={sdkImplemented}
+        done={artifactsUploaded}
         active={activeStepIndex === 0}
+        title="Upload test artifacts"
+        description={
+          <>Run the Autonoma planner CLI in your repo to upload recipes, test cases, and a knowledge base.</>
+        }
+      >
+        <ArtifactsStepBody applicationId={applicationId} artifacts={artifactStatus} />
+      </Step>
+
+      <Step
+        index={2}
+        done={sdkImplemented}
+        active={activeStepIndex === 1}
         title="Implement the Autonoma SDK"
         description={
           <>
@@ -155,18 +167,6 @@ function FinishSetupSteps({ applicationId }: { applicationId: string }) {
         }
       >
         <SdkStepBody applicationId={applicationId} />
-      </Step>
-
-      <Step
-        index={2}
-        done={artifactsUploaded}
-        active={activeStepIndex === 1}
-        title="Upload test artifacts"
-        description={
-          <>Run the Autonoma planner CLI in your repo to upload recipes, test cases, and a knowledge base.</>
-        }
-      >
-        <ArtifactsStepBody applicationId={applicationId} artifacts={artifactStatus} />
       </Step>
 
       <Step
@@ -283,7 +283,7 @@ function Step({
   );
 }
 
-// ─── Step 1: SDK implement + validate + dry run ───────────────────────────────
+// ─── Step 2: SDK implement + validate ─────────────────────────────────────────
 
 /**
  * The PreviewKit env addressing (owner/repo/pr) for streaming a managed target's
@@ -730,7 +730,7 @@ function DryRunList({ applicationId }: { applicationId: string }) {
   );
 }
 
-// ─── Step 2: CLI artifacts (command always shown) ─────────────────────────────
+// ─── Step 1: CLI artifacts (command always shown) ─────────────────────────────
 
 const ARTIFACT_LABELS: Record<string, string> = {
   recipe: "recipe.json",
