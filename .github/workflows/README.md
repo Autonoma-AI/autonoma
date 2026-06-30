@@ -54,8 +54,9 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Optional checkbox to trigger a release after promotion
 
 ### 6. **Sync to Public Mirror** (`sync-public.yml`)
-- Manual workflow to sync to public repository
-- Only runs when manually triggered
+- Triggers automatically when a root `v*` GitHub release is published (i.e. the root Release Please PR is merged) and can also be run manually
+- **Guarded to root `v*` releases only** - `cli-v*` releases never trigger a sync
+- Replays each new private commit onto the public repo (stripping `.opensource-ignore` paths), preserving original author/committer, then appends a `Source-Commit` marker commit
 
 ### 7. **PR Title Suggest** (`pr-title-suggest.yml`)
 - Triggers on `pull_request` events against `main` and on `issue_comment` edits
@@ -98,7 +99,7 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 
 3. **Review the release PR** - Check the generated changelog and version bump
 
-4. **Merge the release PR** - This creates a GitHub release and triggers production deployment
+4. **Merge the release PR** - This creates a GitHub release, which triggers production deployment and the public mirror sync
 
 ### Manual Deployment
 
