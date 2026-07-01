@@ -119,8 +119,6 @@ export interface SeedSnapshotRun {
         reasoning?: string;
         issue?: { title: string; description: string };
     };
-    /** Quarantine this test in the snapshot's assignment (excluded from replay). */
-    quarantined?: boolean;
     /** Attach a scenario instance whose generated-data graph the loader materializes. */
     scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
 }
@@ -461,9 +459,9 @@ export class DiffJobContextHarness implements IntegrationHarness {
      * Materialize a single snapshot carrying multiple flagged, replayed runs -
      * the graph `DiffJobContextLoader.loadSnapshot` reads. Each run gets its own
      * test case + plan + assignment + run + AffectedTest, plus an optional
-     * completed review (with an optional linked Issue), quarantine flag, and
-     * scenario instance. Unlike {@link seedFailedRun}, every run shares one
-     * snapshot, which is the whole point of snapshot-scope gathering.
+     * completed review (with an optional linked Issue) and scenario instance.
+     * Unlike {@link seedFailedRun}, every run shares one snapshot, which is the
+     * whole point of snapshot-scope gathering.
      */
     async seedResolutionSnapshot(params: SeedResolutionSnapshotParams): Promise<SeededResolutionSnapshot> {
         const { organizationId, applicationId } = params;
@@ -536,9 +534,8 @@ export class DiffJobContextHarness implements IntegrationHarness {
             data: { testCaseId: testCase.id, prompt: spec.planPrompt ?? "Original plan prompt", organizationId },
         });
 
-        const quarantineIssueId = spec.quarantined === true ? await this.createQuarantineIssue(organizationId) : null;
         const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId, testCaseId: testCase.id, planId: plan.id, quarantineIssueId },
+            data: { snapshotId, testCaseId: testCase.id, planId: plan.id },
         });
 
         const scenarioInstanceId =
@@ -572,18 +569,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
         });
 
         return run.id;
-    }
-
-    private async createQuarantineIssue(organizationId: string): Promise<string> {
-        const issue = await this.db.issue.create({
-            data: {
-                organizationId,
-                severity: "high",
-                title: "Quarantined",
-                description: "Test quarantined for snapshot-scope test",
-            },
-        });
-        return issue.id;
     }
 
     private async createRunReview(

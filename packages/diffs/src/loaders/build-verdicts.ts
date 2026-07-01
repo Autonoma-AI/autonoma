@@ -28,8 +28,7 @@ export interface RunReviewVerdict {
  * Reduce a snapshot's per-run context (gathered by the `DiffJobContextLoader`)
  * to the actionable {@link RunReviewVerdict[]}.
  *
- * Three classes of run are dropped: passed runs (the test still works),
- * quarantined tests (excluded from replay, owned by manual review), and runs
+ * Two classes of run are dropped: passed runs (the test still works) and runs
  * without a completed reviewer verdict (nothing to attribute yet). The drops
  * are logged per-slug for observability.
  *
@@ -42,15 +41,9 @@ export function buildVerdicts(runs: SnapshotRunContext[], logger: Logger): RunRe
     const runsPassed: string[] = [];
     const runsActionable: string[] = [];
     const runsWithoutReview: string[] = [];
-    const runsQuarantined: string[] = [];
 
     for (const run of runs) {
         const slug = run.testSlug;
-
-        if (run.quarantined) {
-            runsQuarantined.push(slug);
-            continue;
-        }
 
         if (run.runStatus === "success") {
             runsPassed.push(slug);
@@ -83,7 +76,6 @@ export function buildVerdicts(runs: SnapshotRunContext[], logger: Logger): RunRe
         runsPassed,
         runsActionable,
         runsWithoutReview,
-        runsQuarantined,
     });
 
     return verdicts;

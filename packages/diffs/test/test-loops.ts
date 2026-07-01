@@ -31,7 +31,6 @@ export interface DiffsLoopOverrides {
     existingTests?: ExistingTestInfo[];
     seededAffected?: DiffsAgentResult["affectedTests"];
     validSlugs?: ReadonlySet<string>;
-    quarantinedSlugs?: ReadonlySet<string>;
     validConflictSlugs?: ReadonlySet<string>;
     scenarioRecipes?: ScenarioRecipeData[];
 }
@@ -53,8 +52,6 @@ export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoo
         scenarioIndex: overrides.scenarioIndex ?? new ScenarioIndex([]),
         seededAffected: overrides.seededAffected ?? [],
         validSlugs: overrides.validSlugs ?? new Set(existingTests.map((t) => t.slug)),
-        quarantinedSlugs:
-            overrides.quarantinedSlugs ?? new Set(existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),
         validConflictSlugs: overrides.validConflictSlugs ?? new Set(),
         scenarioRecipes: overrides.scenarioRecipes ?? [],
     });

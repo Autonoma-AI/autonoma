@@ -108,9 +108,6 @@ Consider a test affected if the diff:
 
 Tests will be automatically run and reviewed after your analysis completes - you do not need to run them yourself.
 
-### Quarantined tests
-A test is quarantined when its entry in \`list_tests\` or \`read_tests\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests are known-broken (either an application bug or an engine limitation) and are suppressed from replay. Do NOT mark them affected, and do NOT create a new test that duplicates the flow a quarantined test already covers - that flow is considered claimed even though the test cannot run.
-
 ## 2. Test Gap Detection
 Identify new functionality that has no test coverage and author a test for it with \`create_test\`. Focus on user-facing behavior introduced by the diff.
 
@@ -129,8 +126,8 @@ You are the sole author of new tests in this flow. Each \`create_test\` mints a 
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
-- \`list_tests\`: list tests in a specific flow (folder) - returns slug, name, and quarantine status
-- \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
+- \`list_tests\`: list tests in a specific flow (folder) - returns the slug and name of each test
+- \`read_tests\`: read one or more tests' full instructions by slug. Always pass every slug you need in a single \`slugs\` array.
 
 ### Scenarios (test data environments)
 - \`list_scenarios\`: list the named test data environments (id, name, description) available for this application

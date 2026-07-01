@@ -1,6 +1,5 @@
 import { AgentTool, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
-import type { QuarantineInfo } from "../../../diffs-agent";
 import type { TestLookupLoop } from "./test-lookup-loop";
 
 const listTestsInputSchema = z.object({
@@ -12,7 +11,6 @@ type ListTestsInput = z.infer<typeof listTestsInputSchema>;
 interface ListTestsEntry {
     slug: string;
     name: string;
-    quarantine?: QuarantineInfo;
 }
 
 interface ListTestsOutput {
@@ -50,7 +48,7 @@ export class ListTestsTool extends AgentTool<ListTestsInput, ListTestsOutput, Te
         const testsBySlug = new Map(loop.existingTests.map((t) => [t.slug, t]));
         const tests: ListTestsEntry[] = slugs.map((slug) => {
             const test = testsBySlug.get(slug);
-            return { slug, name: test?.name ?? slug, quarantine: test?.quarantine };
+            return { slug, name: test?.name ?? slug };
         });
 
         return { flowName, tests, count: tests.length };

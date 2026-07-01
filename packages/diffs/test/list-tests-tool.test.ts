@@ -7,24 +7,17 @@ import { makeDiffsLoop } from "./test-loops";
 
 const tests: ExistingTestInfo[] = [
     { id: "t1", slug: "login", name: "Login", prompt: "Log in." },
-    {
-        id: "t2",
-        slug: "broken-checkout",
-        name: "Broken checkout",
-        prompt: "Add to cart and pay.",
-        quarantine: { reason: "application_bug", bugId: "bug_123" },
-    },
+    { id: "t2", slug: "checkout", name: "Checkout", prompt: "Add to cart and pay." },
 ];
 
 const flowIndex = new FlowIndex([
     { id: "auth", name: "auth", testSlugs: ["login"] },
-    { id: "checkout", name: "checkout", testSlugs: ["broken-checkout"] },
+    { id: "checkout", name: "checkout", testSlugs: ["checkout"] },
 ]);
 
 type ListEntry = {
     slug: string;
     name: string;
-    quarantine?: { reason: string; bugId?: string; issueId?: string };
 };
 
 describe("list_tests tool", () => {
@@ -41,18 +34,7 @@ describe("list_tests tool", () => {
         expect(result.success).toBe(true);
         if (!result.success) throw new Error("expected success");
         expect(result.result.count).toBe(1);
-        expect(result.result.tests[0]).toEqual({ slug: "login", name: "Login", quarantine: undefined });
-    });
-
-    it("includes quarantine info when set", async () => {
-        const loop = makeDiffsLoop({ flowIndex, existingTests: tests });
-        const tool = new ListTestsTool();
-
-        const result = await executeTool<ToolEnvelope<{ tests: ListEntry[] }>>(tool, { flowName: "checkout" }, loop);
-
-        expect(result.success).toBe(true);
-        if (!result.success) throw new Error("expected success");
-        expect(result.result.tests[0]?.quarantine).toEqual({ reason: "application_bug", bugId: "bug_123" });
+        expect(result.result.tests[0]).toEqual({ slug: "login", name: "Login" });
     });
 
     it("returns a fixable failure for an unknown flow", async () => {

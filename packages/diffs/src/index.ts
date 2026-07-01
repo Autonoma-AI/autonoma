@@ -5,7 +5,6 @@ export {
     type MergeContextInfo,
     type PreClassifiedConflictInfo,
     type PreClassifiedConflictVersion,
-    type QuarantineInfo,
 } from "./diffs-agent";
 
 // Agents - the Agent-abstraction adoption surface.

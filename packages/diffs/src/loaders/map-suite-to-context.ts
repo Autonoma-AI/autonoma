@@ -23,7 +23,6 @@ export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
             name: testCase.name,
             slug: testCase.slug,
             prompt: testCase.plan.prompt,
-            quarantine: testCase.quarantine,
         });
     }
 

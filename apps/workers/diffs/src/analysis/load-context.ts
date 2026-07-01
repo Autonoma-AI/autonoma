@@ -85,7 +85,6 @@ export async function loadDiffsContext(
             existingTests: existingTests.length,
             flows: flows.length,
             scenarios: scenarios.listScenarios().length,
-            quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
             hasTestScopeGuidelines: application.testScopeGuidelines != null,
         },
     });

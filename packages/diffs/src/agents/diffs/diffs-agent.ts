@@ -158,7 +158,6 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             scenarioIndex: input.scenarios,
             seededAffected,
             validSlugs: new Set(input.existingTests.map((t) => t.slug)),
-            quarantinedSlugs: new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),
             validConflictSlugs: new Set((input.preClassifiedConflicts ?? []).map((c) => c.slug)),
             scenarioRecipes,
         });

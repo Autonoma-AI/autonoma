@@ -30,16 +30,9 @@ class InvalidSlugError extends FixableToolError {
     }
 }
 
-class QuarantinedSlugError extends FixableToolError {
-    constructor(public readonly slug: string) {
-        super(`Test "${slug}" is quarantined in this snapshot and is excluded from replay. Do not mark it affected.`);
-    }
-}
-
 /**
  * Action tool: flag an existing test as `code_change`-affected. The agent must
- * supply a slug from the Existing Tests list; quarantined slugs are explicitly
- * rejected because they are gated from replay anyway.
+ * supply a slug from the Existing Tests list.
  */
 export class MarkAffectedTestTool extends AgentTool<MarkAffectedInput, MarkAffectedOutput, DiffsAgentLoop> {
     constructor() {
@@ -51,15 +44,13 @@ export class MarkAffectedTestTool extends AgentTool<MarkAffectedInput, MarkAffec
                 "renamed routes, modified validation logic, or deleted features. " +
                 "The test will be run automatically after analysis completes. " +
                 "You MUST use the exact slug from the Existing Tests list. " +
-                "Do NOT use this tool for pre-classified merge conflicts - use `explain_merge_conflict` for those. " +
-                "Do NOT use this tool for quarantined tests - they are excluded from replay.",
+                "Do NOT use this tool for pre-classified merge conflicts - use `explain_merge_conflict` for those.",
             inputSchema: markAffectedInputSchema,
         });
     }
 
     protected async execute(input: MarkAffectedInput, loop: DiffsAgentLoop): Promise<MarkAffectedOutput> {
         if (!loop.validSlugs.has(input.slug)) throw new InvalidSlugError(input.slug, [...loop.validSlugs]);
-        if (loop.quarantinedSlugs.has(input.slug)) throw new QuarantinedSlugError(input.slug);
 
         loop.affectedTests.push({
             slug: input.slug,

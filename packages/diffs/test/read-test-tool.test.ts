@@ -1,23 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { ReadTestsTool } from "../src/agents/tools/lookup/read-tests-tool";
-import type { ExistingTestInfo, QuarantineInfo } from "../src/diffs-agent";
+import type { ExistingTestInfo } from "../src/diffs-agent";
 import { type ToolEnvelope, executeTool } from "./execute-tool";
 import { makeDiffsLoop } from "./test-loops";
 
 const tests: ExistingTestInfo[] = [
     { id: "t1", slug: "login", name: "Login", prompt: "Log in." },
     { id: "t2", slug: "checkout", name: "Checkout", prompt: "Buy something." },
-    {
-        id: "t3",
-        slug: "broken-engine-flow",
-        name: "Broken engine flow",
-        prompt: "Drag and drop the item.",
-        quarantine: { reason: "engine_limitation", issueId: "issue_42" },
-    },
 ];
 
 type ReadResult = {
-    results: Record<string, { name: string; instruction: string; quarantine?: QuarantineInfo } | { error: string }>;
+    results: Record<string, { name: string; instruction: string } | { error: string }>;
 };
 
 describe("read_tests tool", () => {
@@ -32,25 +25,10 @@ describe("read_tests tool", () => {
         expect(result.result.results.login).toEqual({
             name: "Login",
             instruction: "Log in.",
-            quarantine: undefined,
         });
         expect(result.result.results.checkout).toEqual({
             name: "Checkout",
             instruction: "Buy something.",
-            quarantine: undefined,
-        });
-    });
-
-    it("includes quarantine info when set", async () => {
-        const loop = makeDiffsLoop({ existingTests: tests });
-        const tool = new ReadTestsTool();
-
-        const result = await executeTool<ToolEnvelope<ReadResult>>(tool, { slugs: ["broken-engine-flow"] }, loop);
-
-        expect(result.success).toBe(true);
-        if (!result.success) throw new Error("expected success");
-        expect(result.result.results["broken-engine-flow"]).toMatchObject({
-            quarantine: { reason: "engine_limitation", issueId: "issue_42" },
         });
     });
 

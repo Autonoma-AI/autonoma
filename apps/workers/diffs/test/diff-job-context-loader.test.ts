@@ -641,7 +641,6 @@ diffJobContextSuite({
             const runs = byTestName(context.runs);
             const checkout = runs.get("Checkout flow");
             expect(checkout?.runStatus).toBe("failed");
-            expect(checkout?.quarantined).toBe(false);
             expect(checkout?.affectedReason).toBe("code_change");
             expect(checkout?.affectedReasoning).toBe("Clicks the renamed checkout button.");
             expect(checkout?.testPlanPrompt).toBe("Buy an item and reach the confirmation page.");
@@ -691,13 +690,6 @@ diffJobContextSuite({
                         review: { verdict: "engine_error", reasoning: "n/a" },
                     },
                     {
-                        testName: "Quarantined",
-                        affectedReason: "code_change",
-                        affectedReasoning: "owned by manual review",
-                        quarantined: true,
-                        review: { verdict: "application_bug", reasoning: "known bug" },
-                    },
-                    {
                         testName: "NoCompletedReview",
                         affectedReason: "code_change",
                         affectedReasoning: "review still running",
@@ -709,10 +701,9 @@ diffJobContextSuite({
             const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId);
 
             // The loader gathers every flagged run - it does not pre-filter.
-            expect(context.runs).toHaveLength(4);
+            expect(context.runs).toHaveLength(3);
             const runs = byTestName(context.runs);
             expect(runs.get("Passed")?.runStatus).toBe("success");
-            expect(runs.get("Quarantined")?.quarantined).toBe(true);
             // A non-completed review contributes no verdict to the gathered context.
             expect(runs.get("NoCompletedReview")?.review).toBeUndefined();
 
@@ -720,37 +711,6 @@ diffJobContextSuite({
             const verdicts = buildVerdicts(context.runs, logger.child({ name: "buildVerdicts-test" }));
             expect(verdicts.map((v) => v.testName)).toEqual(["Actionable"]);
             expect(verdicts[0]?.verdict).toBe("engine_error");
-        });
-
-        test("reads the quarantine gate from the baseline snapshot when one is supplied", async ({
-            harness,
-            seedResult,
-        }) => {
-            const { snapshotId } = await harness.seedResolutionSnapshot({
-                organizationId: seedResult.organizationId,
-                applicationId: seedResult.applicationId,
-                baseSha: "b",
-                headSha: "h",
-                runs: [
-                    {
-                        testName: "Quarantined in current snapshot",
-                        affectedReason: "code_change",
-                        affectedReasoning: "reportBug quarantined it",
-                        quarantined: true,
-                        review: { verdict: "application_bug", reasoning: "real bug" },
-                    },
-                ],
-            });
-
-            // A different (baseline) snapshot has no quarantining assignment for
-            // this test, so the gate reads false there - recovering the
-            // pre-resolution view the same way capture's "previous" baseline does.
-            const otherBaseline = await harness.createSnapshot(seedResult.organizationId, seedResult.applicationId);
-            const context = await new DiffJobContextLoader(harness.db).loadSnapshot(snapshotId, {
-                baselineSnapshotId: otherBaseline,
-            });
-
-            expect(context.runs[0]?.quarantined).toBe(false);
         });
 
         test("omits snapshot change context when the snapshot has no SHAs", async ({ harness, seedResult }) => {

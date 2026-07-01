@@ -420,17 +420,9 @@ export class DiffJobContextLoader {
      * scenario data, and its point-in-time lineage (virtually always empty here,
      * since resolution runs before any refinement loop). Every replayed run is
      * returned regardless of outcome - the consumer filters for actionability.
-     *
-     * `baselineSnapshotId` selects which snapshot the per-test quarantine gate is
-     * read from. It defaults to `snapshotId` (correct at production runtime,
-     * before resolution's own `reportBug` quarantines anything); the eval-capture
-     * path passes the *previous* snapshot to recover the unmutated baseline after
-     * the pipeline has run. Quarantine is the only field affected, so it is the
-     * only one the override touches.
      */
-    async loadSnapshot(snapshotId: string, opts?: { baselineSnapshotId?: string }): Promise<SnapshotContext> {
-        const baselineSnapshotId = opts?.baselineSnapshotId ?? snapshotId;
-        this.logger.info("Loading snapshot-scope diff-job context", { snapshotId, baselineSnapshotId });
+    async loadSnapshot(snapshotId: string): Promise<SnapshotContext> {
+        this.logger.info("Loading snapshot-scope diff-job context", { snapshotId });
 
         const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
             where: { id: snapshotId },
@@ -452,12 +444,6 @@ export class DiffJobContextLoader {
                         id: true,
                         name: true,
                         slug: true,
-                        // The quarantine gate is read from the *baseline* snapshot's
-                        // assignment - see the doc comment on baselineSnapshotId.
-                        assignments: {
-                            where: { snapshotId: baselineSnapshotId },
-                            select: { quarantineIssueId: true },
-                        },
                     },
                 },
                 run: {
@@ -514,7 +500,6 @@ export class DiffJobContextLoader {
                         testName: affected.testCase.name,
                         testPlanPrompt: run.plan?.prompt ?? "",
                         runStatus: run.status,
-                        quarantined: affected.testCase.assignments[0]?.quarantineIssueId != null,
                         affectedReason: affected.affectedReason,
                         affectedReasoning: affected.reasoning,
                         review,

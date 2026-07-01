@@ -3,11 +3,11 @@ import { MarkAffectedTestTool } from "../src/agents/diffs/tools/mark-affected-te
 import { type ToolEnvelope, executeTool } from "./execute-tool";
 import { makeDiffsLoop } from "./test-loops";
 
-const validSlugs = new Set(["healthy-test", "quarantined-test"]);
+const validSlugs = new Set(["healthy-test", "other-test"]);
 
 describe("mark_affected_test tool", () => {
-    it("records an affected test for a valid, non-quarantined slug", async () => {
-        const loop = makeDiffsLoop({ validSlugs, quarantinedSlugs: new Set() });
+    it("records an affected test for a valid slug", async () => {
+        const loop = makeDiffsLoop({ validSlugs });
         const tool = new MarkAffectedTestTool();
 
         const result = await executeTool<ToolEnvelope<{ slug: string }>>(
@@ -22,7 +22,7 @@ describe("mark_affected_test tool", () => {
     });
 
     it("rejects unknown slugs", async () => {
-        const loop = makeDiffsLoop({ validSlugs, quarantinedSlugs: new Set() });
+        const loop = makeDiffsLoop({ validSlugs });
         const tool = new MarkAffectedTestTool();
 
         const result = await executeTool<ToolEnvelope<{ slug: string }>>(
@@ -34,22 +34,6 @@ describe("mark_affected_test tool", () => {
         expect(result.success).toBe(false);
         if (result.success) throw new Error("expected failure");
         expect(result.error).toContain("Invalid slug");
-        expect(loop.affectedTests).toHaveLength(0);
-    });
-
-    it("rejects quarantined slugs even when they are otherwise valid", async () => {
-        const loop = makeDiffsLoop({ validSlugs, quarantinedSlugs: new Set(["quarantined-test"]) });
-        const tool = new MarkAffectedTestTool();
-
-        const result = await executeTool<ToolEnvelope<{ slug: string }>>(
-            tool,
-            { slug: "quarantined-test", testName: "Quarantined test", reasoning: "Diff touches the flow" },
-            loop,
-        );
-
-        expect(result.success).toBe(false);
-        if (result.success) throw new Error("expected failure");
-        expect(result.error).toMatch(/quarantined/i);
         expect(loop.affectedTests).toHaveLength(0);
     });
 });

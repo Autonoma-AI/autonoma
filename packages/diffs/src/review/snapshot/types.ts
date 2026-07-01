@@ -42,9 +42,9 @@ export interface SnapshotRunReview {
  * materialized scenario data the run executed against. The same per-subject
  * facts a reviewer gets, but gathered across the whole snapshot.
  *
- * Carries every replayed run regardless of outcome - passed, quarantined, or
- * lacking a completed review. Consumers (resolution today, healing next) apply
- * their own actionability filter; the loader's job is to gather, not to judge.
+ * Carries every replayed run regardless of outcome - passed or lacking a
+ * completed review. Consumers (resolution today, healing next) apply their own
+ * actionability filter; the loader's job is to gather, not to judge.
  */
 export interface SnapshotRunContext {
     runId: string;
@@ -55,8 +55,6 @@ export interface SnapshotRunContext {
     testPlanPrompt: string;
     /** The run's terminal status (e.g. `failed`, `success`). */
     runStatus: string;
-    /** Whether this test is quarantined in the baseline snapshot - quarantined tests are excluded from replay. */
-    quarantined: boolean;
     /** Why the diffs-agent flagged this test. */
     affectedReason: AffectedReason;
     /** The diffs-agent's explanation for why this test was flagged. */

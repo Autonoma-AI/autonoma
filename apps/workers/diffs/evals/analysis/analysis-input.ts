@@ -6,18 +6,11 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 /** The DiffsAgent input minus the on-disk clone (rehydrated from codebase coords at run time). */
 type DiffsAgentInputWithoutCodebase = Omit<DiffsAgentInput, "codebase">;
 
-const quarantineInfoSchema = z.object({
-    reason: z.enum(["application_bug", "engine_limitation", "unknown_issue"]),
-    bugId: z.string().optional(),
-    issueId: z.string().optional(),
-});
-
 const existingTestInfoSchema = z.object({
     id: z.string(),
     name: z.string(),
     slug: z.string(),
     prompt: z.string(),
-    quarantine: quarantineInfoSchema.optional(),
 });
 
 const flowInfoSchema = z.object({

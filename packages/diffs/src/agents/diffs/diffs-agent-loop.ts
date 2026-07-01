@@ -21,7 +21,6 @@ interface DiffsAgentLoopParams extends AgentConfig<DiffsAgentResult> {
     /** Affected-test entries seeded before the loop runs (pre-classified merge conflicts). */
     seededAffected: AffectedTest[];
     validSlugs: ReadonlySet<string>;
-    quarantinedSlugs: ReadonlySet<string>;
     validConflictSlugs: ReadonlySet<string>;
     /** Materialized recipe templates for the scenarios the tests in scope reference. Empty when none apply. */
     scenarioRecipes: ScenarioRecipeData[];
@@ -33,8 +32,8 @@ interface DiffsAgentLoopParams extends AgentConfig<DiffsAgentResult> {
  * shared codebase + lookup tools can read the snapshot's clone, flow tree, test
  * list, and scenarios directly off the loop. Action tools mutate
  * {@link affectedTests} / {@link createdTests} directly; the validation sets
- * ({@link validSlugs}, {@link quarantinedSlugs}, {@link validConflictSlugs}) are
- * exposed for tools to guard against bad input.
+ * ({@link validSlugs}, {@link validConflictSlugs}) are exposed for tools to
+ * guard against bad input.
  */
 export class DiffsAgentLoop
     extends AgentLoop<DiffsAgentResult>
@@ -52,8 +51,6 @@ export class DiffsAgentLoop
 
     /** Valid slugs - tests that exist in this snapshot. */
     public readonly validSlugs: ReadonlySet<string>;
-    /** Slugs of tests quarantined in this snapshot (excluded from replay). */
-    public readonly quarantinedSlugs: ReadonlySet<string>;
     /** Slugs of pre-classified merge conflicts the agent must enrich. */
     public readonly validConflictSlugs: ReadonlySet<string>;
 
@@ -67,7 +64,6 @@ export class DiffsAgentLoop
         scenarioIndex,
         seededAffected,
         validSlugs,
-        quarantinedSlugs,
         validConflictSlugs,
         scenarioRecipes,
         ...config
@@ -79,7 +75,6 @@ export class DiffsAgentLoop
         this.scenarioIndex = scenarioIndex;
         this.affectedTests = [...seededAffected];
         this.validSlugs = validSlugs;
-        this.quarantinedSlugs = quarantinedSlugs;
         this.validConflictSlugs = validConflictSlugs;
         this.scenarioRecipes = scenarioRecipes;
     }

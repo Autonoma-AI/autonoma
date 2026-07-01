@@ -1,6 +1,5 @@
 import { AgentTool } from "@autonoma/ai";
 import { z } from "zod";
-import type { QuarantineInfo } from "../../../diffs-agent";
 import type { TestLookupLoop } from "./test-lookup-loop";
 
 const readTestsInputSchema = z.object({
@@ -14,7 +13,7 @@ const readTestsInputSchema = z.object({
 
 type ReadTestsInput = z.infer<typeof readTestsInputSchema>;
 
-type TestEntry = { name: string; instruction: string; quarantine?: QuarantineInfo } | { error: string };
+type TestEntry = { name: string; instruction: string } | { error: string };
 
 interface ReadTestsOutput {
     results: Record<string, TestEntry>;
@@ -42,7 +41,7 @@ export class ReadTestsTool extends AgentTool<ReadTestsInput, ReadTestsOutput, Te
                 results[slug] = { error: `Test "${slug}" not found.` };
                 continue;
             }
-            results[slug] = { name: test.name, instruction: test.prompt, quarantine: test.quarantine };
+            results[slug] = { name: test.name, instruction: test.prompt };
         }
         return { results };
     }
