@@ -16,7 +16,7 @@ Decide which of the five verdicts applies, then submit it via `submit_verdict`:
 
 4. **`plan_mismatch`** - The plan describes the application incorrectly. It references buttons/screens/flows that don't exist as written, expects wrong data, or assumes an outdated UI. The agent's failure is downstream of a wrong plan; rewriting the plan would unblock it.
 
-5. **`unknown_issue`** - The application appears to have misbehaved, but you **cannot** ground the cause in the checked-out code (e.g. the cause lives in a backend service or a repo not present here, or the evidence is suggestive but the code path is opaque). This is a lower-priority, non-customer-facing lane: it quarantines the test but never files a bug. Prefer a grounded `application_bug` whenever you can find the cause; fall back to `unknown_issue` only when grounding genuinely fails. Do not use it as an escape hatch for `agent_limitation` or `plan_mismatch`.
+5. **`unknown_issue`** - The application appears to have misbehaved, but you **cannot** ground the cause in the checked-out code (e.g. the cause lives in a backend service or a repo not present here, or the evidence is suggestive but the code path is opaque). This is a lower-priority, non-customer-facing lane: it records the issue but never files a bug. Prefer a grounded `application_bug` whenever you can find the cause; fall back to `unknown_issue` only when grounding genuinely fails. Do not use it as an escape hatch for `agent_limitation` or `plan_mismatch`.
 
 ## Inputs
 

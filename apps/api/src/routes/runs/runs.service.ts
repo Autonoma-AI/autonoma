@@ -1,6 +1,6 @@
 import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
-import { NotFoundError, TestQuarantinedError } from "@autonoma/errors";
+import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import { Architecture } from "@autonoma/types";
 import { type TriggerRunWorkflowParams, type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
@@ -46,8 +46,6 @@ export class RunsService extends Service {
             },
         });
         if (testCase == null) throw new NotFoundError("Test case not found");
-
-        await this.ensureNotQuarantined(testCaseId, snapshotId);
 
         const assignment = await this.db.testCaseAssignment.findUnique({
             where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
@@ -367,8 +365,6 @@ export class RunsService extends Service {
         });
         if (run == null) throw new NotFoundError("Run not found");
 
-        await this.ensureNotQuarantined(run.assignment.testCaseId, run.assignment.snapshotId);
-
         const newRun = await this.db.run.create({
             data: {
                 assignmentId: run.assignmentId,
@@ -420,23 +416,5 @@ export class RunsService extends Service {
         await this.db.run.delete({ where: { id: runId } });
 
         this.logger.info("Run deleted", { runId });
-    }
-
-    /** Throws TestQuarantinedError if (snapshotId, testCaseId) is quarantined. */
-    private async ensureNotQuarantined(testCaseId: string, snapshotId: string) {
-        const assignment = await this.db.testCaseAssignment.findUnique({
-            where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
-            select: {
-                quarantineIssueId: true,
-                quarantineIssue: { select: { kind: true, bugId: true } },
-            },
-        });
-
-        if (assignment?.quarantineIssue == null) return;
-
-        throw new TestQuarantinedError(assignment.quarantineIssue.kind, {
-            bugId: assignment.quarantineIssue.bugId ?? undefined,
-            issueId: assignment.quarantineIssueId ?? undefined,
-        });
     }
 }

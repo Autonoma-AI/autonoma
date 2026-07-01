@@ -3,7 +3,6 @@ export {
     APIError,
     NotFoundError,
     ConflictError,
-    TestQuarantinedError,
     BadRequestError,
     InternalError,
     InsufficientCreditsError,

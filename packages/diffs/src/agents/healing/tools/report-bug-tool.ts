@@ -10,13 +10,13 @@ interface ReportBugOutput {
     testCaseId: string;
 }
 
-/** Action tool: report a confirmed application bug, with quarantine + Issue creation. */
+/** Action tool: report a confirmed application bug; files the Issue + Bug while the test keeps running. */
 export class HealingReportBugTool extends AgentTool<HealingReportBugInput, ReportBugOutput, HealingAgentLoop> {
     constructor() {
         super({
             name: "report_bug",
             description:
-                "Report a confirmed application bug. Atomic: creates an Issue, links to an existing Bug or creates a new one, and quarantines the test case for this snapshot. The apply layer dedupes against existing bugs and against your other report_bug calls in this batch - just describe each bug you find.",
+                "Report a confirmed application bug. Atomic: creates an Issue and links to an existing Bug or creates a new one. The test stays in the suite and keeps running every snapshot - you are recording why it currently fails, not excluding it, so a later fix is observed when it passes again. The apply layer dedupes against existing bugs and against your other report_bug calls in this batch - just describe each bug you find.",
             inputSchema: reportBugInputSchema,
         });
     }

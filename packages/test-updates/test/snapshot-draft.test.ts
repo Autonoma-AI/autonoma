@@ -45,126 +45,40 @@ testUpdateSuite({
             expect(tc.plan?.prompt).toBe("Go to login page");
         });
 
-        test("start: copies quarantines forward and nulls stepsId on carried assignments", async ({
+        test("start: carries stepsId forward uniformly for every assignment", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
 
             const first = await SnapshotDraft.start({ db: harness.db, branchId });
-            const { testCaseId: quarantinedAppBugTcId, planId: planA } = await first.addTestCase({
+            const { testCaseId, planId } = await first.addTestCase({
                 folderId,
-                name: "Quarantined app bug",
-                slug: "quarantined-app-bug",
-                description: "Has an application bug",
-                plan: "Open broken page",
-            });
-            const { testCaseId: quarantinedEngineTcId, planId: planB } = await first.addTestCase({
-                folderId,
-                name: "Quarantined engine",
-                slug: "quarantined-engine",
-                description: "Engine cannot drive this",
-                plan: "Try the unsupported flow",
-            });
-            const { testCaseId: healthyTcId, planId: planC } = await first.addTestCase({
-                folderId,
-                name: "Healthy",
-                slug: "healthy",
-                description: "Should still inherit steps",
+                name: "Has steps",
+                slug: "has-steps",
+                description: "Carries its replayable steps forward",
                 plan: "Open homepage",
             });
 
-            const stepsByTcId = new Map<string, string>();
-            for (const [tcId, planId] of [
-                [quarantinedAppBugTcId, planA],
-                [quarantinedEngineTcId, planB],
-                [healthyTcId, planC],
-            ] as const) {
-                const steps = await harness.db.stepInputList.create({
-                    data: { planId, organizationId },
-                    select: { id: true },
-                });
-                stepsByTcId.set(tcId, steps.id);
-                await harness.db.testCaseAssignment.update({
-                    where: { snapshotId_testCaseId: { snapshotId: first.snapshotId, testCaseId: tcId } },
-                    data: { stepsId: steps.id },
-                });
-            }
-
-            const bug = await harness.db.bug.create({
-                data: {
-                    title: "Broken page",
-                    description: "...",
-                    severity: "medium",
-                    applicationId,
-                    organizationId,
-                },
+            const steps = await harness.db.stepInputList.create({
+                data: { planId, organizationId },
                 select: { id: true },
-            });
-            const appBugIssue = await harness.db.issue.create({
-                data: {
-                    kind: "application_bug",
-                    severity: "medium",
-                    title: "Broken page",
-                    description: "...",
-                    bugId: bug.id,
-                    organizationId,
-                },
-                select: { id: true },
-            });
-            const engineIssue = await harness.db.issue.create({
-                data: {
-                    kind: "engine_limitation",
-                    severity: "medium",
-                    title: "Unsupported gesture",
-                    description: "...",
-                    snapshotId: first.snapshotId,
-                    organizationId,
-                },
-                select: { id: true },
-            });
-
-            await harness.db.testCaseAssignment.update({
-                where: { snapshotId_testCaseId: { snapshotId: first.snapshotId, testCaseId: quarantinedAppBugTcId } },
-                data: { quarantineIssueId: appBugIssue.id },
             });
             await harness.db.testCaseAssignment.update({
-                where: {
-                    snapshotId_testCaseId: { snapshotId: first.snapshotId, testCaseId: quarantinedEngineTcId },
-                },
-                data: { quarantineIssueId: engineIssue.id },
+                where: { snapshotId_testCaseId: { snapshotId: first.snapshotId, testCaseId } },
+                data: { stepsId: steps.id },
             });
 
             await first.activate();
 
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
 
-            const carriedAssignments = await harness.db.testCaseAssignment.findMany({
-                where: { snapshotId: second.snapshotId },
-                select: {
-                    testCaseId: true,
-                    stepsId: true,
-                    quarantineIssueId: true,
-                    quarantineIssue: { select: { kind: true, bugId: true } },
-                },
+            const carried = await harness.db.testCaseAssignment.findUniqueOrThrow({
+                where: { snapshotId_testCaseId: { snapshotId: second.snapshotId, testCaseId } },
+                select: { stepsId: true },
             });
-            const byTcId = new Map(carriedAssignments.map((a) => [a.testCaseId, a]));
-
-            const appBug = byTcId.get(quarantinedAppBugTcId);
-            expect(appBug?.quarantineIssueId).toBe(appBugIssue.id);
-            expect(appBug?.quarantineIssue?.kind).toBe("application_bug");
-            expect(appBug?.quarantineIssue?.bugId).toBe(bug.id);
-            expect(appBug?.stepsId).toBeNull();
-
-            const engine = byTcId.get(quarantinedEngineTcId);
-            expect(engine?.quarantineIssueId).toBe(engineIssue.id);
-            expect(engine?.quarantineIssue?.kind).toBe("engine_limitation");
-            expect(engine?.quarantineIssue?.bugId).toBeNull();
-            expect(engine?.stepsId).toBeNull();
-
-            const healthy = byTcId.get(healthyTcId);
-            expect(healthy?.quarantineIssueId).toBeNull();
-            expect(healthy?.stepsId).toBe(stepsByTcId.get(healthyTcId));
+            // Steps survive the copy so the test re-runs next snapshot - the auto-fix probe.
+            expect(carried.stepsId).toBe(steps.id);
         });
 
         test("start: copies scenario recipe versions from active snapshot", async ({
@@ -530,105 +444,6 @@ testUpdateSuite({
 
             const info = await draft.currentTestSuiteInfo();
             expect(info.testCases).toHaveLength(0);
-        });
-
-        // -- quarantineTestCase() --
-
-        test("quarantineTestCase: links the issue and clears steps", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            const { testCaseId, planId } = await draft.addTestCase({
-                folderId,
-                name: "Quarantine me",
-                slug: "quarantine-me",
-                description: "Will be quarantined",
-                plan: "Open broken page",
-            });
-            const steps = await harness.db.stepInputList.create({
-                data: { planId, organizationId },
-                select: { id: true },
-            });
-            await harness.db.testCaseAssignment.update({
-                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId } },
-                data: { stepsId: steps.id },
-            });
-
-            const issue = await harness.db.issue.create({
-                data: {
-                    kind: "engine_limitation",
-                    severity: "medium",
-                    title: "Unsupported gesture",
-                    description: "...",
-                    snapshotId: draft.snapshotId,
-                    organizationId,
-                },
-                select: { id: true },
-            });
-
-            await draft.quarantineTestCase(testCaseId, issue.id);
-
-            const assignment = await harness.db.testCaseAssignment.findUniqueOrThrow({
-                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId } },
-                select: { quarantineIssueId: true, stepsId: true },
-            });
-            expect(assignment.quarantineIssueId).toBe(issue.id);
-            expect(assignment.stepsId).toBeNull();
-        });
-
-        test("quarantineTestCase: is a no-op when no assignment exists on the snapshot", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            // A surviving test case whose assignment must be untouched.
-            const { testCaseId: survivorId } = await draft.addTestCase({
-                folderId,
-                name: "Survivor",
-                slug: "survivor",
-                description: "Stays assigned",
-                plan: "Open homepage",
-            });
-
-            // A test case whose assignment is removed before we quarantine it,
-            // mirroring a healing batch that emits remove_test + report_* for one test.
-            const { testCaseId: orphanId } = await draft.addTestCase({
-                folderId,
-                name: "Orphan",
-                slug: "orphan",
-                description: "Assignment removed before quarantine",
-                plan: "Open broken page",
-            });
-            await draft.removeTestCase(orphanId);
-
-            const issue = await harness.db.issue.create({
-                data: {
-                    kind: "engine_limitation",
-                    severity: "medium",
-                    title: "Unsupported gesture",
-                    description: "...",
-                    snapshotId: draft.snapshotId,
-                    organizationId,
-                },
-                select: { id: true },
-            });
-
-            // Must not throw P2025 even though the orphan has no assignment.
-            await expect(draft.quarantineTestCase(orphanId, issue.id)).resolves.toBeUndefined();
-
-            // The surviving assignment is untouched and no orphan row was created.
-            const info = await draft.currentTestSuiteInfo();
-            expect(info.testCases).toHaveLength(1);
-            expect(findTestCase(info, "survivor").id).toBe(survivorId);
-
-            const orphanAssignment = await harness.db.testCaseAssignment.findUnique({
-                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: orphanId } },
-                select: { testCaseId: true },
-            });
-            expect(orphanAssignment).toBeNull();
         });
 
         // -- updateManySteps() --

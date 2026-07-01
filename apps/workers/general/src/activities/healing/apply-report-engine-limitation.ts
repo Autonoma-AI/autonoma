@@ -1,12 +1,13 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { QuarantineTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { markActionApplied } from "./mark-applied";
 import type { ApplyReportEngineLimitationInput } from "./types";
 
 /**
- * Creates an Issue with kind=engine_limitation scoped to the snapshot and
- * quarantines the test case for this snapshot.
+ * Creates an Issue with kind=engine_limitation scoped to the snapshot, recording
+ * that the engine could not drive this test. The test case stays in the suite
+ * and keeps running every snapshot; this action only records why it currently
+ * fails, it does not exclude the test from execution.
  */
 export async function applyReportEngineLimitation(input: ApplyReportEngineLimitationInput): Promise<void> {
     const logger = rootLogger.child({
@@ -16,13 +17,7 @@ export async function applyReportEngineLimitation(input: ApplyReportEngineLimita
     });
     logger.info("Applying report_engine_limitation");
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId: input.snapshotId,
-        organizationId: input.organizationId,
-    });
-
-    const issue = await db.issue.create({
+    await db.issue.create({
         data: {
             ...input.reviewLink,
             kind: "engine_limitation",
@@ -34,8 +29,6 @@ export async function applyReportEngineLimitation(input: ApplyReportEngineLimita
         },
         select: { id: true },
     });
-
-    await updater.apply(new QuarantineTest({ testCaseId: input.testCaseId, issueId: issue.id }));
 
     await markActionApplied(input.refinementActionId);
     logger.info("report_engine_limitation applied");

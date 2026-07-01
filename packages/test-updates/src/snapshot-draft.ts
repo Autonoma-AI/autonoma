@@ -512,33 +512,6 @@ export class SnapshotDraft {
     }
 
     /**
-     * Marks a test case as quarantined for this snapshot by linking it to the
-     * Issue that describes the failure, and clears its replay pointer. The
-     * Issue's `kind` is the quarantine reason; if it carries a `bugId`, that's
-     * the source Bug.
-     *
-     * Tolerant of a missing assignment: if no (snapshotId, testCaseId) row
-     * exists - e.g. a healing batch removed the test before a `report_*` action
-     * targeting the same test ran - this is a no-op that logs a warning rather
-     * than throwing. There is nothing to quarantine once the assignment is gone.
-     */
-    public async quarantineTestCase(testCaseId: string, issueId: string) {
-        this.logger.info("Quarantining test case", { testCaseId, issueId });
-        const { count } = await this.db.testCaseAssignment.updateMany({
-            where: { snapshotId: this.snapshotId, testCaseId },
-            data: {
-                quarantineIssueId: issueId,
-                stepsId: null,
-            },
-        });
-        if (count === 0) {
-            this.logger.warn("No assignment to quarantine; skipping", { testCaseId, issueId });
-            return;
-        }
-        this.logger.info("Test case quarantined", { testCaseId, issueId });
-    }
-
-    /**
      * Batch-updates the step list for multiple test cases at once.
      *
      * Each entry maps a test case to its new step input list. Validates that every

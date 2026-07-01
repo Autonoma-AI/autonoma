@@ -325,7 +325,7 @@ cutoverSuite((test) => {
         expect(linked.generationId).toBe(generation.id);
     });
 
-    test("report_unknown_issue creates a Bug-less, snapshot-scoped quarantining Issue", async ({
+    test("report_unknown_issue creates a Bug-less, snapshot-scoped Issue and keeps the test runnable", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
@@ -365,12 +365,13 @@ cutoverSuite((test) => {
         const bugCount = await harness.db.bug.count({ where: { applicationId } });
         expect(bugCount).toBe(0);
 
-        // The test is quarantined for this snapshot, pointing at the Issue.
+        // The test is NOT excluded: report_* records the failure as an Issue but
+        // leaves the assignment in place so the test re-runs next snapshot.
         const assignment = await harness.db.testCaseAssignment.findUniqueOrThrow({
             where: { snapshotId_testCaseId: { snapshotId, testCaseId: subject.testCaseId } },
             select: { quarantineIssueId: true },
         });
-        expect(assignment.quarantineIssueId).toBe(issue.id);
+        expect(assignment.quarantineIssueId).toBeNull();
     });
 
     test("a pending generation on the investigation twin does NOT trip the diffs loop's per-plan invariant", async ({

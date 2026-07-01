@@ -20,7 +20,7 @@ export class ReportEngineLimitationTool extends AgentTool<
         super({
             name: "report_engine_limitation",
             description:
-                "Report that the engine/agent cannot drive this scenario and there's no plan workaround. Atomic: creates an Issue with kind=engine_limitation and quarantines the test case for this snapshot.",
+                "Report that the engine/agent cannot drive this scenario and there's no plan workaround. Atomic: creates an Issue with kind=engine_limitation. The test stays in the suite and keeps running every snapshot - you are recording why it currently fails, not excluding it.",
             inputSchema: reportEngineLimitationInputSchema,
         });
     }

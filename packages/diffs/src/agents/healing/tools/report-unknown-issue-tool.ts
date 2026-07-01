@@ -13,8 +13,8 @@ interface ReportUnknownIssueOutput {
 /**
  * Action tool: report a suspected application issue that could not be grounded
  * in the checked-out code. The downgrade target for a `report_bug` whose cause
- * the agent could not re-ground - quarantines the test without filing a
- * customer-facing Bug.
+ * the agent could not re-ground - records the suspected issue without filing a
+ * customer-facing Bug. The test stays in the suite and keeps running every snapshot.
  */
 export class ReportUnknownIssueTool extends AgentTool<
     ReportUnknownIssueInput,
@@ -25,7 +25,7 @@ export class ReportUnknownIssueTool extends AgentTool<
         super({
             name: "report_unknown_issue",
             description:
-                "Report a suspected application issue you could NOT ground in the checked-out code. Use this instead of report_bug when you cannot reproduce a concrete code cause. Atomic: creates an Issue with kind=unknown_issue (no customer-facing Bug) and quarantines the test case for this snapshot.",
+                "Report a suspected application issue you could NOT ground in the checked-out code. Use this instead of report_bug when you cannot reproduce a concrete code cause. Atomic: creates an Issue with kind=unknown_issue (no customer-facing Bug). The test stays in the suite and keeps running every snapshot - you are recording why it currently fails, not excluding it.",
             inputSchema: reportUnknownIssueInputSchema,
         });
     }

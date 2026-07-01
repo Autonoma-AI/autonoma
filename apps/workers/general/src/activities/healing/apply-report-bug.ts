@@ -1,13 +1,14 @@
 import type { BugStatus, Prisma } from "@autonoma/db";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { QuarantineTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { markActionApplied } from "./mark-applied";
 import type { ApplyReportBugInput } from "./types";
 
 /**
- * Creates an Issue, links to or creates a Bug + evidence row, and quarantines
- * the test case for this snapshot.
+ * Creates an Issue and links to or creates a Bug + evidence row, recording the
+ * confirmed application bug the failure surfaced. The test case stays in the
+ * suite and keeps running every snapshot, so a later app-side fix is observed
+ * the next time the test passes; this action only records why it currently fails.
  *
  * - matchedBugId set: link the Issue to the existing Bug, upsert evidence
  *   (firstSeenAt preserved, lastSeenAt = now), flip Bug.status to "regressed"
@@ -23,19 +24,13 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
     });
     logger.info("Applying report_bug");
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId: input.snapshotId,
-        organizationId: input.organizationId,
-    });
-
-    const issueId = await db.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
         const bugId =
             input.matchedBugId != null
                 ? await linkExistingBug(tx, input.matchedBugId, input)
-                : await createNewBug(tx, input, updater.applicationId);
+                : await createNewBug(tx, input);
 
-        const issue = await tx.issue.create({
+        await tx.issue.create({
             data: {
                 ...input.reviewLink,
                 kind: "application_bug",
@@ -47,11 +42,7 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
             },
             select: { id: true },
         });
-
-        return issue.id;
     });
-
-    await updater.apply(new QuarantineTest({ testCaseId: input.testCaseId, issueId }));
 
     await markActionApplied(input.refinementActionId);
     logger.info("report_bug applied");
@@ -89,17 +80,18 @@ async function linkExistingBug(
     return bugId;
 }
 
-async function createNewBug(
-    tx: Prisma.TransactionClient,
-    input: ApplyReportBugInput,
-    applicationId: string,
-): Promise<string> {
+async function createNewBug(tx: Prisma.TransactionClient, input: ApplyReportBugInput): Promise<string> {
+    const snapshot = await tx.branchSnapshot.findUniqueOrThrow({
+        where: { id: input.snapshotId },
+        select: { branch: { select: { applicationId: true } } },
+    });
+
     const bug = await tx.bug.create({
         data: {
             title: input.title,
             description: input.description,
             severity: input.severity,
-            applicationId,
+            applicationId: snapshot.branch.applicationId,
             organizationId: input.organizationId,
             evidence: { create: { testCaseId: input.testCaseId } },
         },

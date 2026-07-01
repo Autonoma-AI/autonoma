@@ -409,54 +409,6 @@ apiTestSuite({
             expect(preservedOutputs).not.toBeNull();
         });
 
-        test("trigger throws PRECONDITION_FAILED when test is quarantined for the snapshot", async ({
-            harness,
-            seedResult: { application, testCase, snapshotId },
-        }) => {
-            const bug = await harness.db.bug.create({
-                data: {
-                    title: "Login broken",
-                    description: "...",
-                    severity: "high",
-                    applicationId: application.id,
-                    organizationId: harness.organizationId,
-                },
-                select: { id: true },
-            });
-            const issue = await harness.db.issue.create({
-                data: {
-                    kind: "application_bug",
-                    severity: "high",
-                    title: "Login broken",
-                    description: "...",
-                    bugId: bug.id,
-                    organizationId: harness.organizationId,
-                },
-                select: { id: true },
-            });
-
-            await harness.db.testCaseAssignment.update({
-                where: { snapshotId_testCaseId: { snapshotId, testCaseId: testCase.id } },
-                data: { quarantineIssueId: issue.id, stepsId: null },
-            });
-
-            const runsBefore = await harness.db.run.count({
-                where: { assignment: { testCaseId: testCase.id, snapshotId } },
-            });
-
-            await expect(
-                harness.request().runs.trigger({
-                    testCaseId: testCase.id,
-                    snapshotId,
-                }),
-            ).rejects.toThrowError(/quarantined/i);
-
-            const runsAfter = await harness.db.run.count({
-                where: { assignment: { testCaseId: testCase.id, snapshotId } },
-            });
-            expect(runsAfter).toBe(runsBefore);
-        });
-
         test("trigger throws when test case belongs to another organization", async ({
             harness,
             seedResult: { testCase, snapshotId },

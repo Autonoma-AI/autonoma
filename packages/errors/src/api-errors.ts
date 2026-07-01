@@ -19,21 +19,6 @@ export class ConflictError extends APIError {
 }
 
 /**
- * Thrown when an action is attempted on a test case that is quarantined for
- * the target snapshot. Carries the quarantine reason and the linked Bug or
- * Issue id.
- */
-export class TestQuarantinedError extends APIError {
-    constructor(
-        public readonly reason: "application_bug" | "engine_limitation" | "unknown_issue",
-        public readonly link: { bugId?: string; issueId?: string },
-    ) {
-        const linkText = link.bugId != null ? `Bug ${link.bugId}` : `Issue ${link.issueId ?? "?"}`;
-        super(`Test is quarantined: ${reason} (${linkText}). Resolve the underlying issue before running again.`);
-    }
-}
-
-/**
  * Thrown when a request contains invalid data.
  */
 export class BadRequestError extends APIError {

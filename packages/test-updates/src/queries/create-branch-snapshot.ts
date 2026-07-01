@@ -100,7 +100,6 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
             testCaseId: true,
             planId: true,
             stepsId: true,
-            quarantineIssueId: true,
         },
     });
 
@@ -110,19 +109,17 @@ async function copyTestCaseAssignments({ tx, sourceSnapshotId, sourceKind, targe
         sourceSnapshotId,
         sourceKind,
         assignmentCount: assignments.length,
-        quarantinedAssignmentCount: assignments.filter((a) => a.quarantineIssueId != null).length,
     });
+    // Steps are carried forward uniformly: a test that healing reported as a bug
+    // keeps its replayable steps so the next snapshot re-attempts it and can
+    // observe a later app-side fix.
     await tx.testCaseAssignment.createMany({
-        data: assignments.map((a) => {
-            const isQuarantined = a.quarantineIssueId != null;
-            return {
-                snapshotId: targetSnapshotId,
-                testCaseId: a.testCaseId,
-                planId: a.planId ?? undefined,
-                stepsId: isQuarantined ? undefined : (a.stepsId ?? undefined),
-                quarantineIssueId: a.quarantineIssueId ?? undefined,
-            };
-        }),
+        data: assignments.map((a) => ({
+            snapshotId: targetSnapshotId,
+            testCaseId: a.testCaseId,
+            planId: a.planId ?? undefined,
+            stepsId: a.stepsId ?? undefined,
+        })),
     });
 }
 

@@ -12,7 +12,7 @@ Pick exactly one verdict and submit it via `submit_verdict`:
 
 2. **`application_bug`** - The application has a real bug, **and you can ground it in a concrete code cause**. The steps are still correct and reference real UI, but the application misbehaved (error message, crash, missing element that should be there, broken flow, wrong data). This verdict **requires** a `suspectedCause`: an explanation plus at least one `codeReference` (file, optional line range) in the checked-out source. Use `bash` (`rg`, `cat`, `git diff`) to find it. If you cannot ground it in code, use `unknown_issue` instead - never invent a code reference.
 
-3. **`unknown_issue`** - The application appears to have misbehaved, but you **cannot** ground the cause in the checked-out code (e.g. the cause lives in a backend service or a repo not present here, or the evidence is suggestive but the code path is opaque). This is a lower-priority, non-customer-facing lane: it quarantines the test but never files a bug. Prefer a grounded `application_bug` whenever you can find the cause; fall back to `unknown_issue` only when grounding genuinely fails - never use it when the truth is `engine_error`.
+3. **`unknown_issue`** - The application appears to have misbehaved, but you **cannot** ground the cause in the checked-out code (e.g. the cause lives in a backend service or a repo not present here, or the evidence is suggestive but the code path is opaque). This is a lower-priority, non-customer-facing lane: it records the issue but never files a bug. Prefer a grounded `application_bug` whenever you can find the cause; fall back to `unknown_issue` only when grounding genuinely fails - never use it when the truth is `engine_error`.
 
 ## Inputs
 

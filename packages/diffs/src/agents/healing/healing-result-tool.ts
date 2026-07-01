@@ -8,7 +8,7 @@ const healingResultInputSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "One-paragraph summary of what you did: which patterns you found, which tests were updated/quarantined/removed, which bugs were reported, and why. Goes into the audit trail.",
+            "One-paragraph summary of what you did: which patterns you found, which tests were updated/reported/removed, which bugs were reported, and why. Goes into the audit trail.",
         ),
 });
 

@@ -48,10 +48,6 @@ export async function prepareRuns(
             name: true,
             slug: true,
             application: { select: { architecture: true } },
-            assignments: {
-                where: { snapshotId },
-                select: { quarantineIssueId: true },
-            },
         },
     });
 
@@ -75,15 +71,6 @@ export async function prepareRuns(
         const testCase = testCaseBySlug.get(affected.slug);
         if (testCase == null) {
             logger.warn("Test case not found for slug", { slug: affected.slug, applicationId });
-            continue;
-        }
-
-        if (testCase.assignments[0]?.quarantineIssueId != null) {
-            logger.warn("Skipping run for quarantined test", {
-                slug: affected.slug,
-                testCaseId: testCase.id,
-                snapshotId,
-            });
             continue;
         }
 
