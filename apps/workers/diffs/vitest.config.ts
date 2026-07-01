@@ -11,7 +11,9 @@ export default defineConfig({
     test: {
         include: ["src/**/*.test.ts", "test/**/*.test.ts", ...(includeEvals ? ["evals/**/*.eval.ts"] : [])],
         exclude: ["**/dist/**", "**/node_modules/**"],
-        env: { ...config({ path: join(__dirname, "../../../.env") }).parsed },
+        // TESTING=true makes packages/db/src/env.ts skip its DATABASE_URL validation at
+        // import (createClient/applyMigrations take an explicit connection string instead).
+        env: { ...config({ path: join(__dirname, "../../../.env") }).parsed, TESTING: "true" },
         watch: false,
         // Eval suites share one on-disk repo cache via `ensureCachedCheckout`; running
         // two suites in parallel processes would race on `.git/index.lock`. Force

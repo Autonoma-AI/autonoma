@@ -15,6 +15,7 @@
         "check": "oxlint --fix . && oxfmt --write .",
         "typecheck": "turbo run typecheck",
         "test": "turbo run test",
+        "test:integration": "turbo run test:integration",
         "db:generate": "turbo run db:generate",
         "db:migrate": "turbo run db:migrate --filter=@autonoma/db",
         "agent:execute": "pnpm --filter @autonoma/api agent:execute",

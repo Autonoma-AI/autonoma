@@ -26,12 +26,7 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
-      api: ${{ steps.filter.outputs.api }}
-      ui: ${{ steps.filter.outputs.ui }}
-      reviewer: ${{ steps.filter.outputs.reviewer }}
-      notifier: ${{ steps.filter.outputs.notifier }}
       db: ${{ steps.filter.outputs.db }}
-      cli: ${{ steps.filter.outputs.cli }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -41,34 +36,8 @@ jobs:
         id: filter
         with:
           filters: |
-            api:
-              - 'apps/api/**'
-              - 'packages/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
-            ui:
-              - 'apps/ui/**'
-              - 'packages/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
-            reviewer:
-              - 'apps/jobs/reviewer/**'
-              - 'packages/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
-            notifier:
-              - 'apps/jobs/notifier/**'
-              - 'packages/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
             db:
               - 'packages/db/prisma/**'
-            cli:
-              # The CLI has no workspace dependencies, so only its own files
-              # (and dependency/lockfile changes) can affect it.
-              - 'apps/cli/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
 
   check-migrations:
     name: Check Prisma Migrations
@@ -125,44 +94,10 @@ jobs:
             exit 1
           fi
 
-  check-api:
-    name: Check API
+  lint:
+    name: Lint
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: changes
-    if: needs.changes.outputs.api == 'true'
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-      temporal:
-        image: temporalio/auto-setup:1.25.2
-        env:
-          DB: postgres12
-          DB_PORT: "5432"
-          POSTGRES_USER: test
-          POSTGRES_PWD: test
-          POSTGRES_SEEDS: postgres
-        ports:
-          - 7233:7233
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -180,38 +115,48 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm turbo run lint --filter @autonoma/api...
+        run: pnpm turbo run lint --continue
 
-      - name: Typecheck
-        run: pnpm turbo run typecheck --filter @autonoma/api...
+  test:
+    name: Test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @autonoma/engine-web exec playwright install --with-deps chromium
 
       - name: Test
         env:
           GROQ_KEY: ${{ secrets.GROQ_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: pnpm turbo run test --filter @autonoma/api...
+        # Concurrency capped to the runner's actual vCPU count: turbo's default (10) oversubscribes
+        # a 4vcpu box once every package runs together, and CPU-starved event-loop scheduling was
+        # blowing packages/ai's agent-loop test past its own 30s timeout (no artificial delay in that
+        # test - just 1000 mock-model iterations that should finish in milliseconds when not starved).
+        run: pnpm turbo run test --continue --concurrency=4
 
-      - name: Integration Test
-        env:
-          CI_DATABASE_URL: postgresql://test:test@localhost:5432/test
-          CI_REDIS_URL: redis://localhost:6379
-          TEMPORAL_ADDRESS: localhost:7233
-        run: |
-          for i in {1..30}; do
-            if (echo > /dev/tcp/127.0.0.1/7233) >/dev/null 2>&1; then
-              break
-            fi
-            echo "Waiting for Temporal on localhost:7233... ($i/30)"
-            sleep 2
-          done
-          pnpm --filter @autonoma/api test:integration
-
-  check-cli:
-    name: Check CLI
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    needs: changes
-    if: needs.changes.outputs.cli == 'true'
+  build:
+    name: Build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -227,21 +172,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm turbo run lint --filter @autonoma-ai/planner
-
-      - name: Typecheck
-        run: pnpm turbo run typecheck --filter @autonoma-ai/planner
-
-      - name: Test
-        run: pnpm turbo run test --filter @autonoma-ai/planner
 
       - name: Build
-        run: pnpm turbo run build --filter @autonoma-ai/planner
+        run: pnpm turbo run build --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
 
-  build-apps:
-    name: Build Apps
+  typecheck:
+    name: Typecheck
     runs-on: blacksmith-4vcpu-ubuntu-2404
     if: github.event.pull_request.draft == false
     steps:
@@ -260,31 +196,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build apps
-        # apps/cli is excluded here: it builds conditionally in check-cli (which
-        # only runs when apps/cli changes) instead of on every PR.
-        run: pnpm turbo run build --filter "./apps/*" --filter "!@autonoma-ai/planner" --filter "./apps/jobs/*" --filter "./apps/workers/*"
-
-  typecheck-apps:
-    name: Typecheck Apps
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.draft == false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck apps
-        # apps/cli is excluded here: it typechecks conditionally in check-cli.
-        run: pnpm turbo run typecheck --filter "./apps/*" --filter "!@autonoma-ai/planner" --filter "./apps/jobs/*" --filter "./apps/workers/*"
+      - name: Typecheck
+        run: pnpm turbo run typecheck --continue

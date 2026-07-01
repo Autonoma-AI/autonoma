@@ -24,6 +24,10 @@
             "cache": false,
             "passThroughEnv": ["*"]
         },
+        "test:integration": {
+            "cache": false,
+            "passThroughEnv": ["*"]
+        },
         "db:generate": {
             "cache": false
         },
