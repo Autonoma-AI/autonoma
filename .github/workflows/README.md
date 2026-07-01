@@ -75,7 +75,7 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Triggers on `pull_request` events (`opened`, `reopened`, `ready_for_review`, `synchronize`) and only runs on non-draft, non-bot, same-repo PRs (fork PRs are skipped because secrets are not exposed to them)
 - Runs the OpenCode GitHub Action (`anomalyco/opencode/github`, pinned to a commit SHA) with the `openrouter/z-ai/glm-5.2` model to review the diff and post comments only (it never modifies files)
 - Authenticates the model with `OPENROUTER_API_KEY` and posts via the built-in `GITHUB_TOKEN` (`use_github_token: true`), so the OpenCode GitHub App does not need to be installed
-- The prompt checks for bugs/security/edge cases, convention violations against the root and nested `CLAUDE.md` files plus the `ui-conventions` skill, and documentation left stale by the change
+- The prompt checks for bugs/security/edge cases, inefficient database queries (work that should be pushed down into Prisma/SQL instead of done in JS, and unbounded `findMany`/`SELECT` calls that risk OOM), convention violations against the root and nested `CLAUDE.md` files plus the `ui-conventions` skill, and documentation left stale by the change
 - `cancel-in-progress` concurrency drops in-flight reviews when new commits land, so a burst of pushes does not pile up reviews
 - Requires the `OPENROUTER_API_KEY` repo secret (already used by `ci.yml`)
 

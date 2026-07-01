@@ -57,6 +57,19 @@ jobs:
 
             Focus on, in priority order:
             - Bugs, security issues, and unhandled edge cases.
+            - Database queries (Prisma / raw SQL): flag work the database
+              should be doing that was pulled into application code instead.
+              Filtering, joining, aggregating (count/sum/group-by),
+              deduplicating, sorting, or picking a max/latest row that is done
+              in JS after a broad fetch should be pushed down into the query -
+              it is faster and less error-prone, even when the resulting query
+              is more complex. Prefer `where`/`select`/relation filters,
+              `groupBy`, `_count`, `aggregate`, `distinct`, and `orderBy` +
+              `take` over fetching rows and looping. Most importantly, flag any
+              `findMany` (or raw `SELECT`) with no `take`/`LIMIT` and no
+              bounded `where` - an unbounded result set can OOM and crash the
+              server as the table grows. Treat a missing limit on a
+              potentially large table as [BUG][HIGH].
             - Convention violations: read the root CLAUDE.md and any nested
               CLAUDE.md under the changed packages/apps, and for changes under
               apps/ui read the ui-conventions skill
