@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.10](https://github.com/Autonoma-AI/agent/compare/v1.8.9...v1.8.10) (2026-07-01)
+
+
+### Bug Fixes
+
+* **api:** resolve legacy investigation reports keyed to the PR snapshot ([#1212](https://github.com/Autonoma-AI/agent/issues/1212)) ([1f4d1c9](https://github.com/Autonoma-AI/agent/commit/1f4d1c96ffc1a1a5e368b0f60c1a860f6ad5f7ad))
+* **cli:** fail fast on unsupported Node instead of a cryptic styleText crash ([#1211](https://github.com/Autonoma-AI/agent/issues/1211)) ([53dd52e](https://github.com/Autonoma-AI/agent/commit/53dd52e5b666dc63ebd6211b6ca72bccfa32303b))
+
 ## [1.8.9](https://github.com/Autonoma-AI/agent/compare/v1.8.8...v1.8.9) (2026-06-30)
 
 
