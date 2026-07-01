@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.14...cli-v0.1.15) (2026-06-30)
+
+
+### Features
+
+* managed LLM proxy so the planner CLI runs on Autonoma credits ([#1194](https://github.com/Autonoma-AI/agent/issues/1194)) ([9e07e7a](https://github.com/Autonoma-AI/agent/commit/9e07e7ac8bccd157317ab5ea729edd7083be3717))
+
 ## [0.1.14](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.13...cli-v0.1.14) (2026-06-30)
 
 

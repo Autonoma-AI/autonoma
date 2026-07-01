@@ -1,6 +1,6 @@
 {
     "name": "@autonoma-ai/planner",
-    "version": "0.1.14",
+    "version": "0.1.15",
     "description": "Autonoma test planner - generate E2E test cases for any frontend codebase.",
     "bin": {
         "autonoma-planner": "dist/index.js"
