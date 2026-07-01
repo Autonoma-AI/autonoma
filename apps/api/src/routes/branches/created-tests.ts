@@ -89,7 +89,7 @@ export async function loadCreatedTests(
             select: assignmentSelect,
         }),
         db.testGeneration.findMany({
-            where: { snapshotId, testPlan: { testCaseId: { in: createdTestCaseIds } } },
+            where: { snapshotId, shadow: false, testPlan: { testCaseId: { in: createdTestCaseIds } } },
             select: generationSelect,
         }),
         db.run.findMany({

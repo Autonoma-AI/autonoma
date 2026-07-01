@@ -744,6 +744,12 @@ model TestGeneration {
   finalScreenshot String?          @map("final_screenshot")
   videoUrl        String?          @map("video_url")
 
+  /// A shadow generation created by the investigation agent (not a real user/diffs generation). Shadow rows
+  /// are excluded from every user-facing generation view and from the refinement loop's per-test-case dedup,
+  /// so orphaned `pending` shadow rows (the investigation workflow can stop mid-run) never pollute the
+  /// customer's UI or trip the "one plan per test case" invariant.
+  shadow Boolean @default(false) @map("shadow")
+
   /// Structured failure detail. Set iff status == failed (for rows created
   /// after this column existed; historical failed rows have null). System
   /// failures (scenario_setup, engine_error) carry a message and render in the

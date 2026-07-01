@@ -49,7 +49,9 @@ export async function createValidationGeneration(
     });
 
     const generation = await db.testGeneration.create({
-        data: { testPlanId: draftPlan.id, snapshotId, organizationId: meta.organizationId },
+        // shadow: a validation probe, never a real user/diffs generation - keep it out of the customer's
+        // generation UI and the refinement loop's dedup (see the shadow marker on TestGeneration).
+        data: { testPlanId: draftPlan.id, snapshotId, organizationId: meta.organizationId, shadow: true },
         select: { id: true },
     });
 

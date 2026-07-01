@@ -284,7 +284,7 @@ async function loadGenerations(
 ): Promise<RefinementGenerationRow[]> {
     if (planIds.size === 0) return [];
     return await db.testGeneration.findMany({
-        where: { snapshotId, testPlanId: { in: [...planIds] } },
+        where: { snapshotId, shadow: false, testPlanId: { in: [...planIds] } },
         orderBy: { createdAt: "asc" },
         select: {
             id: true,

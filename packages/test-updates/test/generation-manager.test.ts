@@ -55,6 +55,38 @@ testUpdateSuite({
             expect(pending[0]?.planId).toBe(secondPlanId);
         });
 
+        test("addJob: ignores investigation shadow generations (never counts or deletes them)", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+            const manager = harness.generationManagerFor(draft);
+
+            const { planId } = await draft.addTestCase({
+                folderId,
+                name: "Shadow coexist",
+                description: "Tests shadow exclusion",
+                plan: "The plan",
+            });
+
+            // An investigation shadow pending generation for the same plan on the same snapshot.
+            const shadow = await harness.db.testGeneration.create({
+                data: { testPlanId: planId, snapshotId: draft.snapshotId, organizationId, shadow: true },
+                select: { id: true },
+            });
+
+            await manager.addJob(planId);
+
+            // The dedup must not see the shadow row: only the real generation is pending.
+            const pending = await manager.getPendingGenerations();
+            expect(pending).toHaveLength(1);
+            expect(pending[0]?.planId).toBe(planId);
+
+            // And the shadow row must still exist - addJob's per-test-case replace did not delete it.
+            const shadowStill = await harness.db.testGeneration.findUnique({ where: { id: shadow.id } });
+            expect(shadowStill?.shadow).toBe(true);
+        });
+
         test("addJob: handles multiple test cases independently", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },

@@ -180,6 +180,8 @@ export class SnapshotEditService extends Service {
             where: {
                 snapshotId: updater.snapshotId,
                 status: "pending",
+                // Never queue/charge for investigation shadow generations - they are provisioned separately.
+                shadow: false,
             },
             select: {
                 id: true,

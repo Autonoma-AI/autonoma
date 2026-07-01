@@ -152,6 +152,7 @@ class BucketerHarness implements IntegrationHarness {
         organizationId: string;
         status: GenerationStatus;
         failure?: PrismaJson.GenerationFailure;
+        shadow?: boolean;
     }): Promise<{ generationId: string }> {
         const generation = await this.db.testGeneration.create({
             data: {
@@ -160,6 +161,7 @@ class BucketerHarness implements IntegrationHarness {
                 organizationId: args.organizationId,
                 status: args.status,
                 failure: args.failure,
+                shadow: args.shadow ?? false,
             },
         });
         return { generationId: generation.id };
@@ -449,6 +451,51 @@ bucketerSuite((test) => {
                 runReviewId: undefined,
             },
         ]);
+    });
+
+    test("ignores investigation shadow generations when picking the latest generation per plan", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshot(organizationId, applicationId);
+
+        const plan = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+            prompt: "a genuinely regressed test",
+        });
+
+        // The real generation is a healable engine_error failure.
+        const { generationId: realGenId } = await harness.createGeneration({
+            planId: plan.planId,
+            snapshotId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "engine_error", message: "the engine threw mid-run" },
+        });
+
+        // A NEWER investigation shadow generation with a scenario_setup failure. If it were picked as the
+        // latest generation for this plan, the outcome would route to systemBlocked (un-healable) instead of
+        // failuresAtGeneration - bucketing off the internal A/B measurement instead of the real run.
+        await harness.createGeneration({
+            planId: plan.planId,
+            snapshotId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
+            shadow: true,
+        });
+
+        const iterationId = await harness.createIteration({ organizationId, snapshotId, planIds: [plan.planId] });
+
+        const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
+
+        // The real engine_error generation wins, so the plan stays healable and the shadow's scenario_setup
+        // never routes it to systemBlocked.
+        expect(outcomes.systemBlocked).toEqual([]);
+        expect(outcomes.failuresAtGeneration.map((f) => f.failureKey)).toEqual([realGenId]);
     });
 
     test("throws when an input plan has neither a generation nor a run", async ({

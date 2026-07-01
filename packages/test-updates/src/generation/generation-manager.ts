@@ -366,7 +366,10 @@ export class GenerationManager {
      */
     private async fetchGenerations() {
         return this.db.testGeneration.findMany({
-            where: { snapshotId: this.snapshotId },
+            // Exclude investigation shadow generations: they are never queued through this manager and their
+            // orphaned `pending` rows must not be treated as stale real generations (which would delete them)
+            // or counted toward the per-test-case dedup / "one plan per test case" invariant.
+            where: { snapshotId: this.snapshotId, shadow: false },
             select: {
                 id: true,
                 status: true,

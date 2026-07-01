@@ -62,7 +62,10 @@ export async function bucketPlanOutcomes(
     }
 
     const generations = await db.testGeneration.findMany({
-        where: { testPlanId: { in: planIds }, snapshotId },
+        // Exclude investigation shadow generations: this picks the latest generation per plan, so a newer
+        // shadow row on an in-scope plan would bucket the outcome off the internal A/B measurement instead of
+        // the real run. Consistent with pendingGenerationPlanIds / fetchGenerations.
+        where: { testPlanId: { in: planIds }, snapshotId, shadow: false },
         orderBy: { createdAt: "desc" },
         select: {
             id: true,

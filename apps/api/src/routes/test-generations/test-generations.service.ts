@@ -22,10 +22,11 @@ export class TestGenerationsService extends Service {
             where: {
                 id: generationId,
                 organizationId,
-                // Shadow generations live on the detached investigation twin (a snapshot with a
-                // non-null investigationParent). They are an internal A/B measurement, not part of
-                // the customer's suite, so they 404 even by direct id - same hiding rule the
-                // branch/snapshot read surface applies.
+                // Shadow generations are an internal A/B measurement, not part of the customer's suite, so they
+                // 404 even by direct id. The `shadow` flag is the per-row guard (it also catches shadow rows
+                // that land on the PR's active snapshot, not just the detached investigation twin, which the
+                // `investigationParent` snapshot filter alone would miss).
+                shadow: false,
                 snapshot: { investigationParent: { is: null } },
             },
             select: {
@@ -243,7 +244,9 @@ export class TestGenerationsService extends Service {
         this.logger.info("Deleting generation", { generationId, organizationId });
 
         const generation = await this.db.testGeneration.findFirst({
-            where: { id: generationId, organizationId },
+            // Shadow generations are internal measurement rows, not addressable by the customer - same hiding
+            // rule as getGenerationDetail, so a guessed id cannot delete one.
+            where: { id: generationId, organizationId, shadow: false },
             select: { outputsId: true, testPlan: { select: { testCaseId: true } } },
         });
         if (generation == null) return;
@@ -272,8 +275,10 @@ export class TestGenerationsService extends Service {
         const generations = await this.db.testGeneration.findMany({
             where: {
                 organizationId,
-                // Exclude shadow generations on the detached investigation twin - they are an
-                // internal A/B measurement, not part of the customer's suite history.
+                // Exclude investigation shadow generations - an internal A/B measurement, not part of the
+                // customer's suite history. The `shadow` flag is the per-row guard (it also catches shadow rows
+                // on the PR's active snapshot, which the `investigationParent` snapshot filter alone misses).
+                shadow: false,
                 snapshot: { investigationParent: { is: null } },
                 ...(applicationId != null ? { testPlan: { testCase: { applicationId } } } : {}),
             },
@@ -297,6 +302,11 @@ export class TestGenerationsService extends Service {
                 },
             },
             orderBy: { createdAt: "desc" },
+            // `test_generation` grows monotonically with runs, so bound this to the most recent window to avoid
+            // loading an org/app's entire generation history into memory (OOM risk at scale). The UI renders a
+            // recent-first list and only polls while a generation is active - active rows are always the newest,
+            // so they stay within the window. Replace with real pagination if the list ever needs to page back.
+            take: 500,
         });
 
         this.logger.info("Generations listed", { count: generations.length });

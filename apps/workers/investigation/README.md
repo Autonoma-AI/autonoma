@@ -56,4 +56,10 @@ touches real PRs until deliberately enabled), plus the shared DB / Temporal / S3
   "unavailable" note and the classifier degrades gracefully. The high-value tools (codebase, prior runs,
   run_script, preview env, vision) are fully wired.
 - Web apps only (shadow generations run on the web worker); non-web tests are skipped.
-- Shadow `TestGeneration` rows are real rows - see the shadow-row marker follow-up before enabling broadly.
+- Shadow `TestGeneration` rows are real rows, but carry `shadow = true` so they are excluded from every
+  user-facing generation view and from the refinement loop's per-test-case dedup/invariant. The `shadow` flag
+  (not the investigation-parent snapshot filter) is the authoritative guard: shadow rows can land on the PR's
+  *active* snapshot, not just the detached investigation twin, so the twin-snapshot separation alone does not
+  hide them. The investigation workflow can stop mid-run and orphan un-run shadow rows in `pending`; the marker
+  keeps those invisible so they never pollute the customer's UI. (A reaper for the orphaned rows is a possible
+  follow-up; today they are harmless because they are filtered everywhere.)

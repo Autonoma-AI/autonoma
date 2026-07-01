@@ -112,7 +112,11 @@ async function createShadowGeneration(
     if (application.architecture !== "WEB") return undefined;
 
     const generation = await db.testGeneration.create({
-        data: { testPlanId: pinned.planId, snapshotId, organizationId: context.organizationId },
+        // shadow: this row is created by the investigation agent, not a real user/diffs generation. It must
+        // stay invisible to the customer's generation UI and to the refinement loop's dedup - the workflow can
+        // stop mid-run and orphan un-run shadow rows in `pending`, and without this marker they are
+        // indistinguishable from real pending generations.
+        data: { testPlanId: pinned.planId, snapshotId, organizationId: context.organizationId, shadow: true },
         select: { id: true },
     });
 

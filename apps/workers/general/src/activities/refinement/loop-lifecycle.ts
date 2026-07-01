@@ -163,8 +163,10 @@ async function diffsReplayPlanIds(tx: Prisma.TransactionClient, snapshotId: stri
 
 /** The snapshot's pending generations, one plan id per generation (deduped + invariant-checked). */
 async function pendingGenerationPlanIds(tx: Prisma.TransactionClient, snapshotId: string): Promise<string[]> {
+    // Exclude investigation shadow generations: they are queued outside addJob and can orphan in `pending`, so
+    // counting them here would both break the per-test-case invariant below and pull them into the loop's scope.
     const pending = await tx.testGeneration.findMany({
-        where: { snapshotId, status: "pending" },
+        where: { snapshotId, status: "pending", shadow: false },
         select: { testPlanId: true },
     });
 

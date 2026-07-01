@@ -140,9 +140,19 @@ class CutoverHarness implements IntegrationHarness {
         return { runId };
     }
 
-    async createPendingGeneration(args: { organizationId: string; snapshotId: string; planId: string }): Promise<void> {
+    async createPendingGeneration(args: {
+        organizationId: string;
+        snapshotId: string;
+        planId: string;
+        shadow?: boolean;
+    }): Promise<void> {
         await this.db.testGeneration.create({
-            data: { snapshotId: args.snapshotId, testPlanId: args.planId, organizationId: args.organizationId },
+            data: {
+                snapshotId: args.snapshotId,
+                testPlanId: args.planId,
+                organizationId: args.organizationId,
+                shadow: args.shadow ?? false,
+            },
         });
     }
 
@@ -262,6 +272,32 @@ cutoverSuite((test) => {
         // the opposite of the diffs branch above, which seeds replays and skips it.
         expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([a.planId, b.planId].sort());
         expect(result.runFirstIterationPipeline).toBe(true);
+    });
+
+    test("investigation shadow pending generations are invisible to loop init (no invariant break, not in scope)", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+
+        const real = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+        await harness.createPendingGeneration({ organizationId, snapshotId, planId: real.planId });
+
+        // A shadow generation for the SAME plan would trip the "one pending generation per plan" invariant if
+        // it were counted; a shadow generation for a DIFFERENT plan would wrongly enter iteration 1's scope.
+        await harness.createPendingGeneration({ organizationId, snapshotId, planId: real.planId, shadow: true });
+        const shadowOnly = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+        });
+        await harness.createPendingGeneration({ organizationId, snapshotId, planId: shadowOnly.planId, shadow: true });
+
+        // Must not throw the duplicate-plan invariant, and iteration 1 sees only the real plan.
+        const result = await initRefinementLoop({ snapshotId, triggeredBy: "onboarding" });
+
+        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([real.planId]);
     });
 
     test("remove_test drops the test from the suite for this snapshot", async ({
