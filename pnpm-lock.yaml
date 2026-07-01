@@ -182,6 +182,9 @@ importers:
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@autonoma/checkpoint':
+        specifier: workspace:*
+        version: link:../../packages/checkpoint
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -583,6 +586,9 @@ importers:
 
   apps/jobs/run-completion-notification:
     dependencies:
+      '@autonoma/checkpoint':
+        specifier: workspace:*
+        version: link:../../../packages/checkpoint
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db
@@ -592,6 +598,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../../../packages/types
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -1361,6 +1370,40 @@ importers:
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/checkpoint:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@autonoma/integration-test':
+        specifier: workspace:*
+        version: link:../integration-test
+      '@testcontainers/postgresql':
+        specifier: ^11.12.0
+        version: 11.12.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/db:
     dependencies:

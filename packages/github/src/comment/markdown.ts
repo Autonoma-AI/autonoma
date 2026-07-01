@@ -4,6 +4,7 @@ import type {
     AutonomaCommentEvidence,
     AutonomaCommentPayload,
     AutonomaCommentState,
+    AutonomaCommentStats,
 } from "./types";
 
 const STATE_LABELS: Record<AutonomaCommentState, string> = {
@@ -148,20 +149,46 @@ function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
     const stats = payload.stats;
     if (stats == null && payload.duration == null && payload.bugs.length === 0) return undefined;
 
-    const tests = stats?.selected != null ? String(stats.selected) : "-";
-    const duration = payload.duration ?? "-";
+    // Fields mirror the in-app checkpoint row order (failed, setup-failed,
+    // running/awaiting-review, passed, bugs) so the comment reads the same as the
+    // UI for the same snapshot.
+    const fields = [`**Tests** \`${testsCount(stats)}\``];
 
-    const passRate =
-        stats?.selected == null || stats.selected === 0 || stats.passed == null
-            ? "-"
-            : `${Math.round((stats.passed / stats.selected) * 100)}%`;
-
-    const fields = [`**Tests** \`${tests}\``, `**Pass rate** \`${passRate}\``];
+    if (stats != null) {
+        if (stats.failed != null && stats.failed > 0) fields.push(`**Failed** \`${stats.failed}\``);
+        if (stats.setupFailed != null && stats.setupFailed > 0)
+            fields.push(`**Setup failed** \`${stats.setupFailed}\``);
+        if (stats.running != null && stats.running > 0)
+            fields.push(`**${titleCase(stats.runningLabel ?? "running")}** \`${stats.running}\``);
+        if (stats.passed != null && stats.passed > 0) fields.push(`**Passed** \`${stats.passed}\``);
+    }
     if (payload.bugs.length > 0) fields.push(`**Bugs** \`${payload.bugs.length}\``);
-    if (stats?.failed != null) fields.push(`**Failed** \`${stats.failed}\``);
-    fields.push(`**Duration** \`${inlineCodeContent(duration)}\``);
+
+    fields.push(`**Pass rate** \`${passRate(stats)}\``);
+    fields.push(`**Duration** \`${inlineCodeContent(payload.duration ?? "-")}\``);
 
     return fields.join(" &nbsp;&nbsp; ");
+}
+
+function testsCount(stats: AutonomaCommentStats | undefined): string {
+    if (stats?.assigned != null) return String(stats.assigned);
+    if (stats?.selected != null) return String(stats.selected);
+    return "-";
+}
+
+// Pass rate over the tests that reached a terminal pass/fail, so a not-run or
+// in-flight checkpoint shows "-" instead of a misleading 0%.
+function passRate(stats: AutonomaCommentStats | undefined): string {
+    const passed = stats?.passed;
+    if (passed == null) return "-";
+    const completed = passed + (stats?.failed ?? 0);
+    if (completed === 0) return "-";
+    return `${Math.round((passed / completed) * 100)}%`;
+}
+
+function titleCase(value: string): string {
+    if (value.length === 0) return value;
+    return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function renderBugList(payload: AutonomaCommentPayload): string {

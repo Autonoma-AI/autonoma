@@ -16,6 +16,7 @@ import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
+import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type Bug = RouterOutputs["bugs"]["listByPr"][number];
@@ -104,7 +105,11 @@ function LatestCheckpointTests({ snapshotId, totalTests }: { snapshotId: string;
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold text-text-primary">Latest checkpoint</h2>
-      <CheckpointTestsRun executedTests={detail.executedTests} totalTests={totalTests} />
+      <CheckpointTestsRun
+        executedTests={detail.executedTests}
+        totalTests={totalTests}
+        executionState={detail.summary?.executionState}
+      />
     </section>
   );
 }
@@ -189,21 +194,10 @@ function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLates
       </div>
       <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
       <span className="font-mono text-2xs text-text-tertiary">
-        {checkpointMetricText(snapshot.healthCounts, snapshot.bugCount)}
+        {formatCheckpointMetrics(snapshot.summary, snapshot.bugCount, snapshot.healthCounts.totalTests)}
       </span>
     </div>
   );
-}
-
-function checkpointMetricText(counts: Snapshot["healthCounts"], bugCount: number): string {
-  const parts: string[] = [];
-  if (counts.failing > 0) parts.push(`${counts.failing} failed`);
-  if (counts.setupFailed > 0) parts.push(`${counts.setupFailed} setup failed`);
-  if (counts.running > 0) parts.push(`${counts.running} running`);
-  if (counts.passing > 0) parts.push(`${counts.passing} passed`);
-  if (bugCount > 0) parts.push(`${bugCount} ${bugCount === 1 ? "bug" : "bugs"}`);
-  if (parts.length > 0) return parts.join(" · ");
-  return `${counts.totalTests} tests`;
 }
 
 function MainBranchSkeleton() {

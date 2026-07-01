@@ -1,6 +1,6 @@
 import type { IssueKind, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./snapshot-executed-tests";
+import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./executed-tests";
 
 export type SnapshotHealth = "healthy" | "critical" | "running" | "unknown";
 

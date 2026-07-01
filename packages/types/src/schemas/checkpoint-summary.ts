@@ -51,3 +51,16 @@ export const checkpointPresentationSummarySchema = z.object({
     suiteChangeCount: z.number(),
 });
 export type CheckpointPresentationSummary = z.infer<typeof checkpointPresentationSummarySchema>;
+
+/**
+ * The word for the unresolved/in-flight test bucket. The bucket means "in flight"
+ * only while the snapshot is still processing; on a stale (superseded) snapshot it
+ * means runs finished but were never reviewed. Shared by every surface that names
+ * this bucket - the UI checkpoint rail, the test-run breakdown, the snapshot-report
+ * header, and the GitHub PR comment - so the same snapshot never reads "running" in
+ * one place and "awaiting review" in another. Defaults to "running" when the
+ * execution state is unknown.
+ */
+export function unresolvedBucketLabel(executionState: CheckpointExecutionState | undefined): string {
+    return executionState === "stale" ? "awaiting review" : "running";
+}

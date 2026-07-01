@@ -1,7 +1,6 @@
+import { tallyExecutedTests, type SnapshotExecutedTest } from "@autonoma/checkpoint";
 import type { Logger } from "@autonoma/logger";
 import type { ReportTestStatus, SnapshotReportResults, SnapshotReportTestResult } from "@autonoma/types";
-import type { SnapshotExecutedTest } from "./snapshot-executed-tests";
-import { tallyExecutedTests } from "./snapshot-health";
 
 // The checkpoint report header ("X tests run, Y passed, Z failed"), the executed-tests list
 // rendered below it, the checkpoint history rail, and the cumulative PR card must all agree.

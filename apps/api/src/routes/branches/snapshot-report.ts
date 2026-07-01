@@ -1,13 +1,17 @@
+import {
+    aggregateSnapshotHealth,
+    buildCheckpointSummary,
+    computeSnapshotHealth,
+    countOpenBugsBySnapshot,
+    listExecutedTestsForSnapshot,
+} from "@autonoma/checkpoint";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { Logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
-import { buildCheckpointSummary } from "./checkpoint-summary";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
-import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
-import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
 import { loadBugsForSnapshot } from "./snapshot-report-bugs";
 import { buildResultsBlock } from "./snapshot-report-results";
 import { buildTriggerBlock } from "./snapshot-report-trigger";
@@ -77,11 +81,12 @@ export async function loadSnapshotReport({
     };
     const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts);
 
-    const [trigger, executedTests, bugs, firstIterationReasoning] = await Promise.all([
+    const [trigger, executedTests, bugs, firstIterationReasoning, openBugCountBySnapshot] = await Promise.all([
         buildTriggerBlock({ snapshot, github, organizationId, logger }),
         listExecutedTestsForSnapshot(db, snapshotId),
         loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
         loadFirstIterationReasoning(db, snapshotId, logger),
+        countOpenBugsBySnapshot(db, [snapshotId]),
     ]);
     const results = buildResultsBlock(executedTests, logger);
 
@@ -95,10 +100,13 @@ export async function loadSnapshotReport({
 
     const openBugs = bugs.filter((b) => b.status === "open");
     const issueOccurrenceCount = openBugs.reduce((sum, b) => sum + b.occurrences, 0);
+    // Open-bug count comes from the shared `countOpenBugsBySnapshot` (the same
+    // source the PR list and GitHub comment use) so the report agrees with them.
+    const openBugCount = openBugCountBySnapshot.get(snapshotId) ?? 0;
     const summary = buildCheckpointSummary({
         snapshotStatus: snapshot.status,
         counts: healthCounts,
-        openBugCount: openBugs.length,
+        openBugCount,
         issueOccurrenceCount,
         failingByKind: healthEntry?.failingByKind ?? { engine: 0, app: 0 },
     });

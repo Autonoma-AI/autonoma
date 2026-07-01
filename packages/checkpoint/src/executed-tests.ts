@@ -6,7 +6,7 @@ import type {
     RunReviewVerdict,
     RunStatus,
 } from "@autonoma/db";
-import { computeIterationOutcomes } from "./refinement-loop";
+import { computeIterationOutcomes } from "./refinement-outcomes";
 
 export type SnapshotExecutedTestFinalOutcome = "passed" | "failed" | "setup_failed" | "unresolved";
 

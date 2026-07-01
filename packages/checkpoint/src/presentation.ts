@@ -4,7 +4,7 @@ import type {
     CheckpointPresentationSummary,
     CheckpointTone,
 } from "@autonoma/types";
-import type { SnapshotHealthCounts } from "./snapshot-health";
+import type { SnapshotHealthCounts } from "./health";
 
 export interface BuildCheckpointSummaryInputs {
     snapshotStatus: string;
@@ -22,7 +22,7 @@ const RUNNING_STATUS = "processing";
 
 /**
  * Derives the presentation summary consumed by the PR list, PR detail header, checkpoint rows,
- * checkpoint history, and the checkpoint report from already-loaded counts.
+ * checkpoint history, the checkpoint report, and the GitHub PR comment from already-loaded counts.
  */
 export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): CheckpointPresentationSummary {
     const { snapshotStatus, counts, openBugCount, failingByKind } = inputs;

@@ -46,9 +46,17 @@ function defaultHeadline(state: AutonomaCommentState, bugCount: number, failedCo
 
 function buildStats(tests: PayloadBuilderInput["tests"]): AutonomaCommentStats | undefined {
     if (tests == null) return undefined;
-    const { selected, passed, failed, skipped } = tests;
-    if (selected == null && passed == null && failed == null && skipped == null) return undefined;
-    return { selected, passed, failed, skipped };
+    const { assigned, selected, passed, failed, setupFailed, running, runningLabel, skipped } = tests;
+    const allEmpty =
+        assigned == null &&
+        selected == null &&
+        passed == null &&
+        failed == null &&
+        setupFailed == null &&
+        running == null &&
+        skipped == null;
+    if (allEmpty) return undefined;
+    return { assigned, selected, passed, failed, setupFailed, running, runningLabel, skipped };
 }
 
 function buildCtas(input: PayloadBuilderInput): AutonomaCommentCta[] {

@@ -54,9 +54,16 @@ export const AutonomaCommentAddonSchema = z.object({
 export type AutonomaCommentAddon = z.infer<typeof AutonomaCommentAddonSchema>;
 
 export const AutonomaCommentStatsSchema = z.object({
+    // Total assigned tests (shown as "Tests"); falls back to `selected` when absent.
+    assigned: z.number().int().nonnegative().optional(),
     selected: z.number().int().nonnegative().optional(),
     passed: z.number().int().nonnegative().optional(),
     failed: z.number().int().nonnegative().optional(),
+    setupFailed: z.number().int().nonnegative().optional(),
+    // Unresolved / in-flight tests. `runningLabel` carries the word for this bucket
+    // ("running" vs "awaiting review") so the comment matches the UI vocabulary.
+    running: z.number().int().nonnegative().optional(),
+    runningLabel: z.string().optional(),
     skipped: z.number().int().nonnegative().optional(),
 });
 export type AutonomaCommentStats = z.infer<typeof AutonomaCommentStatsSchema>;
@@ -90,9 +97,13 @@ export type PayloadBuilderInput = {
     addons?: AutonomaCommentAddon[];
     bugs?: AutonomaCommentBug[];
     tests?: {
+        assigned?: number;
         selected?: number;
         passed?: number;
         failed?: number;
+        setupFailed?: number;
+        running?: number;
+        runningLabel?: string;
         skipped?: number;
     };
     message?: string;

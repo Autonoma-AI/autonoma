@@ -1,3 +1,17 @@
+import {
+    aggregateSnapshotHealth,
+    buildCheckpointSummary,
+    computeFailingByKind,
+    computeSnapshotHealth,
+    countOpenBugsBySnapshot,
+    failingExecutionIds,
+    type FailingByKind,
+    listExecutedTestsForSnapshot,
+    loadIssueKindsForExecutions,
+    type SnapshotExecutedTest,
+    type SnapshotHealthCounts,
+    tallyExecutedTests,
+} from "@autonoma/checkpoint";
 import type { Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
@@ -21,21 +35,9 @@ import type { GitHubInstallationService } from "../../github/github-installation
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
-import { buildCheckpointSummary } from "./checkpoint-summary";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadRefinementLoop } from "./refinement-loop";
-import { listExecutedTestsForSnapshot, type SnapshotExecutedTest } from "./snapshot-executed-tests";
-import {
-    aggregateSnapshotHealth,
-    computeFailingByKind,
-    computeSnapshotHealth,
-    type FailingByKind,
-    failingExecutionIds,
-    loadIssueKindsForExecutions,
-    type SnapshotHealthCounts,
-    tallyExecutedTests,
-} from "./snapshot-health";
 import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
 
@@ -180,7 +182,10 @@ export class BranchesService extends Service {
 
         const [healthBySnapshot, bugCountBySnapshot, previewUrlByPr] = await Promise.all([
             aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-            this.countOpenBugsBySnapshot(activeSnapshots.map((s) => s.id)),
+            countOpenBugsBySnapshot(
+                this.db,
+                activeSnapshots.map((s) => s.id),
+            ),
             this.loadPreviewUrlsByPr(
                 applicationId,
                 organizationId,
@@ -393,7 +398,7 @@ export class BranchesService extends Service {
                 snapshots.map((s) => ({ id: s.id, status: s.status })),
                 this.logger,
             ),
-            this.countOpenBugsBySnapshot(snapshotIds),
+            countOpenBugsBySnapshot(this.db, snapshotIds),
         ]);
 
         return snapshots.map((snapshot, index) => {
@@ -417,41 +422,6 @@ export class BranchesService extends Service {
                 }),
             };
         });
-    }
-
-    private async countOpenBugsBySnapshot(snapshotIds: string[]): Promise<Map<string, number>> {
-        if (snapshotIds.length === 0) return new Map();
-
-        const issues = await this.db.issue.findMany({
-            where: {
-                bug: { status: "open" },
-                OR: [
-                    { generationReview: { is: { generation: { snapshotId: { in: snapshotIds } } } } },
-                    { runReview: { is: { run: { assignment: { snapshotId: { in: snapshotIds } } } } } },
-                ],
-            },
-            select: {
-                bugId: true,
-                generationReview: { select: { generation: { select: { snapshotId: true } } } },
-                runReview: { select: { run: { select: { assignment: { select: { snapshotId: true } } } } } },
-            },
-        });
-
-        const bugIdsBySnapshot = new Map<string, Set<string>>();
-        for (const issue of issues) {
-            if (issue.bugId == null) continue;
-            const snapshotId =
-                issue.generationReview?.generation.snapshotId ?? issue.runReview?.run.assignment.snapshotId;
-            if (snapshotId == null) continue;
-            let bugIds = bugIdsBySnapshot.get(snapshotId);
-            if (bugIds == null) {
-                bugIds = new Set();
-                bugIdsBySnapshot.set(snapshotId, bugIds);
-            }
-            bugIds.add(issue.bugId);
-        }
-
-        return new Map([...bugIdsBySnapshot].map(([snapshotId, bugIds]) => [snapshotId, bugIds.size]));
     }
 
     async getBranchByPr(applicationId: string, prNumber: number, organizationId: string) {
@@ -598,7 +568,7 @@ export class BranchesService extends Service {
             listExecutedTestsForSnapshot(this.db, snapshotId),
             this.db.testCaseAssignment.count({ where: { snapshotId } }),
             createdTestsPromise,
-            this.countOpenBugsBySnapshot([snapshotId]),
+            countOpenBugsBySnapshot(this.db, [snapshotId]),
         ]);
         const counts = this.computeHealthCounts(assignmentCount, executedTests);
         const health = computeSnapshotHealth(snapshot.status, counts);

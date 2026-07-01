@@ -1,7 +1,9 @@
 import { Badge, cn } from "@autonoma/blacklight";
+import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
 import { ExecutedTestLink } from "./executed-test-link";
+import { unresolvedLabel } from "./outcome-vocab";
 
 type ExecutedTest = RouterOutputs["branches"]["snapshotDetail"]["executedTests"][number];
 type RunStatus = ExecutedTest["status"];
@@ -12,11 +14,20 @@ type VerdictBadgeVariant = "success" | "warn" | "critical" | "secondary";
 interface CheckpointTestsRunProps {
   executedTests: ExecutedTest[];
   totalTests: number;
+  // Drives the unresolved-bucket wording ("running" vs "awaiting review") so the
+  // breakdown header agrees with the checkpoint rail row for the same snapshot.
+  executionState?: CheckpointPresentationSummary["executionState"];
   maxRows?: number;
   className?: string;
 }
 
-export function CheckpointTestsRun({ executedTests, totalTests, maxRows, className }: CheckpointTestsRunProps) {
+export function CheckpointTestsRun({
+  executedTests,
+  totalTests,
+  executionState,
+  maxRows,
+  className,
+}: CheckpointTestsRunProps) {
   if (executedTests.length === 0) {
     return (
       <div className={cn("border border-border-dim bg-surface-void px-4 py-4 text-sm text-text-secondary", className)}>
@@ -39,7 +50,7 @@ export function CheckpointTestsRun({ executedTests, totalTests, maxRows, classNa
         return (
           <div key={group.label} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2 font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary">
-              <span>{group.label}</span>
+              <span>{group.outcomes.includes("unresolved") ? unresolvedLabel(executionState) : group.label}</span>
               <span>·</span>
               <span>{executedTests.filter((test) => group.outcomes.includes(test.finalOutcome)).length}</span>
             </div>

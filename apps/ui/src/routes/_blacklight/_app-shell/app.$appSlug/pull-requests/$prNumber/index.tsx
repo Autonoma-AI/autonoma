@@ -30,6 +30,7 @@ import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointSummaryBadge } from "../-components/checkpoint-summary-badge";
 import { ExecutedTestLink } from "../-components/executed-test-link";
+import { formatCheckpointMetrics } from "../-components/format-checkpoint-metrics";
 import { PRDetailHeader } from "../-components/pr-detail-header";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
@@ -700,7 +701,7 @@ function CheckpointRailItem({
       </div>
       <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
       <span className="font-mono text-2xs text-text-tertiary">
-        {checkpointMetricText(snapshot.healthCounts, snapshot.summary?.openBugCount ?? snapshot.bugCount)}
+        {formatCheckpointMetrics(snapshot.summary, snapshot.bugCount, snapshot.healthCounts.totalTests)}
       </span>
     </AppLink>
   );
@@ -713,17 +714,6 @@ function dotStatusForTone(
   if (tone === "critical") return "critical";
   if (tone === "warning") return "warn";
   return "neutral";
-}
-
-function checkpointMetricText(counts: SnapshotDetail["healthCounts"], bugCount: number): string {
-  const parts: string[] = [];
-  if (counts.failing > 0) parts.push(`${counts.failing} failed`);
-  if (counts.setupFailed > 0) parts.push(`${counts.setupFailed} setup failed`);
-  if (counts.running > 0) parts.push(`${counts.running} running`);
-  if (counts.passing > 0) parts.push(`${counts.passing} passed`);
-  if (bugCount > 0) parts.push(`${bugCount} ${bugCount === 1 ? "bug" : "bugs"}`);
-  if (parts.length > 0) return parts.join(" · ");
-  return `${counts.totalTests} tests`;
 }
 
 function CheckpointRailItemSkeleton({ snapshot }: { snapshot: Snapshot }) {

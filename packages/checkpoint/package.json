@@ -1,31 +1,29 @@
 {
-    "name": "@autonoma/job-run-completion-notification",
+    "name": "@autonoma/checkpoint",
     "version": "0.0.1",
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts",
-        "./generation-exit": "./src/handlers/generation-exit.ts"
+        ".": "./src/index.ts"
     },
     "scripts": {
-        "build": "tsup",
+        "build": "tsc",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
+        "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
-        "@autonoma/checkpoint": "workspace:*",
         "@autonoma/db": "workspace:*",
-        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
-        "@sentry/node": "catalog:",
-        "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
-        "tsup": "^8.5.1",
+        "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }

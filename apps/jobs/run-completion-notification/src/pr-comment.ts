@@ -1,3 +1,4 @@
+import { getCheckpointSummaries } from "@autonoma/checkpoint";
 import { db, type Prisma } from "@autonoma/db";
 import { type GitHubAppCredentials, OctokitGitHubApp } from "@autonoma/github";
 import {
@@ -9,10 +10,10 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
+import { type CheckpointPresentationSummary, unresolvedBucketLabel } from "@autonoma/types";
 import { z } from "zod";
 import { env } from "./env";
 import { collectBugsForComment, type CommentIssueForBug } from "./pr-comment-bugs";
-import { collectTestStatsForComment, type CommentTestAssignmentForResult } from "./pr-comment-results";
 
 const INCOMPLETE_GENERATION_STATUSES = new Set(["pending", "queued", "running"]);
 
@@ -226,8 +227,14 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
         explicitAssetBaseUrl: env.GITHUB_COMMENT_ASSET_BASE_URL,
         appUrl: resolveAppUrl(),
     });
+    // Derive the metrics from the same shared source the UI uses, so the comment's
+    // counts, state, and vocabulary match what the dashboard shows for this snapshot.
+    const summaries = await getCheckpointSummaries(db, [{ id: snapshot.id, status: snapshot.status }], log);
+    const summary = summaries.get(snapshot.id);
+
     const payloadInput = buildPayloadInput({
         snapshot,
+        summary,
         prNumber,
         previewUrl,
         summaryUrl,
@@ -249,21 +256,19 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
 
 function buildPayloadInput({
     snapshot,
+    summary,
     prNumber,
     previewUrl,
     summaryUrl,
     assetBaseUrl,
 }: {
     snapshot: GenerationForComment["snapshot"];
+    summary: CheckpointPresentationSummary | undefined;
     prNumber: number;
     previewUrl: string | undefined;
     summaryUrl: string | undefined;
     assetBaseUrl: string | undefined;
 }): PayloadBuilderInput {
-    const { selected, passed, failed } = collectTestStatsForComment({
-        testGenerations: snapshot.testGenerations,
-        testCaseAssignments: snapshot.testCaseAssignments satisfies CommentTestAssignmentForResult[],
-    });
     const bugs = collectBugsForComment([
         ...snapshot.testGenerations.map((testGeneration) => testGeneration.generationReview?.issue ?? null),
         ...snapshot.testCaseAssignments.flatMap((assignment) =>
@@ -271,23 +276,67 @@ function buildPayloadInput({
         ),
     ] satisfies CommentIssueForBug[]);
 
-    const state: AutonomaCommentState = bugs.length > 0 || failed > 0 ? "critical" : "healthy";
+    const executionState = summary?.executionState;
+    const isCritical = bugs.length > 0 || executionState === "failed" || executionState === "pipeline_failed";
     const payloadInput: PayloadBuilderInput = {
-        state,
+        state: commentStateFor(executionState, isCritical),
         prNumber,
         commitSha: snapshot.headSha ?? undefined,
         assetBaseUrl,
         previewUrl,
         summaryUrl,
         bugs,
-        tests: { selected, passed, failed },
+        tests: summary != null ? statsFromSummary(summary) : undefined,
     };
-    // The healthy/critical headlines match payloadBuilder's defaults, so only the
-    // "tests failed but no bug was filed" case needs distinct copy.
-    if (failed > 0 && bugs.length === 0) {
-        payloadInput.message = "Autonoma could not complete every selected test in this PR.";
-    }
+
+    const message = headlineFromSummary(summary, bugs.length);
+    if (message != null) payloadInput.message = message;
     return payloadInput;
+}
+
+// Maps the shared checkpoint execution state onto the comment's status pill.
+function commentStateFor(
+    executionState: CheckpointPresentationSummary["executionState"] | undefined,
+    isCritical: boolean,
+): AutonomaCommentState {
+    if (isCritical) return "critical";
+    if (executionState === "passed") return "healthy";
+    if (executionState === "running" || executionState === "not_started" || executionState === "stale") {
+        return "running";
+    }
+    return "unknown";
+}
+
+// The comment stats line mirrors the in-app checkpoint row exactly.
+function statsFromSummary(summary: CheckpointPresentationSummary): NonNullable<PayloadBuilderInput["tests"]> {
+    const tc = summary.testCounts;
+    return {
+        assigned: tc.assigned,
+        passed: tc.passed,
+        failed: tc.failed,
+        setupFailed: tc.setupFailed,
+        running: tc.running,
+        runningLabel: unresolvedBucketLabel(summary.executionState),
+    };
+}
+
+// Bug headlines, the healthy headline, and the unknown headline are covered by
+// payloadBuilder's defaults; only the in-progress and failed states need copy.
+function headlineFromSummary(summary: CheckpointPresentationSummary | undefined, bugCount: number): string | undefined {
+    if (summary == null || bugCount > 0 || summary.openBugCount > 0) return undefined;
+    switch (summary.executionState) {
+        case "not_started":
+            return "Autonoma has not run the selected tests for this checkpoint yet.";
+        case "running":
+            return "Autonoma is running the selected tests for this PR.";
+        case "stale":
+            return "These results are from an earlier commit - a rerun is pending.";
+        case "failed":
+        case "pipeline_failed":
+            return "Autonoma could not complete every selected test in this PR.";
+        default:
+            return undefined;
+    }
 }
 
 function buildSnapshotSummaryUrl({ appSlug, prNumber }: { appSlug: string; prNumber: number }): string {

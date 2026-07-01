@@ -24,6 +24,7 @@
         "@autonoma/analytics": "workspace:*",
         "@autonoma/auth": "workspace:*",
         "@autonoma/billing": "workspace:*",
+        "@autonoma/checkpoint": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",

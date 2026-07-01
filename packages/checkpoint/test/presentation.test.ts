@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckpointSummary } from "../../../src/routes/branches/checkpoint-summary";
-import type { SnapshotHealthCounts } from "../../../src/routes/branches/snapshot-health";
+import type { SnapshotHealthCounts } from "../src/health";
+import { buildCheckpointSummary } from "../src/presentation";
 
 function counts(overrides: Partial<SnapshotHealthCounts> = {}): SnapshotHealthCounts {
     return {

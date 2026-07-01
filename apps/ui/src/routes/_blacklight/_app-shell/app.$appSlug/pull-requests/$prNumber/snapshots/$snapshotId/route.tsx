@@ -37,6 +37,7 @@ import { Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointSummaryBadge } from "../../../-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
+import { unresolvedLabel } from "../../../-components/outcome-vocab";
 
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 
@@ -164,7 +165,11 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           {report.results.setupFailed > 0 && (
             <span className="text-status-warn">{report.results.setupFailed} setup failed</span>
           )}
-          {report.results.running > 0 && <span>{report.results.running} running</span>}
+          {report.results.running > 0 && (
+            <span>
+              {report.results.running} {unresolvedLabel(report.summary?.executionState)}
+            </span>
+          )}
           {report.results.pending > 0 && <span>{report.results.pending} pending</span>}
           <span>commit range:</span>
           <ShaRange baseSha={report.snapshot.baseSha ?? null} headSha={report.snapshot.headSha ?? null} />
@@ -244,7 +249,11 @@ function TestsRunPanel({ detail }: { detail: SnapshotDetail }) {
         <PanelTitle>Tests run</PanelTitle>
       </PanelHeader>
       <PanelBody>
-        <CheckpointTestsRun executedTests={detail.executedTests} totalTests={detail.healthCounts.totalTests} />
+        <CheckpointTestsRun
+          executedTests={detail.executedTests}
+          totalTests={detail.healthCounts.totalTests}
+          executionState={detail.summary?.executionState}
+        />
       </PanelBody>
     </Panel>
   );

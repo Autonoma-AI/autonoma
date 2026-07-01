@@ -173,6 +173,47 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**UNKNOWN** - Build failed in \\*api\\*");
     });
 
+    it("does not show a pass rate for a not-run checkpoint", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "running",
+                prNumber: 42,
+                tests: { assigned: 39, passed: 0, failed: 0 },
+            }),
+        );
+
+        expect(markdown).toContain("**Tests** `39`");
+        expect(markdown).toContain("**Pass rate** `-`");
+        expect(markdown).not.toContain("`0%`");
+    });
+
+    it("labels the unresolved bucket as awaiting review when the job says so", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "running",
+                prNumber: 42,
+                tests: { assigned: 39, passed: 0, failed: 0, running: 7, runningLabel: "awaiting review" },
+            }),
+        );
+
+        expect(markdown).toContain("**Awaiting review** `7`");
+        expect(markdown).not.toContain("**Running** `7`");
+    });
+
+    it("surfaces setup-failed tests as their own stat", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "critical",
+                prNumber: 42,
+                tests: { assigned: 5, passed: 1, failed: 1, setupFailed: 2 },
+            }),
+        );
+
+        expect(markdown).toContain("**Setup failed** `2`");
+        expect(markdown).toContain("**Failed** `1`");
+        expect(markdown).toContain("**Passed** `1`");
+    });
+
     it("renders markdown-safe user-provided content and fences code blocks longer than embedded backtick runs", () => {
         const markdown = renderMarkdown(
             payloadBuilder({
