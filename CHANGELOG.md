@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.8.9](https://github.com/Autonoma-AI/agent/compare/v1.8.8...v1.8.9) (2026-06-30)
+
+
+### Features
+
+* **cli:** integrate @autonoma-ai/planner into the monorepo ([#1176](https://github.com/Autonoma-AI/agent/issues/1176)) ([38bb20f](https://github.com/Autonoma-AI/agent/commit/38bb20f54f1487780893e20c3cd921932c4d214b))
+* **investigation:** scope test selection to the snapshot's assigned tests ([#1180](https://github.com/Autonoma-AI/agent/issues/1180)) ([6dcef18](https://github.com/Autonoma-AI/agent/commit/6dcef1881b23f9c4a6d388083a8b8020e31922de))
+* managed LLM proxy so the planner CLI runs on Autonoma credits ([#1194](https://github.com/Autonoma-AI/agent/issues/1194)) ([9e07e7a](https://github.com/Autonoma-AI/agent/commit/9e07e7ac8bccd157317ab5ea729edd7083be3717))
+* opt-in TLS for the postgres recipe (options.ssl) ([#1175](https://github.com/Autonoma-AI/agent/issues/1175)) ([22a6100](https://github.com/Autonoma-AI/agent/commit/22a610091d5dd40e1de08926ef7ce0317f2a0396))
+* persist dedicated description as test intent on AI-authored paths ([#1163](https://github.com/Autonoma-AI/agent/issues/1163)) ([cd03361](https://github.com/Autonoma-AI/agent/commit/cd033614df1499902d0e5a6ea63f088de9213c78))
+* **previewkit:** build-speed Grafana dashboard + filterable finish marker ([#1178](https://github.com/Autonoma-AI/agent/issues/1178)) ([f1cf042](https://github.com/Autonoma-AI/agent/commit/f1cf042332eba5e3e70176b2be6aeea7900a75d3))
+* remove user-facing updateDescription path for test cases ([#1161](https://github.com/Autonoma-AI/agent/issues/1161)) ([a8c1a2b](https://github.com/Autonoma-AI/agent/commit/a8c1a2b5d3dffca376798babe60f18cf47f662d1))
+* require a creation-only description in the add-test dialog ([#1162](https://github.com/Autonoma-AI/agent/issues/1162)) ([320f0b2](https://github.com/Autonoma-AI/agent/commit/320f0b2a6f937e84bedafc8a07aa9b120b7be591))
+* require TestCase description at the type and Zod boundary ([#1188](https://github.com/Autonoma-AI/agent/issues/1188)) ([e8939fc](https://github.com/Autonoma-AI/agent/commit/e8939fccba0718c74f91a90c7f406d7b67a1597f))
+* separate snapshot for the investigation workflow ([#1204](https://github.com/Autonoma-AI/agent/issues/1204)) ([28afa83](https://github.com/Autonoma-AI/agent/commit/28afa832915406e344f3640ad35d3169cec98ec1))
+* thread uploaded test description through artifact ingestion ([#1164](https://github.com/Autonoma-AI/agent/issues/1164)) ([bcd2777](https://github.com/Autonoma-AI/agent/commit/bcd27772aba131da9e6ec56418eb5cb052dd52ab))
+* **ui:** move CLI artifacts step before SDK validation in finish setup ([#1183](https://github.com/Autonoma-AI/agent/issues/1183)) ([d973192](https://github.com/Autonoma-AI/agent/commit/d973192e5d3ff13e27ce58e7300fb6e49bd2b210))
+
+
+### Bug Fixes
+
+* **cli:** decouple CLI release-please from the root flow ([#1184](https://github.com/Autonoma-AI/agent/issues/1184)) ([c626482](https://github.com/Autonoma-AI/agent/commit/c62648233a5fccac7cbc9f184b3c2668daa8dc9e))
+* **cli:** use CLI_NPM_TOKEN secret for npm publish ([#1189](https://github.com/Autonoma-AI/agent/issues/1189)) ([fc4f706](https://github.com/Autonoma-AI/agent/commit/fc4f706117e141fee3ddc0c61495dd91df679f82))
+* gate previewkit rollout on ESO secret sync to stop managed discover 401s ([#1153](https://github.com/Autonoma-AI/agent/issues/1153)) ([ffccfb2](https://github.com/Autonoma-AI/agent/commit/ffccfb240df8ba69592b3760ce16a3611ae21b91))
+* **previewkit:** make hooks optional ([#1190](https://github.com/Autonoma-AI/agent/issues/1190)) ([4b42efd](https://github.com/Autonoma-AI/agent/commit/4b42efd157d405e2f6ce57b9b71e9393f93b9416))
+* tolerate missing assignment when quarantining or removing a test ([#1181](https://github.com/Autonoma-AI/agent/issues/1181)) ([cfc593b](https://github.com/Autonoma-AI/agent/commit/cfc593b1f1f7009663b2127160869fde99b7ff47))
+
 ## [1.8.8](https://github.com/Autonoma-AI/agent/compare/v1.8.7...v1.8.8) (2026-06-30)
 
 
