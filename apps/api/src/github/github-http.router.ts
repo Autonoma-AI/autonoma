@@ -36,17 +36,39 @@ githubHttpRouter.use("*", async (ctx, next) => {
 githubHttpRouter.get("/callback", async (ctx) => {
     const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 
-    const installationId = Number(ctx.req.query("installation_id"));
+    const installationIdRaw = ctx.req.query("installation_id");
+    const installationId = Number(installationIdRaw);
     const setupAction = ctx.req.query("setup_action");
     const state = ctx.req.query("state");
 
     if (Number.isNaN(installationId) || setupAction !== "install") {
+        // A genuine GitHub install redirect always carries installation_id and setup_action. The most
+        // common cause of landing here with those present is setup_action=update/request (reconfiguring
+        // or approval-gated installs on an org that already has the app) - which we currently reject.
+        // Bare hits with no install params are almost always bots/scanners/health probes, so only the
+        // former is escalated to fatal (routes to Sentry -> Slack); the latter is logged quietly.
+        const looksLikeGitHubRedirect = installationIdRaw != null || setupAction != null || state != null;
+        const logContext = {
+            extra: { installationIdRaw, setupAction, hasState: state != null },
+        };
+        if (looksLikeGitHubRedirect) {
+            logger.fatal(
+                "GitHub install callback rejected: expected setup_action=install with a numeric installation_id",
+                logContext,
+            );
+        } else {
+            logger.info("GitHub callback hit without install params (likely a bot or direct request)", logContext);
+        }
         return ctx.redirect(`${appUrl}?error=invalid_callback`);
     }
 
     const statePayload = state != null ? verifyInstallState(state) : undefined;
     if (statePayload == null) {
-        logger.warn("GitHub callback: missing or invalid state", { installationId });
+        // Reached only after the install-params check passed, so this is a real GitHub redirect whose
+        // signed state is missing/expired/tampered - escalate to fatal so it reaches Slack.
+        logger.fatal("GitHub install callback rejected: missing or invalid signed state", {
+            extra: { installationId, hasState: state != null },
+        });
         return ctx.redirect(`${appUrl}?error=invalid_state`);
     }
     const { organizationId, returnPath } = statePayload;
