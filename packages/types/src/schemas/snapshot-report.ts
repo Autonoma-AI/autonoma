@@ -81,7 +81,6 @@ export const snapshotReportHealthCountsSchema = z.object({
     passing: z.number(),
     running: z.number(),
     setupFailed: z.number(),
-    quarantined: z.number(),
     notAffected: z.number(),
     totalTests: z.number(),
 });

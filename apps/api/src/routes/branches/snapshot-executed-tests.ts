@@ -89,11 +89,11 @@ export async function listExecutedTestsForSnapshot(
 ): Promise<SnapshotExecutedTest[]> {
     const [assignments, runs, generations, refinementLoop] = await Promise.all([
         db.testCaseAssignment.findMany({
-            where: { snapshotId, quarantineIssueId: null },
+            where: { snapshotId },
             select: assignmentSelect,
         }),
         db.run.findMany({
-            where: { assignment: { snapshotId, quarantineIssueId: null } },
+            where: { assignment: { snapshotId } },
             select: runSelect,
         }),
         db.testGeneration.findMany({
@@ -102,7 +102,7 @@ export async function listExecutedTestsForSnapshot(
                 testPlan: {
                     testCase: {
                         assignments: {
-                            some: { snapshotId, quarantineIssueId: null },
+                            some: { snapshotId },
                         },
                     },
                 },
@@ -134,11 +134,11 @@ export async function listExecutedTestsForSnapshots(
 
     const [assignments, runs, generations, refinementLoops] = await Promise.all([
         db.testCaseAssignment.findMany({
-            where: { snapshotId: { in: snapshotIds }, quarantineIssueId: null },
+            where: { snapshotId: { in: snapshotIds } },
             select: { ...assignmentSelect, snapshotId: true },
         }),
         db.run.findMany({
-            where: { assignment: { snapshotId: { in: snapshotIds }, quarantineIssueId: null } },
+            where: { assignment: { snapshotId: { in: snapshotIds } } },
             select: runSelect,
         }),
         db.testGeneration.findMany({
@@ -147,7 +147,7 @@ export async function listExecutedTestsForSnapshots(
                 testPlan: {
                     testCase: {
                         assignments: {
-                            some: { snapshotId: { in: snapshotIds }, quarantineIssueId: null },
+                            some: { snapshotId: { in: snapshotIds } },
                         },
                     },
                 },

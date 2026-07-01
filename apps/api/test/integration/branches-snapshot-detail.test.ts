@@ -6,7 +6,9 @@ import type { APITestHarness } from "../harness";
 apiTestSuite({
     name: "branches.snapshotDetail",
     cases: (test) => {
-        test("returns executed test rows matching snapshot health counts", async ({ harness }) => {
+        test("returns executed test rows matching snapshot health counts, counting a formerly-quarantined test", async ({
+            harness,
+        }) => {
             const fixture = await createSnapshotDetailFixture(harness);
             const olderRunTime = new Date("2026-01-01T10:00:00Z");
             const latestRunTime = new Date("2026-01-01T11:00:00Z");
@@ -24,20 +26,22 @@ apiTestSuite({
                 },
             });
             await createRun(harness, fixture.assignments.running.id, "running", latestRunTime);
+            // The formerly-quarantined assignment still carries the deprecated quarantineIssueId,
+            // but is no longer excluded: its run counts in the tally and appears in the rows.
             await createRun(harness, fixture.assignments.quarantined.id, "success", latestRunTime);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
             expect(detail.healthCounts).toMatchObject({
-                passing: 1,
+                passing: 2,
                 failing: 1,
                 running: 1,
-                quarantined: 1,
                 totalTests: 4,
             });
             expect(detail.executedTests.map((row) => row.testCase.slug).sort()).toEqual([
                 "failing-check",
                 "passing-check",
+                "quarantined-check",
                 "running-check",
             ]);
 
@@ -56,6 +60,58 @@ apiTestSuite({
             });
         });
 
+        test("attributes failing tests with a linked Issue to engine vs app by issue kind", async ({ harness }) => {
+            const fixture = await createSnapshotDetailFixture(harness);
+            const at = new Date("2026-01-01T11:00:00Z");
+
+            // An engine-limitation failure: failed run -> review -> engine_limitation Issue.
+            const engineRun = await createRun(harness, fixture.assignments.failing.id, "failed", at);
+            const engineReview = await harness.db.runReview.create({
+                data: {
+                    runId: engineRun.id,
+                    status: "completed",
+                    verdict: "engine_error",
+                    organizationId: harness.organizationId,
+                },
+            });
+            await harness.db.issue.create({
+                data: {
+                    kind: "engine_limitation",
+                    severity: "low",
+                    title: "Engine cannot interact with the canvas element",
+                    description: "The drawing surface is not addressable by the driver.",
+                    runReviewId: engineReview.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            // An application-bug failure: failed run -> review -> application_bug Issue.
+            const appRun = await createRun(harness, fixture.assignments.quarantined.id, "failed", at);
+            const appReview = await harness.db.runReview.create({
+                data: {
+                    runId: appRun.id,
+                    status: "completed",
+                    verdict: "application_bug",
+                    organizationId: harness.organizationId,
+                },
+            });
+            await harness.db.issue.create({
+                data: {
+                    kind: "application_bug",
+                    severity: "high",
+                    title: "Checkout crashes on submit",
+                    description: "Submitting the order throws a 500.",
+                    runReviewId: appReview.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.healthCounts.failing).toBe(2);
+            expect(detail.summary.failingByKind).toEqual({ engine: 1, app: 1 });
+        });
+
         test("returns no executed rows when assignments have not run", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Waiting check"] });
 
@@ -65,7 +121,6 @@ apiTestSuite({
                 passing: 0,
                 failing: 0,
                 running: 0,
-                quarantined: 0,
                 notAffected: 1,
                 totalTests: 1,
             });
@@ -188,11 +243,8 @@ apiTestSuite({
             });
         });
 
-        test("summary reads 'No runs' (neutral), not unhealthy, for engine quarantine with no runs and no bugs", async ({
-            harness,
-        }) => {
-            // Assigned tests, an engine-limitation quarantine, zero runs, zero open bugs. Must not
-            // present as "unhealthy · 0 bugs".
+        test("summary reads 'No runs' (neutral), not unhealthy, with no runs and no bugs", async ({ harness }) => {
+            // Assigned tests, zero runs, zero open bugs. Must not present as "unhealthy · 0 bugs".
             const fixture = await createSnapshotDetailFixture(harness);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
@@ -201,7 +253,7 @@ apiTestSuite({
             expect(detail.summary.tone).toBe("neutral");
             expect(detail.summary.label).toBe("No runs");
             expect(detail.summary.openBugCount).toBe(0);
-            expect(detail.summary.quarantine.engine).toBe(1);
+            expect(detail.summary.failingByKind).toEqual({ engine: 0, app: 0 });
         });
 
         test("resolves to the last completed outcome when a terminated loop has a trailing pending iteration", async ({

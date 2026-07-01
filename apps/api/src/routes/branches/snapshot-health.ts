@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { IssueKind, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./snapshot-executed-tests";
 
@@ -14,12 +14,17 @@ export interface SnapshotHealthCounts {
      * N tests", even though both drive the snapshot to `critical`.
      */
     setupFailed: number;
-    quarantined: number;
     notAffected: number;
     totalTests: number;
 }
 
-export interface QuarantineByKind {
+/**
+ * Engine-vs-app attribution of failing tests that carry a linked Issue, keyed by
+ * the Issue kind (`engine_limitation` -> engine; `application_bug` /
+ * `unknown_issue` -> app). Replaces the former quarantine split now that reported
+ * tests re-run every snapshot instead of being hidden.
+ */
+export interface FailingByKind {
     engine: number;
     app: number;
 }
@@ -27,7 +32,7 @@ export interface QuarantineByKind {
 export interface SnapshotHealthResult {
     health: SnapshotHealth;
     counts: SnapshotHealthCounts;
-    quarantineByKind: QuarantineByKind;
+    failingByKind: FailingByKind;
 }
 
 export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHealthCounts): SnapshotHealth {
@@ -37,7 +42,7 @@ export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHe
     if (snapshotStatus === "failed") return "critical";
     // Setup-failed tests yield no trustworthy signal - surface them as critical
     // so the user acts on them, even when nothing genuinely failed.
-    if (counts.failing > 0 || counts.quarantined > 0 || counts.setupFailed > 0) return "critical";
+    if (counts.failing > 0 || counts.setupFailed > 0) return "critical";
     if (counts.running > 0 || snapshotStatus === "processing") return "running";
     if (counts.passing > 0 || counts.notAffected > 0) return "healthy";
     return "unknown";
@@ -62,17 +67,97 @@ const OUTCOME_BUCKET: Record<SnapshotExecutedTest["finalOutcome"], keyof Execute
 };
 
 /**
- * Tallies executed tests into health/report buckets by final outcome, skipping
- * any quarantined test case. Shared by both health-count computations and the
- * report-results bucketer so all surfaces agree.
+ * Tallies executed tests into health/report buckets by final outcome. Shared by
+ * both health-count computations and the report-results bucketer so all surfaces
+ * agree.
  */
-export function tallyExecutedTests(tests: SnapshotExecutedTest[], quarantinedSet: Set<string>): ExecutedTestTally {
+export function tallyExecutedTests(tests: SnapshotExecutedTest[]): ExecutedTestTally {
     const tally: ExecutedTestTally = { passing: 0, failing: 0, setupFailed: 0, running: 0 };
     for (const test of tests) {
-        if (quarantinedSet.has(test.testCase.id)) continue;
         tally[OUTCOME_BUCKET[test.finalOutcome]] += 1;
     }
     return tally;
+}
+
+/** The Issue kind linked to an execution, keyed by the run or generation it reviewed. */
+export interface IssueKindsByExecution {
+    byRunId: Map<string, IssueKind>;
+    byGenerationId: Map<string, IssueKind>;
+}
+
+/**
+ * Splits the failing tests that carry a linked Issue into the engine-vs-app
+ * buckets. A test with no linked Issue (or a non-failing outcome) is ignored -
+ * the attribution is only meaningful for failures healing has already triaged.
+ * The Issue rides the review chain, so it is matched to the specific run or
+ * generation whose review it belongs to.
+ */
+export function computeFailingByKind(tests: SnapshotExecutedTest[], issueKinds: IssueKindsByExecution): FailingByKind {
+    const failingByKind: FailingByKind = { engine: 0, app: 0 };
+    for (const test of tests) {
+        if (test.finalOutcome !== "failed") continue;
+        const kind =
+            (test.runId != null ? issueKinds.byRunId.get(test.runId) : undefined) ??
+            (test.generationId != null ? issueKinds.byGenerationId.get(test.generationId) : undefined);
+        if (kind == null) continue;
+        if (kind === "engine_limitation") failingByKind.engine += 1;
+        else failingByKind.app += 1;
+    }
+    return failingByKind;
+}
+
+/**
+ * Loads the Issue kind for each of the given runs/generations. The Issue ->
+ * TestCase link rides the review chain (`runReviewId` / `generationReviewId`),
+ * so this matches on the reviewed run/generation directly rather than walking
+ * back to the snapshot - a shallow, single query the callers batch across every
+ * failing test.
+ */
+export async function loadIssueKindsForExecutions(
+    db: PrismaClient,
+    runIds: string[],
+    generationIds: string[],
+): Promise<IssueKindsByExecution> {
+    const result: IssueKindsByExecution = { byRunId: new Map(), byGenerationId: new Map() };
+    if (runIds.length === 0 && generationIds.length === 0) return result;
+
+    const issues = await db.issue.findMany({
+        where: {
+            OR: [
+                { runReview: { is: { runId: { in: runIds } } } },
+                { generationReview: { is: { generationId: { in: generationIds } } } },
+            ],
+        },
+        select: {
+            kind: true,
+            runReview: { select: { runId: true } },
+            generationReview: { select: { generationId: true } },
+        },
+    });
+
+    for (const issue of issues) {
+        if (issue.runReview != null) result.byRunId.set(issue.runReview.runId, issue.kind);
+        else if (issue.generationReview != null)
+            result.byGenerationId.set(issue.generationReview.generationId, issue.kind);
+    }
+    return result;
+}
+
+/** Collects the run/generation ids of the failing tests, deduplicated, for the issue-kind lookup. */
+export function failingExecutionIds(testsBySnapshot: Iterable<SnapshotExecutedTest[]>): {
+    runIds: string[];
+    generationIds: string[];
+} {
+    const runIds = new Set<string>();
+    const generationIds = new Set<string>();
+    for (const tests of testsBySnapshot) {
+        for (const test of tests) {
+            if (test.finalOutcome !== "failed") continue;
+            if (test.runId != null) runIds.add(test.runId);
+            else if (test.generationId != null) generationIds.add(test.generationId);
+        }
+    }
+    return { runIds: [...runIds], generationIds: [...generationIds] };
 }
 
 export async function aggregateSnapshotHealth(
@@ -89,51 +174,37 @@ export async function aggregateSnapshotHealth(
     const [assignments, executedTestsBySnapshot] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId: { in: snapshotIds } },
-            select: {
-                snapshotId: true,
-                testCaseId: true,
-                quarantineIssueId: true,
-                quarantineIssue: { select: { kind: true } },
-            },
+            select: { snapshotId: true, testCaseId: true },
         }),
         listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
+
+    const { runIds, generationIds } = failingExecutionIds(executedTestsBySnapshot.values());
+    const issueKinds = await loadIssueKindsForExecutions(db, runIds, generationIds);
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {
         const snapAssignments = assignments.filter((a) => a.snapshotId === snapshot.id);
         const totalTests = snapAssignments.length;
 
-        const quarantinedSet = new Set<string>();
-        let quarantineEngine = 0;
-        let quarantineApp = 0;
-        for (const a of snapAssignments) {
-            if (a.quarantineIssueId == null) continue;
-            quarantinedSet.add(a.testCaseId);
-            if (a.quarantineIssue?.kind === "engine_limitation") quarantineEngine += 1;
-            else quarantineApp += 1;
-        }
-
         const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
-        const tally = tallyExecutedTests(executedTests, quarantinedSet);
+        const tally = tallyExecutedTests(executedTests);
 
-        const quarantined = quarantinedSet.size;
         const replayed = tally.passing + tally.failing + tally.setupFailed + tally.running;
-        const notAffected = Math.max(totalTests - quarantined - replayed, 0);
+        const notAffected = Math.max(totalTests - replayed, 0);
 
         const counts: SnapshotHealthCounts = {
             failing: tally.failing,
             passing: tally.passing,
             running: tally.running,
             setupFailed: tally.setupFailed,
-            quarantined,
             notAffected,
             totalTests,
         };
         result.set(snapshot.id, {
             health: computeSnapshotHealth(snapshot.status, counts),
             counts,
-            quarantineByKind: { engine: quarantineEngine, app: quarantineApp },
+            failingByKind: computeFailingByKind(executedTests, issueKinds),
         });
     }
 

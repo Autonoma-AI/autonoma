@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // A derived view of a checkpoint/PR that keeps four concepts separate: open app bugs, execution
-// state, quarantine state (engine vs app), and suite changes.
+// state, engine-vs-app failure attribution, and suite changes.
 export const checkpointToneSchema = z.enum(["success", "critical", "warning", "neutral"]);
 export type CheckpointTone = z.infer<typeof checkpointToneSchema>;
 
@@ -28,12 +28,14 @@ export const checkpointTestCountsSchema = z.object({
 });
 export type CheckpointTestCounts = z.infer<typeof checkpointTestCountsSchema>;
 
-export const checkpointQuarantineCountsSchema = z.object({
-    total: z.number(),
+// Engine-vs-app attribution of failing tests that have a linked Issue: an
+// `engine_limitation` Issue counts as engine, `application_bug` / `unknown_issue`
+// as app. Replaces the former quarantine split now that reported tests re-run.
+export const checkpointFailingByKindSchema = z.object({
     engine: z.number(),
     app: z.number(),
 });
-export type CheckpointQuarantineCounts = z.infer<typeof checkpointQuarantineCountsSchema>;
+export type CheckpointFailingByKind = z.infer<typeof checkpointFailingByKindSchema>;
 
 export const checkpointPresentationSummarySchema = z.object({
     tone: checkpointToneSchema,
@@ -45,7 +47,7 @@ export const checkpointPresentationSummarySchema = z.object({
     // Raw application-issue occurrences.
     issueOccurrenceCount: z.number(),
     testCounts: checkpointTestCountsSchema,
-    quarantine: checkpointQuarantineCountsSchema,
+    failingByKind: checkpointFailingByKindSchema,
     suiteChangeCount: z.number(),
 });
 export type CheckpointPresentationSummary = z.infer<typeof checkpointPresentationSummarySchema>;

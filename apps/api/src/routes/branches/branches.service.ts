@@ -29,8 +29,11 @@ import { loadRefinementLoop } from "./refinement-loop";
 import { listExecutedTestsForSnapshot, type SnapshotExecutedTest } from "./snapshot-executed-tests";
 import {
     aggregateSnapshotHealth,
+    computeFailingByKind,
     computeSnapshotHealth,
-    type QuarantineByKind,
+    type FailingByKind,
+    failingExecutionIds,
+    loadIssueKindsForExecutions,
     type SnapshotHealthCounts,
     tallyExecutedTests,
 } from "./snapshot-health";
@@ -406,7 +409,6 @@ export class BranchesService extends Service {
                     passing: 0,
                     running: 0,
                     setupFailed: 0,
-                    quarantined: 0,
                     notAffected: snapshot._count.testCaseAssignments,
                     totalTests: snapshot._count.testCaseAssignments,
                 },
@@ -621,25 +623,20 @@ export class BranchesService extends Service {
             ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
             : Promise.resolve([]);
 
-        const [executedTests, assignmentsForHealth, createdTests, openBugCountBySnapshot] = await Promise.all([
+        const [executedTests, assignmentCount, createdTests, openBugCountBySnapshot] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
-            this.db.testCaseAssignment.findMany({
-                where: { snapshotId },
-                select: { testCaseId: true, quarantineIssueId: true },
-            }),
+            this.db.testCaseAssignment.count({ where: { snapshotId } }),
             createdTestsPromise,
             this.countOpenBugsBySnapshot([snapshotId]),
         ]);
-        const counts = this.computeHealthCounts(assignmentsForHealth, executedTests);
+        const counts = this.computeHealthCounts(assignmentCount, executedTests);
         const health = computeSnapshotHealth(snapshot.status, counts);
 
-        // Split quarantine by kind from the already-loaded quarantined assignments.
-        const quarantineByKind: QuarantineByKind = { engine: 0, app: 0 };
-        for (const a of testCaseAssignments) {
-            if (a.quarantineIssue == null) continue;
-            if (a.quarantineIssue.kind === "engine_limitation") quarantineByKind.engine += 1;
-            else quarantineByKind.app += 1;
-        }
+        // Attribute failing tests that carry a linked Issue to engine vs app by Issue kind. The
+        // lookup no-ops (no query) when nothing failed, keeping the all-green path query-flat.
+        const { runIds, generationIds } = failingExecutionIds([executedTests]);
+        const issueKinds = await loadIssueKindsForExecutions(this.db, runIds, generationIds);
+        const failingByKind = computeFailingByKind(executedTests, issueKinds);
         const suiteChangeCount = changes.filter(
             (c) => c.type === "added" || c.type === "updated" || c.type === "removed",
         ).length;
@@ -647,7 +644,7 @@ export class BranchesService extends Service {
             snapshotStatus: snapshot.status,
             counts,
             openBugCount: openBugCountBySnapshot.get(snapshotId) ?? 0,
-            quarantine: quarantineByKind,
+            failingByKind,
             suiteChangeCount,
         });
 
@@ -665,24 +662,17 @@ export class BranchesService extends Service {
         };
     }
 
-    private computeHealthCounts(
-        assignments: Array<{ testCaseId: string; quarantineIssueId: string | null }>,
-        executedTests: SnapshotExecutedTest[],
-    ): SnapshotHealthCounts {
-        const quarantinedSet = new Set(assignments.filter((a) => a.quarantineIssueId != null).map((a) => a.testCaseId));
-        const tally = tallyExecutedTests(executedTests, quarantinedSet);
+    private computeHealthCounts(totalTests: number, executedTests: SnapshotExecutedTest[]): SnapshotHealthCounts {
+        const tally = tallyExecutedTests(executedTests);
 
-        const quarantined = quarantinedSet.size;
         const replayed = tally.passing + tally.failing + tally.setupFailed + tally.running;
-        const totalTests = assignments.length;
-        const notAffected = Math.max(totalTests - quarantined - replayed, 0);
+        const notAffected = Math.max(totalTests - replayed, 0);
 
         return {
             failing: tally.failing,
             passing: tally.passing,
             running: tally.running,
             setupFailed: tally.setupFailed,
-            quarantined,
             notAffected,
             totalTests,
         };
@@ -886,7 +876,7 @@ function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchI
 // Maps a bulk `aggregateSnapshotHealth` result into the shared presentation summary.
 function summaryFromHealth(
     snapshotStatus: string,
-    healthResult: { counts: SnapshotHealthCounts; quarantineByKind: QuarantineByKind } | undefined,
+    healthResult: { counts: SnapshotHealthCounts; failingByKind: FailingByKind } | undefined,
     openBugCount: number,
     options?: { issueOccurrenceCount?: number; suiteChangeCount?: number },
 ): CheckpointPresentationSummary | undefined {
@@ -896,7 +886,7 @@ function summaryFromHealth(
         counts: healthResult.counts,
         openBugCount,
         issueOccurrenceCount: options?.issueOccurrenceCount,
-        quarantine: healthResult.quarantineByKind,
+        failingByKind: healthResult.failingByKind,
         suiteChangeCount: options?.suiteChangeCount,
     });
 }

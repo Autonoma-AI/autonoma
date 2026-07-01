@@ -8,7 +8,6 @@ function counts(overrides: Partial<SnapshotHealthCounts> = {}): SnapshotHealthCo
         passing: 0,
         running: 0,
         setupFailed: 0,
-        quarantined: 0,
         notAffected: 0,
         totalTests: 0,
         ...overrides,
@@ -16,33 +15,20 @@ function counts(overrides: Partial<SnapshotHealthCounts> = {}): SnapshotHealthCo
 }
 
 describe("buildCheckpointSummary", () => {
-    it("reports 'No runs' (neutral) when nothing ran, even with engine quarantine and no bugs", () => {
-        // Assigned tests, 0 runs, engine-limitation quarantine, 0 bugs.
+    it("reports 'No runs' (neutral) when nothing ran and passes the engine-vs-app split through", () => {
+        // Assigned tests, 0 runs, 0 bugs, an engine-attributed failing split from a prior run.
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
-            counts: counts({ totalTests: 63, quarantined: 27, notAffected: 36 }),
+            counts: counts({ totalTests: 63, notAffected: 63 }),
             openBugCount: 0,
-            quarantine: { engine: 27, app: 0 },
+            failingByKind: { engine: 27, app: 0 },
         });
 
         expect(summary.executionState).toBe("not_started");
         expect(summary.tone).toBe("neutral");
         expect(summary.label).toBe("No runs");
         expect(summary.openBugCount).toBe(0);
-        expect(summary.quarantine).toEqual({ total: 27, engine: 27, app: 0 });
-    });
-
-    it("never renders quarantine alone as critical or warning", () => {
-        // Inherited quarantine, 0 runs, 0 open bugs.
-        const summary = buildCheckpointSummary({
-            snapshotStatus: "active",
-            counts: counts({ totalTests: 209, quarantined: 79, notAffected: 130 }),
-            openBugCount: 0,
-            quarantine: { engine: 0, app: 79 },
-        });
-
-        expect(summary.tone).not.toBe("critical");
-        expect(summary.tone).not.toBe("warning");
+        expect(summary.failingByKind).toEqual({ engine: 27, app: 0 });
     });
 
     it("labels unique open bugs and surfaces occurrences separately", () => {
@@ -52,7 +38,7 @@ describe("buildCheckpointSummary", () => {
             counts: counts({ totalTests: 73, failing: 9, notAffected: 64 }),
             openBugCount: 9,
             issueOccurrenceCount: 15,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 9 },
         });
 
         expect(summary.tone).toBe("critical");
@@ -63,12 +49,11 @@ describe("buildCheckpointSummary", () => {
     });
 
     it("surfaces accepted suite changes while execution has not started", () => {
-        // 0 runs, accepted candidates, large quarantine.
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
-            counts: counts({ totalTests: 207, quarantined: 70, notAffected: 137 }),
+            counts: counts({ totalTests: 207, notAffected: 207 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 70 },
+            failingByKind: { engine: 0, app: 0 },
             suiteChangeCount: 3,
         });
 
@@ -82,7 +67,7 @@ describe("buildCheckpointSummary", () => {
             snapshotStatus: "failed",
             counts: counts({ totalTests: 10 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("pipeline_failed");
@@ -95,7 +80,7 @@ describe("buildCheckpointSummary", () => {
             snapshotStatus: "active",
             counts: counts({ totalTests: 5, failing: 2, passing: 3 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("failed");
@@ -108,7 +93,7 @@ describe("buildCheckpointSummary", () => {
             snapshotStatus: "active",
             counts: counts({ totalTests: 4, running: 1, passing: 3 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("stale");
@@ -120,7 +105,7 @@ describe("buildCheckpointSummary", () => {
             snapshotStatus: "processing",
             counts: counts({ totalTests: 4, running: 1 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("running");
@@ -132,7 +117,7 @@ describe("buildCheckpointSummary", () => {
             snapshotStatus: "active",
             counts: counts({ totalTests: 4, passing: 4 }),
             openBugCount: 0,
-            quarantine: { engine: 0, app: 0 },
+            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("passed");

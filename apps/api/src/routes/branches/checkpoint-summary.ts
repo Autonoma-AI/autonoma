@@ -1,4 +1,9 @@
-import type { CheckpointExecutionState, CheckpointPresentationSummary, CheckpointTone } from "@autonoma/types";
+import type {
+    CheckpointExecutionState,
+    CheckpointFailingByKind,
+    CheckpointPresentationSummary,
+    CheckpointTone,
+} from "@autonoma/types";
 import type { SnapshotHealthCounts } from "./snapshot-health";
 
 export interface BuildCheckpointSummaryInputs {
@@ -8,8 +13,8 @@ export interface BuildCheckpointSummaryInputs {
     openBugCount: number;
     // Raw application-issue occurrences; defaults to openBugCount when not separately known.
     issueOccurrenceCount?: number;
-    // Quarantine split by Issue.kind.
-    quarantine: { engine: number; app: number };
+    // Engine-vs-app attribution of failing tests that carry a linked Issue.
+    failingByKind: CheckpointFailingByKind;
     suiteChangeCount?: number;
 }
 
@@ -20,7 +25,7 @@ const RUNNING_STATUS = "processing";
  * checkpoint history, and the checkpoint report from already-loaded counts.
  */
 export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): CheckpointPresentationSummary {
-    const { snapshotStatus, counts, openBugCount, quarantine } = inputs;
+    const { snapshotStatus, counts, openBugCount, failingByKind } = inputs;
     const issueOccurrenceCount = inputs.issueOccurrenceCount ?? openBugCount;
     const suiteChangeCount = inputs.suiteChangeCount ?? 0;
 
@@ -30,7 +35,6 @@ export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): Ch
         counts,
         openBugCount,
         issueOccurrenceCount,
-        quarantineTotal: quarantine.engine + quarantine.app,
         suiteChangeCount,
     });
 
@@ -51,10 +55,9 @@ export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): Ch
             running: counts.running,
             notRun: counts.notAffected,
         },
-        quarantine: {
-            total: quarantine.engine + quarantine.app,
-            engine: quarantine.engine,
-            app: quarantine.app,
+        failingByKind: {
+            engine: failingByKind.engine,
+            app: failingByKind.app,
         },
         suiteChangeCount,
     };
@@ -77,14 +80,12 @@ function derivePresentation({
     counts,
     openBugCount,
     issueOccurrenceCount,
-    quarantineTotal,
     suiteChangeCount,
 }: {
     executionState: CheckpointExecutionState;
     counts: SnapshotHealthCounts;
     openBugCount: number;
     issueOccurrenceCount: number;
-    quarantineTotal: number;
     suiteChangeCount: number;
 }): { tone: CheckpointTone; label: string; reason?: string } {
     // Open app bugs.
@@ -107,28 +108,18 @@ function derivePresentation({
         return { tone: "warning", label, reason: "awaiting triage" };
     }
 
-    if (executionState === "running") return withQuarantine({ tone: "neutral", label: "Running" }, quarantineTotal);
-    if (executionState === "stale") {
-        return withQuarantine({ tone: "warning", label: "Stale results", reason: "rerun pending" }, quarantineTotal);
-    }
+    if (executionState === "running") return { tone: "neutral", label: "Running" };
+    if (executionState === "stale") return { tone: "warning", label: "Stale results", reason: "rerun pending" };
 
     // No runs yet.
     if (executionState === "not_started") {
         const reason =
             suiteChangeCount > 0 ? `${suiteChangeCount} suite ${plural(suiteChangeCount, "change")}` : undefined;
-        return withQuarantine({ tone: "neutral", label: "No runs", reason }, quarantineTotal);
+        return { tone: "neutral", label: "No runs", reason };
     }
 
-    if (executionState === "passed") return withQuarantine({ tone: "success", label: "Passing" }, quarantineTotal);
-    return withQuarantine({ tone: "neutral", label: "Unknown" }, quarantineTotal);
-}
-
-function withQuarantine(
-    base: { tone: CheckpointTone; label: string; reason?: string },
-    quarantineTotal: number,
-): { tone: CheckpointTone; label: string; reason?: string } {
-    if (base.reason != null || quarantineTotal === 0) return base;
-    return { tone: base.tone, label: base.label, reason: `${quarantineTotal} quarantined` };
+    if (executionState === "passed") return { tone: "success", label: "Passing" };
+    return { tone: "neutral", label: "Unknown" };
 }
 
 function plural(count: number, word: string): string {

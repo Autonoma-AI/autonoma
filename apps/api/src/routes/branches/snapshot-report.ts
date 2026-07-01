@@ -72,7 +72,6 @@ export async function loadSnapshotReport({
         passing: 0,
         running: 0,
         setupFailed: 0,
-        quarantined: 0,
         notAffected: 0,
         totalTests: 0,
     };
@@ -101,7 +100,7 @@ export async function loadSnapshotReport({
         counts: healthCounts,
         openBugCount: openBugs.length,
         issueOccurrenceCount,
-        quarantine: healthEntry?.quarantineByKind ?? { engine: 0, app: 0 },
+        failingByKind: healthEntry?.failingByKind ?? { engine: 0, app: 0 },
     });
 
     logger.info("Snapshot report assembled", {
