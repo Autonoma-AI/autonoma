@@ -227,6 +227,10 @@ export function buildAppIngress(opts: AppRouteOptions): k8s.V1Ingress {
             name: app.name,
             namespace,
             labels: routeLabels(app.name, prNumber),
+            annotations: {
+                "nginx.ingress.kubernetes.io/proxy-buffer-size": "16k",
+                "nginx.ingress.kubernetes.io/proxy-buffers-number": "4",
+            },
         },
         spec: {
             ingressClassName,
