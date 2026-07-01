@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.15...cli-v0.1.16) (2026-07-01)
+
+
+### Bug Fixes
+
+* **cli:** fail fast on unsupported Node instead of a cryptic styleText crash ([#1211](https://github.com/Autonoma-AI/agent/issues/1211)) ([53dd52e](https://github.com/Autonoma-AI/agent/commit/53dd52e5b666dc63ebd6211b6ca72bccfa32303b))
+
 ## [0.1.15](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.14...cli-v0.1.15) (2026-06-30)
 
 
