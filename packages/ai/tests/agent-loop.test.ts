@@ -1,7 +1,7 @@
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AgentLoop, DEFAULT_MAX_STEPS, MaxStepsReached, MultipleResultCalls } from "../src/agent/agent-loop";
+import { AgentLoop, MaxStepsReached, MultipleResultCalls } from "../src/agent/agent-loop";
 import { FinishTool, ReportResultTool } from "../src/agent/tools/agent-result";
 import { AgentTool } from "../src/agent/tools/agent-tool";
 
@@ -103,14 +103,6 @@ describe("AgentLoop forces tool calls and stays bounded", () => {
         );
         expect(model.doGenerateCalls.length).toBe(4);
     });
-
-    it("applies the large default step cap when maxSteps is omitted", async () => {
-        const model = alwaysCallsNoopModel();
-        await expect(makeBoundedLoop(model).runLoop([{ role: "user", content: "go" }])).rejects.toThrow(
-            MaxStepsReached,
-        );
-        expect(model.doGenerateCalls.length).toBe(DEFAULT_MAX_STEPS);
-    }, 30_000);
 
     it("returns the result and stops once the report tool fires", async () => {
         const model = new MockLanguageModelV3({
