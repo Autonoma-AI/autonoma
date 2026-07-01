@@ -13,7 +13,7 @@ export function buildHealingExpected(
 ): string {
     const expectedLines = failures.map(
         (f) =>
-            `#   ${f.testCaseId}: update_plan   # ${f.testCaseSlug} - pick: update_plan | report_bug | report_engine_limitation | report_unknown_issue | remove_test`,
+            `#   ${f.testCaseId}: update_plan   # ${f.testCaseSlug} - pick: update_plan | report_bug | report_engine_limitation | report_unknown_issue | report_scenario_unsupported | remove_test`,
     );
     const expectedBlock =
         expectedLines.length > 0 ? expectedLines.join("\n") : "#   (no failing test cases in this turn)";
@@ -40,7 +40,7 @@ ${expectedBlock}
 # invalid test authored this snapshot (must be remove_test, and its failure must
 # carry a reviewLink) and \`kept\` for a pre-existing failing test (must NOT
 # be removed - any of update_plan / report_bug / report_engine_limitation /
-# report_unknown_issue).
+# report_unknown_issue; NOT report_scenario_unsupported, which removes the test).
 # provenance:
 ${provenanceBlock}
 ---
@@ -51,10 +51,12 @@ The judge sees only the agent's structured output plus this body - never the
 codebase or screenshots. Grade qualities the deterministic checks cannot express:
   - For each \`update_plan\`: does the \`newPrompt\` address the cited failure?
     Is it specific enough? Does it preserve the test's original intent?
-  - For each \`report_bug\` / \`report_engine_limitation\` / \`report_unknown_issue\`: is the
-    triage correct (grounded application defect vs. engine/agent limitation vs. a suspected
-    bug that couldn't be grounded in code)? For \`report_bug\`, is the \`suspectedCause\`
-    genuinely grounded? Are the description and severity proportionate to the cited reasoning?
+  - For each \`report_bug\` / \`report_engine_limitation\` / \`report_unknown_issue\` /
+    \`report_scenario_unsupported\`: is the triage correct (grounded application defect vs.
+    engine/agent limitation vs. a suspected bug that couldn't be grounded in code vs. a true
+    scenario-data gap)? For \`report_bug\`, is the \`suspectedCause\` genuinely grounded? For
+    \`report_scenario_unsupported\`, does the description carry a concrete proposed scenario
+    extension? Are the description and severity proportionate to the cited reasoning?
   - For each \`remove_test\`: is the cited reason plausible given the failure
     context - i.e. an invalid test born this snapshot or a feature removed from
     the app, not a pre-existing test that merely fails?

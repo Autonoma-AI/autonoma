@@ -45,6 +45,18 @@ export interface ApplyReportUnknownIssueInput {
     reviewLink: HealingReviewLink;
 }
 
+export interface ApplyReportScenarioUnsupportedInput {
+    refinementActionId?: string;
+    snapshotId: string;
+    organizationId: string;
+    testCaseId: string;
+    title: string;
+    description: string;
+    severity: HealingSeverity;
+    evidence: HealingEvidenceItem[];
+    reviewLink: HealingReviewLink;
+}
+
 export interface ApplyRemoveTestInput {
     refinementActionId?: string;
     snapshotId: string;

@@ -7,6 +7,7 @@ import { Context } from "@temporalio/activity";
 import { applyRemoveTest } from "./apply-remove-test";
 import { applyReportBug } from "./apply-report-bug";
 import { applyReportEngineLimitation } from "./apply-report-engine-limitation";
+import { applyReportScenarioUnsupported } from "./apply-report-scenario-unsupported";
 import { applyReportUnknownIssue } from "./apply-report-unknown-issue";
 import { applyUpdatePlan } from "./apply-update-plan";
 
@@ -97,6 +98,19 @@ async function applyActions(input: ApplyHealingActionsInput, logger: Logger): Pr
                 break;
             case "report_unknown_issue":
                 await applyReportUnknownIssue({
+                    refinementActionId,
+                    snapshotId: input.snapshotId,
+                    organizationId: input.organizationId,
+                    testCaseId: action.testCaseId,
+                    title: action.title,
+                    description: action.description,
+                    severity: action.severity,
+                    evidence: action.evidence,
+                    reviewLink: action.reviewLink,
+                });
+                break;
+            case "report_scenario_unsupported":
+                await applyReportScenarioUnsupported({
                     refinementActionId,
                     snapshotId: input.snapshotId,
                     organizationId: input.organizationId,

@@ -22,6 +22,7 @@ describe("generation review fixture round-trip", () => {
             generationId: "gen-1",
             organizationId: "org-1",
             selfReportedStatus: "failed",
+            testCaseName: "Sign up",
             testPlanPrompt: "Sign up and reach the welcome screen",
             // String content survives sanitizeConversation untouched, so the
             // round-trip equality holds exactly.
@@ -86,6 +87,7 @@ describe("generation review fixture round-trip", () => {
             generationId: "gen-2",
             organizationId: "org-1",
             selfReportedStatus: "failed",
+            testCaseName: "Open first project",
             testPlanPrompt: "Open the first project and verify its name",
             conversation: [{ role: "assistant", content: "I opened the project list" }],
             steps: [],

@@ -38,12 +38,14 @@ const KIND_BADGE: Record<string, KindBadgeVariant> = {
   application_bug: "status-failed",
   engine_limitation: "warn",
   unknown_issue: "secondary",
+  scenario_unsupported: "secondary",
 };
 
 const KIND_LABEL: Record<string, string> = {
   application_bug: "Application Bug",
   engine_limitation: "Engine Limitation",
   unknown_issue: "Unknown Issue",
+  scenario_unsupported: "Scenario Unsupported",
 };
 
 const EVIDENCE_TYPE_LABEL: Record<string, string> = {

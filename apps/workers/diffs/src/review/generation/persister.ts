@@ -1,7 +1,7 @@
 import type { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { GenerationVerdict, SuspectedCause } from "@autonoma/types";
+import type { GenerationVerdict, ProposedScenarioExtension, SuspectedCause } from "@autonoma/types";
 
 export interface PersistGenerationReviewParams {
     generationId: string;
@@ -29,17 +29,23 @@ export class GenerationReviewPersister {
 
         const enrichedEvidence = enrichEvidence(verdict.evidence, params);
 
-        // `suspectedCause` rides in the analysis JSON (no dedicated column) and
-        // is only present on `application_bug` verdicts.
+        // `suspectedCause` and `proposedScenarioExtension` ride in the analysis JSON
+        // (no dedicated columns), each present only on its own verdict kind:
+        // `suspectedCause` on `application_bug`, `proposedScenarioExtension` on
+        // `scenario_unsupported`.
         const analysis: {
             failurePoint: GenerationVerdict["failurePoint"];
             evidence: GenerationVerdict["evidence"];
             suspectedCause?: SuspectedCause;
+            proposedScenarioExtension?: ProposedScenarioExtension;
         } = {
             failurePoint: verdict.failurePoint,
             evidence: enrichedEvidence,
         };
         if (verdict.verdict === "application_bug") analysis.suspectedCause = verdict.suspectedCause;
+        if (verdict.verdict === "scenario_unsupported") {
+            analysis.proposedScenarioExtension = verdict.proposedScenarioExtension;
+        }
 
         const reviewId = await db.$transaction(async (tx) => {
             const review = await tx.generationReview.update({

@@ -58,7 +58,10 @@ class FakeJobsApi implements PreviewJobsApi {
 class FakeConfigMaps implements ConfigMapReader {
     readonly readNamespaces: string[] = [];
     constructor(private readonly image: string | undefined) {}
-    async readNamespacedConfigMap(params: { name: string; namespace: string }): Promise<{ data?: Record<string, string> }> {
+    async readNamespacedConfigMap(params: {
+        name: string;
+        namespace: string;
+    }): Promise<{ data?: Record<string, string> }> {
         this.readNamespaces.push(params.namespace);
         return { data: this.image != null ? { image: this.image } : {} };
     }

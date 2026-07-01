@@ -7,12 +7,19 @@ const ACTION_KINDS = [
     "report_bug",
     "report_engine_limitation",
     "report_unknown_issue",
+    "report_scenario_unsupported",
     "remove_test",
 ] as const;
 
 const actionKindSchema = z.enum(ACTION_KINDS);
 
-/** The non-removal actions that keep a failing test in the suite rather than deleting it. */
+/**
+ * The non-removal actions that keep a failing test in the suite rather than
+ * deleting it. `report_scenario_unsupported` is deliberately excluded: like
+ * `remove_test` it takes the test out of the suite (the test can never pass until
+ * a human extends the scenario), so it is not a "keep" action for the provenance
+ * rule.
+ */
 const KEEP_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "report_unknown_issue"] as const;
 
 const provenanceDispositionSchema = z.enum(["removed", "kept"]);
@@ -116,10 +123,13 @@ function checkProvenance(result: HealingResult, provenance: HealingFrontmatter["
             continue;
         }
 
-        if (disposition === "kept" && action.kind === "remove_test") {
+        // Both remove_test and report_scenario_unsupported take the test out of the
+        // suite, so neither keeps a "kept" (must-be-kept) test.
+        const isRemoval = action.kind === "remove_test" || action.kind === "report_scenario_unsupported";
+        if (disposition === "kept" && isRemoval) {
             failures.push({
                 check: `provenance.${testCaseId}`,
-                message: `expected the pre-existing failing test to be kept (${KEEP_KINDS.join(" / ")}) but it was removed`,
+                message: `expected the pre-existing failing test to be kept (${KEEP_KINDS.join(" / ")}) but it was removed via ${action.kind}`,
             });
         }
     }

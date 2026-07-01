@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     Agent,
+    type AgentRunResult,
     type AgentTool,
     FinishTool,
     type LanguageModel,
@@ -71,6 +72,40 @@ export class GenerationReviewer extends Agent<
         this.videoUploader = videoModel.uploader;
         this.evidenceLoader = evidenceLoader;
         this.logger = rootLogger.child({ name: this.constructor.name });
+    }
+
+    /**
+     * Run the reviewer, then enforce the `scenario_unsupported` guardrail: that
+     * verdict is anchored on the test case's loop-stable description, so when the
+     * description is missing (an older case not yet backfilled) there is no stable
+     * intent to ground the claim on. Rather than trust the model to never emit it,
+     * we deterministically downgrade such a verdict to `plan_mismatch` here - the
+     * catch-all for "the data the plan needs is not there". This is a defensive
+     * guard against the un-backfilled gap, not an endorsement of description-less
+     * test cases; once descriptions are backfilled it simply stops firing.
+     */
+    public override async run(input: GenerationReviewInput): Promise<AgentRunResult<GenerationVerdict>> {
+        const outcome = await super.run(input);
+        const verdict = outcome.result;
+
+        const hasDescription =
+            input.context.testCaseDescription != null && input.context.testCaseDescription.trim().length > 0;
+        if (verdict.verdict !== "scenario_unsupported" || hasDescription) return outcome;
+
+        this.logger.warn(
+            "Downgrading scenario_unsupported to plan_mismatch: test case has no description to anchor it",
+            {
+                generationId: input.context.generationId,
+            },
+        );
+        const downgraded: GenerationVerdict = {
+            verdict: "plan_mismatch",
+            title: verdict.title,
+            reasoning: `[Downgraded from scenario_unsupported: the test case has no description anchoring its intent, so a data gap is treated as a plan mismatch.] ${verdict.reasoning}`,
+            failurePoint: verdict.failurePoint,
+            evidence: verdict.evidence,
+        };
+        return { result: downgraded, conversation: outcome.conversation };
     }
 
     protected async buildUserPrompt(input: GenerationReviewInput): Promise<ModelMessage[]> {

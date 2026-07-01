@@ -187,7 +187,15 @@ export class PreviewkitJobLauncher {
         // never another teardown - a close-then-reopen lets the deletion finish.
         await this.supersedeDeployFamily(envKey);
         const spec: PreviewJobInput = { mode: "teardown", event };
-        await this.createJob("teardown", envKey, event, spec, image, this.teardownDeadlineSeconds(), TEARDOWN_GRACE_SECONDS);
+        await this.createJob(
+            "teardown",
+            envKey,
+            event,
+            spec,
+            image,
+            this.teardownDeadlineSeconds(),
+            TEARDOWN_GRACE_SECONDS,
+        );
     }
 
     /**
@@ -200,7 +208,10 @@ export class PreviewkitJobLauncher {
         const { imageNamespace } = this.options;
         let cm: { data?: Record<string, string> };
         try {
-            cm = await this.coreApi.readNamespacedConfigMap({ name: RUNNER_IMAGE_CONFIGMAP, namespace: imageNamespace });
+            cm = await this.coreApi.readNamespacedConfigMap({
+                name: RUNNER_IMAGE_CONFIGMAP,
+                namespace: imageNamespace,
+            });
         } catch (err) {
             if (isNotFound(err)) {
                 throw new Error(
@@ -239,7 +250,11 @@ export class PreviewkitJobLauncher {
             const name = job.metadata?.name;
             if (name == null) continue;
             try {
-                await this.batchApi.deleteNamespacedJob({ name, namespace: jobNamespace, propagationPolicy: "Background" });
+                await this.batchApi.deleteNamespacedJob({
+                    name,
+                    namespace: jobNamespace,
+                    propagationPolicy: "Background",
+                });
                 this.logger.info("Superseded in-flight preview deploy job", { extra: { envKey, supersededJob: name } });
             } catch (err) {
                 if (isNotFound(err)) continue;

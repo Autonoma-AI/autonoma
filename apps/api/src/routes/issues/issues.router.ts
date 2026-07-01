@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
 
-const issueKindSchema = z.enum(["application_bug", "engine_limitation", "unknown_issue"]);
+const issueKindSchema = z.enum(["application_bug", "engine_limitation", "unknown_issue", "scenario_unsupported"]);
 
 export const issuesRouter = router({
     list: protectedProcedure

@@ -275,6 +275,16 @@ export interface PersistedHealingAction {
               reviewLink: HealingReviewLink;
           }
         | {
+              kind: "report_scenario_unsupported";
+              testCaseId: string;
+              title: string;
+              description: string;
+              severity: HealingSeverity;
+              evidence: HealingEvidenceItem[];
+              reasoning: string;
+              reviewLink: HealingReviewLink;
+          }
+        | {
               kind: "remove_test";
               testCaseId: string;
               reason: string;

@@ -81,6 +81,21 @@ function reportUnknownIssueAction(testCaseId: string): HealingAction {
     };
 }
 
+function reportScenarioUnsupportedAction(testCaseId: string): HealingAction {
+    return {
+        kind: "report_scenario_unsupported",
+        testCaseId,
+        title: "Refund flow needs a settled order",
+        description:
+            "The test needs a fully-settled order to refund, but no scenario seeds one. Proposed extension: add a settled order to the 'returning shopper' scenario.",
+        severity: "medium",
+        evidence: [],
+        reasoning:
+            "Impossible given the current scenario data - the scenario must be extended, not the plan rewritten.",
+        reviewLink: { runReviewId: "rr-4" },
+    };
+}
+
 /** A minimal HealingCase carrying only what the load-time validators read. */
 function healingCase(
     failures: { testCaseId: string; reviewLink?: { runReviewId: string } }[],
@@ -142,10 +157,12 @@ describe("healing provenance grader", () => {
             expect(checkHealingResult(healingResult([action]), { provenance: { "tc-1": "kept" } })).toEqual([]);
         }
 
-        const removed = checkHealingResult(healingResult([removeAction("tc-1")]), {
-            provenance: { "tc-1": "kept" },
-        });
-        expect(removed.map((f) => f.check)).toEqual(["provenance.tc-1"]);
+        // Both remove_test and report_scenario_unsupported take the test out of the
+        // suite, so neither satisfies a "kept" disposition.
+        for (const action of [removeAction("tc-1"), reportScenarioUnsupportedAction("tc-1")]) {
+            const rejected = checkHealingResult(healingResult([action]), { provenance: { "tc-1": "kept" } });
+            expect(rejected.map((f) => f.check)).toEqual(["provenance.tc-1"]);
+        }
     });
 
     it("flags a provenance test case the agent never acted on", () => {

@@ -17,7 +17,7 @@ type HealingResultInput = z.infer<typeof healingResultInputSchema>;
 class UnhandledFailuresError extends FixableToolError {
     constructor(public readonly keys: readonly string[]) {
         super(
-            `Failure(s) not handled: ${keys.join(", ")}. Each must be addressed by update_plan, report_bug, report_engine_limitation, report_unknown_issue, or remove_test before finishing.`,
+            `Failure(s) not handled: ${keys.join(", ")}. Each must be addressed by update_plan, report_bug, report_engine_limitation, report_unknown_issue, report_scenario_unsupported, or remove_test before finishing.`,
         );
     }
 }
@@ -25,14 +25,15 @@ class UnhandledFailuresError extends FixableToolError {
 /**
  * Terminal tool for the {@link HealingAgent}. Lets the agent finish only once
  * every failure key has a corresponding action (update_plan / report_bug /
- * report_engine_limitation / report_unknown_issue / remove_test).
+ * report_engine_limitation / report_unknown_issue / report_scenario_unsupported /
+ * remove_test).
  */
 export class HealingResultTool extends ReportResultTool<HealingResultInput, HealingResult, HealingAgentLoop> {
     constructor() {
         super({
             name: "finish",
             description:
-                "Call this when you have addressed every failure. The call is rejected if any failure is unhandled (update_plan / report_bug / report_engine_limitation / report_unknown_issue / remove_test).",
+                "Call this when you have addressed every failure. The call is rejected if any failure is unhandled (update_plan / report_bug / report_engine_limitation / report_unknown_issue / report_scenario_unsupported / remove_test).",
             inputSchema: healingResultInputSchema,
         });
     }

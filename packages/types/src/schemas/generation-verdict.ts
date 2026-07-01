@@ -7,6 +7,7 @@ export const generationVerdictKindSchema = z.enum([
     "application_bug",
     "plan_mismatch",
     "unknown_issue",
+    "scenario_unsupported",
 ]);
 export type GenerationVerdictKind = z.infer<typeof generationVerdictKindSchema>;
 
@@ -15,7 +16,23 @@ export const GENERATION_FAILURE_VERDICTS = [
     "application_bug",
     "plan_mismatch",
     "unknown_issue",
+    "scenario_unsupported",
 ] as const satisfies readonly Exclude<GenerationVerdictKind, "success">[];
+
+/**
+ * Prose describing how to extend the application's scenario data so a proposed
+ * test becomes possible. Carried by the generation-only `scenario_unsupported`
+ * verdict, where the test is impossible given the *current* scenario data (not
+ * merely stale data that can be updated). The reviewer authors it; a human acts
+ * on it - the platform never heals scenarios automatically.
+ */
+export const proposedScenarioExtensionSchema = z
+    .string()
+    .min(1)
+    .describe(
+        "How to extend the scenario data so this test becomes possible: the missing entity/state, and (ideally) which named scenario it belongs in. Prose, surfaced verbatim to a human - the platform never authors scenarios automatically.",
+    );
+export type ProposedScenarioExtension = z.infer<typeof proposedScenarioExtensionSchema>;
 
 export const reviewEvidenceSchema = z.object({
     type: z.enum(["conversation", "screenshot", "video", "step_output"]),
@@ -59,6 +76,11 @@ const generationVerdictBaseSchema = z.object({
         .describe(
             "REQUIRED for 'application_bug': the concrete code cause grounding the bug (>= 1 code reference). If you cannot ground the bug in code, classify it as 'unknown_issue' instead. Ignored for other verdicts.",
         ),
+    proposedScenarioExtension: proposedScenarioExtensionSchema
+        .optional()
+        .describe(
+            "REQUIRED for 'scenario_unsupported': prose proposing how to extend the scenario data so the test becomes possible. Only valid when the test case has a description anchoring its intent. Ignored for other verdicts.",
+        ),
 });
 
 const successVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("success") });
@@ -69,6 +91,10 @@ const applicationBugVerdictSchema = generationVerdictBaseSchema.extend({
 });
 const planMismatchVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("plan_mismatch") });
 const unknownIssueVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("unknown_issue") });
+const scenarioUnsupportedVerdictSchema = generationVerdictBaseSchema.extend({
+    verdict: z.literal("scenario_unsupported"),
+    proposedScenarioExtension: proposedScenarioExtensionSchema,
+});
 
 const generationVerdictUnionSchema = z.discriminatedUnion("verdict", [
     successVerdictSchema,
@@ -76,6 +102,7 @@ const generationVerdictUnionSchema = z.discriminatedUnion("verdict", [
     applicationBugVerdictSchema,
     planMismatchVerdictSchema,
     unknownIssueVerdictSchema,
+    scenarioUnsupportedVerdictSchema,
 ]);
 
 /**

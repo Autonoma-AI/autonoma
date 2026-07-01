@@ -30,6 +30,7 @@ export function buildGenerationReviewMessages(
     }
 
     const builder = new MessageBuilder()
+        .section("Test Case", buildTestCaseSection(context.testCaseName, context.testCaseDescription))
         .section("Test Plan", context.testPlanPrompt)
         .section(
             "Self-reported outcome",
@@ -69,4 +70,29 @@ export function buildGenerationReviewMessages(
     );
 
     return builder.build();
+}
+
+/**
+ * Render the Test Case section: the loop-stable name and (when present) the
+ * description, plus the `scenario_unsupported` eligibility guard. The
+ * description is the diff-system-stable statement of intent, so it - not the
+ * rewritable plan prompt - anchors the `scenario_unsupported` verdict. Every
+ * test case is meant to carry one; it is missing only on older cases not yet
+ * backfilled. Without it the reviewer can't reliably separate a true data gap
+ * from a worded-wrong plan, so the section says so and the reviewer
+ * conservatively falls back to `plan_mismatch`.
+ */
+function buildTestCaseSection(name: string, description: string | undefined): string {
+    const lines = [`**Name:** ${name}`];
+    if (description != null && description.trim().length > 0) {
+        lines.push(`**Description (loop-stable intent):** ${description}`);
+        lines.push(
+            "The description above is the test's stable intent. If the plan describes a flow that is impossible given the current scenario data - not a stale plan that could be rewritten, but data the scenario can never seed for this intent - use `scenario_unsupported` and propose how to extend the scenario.",
+        );
+    } else {
+        lines.push(
+            "_This test case has no description recorded yet (an older case that predates descriptions, not a deliberate omission)._ Without its stable statement of intent you cannot reliably separate a true scenario-data gap from a worded-wrong plan, so do not claim `scenario_unsupported`; if the plan references data the scenario never seeds, treat it as a `plan_mismatch`.",
+        );
+    }
+    return lines.join("\n");
 }

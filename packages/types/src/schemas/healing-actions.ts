@@ -72,6 +72,25 @@ const reportUnknownIssueActionSchema = z.object({
     reviewLink: healingReviewLinkSchema,
 });
 
+const reportScenarioUnsupportedActionSchema = z.object({
+    kind: z.literal("report_scenario_unsupported"),
+    testCaseId: z.string().describe("ID of the test case that is impossible given the current scenario data"),
+    title: z.string(),
+    description: z
+        .string()
+        .describe(
+            "What the test needs that the scenario data cannot currently provide, with the proposed scenario extension woven in as prose - surfaced verbatim to a human, who decides whether to extend the scenario",
+        ),
+    severity: reviewSeveritySchema,
+    evidence: z.array(evidenceItemSchema),
+    reasoning: z
+        .string()
+        .describe(
+            "Why this test is impossible given the current scenario data (a true data gap) rather than a stale plan that should be rewritten",
+        ),
+    reviewLink: healingReviewLinkSchema,
+});
+
 const removeTestActionSchema = z.object({
     kind: z.literal("remove_test"),
     testCaseId: z.string().describe("ID of the test case to delete from the suite"),
@@ -92,6 +111,7 @@ export const healingActionSchema = z.discriminatedUnion("kind", [
     reportBugActionSchema,
     reportEngineLimitationActionSchema,
     reportUnknownIssueActionSchema,
+    reportScenarioUnsupportedActionSchema,
     removeTestActionSchema,
 ]);
 
@@ -100,6 +120,7 @@ export type UpdatePlanAction = z.infer<typeof updatePlanActionSchema>;
 export type ReportBugAction = z.infer<typeof reportBugActionSchema>;
 export type ReportEngineLimitationAction = z.infer<typeof reportEngineLimitationActionSchema>;
 export type ReportUnknownIssueAction = z.infer<typeof reportUnknownIssueActionSchema>;
+export type ReportScenarioUnsupportedAction = z.infer<typeof reportScenarioUnsupportedActionSchema>;
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
@@ -110,6 +131,10 @@ export const reportEngineLimitationInputSchema = reportEngineLimitationActionSch
     reviewLink: true,
 });
 export const reportUnknownIssueInputSchema = reportUnknownIssueActionSchema.omit({
+    kind: true,
+    reviewLink: true,
+});
+export const reportScenarioUnsupportedInputSchema = reportScenarioUnsupportedActionSchema.omit({
     kind: true,
     reviewLink: true,
 });

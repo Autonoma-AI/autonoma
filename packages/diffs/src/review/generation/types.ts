@@ -28,6 +28,17 @@ export interface GenerationContext {
     organizationId: string;
     /** What the execution agent self-reported. The reviewer's verdict overrides this. */
     selfReportedStatus: "success" | "failed" | "running" | "queued" | "pending";
+    /** The test case's name - the loop-stable label the diff system never rewrites. */
+    testCaseName: string;
+    /**
+     * The test case's description - the loop-stable statement of intent (unlike the
+     * plan prompt, which the diff system rewrites during healing). Meant to be set on
+     * every test case; missing only on older cases not yet backfilled. Anchors the
+     * `scenario_unsupported` verdict - without it the reviewer can't reliably tell a
+     * true data gap from a worded-wrong plan, so it conservatively falls back to
+     * `plan_mismatch`.
+     */
+    testCaseDescription?: string;
     testPlanPrompt: string;
     conversation: ModelMessage[];
     reasoning?: string;

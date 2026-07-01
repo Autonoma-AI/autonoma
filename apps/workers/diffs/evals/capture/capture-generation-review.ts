@@ -111,7 +111,7 @@ function blankExpected(generationId: string): string {
 description: "Captured from generation ${generationId} - TODO: describe what this case exercises"
 skip: true
 # Deterministic check (uncomment + fill in, then set skip: false):
-# verdict: success   # one of: success | agent_limitation | application_bug | plan_mismatch | unknown_issue
+# verdict: success   # one of: success | agent_limitation | application_bug | plan_mismatch | unknown_issue | scenario_unsupported
 ---
 
 TODO: author the LLM-judge rubric here.

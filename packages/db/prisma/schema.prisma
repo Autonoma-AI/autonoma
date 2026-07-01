@@ -795,6 +795,7 @@ enum GenerationReviewVerdict {
   application_bug
   plan_mismatch
   unknown_issue
+  scenario_unsupported
 
   @@map("generation_review_verdict")
 }
@@ -868,6 +869,7 @@ enum IssueKind {
   application_bug
   engine_limitation
   unknown_issue
+  scenario_unsupported
 
   @@map("issue_kind")
 }
@@ -885,8 +887,9 @@ model Issue {
   description String        @db.Text
   dismissed   Boolean       @default(false)
 
-  // Set for the Bug-less, snapshot-scoped kinds (engine_limitation, unknown_issue):
-  // neither aggregates into a customer-facing Bug, so each lives with its snapshot.
+  // Set for the Bug-less, snapshot-scoped kinds (engine_limitation, unknown_issue,
+  // scenario_unsupported): none aggregates into a customer-facing Bug, so each lives
+  // with its snapshot.
   snapshotId String?         @map("snapshot_id")
   snapshot   BranchSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
@@ -983,6 +986,7 @@ enum RefinementActionKind {
   report_bug
   report_engine_limitation
   report_unknown_issue
+  report_scenario_unsupported
   remove_test
 
   @@map("refinement_action_kind")

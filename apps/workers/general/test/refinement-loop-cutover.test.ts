@@ -3,13 +3,15 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
 import { applyRemoveTest } from "../src/activities/healing/apply-remove-test";
+import { applyReportScenarioUnsupported } from "../src/activities/healing/apply-report-scenario-unsupported";
 import { applyReportUnknownIssue } from "../src/activities/healing/apply-report-unknown-issue";
 import { applyUpdatePlan } from "../src/activities/healing/apply-update-plan";
 import { initRefinementLoop } from "../src/activities/refinement/loop-lifecycle";
 
-// initRefinementLoop / applyRemoveTest / applyUpdatePlan / applyReportUnknownIssue read the
-// `@autonoma/db` singleton (the global `db` proxy resolves to globalThis.prisma). Point it at
-// this suite's container so the activities and the fixtures share one database.
+// initRefinementLoop / applyRemoveTest / applyUpdatePlan / applyReportUnknownIssue /
+// applyReportScenarioUnsupported read the `@autonoma/db` singleton (the global `db` proxy resolves
+// to globalThis.prisma). Point it at this suite's container so the activities and the fixtures share
+// one database.
 declare global {
     // eslint-disable-next-line no-var
     var prisma: PrismaClient | undefined;
@@ -407,5 +409,61 @@ cutoverSuite((test) => {
         const result = await initRefinementLoop({ snapshotId, triggeredBy: "diffs" });
         expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([authored.planId]);
         expect(result.runFirstIterationPipeline).toBe(true);
+    });
+
+    test("report_scenario_unsupported records a Bug-less Issue and removes the test from the suite", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const subject = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+
+        // The failed generation review the scenario_unsupported issue cites.
+        const generation = await harness.db.testGeneration.create({
+            data: { snapshotId, testPlanId: subject.planId, organizationId, status: "failed" },
+            select: { id: true },
+        });
+        const review = await harness.db.generationReview.create({
+            data: { generationId: generation.id, organizationId, status: "completed", verdict: "scenario_unsupported" },
+            select: { id: true },
+        });
+
+        await applyReportScenarioUnsupported({
+            snapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Refund flow needs a settled order",
+            description:
+                "No scenario seeds a settled order to refund. Proposed extension: add a settled order to the 'returning shopper' scenario.",
+            severity: "medium",
+            evidence: [],
+            reviewLink: { generationReviewId: review.id },
+        });
+
+        const issue = await harness.db.issue.findFirstOrThrow({
+            where: { generationReviewId: review.id },
+            select: { id: true, kind: true, snapshotId: true, bugId: true },
+        });
+        // scenario_unsupported: snapshot-scoped, and never a customer-facing Bug.
+        expect(issue.kind).toBe("scenario_unsupported");
+        expect(issue.snapshotId).toBe(snapshotId);
+        expect(issue.bugId).toBeNull();
+
+        const bugCount = await harness.db.bug.count({ where: { applicationId } });
+        expect(bugCount).toBe(0);
+
+        // Unlike the other report_* actions, scenario_unsupported removes the test
+        // from the suite: its assignment for this snapshot is dropped, so it does
+        // not re-run until a human extends the scenario and re-adds it.
+        const assignment = await harness.db.testCaseAssignment.findUnique({
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId: subject.testCaseId } },
+            select: { id: true },
+        });
+        expect(assignment).toBeNull();
+
+        // The Issue survives the assignment deletion (it hangs off the generation
+        // review, not the assignment), preserving the proposed extension.
+        const issueStillPresent = await harness.db.issue.findUnique({ where: { id: issue.id }, select: { id: true } });
+        expect(issueStillPresent).not.toBeNull();
     });
 });

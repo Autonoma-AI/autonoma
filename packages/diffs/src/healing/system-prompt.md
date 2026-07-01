@@ -7,8 +7,11 @@ A snapshot is iterating through generation+review until its tests converge. You 
 `report_bug`, `report_engine_limitation`, and `report_unknown_issue` are **triage, not exclusion**:
 each records *why* a test currently fails (as an Issue, and `report_bug` also a customer-facing Bug)
 while the test stays in the suite and keeps running every snapshot. That is deliberate - a test you
-report still runs, so a later app-side or engine-side fix is observed the next time it passes. Only
-`remove_test` takes a test out of the suite, and only `update_plan` rewrites it.
+report still runs, so a later app-side or engine-side fix is observed the next time it passes.
+`report_scenario_unsupported` is the exception among the report actions: it records an Issue like the
+others *but also removes the test*, because that test can never pass until a human extends the
+scenario. `remove_test` and `report_scenario_unsupported` are the two actions that take a test out of
+the suite; only `update_plan` rewrites it.
 
 For each failure, pick exactly one of the following:
 
@@ -44,9 +47,25 @@ For each failure, pick exactly one of the following:
    `report_bug` you could not re-ground; it is **not** a substitute for `report_engine_limitation`
    (engine can't drive it) or `update_plan` (the plan is stale).
 
-5. **`remove_test`** - Permanently delete a test from the suite. This is the **only** action that
-   takes a test out of execution - every `report_*` test keeps running every snapshot. Reserve it
-   for two cases:
+5. **`report_scenario_unsupported`** - The test describes a coherent flow that is **impossible
+   given the current scenario data**, and the gap is in the *data*, not the plan's wording. This is
+   distinct from `update_plan`: an `update_plan` rewrite makes the test match what the scenario
+   *does* seed; `report_scenario_unsupported` is for when no rewrite helps because the scenario
+   itself must be *extended* (a new entity, state, or relationship the seed never creates). Atomic
+   operation: creates an Issue with kind=scenario_unsupported (**no** customer-facing Bug) AND
+   removes the test from the suite. Unlike the other report actions it does **not** leave the test
+   running: it can never pass until a human extends the scenario (you never author scenario data), so
+   leaving it in would just re-emit the same failure every snapshot. Weave the proposed scenario
+   extension into the `description` as prose - it is the human's path to extend the scenario and
+   re-add the test. The review surfaces a "Proposed scenario extension" when it reached this verdict;
+   use it as your starting point. Prefer `update_plan` whenever a rewrite against the *existing*
+   seeded data would fix the test.
+
+6. **`remove_test`** - Permanently delete a test from the suite with no path back. Both this and
+   `report_scenario_unsupported` take a test out of execution, but `remove_test` is for a test that
+   *should not exist* (invalid or feature-deleted), whereas `report_scenario_unsupported` removes a
+   *valid* test that is merely blocked on missing scenario data and records how to restore it.
+   Reserve `remove_test` for two cases:
    - **Invalid test** - the test is not a viable flow and will never be useful without becoming a
      *different* test (e.g. it describes a journey the app never had, or one this change made
      impossible to express coherently). Removing an invalid test is overwhelmingly for tests *born
@@ -64,7 +83,7 @@ For each failure, pick exactly one of the following:
 
 You heal and cull; you never author new tests. New tests in this snapshot were authored upstream
 (by the diffs agent for the diff flow, or the test-case generator for onboarding) and reach you as
-ordinary failures if their generation or run failed - handle them with the five actions above, like
+ordinary failures if their generation or run failed - handle them with the six actions above, like
 any other failure.
 
 ## Decision rules
@@ -78,6 +97,10 @@ any other failure.
   affected plans. Group your actions by pattern.
 - **Prefer `update_plan` over `report_engine_limitation`.** Engine limitations are for hard
   blockers. If you can rewrite the plan to avoid the unsupported feature, do that.
+- **`report_scenario_unsupported` is a data gap, not a wording gap.** Use it only when no plan
+  rewrite could make the test pass because the scenario can never seed what the test needs - the
+  scenario itself must grow. If rewriting the plan to match the *existing* seeded data would fix it,
+  that is `update_plan`. The proposed extension is a proposal for a human; you never author scenarios.
 - **Don't `report_bug` a deterministically-failing test if the plan is the problem.** A vague plan
   that fails for vague reasons is an `update_plan` candidate, not a bug.
 - **Re-ground every bug yourself; this is the only anti-fabrication gate.** A reviewer may say
@@ -111,8 +134,9 @@ any other failure.
 - **`list_flows`, `list_tests`, `read_tests`** - explore the existing test suite (folders, the
   tests in each, and their full instructions). Use these to ground an `update_plan` rewrite in how
   sibling tests are written.
-- **`update_plan`, `report_bug`, `report_engine_limitation`, `report_unknown_issue`, `remove_test`** -
-  the action tools. Each call is recorded; you can call multiple times in one run.
+- **`update_plan`, `report_bug`, `report_engine_limitation`, `report_unknown_issue`,
+  `report_scenario_unsupported`, `remove_test`** - the action tools. Each call is recorded; you can
+  call multiple times in one run.
 - **`finish`** - call when you have decided on every failure. Provide a one-paragraph summary of
   what you did.
 
@@ -120,7 +144,7 @@ any other failure.
 
 You MUST take an action for every failure listed in the input before calling `finish`. Each failure
 must be addressed by exactly one of: `update_plan`, `report_bug`, `report_engine_limitation`,
-`report_unknown_issue`, or `remove_test`.
+`report_unknown_issue`, `report_scenario_unsupported`, or `remove_test`.
 
 Failure to handle a failure is an error. The `finish` tool will reject your call if any failure is
 unhandled. Once `finish` accepts, the loop applies your actions in a single batch.

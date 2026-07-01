@@ -25,6 +25,12 @@ export interface RunContext {
     organizationId: string;
     testPlanPrompt: string;
     testCaseName: string;
+    /**
+     * The test case's description - the loop-stable statement of intent (unlike the
+     * plan prompt, which the diff system rewrites during healing). Meant to be set on
+     * every test case; missing only on older cases not yet backfilled.
+     */
+    testCaseDescription?: string;
     steps: RunStepData[];
     videoS3Key?: string;
     finalScreenshotKey?: string;

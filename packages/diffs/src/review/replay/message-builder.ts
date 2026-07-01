@@ -16,7 +16,7 @@ export function buildReplayReviewMessages(context: RunContext, video: UploadedVi
 
     const builder = new MessageBuilder()
         .section("Test Plan", context.testPlanPrompt)
-        .section("Test Case", `**Name:** ${context.testCaseName}`);
+        .section("Test Case", buildTestCaseSection(context.testCaseName, context.testCaseDescription));
 
     builder.section("Code Change Under Review", buildChangeContextSection(context.change, CHANGE_CONTEXT_INTRO));
 
@@ -35,4 +35,14 @@ export function buildReplayReviewMessages(context: RunContext, video: UploadedVi
             "The step summary above shows every step the replay engine executed. Decide whether the failure is due to outdated step definitions (`engine_error`) or a real application bug (`application_bug`), then submit your verdict.",
         )
         .build();
+}
+
+/**
+ * Render the Test Case section: the loop-stable name and, when present, the
+ * description (the diff-system-stable statement of intent, unlike the rewritable
+ * plan prompt).
+ */
+function buildTestCaseSection(name: string, description: string | undefined): string {
+    if (description == null || description.trim().length === 0) return `**Name:** ${name}`;
+    return [`**Name:** ${name}`, `**Description (loop-stable intent):** ${description}`].join("\n");
 }

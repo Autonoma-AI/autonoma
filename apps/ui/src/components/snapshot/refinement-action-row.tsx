@@ -16,6 +16,7 @@ const KIND_LABEL: Record<RefinementAction["kind"], string> = {
   report_bug: "report bug",
   report_engine_limitation: "engine limitation",
   report_unknown_issue: "unknown issue",
+  report_scenario_unsupported: "scenario unsupported",
   remove_test: "remove test",
 };
 
@@ -24,6 +25,7 @@ const KIND_VARIANT: Record<RefinementAction["kind"], "warn" | "critical" | "high
   report_bug: "critical",
   report_engine_limitation: "high",
   report_unknown_issue: "secondary",
+  report_scenario_unsupported: "secondary",
   remove_test: "outline",
 };
 
@@ -113,6 +115,7 @@ function ActionDetail({ action }: { action: RefinementAction }) {
     case "report_bug":
     case "report_engine_limitation":
     case "report_unknown_issue":
+    case "report_scenario_unsupported":
       return <ReportDetail title={payload.title} description={payload.description} severity={payload.severity} />;
     case "remove_test":
       return <RemoveTestDetail reason={payload.reason} />;

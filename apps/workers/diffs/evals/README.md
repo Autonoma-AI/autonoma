@@ -118,9 +118,12 @@ Both reviewer evals share the same shape. Only `verdict` is graded
 deterministically; the reviewer's other fields (`title`, `reasoning`,
 `failurePoint`, `evidence`) are free-text and graded by the judge rubric. The
 verdict enum differs per reviewer:
-`success | agent_limitation | application_bug | plan_mismatch | unknown_issue` for generation,
-`engine_error | application_bug | unknown_issue` for replay. An `application_bug` must carry a
-`suspectedCause` grounding it in code; a suspected bug that can't be grounded is `unknown_issue`.
+`success | agent_limitation | application_bug | plan_mismatch | unknown_issue | scenario_unsupported`
+for generation, `engine_error | application_bug | unknown_issue` for replay. An `application_bug` must
+carry a `suspectedCause` grounding it in code; a suspected bug that can't be grounded is
+`unknown_issue`. `scenario_unsupported` (generation only) is a test impossible given the current
+scenario data; it carries a `proposedScenarioExtension` and is selectable only when the test case has
+a description.
 
 ```yaml
 ---
@@ -142,12 +145,13 @@ channels:
 
 - `expectedActions` grades the **per-failure action union**: a modify is
   `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
-  `report_engine_limitation`, and a suspected-but-ungroundable issue is
-  `report_unknown_issue`.
+  `report_engine_limitation`, a suspected-but-ungroundable issue is
+  `report_unknown_issue`, and a true scenario-data gap is `report_scenario_unsupported`.
 - `provenance` grades the **remove-vs-keep rule**. It is keyed by failing test
   case and is semantic rather than kind-exact: `removed` means an invalid test authored *this*
   snapshot must be `remove_test`-ed, and `kept` means a *pre-existing* failing
-  test must be kept under any keep action and never deleted.
+  test must be kept under any keep action and never deleted. Note `report_scenario_unsupported`
+  also removes the test from the suite, so it does **not** satisfy a `kept` disposition.
 
 ```yaml
 ---
@@ -163,9 +167,11 @@ provenance:                       # subset of the failing test cases; remove-vs-
 ---
 Free-text judge rubric. Grade qualities the deterministic checks cannot:
     - For each update_plan: does the newPrompt actually address the cited failure?
-    - For each report_bug / report_engine_limitation / report_unknown_issue: is the triage
-      correct? For report_bug, is the suspectedCause genuinely grounded in code (not a
-      report_unknown_issue in disguise)? For report_unknown_issue, was grounding really out of reach?
+    - For each report_bug / report_engine_limitation / report_unknown_issue /
+      report_scenario_unsupported: is the triage correct? For report_bug, is the suspectedCause
+      genuinely grounded in code (not a report_unknown_issue in disguise)? For report_unknown_issue,
+      was grounding really out of reach? For report_scenario_unsupported, is it a true data gap
+      (not an update_plan in disguise) and does the description carry a concrete proposed extension?
     - For each remove_test: is the cited reason plausible - an invalid test born this
       snapshot or a deleted feature, not a pre-existing test that merely fails?
 ```

@@ -120,4 +120,5 @@ const VERDICT_BADGE: Record<NonNullable<ExecutedTest["verdict"]>, { label: strin
   agent_limitation: { label: "agent limitation", variant: "warn" },
   plan_mismatch: { label: "plan mismatch", variant: "warn" },
   unknown_issue: { label: "unknown issue", variant: "secondary" },
+  scenario_unsupported: { label: "scenario unsupported", variant: "secondary" },
 };

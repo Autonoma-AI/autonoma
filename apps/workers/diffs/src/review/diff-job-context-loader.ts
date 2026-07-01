@@ -134,7 +134,7 @@ export class DiffJobContextLoader {
                 plan: { select: { prompt: true } },
                 assignment: {
                     select: {
-                        testCase: { select: { id: true, name: true } },
+                        testCase: { select: { id: true, name: true, description: true } },
                         snapshot: {
                             select: {
                                 headSha: true,
@@ -194,6 +194,7 @@ export class DiffJobContextLoader {
             organizationId: run.organizationId,
             testPlanPrompt: run.plan?.prompt ?? "No test plan prompt available",
             testCaseName: run.assignment.testCase.name,
+            testCaseDescription: run.assignment.testCase.description ?? undefined,
             steps,
             videoS3Key: `run/${runId}/video.webm`,
             finalScreenshotKey,
@@ -268,7 +269,13 @@ export class DiffJobContextLoader {
                 // Anchors the lineage walk the same way `run.planId` does: this
                 // plan locates the generation's refinement iteration.
                 testPlanId: true,
-                testPlan: { select: { prompt: true, testCaseId: true } },
+                testPlan: {
+                    select: {
+                        prompt: true,
+                        testCaseId: true,
+                        testCase: { select: { name: true, description: true } },
+                    },
+                },
                 snapshot: {
                     select: {
                         headSha: true,
@@ -340,6 +347,8 @@ export class DiffJobContextLoader {
             generationId: generation.id,
             organizationId: generation.organizationId,
             selfReportedStatus: generation.status,
+            testCaseName: generation.testPlan.testCase.name,
+            testCaseDescription: generation.testPlan.testCase.description ?? undefined,
             testPlanPrompt: generation.testPlan.prompt,
             conversation,
             steps,

@@ -28,6 +28,10 @@ export const generationReviewCaseInputSchema = z.object({
         generationId: z.string(),
         organizationId: z.string(),
         selfReportedStatus: z.enum(["success", "failed", "running", "queued", "pending"]),
+        // Defaulted so fixtures captured before the test-case anchor existed still
+        // parse; production always supplies the name.
+        testCaseName: z.string().default(""),
+        testCaseDescription: z.string().optional(),
         testPlanPrompt: z.string(),
         conversation: z.array(z.custom<ModelMessage>()),
         reasoning: z.string().optional(),
