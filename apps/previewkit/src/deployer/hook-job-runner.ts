@@ -89,10 +89,11 @@ export async function runHookJob(
         },
     };
 
-    logger.info("Creating hook Job", { jobName, image, command });
+    logger.info(`Creating hook job ${jobName}`, { jobName, image, command });
     await batchApi.createNamespacedJob({ namespace, body: job });
 
     const deadline = Date.now() + timeoutMs;
+    logger.info(`Running hook job ${jobName}...`, { jobName });
     while (Date.now() < deadline) {
         await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
@@ -101,7 +102,7 @@ export async function runHookJob(
 
         const succeeded = conditions.find((c) => c.type === "Complete" && c.status === "True");
         if (succeeded != null) {
-            logger.info("Hook Job succeeded", { jobName });
+            logger.info(`Hook job ${jobName} succeeded`, { jobName });
             if (onLog != null) await relayJobLogs(coreApi, namespace, jobName, onLog, logger);
             return;
         }
@@ -110,11 +111,9 @@ export async function runHookJob(
         if (failed != null) {
             const logs = await captureJobLogs(coreApi, namespace, jobName);
             if (onLog != null) relayLines(logs, onLog);
-            logger.error("Hook Job failed", { jobName });
+            logger.error(`Hook job ${jobName} failed`, { jobName });
             throw new Error(`Hook Job "${jobName}" failed.\n${logs}`);
         }
-
-        logger.info("Hook Job running", { jobName });
     }
 
     throw new Error(`Hook Job "${jobName}" timed out after ${timeoutMs}ms`);
