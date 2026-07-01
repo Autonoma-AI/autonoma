@@ -189,17 +189,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
           </div>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            {isReady ? (
-              <Button
-                variant="accent"
-                className="gap-2 px-6 py-3"
-                onClick={completeOnboarding}
-                disabled={complete.isPending}
-              >
-                {complete.isPending ? "Starting..." : "Start generating tests"}
-                <ArrowRightIcon size={16} weight="bold" />
-              </Button>
-            ) : undefined}
             {data.mode === "previewkit" && data.diagnostics.actions.includes("redeploy") ? (
               <Button variant="outline" className="gap-2" onClick={redeployPreviewkit} disabled={redeploy.isPending}>
                 <RocketLaunchIcon size={15} />
@@ -237,6 +226,20 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
             <BuildLogStreamViewer url={logStreamUrl(data.diagnostics.logs)} />
           </div>
         </section>
+      ) : undefined}
+
+      {isReady ? (
+        <div className="mt-6 flex justify-end">
+          <Button
+            variant="accent"
+            className="gap-2 px-6 py-3"
+            onClick={completeOnboarding}
+            disabled={complete.isPending}
+          >
+            {complete.isPending ? "Starting..." : "Start generating tests"}
+            <ArrowRightIcon size={16} weight="bold" />
+          </Button>
+        </div>
       ) : undefined}
     </>
   );
