@@ -1,4 +1,4 @@
-name: OpenCode PR Review
+name: PR Review
 
 on:
   pull_request:
