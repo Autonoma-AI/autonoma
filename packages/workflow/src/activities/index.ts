@@ -69,6 +69,12 @@ export type {
     QuarantineRecommendation,
     TestValidationResult,
     ClassifyInvestigationRunInput,
+    DiagnoseInvestigationScenarioInput,
+    InvestigationScenarioDiagnosis,
+    StageRecipeCandidateInput,
+    StageRecipeCandidateOutput,
+    RevertTwinRecipeInput,
+    RevertTwinRecipeOutput,
     CreateValidationGenerationInput,
     CreateValidationGenerationOutput,
     WriteInvestigationReportInput,
@@ -82,5 +88,6 @@ export type {
     MergeInvestigationEditsInput,
     MergeInvestigationEditsOutput,
     InvestigationMergeDecision,
+    InvestigationRecipeMergeDecision,
 } from "./investigation-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

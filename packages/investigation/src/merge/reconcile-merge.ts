@@ -1,9 +1,23 @@
 import { logger as rootLogger } from "@autonoma/logger";
 import { type LanguageModel, Output, generateText } from "ai";
 import { withRetry } from "../retry";
-import type { BranchEdit, MainSuiteEntry, MergeInputs } from "./merge-inputs";
-import { buildMergePrompt, MERGE_RECONCILER_SYSTEM_PROMPT, renderEdit, renderMainSuite } from "./prompt";
-import { MergePlanForModel, type MergePlan, toMergePlan } from "./schema";
+import type { BranchEdit, MainSuiteEntry, MergeInputs, RecipeMergeEdit } from "./merge-inputs";
+import {
+    buildMergePrompt,
+    buildRecipeMergePrompt,
+    MERGE_RECONCILER_SYSTEM_PROMPT,
+    RECIPE_MERGE_RECONCILER_SYSTEM_PROMPT,
+    renderEdit,
+    renderMainSuite,
+} from "./prompt";
+import {
+    MergePlanForModel,
+    type MergePlan,
+    type RecipeMergeDecision,
+    RecipeMergePlanForModel,
+    toMergeDecisions,
+    toRecipeMergeDecisions,
+} from "./schema";
 
 // A single structured pass over a handful of edits - no tool loop - so a tight window is plenty and a slow
 // call means an overloaded provider, not progress worth waiting on.
@@ -63,7 +77,38 @@ async function reconcileBatch(
             }),
         { label: "merge-reconcile", tries: 2 },
     );
-    return toMergePlan(result.output);
+    return { decisions: toMergeDecisions(result.output), recipeDecisions: [] };
+}
+
+/**
+ * Reconcile the branch's scenario-recipe edits in one structured pass (recipe edits are few - one per scenario
+ * a repair touched - so no batching is needed). Each decision is apply / apply-with-merged-graph / skip against
+ * main's current recipe. A failure is contained (recipe edits drop from this merge and re-propose next run).
+ */
+async function reconcileRecipes(
+    recipeEdits: RecipeMergeEdit[],
+    deps: ReconcileMergeDeps,
+): Promise<RecipeMergeDecision[]> {
+    const logger = rootLogger.child({ name: "reconcileRecipes" });
+    try {
+        const result = await withRetry(
+            () =>
+                generateText({
+                    model: deps.model,
+                    system: RECIPE_MERGE_RECONCILER_SYSTEM_PROMPT,
+                    output: Output.object({ schema: RecipeMergePlanForModel }),
+                    prompt: buildRecipeMergePrompt(recipeEdits),
+                    abortSignal: AbortSignal.timeout(RECONCILE_TIMEOUT_MS),
+                }),
+            { label: "recipe-merge-reconcile", tries: 2 },
+        );
+        return toRecipeMergeDecisions(result.output);
+    } catch (error) {
+        logger.warn("Recipe reconcile failed; dropping recipe edits from this merge", {
+            extra: { recipeEdits: recipeEdits.length, error: String(error) },
+        });
+        return [];
+    }
 }
 
 /**
@@ -77,9 +122,19 @@ async function reconcileBatch(
  */
 export async function reconcileMerge(inputs: MergeInputs, deps: ReconcileMergeDeps): Promise<MergePlan> {
     const logger = rootLogger.child({ name: "reconcileMerge" });
+    if (inputs.edits.length === 0 && inputs.recipeEdits.length === 0) {
+        logger.info("No branch edits or recipe edits to reconcile; returning empty plan");
+        return { decisions: [], recipeDecisions: [] };
+    }
+
+    // Recipe edits reconcile in their own pass, independent of the test-edit batching below.
+    const recipeDecisions = inputs.recipeEdits.length > 0 ? await reconcileRecipes(inputs.recipeEdits, deps) : [];
+
     if (inputs.edits.length === 0) {
-        logger.info("No branch edits to reconcile; returning empty plan");
-        return { decisions: [] };
+        logger.info("Only recipe edits to reconcile", {
+            extra: { recipeApplied: recipeDecisions.filter((decision) => decision.action === "apply").length },
+        });
+        return { decisions: [], recipeDecisions };
     }
 
     const batches = batchEdits(inputs.edits);
@@ -111,7 +166,7 @@ export async function reconcileMerge(inputs: MergeInputs, deps: ReconcileMergeDe
                     logger.warn("Reconcile batch failed; dropping its edits from this merge", {
                         extra: { batch: batchNumber, edits: batch.length, error: String(error) },
                     });
-                    return { decisions: [] };
+                    return { decisions: [], recipeDecisions: [] };
                 }
             }),
         );
@@ -122,7 +177,9 @@ export async function reconcileMerge(inputs: MergeInputs, deps: ReconcileMergeDe
         extra: {
             applied: decisions.filter((decision) => decision.action === "apply").length,
             skipped: decisions.filter((decision) => decision.action === "skip").length,
+            recipeApplied: recipeDecisions.filter((decision) => decision.action === "apply").length,
+            recipeSkipped: recipeDecisions.filter((decision) => decision.action === "skip").length,
         },
     });
-    return { decisions };
+    return { decisions, recipeDecisions };
 }

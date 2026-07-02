@@ -112,5 +112,6 @@ function toTestReport(result: InvestigationTestResult): TestReport {
         verdicts: [modelVerdict],
         videoUrl: result.videoUrl,
         finalScreenshotUrl: result.finalScreenshotUrl,
+        scenarioDiagnosis: result.scenarioDiagnosis,
     };
 }

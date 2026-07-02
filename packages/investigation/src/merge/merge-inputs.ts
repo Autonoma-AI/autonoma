@@ -36,9 +36,36 @@ export interface MainSuiteEntry {
     description: string;
 }
 
+/**
+ * One scenario-recipe edit the branch's investigation proposed, derived by diffing the twin's recipe `create`
+ * graph against its fork-point baseline (`prevSnapshotId`). Only the `create` graph is reconciled - the rest of
+ * the recipe (name/description/variables/validation) is preserved when applied. A recipe fix that was correct
+ * for the branch is correct for main once the PR merges (the code is now main's), which is why merge is the safe
+ * moment to carry it; the 3-way view catches the case where main's recipe drifted independently since the fork.
+ */
+export interface RecipeMergeEdit {
+    scenarioId: string;
+    /** The scenario's name (for the reconcile reason + report). */
+    scenarioName: string;
+    /** The branch's proposed `create` graph (JSON string) - the "proposed" side of the 3-way view. */
+    proposedCreateGraph: string;
+    /** The fork-point `create` graph the branch started from - the "base" side. */
+    baseCreateGraph: string;
+    /** Main's CURRENT `create` graph for this scenario, if it still has a recipe. Diverges from base = others changed it. */
+    mainCreateGraph?: string;
+}
+
 export interface MergeInputs {
     edits: BranchEdit[];
     mainSuite: MainSuiteEntry[];
+    recipeEdits: RecipeMergeEdit[];
+}
+
+interface RecipeRow {
+    scenarioId: string;
+    name: string;
+    /** The recipe's `create` graph, serialized (JSON string) for comparison + the reconcile prompt. */
+    createGraph: string;
 }
 
 interface AssignmentRow {
@@ -81,18 +108,27 @@ export class MergeInputsReader {
         });
         if (twin == null) throw new Error(`Twin snapshot ${twinSnapshotId} not found for organization`);
 
-        // The twin's own assignments, main's suite, and the fork-point baseline are independent reads - load
-        // them in one parallel wave (the baseline needs the twin's prevSnapshotId, resolved just above).
-        const [twinAssignments, mainAssignments, baselineByTestCase] = await Promise.all([
-            this.loadAssignments(twinSnapshotId),
-            this.loadAssignments(mainSnapshotId),
-            twin.prevSnapshotId != null
-                ? this.loadAssignmentsByTestCase(twin.prevSnapshotId)
-                : Promise.resolve(new Map<string, AssignmentRow>()),
-        ]);
+        // The twin's own assignments, main's suite, the fork-point baseline, and all three sides' recipe graphs
+        // are independent reads - load them in one parallel wave (the baseline needs the twin's prevSnapshotId,
+        // resolved just above). Recipes on the baseline/main may be absent, which the diff handles.
+        const baselineSnapshotId = twin.prevSnapshotId;
+        const [twinAssignments, mainAssignments, baselineByTestCase, twinRecipes, baselineRecipes, mainRecipes] =
+            await Promise.all([
+                this.loadAssignments(twinSnapshotId),
+                this.loadAssignments(mainSnapshotId),
+                baselineSnapshotId != null
+                    ? this.loadAssignmentsByTestCase(baselineSnapshotId)
+                    : Promise.resolve(new Map<string, AssignmentRow>()),
+                this.loadRecipesByScenario(twinSnapshotId),
+                baselineSnapshotId != null
+                    ? this.loadRecipesByScenario(baselineSnapshotId)
+                    : Promise.resolve(new Map<string, RecipeRow>()),
+                this.loadRecipesByScenario(mainSnapshotId),
+            ]);
         const mainBySlug = new Map(mainAssignments.map((row) => [row.slug, row]));
 
         const edits = twinAssignments.flatMap((row) => this.toEdit(row, baselineByTestCase, mainBySlug));
+        const recipeEdits = this.toRecipeEdits(twinRecipes, baselineRecipes, mainRecipes);
         const mainSuite = mainAssignments
             .map((row) => ({
                 slug: row.slug,
@@ -107,10 +143,36 @@ export class MergeInputsReader {
             extra: {
                 newTests: edits.filter((edit) => edit.kind === "new_test").length,
                 modifications: edits.filter((edit) => edit.kind === "modification").length,
+                recipeEdits: recipeEdits.length,
                 mainSuiteSize: mainSuite.length,
             },
         });
-        return { edits, mainSuite };
+        return { edits, mainSuite, recipeEdits };
+    }
+
+    /**
+     * A recipe edit exists when the branch's twin `create` graph differs from its fork-point baseline. We can
+     * only reconcile against a baseline (the "did the branch change it?" signal), so a scenario with a twin
+     * recipe but no baseline recipe is skipped rather than treated as a wholesale add.
+     */
+    private toRecipeEdits(
+        twin: Map<string, RecipeRow>,
+        baseline: Map<string, RecipeRow>,
+        main: Map<string, RecipeRow>,
+    ): RecipeMergeEdit[] {
+        const edits: RecipeMergeEdit[] = [];
+        for (const [scenarioId, twinRecipe] of twin) {
+            const base = baseline.get(scenarioId);
+            if (base == null || base.createGraph === twinRecipe.createGraph) continue;
+            edits.push({
+                scenarioId,
+                scenarioName: twinRecipe.name,
+                proposedCreateGraph: twinRecipe.createGraph,
+                baseCreateGraph: base.createGraph,
+                mainCreateGraph: main.get(scenarioId)?.createGraph,
+            });
+        }
+        return edits;
     }
 
     private toEdit(
@@ -182,5 +244,23 @@ export class MergeInputsReader {
     private async loadAssignmentsByTestCase(snapshotId: string): Promise<Map<string, AssignmentRow>> {
         const rows = await this.loadAssignments(snapshotId);
         return new Map(rows.map((row) => [row.testCaseId, row]));
+    }
+
+    /** The `create` graph of every scenario recipe pinned to a snapshot, keyed by scenarioId, for the recipe diff. */
+    private async loadRecipesByScenario(snapshotId: string): Promise<Map<string, RecipeRow>> {
+        const versions = await this.db.scenarioRecipeVersion.findMany({
+            where: { snapshotId },
+            select: { scenarioId: true, scenarioNameSnapshot: true, fixtureJson: true },
+        });
+        return new Map(
+            versions.map((version) => [
+                version.scenarioId,
+                {
+                    scenarioId: version.scenarioId,
+                    name: version.scenarioNameSnapshot,
+                    createGraph: JSON.stringify(version.fixtureJson.create ?? {}),
+                },
+            ]),
+        );
     }
 }

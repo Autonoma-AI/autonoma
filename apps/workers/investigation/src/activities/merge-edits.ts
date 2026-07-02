@@ -23,18 +23,36 @@ export async function mergeInvestigationEdits(
         model: session.getModel({ model: "classifier", tag: "investigation-merge" }),
     });
 
-    const result = await new MergeApplier(db).apply(inputs.edits, plan, mainBranchId, organizationId);
+    const result = await new MergeApplier(db).apply(
+        inputs.edits,
+        inputs.recipeEdits,
+        plan,
+        mainBranchId,
+        organizationId,
+    );
 
     logger.info("Merged investigation edits into main", {
-        extra: { applied: result.appliedCount, skipped: result.skippedCount },
+        extra: {
+            applied: result.appliedCount,
+            skipped: result.skippedCount,
+            recipeApplied: result.recipeAppliedCount,
+            recipeSkipped: result.recipeSkippedCount,
+        },
     });
     return {
         mainProposalSnapshotId: result.mainProposalSnapshotId,
         appliedCount: result.appliedCount,
         skippedCount: result.skippedCount,
+        recipeAppliedCount: result.recipeAppliedCount,
+        recipeSkippedCount: result.recipeSkippedCount,
         decisions: plan.decisions.map((decision) => ({
             kind: decision.kind,
             ref: decision.ref,
+            action: decision.action,
+            reason: decision.reason,
+        })),
+        recipeDecisions: plan.recipeDecisions.map((decision) => ({
+            scenarioId: decision.scenarioId,
             action: decision.action,
             reason: decision.reason,
         })),

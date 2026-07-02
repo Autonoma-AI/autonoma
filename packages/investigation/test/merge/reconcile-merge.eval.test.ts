@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { openModelSession } from "../../src/ai/model-session";
-import type { BranchEdit, MainSuiteEntry } from "../../src/merge/merge-inputs";
-import { reconcileMerge } from "../../src/merge/reconcile-merge";
+import type { BranchEdit, MainSuiteEntry } from "../../src";
+import { openModelSession, reconcileMerge } from "../../src";
 
 /**
  * A real-model evalset (gpt-5.5) for the merge-with-main reconciler. It checks the three decisions that matter:
@@ -47,7 +46,7 @@ describe.skipIf(!RUN)("eval: merge reconciler (gpt-5.5)", () => {
             },
         ];
 
-        const plan = await reconcileMerge({ edits, mainSuite: MAIN_SUITE }, { model: model() });
+        const plan = await reconcileMerge({ edits, mainSuite: MAIN_SUITE, recipeEdits: [] }, { model: model() });
 
         const guest = plan.decisions.find((decision) => decision.ref === "guest-checkout");
         const signIn = plan.decisions.find((decision) => decision.ref === "sign-in");
@@ -75,7 +74,7 @@ describe.skipIf(!RUN)("eval: merge reconciler (gpt-5.5)", () => {
             },
         ];
 
-        const plan = await reconcileMerge({ edits, mainSuite: MAIN_SUITE }, { model: model() });
+        const plan = await reconcileMerge({ edits, mainSuite: MAIN_SUITE, recipeEdits: [] }, { model: model() });
 
         const decision = plan.decisions.find((d) => d.ref === "checkout-flow");
         expect(decision?.action).toBe("apply");

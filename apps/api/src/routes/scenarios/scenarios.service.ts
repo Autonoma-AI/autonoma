@@ -1,25 +1,11 @@
 import { createHash } from "node:crypto";
-import type { Prisma, PrismaClient } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { ScenarioManager } from "@autonoma/scenario";
-import { ScenarioRecipeSchema, type ScenarioRecipe } from "@autonoma/types";
+import { type ScenarioManager, applyScenarioRecipeUpdate } from "@autonoma/scenario";
+import { ScenarioRecipeSchema } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
-
-type UpdatedRecipeTarget = "active" | "pending";
-
-type RecipeUpdateScenario = {
-    id: string;
-    applicationId: string;
-    organizationId: string;
-    activeRecipeVersion: {
-        schemaSnapshot: {
-            structureJson: unknown;
-            fingerprint: string;
-        };
-    };
-};
 
 export class ScenariosService extends Service {
     constructor(
@@ -260,7 +246,6 @@ export class ScenariosService extends Service {
         if (scenario.activeRecipeVersionId == null || scenario.activeRecipeVersion == null) {
             throw new NotFoundError("No active recipe version");
         }
-        const activeRecipeVersionId = scenario.activeRecipeVersionId;
         const activeRecipeVersion = scenario.activeRecipeVersion;
 
         let parsed: unknown;
@@ -287,111 +272,22 @@ export class ScenariosService extends Service {
 
         const fingerprint = createHash("sha256").update(JSON.stringify(parsed)).digest("hex");
         const pendingSnapshotId = scenario.application.mainBranch?.pendingSnapshotId;
-        const shouldUpdatePending = pendingSnapshotId != null && pendingSnapshotId !== activeRecipeVersion.snapshotId;
         const fingerprintChanged = scenario.lastSeenFingerprint !== fingerprint;
-        const pendingScenario: RecipeUpdateScenario = {
-            id: scenario.id,
-            applicationId: scenario.applicationId,
-            organizationId: scenario.organizationId,
-            activeRecipeVersion,
-        };
 
-        const updatedRecipeVersions = await this.db.$transaction(async (tx) => {
-            const updated: Array<{ id: string; snapshotId: string; target: UpdatedRecipeTarget }> = [];
-
-            const activeRecipe = await tx.scenarioRecipeVersion.update({
-                where: { id: activeRecipeVersionId },
-                data: this.buildRecipeVersionUpdateData(validation.data, fingerprint),
-                select: { id: true, snapshotId: true },
-            });
-            updated.push({ ...activeRecipe, target: "active" });
-
-            if (shouldUpdatePending) {
-                const pendingRecipe = await this.upsertPendingRecipeVersion({
-                    tx,
-                    scenario: pendingScenario,
-                    pendingSnapshotId,
-                    recipe: validation.data,
-                    fingerprint,
-                });
-                updated.push({ ...pendingRecipe, target: "pending" });
-            }
-
-            await tx.scenario.update({
-                where: { id: scenario.id },
-                data: {
-                    description: validation.data.description,
-                    lastSeenFingerprint: fingerprint,
-                    ...(fingerprintChanged ? { fingerprintChangedAt: new Date() } : {}),
-                },
-            });
-
-            return updated;
+        const { updatedRecipeVersions } = await applyScenarioRecipeUpdate(this.db, {
+            scenario: {
+                id: scenario.id,
+                applicationId: scenario.applicationId,
+                organizationId: scenario.organizationId,
+                activeRecipeVersion,
+            },
+            recipe: validation.data,
+            fingerprint,
+            pendingSnapshotId: pendingSnapshotId ?? undefined,
+            fingerprintChanged,
         });
 
         this.logger.info("Recipe updated", { scenarioId, updatedRecipeVersions });
         return { updatedRecipeVersions };
-    }
-
-    private buildRecipeVersionUpdateData(recipe: ScenarioRecipe, fingerprint: string) {
-        return {
-            scenarioNameSnapshot: recipe.name,
-            description: recipe.description,
-            fingerprint,
-            validationStatus: recipe.validation.status,
-            validationMethod: recipe.validation.method,
-            validationPhase: recipe.validation.phase,
-            validationUpMs: recipe.validation.up_ms ?? null,
-            validationDownMs: recipe.validation.down_ms ?? null,
-            fixtureJson: recipe as any,
-        };
-    }
-
-    private async upsertPendingRecipeVersion({
-        tx,
-        scenario,
-        pendingSnapshotId,
-        recipe,
-        fingerprint,
-    }: {
-        tx: Prisma.TransactionClient;
-        scenario: RecipeUpdateScenario;
-        pendingSnapshotId: string;
-        recipe: ScenarioRecipe;
-        fingerprint: string;
-    }) {
-        const schemaSnapshot = await tx.scenarioSchemaSnapshot.upsert({
-            where: {
-                applicationId_snapshotId: { applicationId: scenario.applicationId, snapshotId: pendingSnapshotId },
-            },
-            create: {
-                applicationId: scenario.applicationId,
-                snapshotId: pendingSnapshotId,
-                structureJson: scenario.activeRecipeVersion.schemaSnapshot.structureJson as any,
-                fingerprint: scenario.activeRecipeVersion.schemaSnapshot.fingerprint,
-            },
-            update: {
-                structureJson: scenario.activeRecipeVersion.schemaSnapshot.structureJson as any,
-                fingerprint: scenario.activeRecipeVersion.schemaSnapshot.fingerprint,
-            },
-            select: { id: true },
-        });
-
-        return tx.scenarioRecipeVersion.upsert({
-            where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: pendingSnapshotId } },
-            create: {
-                scenarioId: scenario.id,
-                snapshotId: pendingSnapshotId,
-                schemaSnapshotId: schemaSnapshot.id,
-                applicationId: scenario.applicationId,
-                organizationId: scenario.organizationId,
-                ...this.buildRecipeVersionUpdateData(recipe, fingerprint),
-            },
-            update: {
-                schemaSnapshotId: schemaSnapshot.id,
-                ...this.buildRecipeVersionUpdateData(recipe, fingerprint),
-            },
-            select: { id: true, snapshotId: true },
-        });
     }
 }

@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { openModelSession } from "../../src/ai/model-session";
-import type { BranchEdit, MainSuiteEntry } from "../../src/merge/merge-inputs";
-import { reconcileMerge } from "../../src/merge/reconcile-merge";
-import type { MergeDecision } from "../../src/merge/schema";
+import { openModelSession } from "../../src";
+import type { BranchEdit, MainSuiteEntry } from "../../src";
+import { reconcileMerge } from "../../src";
+import type { MergeDecision } from "../../src";
 
 /**
  * A realistic merge-with-main evalset built on REAL production test plans (a document-management suite pulled
@@ -167,7 +167,7 @@ describe.skipIf(!RUN)("eval: merge-with-main on real (anonymized) document plans
             model: "classifier",
             tag: "eval-merge-fixture",
         });
-        const plan = await reconcileMerge({ edits, mainSuite: mainSuite(suite) }, { model });
+        const plan = await reconcileMerge({ edits, mainSuite: mainSuite(suite), recipeEdits: [] }, { model });
 
         const byRef = new Map<string, MergeDecision>(plan.decisions.map((decision) => [decision.ref, decision]));
         const report = plan.decisions

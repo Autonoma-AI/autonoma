@@ -46,6 +46,8 @@ export interface SelectInvestigationTestsOutput {
     tests: InvestigationSelectedTest[];
     suggested: SuggestedNewTest[];
     quarantine: QuarantineRecommendation[];
+    /** Whether this org has opted into the agent ACTING (recipe/suite edits, client PR comments). */
+    autofixEnabled: boolean;
 }
 
 /** A serializable verdict (RunVerdict from @autonoma/investigation is structurally assignable to this). */
@@ -73,6 +75,39 @@ export interface InvestigationVerdict {
     evidence: InvestigationEvidence[];
 }
 
+/**
+ * The scenario-repair diagnoser's routing for a scenario failure (a serializable mirror of
+ * @autonoma/investigation's ScenarioDiagnosis). Observe-only in this slice: it says HOW a scenario failure
+ * should be repaired (fix the test / edit the recipe / escalate a client-factory change / not a data problem),
+ * so the report and PR comment can surface it - nothing acts on it yet.
+ */
+export interface InvestigationScenarioDiagnosis {
+    route: "fix_test" | "recipe_only" | "recipe_and_sdk" | "unknown";
+    confidence: string;
+    reasoning: string;
+    /** The scoped test edit to make (route=fix_test). */
+    testFix?: string;
+    /** The recipe `create`-graph change to make (route=recipe_only | recipe_and_sdk). */
+    recipeChange?: string;
+    /** The client-factory change to request from the client's coding agent (route=recipe_and_sdk). */
+    factoryIssue?: string;
+    /**
+     * The concrete candidate recipe `create` graph the agent WOULD activate (route=recipe_only/recipe_and_sdk),
+     * as a JSON string. Computed for every org (dry-run); only written when autofix is enabled. Absent if the
+     * edit could not be produced.
+     */
+    proposedRecipeCreateGraph?: string;
+    /** One-sentence summary of the proposed recipe edit (accompanies proposedRecipeCreateGraph). */
+    proposedRecipeSummary?: string;
+    /**
+     * Whether the agent actually WROTE the repair (activated the candidate recipe). Only set for autofix-enabled
+     * orgs after the candidate passed validation on the twin; absent for dry-run orgs.
+     */
+    applied?: boolean;
+    /** What the write pass did (activated after twin validation / validation failed / nothing to validate). */
+    appliedNote?: string;
+}
+
 /** One classified shadow run, carried from the classify activity to the report activity. */
 export interface InvestigationTestResult {
     slug: string;
@@ -88,6 +123,43 @@ export interface InvestigationTestResult {
     finalScreenshotUrl?: string;
     /** Validation outcome if the suggested modification was run through the validate->edit->retry loop. */
     modificationValidation?: TestValidationResult;
+    /** How a scenario failure should be repaired (attached by the diagnose pass for scenario_issue results). */
+    scenarioDiagnosis?: InvestigationScenarioDiagnosis;
+}
+
+export interface DiagnoseInvestigationScenarioInput {
+    snapshotId: string;
+    slug: string;
+    /** The failure to diagnose: the scenario-up SDK error, or the classifier's account of the data mismatch. */
+    failureDetail: string;
+    /** What the run observed on-screen (for post-seed data mismatches); absent for provisioning failures. */
+    runObservation?: string;
+}
+
+export interface StageRecipeCandidateInput {
+    snapshotId: string;
+    slug: string;
+    /** The candidate `create` graph (JSON string) to seed on the twin for validation. */
+    createGraphJson: string;
+}
+export interface StageRecipeCandidateOutput {
+    staged: boolean;
+    /** The shadow generation to re-seed + re-run with the candidate (present when staged). */
+    testGenerationId?: string;
+    /** The scenario the candidate belongs to (present when staged). */
+    scenarioId?: string;
+    /** The pre-stage `create` graph (JSON string), to restore via revertTwinRecipe if validation fails. */
+    previousCreateGraphJson?: string;
+}
+
+export interface RevertTwinRecipeInput {
+    snapshotId: string;
+    scenarioId: string;
+    /** The previous `create` graph (JSON string) to restore onto the twin recipe version. */
+    createGraphJson: string;
+}
+export interface RevertTwinRecipeOutput {
+    reverted: boolean;
 }
 
 export interface ClassifyInvestigationRunInput {
@@ -194,18 +266,35 @@ export interface InvestigationMergeDecision {
     reason: string;
 }
 
+/** One reconciled scenario-recipe decision, surfaced for the merge report. */
+export interface InvestigationRecipeMergeDecision {
+    scenarioId: string;
+    action: string;
+    reason: string;
+}
+
 export interface MergeInvestigationEditsOutput {
     /** The detached main-proposal snapshot the accepted edits landed on, or undefined when nothing was applied. */
     mainProposalSnapshotId?: string;
     appliedCount: number;
     skippedCount: number;
+    /** How many recipe decisions were written onto the proposal snapshot's recipe versions. */
+    recipeAppliedCount: number;
+    /** How many recipe decisions were dropped (skip, or no recipe version on the proposal). */
+    recipeSkippedCount: number;
     decisions: InvestigationMergeDecision[];
+    recipeDecisions: InvestigationRecipeMergeDecision[];
 }
 
 /** The activities run by the investigation worker (the INVESTIGATION task queue). */
 export interface InvestigationActivities {
     selectInvestigationTests(input: SelectInvestigationTestsInput): Promise<SelectInvestigationTestsOutput>;
     classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
+    diagnoseInvestigationScenario(
+        input: DiagnoseInvestigationScenarioInput,
+    ): Promise<InvestigationScenarioDiagnosis | undefined>;
+    stageRecipeCandidateOnTwin(input: StageRecipeCandidateInput): Promise<StageRecipeCandidateOutput>;
+    revertTwinRecipe(input: RevertTwinRecipeInput): Promise<RevertTwinRecipeOutput>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;
     createValidationGeneration(input: CreateValidationGenerationInput): Promise<CreateValidationGenerationOutput>;
     postInvestigationPrComment(input: PostInvestigationPrCommentInput): Promise<PostInvestigationPrCommentOutput>;

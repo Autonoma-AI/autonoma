@@ -2,10 +2,13 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { InvestigationActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
+import { diagnoseInvestigationScenario as diagnoseScenarioImpl } from "./diagnose-scenario";
 import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
 import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
 import { postInvestigationPrComment as postPrCommentImpl } from "./post-pr-comment";
+import { revertTwinRecipe as revertTwinRecipeImpl } from "./revert-twin-recipe";
 import { selectInvestigationTests as selectImpl } from "./select-tests";
+import { stageRecipeCandidateOnTwin as stageRecipeImpl } from "./stage-recipe-candidate";
 import { createValidationGeneration as createValidationImpl } from "./validate-proposal";
 import { writeInvestigationReport as writeReportImpl } from "./write-report";
 
@@ -38,6 +41,13 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
 
 export const selectInvestigationTests = withHeartbeat(selectImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
+// One structured model call after loading the plan + recipe; heartbeat it so a slow call stays under the 2m timeout.
+export const diagnoseInvestigationScenario = withHeartbeat(diagnoseScenarioImpl);
+// Branch-scoped DB write (overwrites just the twin's recipe version) + a shadow generation; fast, but heartbeat
+// for consistency with the other investigation activities.
+export const stageRecipeCandidateOnTwin = withHeartbeat(stageRecipeImpl);
+// A single branch-scoped DB write (restore the twin recipe version); fast, heartbeat for consistency.
+export const revertTwinRecipe = withHeartbeat(revertTwinRecipeImpl);
 export const writeInvestigationReport = withHeartbeat(writeReportImpl);
 export const createValidationGeneration = withHeartbeat(createValidationImpl);
 export const postInvestigationPrComment = withHeartbeat(postPrCommentImpl);
@@ -51,6 +61,9 @@ export const mergeInvestigationEdits = withHeartbeat(mergeEditsImpl);
 const _activities: InvestigationActivities = {
     selectInvestigationTests,
     classifyInvestigationRun,
+    diagnoseInvestigationScenario,
+    stageRecipeCandidateOnTwin,
+    revertTwinRecipe,
     writeInvestigationReport,
     createValidationGeneration,
     postInvestigationPrComment,

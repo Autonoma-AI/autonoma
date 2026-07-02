@@ -1044,6 +1044,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../../packages/storage
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../../../packages/types
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
@@ -1069,9 +1072,6 @@ importers:
       '@autonoma/engine-web':
         specifier: workspace:*
         version: link:../../engine-web
-      '@autonoma/scenario':
-        specifier: workspace:*
-        version: link:../../../packages/scenario
       '@types/node':
         specifier: 'catalog:'
         version: 25.2.3

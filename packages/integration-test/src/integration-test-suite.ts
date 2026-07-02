@@ -18,11 +18,15 @@ export function integrationTestSuite<THarness extends IntegrationHarness, TSeedR
         let harness: THarness;
         let seedResult: TSeedResult;
 
+        // Startup (Testcontainer image pull + Postgres boot + migrations) dominates this hook. When many
+        // integration suites boot their own container in parallel on a busy CI runner, a single container's
+        // startup can exceed two minutes purely from contention - so give the hook generous headroom (a ready
+        // container resolves it immediately; this only affects how long we wait for a slow start, not the happy path).
         beforeAll(async () => {
             harness = await createHarness();
             await harness.beforeAll();
             if (seed != null) seedResult = await seed(harness);
-        }, 120_000);
+        }, 300_000);
 
         afterAll(async () => {
             await harness?.afterAll();

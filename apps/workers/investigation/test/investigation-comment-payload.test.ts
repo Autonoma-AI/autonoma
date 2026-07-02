@@ -70,6 +70,28 @@ describe("buildInvestigationCommentPayload", () => {
         expect(payload.bugs).toHaveLength(2);
     });
 
+    it("appends the scenario repair route (and client-factory change) to the remediation when diagnosed", async () => {
+        const payload = await buildInvestigationCommentPayload(
+            [
+                result("integrations", "scenario_issue", {
+                    scenarioDiagnosis: {
+                        route: "recipe_and_sdk",
+                        confidence: "high",
+                        reasoning: "the factory has no handler for this model",
+                        factoryIssue: "register a defineFactory for external_connectors",
+                    },
+                }),
+            ],
+            context,
+            noSign,
+        );
+
+        const remediation = payload.bugs[0]?.remediation ?? "";
+        expect(remediation).toContain("do the fix");
+        expect(remediation).toContain("Repair route: `recipe_and_sdk`");
+        expect(remediation).toContain("Client factory change: register a defineFactory for external_connectors");
+    });
+
     it("is healthy when nothing is actionable", async () => {
         const payload = await buildInvestigationCommentPayload([result("ok", "passed")], context, noSign);
 

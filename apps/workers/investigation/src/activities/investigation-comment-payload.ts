@@ -59,6 +59,45 @@ export async function buildInvestigationCommentPayload(
     };
 }
 
+/**
+ * The remediation shown in the PR comment, enriched with the scenario-repair route when one was diagnosed. The
+ * route tells the reader which lever to pull; for `recipe_and_sdk` this is the deliverable - the factory needs a
+ * code change we cannot make, so we surface the concrete client-factory change right here (in our own comment, not
+ * a separate one) so the client's coding agent has an actionable item. `fix_test`/`recipe_only` may already have
+ * been written live (see `applied`); the proposed-recipe line notes that it is a dry-run unless autofix is on.
+ */
+function remediationWithRoute(result: InvestigationTestResult): string | undefined {
+    const base = result.verdict?.remediation;
+    const diagnosis = result.scenarioDiagnosis;
+    if (diagnosis == null) return base;
+
+    const factory =
+        diagnosis.factoryIssue != null && diagnosis.factoryIssue !== ""
+            ? ` Client factory change: ${diagnosis.factoryIssue}`
+            : "";
+    const proposed =
+        diagnosis.proposedRecipeSummary != null && diagnosis.proposedRecipeSummary !== ""
+            ? ` Proposed recipe: ${diagnosis.proposedRecipeSummary}`
+            : "";
+    const routeLine = `Repair route: \`${diagnosis.route}\` - ${diagnosis.reasoning}${factory}${proposed}${appliedNote(diagnosis)}`;
+    return [base, routeLine].filter((part) => part != null && part !== "").join("\n\n");
+}
+
+/**
+ * The repair outcome to show. recipe_and_sdk needs a client code change we can't make, so it stays a proposal.
+ * For the other routes autofix VALIDATES the repair on the twin (branch-scoped) - it is never written to main
+ * here; a validated test fix rides the branch and reaches main only when the PR merges. We report what happened:
+ * validated on the twin, tried-but-not-validated (with the reason), or a dry-run because autofix is off.
+ */
+function appliedNote(diagnosis: NonNullable<InvestigationTestResult["scenarioDiagnosis"]>): string {
+    if (diagnosis.route === "recipe_and_sdk")
+        return " Requires a client code change (surfaced above); not auto-applied.";
+    if (diagnosis.applied === true)
+        return ` ${diagnosis.appliedNote ?? "Validated on the twin (branch-scoped); not written to main."}`;
+    if (diagnosis.appliedNote != null && diagnosis.appliedNote !== "") return ` ${diagnosis.appliedNote}.`;
+    return " Dry-run only (autofix disabled for this org).";
+}
+
 async function toBug(
     result: InvestigationTestResult,
     context: InvestigationCommentContext,
@@ -74,7 +113,7 @@ async function toBug(
         replayHref: findingUrl,
         screenshotUrl,
         description: verdict?.whatHappened,
-        remediation: verdict?.remediation,
+        remediation: remediationWithRoute(result),
         evidence: (verdict?.evidence ?? []).map((item) => ({
             source: item.source,
             detail: item.detail,

@@ -1,4 +1,4 @@
-# @autonoma/investigation
+~~~~# @autonoma/investigation
 
 The core logic of the **shadow investigation agent** - a low-risk comparison agent that runs in parallel
 with the production diffs job. For a PR it runs on its **own detached snapshot** (a baseline clone the diffs
@@ -23,6 +23,7 @@ src/
     prior-runs.ts               PriorRuns      - has this test ever passed? (the classifier baseline)
     deployed-comparison.ts      DeployedComparison - the deployed diffs agent's result (by head SHA / by PR)
     test-catalog.ts             TestCatalog    - a snapshot's assigned tests + their pinned plans (for the selector)
+    scenario-recipe.ts          ScenarioRecipe - a scenario's recipe `create` graph for a snapshot (for the diagnoser)
   preview/
     preview-secrets.ts          PreviewSecrets     - read a repo's previewkit env (AWS SDK)
     preview-environment.ts      PreviewEnvironment - PreviewAccess impl + the run_script harness (temp dir)
@@ -41,10 +42,19 @@ src/
   persist/
     edit-persister.ts           EditPersister  - write the agent's add/modify edits onto the twin snapshot
   merge/
-    merge-inputs.ts             MergeInputsReader - derive the twin's edits (vs its baseline) + main's suite
-    schema.ts · prompt.ts       the reconcile MergePlan schema + the reconciler prompt (generic)
-    reconcile-merge.ts          reconcileMerge - one structured pass: apply / merge / skip each edit into main
-    merge-applier.ts            MergeApplier   - apply accepted edits onto a detached main-proposal snapshot
+    merge-inputs.ts             MergeInputsReader - derive the twin's test edits + recipe create-graph edits
+                                (each vs its fork-point baseline) + main's current suite/recipes
+    schema.ts · prompt.ts       the reconcile MergePlan schema (test + recipe decisions) + reconciler prompts
+    reconcile-merge.ts          reconcileMerge - structured passes: apply / merge / skip each test edit AND each
+                                recipe edit into main (recipes reconcile in their own pass)
+    merge-applier.ts            MergeApplier   - apply accepted test edits + recipe create-graphs onto a detached
+                                main-proposal snapshot (never main's live suite/recipe)
+  scenario-repair/
+    schema.ts · prompt.ts       the ScenarioDiagnosis schema + the diagnoser prompt (generic, test-first)
+    diagnose.ts                 diagnoseScenarioFailure - route a scenario-data failure: fix the test (default),
+                                edit the recipe, or escalate to a client-factory change (analysis only, no mutation)
+    edit-recipe.ts · -prompt.ts editRecipeCreateGraph - turn a recipeChange instruction into the concrete new
+                                `create` graph (the candidate the worker validates + activates). Analysis only.
   report/markdown.ts            buildReportMarkdown - the S3 report (verdicts + deployed comparison)
 ```
 

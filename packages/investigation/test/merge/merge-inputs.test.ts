@@ -1,7 +1,6 @@
 import { createDetachedSnapshot } from "@autonoma/test-updates";
 import { expect } from "vitest";
-import { MergeInputsReader } from "../../src/merge/merge-inputs";
-import { EditPersister } from "../../src/persist/edit-persister";
+import { EditPersister, MergeInputsReader } from "../../src";
 import { investigationDbSuite } from "../harness";
 
 investigationDbSuite({
@@ -75,6 +74,85 @@ investigationDbSuite({
 
             expect(inputs.edits).toEqual([]);
             expect(inputs.mainSuite).toHaveLength(1);
+            expect(inputs.recipeEdits).toEqual([]);
+        });
+
+        test("derives a recipe edit when the twin's create graph differs from its fork-point baseline", async ({
+            harness,
+            seedResult: { organizationId, application },
+        }) => {
+            const { branchId, snapshotId: mainSnapshotId } = await harness.setupTestCase(
+                organizationId,
+                application.id,
+                "recipe-diff-flow",
+            );
+            // Main's recipe (the fork source) seeds an empty orders list.
+            const scenarioId = "scenario-orders-diff";
+            await harness.createScenarioRecipe(mainSnapshotId, {
+                scenarioId,
+                scenarioName: "Orders Diff",
+                applicationId: application.id,
+                organizationId,
+                createGraph: { orders: [] },
+            });
+
+            // The twin forks the recipe (create = {orders: []}), then the branch's repair changes it.
+            const twin = await createDetachedSnapshot({ db: harness.db, branchId, organizationId });
+            if (twin == null) throw new Error("expected a detached twin");
+            await harness.db.scenarioRecipeVersion.update({
+                where: { scenarioId_snapshotId: { scenarioId, snapshotId: twin.snapshotId } },
+                data: {
+                    fixtureJson: {
+                        name: "Orders Diff",
+                        description: "seed for tests",
+                        create: { orders: [{ total: 10 }] },
+                        validation: { status: "validated", method: "endpoint-up-down", phase: "ok" },
+                    },
+                },
+            });
+
+            const inputs = await new MergeInputsReader(harness.db).read(
+                twin.snapshotId,
+                mainSnapshotId,
+                organizationId,
+            );
+
+            expect(inputs.recipeEdits).toHaveLength(1);
+            const recipeEdit = inputs.recipeEdits[0];
+            expect(recipeEdit?.scenarioId).toBe(scenarioId);
+            expect(JSON.parse(recipeEdit?.proposedCreateGraph ?? "{}")).toEqual({ orders: [{ total: 10 }] });
+            // base = fork point (empty), main = current main recipe (also empty here - nobody else changed it).
+            expect(JSON.parse(recipeEdit?.baseCreateGraph ?? "null")).toEqual({ orders: [] });
+            expect(JSON.parse(recipeEdit?.mainCreateGraph ?? "null")).toEqual({ orders: [] });
+        });
+
+        test("returns no recipe edit when the twin's create graph matches its baseline", async ({
+            harness,
+            seedResult: { organizationId, application },
+        }) => {
+            const { branchId, snapshotId: mainSnapshotId } = await harness.setupTestCase(
+                organizationId,
+                application.id,
+                "recipe-match-flow",
+            );
+            await harness.createScenarioRecipe(mainSnapshotId, {
+                scenarioId: "scenario-orders-match",
+                scenarioName: "Orders Match",
+                applicationId: application.id,
+                organizationId,
+                createGraph: { orders: [] },
+            });
+            // Fork but never change the twin's recipe.
+            const twin = await createDetachedSnapshot({ db: harness.db, branchId, organizationId });
+            if (twin == null) throw new Error("expected a detached twin");
+
+            const inputs = await new MergeInputsReader(harness.db).read(
+                twin.snapshotId,
+                mainSnapshotId,
+                organizationId,
+            );
+
+            expect(inputs.recipeEdits).toEqual([]);
         });
     },
 });

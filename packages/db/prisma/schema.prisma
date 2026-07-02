@@ -1630,6 +1630,12 @@ model OrganizationSettings {
   previewkitBuildDraft   Boolean @default(false) @map("previewkit_build_draft")
   previewkitFilterBranch String? @map("previewkit_filter_branch")
 
+  // Org-scoped gate for the investigation agent's ACTING (autofix): editing/activating scenario recipes,
+  // applying test-suite edits, and posting client-factory PR comments. Off by default - the observe-only shadow
+  // still runs for every org via INVESTIGATION_SHADOW_ENABLED; only the mutating steps are gated here so we can
+  // roll autofix out per trusted org (Centinel first) before enabling it broadly.
+  investigationAutofixEnabled Boolean @default(false) @map("investigation_autofix_enabled")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

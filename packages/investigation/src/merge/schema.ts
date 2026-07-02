@@ -21,9 +21,29 @@ export interface MergeDecision {
     mergedPlan?: string;
 }
 
-/** The reconciler's output: one decision per branch edit, in the same order they were presented. */
+/**
+ * One reconciliation decision for a single branch RECIPE edit. `apply` carries the branch's `create` graph into
+ * main's recipe (using `mergedCreateGraph` if it had to be adapted to main's current recipe, else the branch's
+ * proposed graph verbatim); `skip` drops it (main already has the data, or main's recipe conflicts) with a reason.
+ */
+export interface RecipeMergeDecision {
+    /** The scenario whose recipe this decision resolves - matches the input recipe edit. */
+    scenarioId: string;
+    action: "apply" | "skip";
+    /** Why this action - self-contained, so the report reads without cross-referencing. */
+    reason: string;
+    /**
+     * The final `create` graph (JSON string) to write when `action` is `apply`, set only when the branch's
+     * proposed graph had to be ADAPTED to main's current recipe. Absent to apply the proposed graph verbatim,
+     * and always absent for `skip`.
+     */
+    mergedCreateGraph?: string;
+}
+
+/** The reconciler's output: one decision per branch edit + one per recipe edit, in the order presented. */
 export interface MergePlan {
     decisions: MergeDecision[];
+    recipeDecisions: RecipeMergeDecision[];
 }
 
 /**
@@ -43,15 +63,35 @@ export const MergePlanForModel = z.object({
     ),
 });
 
-/** Normalize the model output (nullable mergedPlan) into the public MergePlan (undefined for absent). */
-export function toMergePlan(output: z.infer<typeof MergePlanForModel>): MergePlan {
-    return {
-        decisions: output.decisions.map((decision) => ({
-            kind: decision.kind,
-            ref: decision.ref,
-            action: decision.action,
-            reason: decision.reason,
-            mergedPlan: decision.mergedPlan ?? undefined,
-        })),
-    };
+/** The schema the MODEL produces for the recipe reconcile pass. Same nullable-required convention as MergePlanForModel. */
+export const RecipeMergePlanForModel = z.object({
+    recipeDecisions: z.array(
+        z.object({
+            scenarioId: z.string(),
+            action: z.enum(["apply", "skip"]),
+            reason: z.string(),
+            mergedCreateGraph: z.string().nullable(),
+        }),
+    ),
+});
+
+/** Normalize the test-edit model output (nullable mergedPlan) into the decisions half of a MergePlan. */
+export function toMergeDecisions(output: z.infer<typeof MergePlanForModel>): MergeDecision[] {
+    return output.decisions.map((decision) => ({
+        kind: decision.kind,
+        ref: decision.ref,
+        action: decision.action,
+        reason: decision.reason,
+        mergedPlan: decision.mergedPlan ?? undefined,
+    }));
+}
+
+/** Normalize the recipe model output (nullable mergedCreateGraph) into the recipeDecisions half of a MergePlan. */
+export function toRecipeMergeDecisions(output: z.infer<typeof RecipeMergePlanForModel>): RecipeMergeDecision[] {
+    return output.recipeDecisions.map((decision) => ({
+        scenarioId: decision.scenarioId,
+        action: decision.action,
+        reason: decision.reason,
+        mergedCreateGraph: decision.mergedCreateGraph ?? undefined,
+    }));
 }

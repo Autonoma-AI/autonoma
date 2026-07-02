@@ -7,7 +7,7 @@ import {
     type PersistEditsResult,
     type TestModification,
 } from "../persist/edit-persister";
-import type { BranchEdit } from "./merge-inputs";
+import type { BranchEdit, RecipeMergeEdit } from "./merge-inputs";
 import type { MergePlan } from "./schema";
 
 export interface MergeApplyResult {
@@ -20,6 +20,10 @@ export interface MergeApplyResult {
     persist?: PersistEditsResult;
     appliedCount: number;
     skippedCount: number;
+    /** How many recipe decisions were written onto the proposal snapshot's recipe versions. */
+    recipeAppliedCount: number;
+    /** How many recipe decisions were dropped (skip, or no recipe version on the proposal to update). */
+    recipeSkippedCount: number;
 }
 
 /**
@@ -37,16 +41,25 @@ export class MergeApplier {
 
     async apply(
         edits: BranchEdit[],
+        recipeEdits: RecipeMergeEdit[],
         plan: MergePlan,
         mainBranchId: string,
         organizationId: string,
     ): Promise<MergeApplyResult> {
         const editByKey = new Map(edits.map((edit) => [`${edit.kind}:${edit.ref}`, edit]));
+        const recipeByScenario = new Map(recipeEdits.map((edit) => [edit.scenarioId, edit]));
         const accepted = plan.decisions.filter((decision) => decision.action === "apply");
+        const acceptedRecipes = plan.recipeDecisions.filter((decision) => decision.action === "apply");
         const skippedCount = plan.decisions.length - accepted.length;
+        const recipeSkippedFromPlan = plan.recipeDecisions.length - acceptedRecipes.length;
 
         this.logger.info("Applying merge plan to a detached main snapshot", {
-            extra: { accepted: accepted.length, skipped: skippedCount, mainBranchId },
+            extra: {
+                accepted: accepted.length,
+                skipped: skippedCount,
+                recipesAccepted: acceptedRecipes.length,
+                mainBranchId,
+            },
         });
 
         const modifications: TestModification[] = [];
@@ -67,9 +80,10 @@ export class MergeApplier {
             }
         }
 
-        if (modifications.length === 0 && newTests.length === 0) {
-            this.logger.info("No accepted edits to apply; skipping main proposal snapshot");
-            return { appliedCount: 0, skippedCount };
+        const hasTestEdits = modifications.length > 0 || newTests.length > 0;
+        if (!hasTestEdits && acceptedRecipes.length === 0) {
+            this.logger.info("No accepted test or recipe edits to apply; skipping main proposal snapshot");
+            return { appliedCount: 0, skippedCount, recipeAppliedCount: 0, recipeSkippedCount: recipeSkippedFromPlan };
         }
 
         const created = await createDetachedSnapshot({ db: this.db, branchId: mainBranchId, organizationId });
@@ -77,25 +91,87 @@ export class MergeApplier {
             this.logger.warn("Main branch has no baseline suite to fork; cannot apply merge plan", {
                 extra: { mainBranchId },
             });
-            return { appliedCount: 0, skippedCount };
+            return { appliedCount: 0, skippedCount, recipeAppliedCount: 0, recipeSkippedCount: recipeSkippedFromPlan };
         }
 
-        const persist = await new EditPersister(this.db).persist(
-            created.snapshotId,
-            organizationId,
-            modifications,
-            newTests,
-        );
+        const persist = hasTestEdits
+            ? await new EditPersister(this.db).persist(created.snapshotId, organizationId, modifications, newTests)
+            : undefined;
+
+        // Write accepted recipe decisions onto the PROPOSAL snapshot's recipe versions (cloned from main by
+        // createDetachedSnapshot) - never main's live active recipe. A scenario without a version on the proposal
+        // (main has no recipe for it) is counted as skipped rather than created from nothing.
+        let recipeAppliedCount = 0;
+        for (const decision of acceptedRecipes) {
+            const edit = recipeByScenario.get(decision.scenarioId);
+            if (edit == null) {
+                this.logger.warn("Accepted recipe decision has no matching edit; skipping", {
+                    extra: { scenarioId: decision.scenarioId },
+                });
+                continue;
+            }
+            const applied = await this.writeRecipeOntoProposal(
+                created.snapshotId,
+                decision.scenarioId,
+                decision.mergedCreateGraph ?? edit.proposedCreateGraph,
+            );
+            if (applied) recipeAppliedCount += 1;
+        }
+        const recipeSkippedCount = recipeSkippedFromPlan + (acceptedRecipes.length - recipeAppliedCount);
 
         this.logger.info("Merge plan applied to main proposal snapshot", {
             snapshot: { snapshotId: created.snapshotId },
-            extra: { persisted: persist.persisted.length, skipped: persist.skipped.length },
+            extra: {
+                persisted: persist?.persisted.length ?? 0,
+                skipped: persist?.skipped.length ?? 0,
+                recipeApplied: recipeAppliedCount,
+            },
         });
         return {
             mainProposalSnapshotId: created.snapshotId,
             persist,
-            appliedCount: persist.persisted.length,
+            appliedCount: persist?.persisted.length ?? 0,
             skippedCount,
+            recipeAppliedCount,
+            recipeSkippedCount,
         };
     }
+
+    /**
+     * Overwrite the `create` graph of the proposal snapshot's recipe version for one scenario, preserving the
+     * rest of the recipe (name/description/variables/validation). Returns false when the proposal has no recipe
+     * version for that scenario (main never had one) - there is nothing to update, so the caller counts a skip.
+     */
+    private async writeRecipeOntoProposal(
+        proposalSnapshotId: string,
+        scenarioId: string,
+        createGraphJson: string,
+    ): Promise<boolean> {
+        const version = await this.db.scenarioRecipeVersion.findUnique({
+            where: { scenarioId_snapshotId: { scenarioId, snapshotId: proposalSnapshotId } },
+            select: { fixtureJson: true },
+        });
+        if (version == null) {
+            this.logger.warn("Proposal snapshot has no recipe version for scenario; skipping recipe apply", {
+                snapshot: { snapshotId: proposalSnapshotId },
+                extra: { scenarioId },
+            });
+            return false;
+        }
+        const recipe = { ...version.fixtureJson, create: parseCreateGraph(createGraphJson) };
+        await this.db.scenarioRecipeVersion.update({
+            where: { scenarioId_snapshotId: { scenarioId, snapshotId: proposalSnapshotId } },
+            data: { fixtureJson: recipe },
+        });
+        return true;
+    }
+}
+
+/** The reconciled create graph arrives as a JSON string; validate it is an object before writing it into a recipe. */
+function parseCreateGraph(createGraphJson: string): Record<string, unknown> {
+    const parsed: unknown = JSON.parse(createGraphJson);
+    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Reconciled create graph is not a JSON object");
+    }
+    return { ...parsed };
 }

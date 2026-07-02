@@ -88,6 +88,72 @@ export class InvestigationDbHarness implements IntegrationHarness {
         await this.db.branchSnapshot.update({ where: { id: snapshotId }, data: { headSha } });
     }
 
+    /**
+     * Create (or reuse) a scenario and pin a recipe version to a snapshot with the given `create` graph. Used to
+     * set up the recipe-merge tests: a scenario recipe on a snapshot, so forking/diffing/applying can be exercised.
+     */
+    async createScenarioRecipe(
+        snapshotId: string,
+        opts: {
+            scenarioId: string;
+            scenarioName: string;
+            applicationId: string;
+            organizationId: string;
+            createGraph: Record<string, unknown>;
+        },
+    ): Promise<void> {
+        await this.db.scenario.upsert({
+            where: { id: opts.scenarioId },
+            create: {
+                id: opts.scenarioId,
+                applicationId: opts.applicationId,
+                organizationId: opts.organizationId,
+                name: opts.scenarioName,
+            },
+            update: {},
+        });
+        const schema = await this.db.scenarioSchemaSnapshot.upsert({
+            where: { applicationId_snapshotId: { applicationId: opts.applicationId, snapshotId } },
+            create: {
+                applicationId: opts.applicationId,
+                snapshotId,
+                structureJson: { models: {} },
+                fingerprint: `schema-${snapshotId}`,
+            },
+            update: {},
+            select: { id: true },
+        });
+        await this.db.scenarioRecipeVersion.create({
+            data: {
+                scenarioId: opts.scenarioId,
+                snapshotId,
+                schemaSnapshotId: schema.id,
+                applicationId: opts.applicationId,
+                organizationId: opts.organizationId,
+                scenarioNameSnapshot: opts.scenarioName,
+                fingerprint: `recipe-${snapshotId}`,
+                validationStatus: "validated",
+                validationMethod: "endpoint-up-down",
+                validationPhase: "ok",
+                fixtureJson: {
+                    name: opts.scenarioName,
+                    description: "seed for tests",
+                    create: opts.createGraph,
+                    validation: { status: "validated", method: "endpoint-up-down", phase: "ok" },
+                },
+            },
+        });
+    }
+
+    /** The `create` graph pinned to a snapshot for a scenario, or undefined when no recipe version exists. */
+    async recipeCreateGraph(snapshotId: string, scenarioId: string): Promise<Record<string, unknown> | undefined> {
+        const version = await this.db.scenarioRecipeVersion.findUnique({
+            where: { scenarioId_snapshotId: { scenarioId, snapshotId } },
+            select: { fixtureJson: true },
+        });
+        return version?.fixtureJson.create;
+    }
+
     async linkPullRequestToBranch(applicationId: string, branchId: string, prNumber: number): Promise<void> {
         await this.db.featureBranchInfo.create({ data: { branchId, applicationId, prNumber } });
     }

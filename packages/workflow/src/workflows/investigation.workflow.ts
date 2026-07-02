@@ -4,6 +4,7 @@ import type {
     InvestigationActivities,
     InvestigationSelectedTest,
     InvestigationTestResult,
+    InvestigationVerdict,
     TestValidationResult,
     WebActivities,
 } from "../activities";
@@ -93,6 +94,24 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
         results.push(...settled);
     }
 
+    // Route every scenario failure into a repair category (fix_test / recipe_only / recipe_and_sdk / unknown) and
+    // compute the concrete candidate recipe - a DRY-RUN for every org (report + PR comment show what WOULD run).
+    // Contained + bounded like the runs: a diagnosis failure is logged and dropped, never sinking the report.
+    await diagnoseScenarioFailures(snapshotId, results);
+
+    // Autofix (validation step) is gated per org: only opted-in orgs pay to VALIDATE their proposed repairs on
+    // the twin (re-seed + re-run the candidate recipe / edited plan). Nothing is written to main here - a repair
+    // that is correct for THIS branch can be wrong for main + every other in-flight branch (the branch may have
+    // changed the schema or introduced a bad test), so writing it globally would break them until this PR merges,
+    // and permanently if it never does. Instead the validated repair stays branch-scoped (recipe fixes on the twin
+    // recipe version; test edits on the branch snapshot via persistInvestigationEdits below) and reaches main only
+    // when the PR merges - the merge-with-main step reconciles both into a main-proposal. Contained: a validation
+    // failure never sinks the report.
+    if (selection.autofixEnabled) {
+        await applyRecipeRepairs(snapshotId, results);
+        await applyTestFixes(snapshotId, results);
+    }
+
     if (input.validateProposals === true) {
         await validateProposals(snapshotId, selection.suggested, results);
     }
@@ -148,6 +167,167 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
     }
 
     log.info("Investigation workflow completed", { ...ids, extra: { reportUrl: report.reportUrl } });
+}
+
+/**
+ * Diagnose every scenario failure into a repair route and attach it to the result in place. Only
+ * `scenario_issue` results are diagnosed: those are the failures a recipe/test/factory change could fix.
+ * `environment_failure` (preview down) is already "not our problem", and other categories are not data issues.
+ * Runs in bounded waves; each diagnosis is contained so a failure never sinks the report.
+ */
+async function diagnoseScenarioFailures(snapshotId: string, results: InvestigationTestResult[]): Promise<void> {
+    const targets = results.filter((result) => result.verdict?.category === "scenario_issue");
+    for (let offset = 0; offset < targets.length; offset += TEST_CONCURRENCY) {
+        const wave = targets.slice(offset, offset + TEST_CONCURRENCY);
+        await Promise.all(wave.map((result) => diagnoseOne(snapshotId, result)));
+    }
+}
+
+async function diagnoseOne(snapshotId: string, result: InvestigationTestResult): Promise<void> {
+    const verdict = result.verdict;
+    if (verdict == null) return;
+    // Only a run that reached the app produces an on-screen observation (the fix_test/recipe_only signal); a
+    // provisioning failure never did, so its route comes from the SDK error in `whatHappened` alone.
+    const runObservation = verdict.ran ? scenarioObservation(verdict) : undefined;
+    try {
+        const diagnosis = await investigation.diagnoseInvestigationScenario({
+            snapshotId,
+            slug: result.slug,
+            failureDetail: verdict.whatHappened,
+            runObservation,
+        });
+        if (diagnosis != null) result.scenarioDiagnosis = diagnosis;
+    } catch (error) {
+        log.warn("Scenario diagnosis failed; continuing without a route", {
+            snapshot: { snapshotId },
+            extra: { slug: result.slug, message: rootFailureMessage(error) },
+        });
+    }
+}
+
+/** The run's on-screen account of the data mismatch: the classifier's root cause plus any observed app issues. */
+function scenarioObservation(verdict: InvestigationVerdict): string {
+    const parts = [verdict.rootCause, verdict.observedAppIssues].filter((part) => part != null && part !== "");
+    return parts.join(" ");
+}
+
+/**
+ * Autofix validation pass (recipe_only): for each result the diagnoser routed to recipe_only with a candidate
+ * recipe, stage the candidate on the twin's recipe version (a branch-scoped write - the real run resolves the
+ * recipe by [scenarioId, snapshotId], so this only affects this snapshot) and re-seed + re-run the test to prove
+ * it fixes the failure. On success the validated recipe stays on the twin and the merge-with-main step carries it
+ * into a main-proposal when the PR merges; on failure we revert the twin so the failed candidate is never carried.
+ * It is never activated on main mid-PR - a recipe correct for this branch can be wrong for main + other branches.
+ * Processed sequentially so two tests sharing a scenario never race on the twin's recipe version. Every step is
+ * contained: a failure records why on the result and moves on, never sinking the report.
+ */
+async function applyRecipeRepairs(snapshotId: string, results: InvestigationTestResult[]): Promise<void> {
+    const targets = results.filter((result) => {
+        const diagnosis = result.scenarioDiagnosis;
+        const graph = diagnosis?.proposedRecipeCreateGraph;
+        return diagnosis?.route === "recipe_only" && graph != null && graph !== "";
+    });
+    for (const result of targets) {
+        await applyRecipeRepair(snapshotId, result).catch((error) => {
+            const message = rootFailureMessage(error);
+            log.error("Recipe validation failed; leaving the dry-run proposal", {
+                snapshot: { snapshotId },
+                extra: { slug: result.slug, message },
+            });
+            setApplied(result, false, `validation errored: ${message}`);
+        });
+    }
+}
+
+async function applyRecipeRepair(snapshotId: string, result: InvestigationTestResult): Promise<void> {
+    const createGraphJson = result.scenarioDiagnosis?.proposedRecipeCreateGraph;
+    if (createGraphJson == null) return;
+
+    const staged = await investigation.stageRecipeCandidateOnTwin({ snapshotId, slug: result.slug, createGraphJson });
+    if (!staged.staged || staged.testGenerationId == null || staged.scenarioId == null) {
+        setApplied(result, false, "no scenario/recipe to validate the candidate against");
+        return;
+    }
+    const { testGenerationId, scenarioId, previousCreateGraphJson } = staged;
+
+    let scenarioInstanceId: string | undefined;
+    try {
+        const up = await general.scenarioUp({ scenarioJobType: "generation", entityId: testGenerationId, scenarioId });
+        scenarioInstanceId = up.scenarioInstanceId;
+        try {
+            await web.runWebGeneration({ testGenerationId });
+        } catch (error) {
+            log.warn("Candidate validation run errored; classifying anyway", {
+                snapshot: { snapshotId },
+                extra: { slug: result.slug, message: rootFailureMessage(error) },
+            });
+        }
+        const outcome = await investigation.classifyInvestigationRun({
+            snapshotId,
+            slug: result.slug,
+            reason: "validating a candidate recipe on the twin (branch-scoped; never activated on main)",
+            testGenerationId,
+        });
+        if (!outcome.runSuccess) {
+            // Restore the twin recipe so a failed candidate is not carried into main by the merge-with-main step.
+            if (previousCreateGraphJson != null) {
+                await investigation.revertTwinRecipe({
+                    snapshotId,
+                    scenarioId,
+                    createGraphJson: previousCreateGraphJson,
+                });
+            }
+            setApplied(result, false, "candidate recipe did not make the test pass on the twin; reverted");
+            return;
+        }
+        // Validated on the twin (branch-scoped). It stays on the twin recipe version and reaches main only when
+        // the PR merges - the merge-with-main step reconciles the twin recipe into a main-proposal snapshot.
+        setApplied(result, true, "validated on the twin (branch-scoped); merges into main with the PR");
+    } finally {
+        if (scenarioInstanceId != null) {
+            const instanceId = scenarioInstanceId;
+            await CancellationScope.nonCancellable(() => general.scenarioDown({ scenarioInstanceId: instanceId }));
+        }
+    }
+}
+
+/**
+ * Autofix validation pass (fix_test): for each result the diagnoser routed to fix_test with a concrete edited
+ * plan, VALIDATE the edit on the twin (`validatePlan`: draft plan + shadow generation, re-seed, re-run, edit and
+ * retry on failure). We never write to main - the validated plan is stored on the result so the persist step
+ * below writes it onto the branch (twin) snapshot, and it rides the PR into main only when it merges. Processed
+ * sequentially so the validation runs don't fan out beyond the wave budget. Contained: a failure never sinks the
+ * report.
+ */
+async function applyTestFixes(snapshotId: string, results: InvestigationTestResult[]): Promise<void> {
+    const targets = results.filter((result) => {
+        const plan = result.verdict?.suggestedTestUpdate;
+        return result.scenarioDiagnosis?.route === "fix_test" && plan != null && plan !== "";
+    });
+    for (const result of targets) {
+        const plan = result.verdict?.suggestedTestUpdate;
+        if (plan == null || plan === "") continue;
+        // Reuse the shared validate->edit->retry loop; store the outcome so the persist step writes the VALIDATED
+        // finalPlan (not the raw suggestion) onto the branch snapshot. Contained per-result.
+        const validation = await validatePlan(snapshotId, plan, result.slug).catch((error) =>
+            failedValidation(snapshotId, plan, error),
+        );
+        result.modificationValidation = validation;
+        setApplied(
+            result,
+            validation.passed,
+            validation.passed
+                ? "validated on the twin (branch-scoped); rides the branch and merges into main with the PR"
+                : `not validated on the twin: ${validation.failureReason ?? "did not pass"}`,
+        );
+    }
+}
+
+/** Record the autofix validation outcome on the result's diagnosis (mutated in place so the report can show it). */
+function setApplied(result: InvestigationTestResult, applied: boolean, note: string): void {
+    if (result.scenarioDiagnosis == null) return;
+    result.scenarioDiagnosis.applied = applied;
+    result.scenarioDiagnosis.appliedNote = note;
 }
 
 /**

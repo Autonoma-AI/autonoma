@@ -17,6 +17,7 @@
         "@autonoma/investigation": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
+        "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
@@ -27,7 +28,6 @@
     },
     "devDependencies": {
         "@autonoma/engine-web": "workspace:*",
-        "@autonoma/scenario": "workspace:*",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "tsx": "catalog:",

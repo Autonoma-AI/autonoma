@@ -1,8 +1,8 @@
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
-import type { BranchEdit, MainSuiteEntry } from "../../src/merge/merge-inputs";
-import { reconcileMerge } from "../../src/merge/reconcile-merge";
-import type { MergePlan } from "../../src/merge/schema";
+import { reconcileMerge } from "../../src";
+import type { BranchEdit, MainSuiteEntry, RecipeMergeEdit } from "../../src/merge/merge-inputs";
+import type { MergePlan, RecipeMergeDecision } from "../../src/merge/schema";
 
 function newTestEdit(ref: string): BranchEdit {
     return { kind: "new_test", ref, name: ref, flow: "Investigation", description: "d", proposedPlan: "plan" };
@@ -33,7 +33,7 @@ describe("reconcileMerge", () => {
                 throw new Error("model should not be called for an empty merge");
             },
         });
-        const result = await reconcileMerge({ edits: [], mainSuite: [] }, { model });
+        const result = await reconcileMerge({ edits: [], mainSuite: [], recipeEdits: [] }, { model });
         expect(result.decisions).toEqual([]);
         expect(model.doGenerateCalls).toHaveLength(0);
     });
@@ -44,11 +44,12 @@ describe("reconcileMerge", () => {
                 { kind: "new_test", ref: "a", action: "apply", reason: "new coverage" },
                 { kind: "new_test", ref: "b", action: "skip", reason: "already covered on main" },
             ],
+            recipeDecisions: [],
         };
         const mainSuite: MainSuiteEntry[] = [{ slug: "x", name: "X", flow: "Core", description: "existing" }];
 
         const result = await reconcileMerge(
-            { edits: [newTestEdit("a"), newTestEdit("b")], mainSuite },
+            { edits: [newTestEdit("a"), newTestEdit("b")], mainSuite, recipeEdits: [] },
             { model: planModel(plan) },
         );
 
@@ -90,7 +91,7 @@ describe("reconcileMerge", () => {
         });
 
         const result = await reconcileMerge(
-            { edits: [hugeEdit("aaa"), hugeEdit("bbb"), hugeEdit("ccc")], mainSuite: [] },
+            { edits: [hugeEdit("aaa"), hugeEdit("bbb"), hugeEdit("ccc")], mainSuite: [], recipeEdits: [] },
             { model },
         );
 
@@ -119,10 +120,64 @@ describe("reconcileMerge", () => {
         });
 
         const result = await reconcileMerge(
-            { edits: [hugeEdit("aaa"), hugeEdit("bbb"), hugeEdit("ccc")], mainSuite: [] },
+            { edits: [hugeEdit("aaa"), hugeEdit("bbb"), hugeEdit("ccc")], mainSuite: [], recipeEdits: [] },
             { model },
         );
 
         expect(result.decisions.map((decision) => decision.ref)).toEqual(["aaa", "ccc"]);
+    });
+
+    function recipeEdit(scenarioId: string): RecipeMergeEdit {
+        return {
+            scenarioId,
+            scenarioName: `Scenario ${scenarioId}`,
+            proposedCreateGraph: '{"orders":[{"total":10}]}',
+            baseCreateGraph: '{"orders":[]}',
+            mainCreateGraph: '{"orders":[]}',
+        };
+    }
+
+    /** A mock model returning the given recipe decisions for the recipe reconcile pass (mergedCreateGraph nullable). */
+    function recipeModel(decisions: RecipeMergeDecision[]): MockLanguageModelV3 {
+        const modelShaped = {
+            recipeDecisions: decisions.map((decision) => ({
+                ...decision,
+                mergedCreateGraph: decision.mergedCreateGraph ?? null,
+            })),
+        };
+        return new MockLanguageModelV3({
+            doGenerate: async () => ({
+                content: [{ type: "text", text: JSON.stringify(modelShaped) }],
+                finishReason: { unified: "stop", raw: "stop" },
+                usage: {
+                    inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 50, text: 50, reasoning: 0 },
+                },
+                warnings: [],
+            }),
+        });
+    }
+
+    it("reconciles recipe edits in their own pass, without a test-edit call", async () => {
+        const model = recipeModel([{ scenarioId: "s1", action: "apply", reason: "branch seed still needed" }]);
+        const result = await reconcileMerge({ edits: [], mainSuite: [], recipeEdits: [recipeEdit("s1")] }, { model });
+
+        // Only the recipe pass ran (one call); test decisions are empty, recipe decision normalized.
+        expect(model.doGenerateCalls).toHaveLength(1);
+        expect(result.decisions).toEqual([]);
+        expect(result.recipeDecisions).toEqual([
+            { scenarioId: "s1", action: "apply", reason: "branch seed still needed", mergedCreateGraph: undefined },
+        ]);
+    });
+
+    it("returns an empty plan without any model call when there are no edits or recipe edits", async () => {
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => {
+                throw new Error("model should not be called");
+            },
+        });
+        const result = await reconcileMerge({ edits: [], mainSuite: [], recipeEdits: [] }, { model });
+        expect(result).toEqual({ decisions: [], recipeDecisions: [] });
+        expect(model.doGenerateCalls).toHaveLength(0);
     });
 });

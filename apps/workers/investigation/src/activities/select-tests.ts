@@ -84,8 +84,23 @@ export async function selectInvestigationTests(
             tests,
             suggested: selection.suggested,
             quarantine: selection.quarantine,
+            autofixEnabled: await isAutofixEnabled(context.organizationId),
         };
     });
+}
+
+/**
+ * Whether the investigation agent may ACT (edit/activate recipes, apply suite edits, post client-factory PR
+ * comments) for this org. Org-scoped and off by default: the observe-only shadow runs for everyone via
+ * INVESTIGATION_SHADOW_ENABLED, but the mutating steps are gated per trusted org. A missing settings row means
+ * the org never opted in, so autofix is off.
+ */
+async function isAutofixEnabled(organizationId: string): Promise<boolean> {
+    const settings = await db.organizationSettings.findUnique({
+        where: { organizationId },
+        select: { investigationAutofixEnabled: true },
+    });
+    return settings?.investigationAutofixEnabled ?? false;
 }
 
 /**

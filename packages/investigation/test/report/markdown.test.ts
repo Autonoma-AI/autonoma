@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReportMarkdown } from "../../src/report/markdown";
+import { buildReportMarkdown } from "../../src";
 
 describe("buildReportMarkdown", () => {
     it("leads with the one-liner + summary + remediation, and collapses root cause/evidence/diff", () => {
@@ -91,6 +91,62 @@ describe("buildReportMarkdown", () => {
         expect(markdown).toContain("✓ **validated** - passes after 2 iteration(s)");
         expect(markdown).toContain("## Quarantine recommendations");
         expect(markdown).toContain("`legacy-export` - the export route was deleted");
+    });
+
+    it("renders the scenario repair route under the remediation, including the client-factory change", () => {
+        const markdown = buildReportMarkdown({
+            client: "Acme",
+            appSlug: "acme-app",
+            prNumber: 7,
+            tests: [
+                {
+                    slug: "integrations",
+                    plan: "Steps:\n1. assert: connector visible",
+                    runSuccess: false,
+                    stepCount: 2,
+                    verdicts: [
+                        {
+                            model: "investigation",
+                            verdict: {
+                                category: "scenario_issue",
+                                confidence: "high",
+                                headline: "Connector missing",
+                                falsePositiveRisk: "low",
+                                whatHappened: "seed failed",
+                                rootCause: "no factory",
+                                remediation: "escalate",
+                                evidence: [],
+                            },
+                        },
+                    ],
+                    scenarioDiagnosis: {
+                        route: "recipe_and_sdk",
+                        confidence: "high",
+                        reasoning: "the factory has no handler for this model",
+                        recipeChange: "keep requesting the connector",
+                        factoryIssue: "register a defineFactory for external_connectors",
+                        proposedRecipeSummary: "keep the external_connectors record",
+                        proposedRecipeCreateGraph: '{"external_connectors":[{"name":"Acme Connect"}]}',
+                    },
+                },
+            ],
+            suggested: [],
+            quarantine: [],
+            deployed: { found: false, perTest: [] },
+        });
+
+        expect(markdown).toContain("**Scenario repair route:** Client factory change needed (`recipe_and_sdk`");
+        expect(markdown).toContain("- Client factory change: register a defineFactory for external_connectors");
+        // the concrete candidate recipe is surfaced as a branch-scoped proposal
+        expect(markdown).toContain(
+            "Proposed recipe (validated on the twin when autofix is on; branch-scoped): keep the external_connectors record",
+        );
+        expect(markdown).toContain('{"external_connectors":[{"name":"Acme Connect"}]}');
+        // the route appears between the remediation and the plan/fix block
+        const remediationIdx = markdown.indexOf("**Remediation:** escalate");
+        const routeIdx = markdown.indexOf("**Scenario repair route:**");
+        expect(remediationIdx).toBeGreaterThanOrEqual(0);
+        expect(routeIdx).toBeGreaterThan(remediationIdx);
     });
 
     it("handles a not-found deployed comparison and a classification error", () => {

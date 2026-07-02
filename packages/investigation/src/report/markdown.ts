@@ -42,6 +42,26 @@ export interface TestReport {
     verdicts: ModelVerdict[];
     videoUrl?: string;
     finalScreenshotUrl?: string;
+    /** How a scenario failure should be repaired (present for diagnosed scenario_issue results). */
+    scenarioDiagnosis?: ReportableScenarioDiagnosis;
+}
+
+/** The scenario-repair diagnoser's routing for a scenario failure (how it should be fixed). */
+export interface ReportableScenarioDiagnosis {
+    route: string;
+    confidence: string;
+    reasoning: string;
+    testFix?: string;
+    recipeChange?: string;
+    factoryIssue?: string;
+    /** The concrete candidate `create` graph (JSON string); validated on the twin when autofix is on, else a dry-run. */
+    proposedRecipeCreateGraph?: string;
+    /** One-sentence summary of the proposed recipe edit. */
+    proposedRecipeSummary?: string;
+    /** Whether autofix VALIDATED the repair on the twin (autofix-enabled orgs only); absent for a pure dry-run. */
+    applied?: boolean;
+    /** What the autofix validation pass did (branch-scoped; never a write to main). */
+    appliedNote?: string;
 }
 
 /** Outcome of running a proposed/modified plan through the validate->edit->retry loop. */
@@ -150,6 +170,7 @@ function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
         ...renderObservedIssues(verdict),
         `**Remediation:** ${verdict.remediation}`,
         "",
+        ...renderScenarioDiagnosis(test.scenarioDiagnosis),
         ...renderPlanOrFix(test, verdict),
         ...renderRunTrace(test),
         "<details>",
@@ -163,6 +184,62 @@ function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
         "</details>",
     ];
     return lines;
+}
+
+const SCENARIO_ROUTE_LABEL: Record<string, string> = {
+    fix_test: "Fix the test",
+    recipe_only: "Edit the scenario recipe",
+    recipe_and_sdk: "Client factory change needed",
+    unknown: "Not a scenario-data problem",
+};
+
+/**
+ * The scenario-repair diagnoser's routing: HOW this scenario failure should be fixed - a scoped test edit, a
+ * recipe change, an escalation to the client's factory, or "not a data problem". Observe-only; nothing has
+ * acted on it. Rendered right under the remediation so the reader sees the recommended lever immediately.
+ */
+function renderScenarioDiagnosis(diagnosis: ReportableScenarioDiagnosis | undefined): string[] {
+    if (diagnosis == null) return [];
+    const label = SCENARIO_ROUTE_LABEL[diagnosis.route] ?? diagnosis.route;
+    const lines = [
+        `**Scenario repair route:** ${label} (\`${diagnosis.route}\`, ${diagnosis.confidence} confidence) - ${diagnosis.reasoning}`,
+    ];
+    if (diagnosis.testFix != null && diagnosis.testFix !== "") lines.push(`- Test fix: ${diagnosis.testFix}`);
+    if (diagnosis.recipeChange != null && diagnosis.recipeChange !== "") {
+        lines.push(`- Recipe change: ${diagnosis.recipeChange}`);
+    }
+    if (diagnosis.factoryIssue != null && diagnosis.factoryIssue !== "") {
+        lines.push(`- Client factory change: ${diagnosis.factoryIssue}`);
+    }
+    lines.push(...renderProposedRecipe(diagnosis));
+    if (diagnosis.applied != null) {
+        const status = diagnosis.applied ? "VALIDATED (branch-scoped)" : "not validated";
+        lines.push(`- Autofix: **${status}**${diagnosis.appliedNote != null ? ` - ${diagnosis.appliedNote}` : ""}`);
+    }
+    lines.push("");
+    return lines;
+}
+
+/**
+ * The concrete candidate recipe that fixes a recipe_only/recipe_and_sdk failure. A DRY-RUN preview: with autofix
+ * on it is staged + validated on the twin (branch-scoped), never written to main. The full create graph is
+ * collapsed so the summary stays skimmable.
+ */
+function renderProposedRecipe(diagnosis: ReportableScenarioDiagnosis): string[] {
+    const graph = diagnosis.proposedRecipeCreateGraph;
+    if (graph == null || graph === "") return [];
+    const summary = diagnosis.proposedRecipeSummary;
+    return [
+        `- Proposed recipe (validated on the twin when autofix is on; branch-scoped)${summary != null && summary !== "" ? `: ${summary}` : ""}`,
+        "  <details>",
+        "  <summary>Candidate create graph</summary>",
+        "",
+        "  ```json",
+        graph,
+        "  ```",
+        "",
+        "  </details>",
+    ];
 }
 
 /**

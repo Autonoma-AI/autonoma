@@ -5,6 +5,13 @@ export { type SdkAction, type SdkCallEvent, type SdkCallRecorder, NOOP_RECORDER 
 export { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 export { ScenarioManager } from "./scenario-manager";
 export { ScenarioRecipeStore } from "./scenario-recipe-store";
+export { applyScenarioRecipeUpdate } from "./apply-scenario-recipe-update";
+export type {
+    ApplyScenarioRecipeUpdateParams,
+    ApplyScenarioRecipeUpdateResult,
+    RecipeUpdateActiveVersion,
+    RecipeUpdateTarget,
+} from "./apply-scenario-recipe-update";
 export { resolveRecipePayload } from "./scenario-recipe-resolver";
 export { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
 export {
