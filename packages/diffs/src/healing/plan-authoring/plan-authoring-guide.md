@@ -49,14 +49,25 @@ The execution agent sees the screen the way a human does. It CANNOT access:
 
 Describe what the user *sees*: button text, label text, placeholder text, heading text, visible icons, tab names. For icon-only buttons, describe what the icon depicts ("trash can icon button", "three vertical dots icon"), never the component name (`MoreVertical`, `IconTrash`).
 
+## Untestable behaviors
+
+Some behaviors produce no outcome the visual agent can observe. A plan built on one cannot pass honestly, so never author it; if a flow reduces to one of these, drop it.
+
+- **External-service connections.** Anything that depends on a live connection to a third-party service is untestable: test organizations are provisioned fresh through the SDK and are never connected to any external service. This covers email and SMS providers, payment processors, CRM syncs, OAuth-linked integrations, and webhooks. There is no testable in-app half. Both the trigger (for example "Send invite") and any acknowledgment or status it would produce ("Invitation sent", a "Connected to Stripe" badge) depend on the connection that never exists.
+- **Exported or downloaded file contents.** The agent has no filesystem access and can never open a file the app produces, so never assert the contents of a downloaded or exported file: its rows, values, formatting, or name. An export is testable only when it also leaves persistent in-app state that survives a refresh, such as a row in an exports or history list. If the only result is the file itself, the export is not testable, so do not author a plan around it.
+
 ## Assertion location context
 
 Every `assert:` step must say *where* on the page the element appears. Bare "text X is visible" is never enough.
 
 - GOOD: `assert: text "Run preview" is visible in the side panel`
 - GOOD: `assert: heading "Settings" is visible at the top of the page`
-- GOOD: `assert: text "Deal Created" is visible in the toast notification`
+- GOOD: `assert: text "Archived" is visible in the deal's status column`
 - BAD: `assert: text "Status" is visible` (where? column header? form label? sidebar?)
+
+## Never assert toasts
+
+Toasts auto-dismiss, and the agent cannot reliably time an assertion against one before it disappears. Never assert on toast text, nor on a toast appearing or disappearing, whether as a step or as verification. Assert the persistent source of truth the action produced instead (the new row in the list, the updated field in the detail view). This is why a toast never counts as verification.
 
 ## Resolving i18n text before asserting
 
@@ -92,7 +103,7 @@ After every mutation, navigate to the source of truth and assert the effect:
 - After DELETE → verify absence in the list, refresh, verify still absent
 - After TOGGLE → refresh, verify the toggle retained its new state
 
-## Default-state awareness
+## State-transition awareness
 
 Before writing a step that interacts with a stateful element (toggle, checkbox, dropdown), the writer must know its initial state. State the expected transition explicitly:
 
@@ -100,6 +111,11 @@ Before writing a step that interacts with a stateful element (toggle, checkbox, 
 - BAD: `click: the "Recording" toggle` (ambiguous — what does "click" do here?)
 
 If the source code reveals a non-obvious default, describe it in Setup or assert it before interacting.
+
+When a plan updates an existing visible value (an edit or a toggle), assert the **prior** value before the change and the **new** value after it. Asserting both ends is what proves the action changed something: without the before-assertion a test can pass even when nothing happened, because the "new" value already matched the seeded data. Assert the prior value wherever it is already visible on the path to the change (the pre-filled field, the detail row). This does not apply to creates (no prior value) or deletes (covered by verifying absence after a refresh).
+
+- GOOD: `assert: text "Free" is visible in the plan column`, then change the plan, then `assert: text "Pro" is visible in the plan column`
+- BAD: change the plan, then `assert: text "Pro" is visible in the plan column` with no prior assertion that it read "Free"
 
 ## Scenario data referencing
 
