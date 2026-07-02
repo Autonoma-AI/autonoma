@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.14](https://github.com/Autonoma-AI/agent/compare/v1.8.13...v1.8.14) (2026-07-02)
+
+
+### Features
+
+* **previewkit:** run gatekeeper on a dedicated NodePool and enable scale-to-zero ([#1249](https://github.com/Autonoma-AI/agent/issues/1249)) ([8b5dafc](https://github.com/Autonoma-AI/agent/commit/8b5dafca9192b8dae8ab0f0811d5f830becadad6))
+
 ## [1.8.13](https://github.com/Autonoma-AI/agent/compare/v1.8.12...v1.8.13) (2026-07-02)
 
 
