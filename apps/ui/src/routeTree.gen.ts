@@ -27,6 +27,7 @@ import { Route as BlacklightauthLoginRouteRouteImport } from './routes/_blacklig
 import { Route as BlacklightAppShellAdminIndexRouteImport } from './routes/_blacklight/_app-shell/admin/index'
 import { Route as BlacklightauthLoginIndexRouteImport } from './routes/_blacklight/(auth)/login/index'
 import { Route as BlacklightAppShellAppAppSlugRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/route'
+import { Route as BlacklightAppShellSettingsApiKeysIndexRouteImport } from './routes/_blacklight/_app-shell/settings/api-keys/index'
 import { Route as BlacklightAppShellAppAppSlugIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/index'
 import { Route as BlacklightAppShellAdminPreviewkitIndexRouteImport } from './routes/_blacklight/_app-shell/admin/previewkit/index'
 import { Route as BlacklightAppShellAdminIssuesIndexRouteImport } from './routes/_blacklight/_app-shell/admin/issues/index'
@@ -165,6 +166,12 @@ const BlacklightAppShellAppAppSlugRouteRoute =
   BlacklightAppShellAppAppSlugRouteRouteImport.update({
     id: '/app/$appSlug',
     path: '/app/$appSlug',
+    getParentRoute: () => BlacklightAppShellRouteRoute,
+  } as any)
+const BlacklightAppShellSettingsApiKeysIndexRoute =
+  BlacklightAppShellSettingsApiKeysIndexRouteImport.update({
+    id: '/settings/api-keys/',
+    path: '/settings/api-keys/',
     getParentRoute: () => BlacklightAppShellRouteRoute,
   } as any)
 const BlacklightAppShellAppAppSlugIndexRoute =
@@ -451,6 +458,7 @@ export interface FileRoutesByFullPath {
   '/admin/issues/': typeof BlacklightAppShellAdminIssuesIndexRoute
   '/admin/previewkit/': typeof BlacklightAppShellAdminPreviewkitIndexRoute
   '/app/$appSlug/': typeof BlacklightAppShellAppAppSlugIndexRoute
+  '/settings/api-keys/': typeof BlacklightAppShellSettingsApiKeysIndexRoute
   '/app/$appSlug/pull-requests/$prNumber': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRouteWithChildren
   '/app/$appSlug/admin/generations': typeof BlacklightAppShellAppAppSlugAdminGenerationsRoute
   '/app/$appSlug/admin/runs': typeof BlacklightAppShellAppAppSlugAdminRunsRoute
@@ -504,6 +512,7 @@ export interface FileRoutesByTo {
   '/admin/issues': typeof BlacklightAppShellAdminIssuesIndexRoute
   '/admin/previewkit': typeof BlacklightAppShellAdminPreviewkitIndexRoute
   '/app/$appSlug': typeof BlacklightAppShellAppAppSlugIndexRoute
+  '/settings/api-keys': typeof BlacklightAppShellSettingsApiKeysIndexRoute
   '/app/$appSlug/admin/generations': typeof BlacklightAppShellAppAppSlugAdminGenerationsRoute
   '/app/$appSlug/admin/runs': typeof BlacklightAppShellAppAppSlugAdminRunsRoute
   '/app/$appSlug/bugs/$bugId': typeof BlacklightAppShellAppAppSlugBugsBugIdRoute
@@ -560,6 +569,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/admin/issues/': typeof BlacklightAppShellAdminIssuesIndexRoute
   '/_blacklight/_app-shell/admin/previewkit/': typeof BlacklightAppShellAdminPreviewkitIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/': typeof BlacklightAppShellAppAppSlugIndexRoute
+  '/_blacklight/_app-shell/settings/api-keys/': typeof BlacklightAppShellSettingsApiKeysIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRouteWithChildren
   '/_blacklight/_app-shell/app/$appSlug/admin/generations': typeof BlacklightAppShellAppAppSlugAdminGenerationsRoute
   '/_blacklight/_app-shell/app/$appSlug/admin/runs': typeof BlacklightAppShellAppAppSlugAdminRunsRoute
@@ -619,6 +629,7 @@ export interface FileRouteTypes {
     | '/admin/issues/'
     | '/admin/previewkit/'
     | '/app/$appSlug/'
+    | '/settings/api-keys/'
     | '/app/$appSlug/pull-requests/$prNumber'
     | '/app/$appSlug/admin/generations'
     | '/app/$appSlug/admin/runs'
@@ -672,6 +683,7 @@ export interface FileRouteTypes {
     | '/admin/issues'
     | '/admin/previewkit'
     | '/app/$appSlug'
+    | '/settings/api-keys'
     | '/app/$appSlug/admin/generations'
     | '/app/$appSlug/admin/runs'
     | '/app/$appSlug/bugs/$bugId'
@@ -727,6 +739,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/admin/issues/'
     | '/_blacklight/_app-shell/admin/previewkit/'
     | '/_blacklight/_app-shell/app/$appSlug/'
+    | '/_blacklight/_app-shell/settings/api-keys/'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber'
     | '/_blacklight/_app-shell/app/$appSlug/admin/generations'
     | '/_blacklight/_app-shell/app/$appSlug/admin/runs'
@@ -894,6 +907,13 @@ declare module '@tanstack/react-router' {
       path: '/app/$appSlug'
       fullPath: '/app/$appSlug'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugRouteRouteImport
+      parentRoute: typeof BlacklightAppShellRouteRoute
+    }
+    '/_blacklight/_app-shell/settings/api-keys/': {
+      id: '/_blacklight/_app-shell/settings/api-keys/'
+      path: '/settings/api-keys'
+      fullPath: '/settings/api-keys/'
+      preLoaderRoute: typeof BlacklightAppShellSettingsApiKeysIndexRouteImport
       parentRoute: typeof BlacklightAppShellRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/': {
@@ -1373,6 +1393,7 @@ interface BlacklightAppShellRouteRouteChildren {
   BlacklightAppShellAdminIndexRoute: typeof BlacklightAppShellAdminIndexRoute
   BlacklightAppShellAdminIssuesIndexRoute: typeof BlacklightAppShellAdminIssuesIndexRoute
   BlacklightAppShellAdminPreviewkitIndexRoute: typeof BlacklightAppShellAdminPreviewkitIndexRoute
+  BlacklightAppShellSettingsApiKeysIndexRoute: typeof BlacklightAppShellSettingsApiKeysIndexRoute
 }
 
 const BlacklightAppShellRouteRouteChildren: BlacklightAppShellRouteRouteChildren =
@@ -1385,6 +1406,8 @@ const BlacklightAppShellRouteRouteChildren: BlacklightAppShellRouteRouteChildren
       BlacklightAppShellAdminIssuesIndexRoute,
     BlacklightAppShellAdminPreviewkitIndexRoute:
       BlacklightAppShellAdminPreviewkitIndexRoute,
+    BlacklightAppShellSettingsApiKeysIndexRoute:
+      BlacklightAppShellSettingsApiKeysIndexRoute,
   }
 
 const BlacklightAppShellRouteRouteWithChildren =
