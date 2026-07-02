@@ -14,8 +14,9 @@ jobs:
     # ready_for_review only fires on a draft -> ready transition, but opened and
     # reopened can also fire while a PR is still a draft. Gate on draft == false
     # so we notify exactly when a PR is set for review (marked ready, or opened/
-    # reopened as a non-draft).
-    if: github.event.pull_request.draft == false
+    # reopened as a non-draft). Also skip bot-authored PRs (dependabot, renovate,
+    # github-actions, GitHub Apps) - GitHub sets user.type to "Bot" for these.
+    if: github.event.pull_request.draft == false && github.event.pull_request.user.type != 'Bot'
     steps:
       - name: Post to Slack channel
         env:
