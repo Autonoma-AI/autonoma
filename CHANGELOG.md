@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.13](https://github.com/Autonoma-AI/agent/compare/v1.8.12...v1.8.13) (2026-07-02)
+
+
+### Features
+
+* **previewkit:** support a build target for multi-stage Dockerfiles ([#1205](https://github.com/Autonoma-AI/agent/issues/1205)) ([09a19d8](https://github.com/Autonoma-AI/agent/commit/09a19d8159f0f12d205fb35093299ce55ac283a6))
+* **ui:** add org-level /settings/api-keys route ([#1247](https://github.com/Autonoma-AI/agent/issues/1247)) ([ad3ddfe](https://github.com/Autonoma-AI/agent/commit/ad3ddfe14b4c7ef84c64f0e6a05ede59110562fc))
+
+
+### Bug Fixes
+
+* constrain healing plan authoring for untestable behaviors and assertions ([#1246](https://github.com/Autonoma-AI/agent/issues/1246)) ([6f67a4f](https://github.com/Autonoma-AI/agent/commit/6f67a4f5d3243ae8d45d61ca5b43ccd362df4b8b))
+
 ## [1.8.12](https://github.com/Autonoma-AI/agent/compare/v1.8.11...v1.8.12) (2026-07-02)
 
 
