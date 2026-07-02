@@ -40,6 +40,7 @@ catalog:
   '@sentry/react': ^10.39.0
   '@t3-oss/env-core': ^0.13.10
   '@tanstack/react-table': ^8.21.3
+  '@tanstack/react-virtual': ^3.14.3
   '@temporalio/activity': 1.15.0
   '@temporalio/client': 1.15.0
   '@temporalio/testing': 1.15.0
