@@ -57,7 +57,7 @@ const gatekeeperOpts = {
     cookieDomain: "preview.autonoma.app",
     appUrl: "https://app.autonoma.app",
     image: "public.ecr.aws/autonoma/gatekeeper:latest",
-    idleTimeout: "30m",
+    idleTimeout: "45m",
 };
 
 describe("buildGatekeeperConfigMap", () => {
@@ -93,9 +93,21 @@ describe("buildGatekeeperDeployment", () => {
         expect(get("TARGET_SELECTOR")?.value).toBe("previewkit.dev/managed-by=previewkit");
         expect(get("SELF_NAME")?.value).toBe("gatekeeper");
         expect(get("HEALTH_PATH")?.value).toBe("/gatekeeper-health");
-        expect(get("IDLE_TIMEOUT")?.value).toBe("0");
+        expect(get("IDLE_TIMEOUT")?.value).toBe("45m");
         expect(get("NAMESPACE")?.valueFrom?.fieldRef?.fieldPath).toBe("metadata.namespace");
         expect(get("ROUTES_JSON")?.valueFrom?.configMapKeyRef?.key).toBe("routes.json");
+    });
+
+    it("targets the dedicated gatekeeper NodePool by label and tolerates its taint", () => {
+        const dep = buildGatekeeperDeployment(gatekeeperOpts);
+        const podSpec = dep.spec!.template.spec!;
+        expect(podSpec.nodeSelector?.["pool"]).toBe("gatekeeper");
+        expect(podSpec.tolerations).toContainEqual({
+            key: "pool",
+            operator: "Equal",
+            value: "gatekeeper",
+            effect: "NoSchedule",
+        });
     });
 });
 
