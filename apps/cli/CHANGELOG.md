@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.16...cli-v0.1.17) (2026-07-02)
+
+
+### Bug Fixes
+
+* **cli:** friendly message when the planner proxy is unreachable ([#1256](https://github.com/Autonoma-AI/agent/issues/1256)) ([87c6c3d](https://github.com/Autonoma-AI/agent/commit/87c6c3d8a22d337c4a432bb9168ab7211896a862))
+
 ## [0.1.16](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.15...cli-v0.1.16) (2026-07-01)
 
 
