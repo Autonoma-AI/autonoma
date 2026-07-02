@@ -140,7 +140,10 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
 
 1. **`build` block (preferred)** - the app's `build` is a discriminated union on `framework` (the
    `previewConfigSchema` in `packages/types`):
-   - `framework: dockerfile` - use the user's Dockerfile at `build.dockerfile`.
+   - `framework: dockerfile` - use the user's Dockerfile at `build.dockerfile`. Optional `target`
+     selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`, like `docker build --target`);
+     without it buildkit builds the LAST stage, which silently builds the wrong service when a Dockerfile
+     ends with a worker/sidecar stage after the deployable one.
    - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
      single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
      sets the context (`root` enables a turbo `--filter` for monorepos).

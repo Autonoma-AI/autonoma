@@ -1476,6 +1476,7 @@ export class PreviewPipeline {
         contextPath: string;
         buildContext?: string;
         dockerfile?: string;
+        target?: string;
         generatedDockerfile?: string;
         monorepoTool?: "turbo";
     } {
@@ -1485,7 +1486,7 @@ export class PreviewPipeline {
             const build = app.build;
             const contextPath = build.build_context === "root" ? repoDir : appDir;
             if (build.framework === "dockerfile") {
-                return { contextPath, dockerfile: build.dockerfile };
+                return { contextPath, dockerfile: build.dockerfile, target: build.target };
             }
             const generatedDockerfile = generateDockerfile(build, {
                 registryMirror: this.dockerHubMirror,
@@ -1572,6 +1573,7 @@ export class PreviewPipeline {
                 namespace: ctx.namespace,
                 buildContext: buildInputs.buildContext,
                 dockerfile: buildInputs.dockerfile,
+                target: buildInputs.target,
                 generatedDockerfile: buildInputs.generatedDockerfile,
                 monorepoTool: buildInputs.monorepoTool,
                 signal: ctx.signal,

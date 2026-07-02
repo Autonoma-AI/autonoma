@@ -321,6 +321,7 @@ export class BuildKitBuilder implements Builder {
         logger.info("Building with BuildKit (Dockerfile)", {
             app: request.appName,
             dockerfile: dockerfilePath,
+            target: request.target,
             imageTag: request.imageTag,
             buildkitHost,
         });
@@ -350,6 +351,13 @@ export class BuildKitBuilder implements Builder {
                 `type=image,name=${request.imageTag},push=true`,
                 ...this.buildCacheArgs(request.cacheKey),
             ];
+
+            // Select a stage in a multi-stage Dockerfile. Without it buildkit
+            // builds the last stage, which is the wrong service when a Dockerfile
+            // ends with a worker/sidecar stage after the deployable one.
+            if (request.target != null) {
+                args.push("--opt", `target=${request.target}`);
+            }
 
             for (const [key, value] of Object.entries(request.buildArgs)) {
                 args.push("--opt", `build-arg:${key}=${value}`);

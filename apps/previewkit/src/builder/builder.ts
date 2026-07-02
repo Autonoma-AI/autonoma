@@ -15,6 +15,12 @@ export interface BuildRequest {
      */
     buildContext?: string;
     dockerfile?: string;
+    // Target stage for a multi-stage user-authored Dockerfile (buildctl `--opt
+    // target=`, like `docker build --target`). Only meaningful on the
+    // on-disk-Dockerfile path; ignored by generated/monorepo/Railpack builds
+    // (those are single-stage). Without it buildkit builds the last stage, which
+    // is the wrong service when a Dockerfile ends with a worker/sidecar stage.
+    target?: string;
     // Runtime-generated Dockerfile content. When set, the builder writes it to a
     // tmp dir and builds with `dockerfile.v0`, skipping the on-disk-Dockerfile,
     // monorepo, and Railpack paths. Build args are baked in as `ENV` lines by the

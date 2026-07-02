@@ -289,7 +289,7 @@ Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress 
 
 Previewkit builds each app with BuildKit (rootless, no Docker daemon), choosing a strategy in this order:
 
-1. **Dockerfile** -- if you set the app's `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`.
+1. **Dockerfile** -- if you set the app's `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`. For a multi-stage Dockerfile, set `build.target` (with `build.framework: dockerfile`) to pick the stage to build, like `docker build --target` -- otherwise BuildKit builds the **last** stage, which builds the wrong service when a Dockerfile ends with a worker/sidecar stage after the deployable one.
 2. **Turbo monorepo** -- if the app sets `monorepo: turbo`, the build runs from the repo root with a Turbo filter for that app.
 3. **Railpack** -- otherwise [Railpack](https://railpack.com) auto-detects the language and framework and builds via BuildKit. Supports Node.js, Go, Python, PHP, Java, Ruby, and more.
 

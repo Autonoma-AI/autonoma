@@ -43,6 +43,24 @@ describe("previewConfigSchema build block", () => {
         expect(parseWithBuild({ framework: "dockerfile" }).success).toBe(false);
     });
 
+    it("accepts a dockerfile framework with a target stage", () => {
+        const result = parseWithBuild({ framework: "dockerfile", dockerfile: "./Dockerfile", target: "production" });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            const build = result.data.apps[0]?.build;
+            expect(build).toEqual({
+                framework: "dockerfile",
+                dockerfile: "./Dockerfile",
+                target: "production",
+                build_context: "app",
+            });
+        }
+    });
+
+    it("rejects an empty target stage", () => {
+        expect(parseWithBuild({ framework: "dockerfile", dockerfile: "./Dockerfile", target: "" }).success).toBe(false);
+    });
+
     it("rejects an unknown framework", () => {
         expect(parseWithBuild({ framework: "svelte" }).success).toBe(false);
     });

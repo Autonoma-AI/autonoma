@@ -132,7 +132,11 @@ const hooksSchema = z
 // - node / bun / next / vite: previewkit generates a Dockerfile from the
 //   install / build / run commands (defaulted from the framework + package
 //   manager + build context, each overridable).
-// - dockerfile: build a user-authored Dockerfile at the given path.
+// - dockerfile: build a user-authored Dockerfile at the given path. `target`
+//   selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`),
+//   matching `docker build --target`. Without it, buildkit builds the LAST
+//   stage - which silently builds the wrong service when a Dockerfile ends with
+//   a worker/sidecar stage instead of the deployable one.
 // When `build` is omitted the pipeline falls back to Railpack autodetection
 // (an on-disk Dockerfile still wins). `build_context: root` builds from the
 // repository root so workspace dependencies resolve - this, plus a
@@ -166,6 +170,7 @@ const buildSchema = z.discriminatedUnion("framework", [
     z.object({
         framework: z.literal("dockerfile"),
         dockerfile: z.string().min(1, "dockerfile path is required"),
+        target: z.string().min(1).optional(),
         build_context: buildContextSchema,
     }),
 ]);
