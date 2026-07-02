@@ -62,6 +62,8 @@ export interface ReportableScenarioDiagnosis {
     applied?: boolean;
     /** What the autofix validation pass did (branch-scoped; never a write to main). */
     appliedNote?: string;
+    /** The repair agent's give-up handoff: what it tried + why no factory-accepted recipe was possible. */
+    repairHandoff?: string;
 }
 
 /** Outcome of running a proposed/modified plan through the validate->edit->retry loop. */
@@ -215,6 +217,15 @@ function renderScenarioDiagnosis(diagnosis: ReportableScenarioDiagnosis | undefi
     if (diagnosis.applied != null) {
         const status = diagnosis.applied ? "VALIDATED (branch-scoped)" : "not validated";
         lines.push(`- Autofix: **${status}**${diagnosis.appliedNote != null ? ` - ${diagnosis.appliedNote}` : ""}`);
+    }
+    if (diagnosis.repairHandoff != null && diagnosis.repairHandoff !== "") {
+        lines.push("- Repair handoff (agent could not produce a factory-accepted recipe):");
+        lines.push("  <details>");
+        lines.push("  <summary>What was tried + what a human/coding agent must change</summary>");
+        lines.push("");
+        for (const line of diagnosis.repairHandoff.split("\n")) lines.push(`  ${line}`);
+        lines.push("");
+        lines.push("  </details>");
     }
     lines.push("");
     return lines;

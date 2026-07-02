@@ -6,6 +6,8 @@ import {
     type ScenarioStructureJson,
     type ScenarioVariableDefinition,
     type ScenarioVariableScalar,
+    isRecord,
+    isScenarioRef,
 } from "@autonoma/types";
 
 const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_]+)\}\}/g;
@@ -96,7 +98,7 @@ export function extractStructure(recipes: ScenarioRecipe[]): ScenarioStructureJs
 
             const model = models[modelName] ?? { fields: [], refs: {} };
             for (const entity of entities) {
-                if (!isPlainObject(entity)) {
+                if (!isRecord(entity)) {
                     continue;
                 }
 
@@ -109,7 +111,7 @@ export function extractStructure(recipes: ScenarioRecipe[]): ScenarioStructureJs
                         model.fields.push(key);
                     }
 
-                    if (isRef(value)) {
+                    if (isScenarioRef(value)) {
                         const targetModel = resolveRefTarget(value, aliasTargets);
                         if (targetModel != null) {
                             model.refs[key] = targetModel;
@@ -161,7 +163,7 @@ function collectTemplateTokens(value: unknown, tokens = new Set<string>()): Set<
         return tokens;
     }
 
-    if (isPlainObject(value)) {
+    if (isRecord(value)) {
         for (const item of Object.values(value)) {
             collectTemplateTokens(item, tokens);
         }
@@ -260,7 +262,7 @@ function replaceTemplateTokens(value: unknown, resolvedVariables: Record<string,
         return value.map((item) => replaceTemplateTokens(item, resolvedVariables));
     }
 
-    if (!isPlainObject(value)) {
+    if (!isRecord(value)) {
         return value;
     }
 
@@ -302,10 +304,6 @@ function shortHash(seed: string): string {
     return createHash("sha256").update(seed).digest("hex").slice(0, 8);
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value != null && !Array.isArray(value);
-}
-
 function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<string, string> {
     const aliasTargets: Record<string, string> = {};
 
@@ -315,7 +313,7 @@ function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<st
         }
 
         for (const entity of entities) {
-            if (!isPlainObject(entity)) {
+            if (!isRecord(entity)) {
                 continue;
             }
 
@@ -327,10 +325,6 @@ function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<st
     }
 
     return aliasTargets;
-}
-
-function isRef(value: unknown): value is { _ref: string } {
-    return isPlainObject(value) && typeof value._ref === "string";
 }
 
 function resolveRefTarget(value: { _ref: string }, aliasTargets: Record<string, string>): string | null {

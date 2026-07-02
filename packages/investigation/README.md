@@ -1,4 +1,4 @@
-~~~~# @autonoma/investigation
+# @autonoma/investigation
 
 The core logic of the **shadow investigation agent** - a low-risk comparison agent that runs in parallel
 with the production diffs job. For a PR it runs on its **own detached snapshot** (a baseline clone the diffs
@@ -53,8 +53,15 @@ src/
     schema.ts · prompt.ts       the ScenarioDiagnosis schema + the diagnoser prompt (generic, test-first)
     diagnose.ts                 diagnoseScenarioFailure - route a scenario-data failure: fix the test (default),
                                 edit the recipe, or escalate to a client-factory change (analysis only, no mutation)
-    edit-recipe.ts · -prompt.ts editRecipeCreateGraph - turn a recipeChange instruction into the concrete new
-                                `create` graph (the candidate the worker validates + activates). Analysis only.
+    edit-recipe.ts · -prompt.ts editRecipeCreateGraph - the diagnoser's one-shot proposal: turn a recipeChange
+                                instruction into a concrete new `create` graph (the dry-run proposal for every org)
+    validate-recipe-graph.ts    validateRecipeGraph - local structural + referential check (every `_ref` resolves),
+                                built on @autonoma/types' canonical create-graph schema (shared with the SDK resolver)
+    repair-recipe-agent.ts      repairRecipeWithAgent - the tool-using repair agent (autofix orgs): reads the
+      · -prompt · -tools · -deps client's factory code + DB schema, queries the live backend, validates + dry-run-
+                                seeds candidates against the real factory, and returns a factory-accepted `create`
+                                graph or a handoff. Analysis + dry-runs only; the worker stages the candidate on the
+                                twin (the authoritative rerun gate).
   report/markdown.ts            buildReportMarkdown - the S3 report (verdicts + deployed comparison)
 ```
 

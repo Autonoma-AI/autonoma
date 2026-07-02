@@ -16,9 +16,14 @@ export const env = createEnv({
         // keys are read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
         OPENAI_API_KEY: z.string().min(1),
         INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.5"),
-        // The selector + classifier tool-loop step budgets.
+        // The selector + classifier + recipe-repair tool-loop step budgets.
         INVESTIGATION_SELECT_MAX_STEPS: z.coerce.number().default(40),
         INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
+        INVESTIGATION_REPAIR_MAX_STEPS: z.coerce.number().default(50),
+        // The scenario signing-secret encryption key - required only to wire the recipe-repair agent's
+        // dry_run_seed tool (it decrypts the app's signing secret to `up` a candidate against the live factory).
+        // Optional: when absent the agent still runs, degrading to schema + backend-query checks (no dry-run seed).
+        SCENARIO_ENCRYPTION_KEY: z.string().min(1).optional(),
         // Optional Loki base URL for the get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
         // Gate for posting investigation results as a PR comment. OFF by default so it never touches real PRs

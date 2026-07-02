@@ -106,6 +106,12 @@ export interface InvestigationScenarioDiagnosis {
     applied?: boolean;
     /** What the write pass did (activated after twin validation / validation failed / nothing to validate). */
     appliedNote?: string;
+    /**
+     * The recipe-repair AGENT's give-up handoff (autofix orgs): a self-contained account of what it tried and why
+     * it could not produce a factory-accepted recipe, for a human or coding agent to pick up. Absent when the agent
+     * produced a validated candidate or was never run (dry-run orgs).
+     */
+    repairHandoff?: string;
 }
 
 /** One classified shadow run, carried from the classify activity to the report activity. */
@@ -134,6 +140,50 @@ export interface DiagnoseInvestigationScenarioInput {
     failureDetail: string;
     /** What the run observed on-screen (for post-seed data mismatches); absent for provisioning failures. */
     runObservation?: string;
+}
+
+// --- Recipe-repair AGENT (autofix orgs). A heavier, tool-using pass than the diagnoser's one-shot proposal: it
+// reads the client's factory code + DB schema, queries the live backend to see what already exists, validates
+// candidate graphs locally, and dry-run-seeds them against the real factory before returning one - or gives up
+// with a handoff. The workflow then stages the returned candidate on the twin (the authoritative rerun gate).
+
+/** A recipe the agent already tried and how the REAL test failed with it on the twin (fed back for the next try). */
+export interface RecipeRepairAttempt {
+    /** The `create` graph that was staged (JSON string). */
+    createGraphJson: string;
+    /** How the test still failed on the twin with that recipe (the run's account) - what the next try must beat. */
+    failureDetail: string;
+}
+
+export interface ProposeRecipeRepairInput {
+    snapshotId: string;
+    slug: string;
+    /** The recipe change the diagnoser said is needed (a hint the agent verifies before trusting). */
+    recipeChange: string;
+    /** The failure being repaired (the SDK error, or the classifier's account of the data mismatch). */
+    failureDetail: string;
+    /**
+     * Recipes tried on earlier outer-loop passes that SEEDED but did not make the test pass on the twin. The agent
+     * must produce a DIFFERENT graph (a dry-run seed-ok is not enough - these already seeded and still failed).
+     * Empty/absent on the first pass.
+     */
+    priorAttempts?: RecipeRepairAttempt[];
+}
+
+export interface ProposeRecipeRepairOutput {
+    route: "fix_test" | "recipe_only" | "recipe_and_sdk" | "unknown";
+    confidence: string;
+    reasoning: string;
+    /** The COMPLETE new `create` graph (JSON string), present + schema-valid iff the agent produced a candidate. */
+    createGraphJson?: string;
+    /** One-sentence summary of what the candidate recipe change does (accompanies createGraphJson). */
+    summary?: string;
+    /** The client-factory limitation to fix (route=recipe_and_sdk), for the client's coding agent. */
+    factoryIssue?: string;
+    /** Give-up / escalation: a self-contained account of what was tried + why it failed, for a human/agent. */
+    handoff?: string;
+    /** True when the dry-run-seed capability was wired for this run (the SDK key was present). */
+    dryRunAvailable: boolean;
 }
 
 export interface StageRecipeCandidateInput {
@@ -293,6 +343,7 @@ export interface InvestigationActivities {
     diagnoseInvestigationScenario(
         input: DiagnoseInvestigationScenarioInput,
     ): Promise<InvestigationScenarioDiagnosis | undefined>;
+    proposeRecipeRepair(input: ProposeRecipeRepairInput): Promise<ProposeRecipeRepairOutput>;
     stageRecipeCandidateOnTwin(input: StageRecipeCandidateInput): Promise<StageRecipeCandidateOutput>;
     revertTwinRecipe(input: RevertTwinRecipeInput): Promise<RevertTwinRecipeOutput>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;

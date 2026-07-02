@@ -254,6 +254,26 @@ if (isTrialExpired && hasNoPaymentMethod) { ... }
 if (subscription.status === "trial" && subscription.endsAt < now && user.paymentMethods.length === 0) { ... }
 ```
 
+### Constants at the Top of the File
+
+**Declare module-level constants (magic numbers, limits, timeouts, patterns) together at the TOP of the file**, right after the imports - never inline in the middle of the file next to the first place they happen to be used. A reader should be able to see, and tune, every knob a file exposes in one place.
+
+**If hoisting a constant to the top loses meaningful locality** - it only makes sense next to a specific function, or a group of functions carries its own tightly-coupled constants - that is a signal the file is doing too much. Extract that logic (with its constants) into its own file, or turn it into a class whose constants live as `private static readonly` fields. Don't resolve the tension by leaving the constant stranded mid-file.
+
+```ts
+// GOOD - every knob at the top, tunable at a glance
+const MAX_RETRY_ATTEMPTS = 3;
+const BACKOFF_MS = 2000;
+const FACTORY_ERROR_CAP = 300;
+
+export function doWork() { ... }
+
+// BAD - constant buried next to its first use, halfway down the file
+export function doWork() { ... }
+const FACTORY_ERROR_CAP = 300; // <- reader has to hunt for this
+function sanitize(msg: string) { return msg.slice(0, FACTORY_ERROR_CAP); }
+```
+
 ### Never Swallow Errors in Empty Catches
 
 **Never write an empty `catch` block.** A bare `catch {}` (or a catch whose only content is a comment) silently swallows every error and makes future debugging nearly impossible - when the surrounding logic mysteriously stops working, there is no breadcrumb to follow. Every catch must at minimum log the error so it shows up in Sentry and in local logs.

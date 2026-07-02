@@ -64,3 +64,19 @@ export { editRecipeCreateGraph } from "./scenario-repair/edit-recipe";
 export type { RecipeEdit, EditRecipeCreateGraphDeps } from "./scenario-repair/edit-recipe";
 export { RECIPE_EDITOR_SYSTEM_PROMPT, buildRecipeEditPrompt } from "./scenario-repair/edit-recipe-prompt";
 export type { RecipeEditInput } from "./scenario-repair/edit-recipe-prompt";
+export { validateRecipeGraph } from "./scenario-repair/validate-recipe-graph";
+export type { RecipeGraphValidation } from "./scenario-repair/validate-recipe-graph";
+export {
+    REPAIR_RECIPE_AGENT_SYSTEM_PROMPT,
+    buildRepairRecipePrompt,
+} from "./scenario-repair/repair-recipe-agent-prompt";
+export { repairRecipeWithAgent, toRecipeRepairResult } from "./scenario-repair/repair-recipe-agent";
+export type { RecipeRepairResult } from "./scenario-repair/repair-recipe-agent";
+export type {
+    RepairRecipeDeps,
+    RepairRecipeInput,
+    PriorRepairAttempt,
+    DryRunSeed,
+    DryRunSeedResult,
+} from "./scenario-repair/repair-recipe-deps";
+export { buildRepairRecipeTools } from "./scenario-repair/repair-recipe-tools";

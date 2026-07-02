@@ -16,6 +16,13 @@ import { TaskQueue } from "../task-queues";
 const MAX_VALIDATION_ITERATIONS = 3;
 
 /**
+ * Max outer recipe-repair passes for one scenario: each pass runs the agent, stages its candidate on the twin, and
+ * re-runs the real test; a fail feeds the run's account back so the next pass tries a DIFFERENT recipe. Bounded
+ * because every pass costs a full agent run + scenario up + web run + classify.
+ */
+const MAX_RECIPE_REPAIR_ATTEMPTS = 3;
+
+/**
  * How many shadow tests run at once. The shadow job must clear quickly even for PRs with many affected
  * tests, so we fan out instead of running one-at-a-time. Capped to bound concurrent web-worker browsers and
  * concurrent scenario provisions against the client preview; Temporal queues any excess web activities.
@@ -24,6 +31,18 @@ const TEST_CONCURRENCY = 10;
 
 const investigation = proxyActivities<InvestigationActivities>({
     startToCloseTimeout: "20m",
+    heartbeatTimeout: "2m",
+    retry: { maximumAttempts: 1 },
+    taskQueue: TaskQueue.INVESTIGATION,
+});
+
+/**
+ * The recipe-repair agent clones the repo and runs two retrying model calls (each with its own abort timeout) plus
+ * SDK dry-run seeds, so its worst-case wall time exceeds the default 20m. Give `proposeRecipeRepair` a longer
+ * startToClose ceiling than the agent's own retry budget so a transient resend never trips Temporal mid-repair.
+ */
+const investigationRepair = proxyActivities<InvestigationActivities>({
+    startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.INVESTIGATION,
@@ -212,41 +231,152 @@ function scenarioObservation(verdict: InvestigationVerdict): string {
 }
 
 /**
- * Autofix validation pass (recipe_only): for each result the diagnoser routed to recipe_only with a candidate
- * recipe, stage the candidate on the twin's recipe version (a branch-scoped write - the real run resolves the
- * recipe by [scenarioId, snapshotId], so this only affects this snapshot) and re-seed + re-run the test to prove
- * it fixes the failure. On success the validated recipe stays on the twin and the merge-with-main step carries it
- * into a main-proposal when the PR merges; on failure we revert the twin so the failed candidate is never carried.
- * It is never activated on main mid-PR - a recipe correct for this branch can be wrong for main + other branches.
- * Processed sequentially so two tests sharing a scenario never race on the twin's recipe version. Every step is
- * contained: a failure records why on the result and moves on, never sinking the report.
+ * Autofix validation pass (recipe routes): for each result the diagnoser routed to a recipe change, run the
+ * recipe-repair AGENT (it reads the client's factory code + DB schema, queries the live backend, and dry-run-seeds
+ * candidates against the real factory) to produce a factory-accepted candidate, then stage that candidate on the
+ * twin's recipe version (a branch-scoped write - the real run resolves the recipe by [scenarioId, snapshotId], so
+ * this only affects this snapshot) and re-seed + re-run the test to prove it fixes the failure. On success the
+ * validated recipe stays on the twin and the merge-with-main step carries it into a main-proposal when the PR
+ * merges; on failure we revert the twin so the failed candidate is never carried. It is never activated on main
+ * mid-PR - a recipe correct for this branch can be wrong for main + other branches. When the agent gives up (no
+ * factory-accepted candidate), its handoff is recorded and nothing is staged. Processed sequentially so two tests
+ * sharing a scenario never race on the twin's recipe version. Every step is contained: a failure records why on
+ * the result and moves on, never sinking the report.
  */
 async function applyRecipeRepairs(snapshotId: string, results: InvestigationTestResult[]): Promise<void> {
     const targets = results.filter((result) => {
-        const diagnosis = result.scenarioDiagnosis;
-        const graph = diagnosis?.proposedRecipeCreateGraph;
-        return diagnosis?.route === "recipe_only" && graph != null && graph !== "";
+        const route = result.scenarioDiagnosis?.route;
+        return route === "recipe_only" || route === "recipe_and_sdk";
     });
     for (const result of targets) {
         await applyRecipeRepair(snapshotId, result).catch((error) => {
             const message = rootFailureMessage(error);
-            log.error("Recipe validation failed; leaving the dry-run proposal", {
+            log.error("Recipe repair failed; leaving the dry-run proposal", {
                 snapshot: { snapshotId },
                 extra: { slug: result.slug, message },
             });
-            setApplied(result, false, `validation errored: ${message}`);
+            setApplied(result, false, `repair errored: ${message}`);
         });
     }
 }
 
+/**
+ * Repair one scenario recipe with an OUTER loop: up to MAX_RECIPE_REPAIR_ATTEMPTS passes of {agent proposes a
+ * candidate -> stage it on the twin -> re-seed + re-run the REAL test -> classify}. A pass that seeds fine but does
+ * not make the test pass feeds its run account back into the next agent call, so the agent tries a materially
+ * different recipe with real evidence (not just a fresh guess). The twin recipe is restored to its ORIGINAL graph
+ * on give-up so no failed candidate is carried into main by the merge-with-main step; a passing candidate stays.
+ */
 async function applyRecipeRepair(snapshotId: string, result: InvestigationTestResult): Promise<void> {
-    const createGraphJson = result.scenarioDiagnosis?.proposedRecipeCreateGraph;
-    if (createGraphJson == null) return;
+    const diagnosis = result.scenarioDiagnosis;
+    if (diagnosis == null) return;
 
+    const priorAttempts: { createGraphJson: string; failureDetail: string }[] = [];
+    // The graph to restore on give-up: the twin's recipe BEFORE the first stage (captured from the first stage's
+    // pre-stage snapshot). Undefined until we stage something.
+    let originalCreateGraphJson: string | undefined;
+    let scenarioId: string | undefined;
+
+    try {
+        for (let attempt = 1; attempt <= MAX_RECIPE_REPAIR_ATTEMPTS; attempt++) {
+            // The tool-using agent refines the diagnoser's one-shot proposal into a factory-accepted candidate (or
+            // gives up). Routed through the longer-timeout proxy (its retrying model calls + dry-runs can exceed
+            // the default 20m). Prior failed passes are fed back so it does not repeat a recipe that already failed.
+            const proposal = await investigationRepair.proposeRecipeRepair({
+                snapshotId,
+                slug: result.slug,
+                recipeChange: diagnosis.recipeChange ?? "",
+                failureDetail: result.verdict?.whatHappened ?? "",
+                priorAttempts,
+            });
+
+            if (proposal.factoryIssue != null && proposal.factoryIssue !== "")
+                diagnosis.factoryIssue = proposal.factoryIssue;
+            if (proposal.handoff != null && proposal.handoff !== "") diagnosis.repairHandoff = proposal.handoff;
+
+            // recipe_and_sdk means the factory itself needs a code change: the agent's graph is one the CURRENT
+            // factory rejects, so staging + re-running it can only fail. Record the escalation and stop.
+            if (proposal.route === "recipe_and_sdk") {
+                setApplied(result, false, "escalated to a client-factory change; not staged on the twin");
+                return;
+            }
+
+            const createGraphJson = proposal.route === "recipe_only" ? proposal.createGraphJson : undefined;
+            if (createGraphJson == null || createGraphJson === "") {
+                // Re-routed to a test fix, or gave up: its handoff is already recorded. Nothing more to stage.
+                const why =
+                    proposal.route === "fix_test" ? "agent re-routed to a test fix" : "agent produced no viable recipe";
+                setApplied(result, false, attempt === 1 ? why : `${why} after ${attempt - 1} failed attempt(s)`);
+                return;
+            }
+
+            // Surface the candidate the report shows - it supersedes the diagnoser's one-shot graph, because this is
+            // the exact recipe we stage and validate on the twin this pass.
+            diagnosis.proposedRecipeCreateGraph = createGraphJson;
+            if (proposal.summary != null && proposal.summary !== "") diagnosis.proposedRecipeSummary = proposal.summary;
+
+            const outcome = await validateCandidateOnTwin(snapshotId, result, createGraphJson);
+            if (!outcome.staged) {
+                setApplied(result, false, "no scenario/recipe to validate the candidate against");
+                return;
+            }
+            scenarioId = outcome.scenarioId;
+            originalCreateGraphJson ??= outcome.previousCreateGraphJson;
+
+            if (outcome.passed) {
+                setApplied(
+                    result,
+                    true,
+                    `validated on the twin (branch-scoped) on attempt ${attempt}/${MAX_RECIPE_REPAIR_ATTEMPTS}; merges into main with the PR`,
+                );
+                return;
+            }
+
+            // Seeded but the real test still failed: feed the run account back so the next pass tries something
+            // different. The next stage overwrites the twin recipe, so no revert is needed between passes.
+            priorAttempts.push({ createGraphJson, failureDetail: outcome.failureDetail });
+        }
+        setApplied(
+            result,
+            false,
+            `no recipe made the test pass after ${MAX_RECIPE_REPAIR_ATTEMPTS} attempts on the twin; reverted`,
+        );
+    } finally {
+        // Restore the ORIGINAL twin recipe unless a candidate passed (applied === true keeps the passing recipe),
+        // so a failed candidate is never carried into main by the merge-with-main step.
+        if (diagnosis.applied !== true && originalCreateGraphJson != null && scenarioId != null) {
+            const restore = originalCreateGraphJson;
+            const scenario = scenarioId;
+            await CancellationScope.nonCancellable(() =>
+                investigation.revertTwinRecipe({ snapshotId, scenarioId: scenario, createGraphJson: restore }),
+            ).catch((error) => {
+                log.error("Failed to restore the twin recipe after recipe repair; the merge step must re-check", {
+                    snapshot: { snapshotId },
+                    extra: { slug: result.slug, message: rootFailureMessage(error) },
+                });
+            });
+        }
+    }
+}
+
+/** The outcome of staging one candidate on the twin and re-running the real test against it. */
+type TwinValidation =
+    | { staged: false }
+    | { staged: true; passed: boolean; scenarioId: string; previousCreateGraphJson?: string; failureDetail: string };
+
+/**
+ * Stage one candidate on the twin, re-seed (`scenarioUp`), re-run the real test, and classify it - the authoritative
+ * check that this recipe makes the test pass. Always tears the scenario instance down. Does NOT revert the twin
+ * recipe: the outer loop owns restoration (it overwrites between passes and restores the original on give-up).
+ */
+async function validateCandidateOnTwin(
+    snapshotId: string,
+    result: InvestigationTestResult,
+    createGraphJson: string,
+): Promise<TwinValidation> {
     const staged = await investigation.stageRecipeCandidateOnTwin({ snapshotId, slug: result.slug, createGraphJson });
     if (!staged.staged || staged.testGenerationId == null || staged.scenarioId == null) {
-        setApplied(result, false, "no scenario/recipe to validate the candidate against");
-        return;
+        return { staged: false };
     }
     const { testGenerationId, scenarioId, previousCreateGraphJson } = staged;
 
@@ -268,27 +398,27 @@ async function applyRecipeRepair(snapshotId: string, result: InvestigationTestRe
             reason: "validating a candidate recipe on the twin (branch-scoped; never activated on main)",
             testGenerationId,
         });
-        if (!outcome.runSuccess) {
-            // Restore the twin recipe so a failed candidate is not carried into main by the merge-with-main step.
-            if (previousCreateGraphJson != null) {
-                await investigation.revertTwinRecipe({
-                    snapshotId,
-                    scenarioId,
-                    createGraphJson: previousCreateGraphJson,
-                });
-            }
-            setApplied(result, false, "candidate recipe did not make the test pass on the twin; reverted");
-            return;
-        }
-        // Validated on the twin (branch-scoped). It stays on the twin recipe version and reaches main only when
-        // the PR merges - the merge-with-main step reconciles the twin recipe into a main-proposal snapshot.
-        setApplied(result, true, "validated on the twin (branch-scoped); merges into main with the PR");
+        return {
+            staged: true,
+            passed: outcome.runSuccess,
+            scenarioId,
+            previousCreateGraphJson,
+            failureDetail: twinFailureDetail(outcome),
+        };
     } finally {
         if (scenarioInstanceId != null) {
             const instanceId = scenarioInstanceId;
             await CancellationScope.nonCancellable(() => general.scenarioDown({ scenarioInstanceId: instanceId }));
         }
     }
+}
+
+/** The run's account of why the test still failed with a candidate recipe - fed back to the next repair pass. */
+function twinFailureDetail(outcome: InvestigationTestResult): string {
+    const verdict = outcome.verdict;
+    if (verdict == null) return "the test did not pass on the twin (no verdict was produced).";
+    const parts = [verdict.whatHappened, verdict.rootCause].filter((part) => part != null && part !== "");
+    return parts.length > 0 ? parts.join(" ") : "the test did not pass on the twin.";
 }
 
 /**

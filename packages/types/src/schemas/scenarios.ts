@@ -108,6 +108,67 @@ export const ScenarioRecipeSchema = z
     .passthrough();
 export type ScenarioRecipe = z.infer<typeof ScenarioRecipeSchema>;
 
+// ─── Recipe `create` graph: the canonical structure + reference helpers ──────────────
+// The `create` graph is a first-class structure the SDK provisioner and the CLI planner both understand; keep its
+// shape + `_alias`/`_ref` semantics defined ONCE here so callers (the SDK resolver, the investigation recipe
+// validator) share one source of truth instead of each re-deriving it.
+
+/**
+ * A scenario recipe's `create` graph: an object keyed by model name, each value an array of record objects. A
+ * record may declare an `_alias` (a local handle) and reference another seeded record with `{ "_ref": "alias" }`
+ * anywhere in its fields. This is the exact shape the client's environment-factory receives - a bare array, a
+ * scalar, or a non-object record makes the factory reject the whole seed.
+ */
+export const ScenarioCreateGraphSchema = z.record(z.string(), z.array(z.record(z.string(), z.unknown())));
+export type ScenarioCreateGraph = z.infer<typeof ScenarioCreateGraphSchema>;
+
+/** A plain object (not null, not an array) - the only shape a record or a `_ref` wrapper can take. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
+/** The `{ "_ref": "alias" }` reference form - the only referencing form the factory understands. */
+export function isScenarioRef(value: unknown): value is { _ref: string } {
+    return isRecord(value) && typeof value._ref === "string";
+}
+
+/** Every `_alias` declared by a record in the graph. */
+export function collectScenarioAliases(graph: ScenarioCreateGraph): Set<string> {
+    const aliases = new Set<string>();
+    for (const records of Object.values(graph)) {
+        for (const record of records) {
+            if (typeof record._alias === "string") aliases.add(record._alias);
+        }
+    }
+    return aliases;
+}
+
+/** Every `{ "_ref": "alias" }` target reachable anywhere in the graph (refs can nest inside any field). */
+export function collectScenarioRefs(graph: ScenarioCreateGraph): string[] {
+    const refs: string[] = [];
+    const walk = (value: unknown): void => {
+        if (isScenarioRef(value)) {
+            refs.push(value._ref);
+            return;
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) walk(item);
+            return;
+        }
+        if (isRecord(value)) {
+            for (const nested of Object.values(value)) walk(nested);
+        }
+    };
+    for (const records of Object.values(graph)) walk(records);
+    return refs;
+}
+
+/** The distinct `_ref` targets that resolve to no declared `_alias`. Empty means the graph is referentially sound. */
+export function findDanglingScenarioRefs(graph: ScenarioCreateGraph): string[] {
+    const aliases = collectScenarioAliases(graph);
+    return [...new Set(collectScenarioRefs(graph))].filter((ref) => !aliases.has(ref));
+}
+
 export const ScenarioRecipesFileSchema = z.object({
     version: z.literal(1),
     source: z

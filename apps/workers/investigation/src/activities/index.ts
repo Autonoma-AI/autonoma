@@ -6,6 +6,7 @@ import { diagnoseInvestigationScenario as diagnoseScenarioImpl } from "./diagnos
 import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
 import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
 import { postInvestigationPrComment as postPrCommentImpl } from "./post-pr-comment";
+import { proposeRecipeRepair as proposeRecipeRepairImpl } from "./propose-recipe-repair";
 import { revertTwinRecipe as revertTwinRecipeImpl } from "./revert-twin-recipe";
 import { selectInvestigationTests as selectImpl } from "./select-tests";
 import { stageRecipeCandidateOnTwin as stageRecipeImpl } from "./stage-recipe-candidate";
@@ -43,6 +44,9 @@ export const selectInvestigationTests = withHeartbeat(selectImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // One structured model call after loading the plan + recipe; heartbeat it so a slow call stays under the 2m timeout.
 export const diagnoseInvestigationScenario = withHeartbeat(diagnoseScenarioImpl);
+// Clones the repo + runs the tool-using repair agent (code/DB/backend queries + optional dry-run seeds) for
+// MINUTES; heartbeat it so it stays well under the 2m heartbeat timeout like the other reasoning activities.
+export const proposeRecipeRepair = withHeartbeat(proposeRecipeRepairImpl);
 // Branch-scoped DB write (overwrites just the twin's recipe version) + a shadow generation; fast, but heartbeat
 // for consistency with the other investigation activities.
 export const stageRecipeCandidateOnTwin = withHeartbeat(stageRecipeImpl);
@@ -62,6 +66,7 @@ const _activities: InvestigationActivities = {
     selectInvestigationTests,
     classifyInvestigationRun,
     diagnoseInvestigationScenario,
+    proposeRecipeRepair,
     stageRecipeCandidateOnTwin,
     revertTwinRecipe,
     writeInvestigationReport,
