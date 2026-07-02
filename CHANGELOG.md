@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.12](https://github.com/Autonoma-AI/agent/compare/v1.8.11...v1.8.12) (2026-07-02)
+
+
+### Features
+
+* **investigation:** scenario auto-repair - diagnose, dry-run proposals, and org-gated autofix ([#1235](https://github.com/Autonoma-AI/agent/issues/1235)) ([13b823c](https://github.com/Autonoma-AI/agent/commit/13b823c98ef7229f0703b25c4a362d29bec86657))
+
 ## [1.8.11](https://github.com/Autonoma-AI/agent/compare/v1.8.10...v1.8.11) (2026-07-01)
 
 
