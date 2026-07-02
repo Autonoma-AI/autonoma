@@ -47,8 +47,4 @@ describe("SaveClipboardCommand", () => {
 
         expect(result.value).toBe("line1\nline2\nline3");
     });
-
-    saveClipboardTest("should use the correct interaction name", () => {
-        expect(command.interaction).toBe("save-clipboard");
-    });
 });

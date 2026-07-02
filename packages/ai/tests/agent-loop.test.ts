@@ -20,13 +20,6 @@ function makeLoop(): AgentLoop<FakeResult> {
 }
 
 describe("AgentLoop.setResult", () => {
-    it("captures the first call's result", () => {
-        const loop = makeLoop();
-        loop.setResult({ payload: "first" });
-        // protected `result` is not directly readable; second call throwing proves the first stuck.
-        expect(() => loop.setResult({ payload: "second" })).toThrow(MultipleResultCalls);
-    });
-
     it("throws MultipleResultCalls on subsequent calls", () => {
         const loop = makeLoop();
         loop.setResult({ payload: "first" });

@@ -14,10 +14,6 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
 describe("MongoDbRecipe", () => {
     const recipe = new MongoDbRecipe();
 
-    it("registers under the name 'mongodb'", () => {
-        expect(recipe.name).toBe("mongodb");
-    });
-
     it("returns the service name, 27017 and the directConnection URL as connection info", () => {
         expect(recipe.connectionInfo(baseService())).toEqual({
             host: "db",

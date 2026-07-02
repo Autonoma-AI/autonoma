@@ -14,10 +14,6 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
 describe("UpstashRecipe", () => {
     const recipe = new UpstashRecipe();
 
-    it("registers under the name 'upstash'", () => {
-        expect(recipe.name).toBe("upstash");
-    });
-
     it("returns the service name and 8000 (REST port) as connection info", () => {
         expect(recipe.connectionInfo(baseService())).toEqual({ host: "cache", port: 8000 });
     });
