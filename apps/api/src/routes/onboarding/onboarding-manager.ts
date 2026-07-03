@@ -164,7 +164,8 @@ export class OnboardingManager {
         // rather than two full `count`s on every poll.
         const [scenario, testCase] = await Promise.all([
             this.db.scenario.findFirst({ where: { applicationId }, select: { id: true } }),
-            this.db.testCase.findFirst({ where: { applicationId }, select: { id: true } }),
+            // Ignore investigation shadow cases - they are validation probes, not real onboarding content.
+            this.db.testCase.findFirst({ where: { applicationId, shadow: false }, select: { id: true } }),
         ]);
         const hasContent = scenario != null && testCase != null;
 

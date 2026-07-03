@@ -39,7 +39,8 @@ export class RunsService extends Service {
         this.logger.info("Triggering run", { testCaseId, snapshotId, organizationId });
 
         const testCase = await this.db.testCase.findFirst({
-            where: { id: testCaseId, organizationId },
+            // shadow: false - an investigation validation probe is not a runnable customer test.
+            where: { id: testCaseId, organizationId, shadow: false },
             select: {
                 id: true,
                 application: { select: { architecture: true } },

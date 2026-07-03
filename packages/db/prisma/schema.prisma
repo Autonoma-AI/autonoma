@@ -675,6 +675,11 @@ model TestCase {
   slug        String
   description String?
 
+  /// A throwaway test case created by the investigation agent ONLY to validate a proposed NEW test (run its
+  /// candidate plan as a shadow generation). Shadow cases are never assigned to a snapshot and are excluded from
+  /// every user-facing catalog read, so they never pollute the customer's test tree. Mirrors TestGeneration.shadow.
+  shadow Boolean @default(false) @map("shadow")
+
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 

@@ -15,7 +15,8 @@ export class TestsService extends Service {
         this.logger.info("Getting test cases", { applicationId, organizationId });
 
         const raw = await this.db.testCase.findMany({
-            where: { applicationId, application: { organizationId } },
+            // Exclude investigation shadow cases (validation probes) - they are never part of the customer's suite.
+            where: { applicationId, application: { organizationId }, shadow: false },
             include: {
                 tags: { include: { tag: true } },
                 plans: {
@@ -52,7 +53,8 @@ export class TestsService extends Service {
         this.logger.info("Getting test detail", { applicationId, slug, snapshotId });
 
         const testCase = await this.db.testCase.findUnique({
-            where: { applicationId_slug: { applicationId, slug }, organizationId },
+            // shadow: false - the reserved shadow slug is a known constant, so guard against fetching the probe.
+            where: { applicationId_slug: { applicationId, slug }, organizationId, shadow: false },
             include: {
                 tags: { include: { tag: true } },
                 folder: { select: { id: true, name: true } },
@@ -118,7 +120,8 @@ export class TestsService extends Service {
         this.logger.info("Renaming test", { id, name });
 
         const { count } = await this.db.testCase.updateMany({
-            where: { id, application: { organizationId } },
+            // shadow: false - a user must not rename the shared investigation probe (would break in-flight runs).
+            where: { id, application: { organizationId }, shadow: false },
             data: { name },
         });
 
@@ -130,7 +133,10 @@ export class TestsService extends Service {
     async deleteTest(id: string, organizationId: string) {
         this.logger.info("Deleting test", { id });
 
-        const { count } = await this.db.testCase.deleteMany({ where: { id, application: { organizationId } } });
+        // shadow: false - a user must not delete the shared investigation probe (would break in-flight runs).
+        const { count } = await this.db.testCase.deleteMany({
+            where: { id, application: { organizationId }, shadow: false },
+        });
 
         if (count === 0) throw new NotFoundError();
 
