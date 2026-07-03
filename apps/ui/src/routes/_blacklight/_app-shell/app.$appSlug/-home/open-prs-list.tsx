@@ -1,13 +1,24 @@
 import { Badge, EmptyState } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { formatRelativeTime } from "lib/format";
+import { useInvestigationReportsBySnapshot } from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
 import { AppLink } from "../../-app-link";
 import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
 
+interface InvestigationPresence {
+  clientBugCount: number;
+  status: string;
+}
+
 export function OpenPrsList() {
   const prs = useLatestPullRequests();
+  // Internal-only (@autonoma.app); the hook returns an empty map for everyone else, so no entry point renders.
+  const investigationBySnapshot = useInvestigationReportsBySnapshot(
+    prs.map((pr) => pr.snapshotId).filter((id): id is string => id != null),
+  );
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
@@ -33,7 +44,13 @@ export function OpenPrsList() {
               description="Push a branch with an open PR to see it tracked here."
             />
           ) : (
-            prs.map((pr) => <PrRow key={pr.id} pr={pr} />)
+            prs.map((pr) => (
+              <PrRow
+                key={pr.id}
+                pr={pr}
+                investigation={pr.snapshotId != null ? investigationBySnapshot.get(pr.snapshotId) : undefined}
+              />
+            ))
           )}
         </div>
       </div>
@@ -41,7 +58,7 @@ export function OpenPrsList() {
   );
 }
 
-function PrRow({ pr }: { pr: LatestPullRequest }) {
+function PrRow({ pr, investigation }: { pr: LatestPullRequest; investigation?: InvestigationPresence }) {
   return (
     <div className="relative flex items-center gap-3 border-t border-border-dim px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-raised">
       <AppLink
@@ -86,8 +103,46 @@ function PrRow({ pr }: { pr: LatestPullRequest }) {
             <ArrowUpRightIcon size={11} weight="bold" />
           </a>
         )}
+        {investigation != null && pr.snapshotId != null && (
+          <InvestigationEntry prNumber={pr.prNumber} snapshotId={pr.snapshotId} investigation={investigation} />
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The internal-only entry point onto the shadow investigation report, surfaced right on the PR row so it is not
+ * buried inside the checkpoint page. Nested inside the row's full-bleed link, so it needs its own z-layer +
+ * stopPropagation to win the click. Shows the bug count when there is one, or a "running" hint while in flight.
+ */
+function InvestigationEntry({
+  prNumber,
+  snapshotId,
+  investigation,
+}: {
+  prNumber: number;
+  snapshotId: string;
+  investigation: InvestigationPresence;
+}) {
+  const label =
+    investigation.status === "running"
+      ? "running"
+      : investigation.clientBugCount > 0
+        ? `${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
+        : undefined;
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
+      params={{ prNumber: String(prNumber), snapshotId }}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={`Investigation report for PR #${prNumber}`}
+      className="relative z-10 inline-flex items-center gap-1 text-text-secondary hover:text-text-primary hover:underline"
+    >
+      <MagnifyingGlassIcon size={11} />
+      investigation
+      {label != null && <span className="text-text-secondary">· {label}</span>}
+    </AppLink>
   );
 }
 

@@ -31,6 +31,24 @@ export function useInvestigationReportData(snapshotId: string) {
     return useQuery(trpc.branches.investigationReportData.queryOptions({ snapshotId }));
 }
 
+/**
+ * Batched investigation presence for the PR-list entry points (Home + PR list). Given the PRs' active snapshot
+ * ids, returns which have a report (bug count + lifecycle status). Internal-only: enabled only for @autonoma.app
+ * users (the API procedure also enforces it), so non-internal users get an empty list and no entry points render.
+ * The UI keys the result by snapshot id for O(1) lookup per row.
+ */
+export function useInvestigationReportsBySnapshot(
+    snapshotIds: string[],
+): Map<string, { clientBugCount: number; status: string }> {
+    const { user } = useAuth();
+    const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
+    const { data } = useQuery({
+        ...trpc.branches.investigationReportsForSnapshots.queryOptions({ snapshotIds }),
+        enabled: isInternal && snapshotIds.length > 0,
+    });
+    return new Map((data ?? []).map((entry) => [entry.snapshotId, entry]));
+}
+
 export async function ensureInvestigationReportData(queryClient: QueryClient, snapshotId: string) {
     await ensureAPIQueryData(queryClient, trpc.branches.investigationReportData.queryOptions({ snapshotId }));
 }

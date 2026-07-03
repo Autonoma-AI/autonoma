@@ -157,6 +157,58 @@ export class BranchesService extends Service {
     }
 
     /**
+     * Batched presence for the PR-list entry points (Home + PR list): given the active snapshot ids of many PRs,
+     * return which ones have an investigation report and its bug count + lifecycle status. Batched deliberately -
+     * a per-PR fetch would N+1 the list. Matches the twin's report (via the pairing FK) or a legacy report keyed
+     * directly to the PR snapshot, and keys the result back to the PR snapshot id the UI routes on. Internal/
+     * @autonoma.app only; degrades to an empty list on any failure. Org-scoped.
+     */
+    async getInvestigationReportsForSnapshots(snapshotIds: string[], organizationId: string) {
+        this.logger.info("Getting investigation reports for snapshots", { extra: { count: snapshotIds.length } });
+        if (snapshotIds.length === 0) return [];
+        try {
+            const requested = new Set(snapshotIds);
+            const reports = await this.db.investigationReport.findMany({
+                where: {
+                    organizationId,
+                    OR: [
+                        { snapshotId: { in: snapshotIds } },
+                        { snapshot: { investigationParent: { id: { in: snapshotIds } } } },
+                    ],
+                },
+                // Newest first so the first row seen for a PR snapshot (the twin, post-#1204) wins over an older
+                // legacy row for the same PR.
+                orderBy: { createdAt: "desc" },
+                select: {
+                    snapshotId: true,
+                    clientBugCount: true,
+                    status: true,
+                    snapshot: { select: { investigationParent: { select: { id: true } } } },
+                },
+            });
+
+            const seen = new Set<string>();
+            const presence = [];
+            for (const report of reports) {
+                const parentId = report.snapshot.investigationParent?.id;
+                const prSnapshotId = parentId != null && requested.has(parentId) ? parentId : report.snapshotId;
+                if (!requested.has(prSnapshotId) || seen.has(prSnapshotId)) continue;
+                seen.add(prSnapshotId);
+                presence.push({
+                    snapshotId: prSnapshotId,
+                    clientBugCount: report.clientBugCount,
+                    status: report.status,
+                });
+            }
+            return presence;
+        } catch (error) {
+            // Optional internal surface - a failure here must never sink the PR list. Degrade to "none".
+            this.logger.warn("Could not load investigation reports for snapshots; treating as none", { err: error });
+            return [];
+        }
+    }
+
+    /**
      * The structured investigation report for the in-app "View investigation" page. Reads the queryable island
      * tables the worker persists (InvestigationReport + findings/suggested) and re-signs each finding's s3://
      * media into browser-openable URLs - the DB is the single source of truth (no S3 report blob). Reports

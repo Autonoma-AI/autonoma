@@ -15,12 +15,14 @@ import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import {
   type PullRequestStateFilter,
   ensureBranchesData,
   useBranchDetail,
   useBranches,
+  useInvestigationReportsBySnapshot,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
 import { Suspense } from "react";
@@ -69,6 +71,7 @@ type PullRequestRow = {
   prState?: "open" | "closed" | "merged";
   prAuthorLogin?: string;
   prUpdatedAt?: Date;
+  snapshotId?: string;
   activeSnapshot: {
     status: string;
     _count: { testCaseAssignments: number };
@@ -91,10 +94,16 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
             prState: b.pr.state,
             prAuthorLogin: b.pr.authorLogin,
             prUpdatedAt: b.pr.updatedAt,
+            snapshotId: b.activeSnapshot?.id,
             activeSnapshot: b.activeSnapshot,
           },
         ]
       : [],
+  );
+
+  // Internal-only (@autonoma.app); empty for everyone else, so the column below never renders for customers.
+  const investigationBySnapshot = useInvestigationReportsBySnapshot(
+    rows.map((row) => row.snapshotId).filter((id): id is string => id != null),
   );
 
   function handleRowClick(row: PullRequestRow) {
@@ -151,6 +160,26 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
     },
   ];
 
+  // Internal-only column: present only when at least one PR has an investigation report (so it never shows an
+  // empty column to customers or when no reports exist yet).
+  if (investigationBySnapshot.size > 0) {
+    columns.push({
+      id: "investigation",
+      header: "Investigation",
+      size: 130,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <PRInvestigationCell
+          prNumber={row.original.prNumber}
+          snapshotId={row.original.snapshotId}
+          investigation={
+            row.original.snapshotId != null ? investigationBySnapshot.get(row.original.snapshotId) : undefined
+          }
+        />
+      ),
+    });
+  }
+
   return (
     <Panel>
       <PanelHeader className="flex items-center gap-2">
@@ -168,6 +197,40 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
         />
       </PanelBody>
     </Panel>
+  );
+}
+
+/**
+ * Internal-only PR-list cell linking to the shadow investigation report for a PR. Nested inside a clickable
+ * table row, so it stops propagation to win the click. Shows a "running" hint or the bug count when present.
+ */
+function PRInvestigationCell({
+  prNumber,
+  snapshotId,
+  investigation,
+}: {
+  prNumber: number;
+  snapshotId?: string;
+  investigation?: { clientBugCount: number; status: string };
+}) {
+  if (investigation == null || snapshotId == null) return undefined;
+  const label =
+    investigation.status === "running"
+      ? "running"
+      : investigation.clientBugCount > 0
+        ? `${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
+        : "view";
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
+      params={{ prNumber: String(prNumber), snapshotId }}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={`Investigation report for PR #${prNumber}`}
+      className="inline-flex items-center gap-1 font-mono text-2xs text-text-secondary hover:text-text-primary hover:underline"
+    >
+      <MagnifyingGlassIcon size={12} />
+      {label}
+    </AppLink>
   );
 }
 

@@ -90,5 +90,63 @@ apiTestSuite({
             );
             expect(report).toBeUndefined();
         });
+
+        test("batched presence resolves direct + twin reports keyed to the PR snapshot, and skips ones without", async ({
+            harness,
+            seedResult: { branch },
+        }) => {
+            // PR A: a legacy report keyed directly to the PR snapshot.
+            const prA = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-a" },
+            });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: prA.id,
+                    organizationId: harness.organizationId,
+                    s3Key: "investigation/report-app/batch-a.md",
+                    testCount: 2,
+                    clientBugCount: 2,
+                },
+            });
+
+            // PR B: a report on the detached twin, reachable only via the investigationParent FK.
+            const prB = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-b" },
+            });
+            const twinB = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH" },
+            });
+            await harness.db.branchSnapshot.update({
+                where: { id: prB.id },
+                data: { investigationSnapshotId: twinB.id },
+            });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: twinB.id,
+                    organizationId: harness.organizationId,
+                    s3Key: "investigation/report-app/batch-b.md",
+                    testCount: 4,
+                    clientBugCount: 0,
+                },
+            });
+
+            // PR C: no report at all.
+            const prC = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-c" },
+            });
+
+            const presence = await harness.services.branches.getInvestigationReportsForSnapshots(
+                [prA.id, prB.id, prC.id],
+                harness.organizationId,
+            );
+
+            const byId = new Map(presence.map((entry) => [entry.snapshotId, entry]));
+            expect(byId.size).toBe(2);
+            expect(byId.get(prA.id)).toMatchObject({ clientBugCount: 2, status: "completed" });
+            // The twin's report is keyed back to the PR snapshot the UI routes on, not the twin id.
+            expect(byId.get(prB.id)).toMatchObject({ clientBugCount: 0, status: "completed" });
+            expect(byId.has(twinB.id)).toBe(false);
+            expect(byId.has(prC.id)).toBe(false);
+        });
     },
 });

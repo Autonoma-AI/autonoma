@@ -16,6 +16,8 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 export interface LatestPullRequest {
     id: string;
     prNumber: number;
+    /** The PR's active snapshot id - the route param for the investigation entry point (undefined if none yet). */
+    snapshotId?: string;
     branchName: string;
     baseBranchName: string;
     health: SnapshotHealth;
@@ -44,6 +46,7 @@ export function useLatestPullRequests(): LatestPullRequest[] {
                       {
                           id: branch.id,
                           prNumber: branch.prNumber,
+                          snapshotId: branch.activeSnapshot?.id,
                           branchName: branch.name,
                           baseBranchName,
                           health: branch.activeSnapshot?.health ?? "unknown",
