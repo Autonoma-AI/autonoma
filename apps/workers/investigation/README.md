@@ -39,8 +39,9 @@ happen on the existing `web` worker via the generation activity.
      (twin) snapshot; it reaches main only when the PR merges (via the merge reconciler). No direct main write.
    - `recipe_and_sdk`: never auto-applied (the factory needs a client code change we can't make); the concrete
      factory change is surfaced in our existing PR comment.
-5. **writeInvestigationReport** (here) - build the markdown (verdicts + the deployed-agent comparison) and
-   upload it to S3.
+5. **writeInvestigationReport** (here) - persist the structured report into the queryable island tables
+   (`InvestigationReport` + findings/suggested) via `InvestigationReportPersister`. The DB is the single source
+   of truth; nothing is written to S3 (the UI rendering the rows IS the human-readable report).
 6. **postInvestigationPrComment** (here) - post the results as a single, self-updating PR comment
    (flag-gated, see Env). Runs after the report; a failure here is contained and never sinks the workflow.
 
@@ -55,7 +56,9 @@ happen on the existing `web` worker via the generation activity.
   (branch-scoped) and create a fresh shadow generation to validate it. Returns `staged: false` when there's
   nothing to validate. The workflow re-runs the generation and reports whether the candidate passed; it never
   activates the candidate on main.
-- `writeInvestigationReport` - `DeployedComparison` + `buildReportMarkdown` -> S3.
+- `writeInvestigationReport` - `DeployedComparison` + `buildReportData` -> `InvestigationReportPersister` (island
+  tables). No S3 write. `scripts/backfill-report-island.ts` migrates pre-island reports (legacy S3 markdown)
+  into the tables.
 - `postInvestigationPrComment` - render a concise summary (category counts + client-bug headlines + a link to
   the in-app report) and upsert it on the PR via `postOrUpdateMarkerComment`. Idempotent: it scans the PR for
   a hidden `<!-- autonoma-investigation -->` marker and updates that comment in place instead of posting a

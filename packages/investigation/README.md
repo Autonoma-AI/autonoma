@@ -66,7 +66,10 @@ src/
                                 seeds candidates against the real factory, and returns a factory-accepted `create`
                                 graph or a handoff. Analysis + dry-runs only; the worker stages the candidate on the
                                 twin (the authoritative rerun gate).
-  report/markdown.ts            buildReportMarkdown - the S3 report (verdicts + deployed comparison)
+  report/markdown.ts            buildReportMarkdown - legacy markdown renderer (no longer persisted by the worker;
+                                the DB island is the source of truth - used only to parse pre-island reports)
+  report/report-data.ts         buildReportData - the structured UI/DB contract (findings + suggested tests)
+  persist/report-persister.ts   InvestigationReportPersister - persist the report into the queryable island tables
 ```
 
 ## Conventions

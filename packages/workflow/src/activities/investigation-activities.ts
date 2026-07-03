@@ -248,7 +248,8 @@ export interface WriteInvestigationReportInput {
 }
 
 export interface WriteInvestigationReportOutput {
-    reportUrl: string;
+    testCount: number;
+    clientBugCount: number;
 }
 
 export interface PostInvestigationPrCommentInput {

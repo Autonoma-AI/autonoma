@@ -2082,16 +2082,51 @@ model DiffsJob {
   @@map("diffs_job")
 }
 
-/// The shadow "investigation" agent's report for a snapshot - written to S3 in parallel with the diffs job.
-/// We persist the S3 KEY (sign a fresh URL on read so links never expire), plus quick counts for the PR view.
-/// Internal-only surface (the report is shown to @autonoma.app users to compare against the deployed agent).
+enum InvestigationReportStatus {
+  running
+  completed
+  failed
+
+  @@map("investigation_report_status")
+}
+
+/// The shadow "investigation" agent's structured report for a snapshot. This, plus its child tables
+/// (InvestigationFinding / InvestigationSuggestedTest / InvestigationQuarantine), is the queryable native
+/// home for the agent's output - it REPLACES the old S3-JSON round-trip (the API reads these tables and signs
+/// the stored media keys on read). The whole set is an isolated island: it only FKs OUTWARD (snapshot / org,
+/// cascade) and nothing in the core app FKs into it, so retiring the agent later is a clean DROP TABLE.
+/// Internal-only surface (shown to @autonoma.app users to compare against the deployed diffs agent).
 model InvestigationReport {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
-  s3Key          String @map("s3_key")
-  testCount      Int    @default(0) @map("test_count")
-  clientBugCount Int    @default(0) @map("client_bug_count")
+  /// Lifecycle for the progress UI: seeded `running` at workflow start, flipped `completed`/`failed` at the end.
+  status         InvestigationReportStatus @default(completed) @map("status")
+  /// Current workflow stage while running (progress UI); null once terminal or on legacy rows.
+  stage          String?                   @map("stage")
+  stageUpdatedAt DateTime?                  @map("stage_updated_at")
+
+  /// Report header, denormalized so the read path never re-resolves PR meta (a heavy GitHub round-trip).
+  client       String? @map("client")
+  appSlug      String? @map("app_slug")
+  prNumber     Int?    @map("pr_number")
+  prTitle      String? @map("pr_title") @db.Text
+  prBody       String? @map("pr_body") @db.Text
+  repoFullName String? @map("repo_full_name")
+  commitSha    String? @map("commit_sha")
+
+  /// The deployed-agent comparison - a display-only blob, never queried, so JSON not a table.
+  /// [InvestigationDeployedComparison]
+  deployed Json? @map("deployed")
+
+  /// Legacy S3 markdown key. Optional now: pre-cutover reports keep their raw-report link; new reports persist
+  /// to the child tables and (per config) may still write the human-readable markdown mirror.
+  s3Key          String? @map("s3_key")
+  testCount      Int     @default(0) @map("test_count")
+  clientBugCount Int     @default(0) @map("client_bug_count")
+
+  findings       InvestigationFinding[]
+  suggestedTests InvestigationSuggestedTest[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -2099,6 +2134,79 @@ model InvestigationReport {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("investigation_report")
+}
+
+/// One classified per-test finding (the investigation agent's OWN classification - not the diffs Bug model).
+/// Media stays as s3:// keys (signed on read); display-only blobs (evidence, run trace) are JSON; the fields
+/// the UI filters/sorts on are real columns. FKs only to its parent report (cascade); organizationId is a
+/// plain scalar for cross-report scoping, deliberately NOT a relation so the Organization model stays untouched.
+model InvestigationFinding {
+  id               String              @id @default(cuid())
+  reportSnapshotId String              @map("report_snapshot_id")
+  report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
+
+  /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
+  findingKey        String  @map("finding_key")
+  slug              String
+  category          String
+  confidence        String?
+  planFidelity      String? @map("plan_fidelity")
+  falsePositiveRisk String? @map("false_positive_risk")
+  headline          String  @db.Text
+  whatHappened      String? @map("what_happened") @db.Text
+  observedAppIssues String? @map("observed_app_issues") @db.Text
+  remediation       String? @db.Text
+  rootCause         String? @map("root_cause") @db.Text
+  suggestedFixDiff  String? @map("suggested_fix_diff") @db.Text
+  plan              String? @db.Text
+  runSuccess        Boolean? @map("run_success")
+  stepCount         Int?     @map("step_count")
+
+  /// string[] run trace and InvestigationEvidence[] - display blobs, never queried.
+  /// [InvestigationRunSteps]
+  runSteps Json? @map("run_steps")
+  /// [InvestigationEvidenceList]
+  evidence Json?
+
+  /// s3:// keys, signed on read. screenshotKey is the error-frame once PR2 lands.
+  videoKey      String? @map("video_key")
+  screenshotKey String? @map("screenshot_key")
+
+  /// Present instead of the verdict fields when the model failed to classify this test.
+  error String? @db.Text
+
+  displayOrder Int @map("display_order")
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  organizationId String   @map("organization_id")
+
+  @@unique([reportSnapshotId, findingKey])
+  @@index([reportSnapshotId])
+  @@index([organizationId, category])
+  @@map("investigation_finding")
+}
+
+/// A NEW test the agent proposes to add (with its validation outcome, if the validate->edit->retry loop ran).
+model InvestigationSuggestedTest {
+  id               String              @id @default(cuid())
+  reportSnapshotId String              @map("report_snapshot_id")
+  report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
+
+  name        String
+  instruction String @db.Text
+  reasoning   String @db.Text
+
+  validationPassed        Boolean? @map("validation_passed")
+  validationIterations    Int?     @map("validation_iterations")
+  validationFailureReason String?  @map("validation_failure_reason") @db.Text
+
+  displayOrder Int @map("display_order")
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  organizationId String   @map("organization_id")
+
+  @@index([reportSnapshotId])
+  @@map("investigation_suggested_test")
 }
 
 model AffectedTest {

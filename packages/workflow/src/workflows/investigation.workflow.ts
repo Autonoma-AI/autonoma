@@ -197,7 +197,10 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
         });
     }
 
-    log.info("Investigation workflow completed", { ...ids, extra: { reportUrl: report.reportUrl } });
+    log.info("Investigation workflow completed", {
+        ...ids,
+        extra: { testCount: report.testCount, clientBugCount: report.clientBugCount },
+    });
 }
 
 /**

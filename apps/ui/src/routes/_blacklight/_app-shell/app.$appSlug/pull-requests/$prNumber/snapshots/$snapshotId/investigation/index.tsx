@@ -1,11 +1,11 @@
-import { Badge, Button, Skeleton } from "@autonoma/blacklight";
+import { Badge, Skeleton } from "@autonoma/blacklight";
 import type { InvestigationFinding } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute } from "@tanstack/react-router";
 import { findingCategoryMeta, PASSED_PRIORITY } from "components/investigation/finding-category";
-import { useInvestigationReport, useInvestigationReportData } from "lib/query/branches.queries";
+import { useInvestigationReportData } from "lib/query/branches.queries";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -48,7 +48,6 @@ function ListHeader({ prNumber }: { prNumber: number }) {
 function FindingsList() {
   const { snapshotId } = Route.useParams();
   const { data, isPending } = useInvestigationReportData(snapshotId);
-  const { data: rawReport } = useInvestigationReport(snapshotId);
   const [showPassed, setShowPassed] = useState(false);
 
   if (isPending) return <ListSkeleton />;
@@ -57,16 +56,7 @@ function FindingsList() {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border-dim bg-surface-base px-6 py-12 text-center">
         <MagnifyingGlassIcon size={28} className="text-text-secondary" />
-        <p className="text-sm text-text-secondary">
-          The rich investigation view is not available for this checkpoint yet.
-        </p>
-        {rawReport?.url != null && (
-          <a href={rawReport.url} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm">
-              Open the raw report
-            </Button>
-          </a>
-        )}
+        <p className="text-sm text-text-secondary">The investigation view is not available for this checkpoint yet.</p>
       </div>
     );
   }

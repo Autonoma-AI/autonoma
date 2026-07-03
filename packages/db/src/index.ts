@@ -1,7 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import path from "node:path";
-import type { ScenarioRecipeSchema, ScenarioStructureJsonSchema } from "@autonoma/types";
+import type {
+    investigationDeployedComparisonSchema,
+    investigationEvidenceSchema,
+    ScenarioRecipeSchema,
+    ScenarioStructureJsonSchema,
+} from "@autonoma/types";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { ModelMessage as AIModelMessage } from "ai";
 import type { z } from "zod";
@@ -125,6 +130,12 @@ declare global {
         export type ModelConversation = AIModelMessage[];
         export type ScenarioRecipeJson = z.infer<typeof ScenarioRecipeSchema>;
         export type ScenarioStructureJson = z.infer<typeof ScenarioStructureJsonSchema>;
+        /** The deployed-agent comparison stored on InvestigationReport.deployed (display-only). */
+        export type InvestigationDeployedComparison = z.infer<typeof investigationDeployedComparisonSchema>;
+        /** Per-finding code/run evidence stored on InvestigationFinding.evidence (display-only). */
+        export type InvestigationEvidenceList = z.infer<typeof investigationEvidenceSchema>[];
+        /** The step-by-step run trace stored on InvestigationFinding.runSteps (display-only). */
+        export type InvestigationRunSteps = string[];
         export type ScenarioAuth = {
             cookies?: Array<{
                 name: string;

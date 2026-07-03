@@ -39,6 +39,8 @@ export { selectAffectedTests } from "./select/select-tests";
 export type { SelectContext } from "./select/select-tests";
 export { buildSelectorTools } from "./select/tools";
 export type { SelectorDeps } from "./select/dependencies";
+export { InvestigationReportPersister } from "./persist/report-persister";
+export type { PersistReportInput } from "./persist/report-persister";
 export { EditPersister } from "./persist/edit-persister";
 export type {
     TestModification,

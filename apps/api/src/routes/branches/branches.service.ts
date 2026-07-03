@@ -28,7 +28,6 @@ import type {
     InvestigationReportData,
     SnapshotReport,
 } from "@autonoma/types";
-import { investigationReportDataSchema } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
@@ -43,10 +42,70 @@ import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-cha
 
 export type { TestSuiteChangeRow } from "./test-suite-changes";
 
-/** Signed-URL lifetime for an investigation report - short, since it's re-signed on every read. */
-const INVESTIGATION_REPORT_TTL_SECONDS = 60 * 60;
 /** Signed-URL lifetime for a finding's screenshot/video - short, re-signed on every page load. */
 const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
+
+/** Columns read from an InvestigationFinding row to reconstruct the UI's InvestigationFinding shape. */
+const investigationFindingSelect = {
+    findingKey: true,
+    slug: true,
+    category: true,
+    confidence: true,
+    planFidelity: true,
+    falsePositiveRisk: true,
+    headline: true,
+    whatHappened: true,
+    observedAppIssues: true,
+    remediation: true,
+    rootCause: true,
+    suggestedFixDiff: true,
+    plan: true,
+    runSuccess: true,
+    stepCount: true,
+    runSteps: true,
+    evidence: true,
+    videoKey: true,
+    screenshotKey: true,
+    error: true,
+} satisfies Prisma.InvestigationFindingSelect;
+
+const investigationSuggestedTestSelect = {
+    name: true,
+    instruction: true,
+    reasoning: true,
+    validationPassed: true,
+    validationIterations: true,
+    validationFailureReason: true,
+} satisfies Prisma.InvestigationSuggestedTestSelect;
+
+type InvestigationFindingRow = Prisma.InvestigationFindingGetPayload<{ select: typeof investigationFindingSelect }>;
+
+/** Reconstruct the UI's InvestigationFinding from a persisted row (media keys are signed separately, on read). */
+function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
+    return {
+        id: row.findingKey,
+        slug: row.slug,
+        category: row.category,
+        confidence: row.confidence ?? undefined,
+        planFidelity: row.planFidelity ?? undefined,
+        falsePositiveRisk: row.falsePositiveRisk ?? undefined,
+        headline: row.headline,
+        whatHappened: row.whatHappened ?? undefined,
+        observedAppIssues: row.observedAppIssues ?? undefined,
+        remediation: row.remediation ?? undefined,
+        rootCause: row.rootCause ?? undefined,
+        suggestedFixDiff: row.suggestedFixDiff ?? undefined,
+        evidence: row.evidence ?? [],
+        plan: row.plan ?? undefined,
+        runSuccess: row.runSuccess ?? undefined,
+        stepCount: row.stepCount ?? undefined,
+        runSteps: row.runSteps ?? undefined,
+        // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
+        videoUrl: row.videoKey ?? undefined,
+        finalScreenshotUrl: row.screenshotKey ?? undefined,
+        error: row.error ?? undefined,
+    };
+}
 
 export class BranchesService extends Service {
     constructor(
@@ -59,9 +118,9 @@ export class BranchesService extends Service {
     }
 
     /**
-     * The shadow "investigation" agent's report for a snapshot, as a freshly-signed URL (the persisted value
-     * is the S3 key, so the link never goes stale). Internal/@autonoma.app surface only - returns undefined
-     * when the shadow job has not produced a report for this snapshot. Org-scoped like getSnapshotReport.
+     * A lightweight presence + counts check for the snapshot page's "Investigation" entry point (does a report
+     * exist, and how many bugs). DB-only - there is no S3 involved. Internal/@autonoma.app surface only; returns
+     * undefined when the shadow job has not produced a report for this snapshot. Org-scoped like getSnapshotReport.
      */
     async getInvestigationReport(snapshotId: string, organizationId: string) {
         this.logger.info("Getting investigation report", { extra: { snapshotId } });
@@ -69,24 +128,26 @@ export class BranchesService extends Service {
             // Post-#1204 the report lives on the detached investigation twin (hop the pairing FK); pre-#1204
             // investigations ran on the PR snapshot itself and keyed the report directly to it. Match either so
             // historical PRs still surface their report - legacy leg to be dropped once old reports age out.
+            // If BOTH exist for one PR (a legacy direct report + a later twin), prefer the twin: it is always the
+            // newer row, so createdAt desc picks it. createdAt (not updatedAt) because the backfill bumps
+            // updatedAt on legacy rows, which would wrongly favor a just-backfilled legacy report.
             const report = await this.db.investigationReport.findFirst({
                 where: {
                     organizationId,
                     OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
                 },
-                select: { s3Key: true, testCount: true, clientBugCount: true, updatedAt: true },
+                orderBy: { createdAt: "desc" },
+                select: { testCount: true, clientBugCount: true, updatedAt: true },
             });
             if (report == null) return undefined;
-            const url = await this.storageProvider.getSignedUrl(report.s3Key, INVESTIGATION_REPORT_TTL_SECONDS);
             return {
-                url,
                 testCount: report.testCount,
                 clientBugCount: report.clientBugCount,
                 updatedAt: report.updatedAt,
             };
         } catch (error) {
-            // Optional internal surface - a failure here (table not yet migrated in this env, an S3 hiccup,
-            // etc.) must never error the PR view. Degrade to "no report" so the link simply doesn't appear.
+            // Optional internal surface - a failure here (table not yet migrated in this env, etc.) must never
+            // error the PR view. Degrade to "no report" so the entry point simply doesn't appear.
             this.logger.warn("Could not load investigation report; treating as absent", {
                 extra: { snapshotId },
                 err: error,
@@ -96,10 +157,12 @@ export class BranchesService extends Service {
     }
 
     /**
-     * The structured investigation report for the in-app "View investigation" page. Reads the JSON the worker
-     * persists next to the markdown, validates it, and re-signs each finding's s3:// media into browser-openable
-     * URLs. Internal/@autonoma.app only and degrades to undefined (no rich report) on any failure - the caller
-     * then keeps the raw-markdown link. Org-scoped like getInvestigationReport.
+     * The structured investigation report for the in-app "View investigation" page. Reads the queryable island
+     * tables the worker persists (InvestigationReport + findings/suggested) and re-signs each finding's s3://
+     * media into browser-openable URLs - the DB is the single source of truth (no S3 report blob). Reports
+     * written before the island cutover have no denormalized header until the backfill script runs; those return
+     * undefined here (the page shows a graceful "not available"). Internal/@autonoma.app only; degrades to
+     * undefined on any failure. Org-scoped.
      */
     async getInvestigationReportData(
         snapshotId: string,
@@ -108,23 +171,67 @@ export class BranchesService extends Service {
         this.logger.info("Getting investigation report data", { extra: { snapshotId } });
         try {
             // Twin's report (post-#1204) or a legacy report keyed directly to the PR snapshot (pre-#1204), so
-            // historical PRs keep their rich report. Legacy leg to be dropped once old reports age out.
+            // historical PRs keep their rich report. When both exist for one PR, prefer the twin - it is the newer
+            // row, so createdAt desc picks it (createdAt, not updatedAt, since the backfill bumps updatedAt on
+            // legacy rows). Legacy leg to be dropped once old reports age out.
             const report = await this.db.investigationReport.findFirst({
                 where: {
                     organizationId,
                     OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
                 },
-                select: { s3Key: true },
+                orderBy: { createdAt: "desc" },
+                select: {
+                    client: true,
+                    appSlug: true,
+                    prNumber: true,
+                    prTitle: true,
+                    prBody: true,
+                    repoFullName: true,
+                    commitSha: true,
+                    deployed: true,
+                    findings: { orderBy: { displayOrder: "asc" }, select: investigationFindingSelect },
+                    suggestedTests: { orderBy: { displayOrder: "asc" }, select: investigationSuggestedTestSelect },
+                },
             });
             if (report == null) return undefined;
-            const jsonKey = report.s3Key.replace(/\.md$/, ".json");
-            const raw = await this.storageProvider.download(jsonKey);
-            const data = investigationReportDataSchema.parse(JSON.parse(raw.toString("utf8")));
-            const findings = await Promise.all(data.findings.map((finding) => this.signFindingMedia(finding)));
-            return { ...data, findings };
+
+            // The island persister always writes the denormalized header (appSlug is a required field of the
+            // report data), so appSlug != null reliably marks an island report - even one with zero findings.
+            // Pre-island rows never had a header; they render only once the backfill script migrates them in.
+            if (report.appSlug == null) return undefined;
+
+            const findings = await Promise.all(
+                report.findings.map((finding) => this.signFindingMedia(rowToFinding(finding))),
+            );
+            return {
+                client: report.client ?? "",
+                appSlug: report.appSlug,
+                prNumber: report.prNumber ?? 0,
+                prTitle: report.prTitle ?? undefined,
+                prBody: report.prBody ?? undefined,
+                repoFullName: report.repoFullName ?? undefined,
+                commitSha: report.commitSha ?? undefined,
+                findings,
+                suggested: report.suggestedTests.map((test) => ({
+                    name: test.name,
+                    instruction: test.instruction,
+                    reasoning: test.reasoning,
+                    validation:
+                        test.validationPassed != null
+                            ? {
+                                  passed: test.validationPassed,
+                                  iterations: test.validationIterations ?? 0,
+                                  failureReason: test.validationFailureReason ?? undefined,
+                              }
+                            : undefined,
+                })),
+                // Quarantine is deprecated - the island does not store it; the report contract keeps the (empty) field.
+                quarantine: [],
+                deployed: report.deployed ?? undefined,
+            };
         } catch (error) {
-            // The rich JSON may be absent (legacy report not yet backfilled) or unreadable - never error the
-            // page; the UI falls back to the raw-markdown link from getInvestigationReport.
+            // A transient DB error must never error the page - degrade to "no rich report" and let the page
+            // render its graceful fallback.
             this.logger.warn("Could not load structured investigation report; treating as absent", {
                 extra: { snapshotId },
                 err: error,

@@ -2,11 +2,11 @@ import { db } from "@autonoma/db";
 import {
     type DeployedAgentComparison,
     DeployedComparison,
+    InvestigationReportPersister,
     type InvestigationReportInput,
     type ModelVerdict,
     type TestReport,
     buildReportData,
-    buildReportMarkdown,
 } from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type {
@@ -16,11 +16,12 @@ import type {
 } from "@autonoma/workflow/activities";
 import { resolvePrMeta } from "../codebase/pr-meta";
 import { resolveSnapshotMeta } from "../codebase/resolve";
-import { getStorage } from "../services";
 
-const REPORT_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-/** Build the investigation report (verdicts + the deployed-agent comparison) and upload it to S3. */
+/**
+ * Persist the investigation report (verdicts + the deployed-agent comparison) into the queryable island tables.
+ * The DB is the single source of truth the in-app view reads back - there is no S3 mirror (neither the old JSON
+ * blob nor the markdown): the UI rendering the DB rows IS the human-readable report.
+ */
 export async function writeInvestigationReport(
     input: WriteInvestigationReportInput,
 ): Promise<WriteInvestigationReportOutput> {
@@ -51,41 +52,21 @@ export async function writeInvestigationReport(
         deployed,
     };
 
-    const key = `investigation/${meta.appSlug}/${snapshotId}.md`;
-    // The structured JSON the in-app view consumes - the precise source-of-truth path (the markdown is the
-    // human-readable mirror, and the API can still parse it as a fallback for reports written before this).
-    const jsonKey = `investigation/${meta.appSlug}/${snapshotId}.json`;
-    const storage = getStorage();
-    await storage.upload(key, Buffer.from(buildReportMarkdown(reportInput), "utf8"));
-    await storage.upload(jsonKey, Buffer.from(JSON.stringify(buildReportData(reportInput)), "utf8"));
+    // Persist the structured report into the island tables (upsert parent + replace children in one
+    // transaction). This is the deliverable the in-app view consumes; a failure propagates so Temporal retries
+    // the report step (unlike the old best-effort S3 write).
+    const reportData = buildReportData(reportInput);
+    await new InvestigationReportPersister(db).persist({
+        snapshotId,
+        organizationId: meta.organizationId,
+        data: reportData,
+    });
 
-    // Persist the S3 KEY (the API signs a fresh URL on read, so the PR-view link never expires), plus quick
-    // counts so the PR view can show "N tests, M bugs" without parsing the markdown. Best-effort: the report's
-    // value is the S3 markdown, so a DB write failure (e.g. the table not yet migrated in this env) must never
-    // sink the report - it just means the PR-view link won't light up until the row exists.
-    const clientBugCount = results.filter((result) => result.verdict?.category === "client_bug").length;
-    try {
-        await db.investigationReport.upsert({
-            where: { snapshotId },
-            create: {
-                snapshotId,
-                s3Key: key,
-                testCount: results.length,
-                clientBugCount,
-                organizationId: meta.organizationId,
-            },
-            update: { s3Key: key, testCount: results.length, clientBugCount },
-        });
-    } catch (error) {
-        logger.warn("Could not persist the investigation report row; report is still in S3", {
-            extra: { key },
-            err: error,
-        });
-    }
-
-    const reportUrl = await storage.getSignedUrl(key, REPORT_URL_TTL_SECONDS);
-    logger.info("Investigation report written", { extra: { key, testCount: results.length, clientBugCount } });
-    return { reportUrl };
+    const clientBugCount = reportData.findings.filter((finding) => finding.category === "client_bug").length;
+    logger.info("Investigation report written", {
+        extra: { testCount: reportData.findings.length, clientBugCount },
+    });
+    return { testCount: reportData.findings.length, clientBugCount };
 }
 
 async function loadDeployedComparison(headSha: string, logger: Logger): Promise<DeployedAgentComparison> {

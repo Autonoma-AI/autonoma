@@ -8,9 +8,9 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 export type PullRequestStateFilter = "open" | "closed" | "merged";
 
 /**
- * The shadow investigation agent's report for a snapshot (a freshly-signed S3 URL). Internal-only: the query
- * is enabled only for @autonoma.app users, and the API procedure also enforces it - external users never see
- * it. Returns undefined when no shadow report exists for the snapshot. Not a suspense query (it's optional).
+ * A lightweight presence + counts check for the snapshot page's "Investigation" entry point (does a report
+ * exist, and how many bugs). Internal-only: the query is enabled only for @autonoma.app users, and the API
+ * procedure also enforces it. Returns undefined when no shadow report exists. Not a suspense query (optional).
  */
 export function useInvestigationReport(snapshotId: string) {
     const { user } = useAuth();
