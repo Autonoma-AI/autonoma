@@ -39,6 +39,10 @@ src/
   select/
     schema.ts · prompt.ts · dependencies.ts · tools.ts
     select-tests.ts             selectAffectedTests - pick the tests a diff affects
+    carry-forward.ts            CarryForwardSelector - the tests to re-run this snapshot because they did NOT
+                                pass on the branch's previous twin (regression running); derived from the prior
+                                twin's shadow-generation results, never the current catalog, so it can't leak a
+                                post-base test. Retires a test automatically the snapshot it passes.
   persist/
     edit-persister.ts           EditPersister  - write the agent's add/modify edits onto the twin snapshot
   merge/

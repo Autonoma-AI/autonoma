@@ -34,6 +34,7 @@ export type {
     ReportableValidation,
 } from "./report/markdown";
 export { SelectionResult, AffectedTestSelection, SuggestedTest, QuarantineRecommendation } from "./select/schema";
+export { CarryForwardSelector } from "./select/carry-forward";
 export { selectAffectedTests } from "./select/select-tests";
 export type { SelectContext } from "./select/select-tests";
 export { buildSelectorTools } from "./select/tools";

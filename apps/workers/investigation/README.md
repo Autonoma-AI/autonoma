@@ -9,7 +9,11 @@ happen on the existing `web` worker via the generation activity.
 `investigationWorkflow({ snapshotId })` (defined in `@autonoma/workflow`):
 
 1. **selectInvestigationTests** (here) - clone the repo, run the selector, create a shadow `TestGeneration`
-   for each affected runnable test.
+   for each affected runnable test. Also **carries forward** (regression running) the tests that did NOT pass
+   on the branch's previous twin: their slugs (from `CarryForwardSelector`, derived from the prior twin's
+   shadow-generation results - never the current catalog, so no post-base test can leak in) are re-materialized
+   against this snapshot's baseline and added to the run set, deduped against the diff-affected set. A carried
+   test that passes here is retired automatically (it is absent from the next snapshot's non-passing set).
 2. For each test: **scenarioUp** (general queue) -> **runWebGeneration** (web queue) -> **classifyInvestigationRun**
    (here) -> **scenarioDown** (general queue). A single test's failure is contained; a failed generation is
    still classified (that's the signal). If **scenarioUp** fails, the environment was never provisioned, so the
@@ -42,7 +46,7 @@ happen on the existing `web` worker via the generation activity.
 
 ## Activities
 
-- `selectInvestigationTests` - clone + `selectAffectedTests` + create shadow generations.
+- `selectInvestigationTests` - clone + `selectAffectedTests` + carry-forward (`CarryForwardSelector`) + create shadow generations.
 - `classifyInvestigationRun` - load the generation + media (S3), clone, wire `classifyRun`'s dependencies.
 - `diagnoseInvestigationScenario` - load the pinned plan (`TestCatalog`) + recipe `create` graph
   (`ScenarioRecipe`), run `diagnoseScenarioFailure` to route a scenario failure, and compute the concrete

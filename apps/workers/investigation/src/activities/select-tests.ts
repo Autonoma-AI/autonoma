@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
-import { LocalCodebaseReader, TestCatalog, selectAffectedTests } from "@autonoma/investigation";
-import { logger as rootLogger } from "@autonoma/logger";
+import { CarryForwardSelector, LocalCodebaseReader, TestCatalog, selectAffectedTests } from "@autonoma/investigation";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
 import type {
     InvestigationSelectedTest,
@@ -11,6 +11,10 @@ import { resolvePrMeta } from "../codebase/pr-meta";
 import { type SnapshotContext, withSnapshotContext } from "../codebase/resolve";
 import { env } from "../env";
 import { createModelSession } from "../services";
+
+/** Why a carried-forward test is in the run set - fed to the classifier as context and shown in the report. */
+const CARRY_FORWARD_REASON =
+    "Regression re-run: this test did not pass on the previous snapshot and is assumed unfixed until a run proves otherwise.";
 
 interface ShadowGeneration {
     testGenerationId: string;
@@ -36,6 +40,14 @@ export async function selectInvestigationTests(
         const session = createModelSession();
         const catalog = new TestCatalog(db);
 
+        // The app's architecture is invariant for the snapshot; resolve it once here rather than per shadow
+        // generation. v1 runs shadow generations only on the web worker, so a non-web app selects nothing.
+        const application = await db.application.findUniqueOrThrow({
+            where: { id: context.applicationId },
+            select: { architecture: true },
+        });
+        const isWebApp = application.architecture === "WEB";
+
         const selection = await selectAffectedTests(
             { appSlug: context.appSlug, prNumber: prMeta.prNumber, prTitle: prMeta.prTitle, prBody: prMeta.prBody },
             {
@@ -54,7 +66,7 @@ export async function selectInvestigationTests(
 
         const tests: InvestigationSelectedTest[] = [];
         for (const affected of selection.affected) {
-            const shadow = await createShadowGeneration(catalog, snapshotId, context, affected.slug);
+            const shadow = await createShadowGeneration(catalog, snapshotId, context, affected.slug, isWebApp);
             if (shadow == null) {
                 logger.warn("Skipping affected test - it has no test plan to run (empty/bad test)", {
                     extra: { slug: affected.slug },
@@ -70,9 +82,15 @@ export async function selectInvestigationTests(
             });
         }
 
+        // Regression running: also re-run tests that did not pass on the previous twin (carried by their prior
+        // RUN RESULTS, never the current catalog, so this cannot re-introduce a post-base test), deduped against
+        // the diff-affected set. A carried test that goes green here retires automatically next snapshot.
+        const carried = await appendCarryForwardTests(tests, catalog, snapshotId, context, isWebApp, logger);
+
         logger.info("Prepared shadow generations", {
             extra: {
                 selected: selection.affected.length,
+                carried,
                 prepared: tests.length,
                 suggested: selection.suggested.length,
                 quarantine: selection.quarantine.length,
@@ -87,6 +105,54 @@ export async function selectInvestigationTests(
             autofixEnabled: await isAutofixEnabled(context.organizationId),
         };
     });
+}
+
+/**
+ * Append the branch's carry-forward tests to the run set: existing tests that did not pass on the previous
+ * twin, re-run so a regression keeps being verified until it passes (then it retires - it simply stops being
+ * in the non-passing set). Deduped against the diff-affected set so no test runs twice, and re-materialized
+ * against THIS snapshot's pinned baseline via `createShadowGeneration`, so a carried test that is no longer in
+ * the baseline is skipped. Contained: a carry-forward failure never sinks selection (the diff-affected set is
+ * the deliverable), it just yields no regression re-runs this snapshot. Returns how many tests were added.
+ */
+async function appendCarryForwardTests(
+    tests: InvestigationSelectedTest[],
+    catalog: TestCatalog,
+    snapshotId: string,
+    context: SnapshotContext,
+    isWebApp: boolean,
+    logger: Logger,
+): Promise<number> {
+    try {
+        // The selector returns already-deduped, net-new slugs (the diff-affected set is excluded), so we can
+        // materialize each directly - a slug still resolves to nothing when it is not in the current baseline.
+        const carriedSlugs = await new CarryForwardSelector(db).selectCarriedSlugs(
+            snapshotId,
+            tests.map((test) => test.slug),
+        );
+        let added = 0;
+        for (const slug of carriedSlugs) {
+            const shadow = await createShadowGeneration(catalog, snapshotId, context, slug, isWebApp);
+            if (shadow == null) {
+                logger.info("Skipping carry-forward test - not runnable in the current baseline", {
+                    extra: { slug },
+                });
+                continue;
+            }
+            tests.push({
+                slug,
+                reason: CARRY_FORWARD_REASON,
+                testGenerationId: shadow.testGenerationId,
+                scenarioId: shadow.scenarioId,
+                architecture: shadow.architecture,
+            });
+            added++;
+        }
+        return added;
+    } catch (error) {
+        logger.warn("Carry-forward selection failed; running only the diff-affected tests", { err: error });
+        return 0;
+    }
 }
 
 /**
@@ -109,22 +175,20 @@ async function isAutofixEnabled(organizationId: string): Promise<boolean> {
  * plan, keeps the investigation independent of any same-PR plan edit the diffs agent makes. A test that is not
  * assigned to the snapshot, is quarantined, or has no pinned plan isn't a runnable baseline test and is skipped.
  * The generation is created on the (detached) investigation snapshot, so it never touches the diffs snapshot.
+ * `isWebApp` is resolved once by the caller (the architecture is invariant for the snapshot).
  */
 async function createShadowGeneration(
     catalog: TestCatalog,
     snapshotId: string,
     context: SnapshotContext,
     slug: string,
+    isWebApp: boolean,
 ): Promise<ShadowGeneration | undefined> {
     const pinned = await catalog.resolveSnapshotPlan(snapshotId, slug);
     if (pinned == null) return undefined;
 
-    const application = await db.application.findUniqueOrThrow({
-        where: { id: context.applicationId },
-        select: { architecture: true },
-    });
     // v1 runs shadow generations only on the web worker; skip non-web apps until mobile is wired.
-    if (application.architecture !== "WEB") return undefined;
+    if (!isWebApp) return undefined;
 
     const generation = await db.testGeneration.create({
         // shadow: this row is created by the investigation agent, not a real user/diffs generation. It must

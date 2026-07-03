@@ -1,4 +1,4 @@
-import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { type PrismaClient, type SnapshotStatus, TriggerSource, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
@@ -220,6 +220,84 @@ export class InvestigationDbHarness implements IntegrationHarness {
                     : { organizationId, assignmentId, status, createdAt },
         });
         return run.id;
+    }
+
+    /** A bare branch (no snapshot) - the carrier the carry-forward query walks twins on. */
+    async createBranch(organizationId: string, applicationId: string): Promise<string> {
+        const branch = await this.db.branch.create({
+            data: { name: `branch-${Date.now()}`, organizationId, applicationId },
+            select: { id: true },
+        });
+        return branch.id;
+    }
+
+    /**
+     * Create a detached investigation twin snapshot on a branch, paired to a throwaway diffs snapshot via
+     * `investigationSnapshotId` - the canonical "this snapshot is a twin" signal the carry-forward query keys
+     * on. `createdAt` and `status` are settable so tests can order twins and mark one superseded (`cancelled`).
+     */
+    async createTwinSnapshot(
+        branchId: string,
+        opts: { createdAt?: Date; status?: SnapshotStatus } = {},
+    ): Promise<string> {
+        const twin = await this.db.branchSnapshot.create({
+            data: {
+                branchId,
+                source: TriggerSource.WEBHOOK,
+                status: opts.status ?? "processing",
+                createdAt: opts.createdAt,
+            },
+            select: { id: true },
+        });
+        await this.db.branchSnapshot.create({
+            data: { branchId, source: TriggerSource.WEBHOOK, investigationSnapshotId: twin.id },
+        });
+        return twin.id;
+    }
+
+    /**
+     * Create a shadow TestGeneration for a slug on a snapshot with a given run status, plus the backing
+     * TestCase (reused across calls for the same slug) + a fresh TestPlan, so the generation resolves to a
+     * catalog slug - what the carry-forward query groups tests by. Call it twice for one slug to model a test
+     * that both failed and later passed on the same twin.
+     */
+    async createShadowRun(
+        snapshotId: string,
+        applicationId: string,
+        organizationId: string,
+        slug: string,
+        status: "pending" | "running" | "success" | "failed",
+    ): Promise<void> {
+        const folderId = await this.resolveDefaultFolder(applicationId, organizationId);
+        const existing = await this.db.testCase.findFirst({ where: { applicationId, slug }, select: { id: true } });
+        const testCaseId =
+            existing?.id ??
+            (
+                await this.db.testCase.create({
+                    data: { name: slug, slug, applicationId, organizationId, folderId },
+                    select: { id: true },
+                })
+            ).id;
+        const plan = await this.db.testPlan.create({
+            data: { testCaseId, organizationId, prompt: `plan for ${slug}` },
+            select: { id: true },
+        });
+        await this.db.testGeneration.create({
+            data: { testPlanId: plan.id, snapshotId, organizationId, shadow: true, status },
+        });
+    }
+
+    private async resolveDefaultFolder(applicationId: string, organizationId: string): Promise<string> {
+        const existing = await this.db.folder.findFirst({
+            where: { applicationId, name: "default" },
+            select: { id: true },
+        });
+        if (existing != null) return existing.id;
+        const created = await this.db.folder.create({
+            data: { name: "default", applicationId, organizationId },
+            select: { id: true },
+        });
+        return created.id;
     }
 }
 
