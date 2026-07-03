@@ -165,11 +165,11 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
         <figure className="flex flex-col gap-1">
           <img
             src={finding.finalScreenshotUrl}
-            alt="Final screenshot from the run"
+            alt="Screenshot captured during the run for this finding"
             className="w-full rounded-lg border border-border-dim"
           />
           <figcaption className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
-            Final screenshot
+            Run screenshot
           </figcaption>
         </figure>
       )}

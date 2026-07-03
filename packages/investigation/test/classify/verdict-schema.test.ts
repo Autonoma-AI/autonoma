@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type VerdictForModel, toRunVerdict } from "../../src/classify/verdict-schema";
+import { type VerdictForModel, toRunVerdict } from "../../src";
 
 describe("toRunVerdict", () => {
     it("maps the model's nullable fields to undefined and preserves the rest", () => {
@@ -17,6 +17,7 @@ describe("toRunVerdict", () => {
             suggestedTestUpdate: null,
             observedAppIssues: null,
             evidence: [{ source: "code", detail: "renamed", file: "a.tsx", lines: null, snippet: "<Toggle/>" }],
+            keyStepIndex: null,
         };
 
         const verdict = toRunVerdict(modelVerdict);
@@ -26,6 +27,7 @@ describe("toRunVerdict", () => {
         expect(verdict.evidence[0]?.file).toBe("a.tsx");
         expect(verdict.evidence[0]?.lines).toBeUndefined();
         expect(verdict.evidence[0]?.snippet).toBe("<Toggle/>");
+        expect(verdict.keyStepIndex).toBeUndefined();
     });
 
     it("keeps a present suggestedTestUpdate", () => {
@@ -43,8 +45,10 @@ describe("toRunVerdict", () => {
             suggestedTestUpdate: "Setup: ...",
             observedAppIssues: "the results list rendered empty where listings were expected",
             evidence: [{ source: "run", detail: "ok", file: null, lines: null, snippet: null }],
+            keyStepIndex: 4,
         };
 
         expect(toRunVerdict(modelVerdict).suggestedTestUpdate).toBe("Setup: ...");
+        expect(toRunVerdict(modelVerdict).keyStepIndex).toBe(4);
     });
 });

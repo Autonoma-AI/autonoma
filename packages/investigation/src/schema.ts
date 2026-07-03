@@ -55,5 +55,12 @@ export const RunVerdict = z.object({
     rootCause: z.string(),
     remediation: z.string(),
     evidence: z.array(Evidence).min(1),
+    /**
+     * The 1-indexed trace step whose captured screenshot MOST clearly shows this finding to a human reviewer -
+     * the frame to feature in the report. Deliberately the agent's call, not the failed step: an assertion can
+     * be wrong, and the real defect is often most visible a step earlier/later. Absent to fall back to the final
+     * screenshot.
+     */
+    keyStepIndex: z.number().int().positive().optional(),
 });
 export type RunVerdict = z.infer<typeof RunVerdict>;

@@ -32,6 +32,10 @@ export const VerdictForModel = z.object({
             }),
         )
         .min(1),
+    // The 1-indexed trace step whose screenshot most clearly shows this finding to a human (the frame to feature
+    // in the report). NOT necessarily the failed step - pick the most descriptive image. Null -> use the final
+    // screenshot.
+    keyStepIndex: z.number().int().nullable(),
 });
 export type VerdictForModel = z.infer<typeof VerdictForModel>;
 
@@ -57,5 +61,6 @@ export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
             lines: item.lines ?? undefined,
             snippet: item.snippet ?? undefined,
         })),
+        keyStepIndex: modelVerdict.keyStepIndex ?? undefined,
     };
 }

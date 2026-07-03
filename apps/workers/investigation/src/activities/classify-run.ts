@@ -15,7 +15,14 @@ import { withSnapshotContext } from "../codebase/resolve";
 import { env } from "../env";
 import { createModelSession, getStorage } from "../services";
 
-type AttemptRow = { order: number; interaction: string; status: string; error: string | null };
+type AttemptRow = {
+    order: number;
+    interaction: string;
+    status: string;
+    error: string | null;
+    screenshotBefore: string | null;
+    screenshotAfter: string | null;
+};
 
 type ScenarioInstanceRow = {
     status: string;
@@ -71,7 +78,14 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 select: { status: true, auth: true, refs: true, lastError: true, upAt: true, downAt: true },
             },
             attempts: {
-                select: { order: true, interaction: true, status: true, error: true },
+                select: {
+                    order: true,
+                    interaction: true,
+                    status: true,
+                    error: true,
+                    screenshotBefore: true,
+                    screenshotAfter: true,
+                },
                 orderBy: { order: "asc" },
             },
         },
@@ -113,7 +127,12 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
 
         await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
 
-        logger.info("Shadow run classified", { extra: { category: verdict.category, confidence: verdict.confidence } });
+        // The report features the frame the classifier judged most descriptive (verdict.keyStepIndex), not
+        // mechanically the last/failed one; fall back to the final screenshot when it named no step.
+        const keyScreenshot = resolveKeyScreenshot(generation.attempts, verdict.keyStepIndex);
+        logger.info("Shadow run classified", {
+            extra: { category: verdict.category, confidence: verdict.confidence, keyStepIndex: verdict.keyStepIndex },
+        });
         return {
             slug,
             plan: generation.testPlan.prompt,
@@ -122,9 +141,21 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             runSteps: runArtifacts.steps,
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
-            finalScreenshotUrl: generation.finalScreenshot ?? undefined,
+            finalScreenshotUrl: keyScreenshot ?? generation.finalScreenshot ?? undefined,
         };
     });
+}
+
+/**
+ * Resolve the classifier's chosen trace step to its stored screenshot key. keyStepIndex is the step's `order`
+ * as shown in the trace (`N. [interaction] status`); match on that rather than array position so it holds even
+ * if orders are not a contiguous 1..N. Prefer the after-frame (the settled state), fall back to the before-frame.
+ */
+function resolveKeyScreenshot(attempts: AttemptRow[], keyStepIndex: number | undefined): string | undefined {
+    if (keyStepIndex == null) return undefined;
+    const step = attempts.find((attempt) => attempt.order === keyStepIndex);
+    if (step == null) return undefined;
+    return step.screenshotAfter ?? step.screenshotBefore ?? undefined;
 }
 
 /**

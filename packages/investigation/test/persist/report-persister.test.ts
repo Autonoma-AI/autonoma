@@ -67,7 +67,9 @@ investigationDbSuite({
             harness,
             seedResult: { organizationId, application },
         }) => {
-            const { snapshotId } = await harness.setupTestCase(organizationId, application.id, "checkout-flow");
+            // Distinct slug per test: the suite shares one application, and setupTestCase renames the created
+            // test case's slug, which is unique per (application, slug).
+            const { snapshotId } = await harness.setupTestCase(organizationId, application.id, "persist-report-flow");
             const data = sampleReportData();
 
             await new InvestigationReportPersister(harness.db).persist({
@@ -111,7 +113,7 @@ investigationDbSuite({
             harness,
             seedResult: { organizationId, application },
         }) => {
-            const { snapshotId } = await harness.setupTestCase(organizationId, application.id, "checkout-flow");
+            const { snapshotId } = await harness.setupTestCase(organizationId, application.id, "rerun-report-flow");
             const persister = new InvestigationReportPersister(harness.db);
 
             await persister.persist({ snapshotId, organizationId, data: sampleReportData() });
