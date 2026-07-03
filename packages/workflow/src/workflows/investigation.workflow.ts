@@ -9,7 +9,7 @@ import type {
     WebActivities,
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
-import { scenarioSetupFailureResult } from "../scenario-setup-failure";
+import { infraFailureResult, scenarioSetupFailureResult } from "../scenario-setup-failure";
 import { TaskQueue } from "../task-queues";
 
 /** Max validate->edit->retry passes for a single proposed/modified plan before giving up. */
@@ -95,7 +95,19 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
             wave.map((test) =>
                 runOneTest(snapshotId, test).catch((error) => {
                     const message = rootFailureMessage(error);
-                    log.error("Investigation test failed; recording and continuing", {
+                    // An SDK/provisioning/infra error that escaped run+classify is a provisioning failure, not a
+                    // classifier fault - categorize it (environment_failure / scenario_issue) so it is not buried
+                    // as a null-verdict "classification error". Genuine classifier faults (unrecognized message)
+                    // still fall through to the honest classification_error below.
+                    const infra = infraFailureResult({ slug: test.slug, message });
+                    if (infra != null) {
+                        log.warn("Investigation test hit an SDK/infra error; categorizing as a provisioning failure", {
+                            ...ids,
+                            extra: { slug: test.slug, message, category: infra.verdict?.category },
+                        });
+                        return infra;
+                    }
+                    log.error("Investigation test failed; recording as classification error and continuing", {
                         ...ids,
                         extra: { slug: test.slug, message },
                     });
@@ -613,9 +625,18 @@ async function runAndClassify(
             testGenerationId: test.testGenerationId,
         });
     } finally {
+        // Never let a teardown error throw out of the finally: it would replace the classified verdict this
+        // function just produced and surface as a null-verdict "classification error" (a common SDK-down mislabel).
         if (scenarioInstanceId != null) {
             const instanceId = scenarioInstanceId;
-            await CancellationScope.nonCancellable(() => general.scenarioDown({ scenarioInstanceId: instanceId }));
+            await CancellationScope.nonCancellable(() =>
+                general.scenarioDown({ scenarioInstanceId: instanceId }),
+            ).catch((error) => {
+                log.warn("Scenario teardown failed after classify; keeping the verdict", {
+                    snapshot: { snapshotId },
+                    extra: { slug: test.slug, message: rootFailureMessage(error) },
+                });
+            });
         }
     }
 }
