@@ -18,7 +18,11 @@ implementations; the trigger lives in `@autonoma/workflow`.
 src/
   schema.ts                     verdict types (Category / RunVerdict / Evidence ...)
   retry.ts                      withRetry - transient-error retry (see the WARNING in the file)
-  model.ts                      ModelRegistry - OpenRouter (loop/vision) + native OpenAI (classifier)
+  ai/
+    model-session.ts            openModelSession - metered ModelRegistry facade: OpenRouter (loop/vision) +
+                                native OpenAI (classifier), with a per-run CostCollector
+    persist-costs.ts            persistInvestigationCosts - flush a session's metered spend to AiCostRecord
+                                rows keyed on the investigation snapshot (investigationSnapshotId)
   db/
     prior-runs.ts               PriorRuns      - has this test ever passed? (the classifier baseline)
     deployed-comparison.ts      DeployedComparison - the deployed diffs agent's result (by head SHA / by PR)

@@ -1,5 +1,11 @@
 import { db } from "@autonoma/db";
-import { CarryForwardSelector, LocalCodebaseReader, TestCatalog, selectAffectedTests } from "@autonoma/investigation";
+import {
+    CarryForwardSelector,
+    LocalCodebaseReader,
+    TestCatalog,
+    persistInvestigationCosts,
+    selectAffectedTests,
+} from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
 import type {
@@ -63,6 +69,7 @@ export async function selectInvestigationTests(
                 maxSteps: env.INVESTIGATION_SELECT_MAX_STEPS,
             },
         );
+        await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
 
         const tests: InvestigationSelectedTest[] = [];
         for (const affected of selection.affected) {

@@ -6,6 +6,7 @@ import {
     PriorRuns,
     type RunArtifacts,
     classifyRun,
+    persistInvestigationCosts,
 } from "@autonoma/investigation";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
@@ -109,6 +110,8 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 maxSteps: env.INVESTIGATION_CLASSIFY_MAX_STEPS,
             },
         );
+
+        await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
 
         logger.info("Shadow run classified", { extra: { category: verdict.category, confidence: verdict.confidence } });
         return {

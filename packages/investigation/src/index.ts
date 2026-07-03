@@ -11,6 +11,7 @@ export { PreviewEnvironment } from "./preview/preview-environment";
 export { LocalCodebaseReader } from "./codebase/local-codebase-reader";
 export { openModelSession } from "./ai/model-session";
 export type { ModelSession, InvestigationModelName, InvestigationModelConfig } from "./ai/model-session";
+export { persistInvestigationCosts } from "./ai/persist-costs";
 export { queryLokiLogs } from "./logs/loki";
 export type { LokiLogQuery } from "./logs/loki";
 export { CLASSIFIER_SYSTEM_PROMPT, buildVerdictPrompt } from "./classify/prompt";

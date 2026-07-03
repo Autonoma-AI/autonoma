@@ -630,10 +630,11 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  diffsJob            DiffsJob?
-  investigationReport InvestigationReport?
-  issues              Issue[]
-  refinementLoop      RefinementLoop?
+  diffsJob             DiffsJob?
+  investigationReport  InvestigationReport?
+  investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
+  issues               Issue[]
+  refinementLoop       RefinementLoop?
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -1277,23 +1278,30 @@ model TestTag {
 // ─── AI Cost Tracking ─────────────────────────────────────────────
 
 model AiCostRecord {
-  id               String   @id @default(cuid())
-  generationId     String?  @map("generation_id")
-  runId            String?  @map("run_id")
-  model            String
-  tag              String
-  inputTokens      Int      @map("input_tokens")
-  outputTokens     Int      @map("output_tokens")
-  reasoningTokens  Int      @default(0) @map("reasoning_tokens")
-  cacheReadTokens  Int      @default(0) @map("cache_read_tokens")
-  costMicrodollars Int      @map("cost_microdollars")
-  createdAt        DateTime @default(now()) @map("created_at")
+  id                      String   @id @default(cuid())
+  generationId            String?  @map("generation_id")
+  runId                   String?  @map("run_id")
+  investigationSnapshotId String?  @map("investigation_snapshot_id")
+  model                   String
+  tag                     String
+  inputTokens             Int      @map("input_tokens")
+  outputTokens            Int      @map("output_tokens")
+  reasoningTokens         Int      @default(0) @map("reasoning_tokens")
+  cacheReadTokens         Int      @default(0) @map("cache_read_tokens")
+  costMicrodollars        Int      @map("cost_microdollars")
+  createdAt               DateTime @default(now()) @map("created_at")
 
   generation TestGeneration? @relation(fields: [generationId], references: [id], onDelete: Cascade)
   run        Run?            @relation(fields: [runId], references: [id], onDelete: Cascade)
 
+  // Orchestration LLM spend for an investigation, keyed on its (detached) snapshot.
+  // Set for the investigation workflow's select/classify/diagnose/merge calls, which
+  // are tied to neither a user generation nor a run.
+  investigationSnapshot BranchSnapshot? @relation("InvestigationAiCost", fields: [investigationSnapshotId], references: [id], onDelete: Cascade)
+
   @@index([generationId])
   @@index([runId])
+  @@index([investigationSnapshotId])
   @@map("ai_cost_record")
 }
 

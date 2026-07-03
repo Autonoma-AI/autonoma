@@ -5,6 +5,7 @@ import {
     TestCatalog,
     diagnoseScenarioFailure,
     editRecipeCreateGraph,
+    persistInvestigationCosts,
 } from "@autonoma/investigation";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { DiagnoseInvestigationScenarioInput, InvestigationScenarioDiagnosis } from "@autonoma/workflow/activities";
@@ -41,7 +42,8 @@ export async function diagnoseInvestigationScenario(
     }
 
     const testPlan = (await catalog.getSnapshotPlan(snapshotId, slug)) ?? "";
-    const model = createModelSession().getModel({ model: "classifier", tag: "investigation-diagnose" });
+    const session = createModelSession();
+    const model = session.getModel({ model: "classifier", tag: "investigation-diagnose" });
 
     const diagnosis = await diagnoseScenarioFailure(
         { testPlan, recipeCreateGraph, failureDetail, runObservation },
@@ -54,6 +56,8 @@ export async function diagnoseInvestigationScenario(
     // Dry-run proposal: compute the exact recipe we WOULD activate, for every org. Nothing is written here -
     // the workflow only applies it when autofix is enabled. Contained: a failed edit just omits the proposal.
     const proposal = await proposeRecipeEdit({ diagnosis, recipeCreateGraph, failureDetail, testPlan, model, logger });
+
+    await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
 
     return {
         route: diagnosis.route,

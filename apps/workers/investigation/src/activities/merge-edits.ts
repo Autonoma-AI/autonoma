@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { MergeApplier, MergeInputsReader, reconcileMerge } from "@autonoma/investigation";
+import { MergeApplier, MergeInputsReader, persistInvestigationCosts, reconcileMerge } from "@autonoma/investigation";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { MergeInvestigationEditsInput, MergeInvestigationEditsOutput } from "@autonoma/workflow/activities";
 import { createModelSession } from "../services";
@@ -22,6 +22,9 @@ export async function mergeInvestigationEdits(
     const plan = await reconcileMerge(inputs, {
         model: session.getModel({ model: "classifier", tag: "investigation-merge" }),
     });
+    // Key merge-phase spend on the twin snapshot - the same id select/classify/diagnose used - so the whole
+    // investigation's orchestration cost rolls up under one investigation_snapshot_id.
+    await persistInvestigationCosts(db, twinSnapshotId, session.costCollector, logger);
 
     const result = await new MergeApplier(db).apply(
         inputs.edits,
