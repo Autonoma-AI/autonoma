@@ -1,7 +1,8 @@
-import { Badge, Skeleton } from "@autonoma/blacklight";
-import type { InvestigationFinding } from "@autonoma/types";
+import { Badge, Separator, Skeleton } from "@autonoma/blacklight";
+import type { InvestigationFinding, InvestigationSuggestedTest } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute } from "@tanstack/react-router";
 import { findingCategoryMeta, PASSED_PRIORITY } from "components/investigation/finding-category";
@@ -106,7 +107,80 @@ function FindingsList() {
           )}
         </div>
       )}
+
+      {data.suggested.length > 0 && (
+        <>
+          <Separator className="my-2" />
+          <ProposedTests suggested={data.suggested} />
+        </>
+      )}
     </div>
+  );
+}
+
+/**
+ * The agent's proposed NEW tests (distinct from the findings above, which classify existing tests). Each is a
+ * gap the run surfaced but no test yet guards - shown read-only with its rationale and whether the twin re-ran
+ * and validated it. Persisted in the report island (InvestigationSuggestedTest), so this is display-only.
+ */
+function ProposedTests({ suggested }: { suggested: InvestigationSuggestedTest[] }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 text-text-secondary">
+        <FlaskIcon size={14} />
+        <span className="font-mono text-2xs uppercase tracking-widest">
+          {suggested.length} proposed {suggested.length === 1 ? "test" : "tests"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {suggested.map((test, i) => (
+          <ProposalCard key={i} test={test} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ProposalCard({ test }: { test: InvestigationSuggestedTest }) {
+  const failureReason = test.validation?.passed === false ? test.validation.failureReason : undefined;
+  return (
+    <li className="flex flex-col gap-3 rounded-lg border border-border-dim bg-surface-base px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium text-text-primary">{test.name}</p>
+        <ProposalValidation validation={test.validation} />
+      </div>
+      {test.reasoning !== "" && <p className="text-sm leading-relaxed text-text-secondary">{test.reasoning}</p>}
+      {failureReason != null && failureReason !== "" && (
+        <p className="text-2xs leading-relaxed text-status-critical">{failureReason}</p>
+      )}
+      {test.instruction !== "" && (
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-surface-void p-3 font-mono text-2xs text-text-secondary">
+          {test.instruction}
+        </pre>
+      )}
+    </li>
+  );
+}
+
+function ProposalValidation({ validation }: { validation: InvestigationSuggestedTest["validation"] }) {
+  if (validation == null) {
+    return (
+      <Badge variant="outline" className="shrink-0 font-mono uppercase">
+        Not validated
+      </Badge>
+    );
+  }
+  if (validation.passed) {
+    return (
+      <Badge variant="success" className="shrink-0 font-mono uppercase">
+        Validated{validation.iterations > 0 ? ` · ${validation.iterations}×` : ""}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="critical" className="shrink-0 font-mono uppercase">
+      Validation failed
+    </Badge>
   );
 }
 
