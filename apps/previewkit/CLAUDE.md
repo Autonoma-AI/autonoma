@@ -151,7 +151,11 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 
 All paths run `buildctl` against the long-lived warm buildkitd pool (`BUILDKIT_WARM_HOST`,
-`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Build logs
+`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Pool load is
+observable as `previewkit_app_builds_in_flight`, exported per env by the autonoma API's
+metrics endpoint (`apps/api/src/metrics/`) from the DB's fresh `building` app rows and
+summed pool-wide by the `previewkit:app_builds_in_flight:sum` recording rule
+(`deployment/prometheus/alert-rules.yaml`) - buildkitd itself has no in-flight metric. Build logs
 stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
 attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
 calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the

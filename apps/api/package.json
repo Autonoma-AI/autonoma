@@ -50,6 +50,7 @@
         "dotenv": "catalog:",
         "hono": "catalog:",
         "ioredis": "^5.9.3",
+        "prom-client": "catalog:",
         "resend": "^6.10.0",
         "superjson": "^2.2.6",
         "zod": "catalog:",
