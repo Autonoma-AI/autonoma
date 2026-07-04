@@ -45,6 +45,17 @@ export type { TestSuiteChangeRow } from "./test-suite-changes";
 /** Signed-URL lifetime for a finding's screenshot/video - short, re-signed on every page load. */
 const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
 
+/**
+ * A report should surface an entry point only when it leads somewhere useful: it either has renderable island
+ * data (`appSlug` is set - `getInvestigationReportData` returns undefined otherwise) or is actively running (the
+ * live-progress state). This deliberately hides pre-island reports (appSlug null, S3-markdown only) until the
+ * backfill migrates them in, and failed rows that never produced a report - both would otherwise open an empty
+ * "not available" page. Applied to BOTH presence reads so the entry point and the report page never disagree.
+ */
+const RENDERABLE_OR_LIVE_REPORT: Prisma.InvestigationReportWhereInput = {
+    OR: [{ appSlug: { not: null } }, { status: "running" }],
+};
+
 /** Columns read from an InvestigationFinding row to reconstruct the UI's InvestigationFinding shape. */
 const investigationFindingSelect = {
     findingKey: true,
@@ -134,15 +145,19 @@ export class BranchesService extends Service {
             const report = await this.db.investigationReport.findFirst({
                 where: {
                     organizationId,
-                    OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
+                    AND: [
+                        { OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }] },
+                        RENDERABLE_OR_LIVE_REPORT,
+                    ],
                 },
                 orderBy: { createdAt: "desc" },
-                select: { testCount: true, clientBugCount: true, updatedAt: true },
+                select: { testCount: true, clientBugCount: true, status: true, updatedAt: true },
             });
             if (report == null) return undefined;
             return {
                 testCount: report.testCount,
                 clientBugCount: report.clientBugCount,
+                status: report.status,
                 updatedAt: report.updatedAt,
             };
         } catch (error) {
@@ -171,9 +186,14 @@ export class BranchesService extends Service {
             const reports = await this.db.investigationReport.findMany({
                 where: {
                     organizationId,
-                    OR: [
-                        { snapshotId: { in: snapshotIds } },
-                        { snapshot: { investigationParent: { id: { in: snapshotIds } } } },
+                    AND: [
+                        {
+                            OR: [
+                                { snapshotId: { in: snapshotIds } },
+                                { snapshot: { investigationParent: { id: { in: snapshotIds } } } },
+                            ],
+                        },
+                        RENDERABLE_OR_LIVE_REPORT,
                     ],
                 },
                 // Newest first so the first row seen for a PR snapshot (the twin, post-#1204) wins over an older

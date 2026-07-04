@@ -6,7 +6,7 @@ import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute } from "@tanstack/react-router";
 import { findingCategoryMeta, PASSED_PRIORITY } from "components/investigation/finding-category";
-import { useInvestigationReportData } from "lib/query/branches.queries";
+import { useInvestigationReport, useInvestigationReportData } from "lib/query/branches.queries";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -49,15 +49,26 @@ function ListHeader({ prNumber }: { prNumber: number }) {
 function FindingsList() {
   const { snapshotId } = Route.useParams();
   const { data, isPending } = useInvestigationReportData(snapshotId);
+  // Presence (status) so the empty state can tell "still running" apart from "no renderable report". It resolves
+  // independently from the data query, so we also wait for it to settle before choosing the empty-state copy -
+  // otherwise a running report could flash "not available" before flipping. `isLoading` (not `isPending`) so a
+  // disabled query for a non-internal user doesn't wedge the skeleton on.
+  const { data: presence, isLoading: presenceLoading } = useInvestigationReport(snapshotId);
   const [showPassed, setShowPassed] = useState(false);
 
   if (isPending) return <ListSkeleton />;
 
   if (data == null) {
+    if (presenceLoading) return <ListSkeleton />;
+    const isRunning = presence?.status === "running";
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border-dim bg-surface-base px-6 py-12 text-center">
         <MagnifyingGlassIcon size={28} className="text-text-secondary" />
-        <p className="text-sm text-text-secondary">The investigation view is not available for this checkpoint yet.</p>
+        <p className="text-sm text-text-secondary">
+          {isRunning
+            ? "The investigation is still running - findings will appear here once it finishes."
+            : "The investigation view is not available for this checkpoint yet."}
+        </p>
       </div>
     );
   }

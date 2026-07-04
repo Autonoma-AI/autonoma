@@ -20,18 +20,18 @@ apiTestSuite({
     cases: (test) => {
         // Each case makes its own PR snapshot: the suites share one DB with no per-test truncation, so a shared
         // snapshot would leak an InvestigationReport from one case into another's "no report" assertion.
-        test("resolves a legacy report keyed directly to the PR snapshot (pre-#1204)", async ({
+        test("resolves an island report keyed directly to the PR snapshot (pre-#1204)", async ({
             harness,
             seedResult: { branch },
         }) => {
             const prSnapshot = await harness.db.branchSnapshot.create({
-                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "legacy-sha" },
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "direct-sha" },
             });
             await harness.db.investigationReport.create({
                 data: {
                     snapshotId: prSnapshot.id,
                     organizationId: harness.organizationId,
-                    s3Key: "investigation/report-app/legacy.md",
+                    appSlug: "report-app",
                     testCount: 3,
                     clientBugCount: 1,
                 },
@@ -46,7 +46,7 @@ apiTestSuite({
             expect(report?.clientBugCount).toBe(1);
         });
 
-        test("resolves a twin report via the investigationParent FK (post-#1204)", async ({
+        test("resolves an island report on the twin via the investigationParent FK (post-#1204)", async ({
             harness,
             seedResult: { branch },
         }) => {
@@ -64,7 +64,7 @@ apiTestSuite({
                 data: {
                     snapshotId: twin.id,
                     organizationId: harness.organizationId,
-                    s3Key: "investigation/report-app/twin.md",
+                    appSlug: "report-app",
                     testCount: 5,
                     clientBugCount: 0,
                 },
@@ -91,11 +91,62 @@ apiTestSuite({
             expect(report).toBeUndefined();
         });
 
-        test("batched presence resolves direct + twin reports keyed to the PR snapshot, and skips ones without", async ({
+        test("hides a completed report with no island header (appSlug null) - unrenderable until backfilled", async ({
             harness,
             seedResult: { branch },
         }) => {
-            // PR A: a legacy report keyed directly to the PR snapshot.
+            // A pre-island report: it has an S3 markdown key but no denormalized header, so the report page can't
+            // render it. The entry point must NOT surface it (this was the "click -> empty page" bug).
+            const prSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "legacy-hidden-sha" },
+            });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: prSnapshot.id,
+                    organizationId: harness.organizationId,
+                    s3Key: "investigation/report-app/legacy.md",
+                    testCount: 3,
+                    clientBugCount: 1,
+                },
+            });
+
+            const report = await harness.services.branches.getInvestigationReport(
+                prSnapshot.id,
+                harness.organizationId,
+            );
+            expect(report).toBeUndefined();
+        });
+
+        test("surfaces a running report even before it has an island header", async ({
+            harness,
+            seedResult: { branch },
+        }) => {
+            const prSnapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "running-sha" },
+            });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: prSnapshot.id,
+                    organizationId: harness.organizationId,
+                    status: "running",
+                    stage: "running",
+                    testCount: 0,
+                    clientBugCount: 0,
+                },
+            });
+
+            const report = await harness.services.branches.getInvestigationReport(
+                prSnapshot.id,
+                harness.organizationId,
+            );
+            expect(report?.status).toBe("running");
+        });
+
+        test("batched presence resolves island reports keyed to the PR snapshot, skipping legacy/none", async ({
+            harness,
+            seedResult: { branch },
+        }) => {
+            // PR A: an island report keyed directly to the PR snapshot.
             const prA = await harness.db.branchSnapshot.create({
                 data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-a" },
             });
@@ -103,13 +154,13 @@ apiTestSuite({
                 data: {
                     snapshotId: prA.id,
                     organizationId: harness.organizationId,
-                    s3Key: "investigation/report-app/batch-a.md",
+                    appSlug: "report-app",
                     testCount: 2,
                     clientBugCount: 2,
                 },
             });
 
-            // PR B: a report on the detached twin, reachable only via the investigationParent FK.
+            // PR B: an island report on the detached twin, reachable only via the investigationParent FK.
             const prB = await harness.db.branchSnapshot.create({
                 data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-b" },
             });
@@ -124,19 +175,33 @@ apiTestSuite({
                 data: {
                     snapshotId: twinB.id,
                     organizationId: harness.organizationId,
-                    s3Key: "investigation/report-app/batch-b.md",
+                    appSlug: "report-app",
                     testCount: 4,
                     clientBugCount: 0,
                 },
             });
 
-            // PR C: no report at all.
+            // PR C: a legacy report with no island header - must be skipped (would open an empty page).
             const prC = await harness.db.branchSnapshot.create({
                 data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-c" },
             });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: prC.id,
+                    organizationId: harness.organizationId,
+                    s3Key: "investigation/report-app/batch-c-legacy.md",
+                    testCount: 1,
+                    clientBugCount: 0,
+                },
+            });
+
+            // PR D: no report at all.
+            const prD = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "batch-d" },
+            });
 
             const presence = await harness.services.branches.getInvestigationReportsForSnapshots(
-                [prA.id, prB.id, prC.id],
+                [prA.id, prB.id, prC.id, prD.id],
                 harness.organizationId,
             );
 
@@ -147,6 +212,7 @@ apiTestSuite({
             expect(byId.get(prB.id)).toMatchObject({ clientBugCount: 0, status: "completed" });
             expect(byId.has(twinB.id)).toBe(false);
             expect(byId.has(prC.id)).toBe(false);
+            expect(byId.has(prD.id)).toBe(false);
         });
     },
 });
