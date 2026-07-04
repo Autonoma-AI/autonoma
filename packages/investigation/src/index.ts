@@ -22,7 +22,7 @@ export { buildClassifierTools } from "./classify/tools";
 export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from "./classify/dependencies";
 export { withRetry } from "./retry";
 export { buildReportMarkdown } from "./report/markdown";
-export { buildReportData } from "./report/report-data";
+export { buildReportData, buildFindings } from "./report/report-data";
 export { parseReportMarkdown } from "./report/parse-markdown";
 export type {
     InvestigationReportInput,
@@ -85,3 +85,10 @@ export type {
     DryRunSeedResult,
 } from "./scenario-repair/repair-recipe-deps";
 export { buildRepairRecipeTools } from "./scenario-repair/repair-recipe-tools";
+export { reconcileFindings } from "./reconcile/reconcile-findings";
+export { applyReconciliation, toReconcilableFindings } from "./reconcile/apply-reconciliation";
+export { ReconciliationForModel, toReconciliationResult } from "./reconcile/schema";
+export type { ReconciliationResult, FindingMerge } from "./reconcile/schema";
+export { RECONCILE_SYSTEM_PROMPT, buildReconcilePrompt } from "./reconcile/prompt";
+export { buildReconcileTools } from "./reconcile/tools";
+export type { ReconcileDeps, ReconcilableFinding, ReconcilableEvidence } from "./reconcile/dependencies";

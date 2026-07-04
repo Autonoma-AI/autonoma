@@ -240,10 +240,40 @@ export interface CreateValidationGenerationOutput {
     skippedReason?: string;
 }
 
+/**
+ * One merge the reconciliation agent proposed: several findings that describe the SAME underlying issue,
+ * collapsed into the canonical one with a combined narrative. Structural mirror of the package's `FindingMerge`.
+ */
+export interface InvestigationFindingMerge {
+    /** The finding ids (>= 2) that share one underlying cause. */
+    memberIds: string[];
+    /** The member kept as the base (its run + category anchor the merged finding). */
+    canonicalId: string;
+    /** The combined headline for the merged issue. */
+    headline: string;
+    /** The combined root cause (drawing on every member). */
+    rootCause: string;
+    /** The combined remediation, if the agent gave one. */
+    remediation?: string;
+    /** One sentence on why these are the same issue (audit log). */
+    reason: string;
+}
+
+export interface ReconcileInvestigationFindingsInput {
+    snapshotId: string;
+    results: InvestigationTestResult[];
+}
+
+export interface ReconcileInvestigationFindingsOutput {
+    merges: InvestigationFindingMerge[];
+}
+
 export interface WriteInvestigationReportInput {
     snapshotId: string;
     results: InvestigationTestResult[];
     suggested: SuggestedNewTest[];
+    /** The reconciliation agent's merges, applied to collapse same-issue findings before the report is persisted. */
+    reconciliation?: ReconcileInvestigationFindingsOutput;
 }
 
 export interface WriteInvestigationReportOutput {
@@ -363,6 +393,9 @@ export interface InvestigationActivities {
     stageRecipeCandidateOnTwin(input: StageRecipeCandidateInput): Promise<StageRecipeCandidateOutput>;
     revertTwinRecipe(input: RevertTwinRecipeInput): Promise<RevertTwinRecipeOutput>;
     markInvestigationProgress(input: MarkInvestigationProgressInput): Promise<void>;
+    reconcileInvestigationFindings(
+        input: ReconcileInvestigationFindingsInput,
+    ): Promise<ReconcileInvestigationFindingsOutput>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;
     createValidationGeneration(input: CreateValidationGenerationInput): Promise<CreateValidationGenerationOutput>;
     postInvestigationPrComment(input: PostInvestigationPrCommentInput): Promise<PostInvestigationPrCommentOutput>;

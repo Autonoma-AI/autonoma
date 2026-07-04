@@ -136,6 +136,8 @@ declare global {
         export type InvestigationEvidenceList = z.infer<typeof investigationEvidenceSchema>[];
         /** The step-by-step run trace stored on InvestigationFinding.runSteps (display-only). */
         export type InvestigationRunSteps = string[];
+        /** The test slugs a MERGED finding represents (its own + absorbed duplicates), stored on covered_slugs. */
+        export type InvestigationCoveredSlugs = string[];
         export type ScenarioAuth = {
             cookies?: Array<{
                 name: string;

@@ -39,10 +39,15 @@ happen on the existing `web` worker via the generation activity.
      (twin) snapshot; it reaches main only when the PR merges (via the merge reconciler). No direct main write.
    - `recipe_and_sdk`: never auto-applied (the factory needs a client code change we can't make); the concrete
      factory change is surfaced in our existing PR comment.
-5. **writeInvestigationReport** (here) - persist the structured report into the queryable island tables
-   (`InvestigationReport` + findings/suggested) via `InvestigationReportPersister`. The DB is the single source
-   of truth; nothing is written to S3 (the UI rendering the rows IS the human-readable report).
-6. **postInvestigationPrComment** (here) - post the results as a single, self-updating PR comment
+5. **reconcileInvestigationFindings** (here) - clone the repo and run the tool-using reconciliation agent over the
+   run's PROBLEM findings: several tests can surface the SAME underlying issue (one seed gap, one code defect), and
+   the agent groups those and returns merges. Read-only; contained (a failure reports no merges). The merges are
+   applied in the report step, collapsing each group into one enriched finding.
+6. **writeInvestigationReport** (here) - persist the structured report into the queryable island tables
+   (`InvestigationReport` + findings/suggested) via `InvestigationReportPersister`, after applying the
+   reconciliation merges (`applyReconciliation`). The DB is the single source of truth; nothing is written to S3
+   (the UI rendering the rows IS the human-readable report).
+7. **postInvestigationPrComment** (here) - post the results as a single, self-updating PR comment
    (flag-gated, see Env). Runs after the report; a failure here is contained and never sinks the workflow.
 
 ## Activities
@@ -61,9 +66,16 @@ happen on the existing `web` worker via the generation activity.
   before the report exists. The workflow calls it at each stage (`selecting` -> `running` -> `reporting`) and
   flips the row to `failed` on an uncontained throw; the `completed` transition is `writeInvestigationReport`'s
   job. Best-effort by contract: the activity swallows its own errors so a progress write never sinks the run.
-- `writeInvestigationReport` - `DeployedComparison` + `buildReportData` -> `InvestigationReportPersister` (island
-  tables), flipping the row to `completed` and clearing the stage. No S3 write. `scripts/backfill-report-island.ts`
-  migrates pre-island reports (legacy S3 markdown) into the tables.
+- `reconcileInvestigationFindings` - clone the repo, build the run's findings (the same `buildFindings` id path the
+  report uses), filter to problem findings (a passing/errored test is not a duplicated bug), and run `reconcileFindings`
+  (the tool-using agent: `list_findings` / `read_finding` + `read_code`/`grep_code`/`git_diff` to confirm two findings
+  share a cause) over them. Returns the merges; never mutates. The report step applies them. A merged finding carries
+  `coveredSlugs` (the slugs it absorbed, `length > 1`), persisted to the additive `investigation_finding.covered_slugs`
+  JSONB column (Prisma typed-JSON `InvestigationCoveredSlugs`). The migration is additive/nullable, but beta shares the
+  prod DB and runs no migrations - run `migrate deploy` manually before this lands on beta or the report write fails.
+- `writeInvestigationReport` - `DeployedComparison` + `buildReportData` -> `applyReconciliation` (collapse the merges)
+  -> `InvestigationReportPersister` (island tables), flipping the row to `completed` and clearing the stage. No S3
+  write. `scripts/backfill-report-island.ts` migrates pre-island reports (legacy S3 markdown) into the tables.
 - `postInvestigationPrComment` - render a concise summary (category counts + client-bug headlines + a link to
   the in-app report) and upsert it on the PR via `postOrUpdateMarkerComment`. Idempotent: it scans the PR for
   a hidden `<!-- autonoma-investigation -->` marker and updates that comment in place instead of posting a

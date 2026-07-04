@@ -272,6 +272,8 @@ function ProposalValidation({ validation }: { validation: InvestigationSuggested
 function FindingRow({ finding }: { finding: InvestigationFinding }) {
   const { prNumber, snapshotId } = Route.useParams();
   const meta = findingCategoryMeta(finding.category);
+  // A merged finding (reconciliation collapsed several tests that hit the same issue into this one) covers > 1 slug.
+  const mergedCount = finding.coveredSlugs != null && finding.coveredSlugs.length > 1 ? finding.coveredSlugs.length : 0;
   return (
     <li>
       <AppLink
@@ -289,6 +291,11 @@ function FindingRow({ finding }: { finding: InvestigationFinding }) {
             {finding.confidence != null ? ` · ${finding.confidence} confidence` : ""}
           </p>
         </div>
+        {mergedCount > 0 ? (
+          <Badge variant="outline" className="shrink-0">
+            seen in {mergedCount} tests
+          </Badge>
+        ) : null}
         <CaretRightIcon size={14} className="shrink-0 text-text-secondary" />
       </AppLink>
     </li>

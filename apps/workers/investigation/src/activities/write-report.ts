@@ -6,6 +6,7 @@ import {
     type InvestigationReportInput,
     type ModelVerdict,
     type TestReport,
+    applyReconciliation,
     buildReportData,
 } from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -51,10 +52,16 @@ export async function writeInvestigationReport(
         deployed,
     };
 
+    // Collapse same-issue findings using the reconciliation agent's merges (computed in its own activity): several
+    // tests can surface one underlying issue, and this leaves a single enriched finding per issue. A no-op when
+    // reconciliation was empty or failed upstream (the workflow passes { merges: [] }).
+    const built = buildReportData(reportInput);
+    const findings = applyReconciliation(built.findings, input.reconciliation ?? { merges: [] });
+    const reportData = { ...built, findings };
+
     // Persist the structured report into the island tables (upsert parent + replace children in one
     // transaction). This is the deliverable the in-app view consumes; a failure propagates so Temporal retries
     // the report step (unlike the old best-effort S3 write).
-    const reportData = buildReportData(reportInput);
     await new InvestigationReportPersister(db).persist({
         snapshotId,
         organizationId: meta.organizationId,
@@ -81,7 +88,7 @@ async function loadDeployedComparison(headSha: string, logger: Logger): Promise<
 }
 
 /** Map one classified shadow run to the report's per-test section (single "investigation" model column). */
-function toTestReport(result: InvestigationTestResult): TestReport {
+export function toTestReport(result: InvestigationTestResult): TestReport {
     const modelVerdict: ModelVerdict = { model: "investigation", verdict: result.verdict, error: result.error };
     return {
         slug: result.slug,

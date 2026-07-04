@@ -6,6 +6,7 @@ import type {
     InvestigationSelectedTest,
     InvestigationTestResult,
     InvestigationVerdict,
+    ReconcileInvestigationFindingsOutput,
     TestValidationResult,
     WebActivities,
 } from "../activities";
@@ -228,12 +229,27 @@ async function runInvestigation(
 
     await markProgress(snapshotId, "running", "reporting");
 
+    // Reconcile findings before persisting: several tests can surface the SAME underlying issue (one seed gap,
+    // one code defect), and the agent collapses those into one enriched finding so the report shows each issue
+    // once. Contained: a reconciliation failure must never sink the report - fall back to the unmerged findings.
+    let reconciliation: ReconcileInvestigationFindingsOutput = { merges: [] };
+    try {
+        reconciliation = await investigationRepair.reconcileInvestigationFindings({ snapshotId, results });
+        log.info("Investigation findings reconciled", { ...ids, extra: { merges: reconciliation.merges.length } });
+    } catch (error) {
+        log.warn("Investigation reconciliation failed; reporting findings unmerged", {
+            ...ids,
+            extra: { message: rootFailureMessage(error) },
+        });
+    }
+
     // writeInvestigationReport flips the row to `completed` and clears the stage, so there is no explicit
     // "completed" markProgress here - the report writer owns that terminal transition.
     const report = await investigation.writeInvestigationReport({
         snapshotId,
         results,
         suggested: selection.suggested,
+        reconciliation,
     });
 
     // Post the results to the PR (flag-gated, idempotent). The report is the deliverable and is already

@@ -49,6 +49,12 @@ export const investigationFindingSchema = z.object({
     finalScreenshotUrl: z.string().optional(),
     /** Present instead of the verdict fields when the model failed to classify this test. */
     error: z.string().optional(),
+    /**
+     * When the reconciliation agent MERGED several tests that surfaced the same underlying issue into this one
+     * finding, the slugs of every test it represents (its own slug plus the absorbed ones). Length > 1 means
+     * this is a merged finding (its narrative + evidence combine all of them); absent/length 1 means standalone.
+     */
+    coveredSlugs: z.array(z.string()).optional(),
 });
 export type InvestigationFinding = z.infer<typeof investigationFindingSchema>;
 

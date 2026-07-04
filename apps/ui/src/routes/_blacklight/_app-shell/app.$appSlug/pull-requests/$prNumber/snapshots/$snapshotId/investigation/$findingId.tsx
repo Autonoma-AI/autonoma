@@ -79,9 +79,24 @@ function FindingBody({
   repoFullName?: string;
   commitSha?: string;
 }) {
+  const coveredSlugs = finding.coveredSlugs ?? [];
   return (
     <div className="flex flex-col gap-6">
       <MediaPanel finding={finding} />
+
+      {coveredSlugs.length > 1 && (
+        <div className="rounded-lg border border-border-dim bg-surface-raised px-4 py-3">
+          <p className="text-sm text-text-primary">
+            The same issue was found across <span className="font-medium">{coveredSlugs.length} tests</span> - they were
+            reconciled into this one finding.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1 font-mono text-2xs text-text-secondary">
+            {coveredSlugs.map((slug) => (
+              <li key={slug}>{slug}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {finding.whatHappened != null && (
         <Section title="What happened">

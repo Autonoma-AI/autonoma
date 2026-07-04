@@ -137,6 +137,8 @@ export class InvestigationReportPersister {
             videoKey: finding.videoUrl,
             screenshotKey: finding.finalScreenshotUrl,
             error: finding.error,
+            // Set only on a MERGED finding: the tests it now represents (its own slug + the absorbed ones).
+            coveredSlugs: finding.coveredSlugs,
             displayOrder: index,
         };
     }

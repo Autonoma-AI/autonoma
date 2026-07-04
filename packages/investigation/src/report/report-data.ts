@@ -141,14 +141,15 @@ function mapDeployed(deployed: DeployedAgentComparison): InvestigationDeployedCo
 }
 
 /**
- * Project the structured report input (the same object that renders the markdown) into the UI-facing report
- * contract. Each test's verdicts become flat `findings` with stable ids (the slug, suffixed on collision) so
- * the UI can route to one finding. This is the source-of-truth path: the worker persists the result as JSON.
+ * Flatten each test's verdicts into findings with stable ids (the slug, suffixed on collision). This is the
+ * shared id authority: the report AND the reconciliation step both build findings this way, so the merge
+ * clusters (which reference finding ids) line up with the findings the report persists. Deterministic on
+ * `tests`, so calling it twice with the same input yields the same ids.
  */
-export function buildReportData(input: InvestigationReportInput): InvestigationReportData {
+export function buildFindings(tests: TestReport[]): InvestigationFinding[] {
     const findings: InvestigationFinding[] = [];
     const slugCounts = new Map<string, number>();
-    for (const test of input.tests) {
+    for (const test of tests) {
         // The scenario-repair diagnosis is a single per-test field (mirrors the markdown renderer, which emits it
         // once per test section). Attach it to the FIRST finding for this test only - never per verdict - so a
         // multi-model test doesn't carry N redundant copies of the same recommended lever across its findings.
@@ -169,6 +170,16 @@ export function buildReportData(input: InvestigationReportInput): InvestigationR
             findings.push(finding);
         }
     }
+    return findings;
+}
+
+/**
+ * Project the structured report input (the same object that renders the markdown) into the UI-facing report
+ * contract. Each test's verdicts become flat `findings` with stable ids (the slug, suffixed on collision) so
+ * the UI can route to one finding. This is the source-of-truth path: the worker persists the result as JSON.
+ */
+export function buildReportData(input: InvestigationReportInput): InvestigationReportData {
+    const findings = buildFindings(input.tests);
     return {
         client: input.client,
         appSlug: input.appSlug,

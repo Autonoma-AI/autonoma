@@ -2183,6 +2183,13 @@ model InvestigationFinding {
   /// Present instead of the verdict fields when the model failed to classify this test.
   error String? @db.Text
 
+  /// When the reconciliation agent MERGED several tests that surfaced the same underlying issue into this one
+  /// finding, the slugs of every test it now represents (this finding's own slug plus the absorbed ones). A
+  /// merged finding carries the agent's combined narrative + the union of the members' evidence; the absorbed
+  /// per-test findings are never persisted. Null/absent on a standalone (unreconciled) finding.
+  /// [InvestigationCoveredSlugs]
+  coveredSlugs Json? @map("covered_slugs")
+
   displayOrder Int @map("display_order")
 
   createdAt      DateTime @default(now()) @map("created_at")

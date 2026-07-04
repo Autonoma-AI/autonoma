@@ -96,6 +96,7 @@ const investigationFindingSelect = {
     videoKey: true,
     screenshotKey: true,
     error: true,
+    coveredSlugs: true,
 } satisfies Prisma.InvestigationFindingSelect;
 
 const investigationSuggestedTestSelect = {
@@ -133,6 +134,7 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
         videoUrl: row.videoKey ?? undefined,
         finalScreenshotUrl: row.screenshotKey ?? undefined,
         error: row.error ?? undefined,
+        coveredSlugs: row.coveredSlugs ?? undefined,
     };
 }
 

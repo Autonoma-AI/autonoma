@@ -49,6 +49,16 @@ src/
                                 post-base test. Retires a test automatically the snapshot it passes.
   persist/
     edit-persister.ts           EditPersister  - write the agent's add/modify/remove edits onto the twin snapshot
+  reconcile/
+    schema.ts · prompt.ts       the merge decision schema (+ null->undefined normalizer + validation) + the
+      · dependencies · tools     conservative reconciler prompt; tools = list_findings / read_finding (navigate the
+                                run's findings on demand, not all in context) + reused read_code/grep_code/git_diff
+    reconcile-findings.ts       reconcileFindings - a tool-using agent that groups the findings describing the SAME
+                                underlying issue (one seed gap / one code defect caught by several tests) and returns
+                                the merges. Read-only; never throws (a failure reports "no merges").
+    apply-reconciliation.ts     applyReconciliation - collapse each merge into ONE finding (canonical anchor +
+                                combined headline/root-cause + UNION of the members' evidence + coveredSlugs) and drop
+                                the absorbed ones; toReconcilableFindings projects report findings into the agent input
   merge/
     merge-inputs.ts             MergeInputsReader - derive the twin's test edits + recipe create-graph edits
                                 (each vs its fork-point baseline) + main's current suite/recipes

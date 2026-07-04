@@ -8,6 +8,7 @@ import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
 import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
 import { postInvestigationPrComment as postPrCommentImpl } from "./post-pr-comment";
 import { proposeRecipeRepair as proposeRecipeRepairImpl } from "./propose-recipe-repair";
+import { reconcileInvestigationFindings as reconcileFindingsImpl } from "./reconcile-findings";
 import { revertTwinRecipe as revertTwinRecipeImpl } from "./revert-twin-recipe";
 import { selectInvestigationTests as selectImpl } from "./select-tests";
 import { stageRecipeCandidateOnTwin as stageRecipeImpl } from "./stage-recipe-candidate";
@@ -55,6 +56,9 @@ export const stageRecipeCandidateOnTwin = withHeartbeat(stageRecipeImpl);
 export const revertTwinRecipe = withHeartbeat(revertTwinRecipeImpl);
 // A single fast upsert of the report row's lifecycle fields; no heartbeat needed (well under any timeout).
 export const markInvestigationProgress = markProgressImpl;
+// Clones the repo + runs the tool-using reconciliation agent (finding navigation + code confirmation) for
+// MINUTES; heartbeat it like the other reasoning activities so it stays under the 2m heartbeat timeout.
+export const reconcileInvestigationFindings = withHeartbeat(reconcileFindingsImpl);
 export const writeInvestigationReport = withHeartbeat(writeReportImpl);
 export const createValidationGeneration = withHeartbeat(createValidationImpl);
 export const postInvestigationPrComment = withHeartbeat(postPrCommentImpl);
@@ -73,6 +77,7 @@ const _activities: InvestigationActivities = {
     stageRecipeCandidateOnTwin,
     revertTwinRecipe,
     markInvestigationProgress,
+    reconcileInvestigationFindings,
     writeInvestigationReport,
     createValidationGeneration,
     postInvestigationPrComment,
