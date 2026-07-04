@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.17](https://github.com/Autonoma-AI/agent/compare/v1.8.16...v1.8.17) (2026-07-04)
+
+
+### Features
+
+* **investigation:** reconcile same-issue findings into one merged finding ([#1290](https://github.com/Autonoma-AI/agent/issues/1290)) ([f0154d7](https://github.com/Autonoma-AI/agent/commit/f0154d7ef3dafbc2f98354615f47d6c327123ce4))
+* **previewkit:** enable E2E previews in alpha + per-env runner DATABASE_URL ([#1277](https://github.com/Autonoma-AI/agent/issues/1277)) ([e6f65d8](https://github.com/Autonoma-AI/agent/commit/e6f65d8837c10c3deb0c6e037b344c780d8fa2d1))
+
+
+### Performance Improvements
+
+* **ui:** chunk the build for caching + revalidate the HTML shell ([#1291](https://github.com/Autonoma-AI/agent/issues/1291)) ([fe33983](https://github.com/Autonoma-AI/agent/commit/fe33983d1db03d137a229e603a664f726fe23ac1))
+
 ## [1.8.16](https://github.com/Autonoma-AI/agent/compare/v1.8.15...v1.8.16) (2026-07-04)
 
 
