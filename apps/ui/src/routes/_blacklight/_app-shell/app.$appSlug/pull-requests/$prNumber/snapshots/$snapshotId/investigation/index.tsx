@@ -1,9 +1,14 @@
 import { Badge, Separator, Skeleton } from "@autonoma/blacklight";
-import type { InvestigationFinding, InvestigationSuggestedTest } from "@autonoma/types";
+import type {
+  InvestigationDeployedComparison,
+  InvestigationFinding,
+  InvestigationSuggestedTest,
+} from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { RocketIcon } from "@phosphor-icons/react/Rocket";
 import { createFileRoute } from "@tanstack/react-router";
 import { findingCategoryMeta, PASSED_PRIORITY } from "components/investigation/finding-category";
 import { useInvestigationReport, useInvestigationReportData } from "lib/query/branches.queries";
@@ -125,7 +130,76 @@ function FindingsList() {
           <ProposedTests suggested={data.suggested} />
         </>
       )}
+
+      {data.deployed != null && (
+        <>
+          <Separator className="my-2" />
+          <DeployedComparison deployed={data.deployed} />
+        </>
+      )}
     </div>
+  );
+}
+
+/**
+ * What the production diffs agent concluded for this PR - the baseline the shadow investigation is compared
+ * against. Shown at the bottom (supplementary context, not a finding). Display-only from the report's `deployed`
+ * blob; absent entirely when no comparison was captured.
+ */
+function DeployedComparison({ deployed }: { deployed: InvestigationDeployedComparison }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 text-text-secondary">
+        <RocketIcon size={14} />
+        <span className="font-mono text-2xs uppercase tracking-widest">Deployed agent comparison</span>
+      </div>
+      <p className="text-xs leading-relaxed text-text-secondary">
+        What the production (diffs) agent concluded for this PR - the baseline the shadow run is compared against.
+      </p>
+
+      {!deployed.found ? (
+        <p className="rounded-lg border border-border-dim bg-surface-base px-4 py-3 text-sm text-text-secondary">
+          The deployed agent produced no result for this PR
+          {deployed.failureReason != null && deployed.failureReason !== "" ? `: ${deployed.failureReason}` : "."}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-lg border border-border-dim bg-surface-base px-4 py-3">
+          {deployed.jobStatus != null && (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-3xs uppercase tracking-widest text-text-secondary">Job</span>
+              <Badge variant="outline" className="font-mono uppercase">
+                {deployed.jobStatus}
+              </Badge>
+            </div>
+          )}
+          {deployed.analysisReasoning != null && (
+            <p className="text-sm leading-relaxed text-text-primary">{deployed.analysisReasoning}</p>
+          )}
+          {deployed.resolutionReasoning != null && (
+            <p className="text-sm leading-relaxed text-text-secondary">{deployed.resolutionReasoning}</p>
+          )}
+          {deployed.failureReason != null && deployed.failureReason !== "" && (
+            <p className="text-2xs leading-relaxed text-status-critical">{deployed.failureReason}</p>
+          )}
+          {deployed.perTest.length > 0 && (
+            <ul className="flex flex-col gap-1.5">
+              {deployed.perTest.map((test, i) => (
+                <li key={i} className="flex flex-wrap items-center gap-2 font-mono text-2xs text-text-secondary">
+                  {test.runStatus != null && (
+                    <Badge variant={test.runStatus === "passed" ? "success" : "outline"} className="uppercase">
+                      {test.runStatus}
+                    </Badge>
+                  )}
+                  <span className="text-text-primary">{test.testSlug}</span>
+                  {test.affectedReason != null && test.affectedReason !== "" && <span>· {test.affectedReason}</span>}
+                  {test.generatedFix === true && <span className="text-primary-ink">· fix generated</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
