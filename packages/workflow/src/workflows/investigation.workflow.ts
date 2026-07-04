@@ -234,7 +234,6 @@ async function runInvestigation(
         snapshotId,
         results,
         suggested: selection.suggested,
-        quarantine: selection.quarantine,
     });
 
     // Post the results to the PR (flag-gated, idempotent). The report is the deliverable and is already
@@ -244,7 +243,6 @@ async function runInvestigation(
             snapshotId,
             results,
             suggested: selection.suggested,
-            quarantine: selection.quarantine,
         });
         log.info("Investigation PR comment step finished", { ...ids, extra: { status: comment.status } });
     } catch (error) {

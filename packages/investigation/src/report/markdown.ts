@@ -81,12 +81,6 @@ export interface ReportableNewTest {
     validation?: ReportableValidation;
 }
 
-/** An existing test the agent recommends quarantining (the PR removed the functionality it covers). */
-export interface ReportableQuarantine {
-    slug: string;
-    reason: string;
-}
-
 /** Everything needed to render the investigation report (the S3 markdown that replaces the Notion page). */
 export interface InvestigationReportInput {
     client: string;
@@ -100,7 +94,6 @@ export interface InvestigationReportInput {
     commitSha?: string;
     tests: TestReport[];
     suggested: ReportableNewTest[];
-    quarantine: ReportableQuarantine[];
     deployed: DeployedAgentComparison;
 }
 
@@ -327,22 +320,6 @@ function renderSuggestedTests(suggested: ReportableNewTest[]): string[] {
     return lines;
 }
 
-/** Quarantine recommendations for tests whose functionality the PR removed. */
-function renderQuarantine(quarantine: ReportableQuarantine[]): string[] {
-    if (quarantine.length === 0) return [];
-    const lines = [
-        "## Quarantine recommendations",
-        "",
-        "_Tests whose functionality this PR removed - they can no longer pass:_",
-        "",
-    ];
-    for (const item of quarantine) {
-        lines.push(`- \`${item.slug}\` - ${item.reason}`);
-    }
-    lines.push("");
-    return lines;
-}
-
 /** The PR title inline + the body inside a collapsible (rendered as markdown - never wrapped in a raw fence). */
 function renderPrSection(input: InvestigationReportInput): string[] {
     const prTitle = (input.prTitle ?? "").trim();
@@ -398,7 +375,6 @@ export function buildReportMarkdown(input: InvestigationReportInput): string {
         sections.push(...renderTest(test));
     }
     sections.push(...renderSuggestedTests(input.suggested));
-    sections.push(...renderQuarantine(input.quarantine));
     sections.push(...renderPrSection(input));
     sections.push(...renderDeployedComparison(input.deployed));
     return sections.join("\n");

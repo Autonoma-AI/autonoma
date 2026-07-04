@@ -319,8 +319,6 @@ export class BranchesService extends Service {
                               }
                             : undefined,
                 })),
-                // Quarantine is deprecated - the island does not store it; the report contract keeps the (empty) field.
-                quarantine: [],
                 deployed: report.deployed ?? undefined,
             };
         } catch (error) {

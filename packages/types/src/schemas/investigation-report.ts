@@ -66,12 +66,6 @@ export const investigationSuggestedTestSchema = z.object({
 });
 export type InvestigationSuggestedTest = z.infer<typeof investigationSuggestedTestSchema>;
 
-export const investigationQuarantineSchema = z.object({
-    slug: z.string(),
-    reason: z.string(),
-});
-export type InvestigationQuarantine = z.infer<typeof investigationQuarantineSchema>;
-
 export const investigationDeployedPerTestSchema = z.object({
     testSlug: z.string(),
     affectedReason: z.string().optional(),
@@ -101,7 +95,6 @@ export const investigationReportDataSchema = z.object({
     commitSha: z.string().optional(),
     findings: z.array(investigationFindingSchema),
     suggested: z.array(investigationSuggestedTestSchema),
-    quarantine: z.array(investigationQuarantineSchema),
     deployed: investigationDeployedComparisonSchema.optional(),
 });
 export type InvestigationReportData = z.infer<typeof investigationReportDataSchema>;

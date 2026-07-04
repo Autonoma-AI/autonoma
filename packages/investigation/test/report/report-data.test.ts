@@ -55,7 +55,6 @@ const INPUT: InvestigationReportInput = {
             validation: { passed: true, iterations: 2 },
         },
     ],
-    quarantine: [{ slug: "legacy-export", reason: "the export route was deleted" }],
     deployed: { found: true, jobStatus: "completed", analysisReasoning: "touches the audit panel", perTest: [] },
 };
 
@@ -76,7 +75,6 @@ describe("buildReportData", () => {
         // reader can audit the verdict against what actually happened, not just the narrative.
         expect(finding?.runSteps).toContain("2. [assert row hidden] failed - ERROR: row still visible");
         expect(data.suggested[0]?.name).toBe("Multi-language guard");
-        expect(data.quarantine[0]?.slug).toBe("legacy-export");
     });
 
     it("produces JSON that validates against the shared API/UI schema (both build paths)", () => {
@@ -223,10 +221,7 @@ describe("parseReportMarkdown (round-trips the rendered markdown)", () => {
         expect(parsed.findings[0]?.plan).toContain("## Setup");
     });
 
-    it("recovers a classification-error finding and the quarantine list", () => {
-        const parsed = parseReportMarkdown(buildReportMarkdown(INPUT));
-        expect(parsed.quarantine[0]?.slug).toBe("legacy-export");
-
+    it("recovers a classification-error finding", () => {
         const errorReport = parseReportMarkdown(
             buildReportMarkdown({
                 client: "Homa",
@@ -236,7 +231,6 @@ describe("parseReportMarkdown (round-trips the rendered markdown)", () => {
                     { slug: "t", plan: "p", runSuccess: true, stepCount: 1, verdicts: [{ model: "m", error: "boom" }] },
                 ],
                 suggested: [],
-                quarantine: [],
                 deployed: { found: false, perTest: [] },
             }),
         );

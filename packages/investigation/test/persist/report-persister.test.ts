@@ -51,7 +51,6 @@ function sampleReportData(): InvestigationReportData {
                 validation: { passed: true, iterations: 2 },
             },
         ],
-        quarantine: [],
         deployed: {
             found: true,
             jobStatus: "completed",
@@ -131,7 +130,6 @@ investigationDbSuite({
                     },
                 ],
                 suggested: [],
-                quarantine: [],
             };
             await persister.persist({ snapshotId, organizationId, data: rerun });
 

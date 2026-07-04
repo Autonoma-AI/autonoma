@@ -184,7 +184,6 @@ export function buildReportData(input: InvestigationReportInput): InvestigationR
             reasoning: test.reasoning,
             validation: test.validation,
         })),
-        quarantine: input.quarantine.map((item) => ({ slug: item.slug, reason: item.reason })),
         deployed: mapDeployed(input.deployed),
     };
 }

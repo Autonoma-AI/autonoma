@@ -1,7 +1,6 @@
 import type {
     InvestigationEvidence,
     InvestigationFinding,
-    InvestigationQuarantine,
     InvestigationReportData,
     InvestigationSuggestedTest,
 } from "@autonoma/types";
@@ -159,15 +158,6 @@ function parseSuggested(body: string): InvestigationSuggestedTest[] {
     return out;
 }
 
-function parseQuarantine(body: string): InvestigationQuarantine[] {
-    const out: InvestigationQuarantine[] = [];
-    for (const line of body.split("\n")) {
-        const match = line.match(/^-\s+`([^`]+)`\s+-\s+(.+)$/);
-        if (match != null) out.push({ slug: match[1] ?? "", reason: match[2] ?? "" });
-    }
-    return out;
-}
-
 /**
  * Split the report into top-level sections at `## ` headings, but ONLY when not inside a ``` code fence.
  * The rendered test plans and suggested-test blocks are fenced and contain their OWN `## Setup` / `## Steps`
@@ -202,16 +192,11 @@ export function parseReportMarkdown(markdown: string): InvestigationReportData {
 
     const findings: InvestigationFinding[] = [];
     const suggested: InvestigationSuggestedTest[] = [];
-    let quarantine: InvestigationQuarantine[] = [];
     const slugCounts = new Map<string, number>();
 
     for (const { heading, body } of splitTopLevelSections(markdown)) {
         if (heading === "Proposed new tests") {
             suggested.push(...parseSuggested(body));
-            continue;
-        }
-        if (heading === "Quarantine recommendations") {
-            quarantine = parseQuarantine(body);
             continue;
         }
         // Anchor on the reliable markers the renderer always emits: a section is a finding ONLY if it carries
@@ -239,5 +224,5 @@ export function parseReportMarkdown(markdown: string): InvestigationReportData {
           }
         : undefined;
 
-    return { client, appSlug, prNumber, prTitle, prBody, findings, suggested, quarantine, deployed };
+    return { client, appSlug, prNumber, prTitle, prBody, findings, suggested, deployed };
 }

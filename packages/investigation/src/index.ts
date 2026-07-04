@@ -31,7 +31,6 @@ export type {
     ReportableVerdict,
     ReportableEvidence,
     ReportableNewTest,
-    ReportableQuarantine,
     ReportableValidation,
 } from "./report/markdown";
 export { SelectionResult, AffectedTestSelection, SuggestedTest, QuarantineRecommendation } from "./select/schema";

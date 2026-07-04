@@ -48,7 +48,6 @@ export async function writeInvestigationReport(
         commitSha: meta.headSha,
         tests: results.map(toTestReport),
         suggested: input.suggested,
-        quarantine: input.quarantine,
         deployed,
     };
 

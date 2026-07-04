@@ -244,7 +244,6 @@ export interface WriteInvestigationReportInput {
     snapshotId: string;
     results: InvestigationTestResult[];
     suggested: SuggestedNewTest[];
-    quarantine: QuarantineRecommendation[];
 }
 
 export interface WriteInvestigationReportOutput {
@@ -267,7 +266,6 @@ export interface PostInvestigationPrCommentInput {
     snapshotId: string;
     results: InvestigationTestResult[];
     suggested: SuggestedNewTest[];
-    quarantine: QuarantineRecommendation[];
 }
 
 export interface PostInvestigationPrCommentOutput {

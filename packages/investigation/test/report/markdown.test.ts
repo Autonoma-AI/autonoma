@@ -52,7 +52,6 @@ describe("buildReportMarkdown", () => {
                     validation: { passed: true, iterations: 2 },
                 },
             ],
-            quarantine: [{ slug: "legacy-export", reason: "the export route was deleted" }],
             deployed: {
                 found: true,
                 jobStatus: "completed",
@@ -85,12 +84,10 @@ describe("buildReportMarkdown", () => {
         expect(markdown).toContain("**PR #1680:** fix audit panel");
         expect(markdown).toContain("<summary>PR description</summary>");
         expect(markdown).not.toContain("investigation - scenario_issue");
-        // proposed new test + validation badge + quarantine recommendation
+        // proposed new test + validation badge
         expect(markdown).toContain("## Proposed new tests");
         expect(markdown).toContain("### Multi-language guard");
         expect(markdown).toContain("✓ **validated** - passes after 2 iteration(s)");
-        expect(markdown).toContain("## Quarantine recommendations");
-        expect(markdown).toContain("`legacy-export` - the export route was deleted");
     });
 
     it("renders the scenario repair route under the remediation, including the client-factory change", () => {
@@ -131,7 +128,6 @@ describe("buildReportMarkdown", () => {
                 },
             ],
             suggested: [],
-            quarantine: [],
             deployed: { found: false, perTest: [] },
         });
 
@@ -158,7 +154,6 @@ describe("buildReportMarkdown", () => {
                 { slug: "t", plan: "p", runSuccess: true, stepCount: 1, verdicts: [{ model: "m", error: "boom" }] },
             ],
             suggested: [],
-            quarantine: [],
             deployed: { found: false, perTest: [] },
         });
 
