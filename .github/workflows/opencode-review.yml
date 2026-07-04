@@ -94,9 +94,19 @@ jobs:
               exports, env vars, architecture, or user-facing behavior, check
               that the relevant README.md and apps/docs pages were updated to
               match. Flag docs the change left stale.
+            - Public-mirror leaks: this repo is synced to a public mirror, and
+              `.opensource-ignore` lists the paths stripped before the sync
+              (evals, client test-prompts, internal tooling, infra). If the PR
+              adds evals or other internal/client-specific test data - new files
+              or directories that look like eval sets, test prompts, fixtures
+              containing client names, or graded model-output samples - and
+              their path is not already covered by an entry in
+              `.opensource-ignore`, flag it and say the path must be added to
+              `.opensource-ignore` so it does not leak to the public repo. Treat
+              an unignored eval/internal-test addition as [LEAK][HIGH].
 
             Prefix each comment with a category and severity, e.g.
             [BUG][HIGH], [SECURITY][MED], [UX][MED], [CONVENTION][LOW],
-            [DOCS][LOW].
+            [DOCS][LOW], [LEAK][HIGH].
             Be concise. Skip nitpicks and style preferences. If you find
             nothing worth raising, say so in a single short comment.
