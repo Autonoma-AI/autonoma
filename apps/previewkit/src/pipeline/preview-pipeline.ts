@@ -1429,8 +1429,8 @@ export class PreviewPipeline {
         // only throws for a supersede abort (BuildAbortedError), in which case we
         // want the whole build to reject and bail (Promise.all surfaces the
         // first rejection); every other error becomes a failed app outcome.
-        // Each build spawns its own ephemeral BuildKit Job, so all builds run
-        // fully in parallel - Karpenter scales the node pool as needed.
+        // All builds run fully in parallel - the warm buildkit pool serves
+        // concurrent builds, spread across its pods by kube-proxy.
         // `onlyAppName` (per-app redeploy) narrows which apps build, while the
         // full `config` is kept so build-arg templates can still reference siblings.
         const appsToBuild = onlyAppName != null ? config.apps.filter((a) => a.name === onlyAppName) : config.apps;

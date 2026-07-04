@@ -251,12 +251,8 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `PREVIEW_DOMAIN` | No | `preview.autonoma.app` | Base domain for preview URLs (wildcard DNS must point at the shared gateway) |
 | `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry (ECR in production) |
 | `DOCKER_HUB_MIRROR` | No | `140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub` | ECR pull-through cache prefix. Every platform-managed image that resolves to Docker Hub (service recipes, the nginx access proxy) is rewritten to pull through it; official images get the `library/` namespace. Other registries are never rewritten. Empty string disables mirroring |
-| `BUILDKIT_BUILD_NAMESPACE` | No | `buildkit` | Namespace where per-build BuildKit Jobs are spawned |
-| `BUILDKIT_IMAGE` | No | `moby/buildkit:v0.21.1` | Image used for build Jobs |
-| `BUILDKIT_BUILDER_SERVICE_ACCOUNT` | No | `buildkitd` | ServiceAccount each build pod runs as (needs IRSA for the S3 cache) |
+| `BUILDKIT_WARM_HOST` | No | `tcp://buildkit.buildkit.svc.cluster.local:1234` | Endpoint of the long-lived warm buildkitd pool every build dials (`deployment/buildkit/buildkitd-warm.yaml`) |
 | `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min) |
-| `BUILD_READINESS_TIMEOUT_MS` | No | `600000` | Provisioning budget: how long to wait for a build pod to be scheduled onto a node (survives a Karpenter node scale-up) |
-| `BUILD_STARTUP_TIMEOUT_MS` | No | `180000` | Startup budget: once scheduled, how long to wait for the pod to become Ready (image pull + buildkitd boot) |
 | `INGRESS_CLASS_NAME` | No | `nginx` | Ingress class for preview Ingresses |
 | `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared ingress controller |
 | `GATEKEEPER_IMAGE` | No | `public.ecr.aws/autonoma/gatekeeper:latest` | Image for the per-namespace Gatekeeper auth + scale-to-zero proxy |
@@ -287,7 +283,7 @@ Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress 
 
 ## Building Images
 
-Previewkit builds each app with BuildKit (rootless, no Docker daemon), choosing a strategy in this order:
+Previewkit builds each app with BuildKit (no Docker daemon) against a long-lived warm buildkitd pool (`BUILDKIT_WARM_HOST`), choosing a strategy in this order:
 
 1. **Dockerfile** -- if you set the app's `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`. For a multi-stage Dockerfile, set `build.target` (with `build.framework: dockerfile`) to pick the stage to build, like `docker build --target` -- otherwise BuildKit builds the **last** stage, which builds the wrong service when a Dockerfile ends with a worker/sidecar stage after the deployable one.
 2. **Turbo monorepo** -- if the app sets `monorepo: turbo`, the build runs from the repo root with a Turbo filter for that app.
@@ -312,7 +308,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 | `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
 
-**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. The same mirroring covers the BuildKit Job image (`moby/buildkit`); the per-namespace Gatekeeper proxy runs from `public.ecr.aws`, so it is pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
+**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly; the per-namespace Gatekeeper proxy runs from `public.ecr.aws`, so it is pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
 
 ### `api-gateway`
 
@@ -464,7 +460,7 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
   - `karpenter/` -- `nodepool.yaml`, `nodeclass.yaml`, `nodepool-buildkit.yaml` (dedicated build nodes)
   - `ingress/` -- ingress-nginx values and the shared gateway HTTPRoute
 
-Per-build BuildKit runs as ephemeral Kubernetes Jobs created in-code (`builder/buildkit-job-manager.ts`), not a static daemon manifest.
+Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`), which the runner dials via `BUILDKIT_WARM_HOST`; each pod's node-local NVMe cache keeps layer reuse hot across builds.
 
 ### Local Development
 
@@ -488,12 +484,5 @@ PREVIEW_URL_SECRET=...
 ```bash
 pnpm --filter @autonoma/previewkit test                 # unit tests, no Docker
 pnpm --filter @autonoma/previewkit test:integration     # Testcontainers (real Postgres), needs Docker
-pnpm --filter @autonoma/previewkit test:kind            # real-apiserver BuildKitJobManager tests, needs kind + Docker
 pnpm --filter @autonoma/previewkit typecheck
 ```
-
-`test:kind` is opt-in: it creates (or reuses) a dedicated local `kind` cluster named
-`previewkit-readiness` and drives `BuildKitJobManager` against a real Kubernetes apiserver to validate the
-phased readiness timeout. It has a hard safety gate that refuses to run against anything but a local kind
-cluster, so it can never touch a real cluster. Remove the cluster with
-`kind delete cluster --name previewkit-readiness`.

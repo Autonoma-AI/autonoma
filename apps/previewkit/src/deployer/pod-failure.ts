@@ -3,8 +3,7 @@ import type { V1Pod } from "@kubernetes/client-node";
 /**
  * Container `state.waiting.reason` values that mean a pod will not reach Ready
  * without a change to its image or spec - so the deployer should fail fast with
- * a precise reason instead of waiting out the full deploy timeout. Mirrors
- * PERMANENT_WAITING_REASONS in builder/buildkit-job-manager.ts.
+ * a precise reason instead of waiting out the full deploy timeout.
  *
  * `ErrImagePull` is deliberately NOT included: it is the FIRST pull failure and
  * the kubelet may still succeed on retry (e.g. an image just pushed to ECR that

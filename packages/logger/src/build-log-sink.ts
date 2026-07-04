@@ -5,16 +5,17 @@ export interface BuildFinishSummary {
     /** The app that finished building - recorded as a low-cardinality Loki label for filtering. */
     app: string;
     /**
-     * Which builder served the build - a low-cardinality Loki label so
-     * dashboards can split warm-pool vs ephemeral-Job timings with one filter.
+     * Which builder served the build - a low-cardinality Loki label dashboards
+     * group by. Always "warm" now that the ephemeral per-build Jobs are gone;
+     * kept so build-speed queries stay comparable with historical labels.
      */
-    builder: "warm" | "ephemeral";
-    /** Total build duration in milliseconds (provision + dispatch); the unwrapped metric value. */
+    builder: "warm";
+    /** Total build duration in milliseconds; the unwrapped metric value. */
     durationMs: number;
     /**
      * The concrete buildkit endpoint that served the build - the warm pool's
-     * Service host, or an ephemeral build Job's per-build DNS. Kept in the line
-     * body (not a label) for detail; `builder` is the label to group by.
+     * Service host. Kept in the line body (not a label) for detail; `builder`
+     * is the label to group by.
      */
     host?: string;
 }

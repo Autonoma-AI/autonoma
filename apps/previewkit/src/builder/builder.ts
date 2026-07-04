@@ -42,9 +42,8 @@ export interface BuildRequest {
     // `buildContext` to be set (the monorepo root).
     monorepoTool?: "turbo";
     // Aborts the in-flight `buildctl` when a newer commit supersedes the deploy.
-    // The builder passes it to `spawn`, so abort kills the child and the build's
-    // `finally` releases the buildkit Job within seconds instead of letting it
-    // run to the Job's ~31-min `activeDeadlineSeconds`.
+    // The builder passes it to `spawn`, so abort kills the child within seconds
+    // instead of letting the build run to the full build timeout.
     signal?: AbortSignal;
 }
 

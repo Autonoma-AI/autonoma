@@ -8,7 +8,6 @@
         "test": "vitest run --config vitest.config.ts",
         "test:watch": "vitest --config vitest.config.ts",
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
-        "test:kind": "vitest run --config vitest.kind.config.ts",
         "typecheck": "tsc --noEmit",
         "start:runner": "tsx src/runner/index.ts"
     },

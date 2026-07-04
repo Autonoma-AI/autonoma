@@ -43,7 +43,7 @@ each Job (`PreviewkitJobLauncher`, apps/api). Launching a deploy or per-app rede
 any in-flight "deploy-family" Job for that env (`previewkit.dev/type in (deploy,redeploy-app)`,
 Background propagation), then creates the new one - async newest-wins. The deleted pod gets SIGTERM,
 which `src/runner/index.ts` turns into an `AbortController` abort: the build's
-`signal.throwIfAborted()` / aborted `buildctl` spawn releases the buildkit Job in seconds, and the
+`signal.throwIfAborted()` / aborted `buildctl` spawn kills the build in seconds, and the
 deploy branch writes ONLY the superseded build row (`PreviewkitBuild.status = superseded`), never the
 env row - the successor owns it. Teardown ignores SIGTERM and runs its (idempotent) namespace delete
 to completion, and the deploy-family supersede never targets a running teardown, so a
@@ -150,7 +150,8 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
 2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 
-All paths run `buildctl` against a per-build BuildKit Job and push to `REGISTRY_URL` (ECR). Build logs
+All paths run `buildctl` against the long-lived warm buildkitd pool (`BUILDKIT_WARM_HOST`,
+`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Build logs
 stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
 attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
 calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the
@@ -210,13 +211,11 @@ Service (port 80 -> container 8080). It does three things:
 ## Key env vars (`src/env.ts`)
 
 `REGISTRY_URL`, `DOCKER_HUB_MIRROR` (ECR pull-through cache prefix; every platform-managed
-image resolving to Docker Hub - recipe services and the buildkit Job - is
+image resolving to Docker Hub - the recipe services - is
 rewritten through it via `deployer/image-mirror.ts`; the Gatekeeper proxy (public.ecr.aws) and client
 app images are never touched;
-empty string disables), `BUILDKIT_*`, `BUILD_TIMEOUT_MS`,
-`BUILD_READINESS_TIMEOUT_MS` (provisioning budget - bounds Karpenter scheduling a
-buildkit node), `BUILD_STARTUP_TIMEOUT_MS` (startup budget once scheduled - image
-pull + buildkitd boot), `PREVIEW_DOMAIN`,
+empty string disables), `BUILDKIT_WARM_HOST` (endpoint of the long-lived warm
+buildkitd pool every build dials), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_CLASS_NAME`/`INGRESS_NAMESPACE`,
 `GATEKEEPER_IMAGE`/`GATEKEEPER_IDLE_TIMEOUT`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
@@ -237,15 +236,8 @@ The runner drains the sink's buffer before it exits.
 ## Build / test
 
 - `pnpm --filter @autonoma/previewkit typecheck` - tsc (run after any change).
-- `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**` and `test/kind/**`). No Docker needed.
+- `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
-- `pnpm --filter @autonoma/previewkit test:kind` - opt-in real-apiserver tests for `BuildKitJobManager`
-  (`vitest.kind.config.ts`, `test/kind/**`). Needs the `kind` binary + Docker. Creates/reuses a dedicated
-  `previewkit-readiness` kind cluster and has a hard safety gate that refuses any non-local-kind kubeconfig,
-  so it can never touch a real cluster (e.g. an `agentic production` context). Because the Job pins
-  `nodeSelector: arch=amd64, pool=buildkit`, the build pod is unschedulable on a stock (arm64) kind node -
-  which is exactly what exercises the provision-phase readiness timeout end-to-end. Delete the cluster with
-  `kind delete cluster --name previewkit-readiness`.
   - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
     storage/logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
     and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.

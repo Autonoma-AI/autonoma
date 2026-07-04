@@ -7,7 +7,6 @@ import { OrgSecretResolver } from "./addons/org-secret-resolver";
 import { NeonProvider } from "./addons/providers/neon";
 import { AddonProviderRegistry } from "./addons/registry";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
-import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
@@ -60,18 +59,6 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         }
     }
 
-    // Local cluster kubeconfig (cluster A - same cluster previewkit itself
-    // runs in). `kc` above points at the preview cluster (B) and is used by
-    // the Deployer; `localKc` is used by the BuildKitJobManager to spawn
-    // ephemeral buildkitd Jobs alongside previewkit.
-    let localKc: k8s.KubeConfig;
-    if (env.EKS_CLUSTER_NAME != null) {
-        localKc = new k8s.KubeConfig();
-        localKc.loadFromCluster();
-    } else {
-        localKc = kc;
-    }
-
     // Git provider
     const githubProvider = new GitHubProvider({
         appId: env.GITHUB_APP_ID,
@@ -92,27 +79,15 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // timeout, standard resources). Single source of truth read below.
     const previewkitDefaults = createPreviewkitDefaults(env);
 
-    // Per-build buildkitd lifecycle. The manager spins up an ephemeral Job +
-    // Service per app build in cluster A, and the builder dials it via
-    // in-cluster DNS.
-    const buildkitJobManager = new BuildKitJobManager({
-        kc: localKc,
-        namespace: env.BUILDKIT_BUILD_NAMESPACE,
-        image: env.BUILDKIT_IMAGE,
-        serviceAccountName: env.BUILDKIT_BUILDER_SERVICE_ACCOUNT,
-        activeDeadlineSeconds: Math.ceil(previewkitDefaults.defaults.buildTimeoutMs / 1000) + 60,
-        provisionTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
-        startupTimeoutMs: env.BUILD_STARTUP_TIMEOUT_MS,
-    });
-
-    // Builder. The BuildKit layer cache shares the storage bucket with build logs;
-    // each writes under a distinct top-level key prefix so they can coexist.
+    // Builder. Every build dials the warm buildkitd pool in the control
+    // cluster via in-cluster DNS. The BuildKit layer cache shares the storage
+    // bucket with build logs; each writes under a distinct top-level key
+    // prefix so they can coexist.
     const builder = new BuildKitBuilder({
-        jobManager: buildkitJobManager,
+        warmHost: env.BUILDKIT_WARM_HOST,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         storage,
         ...(logSink != null ? { logSink } : {}),
-        ...(env.BUILDKIT_WARM_HOST != null ? { warmHost: env.BUILDKIT_WARM_HOST } : {}),
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.

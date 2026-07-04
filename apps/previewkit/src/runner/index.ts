@@ -48,8 +48,8 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
 
 /**
  * Deploy and per-app redeploy jobs treat SIGTERM as a supersede: abort the
- * in-flight build/deploy so buildctl is killed and the buildkit Job released in
- * seconds, then the run takes its supersede branch. Teardown jobs deliberately
+ * in-flight build/deploy so buildctl is killed in seconds, then the run takes
+ * its supersede branch. Teardown jobs deliberately
  * ignore SIGTERM and run the (idempotent) namespace deletion to completion - a
  * half-deleted namespace is worse than a slightly longer shutdown. This is the
  * Jobs equivalent of the workflow's nonCancellable teardown scope; the pod's

@@ -40,44 +40,15 @@ export const env = createEnv({
         // rewritten. Set to an empty string to disable mirroring.
         DOCKER_HUB_MIRROR: z.string().default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub"),
 
-        // BuildKit: a fresh buildkitd Job is spawned per build in
-        // BUILDKIT_BUILD_NAMESPACE using BUILDKIT_IMAGE. The Job runs in
-        // the control cluster (the same one the runner Job runs in); the runner
-        // connects to it by in-cluster DNS, so no static endpoint is configured.
-        // Defaults to `buildkit` - the dedicated build namespace (the runner
-        // Jobs live in `previewkit`, the buildkitd Jobs here). The buildkitd SA
-        // and the `buildkitd-config` ConfigMap the Jobs mount both live in this
-        // namespace (deployment/apps/previewkit.yaml).
-        //
-        // BUILDKIT_BUILDER_SERVICE_ACCOUNT is the SA each build pod runs as. It
-        // needs IRSA for the S3 cache bucket and lives in the same namespace as
-        // the Jobs. The default "buildkitd" matches the SA in previewkit.yaml.
-        BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
-        BUILDKIT_IMAGE: z.string().default("moby/buildkit:v0.21.1"),
-        BUILDKIT_BUILDER_SERVICE_ACCOUNT: z.string().default("buildkitd"),
-        // Phase-1 warm-builder spike. When set to a buildkitd endpoint
-        // (e.g. tcp://pk-buildkit-warm.buildkit.svc.cluster.local:1234) every
-        // build dials this single long-lived daemon instead of provisioning an
-        // ephemeral Job per build, so its node-local layer cache stays hot
-        // across builds and the slow S3 cache import/export drops off the hot
-        // path. Unset -> current per-build ephemeral Job behavior.
-        BUILDKIT_WARM_HOST: z.string().optional(),
+        // BuildKit: every build dials the long-lived warm buildkitd pool
+        // (deployment/buildkit/buildkitd-warm.yaml) at this endpoint. The pool
+        // runs in the control cluster (the same one the runner Job runs in) and
+        // is reached by in-cluster DNS; its node-local layer cache stays hot
+        // across builds, so the slow S3 cache import/export stays off the hot
+        // path.
+        BUILDKIT_WARM_HOST: z.string().default("tcp://buildkit.buildkit.svc.cluster.local:1234"),
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
-        // Provisioning budget: how long to wait for a freshly-created buildkit
-        // Job's pod to be scheduled onto a node (PodScheduled=True) before
-        // giving up on that attempt. This bounds pure infra latency - Karpenter
-        // launching and registering a fresh buildkit node, which on a cold spot
-        // launch routinely takes several minutes. Set generously so a build
-        // survives a scale-up instead of failing the whole environment under load.
-        BUILD_READINESS_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
-        // Startup budget: once the pod is scheduled, how long to wait for it to
-        // become Ready (image pull + container start + buildkitd boot). Every
-        // Karpenter scale-up gives a fresh node with no cached image, so a real
-        // moby/buildkit pull happens here - 3 minutes is deliberate so a normal
-        // pull plus boot does not flap. A scheduled-but-never-Ready pod is a real
-        // "buildkitd is broken" signal, so this is tighter than the provision budget.
-        BUILD_STARTUP_TIMEOUT_MS: timeoutEnv(180_000), // 3 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
         // ACM wildcard certs only match a single leftmost label; hostnames are
