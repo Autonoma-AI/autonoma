@@ -8,6 +8,23 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # The SPA entry document keeps a stable URL (it can't be content-hashed like
+    # the assets it references), so it must always be revalidated. Otherwise a
+    # client keeps loading an old index.html that points at asset hashes the
+    # latest deploy already deleted. no-cache still allows cheap 304s via ETag
+    # while guaranteeing a fresh build is picked up immediately. This exact-match
+    # location also catches the try_files fallback below, since the internal
+    # redirect to /index.html re-runs location matching.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # The service worker must never be cached hard, or clients get pinned to an
+    # old precache manifest and never see new deploys.
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+    }
+
     location /v1/ {
         proxy_pass http://${API_UPSTREAM};
         proxy_set_header Host $host;
