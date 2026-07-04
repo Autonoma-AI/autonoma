@@ -51,7 +51,7 @@ function sampleReportData(): InvestigationReportData {
                 validation: { passed: true, iterations: 2 },
             },
         ],
-        quarantine: [{ slug: "legacy-wishlist", reason: "The wishlist page this test exercises was deleted." }],
+        quarantine: [],
         deployed: {
             found: true,
             jobStatus: "completed",
@@ -84,7 +84,6 @@ investigationDbSuite({
                 include: {
                     findings: { orderBy: { displayOrder: "asc" } },
                     suggestedTests: true,
-                    quarantine: true,
                 },
             });
 
@@ -108,10 +107,6 @@ investigationDbSuite({
             expect(report.suggestedTests[0]?.name).toBe("Guest checkout");
             expect(report.suggestedTests[0]?.validationPassed).toBe(true);
             expect(report.suggestedTests[0]?.validationIterations).toBe(2);
-
-            expect(report.quarantine).toHaveLength(1);
-            expect(report.quarantine[0]?.slug).toBe("legacy-wishlist");
-            expect(report.quarantine[0]?.reason).toContain("wishlist page");
         });
 
         test("re-persisting the same snapshot replaces children (idempotent), never duplicating", async ({
@@ -142,14 +137,12 @@ investigationDbSuite({
 
             const report = await harness.db.investigationReport.findUniqueOrThrow({
                 where: { snapshotId },
-                include: { findings: true, suggestedTests: true, quarantine: true },
+                include: { findings: true, suggestedTests: true },
             });
             expect(report.findings).toHaveLength(1);
             expect(report.findings[0]?.category).toBe("passed");
             expect(report.clientBugCount).toBe(0);
             expect(report.suggestedTests).toHaveLength(0);
-            // The first run's quarantine row must be gone - children are replaced wholesale.
-            expect(report.quarantine).toHaveLength(0);
 
             // No orphans: the whole app's finding rows equal the single re-run finding.
             const allFindings = await harness.db.investigationFinding.count({

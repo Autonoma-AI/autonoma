@@ -2099,7 +2099,7 @@ enum InvestigationReportStatus {
 }
 
 /// The shadow "investigation" agent's structured report for a snapshot. This, plus its child tables
-/// (InvestigationFinding / InvestigationSuggestedTest / InvestigationQuarantine), is the queryable native
+/// (InvestigationFinding / InvestigationSuggestedTest), is the queryable native
 /// home for the agent's output - it REPLACES the old S3-JSON round-trip (the API reads these tables and signs
 /// the stored media keys on read). The whole set is an isolated island: it only FKs OUTWARD (snapshot / org,
 /// cascade) and nothing in the core app FKs into it, so retiring the agent later is a clean DROP TABLE.
@@ -2135,7 +2135,6 @@ model InvestigationReport {
 
   findings       InvestigationFinding[]
   suggestedTests InvestigationSuggestedTest[]
-  quarantine     InvestigationQuarantine[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -2216,26 +2215,6 @@ model InvestigationSuggestedTest {
 
   @@index([reportSnapshotId])
   @@map("investigation_suggested_test")
-}
-
-/// An EXISTING test the agent recommends removing because the diff deleted the feature it exercised (so the
-/// test can no longer pass). Display-only, observe-first: surfacing the recommendation + reason is decoupled
-/// from the flag-gated deletion action. Not tied to a finding - the test never ran this snapshot.
-model InvestigationQuarantine {
-  id               String              @id @default(cuid())
-  reportSnapshotId String              @map("report_snapshot_id")
-  report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
-
-  slug   String
-  reason String @db.Text
-
-  displayOrder Int @map("display_order")
-
-  createdAt      DateTime @default(now()) @map("created_at")
-  organizationId String   @map("organization_id")
-
-  @@index([reportSnapshotId])
-  @@map("investigation_quarantine")
 }
 
 model AffectedTest {

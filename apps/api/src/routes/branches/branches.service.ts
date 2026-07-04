@@ -285,7 +285,6 @@ export class BranchesService extends Service {
                     deployed: true,
                     findings: { orderBy: { displayOrder: "asc" }, select: investigationFindingSelect },
                     suggestedTests: { orderBy: { displayOrder: "asc" }, select: investigationSuggestedTestSelect },
-                    quarantine: { orderBy: { displayOrder: "asc" }, select: { slug: true, reason: true } },
                 },
             });
             if (report == null) return undefined;
@@ -320,7 +319,8 @@ export class BranchesService extends Service {
                               }
                             : undefined,
                 })),
-                quarantine: report.quarantine.map((item) => ({ slug: item.slug, reason: item.reason })),
+                // Quarantine is deprecated - the island does not store it; the report contract keeps the (empty) field.
+                quarantine: [],
                 deployed: report.deployed ?? undefined,
             };
         } catch (error) {

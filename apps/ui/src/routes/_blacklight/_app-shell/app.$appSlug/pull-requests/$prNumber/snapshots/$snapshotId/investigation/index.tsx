@@ -2,7 +2,6 @@ import { Badge, Separator, Skeleton } from "@autonoma/blacklight";
 import type {
   InvestigationDeployedComparison,
   InvestigationFinding,
-  InvestigationQuarantine,
   InvestigationSuggestedTest,
 } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
@@ -10,7 +9,6 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { RocketIcon } from "@phosphor-icons/react/Rocket";
-import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { createFileRoute } from "@tanstack/react-router";
 import { findingCategoryMeta, PASSED_PRIORITY } from "components/investigation/finding-category";
 import { useInvestigationReport, useInvestigationReportData } from "lib/query/branches.queries";
@@ -133,13 +131,6 @@ function FindingsList() {
         </>
       )}
 
-      {data.quarantine.length > 0 && (
-        <>
-          <Separator className="my-2" />
-          <RecommendedRemovals quarantine={data.quarantine} />
-        </>
-      )}
-
       {data.deployed != null && (
         <>
           <Separator className="my-2" />
@@ -229,37 +220,6 @@ function ProposedTests({ suggested }: { suggested: InvestigationSuggestedTest[] 
       <ul className="flex flex-col gap-2">
         {suggested.map((test, i) => (
           <ProposalCard key={i} test={test} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * Existing tests the agent recommends removing because the diff deleted the feature they exercised (so they can
- * no longer pass). Distinct from findings (these tests never ran this snapshot) and from proposed tests (those
- * are additions). Display-only + observe-first: this surfaces the recommendation and its reason - the actual
- * deletion is a separate, flag-gated action, not something the UI performs.
- */
-function RecommendedRemovals({ quarantine }: { quarantine: InvestigationQuarantine[] }) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-text-secondary">
-        <TrashIcon size={14} />
-        <span className="font-mono text-2xs uppercase tracking-widest">
-          {quarantine.length} recommended {quarantine.length === 1 ? "removal" : "removals"}
-        </span>
-      </div>
-      <p className="text-xs leading-relaxed text-text-secondary">
-        Existing tests the agent recommends removing - the diff deleted the feature they exercised. Recommendation only;
-        removing a test is a separate action.
-      </p>
-      <ul className="flex flex-col gap-2">
-        {quarantine.map((item, i) => (
-          <li key={i} className="flex flex-col gap-1.5 rounded-lg border border-border-dim bg-surface-base px-4 py-3">
-            <p className="font-mono text-sm text-text-primary">{item.slug}</p>
-            {item.reason !== "" && <p className="text-sm leading-relaxed text-text-secondary">{item.reason}</p>}
-          </li>
         ))}
       </ul>
     </section>

@@ -31,11 +31,7 @@ export class InvestigationReportPersister {
         const { snapshotId, organizationId, data, s3Key } = input;
         this.logger.info("Persisting investigation report to the island tables", {
             snapshot: { snapshotId },
-            extra: {
-                findings: data.findings.length,
-                suggested: data.suggested.length,
-                quarantine: data.quarantine.length,
-            },
+            extra: { findings: data.findings.length, suggested: data.suggested.length },
         });
 
         const clientBugCount = data.findings.filter((finding) => finding.category === "client_bug").length;
@@ -62,7 +58,6 @@ export class InvestigationReportPersister {
             // Replace children wholesale: a re-run's row set always mirrors the latest classification.
             await tx.investigationFinding.deleteMany({ where: { reportSnapshotId: snapshotId } });
             await tx.investigationSuggestedTest.deleteMany({ where: { reportSnapshotId: snapshotId } });
-            await tx.investigationQuarantine.deleteMany({ where: { reportSnapshotId: snapshotId } });
 
             if (data.findings.length > 0) {
                 await tx.investigationFinding.createMany({
@@ -82,17 +77,6 @@ export class InvestigationReportPersister {
                         validationPassed: test.validation?.passed,
                         validationIterations: test.validation?.iterations,
                         validationFailureReason: test.validation?.failureReason,
-                        displayOrder: index,
-                    })),
-                });
-            }
-            if (data.quarantine.length > 0) {
-                await tx.investigationQuarantine.createMany({
-                    data: data.quarantine.map((item, index) => ({
-                        reportSnapshotId: snapshotId,
-                        organizationId,
-                        slug: item.slug,
-                        reason: item.reason,
                         displayOrder: index,
                     })),
                 });
