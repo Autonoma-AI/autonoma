@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.8.15](https://github.com/Autonoma-AI/agent/compare/v1.8.14...v1.8.15) (2026-07-04)
+
+
+### Features
+
+* add client-side name filter to generations and runs lists ([#1112](https://github.com/Autonoma-AI/agent/issues/1112)) ([a5f14fa](https://github.com/Autonoma-AI/agent/commit/a5f14fa374efaf1db44d7ff2f886f0b2f4b2b6d0))
+* **investigation:** agent picks the most descriptive report frame ([#1268](https://github.com/Autonoma-AI/agent/issues/1268)) ([267e662](https://github.com/Autonoma-AI/agent/commit/267e662dfb43d48c2ac21bcc4fca7fee58c8e83a))
+* **investigation:** cumulative regression running across snapshots ([#1265](https://github.com/Autonoma-AI/agent/issues/1265)) ([0aaf28b](https://github.com/Autonoma-AI/agent/commit/0aaf28b72cc53350b99c48c18cbfde68bdb8f067))
+* **investigation:** gate test deletion behind the org autofix flag ([#1280](https://github.com/Autonoma-AI/agent/issues/1280)) ([62764a6](https://github.com/Autonoma-AI/agent/commit/62764a67f817b3cbd6e43dcdba861aa14e977b38))
+* **investigation:** persist reports to a queryable native island (replaces S3-JSON) ([#1267](https://github.com/Autonoma-AI/agent/issues/1267)) ([df4800f](https://github.com/Autonoma-AI/agent/commit/df4800ff9b64d0b230477bae96b54ef5338dba31))
+* **investigation:** PR-row entry point onto the shadow report (Home + PR list) ([#1278](https://github.com/Autonoma-AI/agent/issues/1278)) ([6ecd855](https://github.com/Autonoma-AI/agent/commit/6ecd855ea760d1b9e8af5416c7882ad485d37226))
+* **investigation:** render the agent's proposed new tests on the report UI ([#1276](https://github.com/Autonoma-AI/agent/issues/1276)) ([89b128d](https://github.com/Autonoma-AI/agent/commit/89b128d74aef1a95b1c42db76ac69656ba61dac1))
+* **investigation:** shadow TestCase marker - unblocks proposed-new-test validation ([#1264](https://github.com/Autonoma-AI/agent/issues/1264)) ([20b1dcc](https://github.com/Autonoma-AI/agent/commit/20b1dcc894604269116459effe59f2b8b2b778ea))
+* **investigation:** show the deployed-agent comparison at the bottom of the report ([#1283](https://github.com/Autonoma-AI/agent/issues/1283)) ([c04d4a1](https://github.com/Autonoma-AI/agent/commit/c04d4a1f525302c1db807857d6933ee06ed1f048))
+* **investigation:** tool-using recipe-repair agent (replaces one-shot editor) ([#1261](https://github.com/Autonoma-AI/agent/issues/1261)) ([0f699b1](https://github.com/Autonoma-AI/agent/commit/0f699b10509ca103a30db47a017b0d740ba319cc))
+* **investigation:** write live workflow progress (running/stage/failed) to the PR entry point ([#1279](https://github.com/Autonoma-AI/agent/issues/1279)) ([16bc885](https://github.com/Autonoma-AI/agent/commit/16bc885dbca9c5c3a0e99e46170d42b8b9cb00a9))
+* record investigation orchestration AI costs ([#1260](https://github.com/Autonoma-AI/agent/issues/1260)) ([84096c0](https://github.com/Autonoma-AI/agent/commit/84096c00e873c8e36ef8a4b295b6ec78e810ac27))
+* scope bug detection and storage to branch ([#1244](https://github.com/Autonoma-AI/agent/issues/1244)) ([57a886b](https://github.com/Autonoma-AI/agent/commit/57a886b6ad919f7f918a8c8bc3de58b42cd557d4))
+* scope bug reads and UI to branch ([#1259](https://github.com/Autonoma-AI/agent/issues/1259)) ([18121ae](https://github.com/Autonoma-AI/agent/commit/18121aeaa99be26ff4b92615886f4256f0fbcf98))
+* **signup-hooks:** disable welcome email send on signup and login ([#1118](https://github.com/Autonoma-AI/agent/issues/1118)) ([04c28d6](https://github.com/Autonoma-AI/agent/commit/04c28d6850b3587ce37306cd98855da25100bd49))
+
+
+### Bug Fixes
+
+* **checkpoint:** raise integration-test timeouts so prod deploys stop failing ([#1248](https://github.com/Autonoma-AI/agent/issues/1248)) ([f62ef54](https://github.com/Autonoma-AI/agent/commit/f62ef544165d93800b4dfdd29aeab611ecdd9a0a))
+* **cli:** friendly message when the planner proxy is unreachable ([#1256](https://github.com/Autonoma-AI/agent/issues/1256)) ([87c6c3d](https://github.com/Autonoma-AI/agent/commit/87c6c3d8a22d337c4a432bb9168ab7211896a862))
+* **investigation:** categorize escaped SDK/infra throws instead of null-verdict classification_error ([#1263](https://github.com/Autonoma-AI/agent/issues/1263)) ([4da498b](https://github.com/Autonoma-AI/agent/commit/4da498b961014b9e51e4c3af99ea2040d7d111ec))
+* **investigation:** hide the entry point for reports the page can't render ([#1281](https://github.com/Autonoma-AI/agent/issues/1281)) ([7cb13a6](https://github.com/Autonoma-AI/agent/commit/7cb13a690602bccad2877f22508c164418718463))
+* **previewkit:** hide prior attempt error while rebuilding a fresh commit ([#1233](https://github.com/Autonoma-AI/agent/issues/1233)) ([3557c13](https://github.com/Autonoma-AI/agent/commit/3557c130faf6c57cfe4c8f7d7f854a9bfd24a6e2))
+* trigger generations when setup finished before go-live ([#1147](https://github.com/Autonoma-AI/agent/issues/1147)) ([1c381fe](https://github.com/Autonoma-AI/agent/commit/1c381fe070ba2bacd0f609e22dfbfa6f406fd37e))
+
 ## [1.8.14](https://github.com/Autonoma-AI/agent/compare/v1.8.13...v1.8.14) (2026-07-02)
 
 
