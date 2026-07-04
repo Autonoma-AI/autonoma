@@ -455,10 +455,13 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
 
 - `deployment/apps/previewkit.yaml` -- the Previewkit Deployment, Service, RBAC/ServiceAccount, and its ExternalSecret.
 - `deployment/previewkit/cluster/` -- one-time cluster bootstrap:
-  - `config/` -- `namespace.yaml` (the shared `system` namespace), `storage-class.yaml`, `vpc-cni-network-policy.yaml`
+  - `config/` -- `namespace.yaml` (the shared `system` + `cronjobs` namespaces), `storage-class.yaml`, `vpc-cni-network-policy.yaml`
   - `secrets-manager/` -- `cluster-secret-store.yaml` + `service-account.yaml` (External Secrets Operator -> AWS Secrets Manager)
-  - `karpenter/` -- `nodepool.yaml`, `nodeclass.yaml`, `nodepool-buildkit.yaml` (dedicated build nodes)
+  - `karpenter/` -- `nodepool.yaml` (default spot pool + gatekeeper pool), `nodeclass.yaml`
   - `ingress/` -- ingress-nginx values and the shared gateway HTTPRoute
+  - `logging/` -- `alloy.yaml` (DaemonSet shipping preview pod logs to Loki)
+  - `monitoring/` -- `prometheus.yaml` + `opencost.yaml` (per-namespace/per-PR cost attribution; see the file headers for access)
+- `deployment/previewkit/cronjobs/delete-old-ns.yaml` -- nightly reaper deleting preview namespaces older than 7 days (main-branch `*-pr-0` environments excluded)
 
 Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`), which the runner dials via `BUILDKIT_WARM_HOST`; each pod's node-local NVMe cache keeps layer reuse hot across builds.
 
