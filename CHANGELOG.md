@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.16](https://github.com/Autonoma-AI/agent/compare/v1.8.15...v1.8.16) (2026-07-04)
+
+
+### Features
+
+* **investigation:** color-code PR-list entry point by severity + loading skeletons ([#1287](https://github.com/Autonoma-AI/agent/issues/1287)) ([5450228](https://github.com/Autonoma-AI/agent/commit/5450228977f32815a619eafd2d0cba6f9a3b7e9c))
+* **investigation:** surface the agent's removal recommendations in-app ([#1286](https://github.com/Autonoma-AI/agent/issues/1286)) ([6ba4ccf](https://github.com/Autonoma-AI/agent/commit/6ba4ccf40731a968a25f646187f523784fff25eb))
+* **investigation:** surface the scenario-repair diagnosis as finding evidence ([#1284](https://github.com/Autonoma-AI/agent/issues/1284)) ([69e8e22](https://github.com/Autonoma-AI/agent/commit/69e8e2278637bc7fcdcbe248da0b11fb5993d0e5))
+
+
+### Reverts
+
+* **investigation:** remove the deprecated quarantine/removal surface ([#1286](https://github.com/Autonoma-AI/agent/issues/1286)) ([#1288](https://github.com/Autonoma-AI/agent/issues/1288)) ([4f55352](https://github.com/Autonoma-AI/agent/commit/4f55352553f85a9623b7f1bc7ddd55bbea97c33e))
+
 ## [1.8.15](https://github.com/Autonoma-AI/agent/compare/v1.8.14...v1.8.15) (2026-07-04)
 
 
