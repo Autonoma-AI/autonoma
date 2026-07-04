@@ -39,20 +39,59 @@ export function useInvestigationReportData(snapshotId: string) {
  */
 export interface InvestigationPresence {
     clientBugCount: number;
+    /** Count of scenario/environment-failure findings - the amber (warning) signal for the entry point. */
+    warningCount: number;
     status: string;
     /** The coarse in-flight stage while status is "running" (undefined once terminal). */
     stage?: string;
 }
 
-export function useInvestigationReportsBySnapshot(snapshotIds: string[]): Map<string, InvestigationPresence> {
+export interface InvestigationPresenceResult {
+    bySnapshot: Map<string, InvestigationPresence>;
+    /** True while the (internal-only) presence query is in flight - the entry points show skeletons meanwhile. */
+    isLoading: boolean;
+    /** Whether the entry points apply at all (internal user with snapshots to look up). */
+    enabled: boolean;
+}
+
+export function useInvestigationReportsBySnapshot(snapshotIds: string[]): InvestigationPresenceResult {
     const { user } = useAuth();
     const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
-    const { data } = useQuery({
+    const enabled = isInternal && snapshotIds.length > 0;
+    const { data, isLoading } = useQuery({
         ...trpc.branches.investigationReportsForSnapshots.queryOptions({ snapshotIds }),
-        enabled: isInternal && snapshotIds.length > 0,
+        enabled,
     });
-    return new Map((data ?? []).map((entry) => [entry.snapshotId, entry]));
+    return {
+        bySnapshot: new Map((data ?? []).map((entry) => [entry.snapshotId, entry])),
+        // `isLoading` is true only for an enabled-but-unsettled query, so a non-internal user never shows skeletons.
+        isLoading: enabled && isLoading,
+        enabled,
+    };
 }
+
+export type InvestigationEntryTone = "bug" | "warning" | "neutral";
+
+/**
+ * Severity color for the PR-list entry point: red when the run found one or more client bugs, amber for a
+ * scenario/environment failure (actionable, not a confirmed bug), gray otherwise (clean, running, or failed).
+ */
+export function investigationEntryTone(presence: InvestigationPresence): InvestigationEntryTone {
+    if (presence.clientBugCount > 0) return "bug";
+    if (presence.warningCount > 0) return "warning";
+    return "neutral";
+}
+
+/**
+ * Entry-point text color by severity, single-sourced for the Home + PR-list entry points: red for bugs, amber
+ * for scenario/environment failures, gray otherwise. Includes the hover color so a bug/warning link keeps its
+ * tone on hover (only the neutral link brightens to primary).
+ */
+export const INVESTIGATION_TONE_CLASS: Record<InvestigationEntryTone, string> = {
+    bug: "text-status-critical hover:text-status-critical",
+    warning: "text-status-warn hover:text-status-warn",
+    neutral: "text-text-secondary hover:text-text-primary",
+};
 
 const INVESTIGATION_STAGE_LABEL: Record<string, string> = {
     selecting: "selecting tests",

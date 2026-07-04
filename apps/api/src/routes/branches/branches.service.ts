@@ -56,6 +56,24 @@ const RENDERABLE_OR_LIVE_REPORT: Prisma.InvestigationReportWhereInput = {
     OR: [{ appSlug: { not: null } }, { status: "running" }],
 };
 
+/**
+ * Finding categories that make a report "warning"-level (amber entry point): a scenario-data problem or an
+ * environment/provisioning failure - actionable, but not a confirmed client bug. Client bugs (red) are counted
+ * separately via the denormalized `clientBugCount`; everything else is neutral (gray). Kept as a filtered
+ * relation count on the presence reads so the entry point can be colored without loading the findings.
+ */
+const WARNING_FINDING_CATEGORIES = ["scenario_issue", "environment_failure"];
+
+/** One PR's investigation entry-point presence (drives the colored pill on the Home + PR lists). */
+export interface InvestigationPresenceEntry {
+    snapshotId: string;
+    clientBugCount: number;
+    /** Count of scenario/environment-failure findings - the amber (warning) signal. */
+    warningCount: number;
+    status: string;
+    stage?: string;
+}
+
 /** Columns read from an InvestigationFinding row to reconstruct the UI's InvestigationFinding shape. */
 const investigationFindingSelect = {
     findingKey: true,
@@ -205,11 +223,12 @@ export class BranchesService extends Service {
                     status: true,
                     stage: true,
                     snapshot: { select: { investigationParent: { select: { id: true } } } },
+                    _count: { select: { findings: { where: { category: { in: WARNING_FINDING_CATEGORIES } } } } },
                 },
             });
 
             const seen = new Set<string>();
-            const presence = [];
+            const presence: InvestigationPresenceEntry[] = [];
             for (const report of reports) {
                 const parentId = report.snapshot.investigationParent?.id;
                 const prSnapshotId = parentId != null && requested.has(parentId) ? parentId : report.snapshotId;
@@ -218,6 +237,7 @@ export class BranchesService extends Service {
                 presence.push({
                     snapshotId: prSnapshotId,
                     clientBugCount: report.clientBugCount,
+                    warningCount: report._count.findings,
                     status: report.status,
                     stage: report.stage ?? undefined,
                 });

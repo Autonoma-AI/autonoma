@@ -159,6 +159,38 @@ apiTestSuite({
                     clientBugCount: 2,
                 },
             });
+            // A scenario + an environment failure make PR A "warning"-level; a passed finding must NOT count.
+            await harness.db.investigationFinding.createMany({
+                data: [
+                    {
+                        reportSnapshotId: prA.id,
+                        organizationId: harness.organizationId,
+                        findingKey: "a1",
+                        slug: "a1",
+                        category: "scenario_issue",
+                        headline: "seed",
+                        displayOrder: 0,
+                    },
+                    {
+                        reportSnapshotId: prA.id,
+                        organizationId: harness.organizationId,
+                        findingKey: "a2",
+                        slug: "a2",
+                        category: "environment_failure",
+                        headline: "env",
+                        displayOrder: 1,
+                    },
+                    {
+                        reportSnapshotId: prA.id,
+                        organizationId: harness.organizationId,
+                        findingKey: "a3",
+                        slug: "a3",
+                        category: "passed",
+                        headline: "ok",
+                        displayOrder: 2,
+                    },
+                ],
+            });
 
             // PR B: an island report on the detached twin, reachable only via the investigationParent FK.
             const prB = await harness.db.branchSnapshot.create({
@@ -207,9 +239,10 @@ apiTestSuite({
 
             const byId = new Map(presence.map((entry) => [entry.snapshotId, entry]));
             expect(byId.size).toBe(2);
-            expect(byId.get(prA.id)).toMatchObject({ clientBugCount: 2, status: "completed" });
+            // warningCount counts only scenario/environment findings (2), never the passed one.
+            expect(byId.get(prA.id)).toMatchObject({ clientBugCount: 2, warningCount: 2, status: "completed" });
             // The twin's report is keyed back to the PR snapshot the UI routes on, not the twin id.
-            expect(byId.get(prB.id)).toMatchObject({ clientBugCount: 0, status: "completed" });
+            expect(byId.get(prB.id)).toMatchObject({ clientBugCount: 0, warningCount: 0, status: "completed" });
             expect(byId.has(twinB.id)).toBe(false);
             expect(byId.has(prC.id)).toBe(false);
             expect(byId.has(prD.id)).toBe(false);

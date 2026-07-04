@@ -1,11 +1,13 @@
-import { Badge, EmptyState } from "@autonoma/blacklight";
+import { Badge, cn, EmptyState, Skeleton } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { formatRelativeTime } from "lib/format";
 import {
+  INVESTIGATION_TONE_CLASS,
   type InvestigationPresence,
   investigationEntryLabel,
+  investigationEntryTone,
   useInvestigationReportsBySnapshot,
 } from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
@@ -14,8 +16,8 @@ import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-
 
 export function OpenPrsList() {
   const prs = useLatestPullRequests();
-  // Internal-only (@autonoma.app); the hook returns an empty map for everyone else, so no entry point renders.
-  const investigationBySnapshot = useInvestigationReportsBySnapshot(
+  // Internal-only (@autonoma.app); the hook is disabled for everyone else, so no entry point renders.
+  const investigation = useInvestigationReportsBySnapshot(
     prs.map((pr) => pr.snapshotId).filter((id): id is string => id != null),
   );
 
@@ -47,7 +49,8 @@ export function OpenPrsList() {
               <PrRow
                 key={pr.id}
                 pr={pr}
-                investigation={pr.snapshotId != null ? investigationBySnapshot.get(pr.snapshotId) : undefined}
+                investigation={pr.snapshotId != null ? investigation.bySnapshot.get(pr.snapshotId) : undefined}
+                investigationLoading={investigation.isLoading}
               />
             ))
           )}
@@ -57,7 +60,15 @@ export function OpenPrsList() {
   );
 }
 
-function PrRow({ pr, investigation }: { pr: LatestPullRequest; investigation?: InvestigationPresence }) {
+function PrRow({
+  pr,
+  investigation,
+  investigationLoading,
+}: {
+  pr: LatestPullRequest;
+  investigation?: InvestigationPresence;
+  investigationLoading: boolean;
+}) {
   return (
     <div className="relative flex items-center gap-3 border-t border-border-dim px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-raised">
       <AppLink
@@ -105,6 +116,7 @@ function PrRow({ pr, investigation }: { pr: LatestPullRequest; investigation?: I
         {investigation != null && pr.snapshotId != null && (
           <InvestigationEntry prNumber={pr.prNumber} snapshotId={pr.snapshotId} investigation={investigation} />
         )}
+        {investigation == null && investigationLoading && <Skeleton className="h-3 w-24" />}
       </div>
     </div>
   );
@@ -113,7 +125,8 @@ function PrRow({ pr, investigation }: { pr: LatestPullRequest; investigation?: I
 /**
  * The internal-only entry point onto the shadow investigation report, surfaced right on the PR row so it is not
  * buried inside the checkpoint page. Nested inside the row's full-bleed link, so it needs its own z-layer +
- * stopPropagation to win the click. Shows the bug count when there is one, or a "running" hint while in flight.
+ * stopPropagation to win the click. Colored by severity (bug/warning/neutral); shows the bug count when there is
+ * one, or a "running" hint while in flight.
  */
 function InvestigationEntry({
   prNumber,
@@ -130,11 +143,14 @@ function InvestigationEntry({
       params={{ prNumber: String(prNumber), snapshotId }}
       onClick={(e) => e.stopPropagation()}
       aria-label={`Investigation report for PR #${prNumber}`}
-      className="relative z-10 inline-flex items-center gap-1 text-text-secondary hover:text-text-primary hover:underline"
+      className={cn(
+        "relative z-10 inline-flex items-center gap-1 hover:underline",
+        INVESTIGATION_TONE_CLASS[investigationEntryTone(investigation)],
+      )}
     >
       <MagnifyingGlassIcon size={11} />
       investigation
-      <span className="text-text-secondary">· {investigationEntryLabel(investigation)}</span>
+      <span>· {investigationEntryLabel(investigation)}</span>
     </AppLink>
   );
 }

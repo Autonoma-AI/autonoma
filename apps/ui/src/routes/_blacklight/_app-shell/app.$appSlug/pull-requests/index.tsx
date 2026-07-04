@@ -10,6 +10,7 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  cn,
 } from "@autonoma/blacklight";
 import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
@@ -18,10 +19,12 @@ import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import {
+  INVESTIGATION_TONE_CLASS,
   type InvestigationPresence,
   type PullRequestStateFilter,
   ensureBranchesData,
   investigationEntryLabel,
+  investigationEntryTone,
   useBranchDetail,
   useBranches,
   useInvestigationReportsBySnapshot,
@@ -103,8 +106,8 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
       : [],
   );
 
-  // Internal-only (@autonoma.app); empty for everyone else, so the column below never renders for customers.
-  const investigationBySnapshot = useInvestigationReportsBySnapshot(
+  // Internal-only (@autonoma.app); disabled for everyone else, so the column below never renders for customers.
+  const investigation = useInvestigationReportsBySnapshot(
     rows.map((row) => row.snapshotId).filter((id): id is string => id != null),
   );
 
@@ -162,9 +165,10 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
     },
   ];
 
-  // Internal-only column: present only when at least one PR has an investigation report (so it never shows an
-  // empty column to customers or when no reports exist yet).
-  if (investigationBySnapshot.size > 0) {
+  // Internal-only column: reserved for the whole (internal) view - skeleton cells while the presence query
+  // loads, then links or empty cells - so there is no post-load column reflow. Never renders for customers
+  // (the hook is disabled for them, so `enabled` is false).
+  if (investigation.enabled) {
     columns.push({
       id: "investigation",
       header: "Investigation",
@@ -175,8 +179,9 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
           prNumber={row.original.prNumber}
           snapshotId={row.original.snapshotId}
           investigation={
-            row.original.snapshotId != null ? investigationBySnapshot.get(row.original.snapshotId) : undefined
+            row.original.snapshotId != null ? investigation.bySnapshot.get(row.original.snapshotId) : undefined
           }
+          loading={investigation.isLoading}
         />
       ),
     });
@@ -204,25 +209,33 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
 
 /**
  * Internal-only PR-list cell linking to the shadow investigation report for a PR. Nested inside a clickable
- * table row, so it stops propagation to win the click. Shows a "running" hint or the bug count when present.
+ * table row, so it stops propagation to win the click. Colored by severity (bug/warning/neutral); shows a
+ * skeleton while the presence query loads, then the bug count or a "running" hint.
  */
 function PRInvestigationCell({
   prNumber,
   snapshotId,
   investigation,
+  loading,
 }: {
   prNumber: number;
   snapshotId?: string;
   investigation?: InvestigationPresence;
+  loading: boolean;
 }) {
-  if (investigation == null || snapshotId == null) return undefined;
+  if (investigation == null || snapshotId == null) {
+    return loading ? <Skeleton className="h-3 w-16" /> : undefined;
+  }
   return (
     <AppLink
       to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
       params={{ prNumber: String(prNumber), snapshotId }}
       onClick={(e) => e.stopPropagation()}
       aria-label={`Investigation report for PR #${prNumber}`}
-      className="inline-flex items-center gap-1 font-mono text-2xs text-text-secondary hover:text-text-primary hover:underline"
+      className={cn(
+        "inline-flex items-center gap-1 font-mono text-2xs hover:underline",
+        INVESTIGATION_TONE_CLASS[investigationEntryTone(investigation)],
+      )}
     >
       <MagnifyingGlassIcon size={12} />
       {investigationEntryLabel(investigation)}
