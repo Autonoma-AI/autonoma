@@ -15,7 +15,6 @@ The Autonoma AI frontend - a single-page application for creating, managing, and
 - **Zustand** - lightweight client state management
 - **Sentry** - error tracking and breadcrumbs
 - **PostHog** - product analytics and user identification
-- **PWA** - progressive web app support via `vite-plugin-pwa`
 
 ## Getting Started
 

@@ -69,36 +69,15 @@ export default defineConfig({
             },
         }),
         tsconfigPaths(),
+        // The PWA is being retired. We previously shipped an autoUpdate service
+        // worker, so users who already loaded the app have one registered. Simply
+        // dropping the plugin would leave that stale worker in place, pinning them
+        // to an old cached build. `selfDestroying` ships a service worker (at the
+        // same /sw.js path the browser already polls) that unregisters itself and
+        // clears its caches on the next visit. Once this has propagated to clients,
+        // the plugin and this block should be removed entirely in a follow-up.
         VitePWA({
-            registerType: "autoUpdate",
-            workbox: {
-                globPatterns: ["**/*.{js,css,html,woff,woff2}"],
-                maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-                navigateFallback: "/index.html",
-                navigateFallbackDenylist: [/^\/v1\//, /^\/ingest\//],
-                runtimeCaching: [
-                    {
-                        urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "google-fonts",
-                            expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
-                        },
-                    },
-                    {
-                        urlPattern: /\/v1\//,
-                        handler: "NetworkFirst",
-                        options: {
-                            cacheName: "api-cache",
-                            expiration: { maxEntries: 100, maxAgeSeconds: 60 * 5 },
-                            networkTimeoutSeconds: 10,
-                        },
-                    },
-                ],
-            },
-            devOptions: {
-                enabled: false,
-            },
+            selfDestroying: true,
         }),
     ],
     envDir: path.resolve(import.meta.dirname, "..", ".."),
