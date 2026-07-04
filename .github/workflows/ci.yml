@@ -16,7 +16,7 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Conventional Commit Validation
-        uses: ytanikin/pr-conventional-commits@1.5.1
+        uses: ytanikin/pr-conventional-commits@1.5.2
         with:
           task_types: '["feat","fix","docs","test","ci","refactor","perf","chore","revert", "style"]'
           add_label: "false"
@@ -29,7 +29,7 @@ jobs:
       db: ${{ steps.filter.outputs.db }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check for changes
         uses: dorny/paths-filter@v4
@@ -60,10 +60,10 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: useblacksmith/setup-node@v5
@@ -100,10 +100,10 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: useblacksmith/setup-node@v5
@@ -123,12 +123,12 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           lfs: true
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: useblacksmith/setup-node@v5
@@ -159,10 +159,10 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: useblacksmith/setup-node@v5
@@ -182,10 +182,10 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: useblacksmith/setup-node@v5

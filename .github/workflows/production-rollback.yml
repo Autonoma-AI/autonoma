@@ -25,7 +25,7 @@ jobs:
       rollback-status: ${{ steps.rollback.outcome }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Determine target release
         id: determine-release
@@ -90,14 +90,14 @@ jobs:
           tags: tag:github-actions
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_SERVICE_ACCOUNT_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SERVICE_ACCOUNT_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Configure kubeconfig
         run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}

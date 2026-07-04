@@ -32,7 +32,7 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Keep persisted credentials so the action can fetch the PR branch and
           # push commits back to it.
