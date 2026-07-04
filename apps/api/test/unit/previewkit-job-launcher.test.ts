@@ -12,7 +12,9 @@ import {
 // ConfigMap is read from the API's own (per-env) namespace.
 const JOB_NAMESPACE = "previewkit";
 const IMAGE_NAMESPACE = "beta";
-const RUNNER_IMAGE = "registry/beta/worker-previewkit:abc123def";
+const RUNNER_IMAGE = "registry/beta/previewkit:abc123def";
+const DATABASE_URL = "postgresql://user:pass@beta-db:5432/beta";
+const SENTRY_ENV = "beta";
 
 const event: PreviewDeployEvent = {
     action: "synchronize",
@@ -73,6 +75,8 @@ function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RU
         coreApi: cms,
         jobNamespace: JOB_NAMESPACE,
         imageNamespace: IMAGE_NAMESPACE,
+        databaseUrl: DATABASE_URL,
+        sentryEnv: SENTRY_ENV,
     });
 }
 
@@ -118,15 +122,22 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
         const c = container(job);
         // SHA-pinned image resolved from the previewkit-runner-image ConfigMap.
         expect(c.image).toBe(RUNNER_IMAGE);
-        expect(c.envFrom?.map((e) => e.secretRef?.name ?? e.configMapRef?.name)).toEqual([
-            "previewkit-env-file",
-            "previewkit-runner-env",
-        ]);
+        // Only the secret bundle is mounted via envFrom; non-secret config
+        // (SENTRY_ENV) is injected as explicit env, not a ConfigMap.
+        expect(c.envFrom?.map((e) => e.secretRef?.name ?? e.configMapRef?.name)).toEqual(["previewkit-env-file"]);
 
         const spec = jobSpecEnv(job);
         expect(spec.mode).toBe("deploy");
         expect(spec.event.repoFullName).toBe("acme/widgets");
         expect(spec.event.prNumber).toBe(42);
+
+        // DATABASE_URL is injected as an explicit env var (not via envFrom), so it
+        // overrides the production DB URL the shared previewkit-env-file secret
+        // carries - the runner writes to the launching API's own DB.
+        expect(c.env?.find((e) => e.name === "DATABASE_URL")?.value).toBe(DATABASE_URL);
+        // SENTRY_ENV is injected from the launching API's own config, replacing the
+        // former previewkit-runner-env ConfigMap.
+        expect(c.env?.find((e) => e.name === "SENTRY_ENV")?.value).toBe(SENTRY_ENV);
     });
 
     it("supersedes an in-flight deploy job (Background delete) before creating the new one", async () => {

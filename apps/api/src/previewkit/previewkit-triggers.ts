@@ -21,9 +21,9 @@ export interface PreviewkitTriggers {
     redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
-// The runner Jobs (plus the shared previewkit SA / env secret / runner-env
-// ConfigMap they mount) live in this dedicated control-cluster namespace; the
-// API creates Jobs here cross-namespace (see deployment/apps/previewkit.yaml).
+// The runner Jobs (plus the shared previewkit SA / env secret they mount) live
+// in this dedicated control-cluster namespace; the API creates Jobs here
+// cross-namespace (see deployment/apps/previewkit.yaml).
 const PREVIEWKIT_JOB_NAMESPACE = "previewkit";
 
 let launcher: PreviewkitJobLauncher | undefined;
@@ -45,11 +45,15 @@ function getLauncher(): PreviewkitJobLauncher {
     // ConfigMap in the API's own namespace (env.NAMESPACE), so each environment
     // pins its own runner image; the Job is then created in the shared previewkit
     // namespace with that image. No image is wired through the API env directly.
+    // DATABASE_URL is baked in from this API's own env so the runner writes to the
+    // same DB this API reads from (overriding the shared env secret's prod DB URL).
     launcher = new PreviewkitJobLauncher({
         batchApi: kc.makeApiClient(BatchV1Api),
         coreApi: kc.makeApiClient(CoreV1Api),
         jobNamespace: PREVIEWKIT_JOB_NAMESPACE,
         imageNamespace: env.NAMESPACE,
+        databaseUrl: env.DATABASE_URL,
+        sentryEnv: env.SENTRY_ENV,
     });
     logger.info("Previewkit launcher initialized", {
         extra: { jobNamespace: PREVIEWKIT_JOB_NAMESPACE, imageNamespace: env.NAMESPACE },

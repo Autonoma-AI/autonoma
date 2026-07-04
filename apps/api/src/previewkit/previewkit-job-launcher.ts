@@ -32,15 +32,15 @@ const ANNOTATION_REPO = "previewkit.dev/repo";
 const ANNOTATION_HEAD_SHA = "previewkit.dev/head-sha";
 
 // Reused from the previewkit shared resources (deployment/apps/previewkit.yaml): the
-// runner Job runs as the same ServiceAccount, on the same node pool, and pulls
-// the same env (the secret bundle plus a small non-secret ConfigMap).
+// runner Job runs as the same ServiceAccount, on the same node pool, and pulls the
+// secret bundle. Non-secret config (SENTRY_ENV) is injected as explicit env below,
+// not mounted from a ConfigMap.
 const RUNNER_SERVICE_ACCOUNT = "previewkit";
 const RUNNER_ENV_SECRET = "previewkit-env-file";
-const RUNNER_ENV_CONFIGMAP = "previewkit-runner-env";
 const RUNNER_NODE_POOL = "temporal";
 const RUNNER_COMMAND = ["/app/node_modules/.bin/tsx", "src/runner/index.ts"];
 
-// The previewkit deploy (deploy-worker-previewkit) writes the exact SHA-pinned
+// The previewkit deploy (deploy-previewkit) writes the exact SHA-pinned
 // image it deployed into this ConfigMap's `image` key; the launcher reads it so
 // runner Jobs are pinned to the currently-deployed previewkit image, decoupled
 // from the API's own image/SHA.
@@ -78,8 +78,8 @@ export interface PreviewkitJobLauncherOptions {
     coreApi: ConfigMapReader;
     /**
      * Namespace the runner Jobs are created in - the shared, dedicated
-     * `previewkit` namespace that holds the previewkit SA, env secret, and
-     * runner-env ConfigMap the Jobs mount.
+     * `previewkit` namespace that holds the previewkit SA and env secret the
+     * Jobs mount.
      */
     jobNamespace: string;
     /**
@@ -89,6 +89,23 @@ export interface PreviewkitJobLauncherOptions {
      * so the Job (created in `jobNamespace`) runs the launching env's image.
      */
     imageNamespace: string;
+    /**
+     * The launching API's own `DATABASE_URL`. Injected as an explicit env var on
+     * the runner container so the runner writes preview rows to the SAME database
+     * the launching API reads from (production -> prod DB, beta -> beta DB,
+     * alpha -> that alpha env's DB). It overrides the `DATABASE_URL` the shared
+     * `previewkit-env-file` secret carries (always the production bundle), and
+     * must be passed as a literal value because the Job runs in `jobNamespace`,
+     * not the API's namespace, so it cannot `secretKeyRef` the API's own secret.
+     */
+    databaseUrl: string;
+    /**
+     * Sentry environment tag for the runner. Injected as an explicit (non-secret)
+     * env var, sourced from the launching API's own SENTRY_ENV - so runner errors
+     * are tagged with the env that launched them. Replaces the former
+     * `previewkit-runner-env` ConfigMap, whose only key this was.
+     */
+    sentryEnv: string;
     /**
      * Hard upper bound on a deploy Job (seconds). A generous backstop *above*
      * the runner's own BUILD_TIMEOUT_MS / readiness timeouts, so a real build
@@ -113,6 +130,11 @@ export interface PreviewkitJobLauncherOptions {
  * which each env's previewkit deploy writes. The Job itself is created in the
  * shared `previewkit` namespace (`jobNamespace`) with that image baked in, so
  * each environment launches its own runner image into the one preview workload.
+ *
+ * `DATABASE_URL` is likewise per-environment: the launching API's own DB URL is
+ * baked into the Job's env (overriding the shared `previewkit-env-file` secret's
+ * production DB URL), so a runner writes its environment/build rows to the same
+ * database the launching API reads from.
  *
  * `launchDeploy` / `launchTeardown` / `launchRedeployApp` are the
  * `PreviewkitTriggers` seam consumed by `PreviewkitTriggerService`.
@@ -215,7 +237,7 @@ export class PreviewkitJobLauncher {
         } catch (err) {
             if (isNotFound(err)) {
                 throw new Error(
-                    `ConfigMap ${RUNNER_IMAGE_CONFIGMAP} not found in ${imageNamespace} - deploy worker-previewkit before enabling jobs mode`,
+                    `ConfigMap ${RUNNER_IMAGE_CONFIGMAP} not found in ${imageNamespace} - deploy previewkit before enabling jobs mode`,
                 );
             }
             throw err;
@@ -334,11 +356,20 @@ export class PreviewkitJobLauncher {
                                 // correct - no need to re-pull a fixed tag.
                                 image,
                                 command: RUNNER_COMMAND,
-                                envFrom: [
-                                    { secretRef: { name: RUNNER_ENV_SECRET } },
-                                    { configMapRef: { name: RUNNER_ENV_CONFIGMAP } },
+                                envFrom: [{ secretRef: { name: RUNNER_ENV_SECRET } }],
+                                // Explicit env wins over envFrom on name collision:
+                                // DATABASE_URL overrides the production DB URL the
+                                // shared previewkit-env-file secret carries, so the
+                                // runner writes to the launching API's own DB.
+                                // SENTRY_ENV is non-secret runner config sourced from
+                                // the launching API (replaces the previewkit-runner-env
+                                // ConfigMap) so runner errors are tagged with the env
+                                // that launched them.
+                                env: [
+                                    { name: "PREVIEWKIT_JOB_SPEC", value: JSON.stringify(spec) },
+                                    { name: "DATABASE_URL", value: this.options.databaseUrl },
+                                    { name: "SENTRY_ENV", value: this.options.sentryEnv },
                                 ],
-                                env: [{ name: "PREVIEWKIT_JOB_SPEC", value: JSON.stringify(spec) }],
                                 resources: {
                                     requests: { cpu: "500m", memory: "1Gi" },
                                     limits: { memory: "4Gi" },

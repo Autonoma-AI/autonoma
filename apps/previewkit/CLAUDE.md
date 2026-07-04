@@ -222,6 +222,10 @@ pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
+`DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
+*launching API's own* DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
+carried by the shared `previewkit-env-file` secret, so a runner writes its environment/build rows to
+the DB of the env that launched it (prod -> prod, beta -> beta, alpha -> that alpha env's DB).
 `LOKI_URL` (optional) - the build-log tier. When set, the builder tees each output chunk and the
 pipeline mirrors phase/status transitions into Grafana Loki (`LokiBuildLogSink` behind the
 `BuildLogSink` seam from `@autonoma/logger/build-log-sink`, batched + best-effort); the autonoma
