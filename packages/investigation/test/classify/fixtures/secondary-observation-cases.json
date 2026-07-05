@@ -1,0 +1,80 @@
+[
+    {
+        "id": "assist-panel-unavailable-content-spinner",
+        "kind": "escalate-and-capture",
+        "plan": "Setup: On the Learn player for the Full-Stack Track course. Steps:\n1. click: the \"Ambar\" button in the header\n2. assert: \"Tu asistente del temario\" in the side panel",
+        "priorRuns": "This test has NEVER passed (zero successes in history).",
+        "notes": "The run logged in and reached the Learn player for the Full-Stack Track course. It clicked the \"Ambar\" button and the side panel opened, then failed at step 2 because the asserted subtitle \"Tu asistente del temario\" was not present.\n\nERROR-SCAN probe: after opening Ambar, the side panel showed a red error message verbatim: \"No encontramos lo que estabamos buscando. Refresca la pagina y volve a intentarlo.\" and the input showed \"Ambar no esta disponible en este momento.\"\nVISUAL-SANITY probe: the central Learn content area stayed on a loading spinner/skeleton for the entire run and never rendered the lesson content.\nprior_runs: never passed, so there is no validated baseline for the assertion.\nread_code: the Ambar panel copy comes from the assistant module; the subtitle string was renamed in this area. The lesson content is fetched from the threads API.",
+        "expectCategoryNotIn": ["outdated_test", "bad_test", "passed"],
+        "expectSecondaryAbout": [
+            "ambar",
+            "no está disponible",
+            "no esta disponible",
+            "spinner",
+            "never rendered",
+            "content"
+        ]
+    },
+    {
+        "id": "assist-panel-504-delivery-form-missing",
+        "kind": "escalate-and-capture",
+        "plan": "Setup: On the Learn player. Steps:\n1. click: \"Modulo 2\"\n2. click: \"Entrega Proyecto JS\"\n3. type: a project URL into the delivery input\n4. assert: the submission status label updates in the sidebar",
+        "priorRuns": "This test has NEVER passed (zero successes in history).",
+        "notes": "The run logged in, reached the Learn player, opened \"Modulo 2: JavaScript Basico\" and clicked \"Entrega Proyecto JS\". The expected delivery form never appeared, so the agent could not type the URL, and the sidebar status label was never exercised.\n\nERROR-SCAN probe: the Ambar side panel was unavailable during the run and displayed a visible 504 gateway-timeout error page.\nVISUAL-SANITY probe: after selecting \"Entrega Proyecto JS\", the main content area stayed on a central spinner and the delivery form region remained blank.\nprior_runs: never passed.\nrun_script: not attempted - the delivery data could not be confirmed because the form never rendered.",
+        "expectCategoryNotIn": ["outdated_test", "bad_test", "passed"],
+        "expectSecondaryAbout": ["504", "gateway", "ambar", "spinner", "blank", "delivery"]
+    },
+    {
+        "id": "main-list-never-loads-empty-where-data-expected",
+        "kind": "escalate",
+        "plan": "Setup: On the reports dashboard. Steps:\n1. assert: at least 5 rows are visible in the reports table\n2. click: the first report row",
+        "priorRuns": "This test has NEVER passed (zero successes in history).",
+        "notes": "The run authenticated and reached the reports dashboard, but the reports table stayed empty. It failed step 1 because no rows were visible.\n\nVISUAL-SANITY probe: the table region showed a skeleton loader that never resolved; no rows, no \"no results\" empty state - just a persistent skeleton where data was clearly expected.\nprovisioning status: provisioned - the scenario reports that 8 report rows WERE seeded for this tenant.\nprior_runs: never passed.\nrun_script: querying the backend with the preview credentials returned 8 report rows for this tenant, so the data exists but never rendered.",
+        "expectCategoryNotIn": ["outdated_test", "bad_test", "passed"]
+    },
+    {
+        "id": "invoice-approve-hidden-plus-overlapping-owner-id",
+        "kind": "capture",
+        "plan": "Setup: On Home, open Inbox and select the \"Invoice ready for review\" task. Steps:\n1. click: \"Approve & Send\" in the invoice side panel\n2. assert: the dashboard stat count increases by 1",
+        "priorRuns": "This test has passed before (21/30 recent successes, most recently yesterday).",
+        "notes": "The run reached Home, opened Inbox, selected the invoice-review task, and the invoice side panel loaded - but it had NO action row, so \"Approve & Send\" was absent and the agent could not approve the invoice.\n\ngit_diff + read_code: this PR added a top-level read-only guard `if (readOnly) return null` at the top of the invoice Actions component, which removes the entire action row for unreviewed invoices. The side panel otherwise rendered correctly.\nprior_runs: strong baseline - passed as recently as yesterday, so the missing action is attributable to this PR's change.\nVISUAL-SANITY probe: SEPARATELY, in the Billing-contact card, the internal owner id (\"owner-099cc7fe-...\") renders overlapping the display name \"Alice Owner\" - the raw id overflows its container and sits on top of the name. This is unrelated to the invoice-approval flow.",
+        "expectCategory": ["client_bug"],
+        "expectSecondaryAbout": ["owner id", "overlap", "overflow", "raw id", "billing", "display name"]
+    },
+    {
+        "id": "stale-nav-legit-outdated-plus-broken-avatar",
+        "kind": "capture",
+        "plan": "Setup: On the documents page. Steps:\n1. click: the \"Display\" button in the header\n2. click: \"List\" in the display settings\n3. assert: the documents list is visible",
+        "priorRuns": "This test has passed before (a few successes historically).",
+        "notes": "The run reached the documents page, which rendered fully. It failed because the \"Display\" popover only toggles card-vs-list LAYOUT; the documents list itself is reached via the \"All\" tab in this version, so the written click path is stale. The app worked; the steps target the wrong control.\n\nread_code: the Display popover component controls layout only; the list-vs-dashboard mode is a separate `view` param. The correct path is starting at `/documents?view=list`.\nprior_runs: passed before, but the UI moved.\nVISUAL-SANITY probe: SEPARATELY, the uploader avatar images in the documents list all render as broken-image placeholders (empty image frames) - unrelated to the navigation assertion.",
+        "expectCategory": ["outdated_test"],
+        "expectSecondaryAbout": ["avatar", "broken image", "broken-image", "placeholder", "image"]
+    },
+    {
+        "id": "passed-but-clipped-text-elsewhere",
+        "kind": "capture",
+        "plan": "Setup: On the settings page. Steps:\n1. assert: the \"Notifications\" heading is visible\n2. click: the \"Save\" button\n3. assert: a \"Saved\" confirmation appears",
+        "priorRuns": "This test has passed before (consistently).",
+        "notes": "The run reached the settings page, saw the \"Notifications\" heading, clicked \"Save\", and the \"Saved\" confirmation appeared. The test's own flow behaved correctly and the assertions passed.\n\nVISUAL-SANITY probe: in the sidebar, the workspace name label is clipped and overflows its container, overlapping the adjacent settings icon - the text is cut off and unreadable. This is independent of the save flow, which worked.\nprior_runs: consistent passes.",
+        "expectCategory": ["passed"],
+        "expectSecondaryAbout": ["clipped", "overflow", "overlap", "cut off", "workspace name", "unreadable"]
+    },
+    {
+        "id": "clean-stale-assertion-no-other-defect",
+        "kind": "clean",
+        "plan": "Setup: On the profile page. Steps:\n1. assert: the heading reads \"My Profile\"\n2. click: the \"Edit\" button",
+        "priorRuns": "This test has passed before.",
+        "notes": "The run reached the profile page, which rendered fully and correctly. It failed step 1 because the heading now reads \"Profile\" - this PR intentionally renamed the heading (the diff changes the i18n key value from \"My Profile\" to \"Profile\"). The rest of the page rendered normally and the \"Edit\" button was present.\n\nread_code: the diff renames the heading string; grep of the locale file confirms \"Profile\" is the rendered value now.\nERROR-SCAN probe: NO VISIBLE ERRORS.\nVISUAL-SANITY probe: NOTHING OBVIOUSLY WRONG - the page looked healthy throughout.\nprior_runs: passed before the rename.",
+        "expectCategory": ["outdated_test"],
+        "expectNoSecondary": true
+    },
+    {
+        "id": "clean-genesis-bad-label-app-healthy",
+        "kind": "clean",
+        "plan": "Setup: On the home chat page. Steps:\n1. type: \"What are the main bottlenecks?\" into the chat input\n2. assert: the greeting \"Welcome to the assistant workspace\" is visible above the input",
+        "priorRuns": "This test has NEVER passed (zero successes in history).",
+        "notes": "The run reached the home chat page, which rendered fully and correctly - the chat input and its surrounding UI all displayed normally and the agent was able to type into the input. It failed step 2 because \"Welcome to the assistant workspace\" is not a string the app renders anywhere; grep of the repo and locale files finds no such text. The greeting shown in the chat empty-state uses different copy. The assertion was wrong from genesis.\n\nread_code: no i18n key or component renders the asserted greeting; the actual empty-state copy is a different string.\nERROR-SCAN probe: NO VISIBLE ERRORS.\nVISUAL-SANITY probe: NOTHING OBVIOUSLY WRONG - the app looked healthy throughout.\nprior_runs: never passed.",
+        "expectCategory": ["bad_test"],
+        "expectNoSecondary": true
+    }
+]
