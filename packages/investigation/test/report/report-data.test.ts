@@ -149,6 +149,54 @@ describe("buildReportData", () => {
         expect(withDiagnosis[0]?.id).toBe("audit-panel");
     });
 
+    it("promotes each secondary observation into its own finding, reusing the run's media", () => {
+        const withObservations: InvestigationReportInput = {
+            ...INPUT,
+            tests: [
+                {
+                    ...INPUT.tests[0]!,
+                    verdicts: [
+                        {
+                            model: "investigation",
+                            verdict: {
+                                ...INPUT.tests[0]!.verdicts[0]!.verdict!,
+                                secondaryObservations: [
+                                    {
+                                        category: "client_bug",
+                                        confidence: "medium",
+                                        headline: "Raw owner id overlaps the contact name",
+                                        detail: "The internal owner id renders on top of the display name in the card.",
+                                    },
+                                    {
+                                        category: "environment_failure",
+                                        confidence: "low",
+                                        headline: "Avatar image never loads",
+                                        detail: "The contact avatar shows a broken-image placeholder.",
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+        const findings = buildReportData(withObservations).findings;
+        // one primary finding + two secondary observations, each standalone.
+        expect(findings).toHaveLength(3);
+        expect(findings.map((f) => f.id)).toEqual(["audit-panel", "audit-panel-obs-1", "audit-panel-obs-2"]);
+
+        const overlap = findings.find((f) => f.id === "audit-panel-obs-1");
+        expect(overlap?.category).toBe("client_bug");
+        expect(overlap?.slug).toBe("audit-panel");
+        expect(overlap?.headline).toBe("Raw owner id overlaps the contact name");
+        expect(overlap?.whatHappened).toContain("renders on top of the display name");
+        expect(overlap?.evidence[0]?.source).toBe("screenshot");
+        // it reuses the parent run's recording so a reviewer can watch the same clip.
+        expect(overlap?.videoUrl).toBe("s3://autonoma-assets/test-generation/run-1/video.webm");
+
+        expect(findings.find((f) => f.id === "audit-panel-obs-2")?.category).toBe("environment_failure");
+    });
+
     it("renders a suggested test fix as a unified diff string", () => {
         const withFix: InvestigationReportInput = {
             ...INPUT,

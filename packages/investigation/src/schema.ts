@@ -35,6 +35,21 @@ export const Evidence = z.object({
 });
 export type Evidence = z.infer<typeof Evidence>;
 
+/**
+ * A distinct app defect the run made VISIBLE on screen but that is SEPARATE from this test's own assertion - the
+ * kind of thing a human spots at a glance and the goal-directed run walks past (overlapping/clipped text, a raw id
+ * or untranslated key leaking into the UI, a broken image, an empty region where data is expected). Each becomes
+ * its OWN finding so it can be tracked and reconciled independently of the test that happened to surface it - the
+ * classifier's verdict is one-per-test, but a single run can reveal several unrelated defects.
+ */
+export const SecondaryObservation = z.object({
+    category: Category,
+    confidence: Confidence,
+    headline: z.string(),
+    detail: z.string(),
+});
+export type SecondaryObservation = z.infer<typeof SecondaryObservation>;
+
 export const RunVerdict = z.object({
     category: Category,
     /** True iff `category === "client_bug"`. The only strict true positive. */
@@ -48,6 +63,9 @@ export const RunVerdict = z.object({
     /** App problems visible in the video independent of this test's pass/fail (broken images, empty content,
      * layout/overlap, things not loading). Absent when the app looked healthy. */
     observedAppIssues: z.string().optional(),
+    /** Distinct visible defects, SEPARATE from this test's assertion, each promoted to its own finding. The
+     * structured, trackable breakdown of what `observedAppIssues` summarizes. Absent/empty when nothing else broke. */
+    secondaryObservations: z.array(SecondaryObservation).optional(),
     headline: z.string().describe("ONE sentence: the takeaway, with the key `code`/file if relevant."),
     /** The agent's explicit false-positive self-check (could this be an intended change / not a real bug?). */
     falsePositiveRisk: z.string(),

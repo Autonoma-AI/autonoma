@@ -6,7 +6,13 @@ import type {
 } from "@autonoma/types";
 import { diffLines } from "diff";
 import type { DeployedAgentComparison } from "../db/deployed-comparison";
-import type { InvestigationReportInput, ReportableScenarioDiagnosis, ReportableVerdict, TestReport } from "./markdown";
+import type {
+    InvestigationReportInput,
+    ReportableScenarioDiagnosis,
+    ReportableSecondaryObservation,
+    ReportableVerdict,
+    TestReport,
+} from "./markdown";
 
 /** Category we tag a test section with when the model failed to produce a verdict for it. */
 const CLASSIFICATION_ERROR = "classification_error";
@@ -168,9 +174,44 @@ export function buildFindings(tests: TestReport[]): InvestigationFinding[] {
                 firstForTest = false;
             }
             findings.push(finding);
+            // A verdict is one-per-test, but a single run can reveal several unrelated visible defects. Promote each
+            // to its OWN finding (id suffixed off the verdict's) so it persists, renders, and reconciles on its own -
+            // a bug the test walked past is not hostage to that test's category.
+            if (entry.verdict != null) {
+                findings.push(...secondaryFindings(id, test, entry.verdict.secondaryObservations));
+            }
         }
     }
     return findings;
+}
+
+/**
+ * Turn a verdict's secondary observations into standalone findings. They reuse the run's media (same recording) but
+ * carry their own category/headline and a screenshot-sourced evidence line - the defect is what was SEEN, not a code
+ * trace. Ids are the verdict's id suffixed with `-obs-N` so they never collide and can be told apart downstream.
+ */
+function secondaryFindings(
+    primaryId: string,
+    test: TestReport,
+    observations: ReportableSecondaryObservation[] | undefined,
+): InvestigationFinding[] {
+    if (observations == null) return [];
+    return observations.map((observation, index) => ({
+        id: `${primaryId}-obs-${index + 1}`,
+        slug: test.slug,
+        category: observation.category,
+        confidence: observation.confidence,
+        headline: observation.headline,
+        whatHappened: observation.detail,
+        rootCause: observation.detail,
+        evidence: [{ source: "screenshot", detail: observation.detail }],
+        plan: test.plan,
+        runSuccess: test.runSuccess,
+        stepCount: test.stepCount,
+        runSteps: test.runSteps,
+        videoUrl: test.videoUrl,
+        finalScreenshotUrl: test.finalScreenshotUrl,
+    }));
 }
 
 /**

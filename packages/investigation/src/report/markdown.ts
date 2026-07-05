@@ -20,7 +20,17 @@ export interface ReportableVerdict {
     remediation: string;
     suggestedTestUpdate?: string;
     observedAppIssues?: string;
+    /** Distinct visible defects, separate from this test's assertion, each promoted to its own finding. */
+    secondaryObservations?: ReportableSecondaryObservation[];
     evidence: ReportableEvidence[];
+}
+
+/** A distinct visible app defect the run surfaced, tracked as its own finding (string-typed for the report). */
+export interface ReportableSecondaryObservation {
+    category: string;
+    confidence: string;
+    headline: string;
+    detail: string;
 }
 
 /** One model's verdict (or its error) for a test in the report. */
@@ -147,6 +157,18 @@ function renderObservedIssues(verdict: ReportableVerdict): string[] {
     return [`> ⚠️ **App issues observed (independent of this test):** ${verdict.observedAppIssues}`, ""];
 }
 
+/**
+ * The distinct visible defects the run surfaced, separate from this test's own assertion. Each is also promoted to
+ * its OWN finding in the report data; listing them here keeps the human-readable report in sync with what the UI
+ * (and reconciliation) will track as standalone findings.
+ */
+function renderSecondaryObservations(verdict: ReportableVerdict): string[] {
+    const observations = verdict.secondaryObservations;
+    if (observations == null || observations.length === 0) return [];
+    const items = observations.map((o) => `> - **${o.category}** (${o.confidence}): ${o.headline} - ${o.detail}`);
+    return ["> 🔎 **Separate defects surfaced (each tracked as its own finding):**", ...items, ""];
+}
+
 /** One verdict, in the UI-emulating layout: one-liner -> summary -> remediation -> collapsible deep dive. */
 function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
     const links = [
@@ -163,6 +185,7 @@ function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
         verdict.whatHappened,
         "",
         ...renderObservedIssues(verdict),
+        ...renderSecondaryObservations(verdict),
         `**Remediation:** ${verdict.remediation}`,
         "",
         ...renderScenarioDiagnosis(test.scenarioDiagnosis),

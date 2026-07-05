@@ -58,6 +58,14 @@ export interface InvestigationEvidence {
     lines?: string;
     snippet?: string;
 }
+/** A distinct visible app defect the run surfaced, tracked as its own finding (a serializable mirror of
+ * @autonoma/investigation's SecondaryObservation - re-declared, not imported, to keep this package lean). */
+export interface InvestigationSecondaryObservation {
+    category: string;
+    confidence: string;
+    headline: string;
+    detail: string;
+}
 export interface InvestigationVerdict {
     category: string;
     isClientBug: boolean;
@@ -72,6 +80,10 @@ export interface InvestigationVerdict {
     suggestedTestUpdate?: string;
     /** App problems visible in the video independent of the test's pass/fail; absent if the app looked healthy. */
     observedAppIssues?: string;
+    /** Distinct visible defects separate from the test's assertion, each promoted to its own finding DOWNSTREAM of
+     * this activity boundary (in buildFindings) - so the contract must declare them to survive honestly, not just
+     * ride JSON pass-through. Absent/empty when nothing else was visibly broken. */
+    secondaryObservations?: InvestigationSecondaryObservation[];
     evidence: InvestigationEvidence[];
 }
 
