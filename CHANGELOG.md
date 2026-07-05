@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.8.18](https://github.com/Autonoma-AI/agent/compare/v1.8.17...v1.8.18) (2026-07-05)
+
+
+### Features
+
+* **api:** export previewkit in-flight build count for Prometheus ([#1297](https://github.com/Autonoma-AI/agent/issues/1297)) ([de87508](https://github.com/Autonoma-AI/agent/commit/de8750865a8647663e7588d2549a6b20dc3f110e))
+* **deployment:** KEDA autoscaling for the warm buildkit pool ([#1302](https://github.com/Autonoma-AI/agent/issues/1302)) ([98ca056](https://github.com/Autonoma-AI/agent/commit/98ca0564062ce1e26f4073eafc88d7c4e54fd102))
+* **investigation:** never-loads guard + per-defect secondary observations ([#1303](https://github.com/Autonoma-AI/agent/issues/1303)) ([1aafbb4](https://github.com/Autonoma-AI/agent/commit/1aafbb43bd28bbb2976fa0ac5b5621158682fa01))
+* **previewkit:** hand previews to the central cluster-mode Gatekeeper ([#1301](https://github.com/Autonoma-AI/agent/issues/1301)) ([fa3c0a4](https://github.com/Autonoma-AI/agent/commit/fa3c0a4334e2e6fc3856d395599a71343c6ee6b6))
+* **previewkit:** OpenCost + Prometheus cost monitoring on the preview cluster ([#1299](https://github.com/Autonoma-AI/agent/issues/1299)) ([cf871aa](https://github.com/Autonoma-AI/agent/commit/cf871aa76af3fdc09bac548f861a18ccecc639bd))
+
 ## [1.8.17](https://github.com/Autonoma-AI/agent/compare/v1.8.16...v1.8.17) (2026-07-04)
 
 
