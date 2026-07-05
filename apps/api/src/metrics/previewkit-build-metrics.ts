@@ -21,8 +21,9 @@ const BUILDING_FRESHNESS_MS = 90 * 60 * 1000;
  * Every env's API (prod / beta / alpha) exports its own DB view; the
  * `previewkit:app_builds_in_flight:sum` recording rule
  * (deployment/prometheus/alert-rules.yaml) dedupes API replicas per namespace
- * and sums envs into the pool-wide series that dashboards and the (future)
- * KEDA ScaledObject read.
+ * and sums envs into the pool-wide series that dashboards and the KEDA
+ * ScaledObject autoscaling the pool read
+ * (deployment/buildkit/buildkit-scaledobject.yaml).
  *
  * Scrape failures are logged and otherwise swallowed: the gauge then keeps its
  * last value for that scrape, because a DB hiccup must not fail the whole

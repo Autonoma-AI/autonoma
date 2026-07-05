@@ -463,7 +463,7 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
   - `monitoring/` -- `prometheus.yaml` + `opencost.yaml` (per-namespace/per-PR cost attribution; see the file headers for access)
 - `deployment/previewkit/cronjobs/delete-old-ns.yaml` -- nightly reaper deleting preview namespaces older than 7 days (main-branch `*-pr-0` environments excluded)
 
-Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`), which the runner dials via `BUILDKIT_WARM_HOST`; each pod's node-local NVMe cache keeps layer reuse hot across builds.
+Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`), which the runner dials via `BUILDKIT_WARM_HOST`; each pod's node-local NVMe cache keeps layer reuse hot across builds. KEDA autoscales the pool between 3 and 8 pods on the in-flight build count (`deployment/buildkit/buildkit-scaledobject.yaml`).
 
 ### Local Development
 
