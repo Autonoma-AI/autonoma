@@ -9,6 +9,7 @@
         "test:watch": "vitest --config vitest.config.ts",
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
         "typecheck": "tsc --noEmit",
+        "build": "rolldown -c rolldown.config.ts",
         "start:runner": "tsx src/runner/index.ts"
     },
     "dependencies": {
@@ -41,6 +42,7 @@
         "@types/tar-fs": "^2.0.4",
         "@vitest/coverage-v8": "^4.1.6",
         "dotenv": "catalog:",
+        "rolldown": "catalog:",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

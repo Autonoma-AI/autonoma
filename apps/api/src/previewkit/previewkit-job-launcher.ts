@@ -38,7 +38,11 @@ const ANNOTATION_HEAD_SHA = "previewkit.dev/head-sha";
 const RUNNER_SERVICE_ACCOUNT = "previewkit";
 const RUNNER_ENV_SECRET = "previewkit-env-file";
 const RUNNER_NODE_POOL = "temporal";
-const RUNNER_COMMAND = ["/app/node_modules/.bin/tsx", "src/runner/index.ts"];
+// The runner image bundles src/runner into a single /app/dist/index.js (rolldown,
+// multi-stage build) and ships no node_modules/tsx - this must stay in lockstep
+// with apps/previewkit/Dockerfile. K8s uses the Job's command over the image CMD,
+// so we pin the same entrypoint here with an absolute path (independent of WORKDIR).
+const RUNNER_COMMAND = ["node", "--enable-source-maps", "/app/dist/index.js"];
 
 // The previewkit deploy (deploy-previewkit) writes the exact SHA-pinned
 // image it deployed into this ConfigMap's `image` key; the launcher reads it so

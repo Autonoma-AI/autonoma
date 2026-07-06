@@ -61,7 +61,9 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 
 ## Directory map (`src/`)
 
-- `runner/` - the one-shot Kubernetes Job entrypoint (built by `Dockerfile`); the API launches one Job
+- `runner/` - the one-shot Kubernetes Job entrypoint. `rolldown.config.ts` bundles it into a single
+  self-contained `dist/index.js` (all deps inlined, incl. the Prisma wasm compiler), which the
+  multi-stage `Dockerfile` ships without any node_modules; the API launches one Job
   per deploy / teardown / per-app redeploy via `PreviewkitJobLauncher` (apps/api). `index.ts` reads
   the `PREVIEWKIT_JOB_SPEC` payload, builds `PreviewkitServices`, runs once, and exits (SIGTERM =
   supersede for deploy/redeploy-app; ignored during teardown). `run-preview-job.ts` is the
@@ -265,6 +267,8 @@ The runner drains the sink's buffer before it exits.
 ## Build / test
 
 - `pnpm --filter @autonoma/previewkit typecheck` - tsc (run after any change).
+- `pnpm --filter @autonoma/previewkit build` - rolldown bundle of the runner into `dist/` (what the
+  Dockerfile's builder stage runs). `dist/index.js` boots under plain `node` - no tsx at runtime.
 - `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
   - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the

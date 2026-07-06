@@ -1,12 +1,17 @@
-# Previewkit runner image.
-#
-# The one-shot deploy/teardown/redeploy runner (src/runner) runs from source via
-# tsx (not bundled) and needs the real build tooling - buildctl, railpack, mise,
-# bun - because it drives real container image builds. Those tools are installed
-# as glibc builds, so this image uses a glibc base (node:24-slim / Debian), like
-# apps/workers/{diffs,general}. The API launches it as a Kubernetes Job
-# (PreviewkitJobLauncher), overriding the command with the runner entrypoint and
-# injecting the PREVIEWKIT_JOB_SPEC payload.
+# --- Stage 1: bundle the runner ------------------------------------------------
+FROM node:24-slim AS builder
+
+RUN corepack enable
+
+WORKDIR /app
+COPY . .
+
+# Installs dev deps (rolldown, tsx) and generates the Prisma client via
+# @autonoma/db's postinstall, then bundles src/runner into dist/.
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @autonoma/previewkit build
+
+# --- Stage 2: runtime ----------------------------------------------------------
 FROM node:24-slim
 
 ARG BUILDKIT_VERSION=0.30.0
@@ -38,13 +43,12 @@ RUN apt-get update \
     && chmod 0755 "/tmp/railpack/mise/mise-${MISE_VERSION}" \
     && chown -R node:node /tmp/railpack
 
-RUN corepack enable
-
 WORKDIR /app
-COPY . .
-
-RUN pnpm install --frozen-lockfile
+# The bundle is self-contained - the whole dependency graph is inlined into
+# dist/ (entry + code-split chunks incl. the Prisma wasm compiler and the
+# copied read-next-config.mjs), so no node_modules is needed at runtime.
+COPY --from=builder /app/apps/previewkit/dist ./dist
 
 ENV NODE_ENV=production
-WORKDIR /app/apps/previewkit
-CMD ["/app/node_modules/.bin/tsx", "src/runner/index.ts"]
+USER node
+CMD ["node", "--enable-source-maps", "dist/index.js"]

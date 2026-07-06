@@ -65,18 +65,18 @@ export function resolveTurboFilter(appDir: string, relAppDir: string): string {
 }
 
 /**
- * Resolved path to the reader script.
- * - dev  (src/builder/): go two levels up to the package root, then into scripts/.
- * - prod (dist/builder/): go one level up to dist/, where the script is
- *   copied by the rolldown build (see rolldown.config.ts `copy-scripts` plugin).
+ * Resolved path to the reader script, for the two ways the runner runs:
+ * - dev: tsx from source, this file is `src/builder/turbo-monorepo.ts`, so the
+ *   script is two levels up at `<pkg>/scripts/read-next-config.mjs`.
+ * - prod: the rolldown bundle is a single `dist/index.js`, so every module
+ *   collapses to `<pkg>/dist`, and the `copy-scripts` plugin puts the script at
+ *   `<pkg>/dist/scripts/read-next-config.mjs`.
  */
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-const READ_NEXT_CONFIG_SCRIPT = resolve(
-    moduleDir,
-    basename(dirname(moduleDir)) === "dist" ? ".." : "../..",
-    "scripts",
-    "read-next-config.mjs",
-);
+const READ_NEXT_CONFIG_SCRIPT =
+    basename(moduleDir) === "dist"
+        ? resolve(moduleDir, "scripts", "read-next-config.mjs")
+        : resolve(moduleDir, "../..", "scripts", "read-next-config.mjs");
 
 const EVAL_TIMEOUT_MS = 10_000;
 
