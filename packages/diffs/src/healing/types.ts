@@ -1,6 +1,6 @@
 import type { AffectedReason } from "@autonoma/db";
 import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
-import type { IterationLineage } from "../review/kernel";
+import type { IterationLineage, RenderableReviewStep } from "../review/kernel";
 import type { ScenarioData } from "../scenario-data";
 import type { ScenarioIndex } from "../scenario-index";
 import type { HealingReviewLink } from "./actions";
@@ -62,6 +62,13 @@ export interface FailureRecord {
      * report action.
      */
     reviewLink?: HealingReviewLink;
+    /**
+     * The failing subject's executed steps (screenshot keys + step-output text),
+     * gathered by the loader. The `fetch_step_evidence` tool resolves the
+     * screenshot bytes for a step on demand so the agent can ground its bug report
+     * in the actual evidence. Empty/absent when the subject persisted no steps.
+     */
+    steps?: RenderableReviewStep[];
 }
 
 export interface SnapshotInfo {

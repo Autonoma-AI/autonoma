@@ -104,6 +104,10 @@ export const bugDetailLatestOccurrenceIssueSelect = {
     title: true,
     severity: true,
     createdAt: true,
+    // The healing-authored customer-facing report (Expected/Actual + narrative)
+    // for this occurrence. Null on occurrences detected before healing authored
+    // reports; validated at the boundary before it reaches the client.
+    report: true,
     generationReview: {
         select: {
             analysis: true,
@@ -462,6 +466,7 @@ export class BugsService extends Service {
         });
 
         const blocks = await buildBugDetailBlocks(this.db, bug.issues, latestEvidenceIssue, this.storageProvider);
+        const report = latestEvidenceIssue?.report ?? undefined;
 
         return {
             id: bug.id,
@@ -478,6 +483,7 @@ export class BugsService extends Service {
                 firstSeenAt: e.firstSeenAt,
                 lastSeenAt: e.lastSeenAt,
             })),
+            report,
             latestOccurrence: blocks.latestOccurrence,
             occurrences: blocks.occurrences,
             issues: blocks.issues,

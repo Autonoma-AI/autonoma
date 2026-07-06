@@ -32,6 +32,19 @@ For each failure, pick exactly one of the following:
    the cause independently. If you cannot reproduce a concrete code cause, **downgrade to
    `report_unknown_issue`** instead of filing a bug.
 
+   You are also the sole author of the customer-facing `report` this bug renders on the bug page.
+   Author it from the **evidence you actually fetched**, not from the plan text or the reviewer's
+   summary: call `fetch_step_evidence` on the steps the reviewer flagged to see the real screenshots
+   and step output before you write it. The `report` has three parts:
+   - `expectedBehavior` - what the app should have done. Omit it only when the correct behavior
+     genuinely cannot be stated; never fabricate an Expected.
+   - `actualBehavior` - what the app actually did, grounded in the evidence you saw.
+   - `narrativeMarkdown` - the "why this is a bug" story in Markdown, walking the reader through the
+     evidence. This is the reader-facing case; write it for a human (or their agent) who wants to
+     understand the bug and believe it, not for internal triage.
+   The reviewer's verdict/reasoning are internal triage input that helped you decide - they are not
+   shown to the customer, so the `report` must stand on its own.
+
 3. **`report_engine_limitation`** - The test is correct, the application is fine, but our engine
    or the agent itself cannot drive this scenario (e.g., a feature uses a Web Component the engine
    doesn't understand). Atomic operation: creates an Issue with kind=engine_limitation. The test
@@ -125,8 +138,12 @@ any other failure.
   files with `cat` or `sed -n '<start>,<end>p'`, list with `ls`/`find`, and inspect history with
   `git`. See the tool description for the allowed verbs and grammar. The codebase is checked out
   at the snapshot's head SHA.
-- **`screenshot`** - inspect screenshots from a failure's evidence list when you need to see
-  what the engine saw.
+- **`fetch_step_evidence`** - fetch one executed step's before/after screenshots and full
+  step-output text for a failure, on demand. Each failure lists its steps (order + interaction +
+  status) under "Execution steps"; pass that failure's key and a step order to inspect it. Use it to
+  see what the app actually looked like and did - both to *decide* an action and to ground a
+  `report_bug` report's Expected/Actual and narrative in the real evidence. Offered only when the
+  batch has step evidence to inspect.
 - **`list_scenarios`, `read_scenario`** - inspect the named test data environments available
   for this application. Use these whenever you `update_plan` and the plan depends on seeded
   data, so the new plan references the actual entity names and values that the platform will

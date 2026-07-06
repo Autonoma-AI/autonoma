@@ -1,6 +1,6 @@
 import type { AffectedReason } from "@autonoma/db";
 import type { ScenarioData } from "../../scenario-data";
-import type { IterationLineage } from "../kernel";
+import type { IterationLineage, RenderableReviewStep } from "../kernel";
 
 /**
  * The SHAs that bound the snapshot's diff, shared by every replayed run in it.
@@ -156,6 +156,14 @@ export interface HealingSubjectContext {
      * UP never succeeded, or the generated-data graph was empty.
      */
     scenario?: ScenarioData;
+    /**
+     * The subject's executed steps (screenshot keys + step-output text), sourced
+     * the same way the reviewers get theirs (the generation `StepAttempt`
+     * timeline, or the replay `StepOutput` list). The healing agent's
+     * `fetch_step_evidence` tool resolves the screenshot bytes for a given step
+     * on demand. Empty when the subject persisted no steps.
+     */
+    steps: RenderableReviewStep[];
 }
 
 /**

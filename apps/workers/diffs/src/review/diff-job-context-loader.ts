@@ -8,6 +8,7 @@ import {
     type HealingSubjectContext,
     type IterationLineage,
     type IterationVerdict,
+    type RenderableReviewStep,
     type RunContext,
     type RunStepData,
     type ScenarioData,
@@ -591,13 +592,15 @@ export class DiffJobContextLoader {
         });
         const affectedByTestCase = new Map(affectedTests.map((affected) => [affected.testCaseId, affected]));
 
-        // Each subject's scenario + lineage are independent DB resolutions, so
-        // gather them concurrently across subjects (and within a subject).
+        // Each subject's scenario + lineage + steps are independent DB
+        // resolutions, so gather them concurrently across subjects (and within a
+        // subject).
         const subjectContexts = await Promise.all(
             subjects.map(async (subject): Promise<HealingSubjectContext> => {
-                const [scenario, lineage] = await Promise.all([
+                const [scenario, lineage, steps] = await Promise.all([
                     this.resolveSubjectScenario(subject),
                     this.buildLineage(subject.sourceId, subject.planId, subject.testCaseId),
+                    this.loadSubjectSteps(subject),
                 ]);
 
                 const affected = affectedByTestCase.get(subject.testCaseId);
@@ -607,6 +610,7 @@ export class DiffJobContextLoader {
                     affectedReasoning: affected?.reasoning,
                     lineage,
                     scenario,
+                    steps,
                 };
             }),
         );
@@ -618,6 +622,7 @@ export class DiffJobContextLoader {
             hasAnalysisReasoning: analysisReasoning.length > 0,
             subjectsWithLineage: subjectContexts.filter((subject) => subject.lineage.length > 0).length,
             subjectsWithScenario: subjectContexts.filter((subject) => subject.scenario != null).length,
+            subjectsWithSteps: subjectContexts.filter((subject) => subject.steps.length > 0).length,
         });
 
         return {
@@ -640,6 +645,89 @@ export class DiffJobContextLoader {
             return resolveScenarioDataForGeneration(this.db, subject.sourceId);
         }
         return resolveScenarioDataForRun(this.db, subject.sourceId);
+    }
+
+    /**
+     * Load one healing subject's executed steps (screenshot keys + step-output
+     * text) so the healing agent's `fetch_step_evidence` tool can inspect any
+     * step on demand. Sourced exactly the way the reviewers source theirs - the
+     * generation `StepAttempt` timeline (failures included), or the replay
+     * `StepOutput` list - so the agent sees the same steps the reviewer graded.
+     * Only step metadata is loaded here; the screenshot bytes are rehydrated
+     * lazily by the tool via the screenshot loader.
+     */
+    private loadSubjectSteps(subject: HealingFailureSubject): Promise<RenderableReviewStep[]> {
+        if (subject.source === "generation") return this.loadGenerationSteps(subject.sourceId);
+        return this.loadRunSteps(subject.sourceId);
+    }
+
+    private async loadGenerationSteps(generationId: string): Promise<RenderableReviewStep[]> {
+        const generation = await this.db.testGeneration.findUnique({
+            where: { id: generationId },
+            select: {
+                attempts: {
+                    select: {
+                        order: true,
+                        interaction: true,
+                        params: true,
+                        status: true,
+                        output: true,
+                        error: true,
+                        errorName: true,
+                        screenshotBefore: true,
+                        screenshotAfter: true,
+                    },
+                    orderBy: { order: "asc" },
+                },
+                steps: {
+                    select: {
+                        list: {
+                            select: {
+                                order: true,
+                                interaction: true,
+                                params: true,
+                                screenshotBefore: true,
+                                screenshotAfter: true,
+                                outputs: { select: { output: true }, take: 1 },
+                            },
+                            orderBy: { order: "asc" },
+                        },
+                    },
+                },
+            },
+        });
+        if (generation == null) {
+            this.logger.warn("Healing subject generation not found - no step evidence", { generationId });
+            return [];
+        }
+        return this.resolveGenerationSteps(generationId, generation.attempts, generation.steps?.list ?? []);
+    }
+
+    private async loadRunSteps(runId: string): Promise<RenderableReviewStep[]> {
+        const run = await this.db.run.findUnique({
+            where: { id: runId },
+            select: {
+                outputs: {
+                    select: {
+                        list: {
+                            select: {
+                                order: true,
+                                output: true,
+                                screenshotBefore: true,
+                                screenshotAfter: true,
+                                stepInput: { select: { interaction: true, params: true } },
+                            },
+                            orderBy: { order: "asc" },
+                        },
+                    },
+                },
+            },
+        });
+        if (run == null) {
+            this.logger.warn("Healing subject run not found - no step evidence", { runId });
+            return [];
+        }
+        return (run.outputs?.list ?? []).map((step) => this.toReplayStep(step));
     }
 
     /**

@@ -1,5 +1,10 @@
 import type { HealingInput } from "../agents/healing/healing-agent";
-import { type ChangeContext, type IterationLineage, buildChangeContextSection } from "../review/kernel";
+import {
+    type ChangeContext,
+    type IterationLineage,
+    type RenderableReviewStep,
+    buildChangeContextSection,
+} from "../review/kernel";
 import { type ScenarioData, summarizeEntities } from "../scenario-data";
 import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
@@ -177,6 +182,9 @@ function formatFailure(f: FailureRecord): string {
 
     lines.push(`\n**Plan prompt**:\n\`\`\`\n${f.planPrompt}\n\`\`\``);
 
+    if (f.steps != null && f.steps.length > 0) {
+        lines.push(`\n${buildStepIndexSection(f.key, f.steps)}`);
+    }
     if (f.lineage.length > 0) {
         lines.push(`\n${buildFailureLineageSection(f.lineage)}`);
     }
@@ -185,6 +193,22 @@ function formatFailure(f: FailureRecord): string {
     }
 
     return lines.join("\n");
+}
+
+/**
+ * A compact index of the subject's executed steps - order, interaction, and
+ * status only, no screenshots or verbose output. This is deliberately lean so
+ * the reviewer's media-digestion optimization survives: it tells the agent which
+ * steps exist so it can pull the ones worth inspecting via `fetch_step_evidence`,
+ * without dumping N tests' worth of screenshots into the prompt.
+ */
+function buildStepIndexSection(failureKey: string, steps: RenderableReviewStep[]): string {
+    const rows = steps.map((step) => `- ${step.order}. ${step.interaction} (${step.status})`);
+    return [
+        "**Execution steps** - call `fetch_step_evidence` with this failure key and a step order to see that step's " +
+            `before/after screenshots and full output (failureKey: \`${failureKey}\`):`,
+        ...rows,
+    ].join("\n");
 }
 
 /**

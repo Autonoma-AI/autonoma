@@ -10,6 +10,7 @@ import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import { buildHealingPrompt } from "../../healing/prompt-builder";
 import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
+import type { RenderableReviewStep } from "../../review/kernel";
 import type { SnapshotChangeContext } from "../../review/snapshot";
 import {
     buildCodebaseTools,
@@ -20,8 +21,10 @@ import {
     ReadTestsTool,
     SubagentTool,
 } from "../tools";
+import type { ScreenshotLoader } from "../tools/screenshot/screenshot-types";
 import { HealingAgentLoop } from "./healing-agent-loop";
 import { HealingResultTool } from "./healing-result-tool";
+import { FetchStepEvidenceTool } from "./tools/fetch-step-evidence-tool";
 import { HealingRemoveTestTool } from "./tools/remove-test-tool";
 import { HealingReportBugTool } from "./tools/report-bug-tool";
 import { ReportEngineLimitationTool } from "./tools/report-engine-limitation-tool";
@@ -82,6 +85,13 @@ export interface HealingInput extends SnapshotInfo {
     /** The existing tests in the suite, for `list_tests` / `read_tests`. */
     existingTests: ExistingTestInfo[];
     planAuthoring: PlanAuthoringInput;
+    /**
+     * Rehydrates a step screenshot's bytes from its S3 key for the
+     * `fetch_step_evidence` tool. Provided by the production runner (like
+     * {@link codebase}); absent in evals, where the tool degrades to step-output
+     * text without screenshots.
+     */
+    screenshotLoader?: ScreenshotLoader;
 }
 
 export interface HealingResult {
@@ -111,6 +121,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
     private readonly reportUnknownIssueTool = new ReportUnknownIssueTool();
     private readonly reportScenarioUnsupportedTool = new ReportScenarioUnsupportedTool();
     private readonly removeTestTool = new HealingRemoveTestTool();
+    private readonly fetchStepEvidenceTool = new FetchStepEvidenceTool();
     private readonly resultTool = new HealingResultTool();
 
     constructor({ model }: HealingAgentConfig) {
@@ -142,6 +153,15 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
         const isFinalTurn = input.iteration >= input.maxIterations;
         const retryTools = isFinalTurn ? [] : [this.updatePlanTool];
 
+        // Per-failure step evidence for fetch_step_evidence, keyed by failure key.
+        // Only offer the tool when some failure actually has steps to inspect -
+        // advertising it with nothing to fetch just wastes turns.
+        const stepEvidenceByFailureKey = new Map<string, RenderableReviewStep[]>();
+        for (const f of input.failures) {
+            if (f.steps != null && f.steps.length > 0) stepEvidenceByFailureKey.set(f.key, f.steps);
+        }
+        const evidenceTools = stepEvidenceByFailureKey.size > 0 ? [this.fetchStepEvidenceTool] : [];
+
         return new HealingAgentLoop({
             name: "HealingAgent",
             model: this.model,
@@ -154,6 +174,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
                 this.readTestsTool,
                 this.listScenariosTool,
                 this.readScenarioTool,
+                ...evidenceTools,
                 this.reportBugTool,
                 this.reportEngineLimitationTool,
                 this.reportUnknownIssueTool,
@@ -173,6 +194,8 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
             failureKeysByTestCaseId: new Map(input.failures.map((f) => [f.testCaseId, f.key])),
             failureKeys: new Set(input.failures.map((f) => f.key)),
             reviewLinksByTestCaseId,
+            stepEvidenceByFailureKey,
+            screenshotLoader: input.screenshotLoader,
         });
     }
 }

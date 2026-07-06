@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
     investigationDeployedComparisonSchema,
     investigationEvidenceSchema,
+    issueReportSchema,
     ScenarioRecipeSchema,
     ScenarioStructureJsonSchema,
 } from "@autonoma/types";
@@ -128,6 +129,8 @@ export * from "./generated/prisma/client";
 declare global {
     export namespace PrismaJson {
         export type ModelConversation = AIModelMessage[];
+        /** The healing-authored customer-facing report stored on `Issue.report`. */
+        export type IssueReport = z.infer<typeof issueReportSchema>;
         export type ScenarioRecipeJson = z.infer<typeof ScenarioRecipeSchema>;
         export type ScenarioStructureJson = z.infer<typeof ScenarioStructureJsonSchema>;
         /** The deployed-agent comparison stored on InvestigationReport.deployed (display-only). */

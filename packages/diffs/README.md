@@ -7,7 +7,7 @@ AI agents that drive the diff-analysis, healing, and review pipeline. Every agen
 | Agent | Trigger | Decides |
 |---|---|---|
 | `DiffsAgent` | PR diffs | Which existing tests might be affected; and authors any missing tests directly via `create_test` (mints the test case + plan + a pending generation, with a required coverage justification) |
-| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / report_unknown_issue / report_scenario_unsupported / remove_test). `report_bug` requires a re-grounded `suspectedCause`; when the cause can't be grounded it downgrades to `report_unknown_issue` (Issue without a customer-facing Bug). `report_scenario_unsupported` files a Bug-less Issue for a test impossible given the current scenario data (carrying a proposed scenario extension as prose) and removes the test from the suite, since it can never pass until a human extends the scenario. It only heals and culls - it never authors tests |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / report_unknown_issue / report_scenario_unsupported / remove_test). `report_bug` requires a re-grounded `suspectedCause`; when the cause can't be grounded it downgrades to `report_unknown_issue` (Issue without a customer-facing Bug). `report_bug` also authors the customer-facing `report` (Expected/Actual + narrative) the bug page renders, grounded in evidence the agent pulls on demand via `fetch_step_evidence`; it is persisted on the occurrence's `Issue.report`. `report_scenario_unsupported` files a Bug-less Issue for a test impossible given the current scenario data (carrying a proposed scenario extension as prose) and removes the test from the suite, since it can never pass until a human extends the scenario. It only heals and culls - it never authors tests |
 | `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug / unknown_issue / scenario_unsupported). `application_bug` requires a `suspectedCause` grounding the bug in code; ungroundable suspicions are `unknown_issue`; a test impossible given the current scenario data (with a description anchoring intent) is `scenario_unsupported` and carries a `proposedScenarioExtension` |
 | `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug / unknown_issue). Same grounding rule: `application_bug` carries a `suspectedCause`, ungroundable suspicions are `unknown_issue` |
 
@@ -27,7 +27,8 @@ src/agents/
 │   │                        engine's resolved click point, web only), view_final_screenshot
 │   └── subagent/            Nested research agent + tool wrapper
 ├── diffs/                   DiffsAgent + its action tools + result tool + prompt
-├── healing/                 HealingAgent + tools + result tool
+├── healing/                 HealingAgent + tools (incl. fetch_step_evidence: per-step
+│                            before/after screenshots + step-output text, on demand) + result tool
 └── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
 
 src/scenario-data/           Reusable, agent-agnostic scenario-data capability:

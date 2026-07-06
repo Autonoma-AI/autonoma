@@ -21,8 +21,12 @@ import {
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
-/** The HealingAgent input minus the on-disk clone (rehydrated from codebase coords at run time). */
-type HealingInputWithoutCodebase = Omit<LiveHealingInput, "codebase">;
+/**
+ * The HealingAgent input minus the runner-supplied runtime handles: the on-disk
+ * clone (rehydrated from codebase coords at run time) and the screenshot loader
+ * (evals run without one, so `fetch_step_evidence` degrades to step-output text).
+ */
+type HealingInputWithoutCodebase = Omit<LiveHealingInput, "codebase" | "screenshotLoader">;
 
 /**
  * The per-test refinement history frozen alongside a failure, one entry per
@@ -38,6 +42,24 @@ const iterationLineageSchema = z.array(
         verdicts: z.array(z.object({ verdict: z.enum(RunReviewVerdict), reasoning: z.string() })),
     }),
 );
+
+/**
+ * A subject's executed step, frozen alongside its failure (mirrors
+ * `@autonoma/diffs` `RenderableReviewStep`). Screenshot keys + step-output text
+ * only; the bytes are rehydrated at run time. Defaulted to `[]` so a fixture
+ * frozen before step evidence was captured still rehydrates.
+ */
+const renderableReviewStepSchema = z.object({
+    order: z.number().int().nonnegative(),
+    interaction: z.string(),
+    params: z.unknown(),
+    status: z.enum(["success", "failed"]),
+    output: z.unknown().optional(),
+    error: z.string().optional(),
+    errorName: z.string().optional(),
+    screenshotBeforeKey: z.string().optional(),
+    screenshotAfterKey: z.string().optional(),
+});
 
 const failureRecordSchema = z.object({
     key: z.string(),
@@ -57,6 +79,7 @@ const failureRecordSchema = z.object({
     affectedReasoning: z.string().optional(),
     lineage: iterationLineageSchema.default([]),
     scenario: scenarioDataSchema.optional(),
+    steps: z.array(renderableReviewStepSchema).default([]),
     // Deterministic source-review link a report action attaches evidence to.
     reviewLink: healingReviewLinkSchema.optional(),
 });

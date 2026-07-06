@@ -18,8 +18,12 @@ import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/work
 import { loadScenarioIndex } from "../load-scenario-index";
 import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
-/** Everything {@link HealingAgent} needs except the on-disk codebase clone. */
-export type HealingInputWithoutCodebase = Omit<HealingInput, "codebase">;
+/**
+ * Everything {@link HealingAgent} needs except the runner-supplied runtime
+ * dependencies: the on-disk codebase clone and the screenshot loader (both are
+ * live handles the runner attaches, never part of the serializable/frozen input).
+ */
+export type HealingInputWithoutCodebase = Omit<HealingInput, "codebase" | "screenshotLoader">;
 
 export interface AssembleHealingInputParams {
     iterationId: string;
@@ -164,6 +168,7 @@ export function mergeDiffJobContext(
             affectedReasoning: context.affectedReasoning ?? failure.affectedReasoning,
             lineage: context.lineage,
             scenario: context.scenario ?? failure.scenario,
+            steps: context.steps,
         };
     });
 }

@@ -47,6 +47,10 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
                 severity: input.severity,
                 title: input.title,
                 description: input.description,
+                // The evidence-grounded, customer-facing report the bug page renders
+                // (Expected/Actual + narrative). Undefined leaves the column null for
+                // occurrences whose action carried no report.
+                report: input.report,
                 bugId,
                 organizationId: input.organizationId,
             },

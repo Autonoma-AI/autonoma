@@ -1,4 +1,9 @@
-import type { HealingEvidenceItem, HealingReviewLink, HealingSeverity } from "@autonoma/workflow/activities";
+import type {
+    HealingEvidenceItem,
+    HealingReviewLink,
+    HealingSeverity,
+    IssueReport,
+} from "@autonoma/workflow/activities";
 
 export interface ApplyUpdatePlanInput {
     refinementActionId?: string;
@@ -17,6 +22,12 @@ export interface ApplyReportBugInput {
     description: string;
     severity: HealingSeverity;
     evidence: HealingEvidenceItem[];
+    /**
+     * The healing-authored, evidence-grounded customer-facing report, persisted on
+     * the occurrence's `Issue.report`. Optional: an action that carried no report
+     * leaves the occurrence without one.
+     */
+    report?: IssueReport;
     matchedBugId?: string;
     reviewLink: HealingReviewLink;
 }

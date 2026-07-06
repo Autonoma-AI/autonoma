@@ -112,6 +112,7 @@ function healingCase(
         sourceId: `run-${i}`,
         sourceStatus: "failed",
         lineage: [],
+        steps: [],
         reviewLink: f.reviewLink,
     }));
 

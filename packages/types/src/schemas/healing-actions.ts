@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { issueReportSchema } from "./issue-report";
 import { suspectedCauseSchema } from "./suspected-cause";
 
 const reviewSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
@@ -43,6 +44,15 @@ const reportBugActionSchema = z.object({
     suspectedCause: suspectedCauseSchema.describe(
         "The concrete code cause you re-grounded independently (>= 1 code reference). If you cannot reproduce the cause in the checked-out code, downgrade to report_unknown_issue instead of reporting a bug.",
     ),
+    // Optional on the persisted action so actions persisted without a report
+    // still parse (loadPriorActions / eval fixtures); the tool input
+    // (reportBugInputSchema) re-declares it required, so every new report_bug
+    // carries one.
+    report: issueReportSchema
+        .optional()
+        .describe(
+            "The customer-facing, evidence-grounded report shown on the bug page: Expected vs Actual plus a rich narrative. Author it from the evidence you fetched with fetch_step_evidence, not from the plan text alone.",
+        ),
     reviewLink: healingReviewLinkSchema,
 });
 
@@ -125,7 +135,11 @@ export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
 // reviewLink is deterministic failure metadata attached by the runner, not authored by the model.
-export const reportBugInputSchema = reportBugActionSchema.omit({ kind: true, reviewLink: true });
+// `report` is re-declared required here (it is optional on the persisted action for
+// backward-compatible parsing) so the model must author it on every report_bug.
+export const reportBugInputSchema = reportBugActionSchema
+    .omit({ kind: true, reviewLink: true })
+    .extend({ report: issueReportSchema });
 export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({
     kind: true,
     reviewLink: true,

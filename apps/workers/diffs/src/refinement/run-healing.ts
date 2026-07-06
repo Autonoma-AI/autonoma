@@ -4,6 +4,7 @@ import {
     HealingAgent,
     type HealingAction,
     openModelSession,
+    StorageEvidenceLoader,
     summarizeSessionCost,
 } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -61,8 +62,12 @@ export async function runRefinementHealing(
     const session = openModelSession();
     const model = session.getModel({ model: "smart-visual", tag: "healing-refinement" });
 
+    // Backs fetch_step_evidence: rehydrates a step screenshot's bytes from its S3
+    // key at tool-call time, so screenshots are pulled on demand rather than eagerly.
+    const screenshotLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
+
     const agent = new HealingAgent({ model });
-    const { result, conversation } = await agent.run({ ...agentInput, codebase });
+    const { result, conversation } = await agent.run({ ...agentInput, codebase, screenshotLoader });
 
     const persisted = await persistActions(input.iterationId, result.actions);
 

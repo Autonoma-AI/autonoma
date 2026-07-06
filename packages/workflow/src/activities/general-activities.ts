@@ -7,12 +7,13 @@ import type {
     GenerationVerdict,
     GenerationVerdictKind,
     HealingReviewLink,
+    IssueReport,
     ReplayVerdict,
     ReplayVerdictKind,
     SuspectedCause,
 } from "@autonoma/types";
 
-export type { HealingReviewLink };
+export type { HealingReviewLink, IssueReport };
 
 export type HealingSeverity = "critical" | "high" | "medium" | "low";
 
@@ -252,6 +253,7 @@ export interface PersistedHealingAction {
               evidence: HealingEvidenceItem[];
               reasoning: string;
               suspectedCause: SuspectedCause;
+              report?: IssueReport;
               reviewLink: HealingReviewLink;
           }
         | {

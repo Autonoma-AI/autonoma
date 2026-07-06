@@ -22,6 +22,7 @@ export type {
     HealingSeverity,
     HealingEvidenceItem,
     HealingReviewLink,
+    IssueReport,
     WorkflowArchitecture,
     FinishRefinementIterationInput,
     FinishErroredRefinementIterationsInput,

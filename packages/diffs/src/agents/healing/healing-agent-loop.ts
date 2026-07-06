@@ -3,10 +3,12 @@ import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import type { HealingAction, HealingReviewLink } from "../../healing/actions";
+import type { RenderableReviewStep } from "../../review/kernel";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
 import type { ScenarioLookupLoop } from "../tools/lookup/scenario-lookup-loop";
 import type { TestLookupLoop } from "../tools/lookup/test-lookup-loop";
+import type { ScreenshotLoader } from "../tools/screenshot/screenshot-types";
 import type { HealingResult } from "./healing-agent";
 
 interface HealingAgentLoopParams extends AgentConfig<HealingResult> {
@@ -17,6 +19,8 @@ interface HealingAgentLoopParams extends AgentConfig<HealingResult> {
     failureKeysByTestCaseId: ReadonlyMap<string, string>;
     failureKeys: ReadonlySet<string>;
     reviewLinksByTestCaseId: ReadonlyMap<string, HealingReviewLink>;
+    stepEvidenceByFailureKey: ReadonlyMap<string, RenderableReviewStep[]>;
+    screenshotLoader?: ScreenshotLoader;
 }
 
 /**
@@ -49,6 +53,19 @@ export class HealingAgentLoop
      */
     public readonly reviewLinksByTestCaseId: ReadonlyMap<string, HealingReviewLink>;
 
+    /**
+     * Maps each failure key to the subject's executed steps. `fetch_step_evidence`
+     * reads this to know which steps exist and their screenshot keys, then
+     * rehydrates the bytes via {@link screenshotLoader} on demand.
+     */
+    public readonly stepEvidenceByFailureKey: ReadonlyMap<string, RenderableReviewStep[]>;
+    /**
+     * Rehydrates a step screenshot's bytes from its S3 key at tool-call time.
+     * Absent outside production (e.g. evals), where `fetch_step_evidence` degrades
+     * to returning step-output text without screenshots.
+     */
+    public readonly screenshotLoader?: ScreenshotLoader;
+
     /** Per-failure actions the agent has recorded this iteration. */
     public readonly actions: HealingAction[] = [];
     /** testCaseIds that already have an action recorded - used by tools to reject duplicates. */
@@ -64,6 +81,8 @@ export class HealingAgentLoop
         failureKeysByTestCaseId,
         failureKeys,
         reviewLinksByTestCaseId,
+        stepEvidenceByFailureKey,
+        screenshotLoader,
         ...config
     }: HealingAgentLoopParams) {
         super(config);
@@ -74,6 +93,8 @@ export class HealingAgentLoop
         this.failureKeysByTestCaseId = failureKeysByTestCaseId;
         this.failureKeys = failureKeys;
         this.reviewLinksByTestCaseId = reviewLinksByTestCaseId;
+        this.stepEvidenceByFailureKey = stepEvidenceByFailureKey;
+        this.screenshotLoader = screenshotLoader;
     }
 
     /** Failure keys the agent has yet to address. */

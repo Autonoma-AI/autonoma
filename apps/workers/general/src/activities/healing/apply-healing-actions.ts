@@ -78,6 +78,7 @@ async function applyActions(input: ApplyHealingActionsInput, logger: Logger): Pr
                     description: action.description,
                     severity: action.severity,
                     evidence: action.evidence,
+                    report: action.report,
                     matchedBugId,
                     reviewLink: action.reviewLink,
                 });

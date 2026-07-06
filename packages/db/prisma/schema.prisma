@@ -900,6 +900,11 @@ model Issue {
   description String        @db.Text
   dismissed   Boolean       @default(false)
 
+  // The healing-authored, evidence-grounded customer-facing report for this
+  // occurrence (Expected/Actual + narrative). Null when no report was authored.
+  /// [IssueReport]
+  report Json?
+
   // Set for the Bug-less, snapshot-scoped kinds (engine_limitation, unknown_issue,
   // scenario_unsupported): none aggregates into a customer-facing Bug, so each lives
   // with its snapshot.
