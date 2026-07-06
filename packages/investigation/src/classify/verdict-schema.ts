@@ -21,16 +21,6 @@ export const VerdictForModel = z.object({
     // App problems VISIBLE in the video that are independent of this test's pass/fail (broken images, empty
     // content where data is expected, layout/overlap issues, things not loading). Null when the app looked healthy.
     observedAppIssues: z.string().nullable(),
-    // Distinct visible defects SEPARATE from this test's assertion, each promoted to its OWN finding (the trackable
-    // breakdown of observedAppIssues). Empty array when nothing else was visibly broken - never null (strict mode).
-    secondaryObservations: z.array(
-        z.object({
-            category: Category,
-            confidence: Confidence,
-            headline: z.string(),
-            detail: z.string(),
-        }),
-    ),
     evidence: z
         .array(
             z.object({
@@ -64,8 +54,6 @@ export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
         remediation: modelVerdict.remediation,
         suggestedTestUpdate: modelVerdict.suggestedTestUpdate ?? undefined,
         observedAppIssues: modelVerdict.observedAppIssues ?? undefined,
-        secondaryObservations:
-            modelVerdict.secondaryObservations.length > 0 ? modelVerdict.secondaryObservations : undefined,
         evidence: modelVerdict.evidence.map((item) => ({
             source: item.source,
             detail: item.detail,
