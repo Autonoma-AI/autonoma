@@ -101,6 +101,25 @@ merge activity runs under the `investigationMergeWorkflow`, triggered by the API
 The parallel launch is in `apps/api` (`DiffsTriggerService`), fire-and-forget behind the
 `INVESTIGATION_SHADOW_ENABLED` flag - it never blocks or fails the diffs trigger.
 
+## Scaling
+
+Fleet throughput is `maxReplicaCount x MAX_CONCURRENT_ACTIVITIES` - two knobs that MUST stay in sync, or the
+worker starves (a 3x1 misconfiguration once made investigations take ~an hour just to start):
+
+- **`MAX_CONCURRENT_ACTIVITIES`** (`src/index.ts`, the worker's `maxConcurrentActivityTaskExecutions`) - how
+  many activities one pod runs at once. The activities are I/O-bound (LLM calls, git clones, waiting on the web
+  worker / preview SDK), so a pod runs several with idle CPU; the ceiling is memory (concurrent clones + LLM
+  buffers vs the 2Gi pod limit). Each activity clones into its own `mkdtemp` dir (`codebase/resolve.ts`), so
+  concurrency never collides on the filesystem.
+- **KEDA `maxReplicaCount`** (`deployment/apps/keda-worker-investigation.yaml`) - the pod ceiling. KEDA scales
+  the worker on the Temporal `investigation` queue depth.
+- **KEDA `targetQueueSize`** - keep it equal to `MAX_CONCURRENT_ACTIVITIES`. KEDA scales on raw queue depth, so
+  targeting ~N queued tasks per pod (where N = per-pod concurrency) makes the pod count track real demand
+  instead of demanding a whole pod per queued task.
+
+If you change one, change the others: raising per-pod concurrency without raising `targetQueueSize` under-uses
+each pod's capacity; raising `maxReplicaCount` alone still bottlenecks at one activity per pod.
+
 ## Env
 
 `GITHUB_APP_*` (clone + PR comment), `OPENROUTER_API_KEY` + `OPENAI_API_KEY` (+ model id overrides), optional

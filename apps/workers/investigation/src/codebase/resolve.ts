@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { db } from "@autonoma/db";
 import { Codebase } from "@autonoma/diffs";
 import type { GitHubInstallationClient } from "@autonoma/github";
+import { logger as rootLogger } from "@autonoma/logger";
 import { getGithubApp } from "../services";
 
 /** The snapshot metadata the investigation activities need (resolved without cloning). */
@@ -78,6 +82,13 @@ export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotM
 /**
  * Resolve + clone a snapshot's repo for the duration of one activity, exposing the SHAs and repo metadata
  * (which the diffs worker's withCodebaseForSnapshot keeps private), then dispose the clone on exit.
+ *
+ * The clone lands in a UNIQUE directory per invocation (`mkdtemp`), never a deterministic path. This is what
+ * lets the worker run several activities per pod (`maxConcurrentActivityTaskExecutions` > 1): the old
+ * `/tmp/codebase/${seed}` path was not globally unique (e.g. `reconcile` used a fixed name, `repair-${slug}`
+ * reused across snapshots), and `Codebase.clone` rimrafs its target first - so two concurrent activities
+ * sharing a path would delete each other's clone mid-read. `targetDirSeed` now only labels the temp dir for
+ * readability; uniqueness comes from `mkdtemp`.
  */
 export async function withSnapshotContext<T>(
     snapshotId: string,
@@ -85,15 +96,27 @@ export async function withSnapshotContext<T>(
     body: (context: SnapshotContext) => Promise<T>,
 ): Promise<T> {
     const meta = await resolveSnapshotMeta(snapshotId);
-    const codebase = await Codebase.clone(meta.githubClient, `/tmp/codebase/${targetDirSeed}`, {
-        repoName: meta.repoFullName,
-        commitSha: meta.headSha,
-        baseSha: meta.baseSha,
-    });
+    const cloneDir = await mkdtemp(join(tmpdir(), `codebase-${targetDirSeed}-`));
 
     try {
-        return await body({ ...meta, codebase });
-    } finally {
-        await codebase.dispose();
+        const codebase = await Codebase.clone(meta.githubClient, cloneDir, {
+            repoName: meta.repoFullName,
+            commitSha: meta.headSha,
+            baseSha: meta.baseSha,
+        });
+        try {
+            return await body({ ...meta, codebase });
+        } finally {
+            await codebase.dispose();
+        }
+    } catch (error) {
+        // Unconditional cleanup: if Codebase.clone throws, `dispose()` never runs and the empty mkdtemp dir
+        // would leak. `rm` with force is a no-op on the success/body-throw path (dispose already removed it).
+        await rm(cloneDir, { recursive: true, force: true }).catch((rmError) => {
+            rootLogger.warn("Failed to remove investigation clone dir after failure", {
+                extra: { cloneDir, rmError },
+            });
+        });
+        throw error;
     }
 }
