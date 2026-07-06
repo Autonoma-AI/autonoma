@@ -1,6 +1,7 @@
 import { logger as rootLogger } from "@autonoma/logger";
 import type { InvestigationActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
+import { assertSnapshotPending as assertSnapshotPendingImpl } from "./assert-pending";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { diagnoseInvestigationScenario as diagnoseScenarioImpl } from "./diagnose-scenario";
 import { markInvestigationProgress as markProgressImpl } from "./mark-progress";
@@ -56,6 +57,8 @@ export const stageRecipeCandidateOnTwin = withHeartbeat(stageRecipeImpl);
 export const revertTwinRecipe = withHeartbeat(revertTwinRecipeImpl);
 // A single fast upsert of the report row's lifecycle fields; no heartbeat needed (well under any timeout).
 export const markInvestigationProgress = markProgressImpl;
+// A single fast status read on the target snapshot; no heartbeat needed (it fails or returns in milliseconds).
+export const assertSnapshotPending = assertSnapshotPendingImpl;
 // Clones the repo + runs the tool-using reconciliation agent (finding navigation + code confirmation) for
 // MINUTES; heartbeat it like the other reasoning activities so it stays under the 2m heartbeat timeout.
 export const reconcileInvestigationFindings = withHeartbeat(reconcileFindingsImpl);
@@ -70,6 +73,7 @@ export const mergeInvestigationEdits = withHeartbeat(mergeEditsImpl);
 
 /** Compile-time guarantee that the exported activities satisfy the workflow's activity contract. */
 const _activities: InvestigationActivities = {
+    assertSnapshotPending,
     selectInvestigationTests,
     classifyInvestigationRun,
     diagnoseInvestigationScenario,

@@ -121,6 +121,12 @@ async function runInvestigation(
 ): Promise<void> {
     const { snapshotId } = input;
 
+    // Fail fast unless this is a `processing` twin: the whole run assumes a detached, still-pending snapshot
+    // (selection reads its frozen baseline; persist / recipe-repair stage edits via SnapshotDraft, which
+    // requires processing). Point it at an active diffs snapshot by mistake and it would otherwise limp through
+    // select + the browser runs and only explode at persist - after burning ~2h of scarce activity slots.
+    await investigation.assertSnapshotPending({ snapshotId });
+
     // Seed a bare `running` row so the PR entry point shows the investigation is in flight before any finding
     // exists. The row is keyed to the twin, which is already paired to the PR snapshot at trigger time, so it
     // resolves back to the PR row immediately.

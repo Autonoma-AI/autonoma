@@ -13,6 +13,10 @@ export interface SelectInvestigationTestsInput {
     snapshotId: string;
 }
 
+export interface AssertSnapshotPendingInput {
+    snapshotId: string;
+}
+
 /** A NEW test the agent proposes for brand-new functionality (a full E2E plan, following the guardrails). */
 export interface SuggestedNewTest {
     name: string;
@@ -384,6 +388,7 @@ export interface MergeInvestigationEditsOutput {
 
 /** The activities run by the investigation worker (the INVESTIGATION task queue). */
 export interface InvestigationActivities {
+    assertSnapshotPending(input: AssertSnapshotPendingInput): Promise<void>;
     selectInvestigationTests(input: SelectInvestigationTestsInput): Promise<SelectInvestigationTestsOutput>;
     classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
     diagnoseInvestigationScenario(

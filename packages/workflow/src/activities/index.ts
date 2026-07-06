@@ -61,6 +61,7 @@ export type { MobileActivities, RunMobileGenerationInput, RunMobileReplayInput }
 export type {
     InvestigationActivities,
     InvestigationSelectedTest,
+    AssertSnapshotPendingInput,
     SelectInvestigationTestsInput,
     SelectInvestigationTestsOutput,
     InvestigationEvidence,

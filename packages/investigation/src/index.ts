@@ -3,6 +3,7 @@ export { PriorRuns } from "./db/prior-runs";
 export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
 export { DeployedComparison } from "./db/deployed-comparison";
 export { TestCatalog } from "./db/test-catalog";
+export { assertSnapshotPending } from "./db/assert-snapshot-pending";
 export type { TestCaseInfo } from "./db/test-catalog";
 export { ScenarioRecipe } from "./db/scenario-recipe";
 export type { DeployedAgentComparison, DeployedTestResult } from "./db/deployed-comparison";
