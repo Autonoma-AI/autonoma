@@ -39,6 +39,9 @@ const DECISION_TIMEOUT_MS = 90_000;
 
 const CaseSchema = z.object({
     id: z.string(),
+    /** Where this case came from (e.g. the prod finding it reproduces). Documentation ONLY - deliberately never
+     * fed to the model, so it can safely name the expected outcome without leaking the answer into the prompt. */
+    provenance: z.string().optional(),
     kind: z.enum(["escalate", "capture", "escalate-and-capture", "clean"]),
     plan: z.string(),
     priorRuns: z.string(),

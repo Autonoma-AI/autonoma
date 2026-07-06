@@ -76,5 +76,15 @@
         "notes": "The run reached the home chat page, which rendered fully and correctly - the chat input and its surrounding UI all displayed normally and the agent was able to type into the input. It failed step 2 because \"Welcome to the assistant workspace\" is not a string the app renders anywhere; grep of the repo and locale files finds no such text. The greeting shown in the chat empty-state uses different copy. The assertion was wrong from genesis.\n\nread_code: no i18n key or component renders the asserted greeting; the actual empty-state copy is a different string.\nERROR-SCAN probe: NO VISIBLE ERRORS.\nVISUAL-SANITY probe: NOTHING OBVIOUSLY WRONG - the app looked healthy throughout.\nprior_runs: never passed.",
         "expectCategory": ["bad_test"],
         "expectNoSecondary": true
+    },
+    {
+        "id": "clean-long-email-scrolls-in-login-input-not-a-defect",
+        "provenance": "Real production false positive (horizon PR #3845, finding discovery-cycles-view-switcher-obs-1): the model promoted a long email scrolling in the login input to a client_bug 'Login email overflows input'. A value longer than a single-line input's width scrolls and is not fully visible by design - expected behaviour, not a defect. This field is documentation only; the eval never feeds it to the model.",
+        "kind": "clean",
+        "plan": "Setup: On the dashboard. Steps:\n1. click: the \"List\" view switcher\n2. assert: the items render in a list layout",
+        "priorRuns": "This test has passed before.",
+        "notes": "The run authenticated with a long seeded email address, reached the dashboard, clicked the \"List\" view switcher, and the list layout rendered correctly - the test's own flow behaved as expected and the assertion passed.\n\nVISUAL-SANITY probe (a hint to verify, NOT a conclusion): during authentication the long seeded email address ('a-very-long-seeded-account-name@really-long-subdomain.example.com') appeared to exceed the visible bounds of the login email input - its full value was not visible within the field's width. Possible text overflow on the login screen.\nERROR-SCAN probe: NO VISIBLE ERRORS.\nprior_runs: passed before.",
+        "expectCategory": ["passed"],
+        "expectNoSecondary": true
     }
 ]
