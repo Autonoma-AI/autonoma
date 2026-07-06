@@ -5,7 +5,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { CodeBlock, githubPermalink } from "components/investigation/code-block";
 import { findingCategoryMeta } from "components/investigation/finding-category";
 import { useInvestigationReportData } from "lib/query/branches.queries";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 export const Route = createFileRoute(
@@ -164,13 +164,18 @@ function FindingBody({
   );
 }
 
+const PLAYBACK_RATES = [1, 2, 4, 8];
+const DEFAULT_PLAYBACK_RATE = 8;
+
 function MediaPanel({ finding }: { finding: InvestigationFinding }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // These recordings are mostly dead time between agent actions, so default to the fastest rate - most reviewers
+  // immediately bumped it to 8x anyway. The element resets playbackRate on load, so we reapply on loadedmetadata.
+  const [speed, setSpeed] = useState(DEFAULT_PLAYBACK_RATE);
   if (finding.finalScreenshotUrl == null && finding.videoUrl == null) return null;
 
-  // These recordings are unfinalized WebM (no seek index), so the scrubber can't jump ahead. Speed controls
-  // let you blast through the dead time between agent actions instead.
-  const setSpeed = (rate: number) => {
+  const applySpeed = (rate: number) => {
+    setSpeed(rate);
     if (videoRef.current != null) videoRef.current.playbackRate = rate;
   };
 
@@ -195,6 +200,7 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
             ref={videoRef}
             src={finding.videoUrl}
             controls
+            onLoadedMetadata={() => applySpeed(speed)}
             className="w-full rounded-lg border border-border-dim"
           />
           <div className="flex items-center gap-2">
@@ -202,8 +208,13 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
               Run recording
             </figcaption>
             <div className="ml-auto flex items-center gap-1">
-              {[1, 2, 4, 8].map((rate) => (
-                <Button key={rate} variant="outline" size="xs" onClick={() => setSpeed(rate)}>
+              {PLAYBACK_RATES.map((rate) => (
+                <Button
+                  key={rate}
+                  variant={rate === speed ? "default" : "outline"}
+                  size="xs"
+                  onClick={() => applySpeed(rate)}
+                >
                   {rate}×
                 </Button>
               ))}
