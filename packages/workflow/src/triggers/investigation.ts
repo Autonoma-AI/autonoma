@@ -5,6 +5,18 @@ import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
+/**
+ * Hard ceiling on a single shadow investigation's wall-clock life. A healthy run finishes well under an hour
+ * (select + a wave of shadow web runs + classify, plus at most a few bounded repair/validation passes), so
+ * this only ever fires on a run that is stuck. The important case: the investigation workflow has no Temporal
+ * versioning (`patched()`/`getVersion()`), so any deploy that adds or reorders an activity strands every
+ * in-flight workflow on a `WorkflowTaskFailed` non-determinism error - and without an execution timeout those
+ * hang in `Running` forever and pile up (a batch of ~100 accumulated before this was added). The timeout is
+ * the safety net that auto-reaps such casualties. These runs are shadow/observe-only and re-run on the next
+ * push, so discarding a stuck one costs nothing.
+ */
+const INVESTIGATION_EXECUTION_TIMEOUT = "6h";
+
 export interface TriggerInvestigationJobParams {
     snapshotId: string;
 }
@@ -58,6 +70,7 @@ export async function triggerInvestigationJob(params: TriggerInvestigationJobPar
             workflowId,
             workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
             taskQueue: TaskQueue.INVESTIGATION,
+            workflowExecutionTimeout: INVESTIGATION_EXECUTION_TIMEOUT,
             searchAttributes: getWorkflowSearchAttributes(),
             args: [{ snapshotId }],
         });
