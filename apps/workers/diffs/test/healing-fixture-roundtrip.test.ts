@@ -22,8 +22,8 @@ const coords: CodebaseCoords = {
  * refinement turn. These tests pin the two transforms a fixture survives that
  * the typechecker cannot guarantee: the `FlowIndex` / `ScenarioIndex` instances
  * collapse to arrays and rebuild, and the optional fields (`existingTests`,
- * `analysisReasoning`, per-failure `reviewLink` / `lineage`) carry their values
- * through - or default cleanly when an older fixture omits them.
+ * `analysisReasoning`, per-failure `reviewLink` / `lineage` / `steps`) carry
+ * their values through - or default cleanly when an older fixture omits them.
  */
 describe("healing fixture round-trip", () => {
     it("carries a fixture's replay failures and suite context through capture/replay", () => {
@@ -41,6 +41,18 @@ describe("healing fixture round-trip", () => {
                 reviewReasoning: "The pay button moved behind a new modal.",
                 lineage: [],
                 reviewLink: { runReviewId: "rr-1" },
+                steps: [
+                    {
+                        order: 0,
+                        interaction: "click",
+                        params: { selector: "#pay" },
+                        status: "failed",
+                        error: "Element not found",
+                        errorName: "ElementNotFoundError",
+                        screenshotBeforeKey: "run-1/step-0-before",
+                        screenshotAfterKey: "run-1/step-0-after",
+                    },
+                ],
             },
         ];
 
