@@ -3,22 +3,26 @@ title: Previewkit
 description: Vercel-style preview environments for every pull request. Configure your stack in the Autonoma dashboard, open a PR, get a live URL.
 ---
 
-Previewkit gives you a fresh, isolated environment for every pull request. You describe your stack once - apps, the services they depend on, and their environment variables - and Previewkit handles the rest: building the containers, provisioning the supporting services, wiring environment variables, and posting the URL back to the PR.
+<p class="lead">Previewkit gives every pull request its own live, isolated, full-stack preview of your app. It's the foundation Autonoma reviews run against - and the first thing you set up when you connect a repo.</p>
+
+![A pull request gets an isolated preview environment with its apps, database, and cache, and a live URL posted back to the PR](/img/previewkit/lifecycle.jpg)
+
+You describe your stack once - apps, the services they depend on, and their environment variables - and Previewkit handles the rest: building the containers, provisioning the supporting services, wiring environment variables, and posting the URL back to the PR.
 
 ## How it works
 
 Once the Previewkit GitHub App is installed on your repository, every `pull_request` event triggers the pipeline:
 
-1. **Opened / synchronized / reopened** — Previewkit fetches the head commit, builds each app, provisions service recipes (Postgres, Redis, etc.), deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
-2. **Closed** — Previewkit deletes the namespace and all resources tied to that PR, then updates the comment.
+1. **Opened / synchronized / reopened** - Previewkit fetches the head commit, builds each app, provisions service recipes (Postgres, Redis, etc.), deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
+2. **Closed** - Previewkit deletes the namespace and all resources tied to that PR, then updates the comment.
 
-Each preview gets a unique, opaque URL — a short deterministic hash derived from the service name, PR number, and repo. One PR may expose many apps under one preview — each app gets its own hostname under `preview.autonoma.app`.
+Each preview gets a stable, unguessable URL - a short hash derived from the service name, PR number, and repo, so the same PR always resolves to the same address. One PR may expose several apps, each with its own hostname under `preview.autonoma.app`.
 
 A repository can also have a standing **main-branch environment**: a preview deployed from the repository's main branch instead of a PR. Once it exists, every push to that branch redeploys it at the new head automatically, the same way a new commit updates a PR's preview.
 
 ## What you configure
 
-You set up your stack in the Autonoma dashboard (the PreviewKit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. Apps and services are auto-detected from your repo and suggested for you (accept, edit, or dismiss), and you can add them by hand too. It declares:
+You set up your stack in the Autonoma dashboard (the Previewkit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. Apps and services are auto-detected from your repo and suggested for you (accept, edit, or dismiss), and you can add them by hand too. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL)
 - **Services** the apps depend on (databases, caches, etc.), picked from a curated catalog of recipes
@@ -40,4 +44,4 @@ Secrets such as API keys and third-party tokens are stored encrypted and kept ou
 
 ## What's next
 
-- [Manage secrets](/previewkit/secrets/) — REST API reference
+- [Manage secrets](/previewkit/secrets/) - REST API reference

@@ -176,6 +176,5 @@ Generates a fresh random value per run using Faker.
 
 ## Related
 
-- [Scenarios step (test-planner)](/test-planner/step-3-scenarios/) - how scenarios are authored.
-- [Validate step (test-planner)](/test-planner/step-5-validate/) - how recipes are validated before upload.
-- [Environment Factory guide](/guides/environment-factory/) - the `up` / `down` / `discover` SDK that consumes these recipes at runtime.
+- [Test Planner](/test-planner/) - how scenarios are designed and recipes are validated before upload.
+- [Environment Factory](/environment-factory/) - the `up` / `down` / `discover` SDK that consumes these recipes at runtime.

@@ -3,11 +3,11 @@ title: "Python"
 description: "Autonoma Environment Factory examples with FastAPI, Flask, and Django."
 ---
 
-The Python SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's Pydantic `input_model`. There is no database introspection, no ORM executor, and no SQL fallback — your factories own creation, the SDK owns the protocol.
+The Python SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's Pydantic `input_model`. There is no database introspection, no ORM executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
 ## FastAPI + SQLAlchemy
 
-Uses `create_fastapi_handler` from `autonoma_fastapi`. The factories use whatever SQLAlchemy session your app already has — the SDK does not need a connection.
+Uses `create_fastapi_handler` from `autonoma_fastapi`. The factories use whatever SQLAlchemy session your app already has - the SDK does not need a connection.
 
 ```python
 # app.py
@@ -38,11 +38,11 @@ class UserInput(BaseModel):
 
 
 config = HandlerConfig(
-    # The column that scopes all models to a tenant — used to isolate test data
+    # The column that scopes all models to a tenant - used to isolate test data
     scope_field="organization_id",
-    # Shared with Autonoma — verifies incoming requests via HMAC-SHA256
+    # Shared with Autonoma - verifies incoming requests via HMAC-SHA256
     shared_secret=os.environ["AUTONOMA_SHARED_SECRET"],
-    # Private to your server — signs the refs token so teardown only deletes what was created
+    # Private to your server - signs the refs token so teardown only deletes what was created
     signing_secret=os.environ["AUTONOMA_SIGNING_SECRET"],
 
     # Every model the dashboard can create needs a factory.
@@ -63,7 +63,7 @@ config = HandlerConfig(
         ),
     },
 
-    # Called after `up` — returns credentials so Autonoma can make authenticated requests
+    # Called after `up` - returns credentials so Autonoma can make authenticated requests
     auth=lambda user, context: {"headers": {"Authorization": "Bearer test-token"}},
 )
 
@@ -83,7 +83,7 @@ Same `HandlerConfig`, different server adapter. `create_flask_handler` returns a
 # app.py
 from autonoma_flask import create_flask_handler
 
-# Same HandlerConfig as FastAPI — scope_field, secrets, factories, auth.
+# Same HandlerConfig as FastAPI - scope_field, secrets, factories, auth.
 # The only difference is the server adapter.
 bp = create_flask_handler(config)
 app.register_blueprint(bp, url_prefix="/api/autonoma")
@@ -157,8 +157,8 @@ handler = create_django_handler(config)
 
 The Pydantic class you pass as `input_model`:
 
-1. **Drives discover** — the SDK introspects `model_fields` to describe the model to the dashboard (field names, types, required/optional, defaults). No database introspection runs.
-2. **Validates the create payload** — before invoking your `create` function, the SDK calls `input_model.model_validate(payload)` and passes the typed instance in. Your factory body works on a real Python object, not a `dict`.
-3. **Lets you accept extras with `extra="ignore"`** — recipes can carry display-only metadata (e.g. `_alias`) without failing validation.
+1. **Drives discover** - the SDK introspects `model_fields` to describe the model to the dashboard (field names, types, required/optional, defaults). No database introspection runs.
+2. **Validates the create payload** - before invoking your `create` function, the SDK calls `input_model.model_validate(payload)` and passes the typed instance in. Your factory body works on a real Python object, not a `dict`.
+3. **Lets you accept extras with `extra="ignore"`** - recipes can carry display-only metadata (e.g. `_alias`) without failing validation.
 
 If you also want validated teardown, declare a `ref_model` (a Pydantic class describing the record returned by `create`) and the SDK will call `ref_model.model_validate(record)` before each `teardown` call.

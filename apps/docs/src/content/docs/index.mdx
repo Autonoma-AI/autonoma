@@ -1,100 +1,78 @@
 ---
 title: Introduction
-description: Learn how to integrate Autonoma's agentic end-to-end testing platform into your application.
+description: Autonoma is an agentic end-to-end testing platform. Connect your repo and every pull request gets reviewed automatically on a live preview environment - no test scripts to write or maintain.
 ---
 
-Autonoma is an agentic end-to-end testing platform. Users create and run automated tests for web, iOS, and Android applications using natural language. The system executes tests on real devices and emulators, with AI models handling element selection, assertions, self-healing, and agentic decision-making.
+import Card from "../../components/Card.astro"
+import CardGrid from "../../components/CardGrid.astro"
+
+![An AI testing agent reviewing a web app - reading the code change, running the app, and checking the database](/img/introduction/hero.jpg)
+
+<p class="lead">Autonoma is an agentic end-to-end testing platform. Connect your repository and every pull request gets reviewed automatically on a live preview environment - an AI agent exercises your app in a real browser, checks that it still works, and reports back on the PR.</p>
+
+You don't write or maintain test scripts. There are no selectors to update when a button moves. Autonoma generates a suite of natural-language tests from your codebase, and an agent figures out how to run them - picking elements, making assertions, and healing itself when your UI changes.
+
+## How it works
+
+Every pull request runs through the same loop, from opening the PR to a reviewed result:
+
+![The Autonoma review loop: pull request, preview environment, seed data, run tests, review on PR](/img/introduction/test-lifecycle.jpg)
+
+1. **Pull request** - you open a PR (or push a change to one).
+2. **Preview environment** - [Previewkit](/previewkit/) builds an isolated, full-stack preview of your app for that PR and gives it a live URL.
+3. **Seed data** - the [Environment Factory](/environment-factory/) creates fresh, isolated test data so every run starts from a known state.
+4. **Run tests** - the agent runs your test suite against the preview, exercising the app in a real browser.
+5. **Review on PR** - Autonoma reviews each run, confirms what passed and what broke, and comments the result back on the pull request.
+
+When the PR closes, the preview environment and its data are torn down automatically.
+
+## What you set up
+
+Autonoma gets you value in two stages: **connect your repo** to go live with preview environments and automated PR reviews, then **deepen coverage** by generating a test suite and wiring up real test data. Three pieces, set up in order:
+
+<CardGrid>
+    <Card title="1. Preview Environments">
+        Install the GitHub app and configure your stack. Every PR then gets a live, isolated preview - and an automated review. This alone gets you live.
+
+        [Set up Preview Environments →](/previewkit/)
+    </Card>
+    <Card title="2. The Planner CLI">
+        Reads your codebase and generates a complete, natural-language E2E test suite - pages, flows, and scenarios. One command.
+
+        [Run the planner →](/test-planner/)
+    </Card>
+    <Card title="3. The Environment Factory">
+        One endpoint in your backend that creates isolated test data before each run and tears it down after, so tests always start clean.
+
+        [Set up the Environment Factory →](/environment-factory/)
+    </Card>
+</CardGrid>
+
+The Environment Factory has an SDK for every major stack - TypeScript, Python, Elixir, Java, Ruby, Rust, Go, and PHP. [Copy a working endpoint for yours.](/environment-factory/examples/)
 
 ## Using these docs with AI
 
-These docs are available as plain text for LLMs. Pass the link below to your coding agent (Claude Code, Cursor, Copilot, etc.) so it can read the full documentation in context:
+Every page is available as plain text for coding agents. Point Claude Code, Cursor, or Copilot at the file below and it can pull in exactly the pages it needs:
 
 ```
 https://docs.autonoma.app/llms.txt
 ```
 
-The file links to every page individually, so the model can fetch only what it needs. A single [complete file](/llms-full.txt) with all pages is also available.
-
-## Getting started
-
-There are two paths depending on where you are:
-
-import Card from "../../components/Card.astro"
-import CardGrid from "../../components/CardGrid.astro"
-
-<CardGrid>
-    <Card title="Analyze and test your app">
-        Claude Code plugin that reads your codebase, finds where bugs hide, and generates a full E2E test suite. Install once, run `/autonoma-test-planner:generate-tests`.
-
-        [Start the Test Planner →](/test-planner/)
-    </Card>
-    <Card title="Set up your backend">
-        Connect your app so tests always start with clean, isolated data. One endpoint, automatic teardown.
-
-        [Read the guide →](/guides/environment-factory/)
-    </Card>
-</CardGrid>
-
-## How Autonoma runs tests
-
-Before each test run:
-
-1. Autonoma calls your endpoint with `action: "up"` and a scenario name
-2. Your endpoint creates isolated test data and returns auth credentials
-3. Autonoma uses those credentials to log in and run the test
-4. After the test, Autonoma calls `action: "down"` with signed refs
-5. Your endpoint verifies the signature and deletes only the data it created
-
-The signed refs mechanism ensures teardown can never delete data it didn't create - even if someone gains access to your endpoint.
-
-## Framework examples
-
-<CardGrid>
-    <Card title="TypeScript">
-        Express + Prisma, Next.js + Drizzle.
-
-        [See examples →](/examples/)
-    </Card>
-    <Card title="Python">
-        FastAPI, Flask, and Django with SQLAlchemy.
-
-        [See examples →](/examples/#python)
-    </Card>
-    <Card title="Elixir">
-        Phoenix + Ecto implementation.
-
-        [See examples →](/examples/#elixir)
-    </Card>
-    <Card title="More Languages">
-        Java, Ruby, Rust, Go, and PHP.
-
-        [See all examples →](/examples/)
-    </Card>
-</CardGrid>
+A single [complete file](/llms-full.txt) with all pages concatenated is also available.
 
 ## Contributing
 
-Want to run Autonoma locally or contribute to the project? Start here:
+Want to run Autonoma locally or work on the platform itself?
 
 <CardGrid>
-    <Card title="Development Setup">
-        Clone the repo, install dependencies, configure environment variables, and get the platform running locally.
+    <Card title="Development setup">
+        Clone the repo, install dependencies, and get the platform running locally.
 
         [Get started →](/development/setup/)
     </Card>
-    <Card title="Architecture Overview">
-        Understand the monorepo structure, how apps and packages connect, and the key design decisions behind the platform.
+    <Card title="Architecture overview">
+        How the monorepo fits together and the key design decisions behind it.
 
         [Read the overview →](/development/architecture/)
-    </Card>
-    <Card title="Code Conventions">
-        ESM-only, strict TypeScript, logging patterns, and all the rules that keep the codebase consistent.
-
-        [See conventions →](/development/conventions/)
-    </Card>
-    <Card title="Architecture Deep Dives">
-        Detailed documentation on the execution agent core and AI primitives package.
-
-        [Explore →](/architecture/execution-agent/)
     </Card>
 </CardGrid>

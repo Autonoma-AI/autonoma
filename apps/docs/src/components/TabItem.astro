@@ -1,0 +1,11 @@
+---
+interface Props {
+    label: string
+}
+
+const { label } = Astro.props
+---
+
+<section class="tab-item" data-label={label}>
+    <slot />
+</section>

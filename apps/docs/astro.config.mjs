@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "astro/config"
 import expressiveCode from "astro-expressive-code"
 import remarkDirective from "remark-directive"
+import remarkGfm from "remark-gfm"
 import { remarkCallouts } from "./src/lib/remark-callouts.mjs"
 
 export default defineConfig({
@@ -33,6 +34,6 @@ export default defineConfig({
         react(),
     ],
     markdown: {
-        remarkPlugins: [remarkDirective, remarkCallouts],
+        remarkPlugins: [remarkGfm, remarkDirective, remarkCallouts],
     },
 })

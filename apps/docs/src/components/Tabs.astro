@@ -1,0 +1,131 @@
+---
+interface Props {
+    /** Optional sync group: tabs sharing a group switch together across the page. */
+    group?: string
+}
+
+const { group } = Astro.props
+---
+
+<div class="tabs" data-group={group}>
+    <div class="tabs-nav" role="tablist"></div>
+    <div class="tabs-panels">
+        <slot />
+    </div>
+</div>
+
+<style>
+    .tabs {
+        border: 1px solid var(--border-dim);
+        margin: 1.5rem 0;
+        overflow: hidden;
+    }
+
+    .tabs-nav {
+        display: flex;
+        border-bottom: 1px solid var(--border-dim);
+        background: var(--surface-base);
+        overflow-x: auto;
+    }
+
+    .tabs-nav :global(button) {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1.125rem;
+        font-family: var(--font-sans);
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+    }
+
+    .tabs-nav :global(button:hover) {
+        color: var(--text-primary);
+        background: var(--surface-raised);
+    }
+
+    .tabs-nav :global(button.active) {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+    }
+
+    .tabs-panels :global(.tab-item) {
+        display: none;
+        padding: 1.25rem;
+    }
+
+    .tabs-panels :global(.tab-item.active) {
+        display: block;
+    }
+
+    /* Let code blocks sit flush inside a panel */
+    .tabs-panels :global(.tab-item > .expressive-code:first-child) {
+        margin-top: 0;
+    }
+    .tabs-panels :global(.tab-item > .expressive-code:last-child) {
+        margin-bottom: 0;
+    }
+    .tabs-panels :global(.tab-item > p:first-child) {
+        margin-top: 0;
+    }
+    .tabs-panels :global(.tab-item > :last-child) {
+        margin-bottom: 0;
+    }
+</style>
+
+<script>
+    function initTabs(root: HTMLElement) {
+        const nav = root.querySelector<HTMLElement>(".tabs-nav")
+        const items = Array.from(root.querySelectorAll<HTMLElement>(".tab-item"))
+        if (nav == null || items.length === 0) return
+        if (nav.childElementCount > 0) return // already initialized
+
+        const group = root.dataset.group
+
+        function select(label: string) {
+            items.forEach((item) => item.classList.toggle("active", item.dataset.label === label))
+            nav!.querySelectorAll<HTMLElement>("button").forEach((btn) =>
+                btn.classList.toggle("active", btn.dataset.label === label),
+            )
+        }
+
+        items.forEach((item, i) => {
+            const label = item.dataset.label ?? `Tab ${i + 1}`
+            const btn = document.createElement("button")
+            btn.type = "button"
+            btn.textContent = label
+            btn.dataset.label = label
+            btn.setAttribute("role", "tab")
+            btn.addEventListener("click", () => {
+                select(label)
+                if (group != null) {
+                    // Sync every other tab group with the same group + this label
+                    document.querySelectorAll<HTMLElement>(`.tabs[data-group="${group}"]`).forEach((other) => {
+                        if (other === root) return
+                        const has = Array.from(other.querySelectorAll<HTMLElement>(".tab-item")).some(
+                            (it) => it.dataset.label === label,
+                        )
+                        if (!has) return
+                        other.querySelectorAll<HTMLElement>(".tab-item").forEach((it) =>
+                            it.classList.toggle("active", it.dataset.label === label),
+                        )
+                        other.querySelectorAll<HTMLElement>(".tabs-nav button").forEach((b) =>
+                            b.classList.toggle("active", b.dataset.label === label),
+                        )
+                    })
+                }
+            })
+            nav.appendChild(btn)
+        })
+
+        select(items[0]!.dataset.label ?? "")
+    }
+
+    document.querySelectorAll<HTMLElement>(".tabs").forEach(initTabs)
+</script>

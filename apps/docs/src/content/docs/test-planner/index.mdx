@@ -1,131 +1,72 @@
 ---
-title: E2E Test Planner
-description: A Claude Code plugin that analyzes your codebase and produces a complete E2E test suite, plus the infrastructure to run it.
+title: Test Planner
+description: The planner is a CLI that reads your codebase and generates a complete, natural-language E2E test suite - pages, flows, scenarios, and the test-data helpers to run them - in one command.
 ---
 
-import InstallTabs from "../../../components/InstallTabs.astro"
+<p class="lead">The planner is a command-line tool that reads your codebase and generates a complete end-to-end test suite: the pages and flows to cover, the data each test needs, and the helpers that create and clean up that data. One command, and it runs on managed Autonoma credits - no LLM API key required.</p>
 
-The Test Planner is a **Claude Code plugin** that takes any web application codebase and produces a complete, production-ready E2E test suite in six steps. Install it once, run a single command, and the plugin handles orchestration, deterministic validation gates, and user confirmation checkpoints automatically. The final output is a set of test files ready to upload to Autonoma, backed by a live Environment Factory endpoint that creates isolated test data for every run.
+![The planner reads your codebase and produces a knowledge base, scenarios, and a test suite](/img/test-planner/pipeline.jpg)
 
-## Installation
+## Run it
 
-<InstallTabs>
-
-Install the plugin from the marketplace:
+You launch the planner from the **Finish setup → Upload test artifacts** step in the dashboard, which hands you a ready-to-paste command with your token and generation id baked in:
 
 ```bash
-/plugin marketplace add Autonoma-AI/test-planner-plugin
+AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
 ```
 
-Then register it with Claude Code:
+That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner` (the installed command is `autonoma-planner`). Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
 
-```bash
-/plugin install autonoma-test-planner@autonoma
-```
+Before the run starts, the planner asks a few quick questions to steer the output:
 
-Then run the plugin:
+- What is this project?
+- Why do you want E2E tests?
+- What are the most critical flows?
 
-```bash
-/autonoma-test-planner:generate-tests
-```
+Then it works through six steps, pausing for your review between each.
 
-</InstallTabs>
+## What it does
 
-The plugin runs each step in an **isolated subagent** and validates every output with **deterministic shell-script validation** (Python + YAML parsing) — not LLM-based checks. If validation fails, the agent sees the exact error and must fix it before proceeding. PostToolUse hooks validate every file write automatically, and cross-file consistency checks ensure outputs like INDEX.md test counts match features.json feature counts. A hard validation gate prevents test files from being written until the scenario lifecycle has been proven end-to-end.
+| # | Step | What it does | Output |
+| --- | --- | --- | --- |
+| 1 | **Find your pages** | Maps every page and route in your app. | - |
+| 2 | **Build a knowledge base** | Learns your features, flows, and UI patterns. | `AUTONOMA.md` |
+| 3 | **Map your data models** | Finds what your app stores and how each record is created. | `entity-audit.md` |
+| 4 | **Design test scenarios** | Decides the realistic data each test runs against. | `scenarios.md` |
+| 5 | **Set up test data** | Wires small helpers that create and clean up that data, validates the full up/down cycle against your app, and submits the recipe. | `recipe.json` |
+| 6 | **Generate the tests** | Writes the E2E tests as natural-language markdown, covering every page and feature. | `qa-tests/` |
 
-## Before you start
-
-The plugin runs against your **frontend codebase** to discover pages, flows, and UI patterns, and against your **backend codebase** to audit entity creation paths and set up the Environment Factory.
-
-Before you start, make sure you have:
-
-- access to the frontend codebase
-- access to the backend codebase (can be the same monorepo)
-- these environment variables in the Claude Code session:
-  - `AUTONOMA_API_KEY`
-  - `AUTONOMA_PROJECT_ID`
-  - `AUTONOMA_API_URL`
-
-If your frontend and backend are in the same monorepo, you're all set. If they're in separate repositories, make sure the agent has access to both.
-
-## The six steps
-
-### Step 1 — Generate a knowledge base
-
-The agent analyzes your frontend codebase and produces `AUTONOMA.md`: a user-perspective guide to every page, flow, and interaction in your application.
-
-**Consumes:** Your frontend codebase.
-**Produces:** `autonoma/AUTONOMA.md` + `autonoma/features.json`
-
-### Step 2 — Entity creation audit
-
-The agent inspects your backend codebase to find the canonical creation function for every database model — typically a service, repository, or similar helper. Models with dedicated creation code get factories in the Environment Factory; models without fall back to raw SQL INSERT. The audit records observed side effects (password hashing, slug generation, external API calls) so you can see why each factory matters.
-
-**Consumes:** Knowledge base + your backend codebase.
-**Produces:** `autonoma/entity-audit.md`
-
-### Step 3 — Generate test data scenarios
-
-The agent reads the database schema directly from your backend and designs three named test data environments: `standard` (realistic variety for most tests), `empty` (for zero-state testing), and `large` (for pagination and performance). `scenarios.md` records concrete values and relationships, plus schema metadata and generated-value placeholders (`{{token}}`) for fields that must vary across runs.
-
-**Consumes:** Knowledge base + entity audit + your backend codebase.
-**Produces:** `autonoma/scenarios.md`
-
-### Step 4 — Implement the Environment Factory
-
-The agent installs the Autonoma SDK in your backend, configures the handler, and registers a factory for every model marked `independently_created: true` in the audit — calling your real service/repository function so test data flows through the same business logic as production data. Models without dedicated creation code fall back to raw SQL INSERT automatically. A `discover` smoke test plus a factory-integrity check confirm the handler is wired correctly before handing off to Step 5.
-
-**Consumes:** Entity audit + scenarios + your backend codebase.
-**Produces:** A working Environment Factory endpoint + `autonoma/.endpoint-implemented`
-
-### Step 5 — Validate scenario lifecycle
-
-The agent runs the full `discover` → `up` → `down` lifecycle against every scenario, iterating up to five times to fix handler bugs or reconcile `scenarios.md` with reality. Once every scenario passes, it emits `autonoma/scenario-recipes.json`, runs a deterministic preflight check, and uploads the validated recipes to the Autonoma dashboard. The `.endpoint-validated` sentinel this step writes is what unlocks Step 6.
-
-**Consumes:** Endpoint from Step 4 + scenarios from Step 3.
-**Produces:** `autonoma/scenario-recipes.json` + `autonoma/.scenario-validation.json` + `autonoma/.endpoint-validated` + uploaded recipes on the dashboard.
-
-The upload contract for `scenario-recipes.json` is documented in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/).
-
-### Step 6 — Generate E2E tests
-
-The agent produces an exhaustive set of test cases as natural language markdown files, using the **validated, reconciled scenarios** from Step 5. Tests are distributed across tiers: core flows get 50-60% of coverage, supporting flows get the rest. The suite includes happy paths, input validation, state persistence, navigation, and cross-flow journey tests. Variable-field tokens are referenced symbolically so the test runner can substitute real values at execution time. An adversarial review agent runs after to find gaps.
-
-**Consumes:** Knowledge base + validated scenarios + scenario recipes.
-**Produces:** `autonoma/qa-tests/` directory with test files + `INDEX.md`
-
-## How the steps connect
-
-- **Step 1** output feeds every later step — the knowledge base tells subsequent agents what the app is and what the core flows are
-- **Step 2** output feeds Step 4 — the entity audit decides which models get factories and which fall back to SQL
-- **Step 3** output feeds Steps 5 and 6 — scenarios define what data to create and what tests assert against
-- **Step 4** produces the endpoint Step 5 validates against; it does NOT run `up`/`down` itself
-- **Step 5** is the critical gate — it proves the scenarios actually work against a real database. Its sentinel unlocks Step 6. If validation fails, Step 6 is blocked at the hook level.
-- **Step 6** consumes the (possibly reconciled) scenarios as the source of truth for test data
-
-## How validation works
-
-Unlike prompt-based validation, the Test Planner uses **deterministic shell-script validators** at every step:
-
-- **PostToolUse hooks** run after every file write, catching structural issues (missing frontmatter, invalid YAML, wrong file locations) immediately
-- **Step-level validators** run Python and YAML parsing scripts to verify the complete output before the next step begins
-- **Cross-file consistency checks** ensure inter-file references are correct — for example, INDEX.md test counts must match the actual number of test files, and `features.json` feature counts must align with the knowledge base
-- **Preflight** on `scenario-recipes.json` verifies every scenario has a recipe, every token is declared, and the tree roots at the scope entity
-- **The validation gate** blocks test-file writes until `autonoma/.endpoint-validated` exists
-
-If any validation fails, the agent receives the exact error message and must fix the issue before the plugin allows it to proceed. You never end up with a broken intermediate output feeding into the next step.
+Step 5 is where the planner connects to the [Environment Factory](/environment-factory/) - it wires the create/teardown helpers and proves they work end to end before any tests are written.
 
 ## Review checkpoints
 
-The plugin pauses after Steps 1–5 and asks for your review before the output is consumed by the next step. These are not optional — getting them right determines the quality of the final test suite.
+The planner pauses after each step and shows you what it produced. Review it before moving on - these checkpoints determine the quality of the final suite. If a step got something wrong, you can retry it with a note steering the agent in the right direction.
 
-| After step | What to review | Why it matters |
-|------------|----------------|----------------|
-| Step 1 | Core flows identified | Determines 50-60% of test coverage weight. Wrong core flows = poorly prioritized tests. |
-| Step 2 | Entity audit — factory vs raw SQL classification and identified creation functions | Decides which models run your real business logic during tests. Wrong function = tests that bypass important side effects. |
-| Step 3 | Scenario entity data + variable fields | Fixed values become direct assertions; variable values become tokens. Wrong names, counts, relationships, or variable markings = brittle tests. |
-| Step 4 | SDK implementation plan (endpoint location, factories, auth callback) | Ensures the backend integration, secrets, and factory wiring are correct before code is written. |
-| Step 5 | Validation results + any edits made to `scenarios.md` + uploaded recipes | Confirms the scenarios are feasible against your real database. Any agent edits to scenarios mean the original design missed something — worth reviewing. |
-| Step 6 | Test distribution + journey/critical test samples | Confirms assertions reference real UI text, not vague descriptions. Validates coverage weight across tiers. |
+The steps that matter most to review:
 
-Each step page explains what to look for and why it matters in detail.
+- **Find your pages / Knowledge base** - sets what gets tested and how coverage is prioritized.
+- **Map your data models** - decides which models run your real business logic during tests.
+- **Design test scenarios** - fixed values become assertions; variable values become tokens substituted at run time.
+- **Set up test data** - confirms the scenarios actually work against your real database.
+
+## Commands and flags
+
+```bash
+autonoma-planner            # run the pipeline (default command)
+autonoma-planner status     # show progress for the current project
+
+# Useful flags
+--project <path>            # target a repo other than the current directory
+--step <name>               # run or re-run a single step
+--resume                    # continue from where a previous run stopped
+--non-interactive           # run without the review pauses (CI)
+--model <id>                # pick a different Autonoma-hosted model (still no key needed)
+```
+
+## Output
+
+Artifacts are written to `~/.autonoma/<project-slug>/` as they're produced. When you run the planner from the dashboard's Finish setup flow, the knowledge base, scenarios, recipe, and generated tests are uploaded to Autonoma automatically at the end - ready to run against your preview environments.
+
+:::note
+The planner and the [Environment Factory](/environment-factory/) work together: the planner **designs** the scenarios and generates the tests; the Environment Factory **provisions** the real, isolated data those tests run against, on every run.
+:::
