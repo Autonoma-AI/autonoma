@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
+import { isManagedPreviewkitEnvKey, isReservedPreviewkitEnvKey } from "./previewkit-builtins";
 
 const SECRET_KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Mirrors the k8sNameRegex in apps/previewkit/src/config/schema.ts. Secret
@@ -27,6 +27,11 @@ export const SecretItemSchema = z.object({
             ctx.addIssue({
                 code: "custom",
                 message: `${key} is a reserved built-in variable and cannot be set.`,
+            });
+        } else if (isManagedPreviewkitEnvKey(key)) {
+            ctx.addIssue({
+                code: "custom",
+                message: `${key} is a secret managed by Autonoma and cannot be set.`,
             });
         }
     }),

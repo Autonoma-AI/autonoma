@@ -1,40 +1,31 @@
 import { Badge, Button, Skeleton } from "@autonoma/blacklight";
-import type { RepoIntrospection, SuggestedApp } from "@autonoma/types";
+import type { SuggestServicesResult, SuggestedService } from "@autonoma/types";
 import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 
-interface SuggestionsBannerProps {
+interface ServiceSuggestionsBannerProps {
   /** Suggestions only load (and render) when the config has never been saved. */
   enabled: boolean;
   isPending: boolean;
-  data?: RepoIntrospection;
-  /** App names already present in the draft - matching suggestions are hidden. */
-  existingAppNames: Set<string>;
-  /**
-   * Keys of suggestions already accepted or dismissed. Tracked by the stable
-   * {@link suggestionKey} (not the editable draft name) and owned by the parent
-   * so it survives this component unmounting on step switches.
-   */
+  data?: SuggestServicesResult;
+  /** Recipes already configured in the draft - a matching suggestion is hidden (one instance per store). */
+  existingRecipes: Set<string>;
+  /** Keys of suggestions already accepted or dismissed, tracked by {@link serviceSuggestionKey}. */
   handled: Set<string>;
-  onAccept: (suggestion: SuggestedApp) => void;
-  onAcceptAll: (suggestions: SuggestedApp[]) => void;
-  onDismiss: (suggestion: SuggestedApp) => void;
+  onAccept: (suggestion: SuggestedService) => void;
+  onAcceptAll: (suggestions: SuggestedService[]) => void;
+  onDismiss: (suggestion: SuggestedService) => void;
 }
 
-/**
- * Repo-introspection suggestions shown above the apps section on first visit.
- * Each card can be accepted, edited after accepting, or dismissed, and any
- * introspection failure renders nothing so manual setup is unaffected.
- */
-export function SuggestionsBanner({
+export function ServiceSuggestionsBanner({
   enabled,
   isPending,
   data,
-  existingAppNames,
+  existingRecipes,
   handled,
   onAccept,
   onAcceptAll,
   onDismiss,
-}: SuggestionsBannerProps) {
+}: ServiceSuggestionsBannerProps) {
   if (!enabled) return undefined;
 
   if (isPending) {
@@ -43,8 +34,8 @@ export function SuggestionsBanner({
 
   if (data == null || data.status !== "ok") return undefined;
 
-  const visible = data.apps.filter(
-    (suggestion) => !handled.has(suggestionKey(suggestion)) && !existingAppNames.has(suggestion.name),
+  const visible = data.services.filter(
+    (suggestion) => !handled.has(serviceSuggestionKey(suggestion)) && !existingRecipes.has(suggestion.recipe),
   );
   if (visible.length === 0) return undefined;
 
@@ -53,9 +44,8 @@ export function SuggestionsBanner({
       <div className="flex flex-wrap items-center gap-3">
         <SparkleIcon size={18} weight="duotone" className="text-primary-ink" />
         <p className="text-sm text-text-primary">
-          We scanned <span className="font-mono">{data.repo?.fullName ?? "your repo"}</span> and found {visible.length}{" "}
-          likely {visible.length === 1 ? "app" : "apps"}. Accept one to replace the starter, or dismiss it and configure
-          manually.
+          Based on your apps, we suggest {visible.length} managed {visible.length === 1 ? "service" : "services"}.
+          Accept to add, or dismiss and configure manually.
         </p>
         {visible.length > 1 ? (
           <Button variant="outline" size="xs" className="ml-auto" onClick={() => onAcceptAll(visible)}>
@@ -66,16 +56,15 @@ export function SuggestionsBanner({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {visible.map((suggestion) => (
-          <div key={suggestionKey(suggestion)} className="border border-border-dim bg-surface-base p-4">
+          <div key={serviceSuggestionKey(suggestion)} className="border border-border-dim bg-surface-base p-4">
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm font-bold text-text-primary">{suggestion.name}</span>
+              <Badge variant="outline">{suggestion.recipe}</Badge>
               <Badge variant={confidenceVariant(suggestion.confidence)}>{suggestion.confidence}</Badge>
             </div>
-            <p className="mt-1 font-mono text-2xs text-text-secondary">
-              {suggestion.path}
-              {suggestion.port != null ? ` · :${suggestion.port}` : ""}
-              {suggestion.dockerfile != null ? " · Dockerfile" : ""}
-            </p>
+            {suggestion.version != null ? (
+              <p className="mt-1 font-mono text-2xs text-text-secondary">version {suggestion.version}</p>
+            ) : undefined}
             {suggestion.evidence.length > 0 ? (
               <p className="mt-2 truncate text-2xs text-text-secondary" title={suggestion.evidence.join(" · ")}>
                 {suggestion.evidence.join(" · ")}
@@ -96,12 +85,12 @@ export function SuggestionsBanner({
   );
 }
 
-/** Stable identity for a suggestion - derived from the original detection, never the editable draft name. */
-export function suggestionKey(suggestion: SuggestedApp): string {
-  return `${suggestion.name}:${suggestion.path}`;
+/** Stable identity for a service suggestion - derived from recipe + suggested name. */
+export function serviceSuggestionKey(suggestion: SuggestedService): string {
+  return `${suggestion.recipe}:${suggestion.name}`;
 }
 
-function confidenceVariant(confidence: SuggestedApp["confidence"]) {
+function confidenceVariant(confidence: SuggestedService["confidence"]) {
   if (confidence === "high") return "success" as const;
   if (confidence === "medium") return "secondary" as const;
   return "outline" as const;

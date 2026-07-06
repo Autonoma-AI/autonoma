@@ -138,6 +138,27 @@ export class PreviewkitSecretsService {
         }
     }
 
+    /** Reads back a single secret's plaintext value (unlike {@link list}, unmasked); trusted server-side callers only. */
+    async getValue(
+        applicationId: string,
+        appName: string,
+        key: string,
+        callerOrgId: string | undefined,
+    ): Promise<string | undefined> {
+        this.logger.info("Reading secret value", { applicationId, appName, extra: { key } });
+
+        const app = await this.findApplication(applicationId, callerOrgId);
+        if (app == null) return undefined;
+
+        const record = await this.prisma.previewkitSecret.findUnique({
+            where: { applicationId_appName: { applicationId, appName } },
+        });
+        if (record == null) return undefined;
+
+        const values = await this.fetchSecretValue(record.awsSecretArn);
+        return values[key];
+    }
+
     async delete(
         applicationId: string,
         appName: string,

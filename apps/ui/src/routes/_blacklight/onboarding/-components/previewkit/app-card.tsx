@@ -28,6 +28,7 @@ interface AppCardProps {
   referenceTokens: string[];
   /** Enable the per-row sensitive toggle + masked secret rows in the env editor. */
   enableSecrets?: boolean;
+  showEnv?: boolean;
   onChange: (id: number, patch: Partial<AppDraft>) => void;
   onSetPrimary: (id: number) => void;
   onRemove: (id: number) => void;
@@ -40,6 +41,7 @@ export function AppCard({
   dependencyOptions,
   referenceTokens,
   enableSecrets = false,
+  showEnv = true,
   onChange,
   onSetPrimary,
   onRemove,
@@ -65,47 +67,59 @@ export function AppCard({
       data-app-draft-id={app.id}
       className={cn("border bg-surface-base p-5", errorCount > 0 ? "border-status-critical/60" : "border-border-dim")}
     >
-      <div className={cn("flex items-center gap-3 border-b border-border-dim pb-3", open && "mb-4")}>
-        <button
-          type="button"
-          onClick={() => setExpanded(!open)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          aria-expanded={open}
-        >
-          {open ? (
-            <CaretDownIcon size={13} className="shrink-0 text-text-secondary" />
-          ) : (
-            <CaretRightIcon size={13} className="shrink-0 text-text-secondary" />
-          )}
-          <span className="font-mono text-sm font-bold text-text-primary">
-            {app.name.trim() === "" ? "new app" : app.name}
-          </span>
-          {app.primary ? <Badge variant="secondary">primary</Badge> : undefined}
-          {app.origin === "suggestion" ? <Badge variant="outline">suggested</Badge> : undefined}
-          {app.origin === "starter" ? <Badge variant="warn">starter</Badge> : undefined}
-          {errorCount > 0 ? (
-            <Badge variant="critical">
-              {errorCount} {errorCount === 1 ? "error" : "errors"}
-            </Badge>
-          ) : undefined}
-          {warningCount > 0 ? (
-            <Badge variant="warn">
-              {warningCount} {warningCount === 1 ? "warning" : "warnings"}
-            </Badge>
-          ) : undefined}
-          {!open && app.port.trim() !== "" ? (
-            <span className="font-mono text-2xs text-text-secondary">· {app.port}</span>
-          ) : undefined}
-        </button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          title="Remove app"
-          className="hover:text-status-critical"
-          onClick={() => onRemove(app.id)}
-        >
-          <TrashIcon size={14} />
-        </Button>
+      <div className={cn("border-b border-border-dim pb-3", open && "mb-4")}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setExpanded(!open)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            aria-expanded={open}
+          >
+            {open ? (
+              <CaretDownIcon size={13} className="shrink-0 text-text-secondary" />
+            ) : (
+              <CaretRightIcon size={13} className="shrink-0 text-text-secondary" />
+            )}
+            <span className="font-mono text-sm font-bold text-text-primary">
+              {app.name.trim() === "" ? "new app" : app.name}
+            </span>
+            {app.origin === "suggestion" ? <Badge variant="outline">suggested</Badge> : undefined}
+            {app.origin === "starter" ? <Badge variant="warn">starter</Badge> : undefined}
+            {errorCount > 0 ? (
+              <Badge variant="critical">
+                {errorCount} {errorCount === 1 ? "error" : "errors"}
+              </Badge>
+            ) : undefined}
+            {warningCount > 0 ? (
+              <Badge variant="warn">
+                {warningCount} {warningCount === 1 ? "warning" : "warnings"}
+              </Badge>
+            ) : undefined}
+            {!open && app.port.trim() !== "" ? (
+              <span className="font-mono text-2xs text-text-secondary">· {app.port}</span>
+            ) : undefined}
+          </button>
+          <div className="flex shrink-0 items-center gap-2" title="The primary app's URL becomes the preview URL.">
+            <Label htmlFor={`pk-app-${app.id}-primary`} className="cursor-pointer text-2xs text-text-secondary">
+              Primary
+            </Label>
+            <Switch
+              id={`pk-app-${app.id}-primary`}
+              checked={app.primary}
+              onCheckedChange={() => onSetPrimary(app.id)}
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title="Remove app"
+            className="hover:text-status-critical"
+            onClick={() => onRemove(app.id)}
+          >
+            <TrashIcon size={14} />
+          </Button>
+        </div>
+        <FieldMessages issues={issues} draftId={app.id} field="primary" />
       </div>
 
       {open ? (
@@ -168,47 +182,32 @@ export function AppCard({
             />
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor={`pk-app-${app.id}-autodetect`}>Autodetect Dockerfile</Label>
-                <Switch
-                  id={`pk-app-${app.id}-autodetect`}
-                  checked={app.autodetectDockerfile}
-                  onCheckedChange={(autodetectDockerfile) => onChange(app.id, { autodetectDockerfile })}
-                />
-              </div>
-              {!app.autodetectDockerfile ? (
-                <div className="mt-2">
-                  <Input
-                    id={`pk-app-${app.id}-dockerfile`}
-                    value={app.dockerfile}
-                    onChange={(event) => onChange(app.id, { dockerfile: event.target.value })}
-                    placeholder="Dockerfile"
-                    aria-invalid={issues.fieldErrors.has(fieldIssueKey(app.id, "dockerfile"))}
-                    className={fieldClassName(issues, app.id, "dockerfile")}
-                  />
-                  <FieldMessages issues={issues} draftId={app.id} field="dockerfile" />
-                </div>
-              ) : (
-                <p className="mt-2 text-2xs text-text-secondary">
-                  Uses a Dockerfile in the app directory, turbo filters, or railpack autodetection.
-                </p>
-              )}
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor={`pk-app-${app.id}-autodetect`}>Autodetect Dockerfile</Label>
+              <Switch
+                id={`pk-app-${app.id}-autodetect`}
+                checked={app.autodetectDockerfile}
+                onCheckedChange={(autodetectDockerfile) => onChange(app.id, { autodetectDockerfile })}
+              />
             </div>
-
-            <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor={`pk-app-${app.id}-primary`}>Primary app</Label>
-                <Switch
-                  id={`pk-app-${app.id}-primary`}
-                  checked={app.primary}
-                  onCheckedChange={() => onSetPrimary(app.id)}
+            {!app.autodetectDockerfile ? (
+              <div className="mt-2">
+                <Input
+                  id={`pk-app-${app.id}-dockerfile`}
+                  value={app.dockerfile}
+                  onChange={(event) => onChange(app.id, { dockerfile: event.target.value })}
+                  placeholder="Dockerfile"
+                  aria-invalid={issues.fieldErrors.has(fieldIssueKey(app.id, "dockerfile"))}
+                  className={fieldClassName(issues, app.id, "dockerfile")}
                 />
+                <FieldMessages issues={issues} draftId={app.id} field="dockerfile" />
               </div>
-              <p className="mt-2 text-2xs text-text-secondary">The primary app's URL becomes the preview URL.</p>
-              <FieldMessages issues={issues} draftId={app.id} field="primary" />
-            </div>
+            ) : (
+              <p className="mt-2 text-2xs text-text-secondary">
+                Uses a Dockerfile in the app directory, turbo filters, or railpack autodetection.
+              </p>
+            )}
           </div>
 
           <div className="mt-4">
@@ -243,19 +242,21 @@ export function AppCard({
             <FieldMessages issues={issues} draftId={app.id} field="dependsOn" />
           </div>
 
-          <div className="mt-5 border-t border-border-dim pt-4">
-            <AppEnvEditor
-              appDraftId={app.id}
-              rows={app.env}
-              referenceTokens={referenceTokens}
-              showBuiltins
-              showManagedSecrets={app.primary}
-              enableSecrets={enableSecrets}
-              error={firstIssue(issues.fieldErrors, app.id, "env")}
-              warning={firstIssue(issues.fieldWarnings, app.id, "env")}
-              onChange={(env: EnvRowDraft[]) => onChange(app.id, { env })}
-            />
-          </div>
+          {showEnv ? (
+            <div className="mt-5 border-t border-border-dim pt-4">
+              <AppEnvEditor
+                appDraftId={app.id}
+                rows={app.env}
+                referenceTokens={referenceTokens}
+                showBuiltins
+                showManagedSecrets
+                enableSecrets={enableSecrets}
+                error={firstIssue(issues.fieldErrors, app.id, "env")}
+                warning={firstIssue(issues.fieldWarnings, app.id, "env")}
+                onChange={(env: EnvRowDraft[]) => onChange(app.id, { env })}
+              />
+            </div>
+          ) : undefined}
 
           <details className="mt-5 border-t border-border-dim pt-4">
             <summary className="cursor-pointer font-mono text-2xs uppercase tracking-widest text-text-secondary">

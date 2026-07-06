@@ -20,6 +20,12 @@ export interface OnboardingPreviewkitSecretsService {
         callerOrgId: string | undefined,
     ): Promise<PreviewkitSecretsUpsertResult | void>;
     delete(applicationId: string, appName: string, key: string, callerOrgId: string | undefined): Promise<boolean>;
+    getValue?(
+        applicationId: string,
+        appName: string,
+        key: string,
+        callerOrgId: string | undefined,
+    ): Promise<string | undefined>;
 }
 
 export interface OnboardingRepoIntrospection {

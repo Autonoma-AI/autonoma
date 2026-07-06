@@ -13,7 +13,11 @@ import type { PreviewConfig } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { DryRunSubject } from "./dry-run-subject";
-import type { OnboardingManagerOptions, PreviewkitSecretsUpsertResult } from "./onboarding-dependencies";
+import type {
+    OnboardingManagerOptions,
+    OnboardingPreviewkitSecretsService,
+    PreviewkitSecretsUpsertResult,
+} from "./onboarding-dependencies";
 import { listSdkDryRunTargets } from "./sdk-dry-run-targets";
 import { OnboardingApplicationNotFoundError, type ScenarioDryRunResult } from "./states/onboarding-state";
 
@@ -334,38 +338,93 @@ export class OnboardingSdkCapabilityService {
     }
 
     /**
-     * Provision BOTH managed secrets for the primary PreviewKit app the moment
-     * the preview config is saved: `AUTONOMA_SHARED_SECRET` (the app's shared
-     * secret, used to verify Autonoma's incoming HMAC) and
-     * `AUTONOMA_SIGNING_SECRET` (generated once, used by the SDK to sign refs
-     * tokens). Writing both here - before the preview's first deploy - lets the
-     * PreviewKit ExternalSecret bridge mount them on that initial deploy, so the
-     * running pod has both from the start instead of booting with only the
-     * shared secret and a redeploy gap for the signing secret. Best-effort: a
-     * no-op when the app has no shared secret or PreviewKit secrets are not
-     * configured for this environment.
+     * Provision BOTH managed secrets for EVERY app in the preview config the
+     * moment it is saved: `AUTONOMA_SHARED_SECRET` (the app's shared secret, used
+     * to verify Autonoma's incoming HMAC) and `AUTONOMA_SIGNING_SECRET` (used by
+     * the SDK to sign refs tokens). The Environment Factory handler can live in
+     * any app of a monorepo, so both are fanned out to every app's secret bundle
+     * rather than only the primary's - each app pod then boots with the pair and
+     * a handler running anywhere verifies/signs correctly. The signing secret is
+     * one logical value: it is resolved once (reusing an existing value from any
+     * app's bundle - canonical first - so a rotation survives, else minting a
+     * fresh one) and the SAME value is written to every bundle. `services` are
+     * infra recipes (postgres, redis, ...), never customer handler code, so they
+     * are intentionally excluded.
+     *
+     * Writing here - before the preview's first deploy - lets the PreviewKit
+     * ExternalSecret bridge mount both on that initial deploy, so pods have them
+     * from the start instead of a redeploy gap. Best-effort: a no-op when the app
+     * has no shared secret or PreviewKit secrets are not configured.
      */
     async ensureManagedSharedSecretForConfig(
         applicationId: string,
         organizationId: string,
         config: PreviewConfig,
     ): Promise<void> {
-        const sdkAppName = resolveSdkAppName(config);
-        if (sdkAppName == null) return;
+        const canonicalAppName = resolveSdkAppName(config);
+        if (canonicalAppName == null) return;
+        const appNames = config.apps.map((app) => app.name);
 
         const sharedSecret = await this.loadApplicationSharedSecret(applicationId, organizationId, false);
         if (sharedSecret == null) return;
 
-        if (this.options.previewkitSecretsService == null) {
+        const service = this.options.previewkitSecretsService;
+        if (service == null) {
             this.logger.warn("Skipping managed secret sync because PreviewKit secrets are not configured", {
                 applicationId,
-                extra: { sdkAppName },
+                extra: { appNames },
             });
             return;
         }
 
-        await this.upsertManagedSharedSecret(applicationId, organizationId, sdkAppName, sharedSecret, true);
-        await this.ensureManagedSigningSecret(applicationId, organizationId, sdkAppName, sharedSecret);
+        const orderedAppNames = [canonicalAppName, ...appNames.filter((name) => name !== canonicalAppName)];
+        const signingSecret = await this.resolveManagedSigningSecret(
+            service,
+            applicationId,
+            organizationId,
+            orderedAppNames,
+            sharedSecret,
+        );
+
+        this.logger.info("Fanning managed secrets out to all preview apps", {
+            applicationId,
+            extra: { appNames, canonicalAppName },
+        });
+        for (const appName of appNames) {
+            await service.upsert(
+                applicationId,
+                appName,
+                [
+                    { key: MANAGED_SHARED_SECRET_KEY, value: sharedSecret },
+                    { key: MANAGED_SIGNING_SECRET_KEY, value: signingSecret },
+                ],
+                organizationId,
+            );
+        }
+    }
+
+    private async resolveManagedSigningSecret(
+        service: OnboardingPreviewkitSecretsService,
+        applicationId: string,
+        organizationId: string,
+        appNames: string[],
+        sharedSecret: string,
+    ): Promise<string> {
+        for (const appName of appNames) {
+            const existing = await service.getValue?.(
+                applicationId,
+                appName,
+                MANAGED_SIGNING_SECRET_KEY,
+                organizationId,
+            );
+            if (existing != null) return existing;
+        }
+
+        this.logger.info("Minting AUTONOMA_SIGNING_SECRET for managed preview apps", {
+            applicationId,
+            extra: { appNames },
+        });
+        return generateManagedSigningSecret(sharedSecret);
     }
 
     /**

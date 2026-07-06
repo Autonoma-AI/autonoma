@@ -5,6 +5,7 @@ import {
   zodIssuesToConfigIssues,
   type ConfigIssue,
   type SuggestedApp,
+  type SuggestedService,
 } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
@@ -13,29 +14,37 @@ import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
 import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
 import { MinusIcon } from "@phosphor-icons/react/Minus";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import * as Sentry from "@sentry/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   usePreviewkitConfig,
   useRepoSuggestions,
   useSavePreviewkitConfig,
+  useSuggestServices,
   useTriggerPreviewkitMainDeploy,
   useValidatePreviewkitConfig,
 } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import { toastManager } from "lib/toast-manager";
-import { Suspense, useEffect, useState } from "react";
+import { trpc } from "lib/trpc";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AppCard } from "./-components/previewkit/app-card";
+import { EnvStep } from "./-components/previewkit/env-step";
 import { HooksSection } from "./-components/previewkit/hooks-section";
 import { MultirepoSection } from "./-components/previewkit/multirepo-section";
-import { SecretsSection, type SecretsApp } from "./-components/previewkit/secrets-section";
+import { consumeEnvFixes } from "./-components/previewkit/pending-env-fixes";
+import { ServiceSuggestionsBanner, serviceSuggestionKey } from "./-components/previewkit/service-suggestions-banner";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import { SuggestionsBanner, suggestionKey } from "./-components/previewkit/suggestions-banner";
 import {
   PRIMARY_REPO_KEY,
   appDraftFromSuggestion,
+  applyEnvFixesToDraft,
   appFieldFromDocumentKey,
+  diffAppSecrets,
   documentsFromDraft,
   draftFromConfig,
   emptyAppDraft,
@@ -45,8 +54,10 @@ import {
   isUntouchedStarterApp,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
+  serviceDraftForRecipe,
   serviceRecipeSupportsUrlToken,
   snapshotDocument,
+  withSecretRows,
   type AppDraft,
   type AppDraftField,
   type DraftIssues,
@@ -67,12 +78,13 @@ export interface PreviewkitConfigPageProps {
   focusSection?: "config" | "secrets" | "logs";
 }
 
-type ConfigStepId = "apps" | "hooks" | "secrets";
+type ConfigStepId = "apps" | "services" | "env" | "hooks";
 
 const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string; optional?: boolean }> = [
-  { id: "apps", label: "Apps & services", description: "Apps, services + dependency repos" },
+  { id: "apps", label: "Apps", description: "Deployable apps + repos" },
+  { id: "services", label: "Services", description: "Managed backing services" },
+  { id: "env", label: "Env vars and secrets", description: "Runtime values + secrets (toggle per row)" },
   { id: "hooks", label: "Hooks", description: "Pre/post-deploy commands", optional: true },
-  { id: "secrets", label: "Secrets", description: "Runtime values + deploy" },
 ];
 
 // Steps that count toward the completion tally. Optional steps (hooks) are shown
@@ -111,6 +123,7 @@ function PreviewkitConfigContent({
   focusSection,
 }: { appId: string } & Omit<PreviewkitConfigPageProps, "appId">) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const configQuery = usePreviewkitConfig(appId);
   const repositoryQuery = useApplicationRepositoryFromGitHub(appId);
   const saveConfig = useSavePreviewkitConfig();
@@ -129,12 +142,20 @@ function PreviewkitConfigContent({
     configQuery.data.saved ? draftFromConfigSnapshot(configQuery.data) : {},
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
-  const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "secrets" : "apps"));
+  const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "env" : "apps"));
   const [handledSuggestions, setHandledSuggestions] = useState<Set<string>>(new Set());
+  const [handledServiceSuggestions, setHandledServiceSuggestions] = useState<Set<string>>(new Set());
+  const [handledEnvSuggestions, setHandledEnvSuggestions] = useState<Set<string>>(new Set());
+  const loadedSecretKeys = useRef<Map<string, string[]>>(new Map());
   // The hooks step is optional: it only reads as complete once the user has
   // advanced past it (clicked next/save from the hooks step), even when nothing
   // is configured - never before. A previously saved config counts as advanced.
   const [hooksAcknowledged, setHooksAcknowledged] = useState<boolean>(configQuery.data.saved);
+  const [servicesAcknowledged, setServicesAcknowledged] = useState<boolean>(configQuery.data.saved);
+  // Env vars are optional per app, so an empty env is a valid, complete state - but
+  // it must not read as complete before the user has visited the step. Same
+  // acknowledgement rule as services and hooks.
+  const [envAcknowledged, setEnvAcknowledged] = useState<boolean>(configQuery.data.saved);
 
   function setDraft(updater: (current: TopologyDraft) => TopologyDraft) {
     setDraftState(updater);
@@ -142,6 +163,43 @@ function PreviewkitConfigContent({
     // submitted document - stale the moment the draft changes.
     setServerIssues(emptyDraftIssues());
   }
+
+  useEffect(() => {
+    if (!configQuery.data.saved) return;
+    let cancelled = false;
+    void (async () => {
+      const primaryApps = draft.apps.filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2);
+      const entries = await Promise.all(
+        primaryApps.map(async (app) => {
+          const appName = app.name.trim();
+          try {
+            const list = await queryClient.fetchQuery(
+              trpc.onboarding.listPreviewkitSecrets.queryOptions({ applicationId: appId, appName }),
+            );
+            return [appName, list.map((secret) => secret.key)] as const;
+          } catch (err) {
+            Sentry.captureException(err, { extra: { appName } });
+            return [appName, [] as string[]] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const keyMap = new Map(entries);
+      loadedSecretKeys.current = keyMap;
+      setDraftState((current) => ({
+        ...current,
+        apps: current.apps.map((app) => {
+          if (app.repoKey !== PRIMARY_REPO_KEY) return app;
+          return { ...app, env: withSecretRows(app.env, keyMap.get(app.name.trim()) ?? []) };
+        }),
+      }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Load once for this application.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId]);
 
   const compiled = documentsFromDraft(draft);
   const clientIssues = validateDraftClientSide(compiled);
@@ -165,27 +223,32 @@ function PreviewkitConfigContent({
     return savedSnapshots[repoKey] === snapshotDocument(document);
   };
   const allSaved = [PRIMARY_REPO_KEY, ...draft.repos.map((repo) => repo.name)].every(groupSaved);
-  const configReadyForSecrets = allSaved && !hasBlockingIssues;
-  const canDeploy = configReadyForSecrets;
+  const configReadyToDeploy = allSaved && !hasBlockingIssues;
+  const canDeploy = configReadyToDeploy;
   const stepCompletion = getConfigStepCompletion({
     draft,
     issues,
-    canDeploy,
     hooksValid: hookErrors.size === 0,
     hooksAcknowledged,
+    servicesAcknowledged,
+    envAcknowledged,
   });
   const completedStepCount = CONFIG_STEPS.filter((step) => step.optional !== true && stepCompletion[step.id]).length;
 
   useEffect(() => {
-    if (focusSection === "secrets") setActiveStep(configReadyForSecrets ? "secrets" : "apps");
+    // A failed-deploy secret deep-link lands on the merged env + secrets step.
+    if (focusSection === "secrets") setActiveStep("env");
     if (focusSection === "config") setActiveStep("apps");
-  }, [configReadyForSecrets, focusSection]);
+  }, [focusSection]);
 
   useEffect(() => {
-    if (activeStep === "secrets" && !configReadyForSecrets) {
-      setActiveStep("apps");
-    }
-  }, [activeStep, configReadyForSecrets]);
+    const fixes = consumeEnvFixes(appId);
+    if (fixes.length === 0) return;
+    setActiveStep("env");
+    setDraft((current) => applyEnvFixesToDraft(current, fixes));
+    // Run once on mount for this application.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId]);
 
   function clearFocusParams() {
     void navigate({ to: "/onboarding", replace: true, search: buildOnboardingSearch("previewkit-config", appId) });
@@ -264,6 +327,31 @@ function PreviewkitConfigContent({
     markSuggestionsHandled(repoKey, [suggestion]);
   }
 
+  function updateService(id: number, patch: Partial<ServiceDraft>) {
+    setDraft((current) => ({
+      ...current,
+      services: current.services.map((service) => (service.id === id ? { ...service, ...patch } : service)),
+    }));
+  }
+
+  function markServiceSuggestionsHandled(suggestions: SuggestedService[]) {
+    setHandledServiceSuggestions((current) => new Set([...current, ...suggestions.map(serviceSuggestionKey)]));
+  }
+
+  function acceptServiceSuggestion(suggestion: SuggestedService) {
+    markServiceSuggestionsHandled([suggestion]);
+    setDraft((current) => addServiceSuggestion(current, suggestion));
+  }
+
+  function acceptAllServiceSuggestions(suggestions: SuggestedService[]) {
+    markServiceSuggestionsHandled(suggestions);
+    setDraft((current) => suggestions.reduce(addServiceSuggestion, current));
+  }
+
+  function dismissServiceSuggestion(suggestion: SuggestedService) {
+    markServiceSuggestionsHandled([suggestion]);
+  }
+
   function handleReposChange(repos: RepoDraft[]) {
     setDraft((current) => {
       const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
@@ -320,6 +408,14 @@ function PreviewkitConfigContent({
       });
     }
 
+    const secrets = draft.apps
+      .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2)
+      .map((app) => {
+        const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
+        return { appName: app.name.trim(), upserts: diff.upserts, deletes: diff.deletes };
+      })
+      .filter((entry) => entry.upserts.length > 0 || entry.deletes.length > 0);
+
     saveConfig.mutate(
       {
         applicationId: appId,
@@ -328,6 +424,7 @@ function PreviewkitConfigContent({
           repo: dependency.repo,
           document: previewConfigSchema.parse(dependency.document),
         })),
+        secrets: secrets.length > 0 ? secrets : undefined,
       },
       {
         onSuccess: () => {
@@ -338,8 +435,29 @@ function PreviewkitConfigContent({
             snapshots[dependency.alias] = snapshotDocument(dependency.document);
           }
           setSavedSnapshots(snapshots);
+          setDraftState((current) => {
+            const next: TopologyDraft = {
+              ...current,
+              apps: current.apps.map((app) => ({
+                ...app,
+                env: app.env.map((row) =>
+                  row.sensitive && row.key.trim() !== "" ? { ...row, value: "", origin: "secret" as const } : row,
+                ),
+              })),
+            };
+            const keyMap = new Map<string, string[]>();
+            for (const app of next.apps) {
+              if (app.repoKey !== PRIMARY_REPO_KEY) continue;
+              keyMap.set(
+                app.name.trim(),
+                app.env.filter((row) => row.sensitive && row.key.trim() !== "").map((row) => row.key.trim()),
+              );
+            }
+            loadedSecretKeys.current = keyMap;
+            return next;
+          });
           toastManager.add({ type: "success", title: "PreviewKit config saved" });
-          setActiveStep("secrets");
+          // Stay on the final step; the primary button flips to "Start deploy" once saved.
         },
       },
     );
@@ -381,19 +499,6 @@ function PreviewkitConfigContent({
     ...deployableApps.flatMap((app) => (app.name.trim() !== "" ? [`{{${app.name}.url}}`] : [])),
   ];
 
-  // Secrets are stored against the Application that owns each app's config
-  // revision: primary-repo apps against this Application, dependency-repo apps
-  // against their own (created and linked at save time).
-  const secretsApps: SecretsApp[] = configQuery.data.saved
-    ? [
-        ...configQuery.data.document.apps.map((app) => ({ name: app.name, applicationId: appId })),
-        ...configQuery.data.dependencyConfigs.flatMap((dependency) => {
-          const ownerApplicationId = dependency.applicationId;
-          if (ownerApplicationId == null || dependency.document == null) return [];
-          return dependency.document.apps.map((app) => ({ name: app.name, applicationId: ownerApplicationId }));
-        }),
-      ]
-    : [];
   const activeStepIndex = CONFIG_STEPS.findIndex((step) => step.id === activeStep);
   const previousStep = activeStepIndex > 0 ? CONFIG_STEPS[activeStepIndex - 1] : undefined;
 
@@ -424,54 +529,96 @@ function PreviewkitConfigContent({
         activeStep={activeStep}
         completedStepCount={completedStepCount}
         completion={stepCompletion}
-        configReadyForSecrets={configReadyForSecrets}
-        onSelect={(step) => {
-          if (!isConfigStepEnabled(step, configReadyForSecrets)) return;
-          setActiveStep(step);
-        }}
+        onSelect={setActiveStep}
       />
 
       <div className="grid gap-6">
         <div className="space-y-6">
           {activeStep === "apps" ? (
-            <div className="space-y-6">
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-                <div className="min-w-0 space-y-6">
-                  <AppsStep
-                    appId={appId}
-                    suggestionsEnabled={!configQuery.data.saved}
-                    handledSuggestions={handledSuggestions}
-                    draftApps={draft.apps}
-                    repoGroups={repoGroups}
-                    issues={issues}
-                    allNames={allNames}
-                    referenceTokens={referenceTokens}
-                    groupSaved={groupSaved}
-                    onAcceptSuggestion={acceptSuggestion}
-                    onAcceptAllSuggestions={acceptAllSuggestions}
-                    onDismissSuggestion={dismissSuggestion}
-                    onAddApp={addApp}
-                    onUpdateApp={updateApp}
-                    onSetPrimaryApp={setPrimaryApp}
-                    onRemoveApp={removeApp}
-                  />
-                </div>
-                <div className="xl:sticky xl:top-20 xl:self-start">
-                  <MultirepoSection
-                    repos={draft.repos}
-                    branchConvention={draft.branchConvention}
-                    primaryRepoFullName={repositoryQuery.data?.fullName}
-                    appCountByRepoKey={appCountByRepoKey}
-                    onReposChange={handleReposChange}
-                    onBranchConventionChange={(branchConvention) =>
-                      setDraft((current) => ({ ...current, branchConvention }))
-                    }
-                  />
-                </div>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+              <div className="min-w-0 space-y-6">
+                <AppsStep
+                  appId={appId}
+                  suggestionsEnabled={!configQuery.data.saved}
+                  handledSuggestions={handledSuggestions}
+                  draftApps={draft.apps}
+                  repoGroups={repoGroups}
+                  issues={issues}
+                  allNames={allNames}
+                  referenceTokens={referenceTokens}
+                  groupSaved={groupSaved}
+                  onAcceptSuggestion={acceptSuggestion}
+                  onAcceptAllSuggestions={acceptAllSuggestions}
+                  onDismissSuggestion={dismissSuggestion}
+                  onAddApp={addApp}
+                  onUpdateApp={updateApp}
+                  onSetPrimaryApp={setPrimaryApp}
+                  onRemoveApp={removeApp}
+                />
               </div>
+              <div className="xl:sticky xl:top-20 xl:self-start">
+                <MultirepoSection
+                  repos={draft.repos}
+                  branchConvention={draft.branchConvention}
+                  primaryRepoFullName={repositoryQuery.data?.fullName}
+                  appCountByRepoKey={appCountByRepoKey}
+                  onReposChange={handleReposChange}
+                  onBranchConventionChange={(branchConvention) =>
+                    setDraft((current) => ({ ...current, branchConvention }))
+                  }
+                />
+              </div>
+            </div>
+          ) : undefined}
+
+          {activeStep === "services" ? (
+            <div className="space-y-6">
+              <ServiceSuggestions
+                appId={appId}
+                enabled={!configQuery.data.saved}
+                apps={deployableApps
+                  .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim() !== "")
+                  .map((app) => ({ name: app.name.trim(), path: app.path.trim() === "" ? "." : app.path.trim() }))}
+                existingRecipes={new Set(draft.services.map((service) => service.recipe))}
+                handled={handledServiceSuggestions}
+                onAccept={acceptServiceSuggestion}
+                onAcceptAll={acceptAllServiceSuggestions}
+                onDismiss={dismissServiceSuggestion}
+              />
               <ServicesSection
                 services={draft.services}
+                showEnv={false}
                 onChange={(services) => setDraft((current) => applyServicesChange(current, services))}
+              />
+            </div>
+          ) : undefined}
+
+          {activeStep === "env" ? (
+            <div className="space-y-6">
+              {focusSection === "secrets" ? (
+                <div className="flex items-start justify-between gap-3 border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
+                  <div>
+                    <p className="font-mono text-2xs uppercase tracking-widest text-status-warn">Check secrets</p>
+                    <p className="mt-2 text-sm text-text-secondary">
+                      Deploy failed because a secret may be missing. Review each app's secret values below.
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="xs" onClick={clearFocusParams}>
+                    Dismiss
+                  </Button>
+                </div>
+              ) : undefined}
+              <EnvStep
+                appId={appId}
+                suggestionsEnabled={!configQuery.data.saved}
+                apps={draft.apps}
+                services={draft.services}
+                issues={issues}
+                referenceTokens={referenceTokens}
+                handled={handledEnvSuggestions}
+                onHandledChange={setHandledEnvSuggestions}
+                onUpdateApp={updateApp}
+                onUpdateService={updateService}
               />
             </div>
           ) : undefined}
@@ -485,36 +632,25 @@ function PreviewkitConfigContent({
             />
           ) : undefined}
 
-          {activeStep === "secrets" ? (
-            <SecretsSection
-              apps={secretsApps}
-              configSaved={configReadyForSecrets}
-              focusSection={focusSection}
-              focusApp={focusApp}
-              showRecoveryWarning={focusSection === "secrets"}
-              onFocusHandled={clearFocusParams}
-            />
-          ) : undefined}
-
-          {activeStep === "apps" || activeStep === "hooks" ? (
-            <ConfigIssuesBanner
-              issues={issues}
-              hasUntouchedStarterApps={hasUntouchedStarterApps}
-              configReadyForSecrets={configReadyForSecrets}
-            />
-          ) : undefined}
+          <ConfigIssuesBanner
+            issues={issues}
+            hasUntouchedStarterApps={hasUntouchedStarterApps}
+            configReadyToDeploy={configReadyToDeploy}
+          />
 
           <ConfigStepFooter
             previousStep={previousStep}
             activeStep={activeStep}
             hasBlockingIssues={hasBlockingIssues}
-            configReadyForSecrets={configReadyForSecrets}
+            configReadyToDeploy={configReadyToDeploy}
             isSaving={saveConfig.isPending}
             isDeploying={deploy.isPending}
             canDeploy={canDeploy}
             onSelect={setActiveStep}
             onSave={save}
             onDeploy={startDeploy}
+            onAdvanceFromServices={() => setServicesAcknowledged(true)}
+            onAdvanceFromEnv={() => setEnvAcknowledged(true)}
             onAdvanceFromHooks={() => setHooksAcknowledged(true)}
           />
         </div>
@@ -527,13 +663,11 @@ function ConfigStepper({
   activeStep,
   completedStepCount,
   completion,
-  configReadyForSecrets,
   onSelect,
 }: {
   activeStep: ConfigStepId;
   completedStepCount: number;
   completion: Record<ConfigStepId, boolean>;
-  configReadyForSecrets: boolean;
   onSelect: (step: ConfigStepId) => void;
 }) {
   return (
@@ -544,11 +678,10 @@ function ConfigStepper({
           {completedStepCount}/{REQUIRED_STEP_COUNT} complete
         </span>
       </div>
-      <div className="grid gap-px bg-border-dim md:grid-cols-3">
+      <div className="grid gap-px bg-border-dim sm:grid-cols-2 lg:grid-cols-4">
         {CONFIG_STEPS.map((step, index) => {
           const active = step.id === activeStep;
           const complete = completion[step.id];
-          const enabled = isConfigStepEnabled(step.id, configReadyForSecrets);
           const isOptional = step.optional === true;
           // An optional step that isn't complete is skippable, not a pending required
           // todo - show a neutral dash rather than a step number so it never reads as
@@ -562,11 +695,9 @@ function ConfigStepper({
               key={step.id}
               type="button"
               onClick={() => onSelect(step.id)}
-              disabled={!enabled}
               className={cn(
                 "flex min-h-20 items-start gap-3 bg-surface-base px-4 py-4 text-left transition-colors hover:bg-surface-raised",
                 active && "bg-primary-ink/10",
-                !enabled && "cursor-not-allowed opacity-45 hover:bg-surface-base",
               )}
             >
               <span
@@ -700,6 +831,7 @@ function AppsStep({
                       issues={issues}
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
                       referenceTokens={referenceTokens}
+                      showEnv={false}
                       onChange={onUpdateApp}
                       onSetPrimary={onSetPrimaryApp}
                       onRemove={onRemoveApp}
@@ -754,9 +886,39 @@ function RepoSuggestions({
   );
 }
 
-function isConfigStepEnabled(step: ConfigStepId, configReadyForSecrets: boolean): boolean {
-  if (step === "secrets") return configReadyForSecrets;
-  return true;
+/** AI-assisted service suggestions for the services step, inferred from the accepted apps. */
+function ServiceSuggestions({
+  appId,
+  enabled,
+  apps,
+  existingRecipes,
+  handled,
+  onAccept,
+  onAcceptAll,
+  onDismiss,
+}: {
+  appId: string;
+  enabled: boolean;
+  apps: Array<{ name: string; path: string }>;
+  existingRecipes: Set<string>;
+  handled: Set<string>;
+  onAccept: (suggestion: SuggestedService) => void;
+  onAcceptAll: (suggestions: SuggestedService[]) => void;
+  onDismiss: (suggestion: SuggestedService) => void;
+}) {
+  const { data, isPending } = useSuggestServices(appId, enabled, apps);
+  return (
+    <ServiceSuggestionsBanner
+      enabled={enabled}
+      isPending={isPending}
+      data={data}
+      existingRecipes={existingRecipes}
+      handled={handled}
+      onAccept={onAccept}
+      onAcceptAll={onAcceptAll}
+      onDismiss={onDismiss}
+    />
+  );
 }
 
 /**
@@ -768,11 +930,11 @@ function isConfigStepEnabled(step: ConfigStepId, configReadyForSecrets: boolean)
 function ConfigIssuesBanner({
   issues,
   hasUntouchedStarterApps,
-  configReadyForSecrets,
+  configReadyToDeploy,
 }: {
   issues: DraftIssues;
   hasUntouchedStarterApps: boolean;
-  configReadyForSecrets: boolean;
+  configReadyToDeploy: boolean;
 }) {
   return (
     <>
@@ -804,8 +966,8 @@ function ConfigIssuesBanner({
           </p>
         </div>
       ) : undefined}
-      {configReadyForSecrets ? (
-        <p className="text-sm text-text-secondary">Config saved. Continue to secrets, then deploy.</p>
+      {configReadyToDeploy ? (
+        <p className="text-sm text-text-secondary">Config saved and ready to deploy.</p>
       ) : undefined}
     </>
   );
@@ -813,33 +975,36 @@ function ConfigIssuesBanner({
 
 /**
  * The footer's primary button performs the active step's real work rather than
- * just navigating: `apps` advances to hooks, `hooks` saves the config (or, once
- * saved and clean, advances to secrets), and `secrets` starts the deploy. This
- * replaces the former single-button `Save config` / `Deploy` steps.
+ * just navigating: each authoring step advances to the next, and the final
+ * `hooks` step saves the config, then flips to "Start deploy" once saved and clean.
  */
 function ConfigStepFooter({
   previousStep,
   activeStep,
   hasBlockingIssues,
-  configReadyForSecrets,
+  configReadyToDeploy,
   isSaving,
   isDeploying,
   canDeploy,
   onSelect,
   onSave,
   onDeploy,
+  onAdvanceFromServices,
+  onAdvanceFromEnv,
   onAdvanceFromHooks,
 }: {
   previousStep: { id: ConfigStepId; label: string } | undefined;
   activeStep: ConfigStepId;
   hasBlockingIssues: boolean;
-  configReadyForSecrets: boolean;
+  configReadyToDeploy: boolean;
   isSaving: boolean;
   isDeploying: boolean;
   canDeploy: boolean;
   onSelect: (step: ConfigStepId) => void;
   onSave: () => void;
   onDeploy: () => void;
+  onAdvanceFromServices: () => void;
+  onAdvanceFromEnv: () => void;
   onAdvanceFromHooks: () => void;
 }) {
   const primaryAction = getPrimaryAction();
@@ -865,39 +1030,51 @@ function ConfigStepFooter({
   function getPrimaryAction(): { label: string; onClick: () => void; disabled: boolean; icon: "save" | "next" } {
     if (activeStep === "apps") {
       return {
-        label: "Continue to hooks",
-        onClick: () => onSelect("hooks"),
+        label: "Continue to services",
+        onClick: () => onSelect("services"),
         disabled: hasBlockingIssues,
         icon: "next",
       };
     }
-    if (activeStep === "hooks") {
-      if (configReadyForSecrets) {
-        return {
-          label: "Continue to secrets",
-          onClick: () => {
-            onAdvanceFromHooks();
-            onSelect("secrets");
-          },
-          disabled: false,
-          icon: "next",
-        };
-      }
+    if (activeStep === "services") {
       return {
-        label: isSaving ? "Saving..." : "Save config",
+        label: "Continue to env vars",
         onClick: () => {
-          onAdvanceFromHooks();
-          onSave();
+          onAdvanceFromServices();
+          onSelect("env");
         },
-        disabled: hasBlockingIssues || isSaving,
-        icon: "save",
+        disabled: hasBlockingIssues,
+        icon: "next",
+      };
+    }
+    if (activeStep === "env") {
+      return {
+        label: "Continue to hooks",
+        onClick: () => {
+          onAdvanceFromEnv();
+          onSelect("hooks");
+        },
+        disabled: hasBlockingIssues,
+        icon: "next",
+      };
+    }
+    // Hooks is the final step: save the config, then deploy from the same button.
+    if (configReadyToDeploy) {
+      return {
+        label: isDeploying ? "Starting deploy..." : "Start deploy",
+        onClick: onDeploy,
+        disabled: !canDeploy || isDeploying,
+        icon: "next",
       };
     }
     return {
-      label: isDeploying ? "Starting deploy..." : "Start deploy",
-      onClick: onDeploy,
-      disabled: !canDeploy || isDeploying,
-      icon: "next",
+      label: isSaving ? "Saving..." : "Save config",
+      onClick: () => {
+        onAdvanceFromHooks();
+        onSave();
+      },
+      disabled: hasBlockingIssues || isSaving,
+      icon: "save",
     };
   }
 }
@@ -965,18 +1142,31 @@ function applyServicesChange(current: TopologyDraft, services: ServiceDraft[]): 
   return pruneDanglingDependsOn({ ...current, services, apps });
 }
 
+/** Adds a suggested managed service to the draft; a recipe already present is a no-op. */
+function addServiceSuggestion(current: TopologyDraft, suggestion: SuggestedService): TopologyDraft {
+  if (current.services.some((service) => service.recipe === suggestion.recipe)) return current;
+  const service = serviceDraftForRecipe(
+    suggestion.recipe,
+    current.services.map((existing) => existing.name),
+  );
+  if (suggestion.version != null) service.version = suggestion.version;
+  return { ...current, services: [...current.services, service] };
+}
+
 function getConfigStepCompletion({
   draft,
   issues,
-  canDeploy,
   hooksValid,
   hooksAcknowledged,
+  servicesAcknowledged,
+  envAcknowledged,
 }: {
   draft: TopologyDraft;
   issues: DraftIssues;
-  canDeploy: boolean;
   hooksValid: boolean;
   hooksAcknowledged: boolean;
+  servicesAcknowledged: boolean;
+  envAcknowledged: boolean;
 }): Record<ConfigStepId, boolean> {
   const noBlockingDocumentErrors = issues.documentErrors.length === 0;
   const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
@@ -987,25 +1177,34 @@ function getConfigStepCompletion({
     deployableApps.every((app) => {
       const requiredFieldsComplete =
         app.name.trim() !== "" && app.path.trim() !== "" && app.port.trim() !== "" && app.replicas.trim() !== "";
-      return requiredFieldsComplete && !hasAppFieldErrors(issues, app.id);
+      return requiredFieldsComplete && !hasAppConfigErrors(issues, app.id);
     }) &&
     noBlockingDocumentErrors;
-  const servicesComplete =
-    (draft.services.length === 0 ||
-      draft.services.every((service) => service.name.trim() !== "" && service.recipe.trim() !== "")) &&
-    noBlockingDocumentErrors;
+  const hasConfiguredServices = draft.services.length > 0;
+  const servicesValid = draft.services.every((service) => service.name.trim() !== "" && service.recipe.trim() !== "");
+  const servicesComplete = servicesValid && (hasConfiguredServices || servicesAcknowledged) && noBlockingDocumentErrors;
+  // Env vars are optional per app, so the step reads complete once apps exist, no
+  // env row has a validation error, and the user has advanced past the step - never
+  // before (acknowledgement mirrors services and hooks).
+  const envValid =
+    deployableApps.length > 0 &&
+    noBlockingDocumentErrors &&
+    deployableApps.every((app) => !issues.fieldErrors.has(fieldIssueKey(app.id, "env")));
+  const envComplete = envValid && envAcknowledged;
 
   return {
-    apps: appsComplete && servicesComplete,
+    apps: appsComplete,
+    services: servicesComplete,
+    env: envComplete,
     // Hooks are optional: complete only once the user has advanced past the step
     // (acknowledged), even with nothing configured - never before. An invalid row
     // (missing/unknown app or missing command) keeps it incomplete regardless.
     hooks: hooksValid && hooksAcknowledged,
-    secrets: canDeploy,
   };
 }
 
-function hasAppFieldErrors(issues: DraftIssues, draftId: number): boolean {
+/** App-card field errors excluding `env` (env errors belong to the env step's completion). */
+function hasAppConfigErrors(issues: DraftIssues, draftId: number): boolean {
   const fields: AppDraftField[] = [
     "name",
     "path",
@@ -1016,7 +1215,6 @@ function hasAppFieldErrors(issues: DraftIssues, draftId: number): boolean {
     "healthCheck",
     "primary",
     "dependsOn",
-    "env",
     "buildArgs",
     "buildSecrets",
     "replicas",

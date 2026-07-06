@@ -76,6 +76,8 @@ export function useDeleteApplication() {
             onSuccess: async () => {
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
                 await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                await queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
+                await queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
                 await router.invalidate();
             },
         }),

@@ -53,8 +53,9 @@ interface AppEnvEditorProps {
   showBuiltins?: boolean;
   /**
    * Also list the Autonoma-managed SDK secrets (AUTONOMA_SHARED_SECRET /
-   * AUTONOMA_SIGNING_SECRET) in the injected card. Only the primary (SDK) app
-   * receives them, so callers pass this for that app alone.
+   * AUTONOMA_SIGNING_SECRET) in the injected card. Every app receives them (the
+   * Environment Factory handler can live in any app), so callers pass this for
+   * all apps - the secrets API rejects user uploads of these keys everywhere.
    */
   showManagedSecrets?: boolean;
   /**

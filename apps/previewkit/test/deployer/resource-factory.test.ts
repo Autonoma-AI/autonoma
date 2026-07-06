@@ -148,6 +148,21 @@ describe("buildAppDeployment", () => {
         ]);
     });
 
+    it("drops user-set managed secret keys from config env so the mounted secret wins", () => {
+        const dep = buildAppDeployment({
+            ...baseOpts,
+            resolvedEnv: {
+                DATABASE_URL: "postgres://db:5432/preview",
+                AUTONOMA_SHARED_SECRET: "user-supplied-value",
+                AUTONOMA_SIGNING_SECRET: "user-supplied-value",
+            },
+        });
+        const container = dep.spec!.template.spec!.containers[0]!;
+        expect(container.env!.some((e) => e.name === "AUTONOMA_SHARED_SECRET")).toBe(false);
+        expect(container.env!.some((e) => e.name === "AUTONOMA_SIGNING_SECRET")).toBe(false);
+        expect(container.env!.some((e) => e.name === "DATABASE_URL")).toBe(true);
+    });
+
     it("sets replicas from config", () => {
         const dep = buildAppDeployment({ ...baseOpts, app: { ...baseApp, replicas: 3 } });
         expect(dep.spec!.replicas).toBe(3);

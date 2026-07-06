@@ -1,43 +1,23 @@
-import type { PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
-import type { GitHubApp, GitHubInstallationClient, GitTree, Repository } from "@autonoma/github";
+import type { GitTree } from "@autonoma/github";
 import type { RepoIntrospection, SuggestedApp } from "@autonoma/types";
 import { Service } from "../routes/service";
+import type { RepoReader } from "./repo-reader";
+import { type ParsedPackageJson, type RepoContext } from "./repo-reader";
 
-const TREE_CACHE_TTL_MS = 5 * 60 * 1000;
-const TREE_CACHE_MAX_ENTRIES = 100;
 /** Bound on per-introspection GitHub content calls (root manifests + candidate package.jsons). */
 const MAX_CANDIDATE_DIRS = 12;
 const CONVENTIONAL_APP_PARENTS = ["apps", "packages", "services"];
 const K8S_NAME_MAX_LENGTH = 40;
 
-interface CachedTree {
-    tree: GitTree;
-    expiresAt: number;
-}
-
-// Module-level so every service instance shares it; keyed by repo id + head SHA,
-// so a push naturally invalidates the entry.
-const treeCache = new Map<string, CachedTree>();
-
-interface RepoContext {
-    client: GitHubInstallationClient;
-    repo: Repository;
-    headSha: string;
-}
-
 /**
  * Read-only repository introspection for the PreviewKit topology builder: lists
  * the repo's file tree, detects workspace layout and Dockerfiles, and proposes
  * deployable apps the user can accept or edit. Detection is deliberately
- * conservative - suggestions are hints, never facts, and any GitHub failure
- * degrades to `status: "unavailable"` so manual setup is always possible.
+ * conservative, and any GitHub failure degrades to `status: "unavailable"` so
+ * manual setup is always possible.
  */
 export class RepoIntrospectionService extends Service {
-    constructor(
-        private readonly db: PrismaClient,
-        private readonly githubApp: GitHubApp,
-    ) {
+    constructor(private readonly repoReader: RepoReader) {
         super();
     }
 
@@ -50,14 +30,14 @@ export class RepoIntrospectionService extends Service {
 
         let context: RepoContext;
         try {
-            context = await this.resolveRepoContext(organizationId, applicationId, githubRepositoryId);
+            context = await this.repoReader.resolveRepoContext(organizationId, applicationId, githubRepositoryId);
         } catch (err) {
             this.logger.warn("Repository introspection unavailable", { organizationId, applicationId, err });
             return unavailable(err instanceof Error ? err.message : "GitHub is unavailable");
         }
 
         try {
-            const tree = await this.getCachedTree(context);
+            const tree = await this.repoReader.getCachedTree(context);
             const dockerfiles = tree.paths.filter(isDockerfilePath).sort();
             const repoInfo = {
                 githubRepositoryId: context.repo.id,
@@ -124,55 +104,12 @@ export class RepoIntrospectionService extends Service {
         githubRepositoryId?: number,
     ): Promise<GitTree | undefined> {
         try {
-            const context = await this.resolveRepoContext(organizationId, applicationId, githubRepositoryId);
-            return await this.getCachedTree(context);
+            const context = await this.repoReader.resolveRepoContext(organizationId, applicationId, githubRepositoryId);
+            return await this.repoReader.getCachedTree(context);
         } catch (err) {
             this.logger.warn("Repo tree unavailable", { organizationId, applicationId, githubRepositoryId, err });
             return undefined;
         }
-    }
-
-    private async resolveRepoContext(
-        organizationId: string,
-        applicationId: string,
-        githubRepositoryId?: number,
-    ): Promise<RepoContext> {
-        const application = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-        if (application == null) throw new NotFoundError("Application not found");
-
-        const repoId = githubRepositoryId ?? application.githubRepositoryId ?? undefined;
-        if (repoId == null) throw new NotFoundError("Application is not linked to a GitHub repository");
-
-        const installation = await this.db.gitHubInstallation.findUnique({
-            where: { organizationId },
-            select: { installationId: true },
-        });
-        if (installation == null) throw new NotFoundError("No GitHub installation found");
-
-        const client = await this.githubApp.getInstallationClient(installation.installationId);
-        const repo = await client.getRepository(repoId);
-        const headSha = await client.getBranchHead(repoId, repo.defaultBranch);
-
-        return { client, repo, headSha };
-    }
-
-    private async getCachedTree(context: RepoContext): Promise<GitTree> {
-        const key = `${context.repo.id}:${context.headSha}`;
-        const cached = treeCache.get(key);
-        if (cached != null && cached.expiresAt > Date.now()) return cached.tree;
-
-        const tree = await context.client.getGitTree(context.repo.id, context.headSha);
-
-        if (treeCache.size >= TREE_CACHE_MAX_ENTRIES) {
-            const oldestKey = treeCache.keys().next().value;
-            if (oldestKey != null) treeCache.delete(oldestKey);
-        }
-        treeCache.set(key, { tree, expiresAt: Date.now() + TREE_CACHE_TTL_MS });
-
-        return tree;
     }
 
     private async detectMonorepoTool(context: RepoContext, tree: GitTree): Promise<RepoIntrospection["monorepoTool"]> {
@@ -181,7 +118,7 @@ export class RepoIntrospectionService extends Service {
         if (files.has("pnpm-workspace.yaml")) return "pnpm-workspace";
 
         if (files.has("package.json")) {
-            const rootPackage = await this.readPackageJson(context, "package.json");
+            const rootPackage = await this.repoReader.readPackageJson(context, "package.json");
             if (rootPackage?.workspaces != null) return "npm-workspace";
         }
         return undefined;
@@ -223,7 +160,7 @@ export class RepoIntrospectionService extends Service {
         }
 
         if (files.has("package.json")) {
-            const rootPackage = await this.readPackageJson(context, "package.json");
+            const rootPackage = await this.repoReader.readPackageJson(context, "package.json");
             const workspaces = rootPackage?.workspaces;
             if (Array.isArray(workspaces)) {
                 globs.push(...workspaces.filter((entry): entry is string => typeof entry === "string"));
@@ -245,7 +182,7 @@ export class RepoIntrospectionService extends Service {
         if (dockerfilePath != null) evidence.push(`Dockerfile at ${dir}/Dockerfile`);
 
         const packageJson = files.has(`${dir}/package.json`)
-            ? await this.readPackageJson(context, `${dir}/package.json`)
+            ? await this.repoReader.readPackageJson(context, `${dir}/package.json`)
             : undefined;
         if (packageJson == null && dockerfilePath == null) return undefined;
 
@@ -278,7 +215,9 @@ export class RepoIntrospectionService extends Service {
     private async suggestRootApp(context: RepoContext, tree: GitTree): Promise<SuggestedApp | undefined> {
         const files = new Set(tree.paths);
         const hasRootDockerfile = files.has("Dockerfile");
-        const packageJson = files.has("package.json") ? await this.readPackageJson(context, "package.json") : undefined;
+        const packageJson = files.has("package.json")
+            ? await this.repoReader.readPackageJson(context, "package.json")
+            : undefined;
         if (!hasRootDockerfile && packageJson == null) return undefined;
 
         const evidence: string[] = [];
@@ -304,47 +243,6 @@ export class RepoIntrospectionService extends Service {
         if (startScript != null) suggestion.command = startScript;
         return suggestion;
     }
-
-    private async readPackageJson(context: RepoContext, path: string): Promise<ParsedPackageJson | undefined> {
-        const raw = await context.client.getFileContent(context.repo.id, path, context.headSha);
-        if (raw == null) return undefined;
-        try {
-            return parsePackageJson(raw);
-        } catch (err) {
-            this.logger.debug("Failed to parse package.json during introspection", {
-                fullName: context.repo.fullName,
-                path,
-                err,
-            });
-            return undefined;
-        }
-    }
-}
-
-interface ParsedPackageJson {
-    name?: string;
-    scripts: Record<string, string>;
-    dependencies: Record<string, string>;
-    devDependencies: Record<string, string>;
-    workspaces?: unknown;
-}
-
-function parsePackageJson(raw: string): ParsedPackageJson {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed == null) throw new Error("package.json is not an object");
-
-    const result: ParsedPackageJson = { scripts: {}, dependencies: {}, devDependencies: {} };
-    if ("name" in parsed && typeof parsed.name === "string") result.name = parsed.name;
-    if ("workspaces" in parsed) result.workspaces = parsed.workspaces;
-    for (const field of ["scripts", "dependencies", "devDependencies"] as const) {
-        if (!(field in parsed)) continue;
-        const value: unknown = Reflect.get(parsed, field);
-        if (typeof value !== "object" || value == null) continue;
-        for (const [key, entry] of Object.entries(value)) {
-            if (typeof entry === "string") result[field][key] = entry;
-        }
-    }
-    return result;
 }
 
 function unavailable(reason: string): RepoIntrospection {

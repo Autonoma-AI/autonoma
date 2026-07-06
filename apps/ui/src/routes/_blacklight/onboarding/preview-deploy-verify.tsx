@@ -1,4 +1,5 @@
 import { Badge, BrailleSpinner, Button, Skeleton, cn } from "@autonoma/blacklight";
+import type { PreviewDiagnosisFinding } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
@@ -6,10 +7,12 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import * as Sentry from "@sentry/react";
 import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "components/build-logs/build-log-stream-viewer";
 import {
   useCompletePreviewOnboarding,
+  useDiagnosePreviewkitDeploy,
   usePreviewReadiness,
   useTriggerPreviewkitMainDeploy,
 } from "lib/onboarding/onboarding-api";
@@ -19,6 +22,8 @@ import { toastManager } from "lib/toast-manager";
 import { Suspense } from "react";
 import { setLastApp } from "../_app-shell/-last-app";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
+import { AiDiagnosisPanel } from "./-components/previewkit/ai-diagnosis-panel";
+import { queueEnvFixes } from "./-components/previewkit/pending-env-fixes";
 
 export const Route = createFileRoute("/_blacklight/onboarding/preview-deploy-verify")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("deploy-verify")} />,
@@ -69,27 +74,58 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const complete = useCompletePreviewOnboarding();
   const application = applications.find((app) => app.id === appId);
   const isReady = data.diagnostics.status === "ready";
+  const isFailed = data.diagnostics.status === "failed";
   const isDeployRequested = isPreviewDeployRequestPhase(data.diagnostics.phase) && data.previewUrl == null;
   const failures = data.diagnostics.failures ?? [];
 
+  const deployFingerprint = buildDeployFingerprint(data);
+  const { data: diagnosis, isPending: diagnosisPending } = useDiagnosePreviewkitDeploy(
+    appId,
+    isFailed && data.mode === "previewkit",
+    deployFingerprint,
+  );
+  const hasAiFindings = diagnosis?.status === "ok" && diagnosis.findings.length > 0;
+  const showDeterministicFallback = !isFailed || (!hasAiFindings && !diagnosisPending);
+
+  function navigateToConfig(finding: PreviewDiagnosisFinding, focusSection: "config" | "secrets") {
+    void navigate({
+      to: "/onboarding",
+      search: buildOnboardingSearch("previewkit-config", appId, {
+        focusApp: finding.appName,
+        focusField: focusSection === "config" ? fieldFromPath(finding.fieldPath) : undefined,
+        focusSection,
+      }),
+    });
+  }
+
+  function applyDiagnosisFix(finding: PreviewDiagnosisFinding) {
+    if (finding.appName != null && finding.suggestedEnv != null && finding.suggestedEnv.length > 0) {
+      queueEnvFixes(appId, [{ appName: finding.appName, vars: finding.suggestedEnv }]);
+    }
+    navigateToConfig(finding, "secrets");
+  }
+
+  function copyDiagnosisForSupport() {
+    copyPayloadToClipboard(
+      { previewUrl: data.previewUrl, diagnostics: data.diagnostics, services: data.services, diagnosis },
+      "Diagnosis copied for support",
+    );
+  }
+
   function copyForAgent() {
     const firstFailure = failures[0];
-    const payload = {
-      previewUrl: data.previewUrl,
-      diagnostics: data.diagnostics,
-      services: data.services,
-      configHint:
-        firstFailure != null
-          ? {
-              step: "previewkit-config",
-              appName: firstFailure.appName,
-              fieldPath: firstFailure.fieldPath,
-            }
-          : undefined,
-    };
-    void navigator.clipboard.writeText(JSON.stringify(payload, undefined, 2)).then(() => {
-      toastManager.add({ type: "success", title: "Preview details copied" });
-    });
+    copyPayloadToClipboard(
+      {
+        previewUrl: data.previewUrl,
+        diagnostics: data.diagnostics,
+        services: data.services,
+        configHint:
+          firstFailure != null
+            ? { step: "previewkit-config", appName: firstFailure.appName, fieldPath: firstFailure.fieldPath }
+            : undefined,
+      },
+      "Preview details copied",
+    );
   }
 
   function completeOnboarding() {
@@ -180,7 +216,17 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
               ) : (
                 <p className="mt-4 text-sm text-text-secondary">No preview URL has been reported yet.</p>
               )}
-              {failures.length > 0 ? (
+              {isFailed && data.mode === "previewkit" ? (
+                <AiDiagnosisPanel
+                  diagnosis={diagnosis}
+                  isPending={diagnosisPending}
+                  onApplyFix={applyDiagnosisFix}
+                  onEditConfig={(finding) => navigateToConfig(finding, "config")}
+                  onEditSecrets={(finding) => navigateToConfig(finding, "secrets")}
+                  onCopyForSupport={copyDiagnosisForSupport}
+                />
+              ) : undefined}
+              {showDeterministicFallback && failures.length > 0 ? (
                 <div className="mt-5 space-y-3">
                   {failures.map((failure) => (
                     <FailureCard
@@ -190,7 +236,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
                     />
                   ))}
                 </div>
-              ) : data.diagnostics.error != null ? (
+              ) : showDeterministicFallback && data.diagnostics.error != null ? (
                 <div className="mt-5 border-l-2 border-status-critical bg-status-critical/10 px-4 py-3">
                   <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Blocking error</p>
                   <p className="mt-2 text-sm text-text-secondary">{data.diagnostics.error}</p>
@@ -256,9 +302,30 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   );
 }
 
+function buildDeployFingerprint(data: PreviewReadinessData): string {
+  return JSON.stringify({
+    status: data.diagnostics.status,
+    phase: data.diagnostics.phase,
+    error: data.diagnostics.error,
+    previewUrl: data.previewUrl,
+    failures: data.diagnostics.failures,
+    services: data.services.map((service) => ({ name: service.name, status: service.status, error: service.error })),
+  });
+}
+
 function logStreamUrl(logs: { repoFullName: string; prNumber: number }): string {
   const [owner = "", repo = ""] = logs.repoFullName.split("/");
   return buildPreviewLogStreamUrl(owner, repo, logs.prNumber);
+}
+
+function copyPayloadToClipboard(payload: unknown, successTitle: string): void {
+  void navigator.clipboard.writeText(JSON.stringify(payload, undefined, 2)).then(
+    () => toastManager.add({ type: "success", title: successTitle }),
+    (err: unknown) => {
+      Sentry.captureException(err);
+      toastManager.add({ type: "critical", title: "Couldn't copy - select the text and copy manually." });
+    },
+  );
 }
 
 function isPreviewDeployRequestPhase(phase: string | undefined): boolean {

@@ -4,6 +4,7 @@ import {
     type HookGroupKey,
     type PreviewConfig,
     type SuggestedApp,
+    type SuggestedEnvVar,
 } from "@autonoma/types";
 import { z } from "zod";
 
@@ -737,6 +738,42 @@ export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): En
     const existing = new Set(envRows.map((row) => row.key.trim()));
     const secretRows = secretKeys.filter((key) => !existing.has(key)).map((key) => envRow(key, "", true, "secret"));
     return sortEnvRows([...envRows, ...secretRows]);
+}
+
+export function envRowsFromSuggestions(
+    existing: EnvRowDraft[],
+    suggestions: SuggestedEnvVar[],
+    supportsSecrets: boolean,
+): EnvRowDraft[] {
+    const seen = new Set(existing.map((row) => row.key.trim()));
+    const rows: EnvRowDraft[] = [];
+    for (const suggestion of suggestions) {
+        if (seen.has(suggestion.key)) continue;
+        seen.add(suggestion.key);
+        const value = suggestion.reference ?? suggestion.value ?? "";
+        rows.push(envRow(suggestion.key, value, supportsSecrets && suggestion.sensitive, "new"));
+    }
+    return rows;
+}
+
+export function applyEnvFixesToDraft(
+    draft: TopologyDraft,
+    fixes: Array<{ appName: string; vars: SuggestedEnvVar[] }>,
+): TopologyDraft {
+    const varsByApp = new Map<string, SuggestedEnvVar[]>();
+    for (const fix of fixes) {
+        varsByApp.set(fix.appName, [...(varsByApp.get(fix.appName) ?? []), ...fix.vars]);
+    }
+    return {
+        ...draft,
+        apps: draft.apps.map((app) => {
+            const vars = varsByApp.get(app.name);
+            if (vars == null) return app;
+            const rows = envRowsFromSuggestions(app.env, vars, app.repoKey === PRIMARY_REPO_KEY);
+            if (rows.length === 0) return app;
+            return { ...app, env: sortEnvRows([...app.env, ...rows]) };
+        }),
+    };
 }
 
 export interface AppSecretsDiff {

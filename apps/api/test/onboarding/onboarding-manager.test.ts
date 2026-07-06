@@ -1804,15 +1804,17 @@ integrationTestSuite({
             expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 13, orgId);
         });
 
-        test("savePreviewkitConfig mounts BOTH managed secrets on the primary PreviewKit app", async ({
+        test("savePreviewkitConfig fans BOTH managed secrets out to every app with one shared signing value", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 778_903);
-            // No secrets exist yet, so both the shared and signing secret must be written.
+            // No secrets exist yet, so a fresh signing secret is minted and both the
+            // shared and signing secret must be written to every app bundle.
             const secretsService = {
                 list: vi.fn(async () => []),
+                getValue: vi.fn(async () => undefined),
                 upsert: vi.fn(async () => ({ created: true, changed: true })),
                 delete: vi.fn(async () => true),
             };
@@ -1834,22 +1836,65 @@ integrationTestSuite({
                 ],
             });
 
-            // The shared secret is mounted so Autonoma's HMAC verifies...
-            expect(secretsService.upsert).toHaveBeenCalledWith(
-                appId,
-                "api",
-                [{ key: "AUTONOMA_SHARED_SECRET", value: "shared-secret" }],
-                orgId,
-            );
-            // ...and a distinct signing secret is generated and mounted in the same
-            // save, so the preview's first deploy mounts both (no signing-secret gap).
-            const signingCall = secretsService.upsert.mock.calls.find((call) =>
-                call[2].some((item) => item.key === "AUTONOMA_SIGNING_SECRET"),
-            );
-            expect(signingCall).toBeDefined();
-            const generated = signingCall?.[2].find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
-            expect(generated).toMatch(/^[0-9a-f]{64}$/);
-            expect(generated).not.toBe("shared-secret");
+            // Every app - not just the primary - gets both secrets in one upsert, so
+            // a handler running in any app verifies/signs correctly and the first
+            // deploy mounts both (no signing-secret gap).
+            const upsertedApps = secretsService.upsert.mock.calls.map((call) => call[1]);
+            expect(new Set(upsertedApps)).toEqual(new Set(["web", "api"]));
+
+            const signingValues = new Set<string>();
+            for (const call of secretsService.upsert.mock.calls) {
+                const items = call[2];
+                const shared = items.find((item) => item.key === "AUTONOMA_SHARED_SECRET")?.value;
+                const signing = items.find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
+                expect(shared).toBe("shared-secret");
+                expect(signing).toMatch(/^[0-9a-f]{64}$/);
+                expect(signing).not.toBe("shared-secret");
+                if (signing != null) signingValues.add(signing);
+            }
+            // The signing secret is one logical value shared across every app.
+            expect(signingValues.size).toBe(1);
+        });
+
+        test("savePreviewkitConfig reuses the canonical app's existing signing secret across apps", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 778_931);
+            const existingSigning = "a".repeat(64);
+            const secretsService = {
+                list: vi.fn(async () => []),
+                getValue: vi.fn(async (_appId: string, _appName: string, key: string) =>
+                    key === "AUTONOMA_SIGNING_SECRET" ? existingSigning : undefined,
+                ),
+                upsert: vi.fn(async () => ({ created: false, changed: true })),
+                delete: vi.fn(async () => true),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitSecretsService: secretsService,
+            });
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
+            });
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
+
+            await manager.savePreviewkitConfig(appId, orgId, {
+                version: 1,
+                apps: [
+                    { name: "web", path: "apps/web", port: 3000 },
+                    { name: "api", path: "apps/api", port: 4000, primary: true },
+                ],
+            });
+
+            // The canonical value is read once and written to every app bundle.
+            expect(secretsService.getValue).toHaveBeenCalledWith(appId, "api", "AUTONOMA_SIGNING_SECRET", orgId);
+            for (const call of secretsService.upsert.mock.calls) {
+                const signing = call[2].find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
+                expect(signing).toBe(existingSigning);
+            }
         });
 
         test("setupComplete derives from sdk + artifacts + dry-run", async ({

@@ -3,6 +3,7 @@ import { integrationTestSuite } from "@autonoma/integration-test";
 import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import { expect, vi } from "vitest";
 import { RepoIntrospectionService } from "../../src/github/repo-introspection.service";
+import { RepoReader } from "../../src/github/repo-reader";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
 import { OnboardingTestHarness } from "./onboarding-harness";
 
@@ -416,7 +417,7 @@ integrationTestSuite({
             client.setFile("acme/platform", "apps/api/Dockerfile", "FROM node:20");
             const githubApp = new FakeGitHubApp();
             githubApp.setClient(installationId, client);
-            const service = new RepoIntrospectionService(harness.db, githubApp);
+            const service = new RepoIntrospectionService(new RepoReader(harness.db, githubApp));
 
             const result = await service.introspect(orgId, appId);
 
@@ -459,7 +460,7 @@ integrationTestSuite({
             });
             // The fake's default client knows nothing about repo 93_060, so the
             // repository lookup throws - introspection must degrade, not fail.
-            const service = new RepoIntrospectionService(harness.db, new FakeGitHubApp());
+            const service = new RepoIntrospectionService(new RepoReader(harness.db, new FakeGitHubApp()));
 
             const result = await service.introspect(orgId, appId);
 

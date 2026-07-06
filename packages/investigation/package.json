@@ -4,7 +4,8 @@
     "type": "module",
     "types": "./src/index.ts",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./logs": "./src/logs/loki.ts"
     },
     "scripts": {
         "test": "vitest",

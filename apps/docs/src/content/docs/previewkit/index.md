@@ -18,12 +18,12 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 ## What you configure
 
-You set up your stack in the Autonoma dashboard (the PreviewKit onboarding flow), which saves the configuration for your repository. It declares:
+You set up your stack in the Autonoma dashboard (the PreviewKit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. Apps and services are auto-detected from your repo and suggested for you (accept, edit, or dismiss), and you can add them by hand too. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL)
 - **Services** the apps depend on (databases, caches, etc.), picked from a curated catalog of recipes
+- **Environment variables and secrets** for each app and service, with templates that resolve service hostnames at deploy time and a per-row toggle to mark a value as a secret
 - **Hooks** that run after deploy (typical use: database migrations)
-- **Environment variables**, with templates that resolve service hostnames at deploy time
 
 ## Builds work out of the box
 
@@ -36,7 +36,7 @@ Images are pushed to a private registry and pulled by the preview cluster. You n
 
 ## Secrets
 
-Secrets such as API keys and third-party tokens are managed out-of-band via the REST API rather than stored with your stack configuration. They can be owner-scoped (every PR sees them) or PR-scoped (just this PR — useful for testing prod credentials in isolation). Previewkit also injects a few [built-in environment variables](/previewkit/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/previewkit/secrets/).
+Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the per-row toggle in the onboarding **Env vars and secrets** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Previewkit also injects a few [built-in environment variables](/previewkit/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/previewkit/secrets/).
 
 ## What's next
 

@@ -1,8 +1,11 @@
 import {
     DeleteSecretInputSchema,
+    DiagnosePreviewkitDeployInputSchema,
     IntrospectRepositoryInputSchema,
     ListSecretsInputSchema,
     PreviewkitConfigSecretsSchema,
+    SuggestEnvVarsInputSchema,
+    SuggestServicesInputSchema,
     UpsertSecretsInputSchema,
     previewConfigSchema,
 } from "@autonoma/types";
@@ -139,6 +142,18 @@ export const onboardingRouter = router({
                 input.githubRepositoryId,
             ),
         ),
+
+    suggestPreviewkitServices: protectedProcedure
+        .input(SuggestServicesInputSchema)
+        .query(({ ctx, input }) => ctx.services.previewkitSuggestions.suggestServices(ctx.organizationId, input)),
+
+    suggestPreviewkitEnvVars: protectedProcedure
+        .input(SuggestEnvVarsInputSchema)
+        .query(({ ctx, input }) => ctx.services.previewkitSuggestions.suggestEnvVars(ctx.organizationId, input)),
+
+    diagnosePreviewkitDeploy: protectedProcedure
+        .input(DiagnosePreviewkitDeployInputSchema)
+        .query(({ ctx, input }) => ctx.services.previewkitDiagnosis.diagnose(ctx.organizationId, input)),
 
     validatePreviewkitConfig: protectedProcedure
         // `document` is deliberately unvalidated at the boundary: this procedure's

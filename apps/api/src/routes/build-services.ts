@@ -20,8 +20,11 @@ import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
+import { PreviewkitSuggestionService } from "../github/previewkit-suggestion.service";
 import { PullRequestCacheService } from "../github/pull-request-cache.service";
 import { RepoIntrospectionService } from "../github/repo-introspection.service";
+import { RepoReader } from "../github/repo-reader";
+import { PreviewkitDiagnosisService } from "../previewkit/previewkit-diagnosis.service";
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { AdminService } from "./admin/admin.service";
@@ -62,6 +65,8 @@ export interface Services {
     orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
     repoIntrospection: RepoIntrospectionService;
+    previewkitSuggestions: PreviewkitSuggestionService;
+    previewkitDiagnosis: PreviewkitDiagnosisService;
     issues: IssuesService;
     onboarding: OnboardingService;
     snapshotEdit: SnapshotEditService;
@@ -109,7 +114,9 @@ export function buildServices({
     const billingService = createBillingService(conn);
     const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn);
     const githubService = new GitHubInstallationService(conn, githubApp);
-    const repoIntrospectionService = new RepoIntrospectionService(conn, githubApp);
+    const repoReader = new RepoReader(conn, githubApp);
+    const repoIntrospectionService = new RepoIntrospectionService(repoReader);
+    const previewkitSuggestionService = new PreviewkitSuggestionService(repoReader);
     const applicationsService = new ApplicationsService(conn, encryptionHelper);
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
@@ -160,6 +167,8 @@ export function buildServices({
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
         repoIntrospection: repoIntrospectionService,
+        previewkitSuggestions: previewkitSuggestionService,
+        previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL),
         issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),

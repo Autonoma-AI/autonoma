@@ -26,6 +26,7 @@ import {
 
 interface ServicesSectionProps {
   services: ServiceDraft[];
+  showEnv?: boolean;
   onChange: (services: ServiceDraft[]) => void;
 }
 
@@ -38,7 +39,7 @@ interface ServicesSectionProps {
  * configured instances - each independently editable and removable - rather than
  * a one-toggle-per-recipe grid.
  */
-export function ServicesSection({ services, onChange }: ServicesSectionProps) {
+export function ServicesSection({ services, showEnv = true, onChange }: ServicesSectionProps) {
   function addService(recipe: ServiceRecipe) {
     onChange([
       ...services,
@@ -85,6 +86,7 @@ export function ServicesSection({ services, onChange }: ServicesSectionProps) {
             <ServiceCard
               key={service.id}
               service={service}
+              showEnv={showEnv}
               onUpdate={(patch) => updateService(service.id, patch)}
               onRemove={() => removeService(service.id)}
             />
@@ -97,11 +99,12 @@ export function ServicesSection({ services, onChange }: ServicesSectionProps) {
 
 interface ServiceCardProps {
   service: ServiceDraft;
+  showEnv: boolean;
   onUpdate: (patch: Partial<ServiceDraft>) => void;
   onRemove: () => void;
 }
 
-function ServiceCard({ service, onUpdate, onRemove }: ServiceCardProps) {
+function ServiceCard({ service, showEnv, onUpdate, onRemove }: ServiceCardProps) {
   const option = SERVICE_OPTIONS.find((candidate) => candidate.recipe === service.recipe);
   const label = option?.label ?? service.recipe;
   const customImage = serviceRecipeUsesCustomImage(service.recipe);
@@ -170,23 +173,27 @@ function ServiceCard({ service, onUpdate, onRemove }: ServiceCardProps) {
             />
           </div>
         )}
-        <details className="sm:col-span-2">
-          <summary className="cursor-pointer font-mono text-2xs uppercase tracking-widest text-text-secondary">
-            Advanced service config
-          </summary>
-          <div className="mt-4">
-            <AppEnvEditor
-              appDraftId={service.id}
-              rows={service.env}
-              referenceTokens={[]}
-              title="Service env"
-              addLabel="Add env"
-              emptyLabel="No service environment variables."
-              onChange={(env: EnvRowDraft[]) => onUpdate({ env })}
-            />
-          </div>
-          {customImage ? <CustomImageAdvanced service={service} onUpdate={onUpdate} /> : undefined}
-        </details>
+        {showEnv || customImage ? (
+          <details className="sm:col-span-2">
+            <summary className="cursor-pointer font-mono text-2xs uppercase tracking-widest text-text-secondary">
+              Advanced service config
+            </summary>
+            {showEnv ? (
+              <div className="mt-4">
+                <AppEnvEditor
+                  appDraftId={service.id}
+                  rows={service.env}
+                  referenceTokens={[]}
+                  title="Service env"
+                  addLabel="Add env"
+                  emptyLabel="No service environment variables."
+                  onChange={(env: EnvRowDraft[]) => onUpdate({ env })}
+                />
+              </div>
+            ) : undefined}
+            {customImage ? <CustomImageAdvanced service={service} onUpdate={onUpdate} /> : undefined}
+          </details>
+        ) : undefined}
       </div>
     </div>
   );

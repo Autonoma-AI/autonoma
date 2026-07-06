@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { isReservedPreviewkitEnvKey } from "@autonoma/types";
+import { isProtectedPreviewkitEnvKey } from "@autonoma/types";
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
 
@@ -134,11 +134,14 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
     // Deployment annotation and scales dependencies up (and ready) before this app.
     const dependsOn = app.depends_on ?? [];
 
-    // Drop any reserved Previewkit built-in keys a user may have set (config
-    // `env` is not validated against the reserved set the way the secrets API
-    // is), then inject the canonical built-ins below so they always win.
+    // Drop any protected Previewkit keys a user may have set in config `env`
+    // (built-ins AND the Autonoma-managed secrets): config `env` is not validated
+    // against the protected set the way the secrets API is, and a plain `env`
+    // entry would otherwise win over the `envFrom`-mounted managed secret (the
+    // kubectl rule). Injecting the canonical built-ins below then always wins;
+    // the managed secrets arrive via `envFrom` from the app's AWS SM bundle.
     const envVars = Object.entries(resolvedEnv)
-        .filter(([name]) => !isReservedPreviewkitEnvKey(name))
+        .filter(([name]) => !isProtectedPreviewkitEnvKey(name))
         .map(([name, value]) => ({ name, value }));
     if (!resolvedEnv.PORT) {
         envVars.push({ name: "PORT", value: String(app.port) });

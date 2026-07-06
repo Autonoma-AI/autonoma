@@ -1,3 +1,4 @@
+import type { SuggestionAppRef, SuggestionServiceRef } from "@autonoma/types";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
@@ -220,6 +221,37 @@ export function useRepoSuggestions(applicationId: string, enabled: boolean, gith
     );
 }
 
+/** AI-assisted service suggestions for the topology builder, inferred from the accepted apps. */
+export function useSuggestServices(
+    applicationId: string,
+    enabled: boolean,
+    apps: SuggestionAppRef[],
+    githubRepositoryId?: number,
+) {
+    return useQuery(
+        trpc.onboarding.suggestPreviewkitServices.queryOptions(
+            { applicationId, apps, githubRepositoryId },
+            { enabled, staleTime: Number.POSITIVE_INFINITY, retry: false, refetchOnWindowFocus: false },
+        ),
+    );
+}
+
+/** AI-assisted env-var suggestions for the topology builder, analyzed from each app's `.env.example`. */
+export function useSuggestEnvVars(
+    applicationId: string,
+    enabled: boolean,
+    apps: SuggestionAppRef[],
+    services: SuggestionServiceRef[],
+    githubRepositoryId?: number,
+) {
+    return useQuery(
+        trpc.onboarding.suggestPreviewkitEnvVars.queryOptions(
+            { applicationId, apps, services, githubRepositoryId },
+            { enabled, staleTime: Number.POSITIVE_INFINITY, retry: false, refetchOnWindowFocus: false },
+        ),
+    );
+}
+
 /** Server-side config validation: schema + semantics + repo-aware preflight, returned as data. */
 export function useValidatePreviewkitConfig() {
     return useAPIMutation({
@@ -283,6 +315,16 @@ export function usePreviewReadiness(applicationId: string) {
                     return status === "ready" || status === "failed" ? false : 5_000;
                 },
             },
+        ),
+    );
+}
+
+/** AI diagnosis of a failed deploy, keyed by `deployFingerprint` so it runs once per failure state. */
+export function useDiagnosePreviewkitDeploy(applicationId: string, enabled: boolean, deployFingerprint: string) {
+    return useQuery(
+        trpc.onboarding.diagnosePreviewkitDeploy.queryOptions(
+            { applicationId, deployFingerprint },
+            { enabled, staleTime: Number.POSITIVE_INFINITY, retry: false, refetchOnWindowFocus: false },
         ),
     );
 }

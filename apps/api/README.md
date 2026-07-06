@@ -105,6 +105,25 @@ blocks once the wallet is empty, so the overspend is bounded; tighten with per-A
 (the `ApiKey` model already carries `rateLimit*` fields) or an atomic check-and-reserve if CLI volume
 grows.
 
+### PreviewKit topology suggestions
+
+The onboarding PreviewKit builder proposes apps, services, and env vars from the linked repo,
+backed by three collaborators in `src/github/`:
+
+- `RepoReader` - shared read-only repo access (installation client, per `(repo, head SHA)` file-tree
+  cache, and `package.json` / file-content readers). Reused by both services below so they share one
+  tree cache.
+- `RepoIntrospectionService` - deterministic app detection (workspace globs, Dockerfiles, frameworks,
+  ports). Surfaced via `onboarding.introspectRepository`.
+- `PreviewkitSuggestionService` - AI-assisted, heuristic-backed service and env-var suggestions.
+  Deterministic heuristics (package.json deps, `docker-compose` images, `.env.example` keys) run
+  first and always; a Gemini pass (`ObjectGenerator`) then refines them with evidence. Surfaced via
+  `onboarding.suggestPreviewkitServices` and `onboarding.suggestPreviewkitEnvVars`.
+
+`@autonoma/ai` is imported lazily inside `PreviewkitSuggestionService` (its provider keys are only
+required on first suggestion, never at API boot), and any AI failure degrades to the heuristic result
+so suggestions never block onboarding. Suggestions are computed on demand and never persisted.
+
 ### tRPC Routers
 
 Each router is thin wiring - business logic lives in the corresponding service class. Routers are defined in `src/routes/` and composed in `src/routes/router.ts`.

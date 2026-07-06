@@ -33,13 +33,15 @@ export const PREVIEWKIT_BUILTIN_ENV_VARS = [
 export type PreviewkitBuiltinEnvVar = (typeof PREVIEWKIT_BUILTIN_ENV_VARS)[number];
 
 /**
- * Secrets Autonoma provisions and mounts into the SDK (primary) app of a
- * PreviewKit-managed preview - distinct from {@link PREVIEWKIT_BUILTIN_ENV_VARS}
- * because they are managed AWS secrets (random, rotatable in Settings -> Secrets)
- * rather than per-deploy computed values, and are injected into the primary app
- * only, not every pod. Kept separate so the deployer's built-in injection and the
- * reserved-key set are unaffected; this list drives the secrets UI hint rows only.
- * The `example` is a placeholder - the real values are never surfaced.
+ * Secrets Autonoma provisions and mounts into every app of a PreviewKit-managed
+ * preview - distinct from {@link PREVIEWKIT_BUILTIN_ENV_VARS} because they are
+ * managed AWS secrets (random, rotatable in Settings -> Secrets) rather than
+ * per-deploy computed values. The Environment Factory handler can live in any
+ * app, so the same (shared, signing) pair is fanned out to each app's secret
+ * bundle. Kept as its own list (separate from the built-ins) so the two carry
+ * distinct UI hint rows and rejection messages, but both feed the protected-key
+ * set via {@link isProtectedPreviewkitEnvKey}. The `example` is a placeholder -
+ * the real values are never surfaced.
  */
 export const AUTONOMA_MANAGED_ENV_VARS = [
     {
@@ -62,7 +64,21 @@ const PREVIEWKIT_BUILTIN_ENV_KEYS: ReadonlySet<string> = new Set(
     PREVIEWKIT_BUILTIN_ENV_VARS.map((variable) => variable.key),
 );
 
+const AUTONOMA_MANAGED_ENV_KEYS: ReadonlySet<string> = new Set(
+    AUTONOMA_MANAGED_ENV_VARS.map((variable) => variable.key),
+);
+
 /** True when `key` is one of the reserved Previewkit built-in env var names. */
 export function isReservedPreviewkitEnvKey(key: string): boolean {
     return PREVIEWKIT_BUILTIN_ENV_KEYS.has(key);
+}
+
+/** True when `key` is one of the Autonoma-managed SDK secret names. */
+export function isManagedPreviewkitEnvKey(key: string): boolean {
+    return AUTONOMA_MANAGED_ENV_KEYS.has(key);
+}
+
+/** True when `key` is injected by Previewkit and must never be set by a user. */
+export function isProtectedPreviewkitEnvKey(key: string): boolean {
+    return isReservedPreviewkitEnvKey(key) || isManagedPreviewkitEnvKey(key);
 }

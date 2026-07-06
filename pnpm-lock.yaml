@@ -203,6 +203,9 @@ importers:
       '@autonoma/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@autonoma/investigation':
+        specifier: workspace:*
+        version: link:../../packages/investigation
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -269,6 +272,9 @@ importers:
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
+      js-yaml:
+        specifier: ^4.1.2
+        version: 4.2.0
       prom-client:
         specifier: 'catalog:'
         version: 15.1.3
@@ -303,6 +309,9 @@ importers:
       '@testcontainers/redis':
         specifier: ^11.12.0
         version: 11.12.0
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@types/node':
         specifier: 'catalog:'
         version: 25.2.3
