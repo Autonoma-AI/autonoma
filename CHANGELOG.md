@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.20](https://github.com/Autonoma-AI/agent/compare/v1.8.19...v1.8.20) (2026-07-06)
+
+
+### Features
+
+* bug page report spine (Issue.report + healing evidence tool) ([#1309](https://github.com/Autonoma-AI/agent/issues/1309)) ([0d3a81b](https://github.com/Autonoma-AI/agent/commit/0d3a81bdb17dfe3493dd2321e4ebd20f6e4aace6))
+* **investigation:** default the run-recording video to 8x playback ([#1312](https://github.com/Autonoma-AI/agent/issues/1312)) ([87bfe76](https://github.com/Autonoma-AI/agent/commit/87bfe76bf3b851f67ef4209982184dad99464225))
+
+
+### Bug Fixes
+
+* **integration-test:** give integration cases a 30s default timeout ([#1316](https://github.com/Autonoma-AI/agent/issues/1316)) ([b8c975c](https://github.com/Autonoma-AI/agent/commit/b8c975cb850f4d94f2fe8509070de30f458ceaa0))
+* **investigation:** fail fast when the workflow targets a non-pending snapshot ([#1317](https://github.com/Autonoma-AI/agent/issues/1317)) ([75924bf](https://github.com/Autonoma-AI/agent/commit/75924bf72182b9e44b1e4d972585c42d67cacab7))
+* **investigation:** return null (not undefined) for a missing report so the page doesn't crash ([#1315](https://github.com/Autonoma-AI/agent/issues/1315)) ([edd1b9c](https://github.com/Autonoma-AI/agent/commit/edd1b9cfa1dc66de56f15c5bc21eb10ec6857899))
+
 ## [1.8.19](https://github.com/Autonoma-AI/agent/compare/v1.8.18...v1.8.19) (2026-07-06)
 
 
