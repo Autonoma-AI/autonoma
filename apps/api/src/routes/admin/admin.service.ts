@@ -18,6 +18,13 @@ type AdminGitHubRepository = {
     installationAccountType: string;
 };
 
+/** One organization that owns an app for a given slug - a candidate the caller can switch into. */
+interface OrgCandidate {
+    orgId: string;
+    orgName: string;
+    orgSlug: string;
+}
+
 export class AdminService extends Service {
     constructor(
         private readonly db: PrismaClient,
@@ -139,21 +146,22 @@ export class AdminService extends Service {
     }
 
     /**
-     * Resolves which organization owns an application slug, searching across ALL
+     * Resolves which organization(s) own an application slug, searching across ALL
      * organizations (not scoped to the caller's active org). Admin-only because
-     * it leaks the existence of other orgs' apps. Used to auto-switch internal
-     * users into the right org when they open a cross-org deep link.
+     * it leaks the existence of other orgs' apps. Used to route internal users
+     * into the right org when they open a cross-org deep link.
      *
      * Application slugs are unique per org, so the same slug can exist in several
      * orgs. The internal org dogfoods customer apps, so it routinely shares slugs
      * with the real customer orgs - an internal user following a shared link
      * always wants the customer's org, never our own copy, so the internal org is
-     * excluded whenever a non-internal candidate exists. If that still leaves
-     * more than one candidate we cannot disambiguate from the URL alone and
-     * return undefined so the caller falls back to the manual org switcher.
+     * excluded whenever a non-internal candidate exists. Returns EVERY remaining
+     * candidate: the caller auto-switches when there is exactly one, and shows a
+     * chooser when a slug legitimately lives in several of the user's orgs (a
+     * duplicate/re-onboarded customer) instead of dead-ending on "not found".
      */
-    async findOrgByAppSlug(appSlug: string) {
-        this.logger.info("Finding organization by app slug", { appSlug });
+    async findOrgByAppSlug(appSlug: string): Promise<OrgCandidate[]> {
+        this.logger.info("Finding organizations by app slug", { appSlug });
 
         const applications = await this.db.application.findMany({
             where: { slug: appSlug, disabled: false },
@@ -161,24 +169,18 @@ export class AdminService extends Service {
         });
 
         const external = applications.filter((a) => a.organization.domain !== env.INTERNAL_DOMAIN);
-        const candidates = external.length > 0 ? external : applications;
+        const preferred = external.length > 0 ? external : applications;
 
-        const [match] = candidates;
-        if (match == null) {
-            this.logger.info("No application found for slug", { appSlug });
-            return undefined;
-        }
-        if (candidates.length > 1) {
-            this.logger.warn("App slug is ambiguous across organizations, skipping auto-resolve", {
-                appSlug,
-                matchCount: candidates.length,
-            });
-            return undefined;
+        // Dedupe by org id (defensive - a slug is unique within an org, so this is normally a no-op).
+        const byOrgId = new Map<string, OrgCandidate>();
+        for (const app of preferred) {
+            const org = app.organization;
+            byOrgId.set(org.id, { orgId: org.id, orgName: org.name, orgSlug: org.slug });
         }
 
-        const organization = match.organization;
-        this.logger.info("Resolved organization by app slug", { appSlug, orgId: organization.id });
-        return { orgId: organization.id, orgName: organization.name, orgSlug: organization.slug };
+        const candidates = [...byOrgId.values()];
+        this.logger.info("Resolved organizations by app slug", { appSlug, extra: { count: candidates.length } });
+        return candidates;
     }
 
     async switchToOrg(userId: string, sessionToken: string, orgId: string) {

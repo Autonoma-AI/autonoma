@@ -103,10 +103,11 @@ export function useDownloadAdminGitHubRepository() {
 }
 
 /**
- * Resolves which organization owns an application slug, across all orgs. Admin
- * only - used to auto-switch internal users into the right org when they open a
- * cross-org deep link. Pass `enabled: false` for non-admins so the admin-gated
- * endpoint is never called.
+ * Resolves which organizations own an application slug, across all orgs (returns
+ * every owner, so the caller can auto-switch on a single match or show a chooser
+ * when a slug lives in several of the user's orgs). Admin only - used to route
+ * internal users into the right org when they open a cross-org deep link. Pass
+ * `enabled: false` for non-admins so the admin-gated endpoint is never called.
  */
 export function useOrgByAppSlug(appSlug: string, enabled: boolean) {
     return useQuery({
