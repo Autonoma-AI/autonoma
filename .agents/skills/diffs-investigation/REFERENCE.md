@@ -2,8 +2,18 @@
 
 Durable detail for the `diffs-investigation` skill. Column/table names reflect the
 Prisma schema (`packages/db/prisma/schema.prisma`); confirm there if a query errors.
-SQL uses the read-only Postgres MCP (prod replica). Sentry uses org slug **`agent`**,
-region **`https://sentry.autonoma.app`**.
+SQL uses the read-only Postgres MCP (prod replica). Sentry uses the `sentry-cli`
+binary against org slug **`agent`**, server **`https://sentry.autonoma.app`** (config
+in `~/.sentryclirc`; see Sentry recipes below).
+
+**One shared DB across environments.** production, beta, and alpha all read/write these
+same tables - there is no environment column anywhere - so any SQL count is
+environment-agnostic (all environments combined). A job's environment is knowable only
+from Sentry (`environment` tag) or Temporal (namespace), set by the fleet that processed
+it; to scope a query to one environment, filter Sentry (`environment:<env>` with
+`organizationId:`/`snapshotId:`) and join back to the DB by `snapshotId`. All timestamp
+columns are `timestamp without time zone` holding naive **UTC** instants - see the
+timezone gotcha in SKILL.md before correlating times against Sentry (which renders UTC).
 
 ## Data model (what to read, in order of usefulness)
 
@@ -53,24 +63,49 @@ WHERE ta.snapshot_id = ':S' ORDER BY r.created_at DESC;
 SELECT status, test_plan_id, failure, created_at FROM test_generation WHERE snapshot_id = ':S' ORDER BY created_at;
 ```
 
-## Sentry recipes
+## Sentry recipes (sentry-cli)
 
-`snapshotId` is an indexed tag/attribute across `errors`, `logs`, and `spans`.
+Auth/config lives in `~/.sentryclirc` (per-user, never committed):
 
-- **Errors for a job:** `search_events(dataset='errors', query='snapshotId:<id>')`.
-  For a recurring issue, `get_sentry_resource(issue=...)` for occurrences/first-seen,
-  and `get_issue_tag_values(tagKey='activity'|'organizationId'|'environment'|'workflowType')`
-  to see distribution; aggregate windows (`statsPeriod` 1h/24h/7d) to judge whether
-  something is a spike vs steady (use `sort:'-count()'`).
-- **Logs for a run/trace:** `search_events(dataset='logs', query='snapshotId:<id>')` or
-  `query='trace:<traceId>'` (a fetched event exposes its `trace_id`). Free-text terms
-  match log messages; filter by promoted attributes (`activity:`, `environment:`,
-  `repoFullName:`, `state:`...). Not every structured field is queryable - if a filter
-  returns nothing, fetch the event and read its attributes/extra instead.
+```ini
+[defaults]
+url=https://sentry.autonoma.app/
+org=agent
+
+[auth]
+token=<user auth token from sentry.autonoma.app -> User settings -> Auth Tokens; scopes org:read, project:read, event:read>
+```
+
+With that in place none of the commands below need `--url`/`--org`. `sentry-cli info`
+verifies it (prints `Sentry Server: https://sentry.autonoma.app` and
+`Default Organization: agent`). You can override per-call with `--url`/`--org`/`--auth-token`
+or the `SENTRY_URL` / `SENTRY_ORG` / `SENTRY_AUTH_TOKEN` env vars.
+
+`snapshotId` is an indexed tag across issues and logs. The `--query` syntax is the same
+as the web UI search bar (https://docs.sentry.io/concepts/search/).
+
+- **Errors for a job (issues):**
+  `sentry-cli issues list --query "snapshotId:<id>" --project worker-diffs`. Drop
+  `--project` to search the whole org. `--query` takes any issue-search expression
+  (`is:unresolved snapshotId:<id>`, `level:error`, ...); `--status`, `--max-rows`,
+  `--pages` narrow it. `issues list --id <numericId>` targets one issue.
+- **Logs for a run/trace (BETA):**
+  `sentry-cli logs list --project worker-diffs --query "snapshotId:<id>"` (or
+  `trace:<traceId>`). Requires `--project`, so iterate the projects below to sweep a
+  whole job. Free-text terms match the log message; attribute filters (`level:`,
+  `activity:`, `environment:`, ...) narrow it; `--max-rows` caps output (<=1000). The
+  `logs` command is beta and may change or be removed in a sentry-cli release.
+- **Raw events:** `sentry-cli events list --project worker-diffs [--show-tags]` lists a
+  project's events but has **no `--query`** - filter by `snapshotId` via the `issues`
+  search above, then read the issue.
 - **Projects a diff job touches:** `worker-diffs` (analysis/resolve/heal),
   `worker-general` (refinement/generation orchestration), `generation-reviewer` /
   `replay-reviewer`, `api` (the trigger + request logs), `previewkit` (preview deploy).
-  Discover the current set with `find_projects(org='agent')`.
+  List the current set with `sentry-cli projects list`.
+- **What the CLI can't do (fall back to the web UI at `https://sentry.autonoma.app`):**
+  tag-value distributions (the old `get_issue_tag_values`), `spans`-dataset aggregation,
+  and rich per-event attribute dumps. For those, open the issue/trace in the web UI and
+  search `snapshotId:<id>` / `trace:<id>` there.
 
 ## Agent conversation logs (S3)
 

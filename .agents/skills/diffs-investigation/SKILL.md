@@ -20,21 +20,22 @@ tree, don't trust remembered numbers.
 
 ## Prerequisites (tools this skill assumes)
 
-This playbook reads from three external sources. Run `/mcp` first to see what's
-actually connected in this session - **don't assume they're installed.** Each is
-independently useful, so a missing one only removes that lane:
+This playbook reads from three external sources - **don't assume they're set up.**
+Each is independently useful, so a missing one only removes that lane:
 
 | Capability | Provides | If you don't have it |
 |---|---|---|
 | **Postgres MCP** (`mcp__postgres__query`, read-only prod replica) | authoritative job/snapshot/test state | Ask a teammate with DB access to run the query, or use any read-only SQL client pointed at the replica. The schema is in `packages/db/prisma/schema.prisma`, so queries are reproducible by hand. |
-| **Sentry MCP** (`mcp__sentry__*`, org `agent`) | execution logs, errors, issue history | Use the Sentry web UI at `https://sentry.autonoma.app` (search `snapshotId:<id>` / `trace:<id>`); the recipes in REFERENCE.md map 1:1 to the web search bar. |
+| **Sentry CLI** (`sentry-cli`, org `agent`) | errors/issues, execution logs, issue history | Install (`brew install getsentry/tools/sentry-cli` or `curl -sL https://sentry.io/get-cli/ \| sh`) and configure `~/.sentryclirc` (see REFERENCE.md). Or use the web UI at `https://sentry.autonoma.app` (search `snapshotId:<id>` / `trace:<id>`); the recipes in REFERENCE.md name the equivalent search. |
 | **AWS credentials** (`aws s3 cp`) | the agent conversation JSON in S3 | Ask someone with bucket access to pull the `*-conversation.json`, or skip that lane (DB + Sentry still cover most questions). |
 
-Set them up via the team's MCP configuration (the project `.mcp.json` / your local
-Codex settings); if the connection string or DSN is wrong you'll see a config
-error (bad host, missing password) rather than empty results - that's a setup
-problem, not a "no data" answer. If a lane is unavailable, say so explicitly in
-your findings and lean on the others rather than silently narrowing scope.
+Confirm Sentry auth with `sentry-cli info` (it should print
+`Sentry Server: https://sentry.autonoma.app` and `Default Organization: agent`);
+Postgres goes through its MCP. If a connection string, DSN, or auth token is wrong
+you'll see a config/auth error (bad host, missing password, 401) rather than empty
+results - that's a setup problem, not a "no data" answer. If a lane is unavailable,
+say so explicitly in your findings and lean on the others rather than silently
+narrowing scope.
 
 ## The identifiers everything keys off
 
@@ -45,6 +46,12 @@ your findings and lean on the others rather than silently narrowing scope.
   (`snapshotId`, `organizationId`, `branchId`, `workflowId`, `activity`, ...),
   flattened to top-level keys (schema: `packages/logger/src/observability-context.ts`).
   So `snapshotId:<id>` is the single best filter across DB **and** Sentry.
+- **Environment (`beta`/`production`/`alpha`) is NOT one of those DB-resolvable IDs.**
+  All environments share one database (see the gotcha below); a job's environment
+  lives only in Sentry (the `environment` tag, from `SENTRY_ENV`) and Temporal (the
+  namespace / `environment` search attribute, from `NAMESPACE`) - set by whichever
+  fleet processed the job. Scope by environment with `environment:<env>` in Sentry
+  (alongside `organizationId:`/`snapshotId:`), never in SQL.
 
 ## Lifecycle (where a run can break)
 
@@ -92,14 +99,33 @@ saw and did). Recipes for each in REFERENCE.md.
   Always corroborate with Sentry and the conversation.
 - **"Superseded" is not a real failure.** A newer push for the same branch cancels
   the in-flight job and marks the old one superseded. Expect these for active repos.
+- **Production and beta (and alpha) share ONE database.** There is no environment
+  column on `diffs_job`/`branch_snapshot`/`run`/`test_generation`, so a plain SQL
+  count mixes all environments together. The trigger endpoint is served per-namespace
+  and each client wires its webhook to one namespace's ingress, so different clients
+  trigger into different environments and a single org can appear in several over time.
+  Never label a DB-only result "beta" (or "prod") - it isn't. To attribute or scope by
+  environment, go through Sentry (`environment:<env>`) or the Temporal namespace, then
+  join back to the DB by `snapshotId`.
 - **Classify failures, don't lump them.** System/infra (e.g. scenario setup,
   engine error) vs test/logic (replay/verdict failures) vs agent-loop (step limit /
   no result) vs supersession are distinct and point at different owners.
 - **A successful tool call can still return empty.** Confirm a tool actually
   produced output in the conversation before assuming the agent "saw" something; a
   silently-degraded tool can yield a plausible-but-wrong analysis with no error.
-- **Verify timezones before building a timeline.** The DB stores UTC; a log UI may
-  render in a local zone. Pin the offset against one known event before correlating.
+- **Verify timezones before building a timeline.** All DB timestamp columns are
+  `timestamp without time zone` (Prisma `DateTime`) holding a naive **UTC** instant -
+  they carry no offset, so nothing labels them as UTC. Sentry renders UTC (`+00:00`),
+  so the two align only if you treat the DB value as UTC. Two traps when the SQL
+  session's `TimeZone` isn't UTC: (1) `now()` is `timestamptz`, so
+  `col > now() - interval 'N hours'` casts the naive column using the session zone and
+  silently shifts your window by the local offset; (2) `col AT TIME ZONE 'UTC'`
+  re-labels an already-UTC value and, via `to_char`, shifts the *displayed* time. The
+  read-only prod replica MCP runs `Etc/UTC` (safe there), but a local client
+  (psql/DBeaver) usually defaults to your local zone - run `SHOW timezone;` first,
+  `SET TIME ZONE 'UTC';` if needed, render UTC columns directly
+  (`to_char(col, 'YYYY-MM-DD HH24:MI')`, no `AT TIME ZONE`), and pin one known Sentry
+  event (UTC) against its DB row before correlating.
 - **A diff job spans services.** Relevant logs live across multiple Sentry projects
   (analysis/healing, generation, replay, the API trigger, preview deploys), not just
   `worker-diffs`. Follow the `snapshotId`/`workflowId`/trace across them.
