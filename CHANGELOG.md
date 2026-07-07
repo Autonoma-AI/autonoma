@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.22](https://github.com/Autonoma-AI/agent/compare/v1.8.21...v1.8.22) (2026-07-07)
+
+
+### Features
+
+* **docs:** add PostHog page-view analytics to the docs site ([#1322](https://github.com/Autonoma-AI/agent/issues/1322)) ([811d446](https://github.com/Autonoma-AI/agent/commit/811d4461428a8b93691602c7bb770fa845eb7d0c))
+* **pr-comment:** per-bug collapsibles, evidence, and embedded failure media ([#1231](https://github.com/Autonoma-AI/agent/issues/1231)) ([25da815](https://github.com/Autonoma-AI/agent/commit/25da8150e4daaed36fbe1332600e232902830309))
+* **previewkit:** server-side log search for preview environments ([#1329](https://github.com/Autonoma-AI/agent/issues/1329)) ([f8cda20](https://github.com/Autonoma-AI/agent/commit/f8cda20a04bd5752c293d167bddf36fdf9d6e1a3))
+* report pending migration count in beta deploy Slack message ([#1332](https://github.com/Autonoma-AI/agent/issues/1332)) ([bdc8aec](https://github.com/Autonoma-AI/agent/commit/bdc8aec9b604aea633555543057af72d0e0ceb26))
+
+
+### Bug Fixes
+
+* **ci:** fetch git-LFS objects when deploying docs ([#1327](https://github.com/Autonoma-AI/agent/issues/1327)) ([a4fac91](https://github.com/Autonoma-AI/agent/commit/a4fac91d2aa7d70ca741a9827145842579d860bc))
+* **ui:** nest the run trace inside Evidence on the investigation finding view ([#1333](https://github.com/Autonoma-AI/agent/issues/1333)) ([fec88a4](https://github.com/Autonoma-AI/agent/commit/fec88a4cb58defeb12d04c5cb6ae78b39e0b32a3))
+
 ## [1.8.21](https://github.com/Autonoma-AI/agent/compare/v1.8.20...v1.8.21) (2026-07-07)
 
 
