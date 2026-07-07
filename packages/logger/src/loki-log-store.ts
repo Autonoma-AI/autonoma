@@ -43,6 +43,11 @@ const APP_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,63}$/;
 // Stream entry id replayed by a browser after the build store was flipped from
 // Redis to Loki) is treated as a fresh viewer instead of an error.
 const CURSOR_PATTERN = /^\d+$/;
+// A viewer's search term is a free-form substring, so it can't be charset-limited
+// like the ids above. Cap its length (a search box, not a query language) and make
+// it injection-proof by escaping regex metacharacters and embedding it in a Loki
+// double-quoted string (see `lineFilter`), rather than trusting the input.
+const FILTER_MAX_LENGTH = 200;
 
 const queryRangeResponseSchema = z.object({
     status: z.literal("success"),
@@ -75,12 +80,20 @@ export class LokiLogStore implements LogStore {
      * window (mirroring `kubectl logs --tail`), build streams replay forward
      * from the beginning so the whole build is shown.
      */
-    async readBatch(environmentId: string, afterCursor: string, app?: string): Promise<BuildLogEntry[]> {
+    async readBatch(
+        environmentId: string,
+        afterCursor: string,
+        app?: string,
+        filter?: string,
+    ): Promise<BuildLogEntry[]> {
         if (!ENVIRONMENT_ID_PATTERN.test(environmentId)) {
             throw new Error(`Invalid environment id: ${environmentId}`);
         }
         if (app != null && !APP_NAME_PATTERN.test(app)) {
             throw new Error(`Invalid app name: ${app}`);
+        }
+        if (filter != null && filter.length > FILTER_MAX_LENGTH) {
+            throw new Error(`Filter too long: ${filter.length} > ${FILTER_MAX_LENGTH}`);
         }
 
         const nowNs = BigInt(Date.now()) * 1_000_000n;
@@ -90,10 +103,14 @@ export class LokiLogStore implements LogStore {
 
         // An optional `app` narrows the stream to one app's lines (both sources carry the per-app
         // `app` label); without it the whole environment streams. Both sources also exclude the
-        // `kind="start"` markers - they are replay boundaries, not displayable lines.
+        // `kind="start"` markers - they are replay boundaries, not displayable lines. An optional
+        // `filter` appends a case-insensitive line filter so the viewer can search server-side; it
+        // is applied here only, never to the start-marker query, so the replay floor is always found
+        // (a search over an empty result set must still resume from the right run).
         const selector = this.buildSelector(environmentId, app);
+        const query = filter != null && filter !== "" ? `${selector} ${lineFilter(filter)}` : selector;
         const params = new URLSearchParams({
-            query: selector,
+            query,
             start: startNs.toString(),
             end: nowNs.toString(),
             // `initialRead` chooses the fresh-viewer direction: forward to replay
@@ -228,6 +245,25 @@ export class LokiLogStore implements LogStore {
         matchers.push(`kind!="start"`);
         return `{${matchers.join(", ")}}`;
     }
+}
+
+/**
+ * A LogQL line filter matching lines that contain `term` as a case-insensitive substring.
+ *
+ * `term` is untrusted (a viewer's search box), so it is made safe in two layers before it
+ * reaches Loki: regex metacharacters are escaped so the term matches literally rather than as
+ * a pattern, then the result is embedded via `JSON.stringify` in Loki's double-quoted string
+ * form (`|~ "..."`), whose Go-style escaping is a superset of JSON's - so quotes, backslashes,
+ * and backticks can never break out of the string. The `(?i)` flag makes the match
+ * case-insensitive, which is what a search box implies.
+ */
+function lineFilter(term: string): string {
+    const literal = `(?i)${escapeRegExp(term)}`;
+    return `|~ ${JSON.stringify(literal)}`;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function emptyToUndefined(value: string | undefined): string | undefined {

@@ -190,7 +190,8 @@ export function PreviewBuildLogStreamExample({
  * base: same-origin in production, absolute `VITE_API_URL` in cross-origin
  * preview environments. `source` selects build output (default) or the
  * environment's runtime app stdout/stderr; `app`, when set, narrows the stream
- * to a single app's logs.
+ * to a single app's logs; `filter`, when set, is a case-insensitive substring
+ * the server matches against each line so only matching lines stream.
  */
 export function buildPreviewLogStreamUrl(
   owner: string,
@@ -198,10 +199,12 @@ export function buildPreviewLogStreamUrl(
   pr: number,
   source: "build" | "app" = "build",
   app?: string,
+  filter?: string,
 ): string {
   const params = new URLSearchParams();
   if (source === "app") params.set("source", "app");
   if (app != null && app !== "") params.set("app", app);
+  if (filter != null && filter !== "") params.set("filter", filter);
   const query = params.toString();
   const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream${query !== "" ? `?${query}` : ""}`;
   const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);

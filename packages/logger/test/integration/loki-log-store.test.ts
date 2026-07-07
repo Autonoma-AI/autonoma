@@ -55,12 +55,13 @@ describe("LokiLogStore (integration)", () => {
         cursor: string,
         minEntries: number,
         app?: string,
+        filter?: string,
     ): Promise<Awaited<ReturnType<LokiLogStore["readBatch"]>>> {
         const deadline = Date.now() + 10_000;
-        let batch = await store.readBatch(namespace, cursor, app);
+        let batch = await store.readBatch(namespace, cursor, app, filter);
         while (batch.length < minEntries && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 250));
-            batch = await store.readBatch(namespace, cursor, app);
+            batch = await store.readBatch(namespace, cursor, app, filter);
         }
         return batch;
     }
@@ -273,6 +274,40 @@ describe("LokiLogStore (integration)", () => {
     it("rejects app names outside the allowed charset", async () => {
         await expect(appStore.readBatch("preview-acme-api-pr-8", "0", 'api"}{evil')).rejects.toThrow(
             /Invalid app name/,
+        );
+    });
+
+    it("filters lines to a case-insensitive substring when a filter is given", async () => {
+        const namespace = "preview-acme-api-pr-13";
+
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [
+            [nextNs(), "GET /health 200"],
+            [nextNs(), "GET /users 500 Internal Server ERROR"],
+            [nextNs(), "GET /users 200"],
+        ]);
+
+        // Case-insensitive: "error" matches the "ERROR" line only.
+        const errors = await readUntil(appStore, namespace, "0", 1, undefined, "error");
+        expect(errors.map((entry) => entry.event.message)).toEqual(["GET /users 500 Internal Server ERROR"]);
+    });
+
+    it("treats the filter as a literal, not a regex (metacharacters match themselves)", async () => {
+        const namespace = "preview-acme-api-pr-14";
+
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [
+            [nextNs(), "price is 9.99 today"],
+            [nextNs(), "price is 9x99 today"],
+        ]);
+
+        // "9.99" is a literal substring: the "." matches a dot, not any char, so the
+        // "9x99" line is excluded (a regex "." would have matched both).
+        const matches = await readUntil(appStore, namespace, "0", 1, undefined, "9.99");
+        expect(matches.map((entry) => entry.event.message)).toEqual(["price is 9.99 today"]);
+    });
+
+    it("rejects a filter longer than the max length", async () => {
+        await expect(appStore.readBatch("preview-acme-api-pr-15", "0", undefined, "x".repeat(201))).rejects.toThrow(
+            /Filter too long/,
         );
     });
 });

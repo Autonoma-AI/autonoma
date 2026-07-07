@@ -37,6 +37,10 @@ const logAppSchema = z
     .string()
     .regex(/^[a-zA-Z0-9._-]{1,63}$/, "invalid app name")
     .optional();
+// Optional `?filter=` is a free-form, case-insensitive substring search over the
+// log lines. Bounded here (a search box, not a query language); LokiLogStore makes
+// it injection-proof before it reaches Loki.
+const LOG_FILTER_MAX_LENGTH = 200;
 const LOG_STREAM_POLL_MS = 1000;
 // Heartbeat (and DB status re-check) cadence while idle, in poll ticks.
 const LOG_STREAM_HEARTBEAT_TICKS = 15;
@@ -123,6 +127,14 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         if (!appParsed.success) return c.json({ error: "app must be a valid app name" }, 400);
         const app = appParsed.data;
 
+        // Optional ?filter=<text> is a case-insensitive substring search. An empty value means
+        // "no filter" (a cleared search box), so it is normalized away rather than 400'd.
+        const filterRaw = c.req.query("filter");
+        const filter = filterRaw != null && filterRaw !== "" ? filterRaw : undefined;
+        if (filter != null && filter.length > LOG_FILTER_MAX_LENGTH) {
+            return c.json({ error: `filter must be at most ${LOG_FILTER_MAX_LENGTH} characters` }, 400);
+        }
+
         const store: LogStore | undefined = source === "app" ? appLogStore : buildLogStore;
         if (store == null) return c.json({ error: "Log streaming is not configured." }, 503);
 
@@ -152,7 +164,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
                 const readBatch = async (after: string): Promise<BuildLogEntry[] | undefined> => {
                     try {
-                        return await store.readBatch(target.namespace, after, app);
+                        return await store.readBatch(target.namespace, after, app, filter);
                     } catch (err) {
                         logger.error("Failed reading log stream", err, { namespace: target.namespace, source });
                         return undefined;

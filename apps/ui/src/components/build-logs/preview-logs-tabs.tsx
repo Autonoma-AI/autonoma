@@ -1,6 +1,13 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger, cn } from "@autonoma/blacklight";
+import { Button, Input, Tabs, TabsContent, TabsList, TabsTrigger, cn } from "@autonoma/blacklight";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { XIcon } from "@phosphor-icons/react/X";
+import { useEffect, useState } from "react";
 import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
+
+// Wait for a pause in typing before applying the search, so each keystroke does not
+// reopen the SSE stream (a filter change is a new server-side query from the cursor).
+const SEARCH_DEBOUNCE_MS = 300;
 
 /** Which log stream the tabs show: the build output or the running app's output. */
 export type PreviewLogSource = "build" | "app";
@@ -45,6 +52,23 @@ export function PreviewLogsTabs({
   className,
 }: PreviewLogsTabsProps) {
   const contentClassName = fill === true ? "flex min-h-0 flex-col" : undefined;
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce the search box: only the settled value drives the stream URL.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // The search hasn't taken effect yet while the debounce is still settling; show a
+  // spinner in place of the search icon so the control's state is legible.
+  const isSearchPending = search !== debouncedSearch;
+  const filter = debouncedSearch.trim() === "" ? undefined : debouncedSearch.trim();
+  const appWaitingText =
+    filter != null ? `no application logs match “${filter}” yet…` : "waiting for application output…";
+  const buildWaitingText = filter != null ? `no build logs match “${filter}” yet…` : undefined;
+
   return (
     <Tabs
       value={source}
@@ -52,27 +76,62 @@ export function PreviewLogsTabs({
       onValueChange={(value) => onSourceChange?.(value === "build" ? "build" : "app")}
       className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}
     >
-      <TabsList>
-        <TabsTrigger value="app">App logs</TabsTrigger>
-        <TabsTrigger value="build">Build logs</TabsTrigger>
-      </TabsList>
+      <div className="flex items-center gap-3">
+        <TabsList>
+          <TabsTrigger value="app">App logs</TabsTrigger>
+          <TabsTrigger value="build">Build logs</TabsTrigger>
+        </TabsList>
+        <div className="relative ml-auto w-full max-w-xs">
+          {isSearchPending ? (
+            <CircleNotchIcon
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-secondary"
+            />
+          ) : (
+            <MagnifyingGlassIcon
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary"
+            />
+          )}
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search logs…"
+            aria-label="Search logs"
+            className="h-8 pr-8 pl-8 font-mono text-2xs"
+          />
+          {search !== "" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-1 top-1/2 -translate-y-1/2"
+            >
+              <XIcon size={12} />
+            </Button>
+          )}
+        </div>
+      </div>
       <TabsContent value="app" className={contentClassName}>
         {appBuilding === true ? (
           <AppLogsBuildingPlaceholder fill={fill} />
         ) : (
           <BuildLogStreamViewer
-            url={buildPreviewLogStreamUrl(owner, repo, pr, "app", app)}
+            url={buildPreviewLogStreamUrl(owner, repo, pr, "app", app, filter)}
             headers={headers}
             title="app logs"
-            waitingText="waiting for application output…"
+            waitingText={appWaitingText}
             fill={fill}
           />
         )}
       </TabsContent>
       <TabsContent value="build" className={contentClassName}>
         <BuildLogStreamViewer
-          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app)}
+          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app, filter)}
           headers={headers}
+          waitingText={buildWaitingText}
           fill={fill}
         />
       </TabsContent>

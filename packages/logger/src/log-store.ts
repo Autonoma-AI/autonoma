@@ -12,6 +12,10 @@ import type { BuildLogEntry } from "./build-log-event";
  * from preview pods by the Alloy DaemonSet.
  */
 export interface LogStore {
-    /** `app`, when set, narrows the stream to one app's lines (both sources carry an `app` label). */
-    readBatch(environmentId: string, afterCursor: string, app?: string): Promise<BuildLogEntry[]>;
+    /**
+     * `app`, when set, narrows the stream to one app's lines (both sources carry an `app` label).
+     * `filter`, when set, is a case-insensitive substring the entry's message must contain
+     * (applied as a Loki line filter server-side) so a viewer can search without pulling every line.
+     */
+    readBatch(environmentId: string, afterCursor: string, app?: string, filter?: string): Promise<BuildLogEntry[]>;
 }
