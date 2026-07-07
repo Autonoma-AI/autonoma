@@ -128,6 +128,16 @@ function FindingBody({
         </div>
       )}
 
+      {hasRunTrace(finding) && (
+        <Section title="Run trace - what the run actually did">
+          {finding.runTrace != null && finding.runTrace.length > 0 ? (
+            <RunTraceRich steps={finding.runTrace} />
+          ) : (
+            <RunTrace steps={finding.runSteps ?? []} />
+          )}
+        </Section>
+      )}
+
       {finding.plan != null && finding.plan.trim() !== "" && (
         <Section title="Reproduction - the test plan">
           <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-surface-void p-4 font-mono text-2xs text-text-secondary">
@@ -136,28 +146,12 @@ function FindingBody({
         </Section>
       )}
 
-      {(finding.evidence.length > 0 || hasRunTrace(finding)) && (
+      {finding.evidence.length > 0 && (
         <Section title="Evidence">
-          <div className="flex flex-col gap-4">
-            {finding.evidence.length > 0 && (
-              <div className="flex flex-col gap-3">
-                {finding.evidence.map((item, i) => (
-                  <EvidenceItem key={i} item={item} repoFullName={repoFullName} commitSha={commitSha} />
-                ))}
-              </div>
-            )}
-            {hasRunTrace(finding) && (
-              <div className="flex flex-col gap-2">
-                <h3 className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
-                  Run trace - what the run actually did
-                </h3>
-                {finding.runTrace != null && finding.runTrace.length > 0 ? (
-                  <RunTraceRich steps={finding.runTrace} />
-                ) : (
-                  <RunTrace steps={finding.runSteps ?? []} />
-                )}
-              </div>
-            )}
+          <div className="flex flex-col gap-3">
+            {finding.evidence.map((item, i) => (
+              <EvidenceItem key={i} item={item} repoFullName={repoFullName} commitSha={commitSha} />
+            ))}
           </div>
         </Section>
       )}
