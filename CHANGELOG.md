@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.23](https://github.com/Autonoma-AI/agent/compare/v1.8.22...v1.8.23) (2026-07-07)
+
+
+### Features
+
+* **investigation:** verifiable findings - evidence-gated verdicts + inspectable run trace ([#1335](https://github.com/Autonoma-AI/agent/issues/1335)) ([a2eb104](https://github.com/Autonoma-AI/agent/commit/a2eb1048c713c9f5de9e5d42b05417f2043d6d26))
+
 ## [1.8.22](https://github.com/Autonoma-AI/agent/compare/v1.8.21...v1.8.22) (2026-07-07)
 
 
