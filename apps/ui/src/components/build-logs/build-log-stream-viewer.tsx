@@ -86,6 +86,10 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
   // A single log entry can carry a multi-line chunk - build tools (and any process that
   // writes several lines in one flush) emit them as one Loki entry. Render each physical
   // line as its own timestamped row so lines aren't clumped under one timestamp.
+  //
+  // Color by stream, not by content: an `stderr` line reads as an error (red), everything
+  // else stays the default tone. Keying off the stream avoids the false positives a keyword
+  // heuristic produces (e.g. a "0 errors" summary line rendering red).
   const timestamp = formatLogTimestamp(entry.id);
   return (
     <>
@@ -97,7 +101,7 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
           <span
             className={cn(
               "min-w-0 flex-1 whitespace-pre-wrap break-words",
-              entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
+              entry.stream === "stderr" ? "text-status-critical" : "text-text-secondary",
             )}
           >
             {line}
