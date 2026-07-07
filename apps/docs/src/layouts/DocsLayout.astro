@@ -3,6 +3,7 @@ import Header from "../components/Header.astro"
 import Sidebar from "../components/Sidebar.astro"
 import TableOfContents from "../components/TableOfContents.astro"
 import PrevNextNav from "../components/PrevNextNav.astro"
+import Analytics from "../components/Analytics.astro"
 import "../styles/docs.css"
 
 interface Props {
@@ -30,6 +31,7 @@ const filteredHeadings = headings.filter((h) => h.depth >= 2 && h.depth <= 3)
         {description && <meta name="description" content={description} />}
         <link rel="icon" type="image/png" href="/favicon.png" />
         <link rel="sitemap" href="/sitemap-index.xml" />
+        <Analytics />
     </head>
     <body class="min-h-screen bg-background text-foreground font-sans antialiased">
         <Header />

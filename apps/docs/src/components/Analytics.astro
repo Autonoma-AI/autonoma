@@ -1,0 +1,122 @@
+---
+// Client-side PostHog analytics for the docs site.
+//
+// Uses PostHog's standard inline loader (no bundled dependency) so it works on
+// the static S3 + CloudFront deploy without a reverse proxy. It runs only on the
+// production docs domain, and for now captures page views only - autocapture and
+// session recording are off.
+//
+// Cross-domain identity: the marketing site (getautonoma.com), the app
+// (autonoma.app), and these docs all live on different root domains, so a shared
+// cookie can't stitch them - instead the distinct id rides along in a `?ph_id=`
+// URL param. Inbound, we bootstrap that id so an arriving visitor stays the same
+// person. Outbound, we append it to any link that navigates to the marketing site
+// or the app, so identity is preserved when the visitor leaves the docs. This
+// mirrors the website <-> app loop in apps/ui/src/main.tsx.
+---
+
+<script is:inline>
+    (function () {
+        if (window.location.hostname !== "docs.autonoma.app") return
+
+        !(function (t, e) {
+            var o, n, p, r
+            e.__SV ||
+                ((window.posthog = e),
+                (e._i = []),
+                (e.init = function (i, s, a) {
+                    function g(t, e) {
+                        var o = e.split(".")
+                        2 == o.length && ((t = t[o[0]]), (e = o[1])),
+                            (t[e] = function () {
+                                t.push([e].concat(Array.prototype.slice.call(arguments, 0)))
+                            })
+                    }
+                    ;((p = t.createElement("script")).type = "text/javascript"),
+                        (p.crossOrigin = "anonymous"),
+                        (p.async = !0),
+                        (p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.js"),
+                        (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r)
+                    var u = e
+                    for (
+                        void 0 !== a ? (u = e[a] = []) : (a = "posthog"),
+                            u.people = u.people || [],
+                            u.toString = function (t) {
+                                var e = "posthog"
+                                return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e
+                            },
+                            u.people.toString = function () {
+                                return u.toString(1) + ".people (stub)"
+                            },
+                            o =
+                                "init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagResult isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(
+                                    " "
+                                ),
+                            n = 0;
+                        n < o.length;
+                        n++
+                    )
+                        g(u, o[n])
+                    e._i.push([i, s, a])
+                }),
+                (e.__SV = 1))
+        })(document, window.posthog || [])
+
+        var params = new URLSearchParams(window.location.search)
+        var phId = params.get("ph_id")
+
+        posthog.init("phc_mUOwUj62r8vyiisFPvXLC3G5RftETIBMnKNSHqTBdka", {
+            api_host: "https://us.i.posthog.com",
+            ui_host: "https://us.posthog.com",
+            autocapture: false,
+            capture_pageview: true,
+            capture_pageleave: true,
+            disable_session_recording: true,
+            person_profiles: "identified_only",
+            bootstrap: phId ? { distinctID: phId } : undefined,
+        })
+
+        if (phId) {
+            var url = new URL(window.location.href)
+            url.searchParams.delete("ph_id")
+            window.history.replaceState({}, "", url.toString())
+        }
+
+        // Outbound cross-domain identity: when a visitor follows a link to the
+        // marketing site or the app, carry the current distinct id along so the
+        // two properties resolve to the same person. Only these navigation hosts
+        // are decorated - api/preview subdomains and the docs site itself are not.
+        var CROSS_DOMAIN_HOSTS = {
+            "getautonoma.com": true,
+            "www.getautonoma.com": true,
+            "autonoma.app": true,
+            "www.autonoma.app": true,
+            "app.autonoma.app": true,
+        }
+
+        function decorateOutboundLink(event) {
+            var anchor = event.target.closest ? event.target.closest("a[href]") : null
+            if (anchor == null) return
+
+            var destination
+            try {
+                destination = new URL(anchor.href)
+            } catch (err) {
+                return
+            }
+
+            if (CROSS_DOMAIN_HOSTS[destination.hostname] !== true) return
+            if (destination.searchParams.has("ph_id")) return
+            if (typeof posthog.get_distinct_id !== "function") return
+
+            var distinctId = posthog.get_distinct_id()
+            if (typeof distinctId !== "string" || distinctId.length === 0) return
+
+            destination.searchParams.set("ph_id", distinctId)
+            anchor.href = destination.toString()
+        }
+
+        document.addEventListener("click", decorateOutboundLink, true)
+        document.addEventListener("auxclick", decorateOutboundLink, true)
+    })()
+</script>
