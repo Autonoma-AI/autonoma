@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.21](https://github.com/Autonoma-AI/agent/compare/v1.8.20...v1.8.21) (2026-07-07)
+
+
+### Bug Fixes
+
+* **investigation:** cap shadow workflow wall-clock with a 6h execution timeout ([#1319](https://github.com/Autonoma-AI/agent/issues/1319)) ([2d2b943](https://github.com/Autonoma-AI/agent/commit/2d2b943c590b8423190dbff611567d141205a447))
+* **investigation:** unblock worker throughput (per-pod concurrency + KEDA cap + unique clone dirs) ([#1323](https://github.com/Autonoma-AI/agent/issues/1323)) ([3fd4080](https://github.com/Autonoma-AI/agent/commit/3fd40808a29b2b19e6eafe96bddf4ee910eec3bf))
+
+
+### Performance Improvements
+
+* **temporal:** remove maxReplicaCount from Temporal workers ([#1324](https://github.com/Autonoma-AI/agent/issues/1324)) ([f5f3de5](https://github.com/Autonoma-AI/agent/commit/f5f3de5deffc23c2298641ab9a7d92bef291f1ae))
+
 ## [1.8.20](https://github.com/Autonoma-AI/agent/compare/v1.8.19...v1.8.20) (2026-07-06)
 
 
