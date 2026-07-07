@@ -16,6 +16,27 @@ export const investigationEvidenceSchema = z.object({
 });
 export type InvestigationEvidence = z.infer<typeof investigationEvidenceSchema>;
 
+const investigationPointSchema = z.object({ x: z.number(), y: z.number() });
+
+/**
+ * One step of the run's structured trace: the interaction, its status, and - crucially - the frame the agent
+ * captured for that step plus any click/drag coordinates, so a reviewer can SEE what the app showed and where
+ * the agent acted (not just trust a line that says "success"). The point coordinates are in the screenshot's
+ * own pixel space, so the overlay marker needs no separate resolution. Screenshot carries the raw s3:// key at
+ * persist time; the API signs it on read (like the finding's other media).
+ */
+export const investigationRunStepSchema = z.object({
+    order: z.number(),
+    interaction: z.string(),
+    status: z.string(),
+    error: z.string().optional(),
+    screenshotUrl: z.string().optional(),
+    point: investigationPointSchema.optional(),
+    startPoint: investigationPointSchema.optional(),
+    endPoint: investigationPointSchema.optional(),
+});
+export type InvestigationRunStep = z.infer<typeof investigationRunStepSchema>;
+
 export const investigationFindingSchema = z.object({
     /** Stable per-report id for routing (the slug, suffixed when a slug appears more than once). */
     id: z.string(),
@@ -44,6 +65,13 @@ export const investigationFindingSchema = z.object({
      * legacy reports written before the trace was surfaced.
      */
     runSteps: z.array(z.string()).optional(),
+    /**
+     * The structured, inspectable version of the trace: each step with its captured frame + click coordinates,
+     * so the finding page can render a hoverable trace where a reviewer opens the screenshot and sees exactly
+     * where the agent clicked. Populated alongside `runSteps` (which stays as the text fallback); absent on
+     * legacy reports written before the structured trace was surfaced.
+     */
+    runTrace: z.array(investigationRunStepSchema).optional(),
     /** Browser-openable HTTPS URL (the API signs the stored s3:// key on read). */
     videoUrl: z.string().optional(),
     finalScreenshotUrl: z.string().optional(),

@@ -26,6 +26,7 @@ import type {
     CheckpointPresentationSummary,
     InvestigationFinding,
     InvestigationReportData,
+    InvestigationRunStep,
     SnapshotReport,
 } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
@@ -92,6 +93,7 @@ const investigationFindingSelect = {
     runSuccess: true,
     stepCount: true,
     runSteps: true,
+    runTrace: true,
     evidence: true,
     videoKey: true,
     screenshotKey: true,
@@ -130,6 +132,8 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
         runSuccess: row.runSuccess ?? undefined,
         stepCount: row.stepCount ?? undefined,
         runSteps: row.runSteps ?? undefined,
+        // Each step's screenshotUrl is still a raw s3:// key here; signFindingMedia signs them on read.
+        runTrace: row.runTrace ?? undefined,
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
         videoUrl: row.videoKey ?? undefined,
         finalScreenshotUrl: row.screenshotKey ?? undefined,
@@ -338,7 +342,7 @@ export class BranchesService extends Service {
         }
     }
 
-    /** Re-sign a finding's stored s3:// screenshot/video keys into browser-openable HTTPS URLs. */
+    /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
     private async signFindingMedia(finding: InvestigationFinding): Promise<InvestigationFinding> {
         const finalScreenshotUrl =
             finding.finalScreenshotUrl != null
@@ -348,7 +352,20 @@ export class BranchesService extends Service {
             finding.videoUrl != null
                 ? await this.storageProvider.getSignedUrl(finding.videoUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
                 : undefined;
-        return { ...finding, finalScreenshotUrl, videoUrl };
+        const runTrace =
+            finding.runTrace != null
+                ? await Promise.all(finding.runTrace.map((step) => this.signStep(step)))
+                : undefined;
+        return { ...finding, finalScreenshotUrl, videoUrl, runTrace };
+    }
+
+    /** Sign one run-trace step's stored screenshot key; the coordinates and labels pass through untouched. */
+    private async signStep(step: InvestigationRunStep): Promise<InvestigationRunStep> {
+        const screenshotUrl =
+            step.screenshotUrl != null
+                ? await this.storageProvider.getSignedUrl(step.screenshotUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
+                : undefined;
+        return { ...step, screenshotUrl };
     }
 
     async listBranches(applicationId: string, organizationId: string, state: PullRequestStateFilter = "open") {

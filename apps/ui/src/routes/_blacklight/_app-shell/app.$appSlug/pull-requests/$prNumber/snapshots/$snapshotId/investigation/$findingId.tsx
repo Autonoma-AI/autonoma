@@ -1,9 +1,19 @@
-import { Badge, Button, Separator, Skeleton } from "@autonoma/blacklight";
-import type { InvestigationEvidence, InvestigationFinding } from "@autonoma/types";
+import {
+  Badge,
+  Button,
+  cn,
+  InteractionBadge,
+  type OverlayPoint,
+  ScreenshotWithOverlay,
+  Separator,
+  Skeleton,
+} from "@autonoma/blacklight";
+import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { createFileRoute } from "@tanstack/react-router";
 import { CodeBlock, githubPermalink } from "components/investigation/code-block";
 import { findingCategoryMeta } from "components/investigation/finding-category";
+import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { useInvestigationReportData } from "lib/query/branches.queries";
 import { useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -125,7 +135,7 @@ function FindingBody({
         </Section>
       )}
 
-      {(finding.evidence.length > 0 || (finding.runSteps != null && finding.runSteps.length > 0)) && (
+      {(finding.evidence.length > 0 || hasRunTrace(finding)) && (
         <Section title="Evidence">
           <div className="flex flex-col gap-4">
             {finding.evidence.length > 0 && (
@@ -135,12 +145,16 @@ function FindingBody({
                 ))}
               </div>
             )}
-            {finding.runSteps != null && finding.runSteps.length > 0 && (
+            {hasRunTrace(finding) && (
               <div className="flex flex-col gap-2">
                 <h3 className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
                   Run trace - what the run actually did
                 </h3>
-                <RunTrace steps={finding.runSteps} />
+                {finding.runTrace != null && finding.runTrace.length > 0 ? (
+                  <RunTraceRich steps={finding.runTrace} />
+                ) : (
+                  <RunTrace steps={finding.runSteps ?? []} />
+                )}
               </div>
             )}
           </div>
@@ -291,6 +305,119 @@ function RunTrace({ steps }: { steps: string[] }) {
         );
       })}
     </pre>
+  );
+}
+
+/** True when the finding carries either the structured trace (preferred) or the legacy text-only trace. */
+function hasRunTrace(finding: InvestigationFinding): boolean {
+  return (
+    (finding.runTrace != null && finding.runTrace.length > 0) ||
+    (finding.runSteps != null && finding.runSteps.length > 0)
+  );
+}
+
+/** A step's click/drag coordinates as overlay markers (typed, no cast) - in the screenshot's own pixel space. */
+function toOverlayPoints(step: InvestigationRunStep): OverlayPoint[] {
+  const points: OverlayPoint[] = [];
+  if (step.point != null) points.push({ ...step.point, role: "click" });
+  if (step.startPoint != null) points.push({ ...step.startPoint, role: "drag-start" });
+  if (step.endPoint != null) points.push({ ...step.endPoint, role: "drag-end" });
+  return points;
+}
+
+/**
+ * The inspectable run trace: every step with the frame it captured and the exact point the agent acted on, so a
+ * reviewer can verify a verdict against what the app really showed instead of trusting a line that says
+ * "success". A step with a frame shows a thumbnail (with the click marker) and opens a full, arrow-navigable
+ * lightbox on click; a step without a frame renders as a plain line.
+ */
+function RunTraceRich({ steps }: { steps: InvestigationRunStep[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+
+  const lightboxSteps: NavigableStep[] = [];
+  const lightboxIndexByOrder = new Map<number, number>();
+  for (const step of steps) {
+    if (step.screenshotUrl == null) continue;
+    lightboxIndexByOrder.set(step.order, lightboxSteps.length);
+    lightboxSteps.push({
+      src: step.screenshotUrl,
+      alt: `Step ${step.order} - ${step.interaction}`,
+      points: toOverlayPoints(step),
+      stepNumber: step.order,
+      description: `${step.interaction} - ${step.status}`,
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-surface-void p-3">
+      {lightboxSteps.length > 0 && (
+        <p className="font-mono text-3xs text-text-secondary">
+          Click a step with a frame to see the screenshot and where the agent acted.
+        </p>
+      )}
+      <div className="flex flex-col gap-1">
+        {steps.map((step) => (
+          <RunTraceStepRow
+            key={step.order}
+            step={step}
+            onOpen={
+              lightboxIndexByOrder.has(step.order)
+                ? () => setActiveIndex(lightboxIndexByOrder.get(step.order))
+                : undefined
+            }
+          />
+        ))}
+      </div>
+      <NavigableLightbox
+        steps={lightboxSteps}
+        activeIndex={activeIndex}
+        onClose={() => setActiveIndex(undefined)}
+        onNavigate={setActiveIndex}
+      />
+    </div>
+  );
+}
+
+/** One run-trace row: order, interaction, status/error, and - when captured - a clickable frame thumbnail. */
+function RunTraceStepRow({ step, onOpen }: { step: InvestigationRunStep; onOpen?: () => void }) {
+  const failed = step.error != null || /\berror\b|\bfail/i.test(step.status);
+  const frame = step.screenshotUrl;
+
+  const body = (
+    <>
+      <span className="w-5 shrink-0 text-right font-mono text-3xs text-text-secondary">{step.order}</span>
+      <InteractionBadge interaction={step.interaction} />
+      <span className={cn("font-mono text-3xs", failed ? "text-status-critical" : "text-text-secondary")}>
+        {step.status}
+      </span>
+      {step.error != null && (
+        <span className="min-w-0 flex-1 truncate font-mono text-3xs text-status-critical">{step.error}</span>
+      )}
+      {frame != null && (
+        <span className="ml-auto shrink-0 overflow-hidden rounded border border-border-dim">
+          <ScreenshotWithOverlay
+            src={frame}
+            alt={`Step ${step.order} frame`}
+            imgClassName="h-10 w-auto"
+            overlaySize="sm"
+            points={toOverlayPoints(step)}
+          />
+        </span>
+      )}
+    </>
+  );
+
+  if (onOpen == null) {
+    return <div className="flex items-center gap-2 px-1 py-1">{body}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex cursor-zoom-in items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-raised"
+    >
+      {body}
+    </button>
   );
 }
 

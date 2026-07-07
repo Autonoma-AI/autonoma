@@ -1,3 +1,4 @@
+import type { InvestigationRunStep } from "@autonoma/types";
 import type { WorkflowArchitecture } from "../types";
 
 /** A shadow test the investigation will run + classify (one shadow TestGeneration already created for it). */
@@ -127,6 +128,8 @@ export interface InvestigationTestResult {
     stepCount: number;
     /** The step-by-step run trace (interaction + status + per-step error) - the run agent's observation log. */
     runSteps?: string[];
+    /** The structured trace: per-step frame (s3 key) + click coords, for the inspectable run-trace UI. */
+    runTrace?: InvestigationRunStep[];
     verdict?: InvestigationVerdict;
     error?: string;
     videoUrl?: string;

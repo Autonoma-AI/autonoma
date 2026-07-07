@@ -96,6 +96,7 @@ export function toTestReport(result: InvestigationTestResult): TestReport {
         runSuccess: result.runSuccess,
         stepCount: result.stepCount,
         runSteps: result.runSteps,
+        runTrace: result.runTrace,
         verdicts: [modelVerdict],
         videoUrl: result.videoUrl,
         finalScreenshotUrl: result.finalScreenshotUrl,

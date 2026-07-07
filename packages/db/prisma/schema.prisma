@@ -2182,6 +2182,10 @@ model InvestigationFinding {
   /// string[] run trace and InvestigationEvidence[] - display blobs, never queried.
   /// [InvestigationRunSteps]
   runSteps Json? @map("run_steps")
+  /// The structured, inspectable trace: per-step frame (s3 key, signed on read) + click coords. Additive/
+  /// nullable; populated alongside runSteps, which stays the text fallback for legacy rows.
+  /// [InvestigationRunTrace]
+  runTrace Json? @map("run_trace")
   /// [InvestigationEvidenceList]
   evidence Json?
 

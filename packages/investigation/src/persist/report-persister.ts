@@ -132,6 +132,7 @@ export class InvestigationReportPersister {
             runSuccess: finding.runSuccess,
             stepCount: finding.stepCount,
             runSteps: finding.runSteps,
+            runTrace: finding.runTrace,
             evidence: finding.evidence,
             // In InvestigationReportData these carry the raw s3:// keys (the API signs them on read), not URLs.
             videoKey: finding.videoUrl,

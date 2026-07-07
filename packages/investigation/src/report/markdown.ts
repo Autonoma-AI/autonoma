@@ -1,3 +1,4 @@
+import type { InvestigationRunStep } from "@autonoma/types";
 import { diffLines } from "diff";
 import type { DeployedAgentComparison } from "../db/deployed-comparison";
 
@@ -39,6 +40,8 @@ export interface TestReport {
     stepCount: number;
     /** The step-by-step run trace (interaction + status + per-step error) - the run agent's observation log. */
     runSteps?: string[];
+    /** The structured trace: per-step frame (s3 key) + click coords, carried through to the finding row. */
+    runTrace?: InvestigationRunStep[];
     verdicts: ModelVerdict[];
     videoUrl?: string;
     finalScreenshotUrl?: string;

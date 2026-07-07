@@ -102,6 +102,7 @@ function findingFromVerdict(id: string, test: TestReport, verdict: ReportableVer
         runSuccess: test.runSuccess,
         stepCount: test.stepCount,
         runSteps: test.runSteps,
+        runTrace: test.runTrace,
         videoUrl: test.videoUrl,
         finalScreenshotUrl: test.finalScreenshotUrl,
     };
@@ -119,6 +120,7 @@ function findingFromError(id: string, test: TestReport, error: string | undefine
         runSuccess: test.runSuccess,
         stepCount: test.stepCount,
         runSteps: test.runSteps,
+        runTrace: test.runTrace,
         videoUrl: test.videoUrl,
         finalScreenshotUrl: test.finalScreenshotUrl,
     };

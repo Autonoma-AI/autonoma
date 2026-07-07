@@ -9,6 +9,7 @@ import {
     persistInvestigationCosts,
 } from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
 import { resolvePrMeta } from "../codebase/pr-meta";
 import { withSnapshotContext } from "../codebase/resolve";
@@ -23,6 +24,7 @@ type AttemptRow = {
     error: string | null;
     screenshotBefore: string | null;
     screenshotAfter: string | null;
+    output: object | null;
 };
 
 type ScenarioInstanceRow = {
@@ -86,6 +88,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                     error: true,
                     screenshotBefore: true,
                     screenshotAfter: true,
+                    output: true,
                 },
                 orderBy: { order: "asc" },
             },
@@ -142,6 +145,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             runSuccess: runArtifacts.success,
             stepCount: runArtifacts.stepCount,
             runSteps: runArtifacts.steps,
+            runTrace: deriveRunTrace(generation.attempts),
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
             finalScreenshotUrl: keyScreenshot ?? undefined,
@@ -294,5 +298,28 @@ function deriveSteps(attempts: AttemptRow[]): string[] {
     return attempts.slice(0, MAX_TRACE_STEPS).map((attempt) => {
         const failure = attempt.error != null ? ` - ERROR: ${attempt.error.slice(0, MAX_STEP_CHARS)}` : "";
         return `${attempt.order}. [${attempt.interaction}] ${attempt.status}${failure}`;
+    });
+}
+
+/**
+ * Build the STRUCTURED trace: each step's frame (the s3 key, signed on read) plus any click/drag coordinates
+ * from the command output, so the finding page can render an inspectable trace where a reviewer opens the
+ * screenshot and sees exactly where the agent acted. Prefer the before-frame - it is the image the point
+ * detector ran on, so the overlay marker lands in the right place; fall back to the after-frame.
+ */
+function deriveRunTrace(attempts: AttemptRow[]): InvestigationRunStep[] {
+    return attempts.slice(0, MAX_TRACE_STEPS).map((attempt) => {
+        const parsed = stepOutputDataSchema.safeParse(attempt.output);
+        const output = parsed.success ? parsed.data : undefined;
+        return {
+            order: attempt.order,
+            interaction: attempt.interaction,
+            status: attempt.status,
+            error: attempt.error != null ? attempt.error.slice(0, MAX_STEP_CHARS) : undefined,
+            screenshotUrl: attempt.screenshotBefore ?? attempt.screenshotAfter ?? undefined,
+            point: output?.point,
+            startPoint: output?.startPoint,
+            endPoint: output?.endPoint,
+        };
     });
 }
