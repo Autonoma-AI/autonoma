@@ -10,6 +10,7 @@ import {
 } from "@autonoma/blacklight";
 import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { createFileRoute } from "@tanstack/react-router";
 import { CodeBlock, githubPermalink } from "components/investigation/code-block";
 import { findingCategoryMeta } from "components/investigation/finding-category";
@@ -333,6 +334,7 @@ function toOverlayPoints(step: InvestigationRunStep): OverlayPoint[] {
  */
 function RunTraceRich({ steps }: { steps: InvestigationRunStep[] }) {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+  const [expanded, setExpanded] = useState(false);
 
   const lightboxSteps: NavigableStep[] = [];
   const lightboxIndexByOrder = new Map<number, number>();
@@ -347,27 +349,49 @@ function RunTraceRich({ steps }: { steps: InvestigationRunStep[] }) {
       description: `${step.interaction} - ${step.status}`,
     });
   }
+  const frameCount = lightboxSteps.length;
 
+  // Collapsed by default - a 20+ step trace with a thumbnail per row is very tall. "View steps" reveals the
+  // inline list; "Open frames" jumps straight into the full-screen player at the first captured frame.
   return (
-    <div className="flex flex-col gap-2 rounded-md bg-surface-void p-3">
-      {lightboxSteps.length > 0 && (
-        <p className="font-mono text-3xs text-text-secondary">
-          Click a step with a frame to see the screenshot and where the agent acted.
-        </p>
-      )}
-      <div className="flex flex-col gap-1">
-        {steps.map((step) => (
-          <RunTraceStepRow
-            key={step.order}
-            step={step}
-            onOpen={
-              lightboxIndexByOrder.has(step.order)
-                ? () => setActiveIndex(lightboxIndexByOrder.get(step.order))
-                : undefined
-            }
-          />
-        ))}
+    <div className="rounded-md bg-surface-void">
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-w-0 items-center gap-2 font-mono text-2xs text-text-secondary transition-colors hover:text-text-primary"
+        >
+          <CaretRightIcon size={12} className={cn("shrink-0 transition-transform", expanded && "rotate-90")} />
+          <span>{expanded ? "Hide steps" : "View steps"}</span>
+          <span className="truncate">
+            {steps.length} steps{frameCount > 0 ? ` · ${frameCount} frames` : ""}
+          </span>
+        </button>
+        {frameCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveIndex(0)}
+            className="shrink-0 rounded border border-border-dim px-2 py-1 font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
+          >
+            Open frames
+          </button>
+        )}
       </div>
+      {expanded && (
+        <div className="flex flex-col gap-1 px-3 pb-3">
+          {steps.map((step) => (
+            <RunTraceStepRow
+              key={step.order}
+              step={step}
+              onOpen={
+                lightboxIndexByOrder.has(step.order)
+                  ? () => setActiveIndex(lightboxIndexByOrder.get(step.order))
+                  : undefined
+              }
+            />
+          ))}
+        </div>
+      )}
       <NavigableLightbox
         steps={lightboxSteps}
         activeIndex={activeIndex}
