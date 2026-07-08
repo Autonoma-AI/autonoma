@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.8.24](https://github.com/Autonoma-AI/agent/compare/v1.8.23...v1.8.24) (2026-07-08)
+
+
+### Features
+
+* gate the legacy runs PR comment behind a flag ([#1352](https://github.com/Autonoma-AI/agent/issues/1352)) ([31a13bc](https://github.com/Autonoma-AI/agent/commit/31a13bc9bfd84676a43e35f58108fb4c4a28de64))
+* **investigation:** wire get_app_logs to the preview's Loki stream ([#1357](https://github.com/Autonoma-AI/agent/issues/1357)) ([c69c709](https://github.com/Autonoma-AI/agent/commit/c69c709b59e7276d8e0ba9c3bb69902b15f13029))
+* regenerate affected tests instead of replaying, remove manual run ([#1328](https://github.com/Autonoma-AI/agent/issues/1328)) ([00402fc](https://github.com/Autonoma-AI/agent/commit/00402fc26e40a2549be708b8e29d966dd9b25f38))
+* **ui:** color stderr log lines red in the preview viewer ([#1334](https://github.com/Autonoma-AI/agent/issues/1334)) ([fe9a7c8](https://github.com/Autonoma-AI/agent/commit/fe9a7c81b64c55d8f16e413f8054128651265a4f))
+* **ui:** render ANSI terminal colors in the preview log viewer ([#1346](https://github.com/Autonoma-AI/agent/issues/1346)) ([7bc4f09](https://github.com/Autonoma-AI/agent/commit/7bc4f098be79329ddd7f72337b16f69b754bea0d))
+
+
+### Bug Fixes
+
+* **app-shell:** org chooser instead of dead-ending on an ambiguous app slug ([#1347](https://github.com/Autonoma-AI/agent/issues/1347)) ([2053aa0](https://github.com/Autonoma-AI/agent/commit/2053aa0465f9bf6b782c366222a7ca129ce2a2a4))
+* **buildkit:** run buildkitd rootless so the pod memory limit binds ([#1356](https://github.com/Autonoma-AI/agent/issues/1356)) ([6c26edc](https://github.com/Autonoma-AI/agent/commit/6c26edccdce051af5c63af8cc9a49f0dda8dcc8f))
+* **investigation:** collapse the run trace by default with a View steps toggle ([#1343](https://github.com/Autonoma-AI/agent/issues/1343)) ([0b6e7c3](https://github.com/Autonoma-AI/agent/commit/0b6e7c3ef493b2f880c8e2cc3740ddda9197d187))
+* **investigation:** move the run trace to its own section above Reproduction ([#1348](https://github.com/Autonoma-AI/agent/issues/1348)) ([ec6df9a](https://github.com/Autonoma-AI/agent/commit/ec6df9af465717722d63559b1c8aed80ffb06dd3))
+* **previewkit:** cap per-pod buildkit concurrency to survive burst clients ([#1355](https://github.com/Autonoma-AI/agent/issues/1355)) ([e6033cf](https://github.com/Autonoma-AI/agent/commit/e6033cf213a8cca97631658a860d0dcea58a5e87))
+* **previewkit:** strip stale preview button from runs comment on teardown ([#1337](https://github.com/Autonoma-AI/agent/issues/1337)) ([875a2a0](https://github.com/Autonoma-AI/agent/commit/875a2a03f6435b0e1afd45382484f3a40b1991c1))
+* **ui:** render each log line individually in the preview viewer ([#1345](https://github.com/Autonoma-AI/agent/issues/1345)) ([f2c1c03](https://github.com/Autonoma-AI/agent/commit/f2c1c03755e094dd33f4f867524b4471e4c446c4))
+
 ## [1.8.23](https://github.com/Autonoma-AI/agent/compare/v1.8.22...v1.8.23) (2026-07-07)
 
 
