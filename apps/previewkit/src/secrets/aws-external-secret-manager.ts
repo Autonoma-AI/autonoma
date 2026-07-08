@@ -101,23 +101,28 @@ export class AwsExternalSecretManager {
      */
     async applyForNamespace(
         organizationId: string,
+        githubRepositoryId: number,
         namespace: string,
         appNames: string[],
     ): Promise<Map<string, AppSecretInfo>> {
         this.logger.info("Applying AWS ExternalSecrets for namespace", {
             organizationId,
+            githubRepositoryId,
             namespace,
             appNames,
         });
 
-        // Filter only by organizationId + appName, not by githubRepositoryId.
-        // In multirepo deployments, apps from different repos (each with their
-        // own Application and githubRepositoryId) are deployed into the same
-        // namespace. Filtering by a single githubRepositoryId would silently
-        // skip secrets registered for apps from the other repos.
+        // Scope to THIS deploy's Application, identified by (organizationId,
+        // githubRepositoryId) - not the whole org. App names are unique within an
+        // application's topology but NOT across an org: a bare `appName IN (...)`
+        // match collides when two applications each own an app of the same name
+        // (e.g. "web"), which would apply a foreign application's secret into this
+        // namespace and its ExternalSecret would never go Ready. Dependency-repo
+        // apps ride the primary app's revision, so their secrets live
+        // under this same Application.
         const records = await this.prisma.previewkitSecret.findMany({
             where: {
-                application: { organizationId },
+                application: { organizationId, githubRepositoryId },
                 appName: { in: appNames },
             },
         });

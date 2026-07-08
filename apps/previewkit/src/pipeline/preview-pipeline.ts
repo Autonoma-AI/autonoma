@@ -543,12 +543,15 @@ export class PreviewPipeline {
                 ),
             );
             const buildStart = Date.now();
-            // Org-scoped by appName, mirroring AwsExternalSecretManager.applyForNamespace:
-            // in multirepo deployments dependency apps' secrets hang off their own
-            // Application rows, and app names are unique across the merged topology.
+            // Scoped to THIS deploy's Application, mirroring
+            // AwsExternalSecretManager.applyForNamespace. App names are unique
+            // within an application's topology but NOT across an org, so a bare
+            // org-wide `appName IN (...)` match would pull a foreign app's secret
+            // when two applications share an app name (e.g. "web").
+            // Dependency apps ride the primary revision.
             const secretRecords = await db.previewkitSecret.findMany({
                 where: {
-                    application: { organizationId },
+                    applicationId: application.id,
                     appName: { in: mergedConfig.apps.map((app) => app.name) },
                 },
                 select: { appName: true, awsSecretArn: true },

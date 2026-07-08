@@ -141,7 +141,7 @@ export class Deployer {
      * which avoids CrashLoopBackOff caused by missing schemas.
      */
     async deployInfra(opts: DeployOptions): Promise<InfraDeployResult> {
-        const { repoFullName, prNumber, headSha, organizationId, config, commentId } = opts;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId, config, commentId } = opts;
 
         // Reuse the existing bypass token across redeployments so PR comment
         // access links stay valid. Only generate a new token for brand-new environments.
@@ -161,11 +161,16 @@ export class Deployer {
         // 2. Apply NetworkPolicies for tenant isolation before any workload runs
         await this.applyNetworkPolicies(namespace, organizationId);
 
-        // 3. Apply ExternalSecrets for any AWS Secrets Manager registrations for this org
+        // 3. Apply ExternalSecrets for this Application's AWS Secrets Manager registrations
         const appNames = config.apps.map((a) => a.name);
         const awsSecretsByApp =
             this.awsExternalSecretManager != null
-                ? await this.awsExternalSecretManager.applyForNamespace(organizationId, namespace, appNames)
+                ? await this.awsExternalSecretManager.applyForNamespace(
+                      organizationId,
+                      githubRepositoryId,
+                      namespace,
+                      appNames,
+                  )
                 : new Map<string, AppSecretInfo>();
 
         // 4. Deploy service recipes (postgres, redis, etc.)
