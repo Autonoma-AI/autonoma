@@ -48,6 +48,12 @@ export interface GitProvider {
 
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
 
+    /**
+     * Fetch a PR comment's raw markdown body. Resolves to `undefined` when the comment no longer
+     * exists (GitHub 404) so callers can skip a best-effort edit rather than fail.
+     */
+    getComment(repoFullName: string, commentId: string): Promise<string | undefined>;
+
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
 
     /**

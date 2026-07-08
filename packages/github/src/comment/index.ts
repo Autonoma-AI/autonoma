@@ -1,4 +1,5 @@
-export { renderMarkdown } from "./markdown";
+export { renderMarkdown, SEE_PREVIEW_CTA_LABEL } from "./markdown";
+export { stripCtaFromBody } from "./strip-cta";
 export { payloadBuilder } from "./payload";
 export { resolveCommentAssetBaseUrl } from "./assets";
 export { createGitHubPrCommentStore } from "./pr-comment-store";

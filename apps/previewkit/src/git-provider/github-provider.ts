@@ -175,6 +175,27 @@ export class GitHubProvider implements GitProvider {
         return String(data.id);
     }
 
+    async getComment(repoFullName: string, commentId: string): Promise<string | undefined> {
+        const { owner, repo } = parseRepo(repoFullName);
+        const octokit = await this.getInstallationOctokit(repoFullName);
+
+        try {
+            const { data } = await octokit.request("GET /repos/{owner}/{repo}/issues/comments/{comment_id}", {
+                owner,
+                repo,
+                comment_id: Number(commentId),
+            });
+            return data.body;
+        } catch (error) {
+            // A deleted comment (404) is not an error for our best-effort callers - there is nothing to edit.
+            if (isNotFoundError(error)) {
+                logger.info("PR comment not found when fetching body (404)", { repoFullName, commentId });
+                return undefined;
+            }
+            throw error;
+        }
+    }
+
     async updateComment(repoFullName: string, commentId: string, body: string): Promise<void> {
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);

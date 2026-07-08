@@ -39,9 +39,13 @@ const STATUS_DOT_ASSETS: Record<AutonomaCommentState, string> = {
     unknown: "status-dot-gray.svg",
 };
 
+// The "See preview" CTA links to the live preview environment. Exported so the teardown path
+// (which removes it once the environment is gone) keys off the same label instead of a private copy.
+export const SEE_PREVIEW_CTA_LABEL = "See preview";
+
 const CTA_ASSETS: Record<string, string> = {
     "Open in Autonoma": "open-in-autonoma-button-v2.svg",
-    "See preview": "see-preview-button-v2.svg",
+    [SEE_PREVIEW_CTA_LABEL]: "see-preview-button-v2.svg",
     // Per-bug action buttons (secondary, dark style).
     "Watch replay": "watch-replay-button-v2.svg",
     "See full report": "see-full-report-button-v2.svg",
@@ -50,7 +54,7 @@ const CTA_ASSETS: Record<string, string> = {
 
 const CTA_TEXT_PREFIXES: Record<string, string> = {
     "Open in Autonoma": "↗ ",
-    "See preview": "👁 ",
+    [SEE_PREVIEW_CTA_LABEL]: "👁 ",
     "Watch replay": "🎬 ",
     "See full report": "📄 ",
     "Open preview": "👁 ",
