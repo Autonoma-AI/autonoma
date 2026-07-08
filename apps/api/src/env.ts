@@ -40,6 +40,25 @@ export const env = createEnv({
         // widen/narrow without a deploy. The proxy is a free, credit-metered gateway,
         // so the allowlist is the primary guard against it being used as a general LLM API.
         LLM_PROXY_ALLOWED_MODELS: z.string().optional(),
+        // Abuse cap: the most credits a never-paid org may spend through the
+        // managed LLM proxy, out of its free-start grant. A farmed free account
+        // can drain at most this much OpenRouter spend via the CLI; purchases
+        // raise the budget by the net amount purchased and an active subscription
+        // lifts it entirely (see checkLlmProxyGate). Default 20k of the 100k
+        // free-start credits.
+        LLM_PROXY_FREE_CREDIT_CAP: z.coerce.number().int().nonnegative().default(20_000),
+        // Per-request output ceiling. The proxy clamps each request's `max_tokens`
+        // to this (and sets it when the caller omits it) so an allowlisted model
+        // can't be driven with an unbounded/expensive generation. Keeps any
+        // single request's cost - and thus the tiny overspend past the credit cap
+        // under concurrency - bounded. Generous by default (above any real
+        // single-completion planner output) so it blocks absurd values without
+        // truncating legit runs; the credit cap is the real spend bound.
+        LLM_PROXY_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(32_768),
+        // Per-request input ceiling (bytes of the raw JSON body). Rejects
+        // oversized prompts with 413. Generous by default so real large-context
+        // planner calls pass; it only blocks absurd payloads.
+        LLM_PROXY_MAX_REQUEST_BYTES: z.coerce.number().int().positive().default(4_000_000),
         REDIS_URL: z.string().min(1),
 
         // Secrets for GitHub HTTP app authentication.

@@ -1,7 +1,9 @@
 import { requireApiKey, type UserAuthVariables } from "@autonoma/auth";
+import type { LlmProxyGateReason } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { billingService } from "../context";
 import { env } from "../env";
@@ -29,13 +31,37 @@ const configuredModels =
 // silently blocking every model with a 400.
 const allowedModels = new Set(configuredModels.length > 0 ? configuredModels : LLM_PROXY_DEFAULT_MODELS);
 
-// Accepts the OpenAI/OpenRouter chat-completions body but only pins the two
-// fields we act on (`model` for the allowlist, `stream` for the response shape).
-// `.passthrough()` preserves every other field so the request forwards verbatim.
+// Per-request caps (all env-overridable). The credit cap is the primary abuse
+// bound (see checkLlmProxyGate); these keep a single request cheap so the tiny
+// overspend past the cap under concurrency stays negligible.
+const FREE_CLI_CREDIT_CAP = env.LLM_PROXY_FREE_CREDIT_CAP;
+const MAX_OUTPUT_TOKENS = env.LLM_PROXY_MAX_OUTPUT_TOKENS;
+const MAX_REQUEST_BYTES = env.LLM_PROXY_MAX_REQUEST_BYTES;
+
+// Every gate refusal is a 402 so the planner CLI's error handling (which keys
+// friendly "out of credits" messaging off the 402 status) surfaces the right
+// hint; the distinct `error` code is for our own logs/analytics.
+const GATE_BLOCK_RESPONSES: Record<LlmProxyGateReason, { error: string; message: string }> = {
+    out_of_credits: { error: "out_of_credits", message: "You're out of Autonoma credits." },
+    grace_period_expired: {
+        error: "grace_period_expired",
+        message: "Your Autonoma subscription payment is overdue - update billing to continue.",
+    },
+    free_cli_limit_reached: {
+        error: "free_cli_limit_reached",
+        message: "You've reached the free planner usage limit. Add credits at https://autonoma.app to continue.",
+    },
+};
+
+// Accepts the OpenAI/OpenRouter chat-completions body but only pins the fields
+// we act on (`model` for the allowlist, `stream` for the response shape,
+// `max_tokens` which we clamp). `.passthrough()` preserves every other field so
+// the request forwards verbatim.
 const ChatCompletionsBodySchema = z
     .object({
         model: z.string(),
         stream: z.boolean().optional(),
+        max_tokens: z.number().int().positive().optional(),
     })
     .passthrough();
 
@@ -76,6 +102,15 @@ export const llmProxyHttpRouter = new Hono<{ Variables: UserAuthVariables }>();
 
 llmProxyHttpRouter.use("*", requireApiKey({ db }));
 
+// Reject oversized bodies at the edge, before the handler reads them. bodyLimit
+// short-circuits on Content-Length when present, and otherwise streams the body
+// and aborts the moment it exceeds the cap - so a multi-GB payload never buffers
+// unbounded in memory. Runs after auth (the `use("*")` above), so it's gated.
+llmProxyHttpRouter.use(
+    "/chat/completions",
+    bodyLimit({ maxSize: MAX_REQUEST_BYTES, onError: (c) => c.json({ error: "request_too_large" }, 413) }),
+);
+
 llmProxyHttpRouter.post("/chat/completions", async (c) => {
     const { organizationId } = c.var.user;
     logger.info("LLM proxy request received", { organizationId });
@@ -86,12 +121,7 @@ llmProxyHttpRouter.post("/chat/completions", async (c) => {
         return c.json({ error: "llm_proxy_unconfigured" }, 503);
     }
 
-    const hasBalance = await billingService.hasPositiveCreditBalance(organizationId);
-    if (!hasBalance) {
-        logger.info("LLM proxy request blocked - out of credits", { organizationId });
-        return c.json({ error: "out_of_credits", message: "You're out of Autonoma credits." }, 402);
-    }
-
+    // Body size is bounded by the bodyLimit middleware above, so it's safe to buffer here.
     const parsedBody = ChatCompletionsBodySchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsedBody.success) {
         logger.warn("LLM proxy request rejected - invalid body", { organizationId });
@@ -104,10 +134,19 @@ llmProxyHttpRouter.post("/chat/completions", async (c) => {
         return c.json({ error: "model_not_allowed", model }, 400);
     }
 
+    const gate = await billingService.checkLlmProxyGate(organizationId, FREE_CLI_CREDIT_CAP);
+    if (!gate.allowed) {
+        logger.info("LLM proxy request blocked", { organizationId, reason: gate.reason });
+        return c.json(GATE_BLOCK_RESPONSES[gate.reason], 402);
+    }
+
     const isStreaming = parsedBody.data.stream === true;
-    // Ask OpenRouter to include usage accounting (incl. dollar cost) so we can
-    // meter. For streams this surfaces in a trailing chunk; non-stream in the body.
-    const forwardBody = { ...parsedBody.data, usage: { include: true } };
+    // Clamp the output ceiling (and set it when the caller omits it) so an
+    // allowlisted model can't be driven with an unbounded generation. Ask
+    // OpenRouter to include usage accounting (incl. dollar cost) so we can meter -
+    // for streams this surfaces in a trailing chunk; non-stream in the body.
+    const maxTokens = Math.min(parsedBody.data.max_tokens ?? MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
+    const forwardBody = { ...parsedBody.data, max_tokens: maxTokens, usage: { include: true } };
 
     logger.info("Forwarding to OpenRouter", { organizationId, model, isStreaming });
 

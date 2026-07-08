@@ -49,6 +49,9 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `LLM_PROXY_ENABLED` | No | `false` | Master switch for the managed LLM proxy (`/v1/llm-proxy`, planner CLI). Mounted only when this AND `STRIPE_ENABLED` are true. |
 | `OPENROUTER_API_KEY` | No | - | Server-side OpenRouter key the LLM proxy forwards with. Required for the proxy (`503` without it). |
 | `LLM_PROXY_ALLOWED_MODELS` | No | planner model | Comma-separated allowlist of models the proxy may route. Defaults to `google/gemini-3-flash-preview`. |
+| `LLM_PROXY_FREE_CREDIT_CAP` | No | `20000` | Max credits a never-paid org may spend through the proxy, out of its free-start grant. Credits the org has paid for (top-up purchases + subscription grants, net of refunds) raise the budget; an active subscription lifts it. Abuse guard against farmed free accounts draining credits via the CLI. |
+| `LLM_PROXY_MAX_OUTPUT_TOKENS` | No | `32768` | Per-request `max_tokens` ceiling. The proxy clamps (and defaults) each request to this so an allowlisted model can't be driven with an unbounded generation. |
+| `LLM_PROXY_MAX_REQUEST_BYTES` | No | `4000000` | Per-request body-size ceiling (bytes). Oversized payloads are rejected with `413`. |
 | `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No | `5` | Throttle window for the read-triggered PR-metadata cache revalidate (per app); one open-list call, plus one closed-list call when PRs need merged-vs-closed classification |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
 
@@ -88,11 +91,16 @@ unmetered gateway - it is only mounted where explicitly enabled. Metering requir
 `STRIPE_ENABLED=true`; when the proxy is enabled with billing off (e.g. a test environment)
 requests are served but **not** metered and a startup warning is logged. The proxy:
 
-1. Gates on the org having a positive credit balance (`402 out_of_credits` otherwise).
+1. Bounds the raw request body to `LLM_PROXY_MAX_REQUEST_BYTES` (`413 request_too_large` otherwise).
 2. Enforces a model allowlist (`LLM_PROXY_ALLOWED_MODELS`, default = the single model the planner uses, `google/gemini-3-flash-preview`).
-3. Forwards `chat/completions` to OpenRouter with the server `OPENROUTER_API_KEY`, streaming the
+3. Runs the credit gate (`checkLlmProxyGate`, all refusals are `402` so the CLI surfaces a billing hint):
+   - `out_of_credits` - the wallet is empty.
+   - `grace_period_expired` - subscription payment overdue.
+   - `free_cli_limit_reached` - a never-paid org has spent its free CLI allowance (`LLM_PROXY_FREE_CREDIT_CAP`, default 20k of the 100k free-start grant). Credits the org has paid for (top-up purchases + subscription grants, net of refunds) raise the budget one-for-one, so a paying/formerly-paying org is never blocked at the free cap; an active subscription lifts the cap outright. This is the primary abuse bound: a farmed free account can drain at most the cap through the CLI, regardless of concurrency.
+4. Clamps `max_tokens` to `LLM_PROXY_MAX_OUTPUT_TOKENS` (and sets it when omitted) so a single request stays cheap - keeping any overspend past the cap under concurrency negligible.
+5. Forwards `chat/completions` to OpenRouter with the server `OPENROUTER_API_KEY`, streaming the
    response back unchanged.
-4. Meters the dollar cost OpenRouter reports (usage accounting) into credits at the top-up rate and
+6. Meters the dollar cost OpenRouter reports (usage accounting) into credits at the top-up rate and
    deducts from `BillingCustomer.creditBalance`, recording a `LLM_PROXY_CONSUMPTION` transaction
    (idempotent on the OpenRouter generation id). Surfaced in the billing UI as "AI CLI usage".
 

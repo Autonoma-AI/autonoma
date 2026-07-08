@@ -249,7 +249,10 @@ export function formatException(err: unknown): string {
 
 export type AgentErrorClass = "timeout" | "transient" | "fatal";
 
-const FATAL_STATUS_CODES = new Set([400, 401, 403, 404, 422]);
+// 402 is the managed proxy's hard stop (out of credits, or the free planner
+// usage cap reached). Retrying can't refill a balance mid-run, so fail fast and
+// let describeKnownError surface the billing hint instead of burning retries.
+const FATAL_STATUS_CODES = new Set([400, 401, 402, 403, 404, 422]);
 
 // Recoverable provider quirks that arrive disguised as fatal client errors
 // (usually a 400). They are not malformed requests we can fix - a fresh retry,

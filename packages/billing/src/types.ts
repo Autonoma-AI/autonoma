@@ -51,6 +51,16 @@ export type DeductGenerationContext = {
     architecture?: ApplicationArchitecture;
 };
 
+/**
+ * Why the managed LLM proxy (planner CLI) refused a request. `out_of_credits`
+ * and `grace_period_expired` mirror the generation/run gate. `free_cli_limit_reached`
+ * is the abuse guard: a never-paid org may spend at most the free CLI allowance
+ * of its free-start grant through the proxy.
+ */
+export type LlmProxyGateReason = "out_of_credits" | "grace_period_expired" | "free_cli_limit_reached";
+
+export type LlmProxyGateResult = { allowed: true } | { allowed: false; reason: LlmProxyGateReason };
+
 export type BillingSessionResult = {
     url: string | null;
 };
@@ -88,7 +98,7 @@ export interface BillingService {
     ): Promise<void>;
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext): Promise<boolean>;
     deductCreditsForRun(runId: string): Promise<boolean>;
-    hasPositiveCreditBalance(organizationId: string): Promise<boolean>;
+    checkLlmProxyGate(organizationId: string, freeCliCreditCap: number): Promise<LlmProxyGateResult>;
     deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string): Promise<boolean>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;

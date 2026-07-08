@@ -60,8 +60,8 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.creditsService.deductCreditsForRun(runId);
     }
 
-    hasPositiveCreditBalance(organizationId: string) {
-        return this.creditsService.hasPositiveCreditBalance(organizationId);
+    checkLlmProxyGate(organizationId: string, freeCliCreditCap: number) {
+        return this.creditsService.checkLlmProxyGate(organizationId, freeCliCreditCap);
     }
 
     deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string) {

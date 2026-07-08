@@ -13,7 +13,7 @@ import type {
     TopupRefundResultRow,
 } from "./billing.types";
 import { Service } from "./service";
-import type { BillingConsumptionTarget, DeductGenerationContext } from "./types";
+import type { BillingConsumptionTarget, DeductGenerationContext, LlmProxyGateResult } from "./types";
 
 type TxClient = Prisma.TransactionClient;
 type RawTxClient = TxClient & Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -390,19 +390,23 @@ export class CreditsService extends Service {
     }
 
     /**
-     * Pre-flight gate for the managed LLM proxy (CLI). The proxy doesn't know
-     * the request's cost up front, so the gate is intentionally coarse: it only
-     * blocks once the wallet is empty. The trailing request that takes the
-     * balance to zero is still served and billed (clamped at zero by
-     * `deductCreditsForLlmProxy`); the *next* request is the one that gets a 402.
+     * Pre-flight gate for the managed LLM proxy (CLI). The proxy doesn't know a
+     * request's cost up front, so the gate is coarse on spend (blocks once the
+     * wallet is empty; the trailing request that hits zero is still served and
+     * billed, clamped at zero by `deductCreditsForLlmProxy`, and the *next*
+     * request 402s) but hard on abuse: a never-paid org may spend at most
+     * `freeCliCreditCap` of its free-start grant through the proxy. Credits the
+     * org has paid for (top-up purchases and subscription grants, net of refunds)
+     * raise that budget one-for-one, so a paying - or formerly-paying - org is
+     * never blocked at the free cap. An active subscription lifts the gate outright.
      */
-    async hasPositiveCreditBalance(organizationId: string): Promise<boolean> {
+    async checkLlmProxyGate(organizationId: string, freeCliCreditCap: number): Promise<LlmProxyGateResult> {
         const customer = await this.db.billingCustomer.findUnique({
             where: { organizationId },
-            select: { creditBalance: true, gracePeriodEndsAt: true },
+            select: { creditBalance: true, gracePeriodEndsAt: true, subscriptionStatus: true },
         });
         const balance = customer?.creditBalance ?? 0;
-        const gracePeriodEndsAt = customer?.gracePeriodEndsAt ?? null;
+        const gracePeriodEndsAt = customer?.gracePeriodEndsAt ?? undefined;
 
         // Mirror the generation/run gate: an expired subscription grace period
         // blocks consumption regardless of balance.
@@ -412,11 +416,80 @@ export class CreditsService extends Service {
                 gracePeriodEndsAt: gracePeriodEndsAt.toISOString(),
                 balance,
             });
-            return false;
+            return { allowed: false, reason: "grace_period_expired" };
         }
 
-        this.logger.info("Checked credit balance for LLM proxy gate", { organizationId, balance });
-        return balance > 0;
+        if (balance <= 0) {
+            this.logger.info("LLM proxy gate blocked - out of credits", { organizationId, balance });
+            return { allowed: false, reason: "out_of_credits" };
+        }
+
+        // A recurring subscriber isn't the farming risk the cap targets - exempt
+        // them. Only "active", not "trialing": we lean strict on the abuse bound,
+        // and a former subscriber's paid spend is already credited via the budget
+        // below, so a lapsed sub isn't penalized by dropping the exemption.
+        if (customer?.subscriptionStatus === "active") {
+            this.logger.info("LLM proxy gate allowed - active subscription", { organizationId });
+            return { allowed: true };
+        }
+
+        const [cliSpent, netPaidGranted] = await Promise.all([
+            this.llmProxyLifetimeSpend(organizationId),
+            this.netPaidCreditsGranted(organizationId),
+        ]);
+        const cliBudget = freeCliCreditCap + netPaidGranted;
+        if (cliSpent >= cliBudget) {
+            this.logger.info("LLM proxy gate blocked - free CLI credit cap reached", {
+                organizationId,
+                cliSpent,
+                cliBudget,
+                freeCliCreditCap,
+                netPaidGranted,
+            });
+            return { allowed: false, reason: "free_cli_limit_reached" };
+        }
+
+        this.logger.info("LLM proxy gate allowed", { organizationId, cliSpent, cliBudget, balance });
+        return { allowed: true };
+    }
+
+    /** All-time credits consumed through the managed LLM proxy (as a positive number). */
+    private async llmProxyLifetimeSpend(organizationId: string): Promise<number> {
+        const aggregate = await this.db.creditTransaction.aggregate({
+            where: { organizationId, type: CreditTransactionType.LLM_PROXY_CONSUMPTION },
+            _sum: { amount: true },
+        });
+        return Math.abs(aggregate._sum.amount ?? 0);
+    }
+
+    /**
+     * Net credits the org has ever paid for - top-up purchases plus subscription
+     * grants, minus top-up refunds - floored at zero. Feeds the CLI budget so a
+     * paying (or formerly-paying) org can spend what it paid for through the proxy
+     * without the free-tier cap cutting it off. The free-start grant is
+     * deliberately excluded: that's the pool the cap protects. Actual spend is
+     * still bounded by the live `creditBalance` gate, so a generous budget can't
+     * be spent past the wallet.
+     */
+    private async netPaidCreditsGranted(organizationId: string): Promise<number> {
+        const [purchased, subscriptionGranted, refunded] = await Promise.all([
+            this.db.creditTransaction.aggregate({
+                where: { organizationId, type: CreditTransactionType.TOPUP_PURCHASE },
+                _sum: { amount: true },
+            }),
+            this.db.creditTransaction.aggregate({
+                where: { organizationId, type: CreditTransactionType.SUBSCRIPTION_GRANT },
+                _sum: { amount: true },
+            }),
+            this.db.creditTransaction.aggregate({
+                where: { organizationId, type: CreditTransactionType.TOPUP_REFUND },
+                _sum: { amount: true },
+            }),
+        ]);
+        // TOPUP_PURCHASE and SUBSCRIPTION_GRANT amounts are positive; TOPUP_REFUND negative.
+        const gross = (purchased._sum.amount ?? 0) + (subscriptionGranted._sum.amount ?? 0);
+        const refunds = Math.abs(refunded._sum.amount ?? 0);
+        return Math.max(0, gross - refunds);
     }
 
     /**

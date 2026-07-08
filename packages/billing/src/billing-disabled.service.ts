@@ -3,7 +3,7 @@ import type { BillingCheckoutType } from "@autonoma/types";
 import { BillingCustomerService } from "./billing-customer.service";
 import { BillingPricingService } from "./billing-pricing.service";
 import { BillingPromoService } from "./billing-promo.service";
-import type { BillingConsumptionTarget, BillingService, DeductGenerationContext } from "./types";
+import type { BillingConsumptionTarget, BillingService, DeductGenerationContext, LlmProxyGateResult } from "./types";
 
 export class DisabledBillingService implements BillingService {
     private readonly billingCustomerService: BillingCustomerService;
@@ -55,8 +55,11 @@ export class DisabledBillingService implements BillingService {
         return Promise.resolve(false);
     }
 
-    hasPositiveCreditBalance(_organizationId: string) {
-        return Promise.resolve(true);
+    checkLlmProxyGate(_organizationId: string, _freeCliCreditCap: number): Promise<LlmProxyGateResult> {
+        // Billing disabled means no metering and no cap - the proxy route is not
+        // even mounted in this mode (it requires STRIPE_ENABLED), so this is only
+        // ever reached in tests/misconfig. Allow, matching the other no-op gates.
+        return Promise.resolve({ allowed: true });
     }
 
     deductCreditsForLlmProxy(_organizationId: string, _costUsd: number, _requestId: string) {
