@@ -163,7 +163,9 @@ metrics endpoint (`apps/api/src/metrics/`) from the DB's fresh `building` app ro
 summed pool-wide by the `previewkit:app_builds_in_flight:sum` recording rule
 (`deployment/prometheus/alert-rules.yaml`) - buildkitd itself has no in-flight metric. KEDA
 autoscales the pool on that series (`deployment/buildkit/buildkit-scaledobject.yaml`, min 3 /
-max 8 pods at ~2 builds per pod; one pod per Karpenter node). Build logs
+max 8 pods at ~2 builds per pod; one pod per Karpenter node). Each daemon caps concurrent
+build steps at `max-parallelism=4` (`deployment/buildkit/buildkitd-config.yaml`) so a burst of
+pushes queues in buildkit's scheduler instead of oversubscribing a pod's CPU/memory. Build logs
 stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
 attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
 calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the
