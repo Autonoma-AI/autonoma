@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.26](https://github.com/Autonoma-AI/agent/compare/v1.8.25...v1.8.26) (2026-07-09)
+
+
+### Features
+
+* **ui:** delete a variable from its row without opening the drawer ([#1375](https://github.com/Autonoma-AI/agent/issues/1375)) ([7dbcbc2](https://github.com/Autonoma-AI/agent/commit/7dbcbc2765d117337c0f3bb406137a8401d7bf39))
+
+
+### Bug Fixes
+
+* **github:** emoji status dots and new-tab links in PR comments ([#1377](https://github.com/Autonoma-AI/agent/issues/1377)) ([fa18fce](https://github.com/Autonoma-AI/agent/commit/fa18fcedef81f9e34813b16811103c2e4fcf29a1))
+* **previewkit:** exclude packages/* library workspaces from app suggestions ([#1379](https://github.com/Autonoma-AI/agent/issues/1379)) ([c2c54d0](https://github.com/Autonoma-AI/agent/commit/c2c54d08ac52a15e1a4fa201c179e3beec9d5ad9))
+* **previewkit:** import sharp-free @autonoma/ai/llm to unbreak api AI ([#1363](https://github.com/Autonoma-AI/agent/issues/1363)) ([9679cdb](https://github.com/Autonoma-AI/agent/commit/9679cdb668532e1af82c3f2be73634a6d4d817af))
+* **previewkit:** support config schemaVersion 2 in runner resolver ([#1385](https://github.com/Autonoma-AI/agent/issues/1385)) ([7e49a43](https://github.com/Autonoma-AI/agent/commit/7e49a4300176d98cd9df5745f8807b52b8ac310a))
+
 ## [1.8.25](https://github.com/Autonoma-AI/agent/compare/v1.8.24...v1.8.25) (2026-07-09)
 
 
