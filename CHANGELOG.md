@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.27](https://github.com/Autonoma-AI/agent/compare/v1.8.26...v1.8.27) (2026-07-09)
+
+
+### Features
+
+* **investigation:** independent pre-PR catalog + strict new-test proposal bar ([#1387](https://github.com/Autonoma-AI/agent/issues/1387)) ([d4ab228](https://github.com/Autonoma-AI/agent/commit/d4ab228e45a446d657b5b4be826f8dd754be859f))
+* **investigation:** run proposed new tests seeded against the standard scenario ([#1390](https://github.com/Autonoma-AI/agent/issues/1390)) ([bbd0342](https://github.com/Autonoma-AI/agent/commit/bbd03423c285e7f49af9f407ca7e7a0b7ff62cf6))
+* **onboarding:** editable app-name header on PreviewKit config step ([#1380](https://github.com/Autonoma-AI/agent/issues/1380)) ([a5348e7](https://github.com/Autonoma-AI/agent/commit/a5348e76ac5a15b505f8e6f55c160777add711a3))
+* **ui:** merge previewkit onboarding save + deploy into one button ([#1378](https://github.com/Autonoma-AI/agent/issues/1378)) ([4e778e8](https://github.com/Autonoma-AI/agent/commit/4e778e8fbc5bb374024948f11ed4194b70d2882c))
+
+
+### Bug Fixes
+
+* **ai:** retry model calls with capped exponential backoff (10 retries) ([#1393](https://github.com/Autonoma-AI/agent/issues/1393)) ([c139c82](https://github.com/Autonoma-AI/agent/commit/c139c82ac1ea637f5afa6c5c56a0371a2386ab85))
+* **previewkit:** self-heal DB/AWS drift in the secret upsert ([#1381](https://github.com/Autonoma-AI/agent/issues/1381)) ([6bd91f9](https://github.com/Autonoma-AI/agent/commit/6bd91f963178ccee790223e8bd212ae40814e0b1))
+* **test-updates:** inline plan authoring guide to unbreak API boot ([#1392](https://github.com/Autonoma-AI/agent/issues/1392)) ([2dd6510](https://github.com/Autonoma-AI/agent/commit/2dd6510f51fb76e86c2f0db5cd3b8ec637d5ea04))
+
 ## [1.8.26](https://github.com/Autonoma-AI/agent/compare/v1.8.25...v1.8.26) (2026-07-09)
 
 
