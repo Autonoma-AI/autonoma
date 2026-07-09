@@ -33,11 +33,12 @@ describe("payloadBuilder", () => {
 
         expect(payload.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma", "See preview"]);
         expect(renderMarkdown(payload)).toContain(
-            "[↗ Open in Autonoma](https://autonoma.app/summary) | [👁 See preview]",
+            '<a href="https://autonoma.app/summary" target="_blank" rel="noopener noreferrer">↗ Open in Autonoma</a> | ' +
+                '<a href="https://preview.example.com" target="_blank" rel="noopener noreferrer">👁 See preview</a>',
         );
     });
 
-    it("renders SVG status pill, issue dot, and CTA images when assetBaseUrl is configured", () => {
+    it("renders the SVG status pill and CTA images when assetBaseUrl is configured", () => {
         const markdown = renderMarkdown(
             payloadBuilder({
                 state: "critical",
@@ -55,18 +56,18 @@ describe("payloadBuilder", () => {
         );
         expect(markdown).not.toContain("**UNHEALTHY** -");
 
-        // Issue dot replaces the 🔴 emoji marker, no `- ` bullet prefix.
-        expect(markdown).toContain(
-            '<img src="https://cdn.autonoma.app/github-comment/status-dot-red.svg" width="12" height="12" alt="" />',
-        );
+        // The per-bug marker is a colored-dot emoji, never an <img>: an image would hijack the click and
+        // open the SVG in a new tab instead of expanding the bug.
+        expect(markdown).toContain("🔴 Checkout button is hidden");
+        expect(markdown).not.toContain("status-dot-red.svg");
         expect(markdown).toContain("`x4`");
 
-        // CTA buttons replace the text links.
+        // CTA buttons replace the text links and open in a new tab.
         expect(markdown).toContain(
-            '<a href="https://autonoma.app/summary"><img src="https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg" alt="Open in Autonoma" width="150" /></a>',
+            '<a href="https://autonoma.app/summary" target="_blank" rel="noopener noreferrer"><img src="https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg" alt="Open in Autonoma" width="150" /></a>',
         );
         expect(markdown).toContain(
-            '<a href="https://preview.example.com"><img src="https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg" alt="See preview" width="150" /></a>',
+            '<a href="https://preview.example.com" target="_blank" rel="noopener noreferrer"><img src="https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg" alt="See preview" width="150" /></a>',
         );
     });
 
@@ -104,9 +105,11 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**Failed** `3`");
         expect(markdown).toContain("**Duration** `1m22s`");
         expect(markdown).toContain("**Top issues**");
-        expect(markdown).toContain("🔴 [Checkout button is hidden](https://autonoma.app/bug/1) `x4`");
         expect(markdown).toContain(
-            "[↗ Open in Autonoma](https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123)",
+            '🔴 <a href="https://autonoma.app/bug/1" target="_blank" rel="noopener noreferrer">Checkout button is hidden</a> `x4`',
+        );
+        expect(markdown).toContain(
+            '<a href="https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123" target="_blank" rel="noopener noreferrer">↗ Open in Autonoma</a>',
         );
         expect(markdown).toContain("Triggered by commit `abc1234`");
     });

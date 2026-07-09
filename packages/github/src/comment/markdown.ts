@@ -31,14 +31,6 @@ const STATUS_PILL_ASSETS: Record<AutonomaCommentState, string> = {
     unknown: "status-unknown-pill.svg",
 };
 
-const STATUS_DOT_ASSETS: Record<AutonomaCommentState, string> = {
-    running: "status-dot-yellow.svg",
-    healthy: "status-dot-green.svg",
-    warning: "status-dot-yellow.svg",
-    critical: "status-dot-red.svg",
-    unknown: "status-dot-gray.svg",
-};
-
 // The "See preview" CTA links to the live preview environment. Exported so the teardown path
 // (which removes it once the environment is gone) keys off the same label instead of a private copy.
 export const SEE_PREVIEW_CTA_LABEL = "See preview";
@@ -203,15 +195,14 @@ function titleCase(value: string): string {
 }
 
 function renderBugList(payload: AutonomaCommentPayload): string {
-    const dotUrl = resolveAssetUrl(payload.assetBaseUrl, STATUS_DOT_ASSETS[payload.state]);
     // Rich bugs (the investigation comment) each expand into a <details> with screenshot + remediation +
     // nested evidence; the diffs comment's plain bugs stay one-liners (top 3) - fully backward-compatible.
     if (payload.bugs.some(isRichBug)) {
-        return payload.bugs.map((bug) => renderBugDetails(bug, dotUrl, payload.assetBaseUrl)).join("\n");
+        return payload.bugs.map((bug) => renderBugDetails(bug, payload.state, payload.assetBaseUrl)).join("\n");
     }
     return payload.bugs
         .slice(0, 3)
-        .map((bug) => `${renderBugMarker(dotUrl)} ${renderBugLabel(bug)}${renderBugOccurrence(bug)}`)
+        .map((bug) => `${renderBugMarker(payload.state)} ${renderBugLabel(bug)}${renderBugOccurrence(bug)}`)
         .join("  \n");
 }
 
@@ -227,18 +218,20 @@ function isRichBug(bug: AutonomaCommentBug): boolean {
 /** One bug as an expandable section: collapsed it's a one-line title; expanded it shows the evidence. */
 function renderBugDetails(
     bug: AutonomaCommentBug,
-    dotUrl: string | undefined,
+    state: AutonomaCommentState,
     assetBaseUrl: string | undefined,
 ): string {
     const occurrence = bug.occurrenceCount != null ? ` <code>×${bug.occurrenceCount}</code>` : "";
-    const summary = `${renderBugMarker(dotUrl)} ${escapeHtml(bug.title)}${occurrence}`;
+    const summary = `${renderBugMarker(state)} ${escapeHtml(bug.title)}${occurrence}`;
     const body: string[] = [];
 
     if (bug.screenshotUrl != null) {
         const img = `<img src="${escapeHtmlAttribute(bug.screenshotUrl)}" alt="Run screenshot" />`;
         // The screenshot clicks through to the replay when one exists, else to the finding's report page.
         const mediaHref = bug.replayHref ?? bug.href;
-        body.push(mediaHref != null ? `<a href="${escapeHtmlAttribute(mediaHref)}">${img}</a>` : img);
+        body.push(
+            mediaHref != null ? `<a href="${escapeHtmlAttribute(mediaHref)}"${LINK_TARGET_ATTRS}>${img}</a>` : img,
+        );
     }
     if (bug.replayHref != null) body.push(renderCta(assetBaseUrl, "Watch replay", bug.replayHref));
     if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));
@@ -317,14 +310,16 @@ function sanitizeRichMarkdown(value: string): string {
     return value.replace(/<(\/?)(details|summary)\b/gi, "&lt;$1$2");
 }
 
-function renderBugMarker(dotUrl: string | undefined): string {
-    if (dotUrl == null) return STATE_ICONS.critical;
-    return `<img src="${escapeHtmlAttribute(dotUrl)}" width="12" height="12" alt="" />`;
+// A colored-dot emoji, never an <img>: an image marker sitting inside a <summary> (or next to a
+// bug link) hijacks the click and opens the SVG in a new tab instead of toggling the <details> the
+// user meant to expand - the same reason the Evidence summary uses bold text over an image chip.
+function renderBugMarker(state: AutonomaCommentState): string {
+    return STATE_ICONS[state];
 }
 
 function renderBugLabel(bug: AutonomaCommentBug): string {
     if (bug.href == null) return escapeMarkdown(bug.title);
-    return `[${escapeLinkLabel(bug.title)}](${escapeUrl(bug.href)})`;
+    return renderTextLink(bug.title, bug.href);
 }
 
 function renderBugOccurrence(bug: AutonomaCommentBug): string {
@@ -342,10 +337,20 @@ function renderCtas(payload: AutonomaCommentPayload): string {
 function renderCta(assetBaseUrl: string | undefined, label: string, href: string): string {
     const assetUrl = resolveAssetUrl(assetBaseUrl, CTA_ASSETS[label]);
     if (assetUrl != null) {
-        return `<a href="${escapeHtmlAttribute(href)}"><img src="${escapeHtmlAttribute(assetUrl)}" alt="${escapeHtmlAttribute(label)}" width="150" /></a>`;
+        return `<a href="${escapeHtmlAttribute(href)}"${LINK_TARGET_ATTRS}><img src="${escapeHtmlAttribute(assetUrl)}" alt="${escapeHtmlAttribute(label)}" width="150" /></a>`;
     }
     const displayLabel = `${CTA_TEXT_PREFIXES[label] ?? ""}${label}`;
-    return `[${escapeLinkLabel(displayLabel)}](${escapeUrl(href)})`;
+    return renderTextLink(displayLabel, href);
+}
+
+// GitHub renders inline HTML in comments, so every link is an <a target="_blank"> anchor that opens in
+// a new tab instead of navigating away from the PR thread. rel guards against reverse-tabnabbing.
+const LINK_TARGET_ATTRS = ' target="_blank" rel="noopener noreferrer"';
+
+/** A text link as an inline <a target="_blank"> anchor. Label content stays markdown-escaped so an
+ * LLM-authored title with `*`/`_`/backticks renders literally, not as emphasis. */
+function renderTextLink(label: string, href: string): string {
+    return `<a href="${escapeHtmlAttribute(href)}"${LINK_TARGET_ATTRS}>${escapeLinkLabel(label)}</a>`;
 }
 
 function resolveAssetUrl(baseUrl: string | undefined, file: string | undefined): string | undefined {
@@ -361,7 +366,7 @@ function resolveAssetUrl(baseUrl: string | undefined, file: string | undefined):
 
 function renderLinkOrDash(label: string | undefined, href: string | undefined): string {
     if (label == null || label === "" || href == null || href === "") return "-";
-    return `[${escapeLinkLabel(label)}](${escapeUrl(href)})`;
+    return renderTextLink(label, href);
 }
 
 function longestBacktickRun(value: string): number {
@@ -384,10 +389,6 @@ function escapeTableCell(value: string): string {
 
 function escapeLinkLabel(value: string): string {
     return escapeMarkdown(value).replaceAll("[", "\\[").replaceAll("]", "\\]");
-}
-
-function escapeUrl(value: string): string {
-    return value.replaceAll(")", "%29").replace(/\s/g, "%20");
 }
 
 // Backticks inside an inline `code` span would close it prematurely. The only

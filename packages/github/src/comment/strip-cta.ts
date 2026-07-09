@@ -1,6 +1,6 @@
-// The two ways a CTA renders on its line (see `renderCta` in ./markdown):
-//   - asset form:  <a href="HREF"><img src="ASSET" alt="LABEL" width="150" /></a>
-//   - text form:   [PREFIX LABEL](HREF)
+// The two ways a CTA renders on its line (see `renderCta` in ./markdown), both now inline <a> anchors:
+//   - asset form:  <a href="HREF" target="_blank" ...><img src="ASSET" alt="LABEL" width="150" /></a>
+//   - text form:   <a href="HREF" target="_blank" ...>PREFIX LABEL</a>
 // and CTAs on a line are joined by `renderCtas` with either "&nbsp;&nbsp;" (assets) or " | " (text).
 // This matches whichever separator the line actually used so both styles rebuild cleanly.
 const CTA_SEPARATOR = /(?:&nbsp;){2}| \| /;
@@ -60,9 +60,10 @@ function assetCtaPattern(label: string): RegExp {
     return new RegExp(`alt="${escapeRegExp(label)}"`);
 }
 
-// [ ... LABEL ... ](url) - the text-link fallback; the label may carry an emoji prefix inside the brackets.
+// >...LABEL...</a> - the text-link fallback anchor; the label may carry an emoji prefix. The asset form
+// never matches (its anchor text is empty: `/></a>`), so the two patterns stay mutually exclusive.
 function textCtaPattern(label: string): RegExp {
-    return new RegExp(`\\[[^\\]]*${escapeRegExp(label)}[^\\]]*\\]\\(`);
+    return new RegExp(`>[^<]*${escapeRegExp(label)}[^<]*</a>`);
 }
 
 function escapeRegExp(value: string): string {

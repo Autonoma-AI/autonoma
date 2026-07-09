@@ -47,15 +47,19 @@ describe("stripCtaFromBody", () => {
                 bugs: [{ title: "Checkout button is hidden", href: "https://autonoma.app/bug/1" }],
             }),
         );
-        expect(body).toContain("[👁 See preview](https://preview.example.com)");
+        expect(body).toContain(
+            '<a href="https://preview.example.com" target="_blank" rel="noopener noreferrer">👁 See preview</a>',
+        );
 
         const stripped = stripCtaFromBody(body, SEE_PREVIEW_CTA_LABEL);
 
         expect(stripped).not.toContain(PREVIEW_URL);
         expect(stripped).not.toContain("See preview");
-        expect(stripped).toContain("[↗ Open in Autonoma](https://autonoma.app/summary)");
+        expect(stripped).toContain(
+            '<a href="https://autonoma.app/summary" target="_blank" rel="noopener noreferrer">↗ Open in Autonoma</a>',
+        );
         // No dangling " | " separator left behind.
-        expect(stripped).not.toContain("Autonoma](https://autonoma.app/summary) | ");
+        expect(stripped).not.toContain("Open in Autonoma</a> | ");
     });
 
     it("drops the whole CTA line when See preview was the only CTA", () => {
