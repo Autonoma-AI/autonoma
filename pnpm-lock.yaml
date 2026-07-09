@@ -179,9 +179,9 @@ importers:
 
   apps/api:
     dependencies:
-      '@autonoma/ai':
-        specifier: workspace:*
-        version: link:../../packages/ai
+      '@ai-sdk/google':
+        specifier: 'catalog:'
+        version: 3.0.30(zod@4.3.6)
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
@@ -260,6 +260,9 @@ importers:
       '@trpc/server':
         specifier: 'catalog:'
         version: 11.10.0(typescript@6.0.3)
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
       better-auth:
         specifier: 'catalog:'
         version: 1.6.14(@opentelemetry/api@1.9.0)(@prisma/client@7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@6.0.3))(typescript@6.0.3))(mysql2@3.15.3)(pg@8.18.0)(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(magicast@0.5.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@6.0.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vitest@4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(msw@2.12.10(@types/node@25.2.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)))

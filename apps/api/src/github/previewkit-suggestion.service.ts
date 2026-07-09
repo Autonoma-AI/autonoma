@@ -1,4 +1,3 @@
-import type { LanguageModel } from "@autonoma/ai/llm";
 import {
     type SuggestEnvVarsInput,
     type SuggestEnvVarsResult,
@@ -12,6 +11,7 @@ import {
     SuggestedServiceSchema,
     type SuggestionServiceRef,
 } from "@autonoma/types";
+import { type LanguageModel, generateObject } from "ai";
 import { load as parseYaml } from "js-yaml";
 import { z } from "zod";
 import { Service } from "../routes/service";
@@ -29,6 +29,13 @@ const MAX_SIGNAL_ENTRIES = 120;
  * runtime). Used by the offline heuristic to flag `build_time`.
  */
 const BUILD_TIME_KEY_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
+
+/** Low thinking budget - suggestion is a bounded mapping task, not open-ended reasoning. */
+const GEMINI_PROVIDER_OPTIONS = { google: { thinkingConfig: { thinkingLevel: "low" } } };
+/** Wall-clock cap for a single suggestion generation request. */
+const AI_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+/** Transient-failure retries the AI SDK performs before we fall back to heuristics. */
+const AI_MAX_RETRIES = 3;
 
 // Default name and pre-filled version per recipe. We only suggest a version for services whose
 // image tag maps cleanly to a well-known release (postgres 16, redis/valkey/mongo 7). Recipes are
@@ -121,12 +128,10 @@ Also:
 - Do not invent variables with no basis in the signals unless they are standard and clearly required by a detected framework or a provided managed service.`;
 
 export class PreviewkitSuggestionService extends Service {
-    private modelPromise?: Promise<LanguageModel | undefined>;
-
     constructor(
         private readonly repoReader: RepoReader,
-        /** Attempt the Gemini enrichment pass. Disabled in tests to keep them deterministic and offline. */
-        private readonly attemptAi = true,
+        /** Model for the enrichment pass; when absent (e.g. tests) the AI pass is skipped and heuristics stand alone. */
+        private readonly model?: LanguageModel,
     ) {
         super();
     }
@@ -260,19 +265,19 @@ export class PreviewkitSuggestionService extends Service {
     }
 
     private async enrichServices(signals: ServiceSignals, heuristic: SuggestedService[]): Promise<SuggestedService[]> {
-        const model = await this.getModel();
-        if (model == null) return heuristic;
+        if (this.model == null) return heuristic;
         try {
-            const { ObjectGenerator } = await import("@autonoma/ai/llm");
-            const generator = new ObjectGenerator({
-                model,
-                systemPrompt: SERVICE_SYSTEM_PROMPT,
+            const { object } = await generateObject({
+                model: this.model,
+                system: SERVICE_SYSTEM_PROMPT,
                 schema: aiServiceResultSchema,
+                prompt: JSON.stringify({ signals, heuristicSuggestions: heuristic }),
+                providerOptions: GEMINI_PROVIDER_OPTIONS,
+                maxRetries: AI_MAX_RETRIES,
+                timeout: AI_REQUEST_TIMEOUT_MS,
+                experimental_telemetry: { isEnabled: true },
             });
-            const result = await generator.generate({
-                userPrompt: JSON.stringify({ signals, heuristicSuggestions: heuristic }),
-            });
-            return result.services.length > 0 ? result.services : heuristic;
+            return object.services.length > 0 ? object.services : heuristic;
         } catch (err) {
             this.logger.warn("AI service enrichment failed, using heuristics", { err });
             return heuristic;
@@ -284,17 +289,13 @@ export class PreviewkitSuggestionService extends Service {
         services: SuggestionServiceRef[],
         heuristic: { apps: SuggestedEnvGroup[]; services: SuggestedEnvGroup[] },
     ): Promise<{ apps: SuggestedEnvGroup[]; services: SuggestedEnvGroup[] }> {
-        const model = await this.getModel();
-        if (model == null) return heuristic;
+        if (this.model == null) return heuristic;
         try {
-            const { ObjectGenerator } = await import("@autonoma/ai/llm");
-            const generator = new ObjectGenerator({
-                model,
-                systemPrompt: ENV_SYSTEM_PROMPT,
+            const { object } = await generateObject({
+                model: this.model,
+                system: ENV_SYSTEM_PROMPT,
                 schema: aiEnvResultSchema,
-            });
-            const result = await generator.generate({
-                userPrompt: JSON.stringify({
+                prompt: JSON.stringify({
                     apps: appSignals,
                     services,
                     // Services expose host/port (+ url for postgres/redis/valkey/mongodb);
@@ -304,11 +305,15 @@ export class PreviewkitSuggestionService extends Service {
                         ...appSignals.map((app) => `{{${app.name}.url}}`),
                     ],
                 }),
+                providerOptions: GEMINI_PROVIDER_OPTIONS,
+                maxRetries: AI_MAX_RETRIES,
+                timeout: AI_REQUEST_TIMEOUT_MS,
+                experimental_telemetry: { isEnabled: true },
             });
             const appNames = new Set(appSignals.map((app) => app.name));
             const serviceNames = new Set(services.map((service) => service.name));
-            const apps = result.apps.filter((group) => appNames.has(group.name) && group.vars.length > 0);
-            const enrichedServices = result.services.filter(
+            const apps = object.apps.filter((group) => appNames.has(group.name) && group.vars.length > 0);
+            const enrichedServices = object.services.filter(
                 (group) => serviceNames.has(group.name) && group.vars.length > 0,
             );
             return apps.length > 0 || enrichedServices.length > 0 ? { apps, services: enrichedServices } : heuristic;
@@ -316,26 +321,6 @@ export class PreviewkitSuggestionService extends Service {
             this.logger.warn("AI env var enrichment failed, using heuristics", { err });
             return heuristic;
         }
-    }
-
-    private getModel(): Promise<LanguageModel | undefined> {
-        if (!this.attemptAi) return Promise.resolve(undefined);
-        if (this.modelPromise == null) {
-            this.modelPromise = import("@autonoma/ai/llm")
-                .then((ai) => {
-                    const registry = new ai.ModelRegistry({ models: ai.MODEL_ENTRIES });
-                    return registry.getModel({
-                        model: "GEMINI_3_FLASH_PREVIEW",
-                        tag: "previewkit-suggestions",
-                        reasoning: "low",
-                    });
-                })
-                .catch((err) => {
-                    this.logger.warn("AI unavailable for PreviewKit suggestions, using heuristics", { err });
-                    return undefined;
-                });
-        }
-        return this.modelPromise;
     }
 }
 

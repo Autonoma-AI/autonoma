@@ -1,4 +1,3 @@
-import type { LanguageModel } from "@autonoma/ai/llm";
 import { type Prisma, type PrismaClient } from "@autonoma/db";
 import { queryLokiLogs } from "@autonoma/investigation/logs";
 import {
@@ -11,6 +10,7 @@ import {
     detectSensitive,
     previewConfigSchema,
 } from "@autonoma/types";
+import { type LanguageModel, generateObject } from "ai";
 import {
     type PreviewFailure,
     buildServiceSummaries,
@@ -30,6 +30,12 @@ const MAX_LOG_LINES = 120;
 const LOG_LOOKBACK_MS = 60 * 60 * 1000;
 /** Cap on fix steps kept per finding, so a runaway model response stays bounded. */
 const MAX_FIX_STEPS = 6;
+/** Low thinking budget - diagnosis is bounded classification, not open-ended reasoning. */
+const GEMINI_PROVIDER_OPTIONS = { google: { thinkingConfig: { thinkingLevel: "low" } } };
+/** Wall-clock cap for a single diagnosis generation request. */
+const AI_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+/** Transient-failure retries the AI SDK performs before we fall back to heuristics. */
+const AI_MAX_RETRIES = 3;
 
 const environmentSelect = {
     id: true,
@@ -103,14 +109,12 @@ Rules:
 - Prefer "autonoma_error" only when the signal clearly points at our infrastructure, not the customer's application code or config.`;
 
 export class PreviewkitDiagnosisService extends Service {
-    private modelPromise?: Promise<LanguageModel | undefined>;
-
     constructor(
         private readonly db: PrismaClient,
         /** VPC-internal Grafana Loki base URL; when absent, logs are skipped (findings still produced). */
         private readonly lokiBaseUrl?: string,
-        /** Attempt the Gemini enrichment pass. Disabled in tests to keep them deterministic and offline. */
-        private readonly attemptAi = true,
+        /** Model for the enrichment pass; when absent (e.g. tests) the AI pass is skipped and heuristics stand alone. */
+        private readonly model?: LanguageModel,
     ) {
         super();
     }
@@ -216,18 +220,14 @@ export class PreviewkitDiagnosisService extends Service {
         logs: string[],
     ): Promise<AiDiagnosisResult> {
         const heuristic = heuristicFindings(failures, environment.error ?? undefined);
-        const model = await this.getModel();
-        if (model == null) return heuristic;
+        if (this.model == null) return heuristic;
 
         try {
-            const { ObjectGenerator } = await import("@autonoma/ai/llm");
-            const generator = new ObjectGenerator({
-                model,
-                systemPrompt: DIAGNOSIS_SYSTEM_PROMPT,
+            const { object } = await generateObject({
+                model: this.model,
+                system: DIAGNOSIS_SYSTEM_PROMPT,
                 schema: AiDiagnosisResultSchema,
-            });
-            const result = await generator.generate({
-                userPrompt: JSON.stringify({
+                prompt: JSON.stringify({
                     diagnostics: {
                         status: environment.status,
                         phase: environment.phase,
@@ -244,8 +244,12 @@ export class PreviewkitDiagnosisService extends Service {
                     resolvedConfig: summarizeConfig(environment.resolvedConfig),
                     logs,
                 }),
+                providerOptions: GEMINI_PROVIDER_OPTIONS,
+                maxRetries: AI_MAX_RETRIES,
+                timeout: AI_REQUEST_TIMEOUT_MS,
+                experimental_telemetry: { isEnabled: true },
             });
-            return result.findings.length > 0 ? result : heuristic;
+            return object.findings.length > 0 ? object : heuristic;
         } catch (err) {
             this.logger.warn("AI diagnosis enrichment failed, using heuristics", { err });
             return heuristic;
@@ -272,26 +276,6 @@ export class PreviewkitDiagnosisService extends Service {
                 const suggestedEnv = ensureSuggestedEnv(finding);
                 return { ...finding, fixSteps, suggestedEnv };
             });
-    }
-
-    private getModel(): Promise<LanguageModel | undefined> {
-        if (!this.attemptAi) return Promise.resolve(undefined);
-        if (this.modelPromise == null) {
-            this.modelPromise = import("@autonoma/ai/llm")
-                .then((ai) => {
-                    const registry = new ai.ModelRegistry({ models: ai.MODEL_ENTRIES });
-                    return registry.getModel({
-                        model: "GEMINI_3_FLASH_PREVIEW",
-                        tag: "previewkit-diagnosis",
-                        reasoning: "low",
-                    });
-                })
-                .catch((err) => {
-                    this.logger.warn("AI unavailable for PreviewKit diagnosis, using heuristics", { err });
-                    return undefined;
-                });
-        }
-        return this.modelPromise;
     }
 }
 

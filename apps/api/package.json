@@ -21,7 +21,7 @@
         "migrate:preview-config-secrets": "tsx --env-file=../../.env src/scripts/migrate-preview-config-secrets.ts"
     },
     "dependencies": {
-        "@autonoma/ai": "workspace:*",
+        "@ai-sdk/google": "catalog:",
         "@autonoma/analytics": "workspace:*",
         "@autonoma/auth": "workspace:*",
         "@autonoma/billing": "workspace:*",
@@ -48,6 +48,7 @@
         "@slack/web-api": "^7.15.0",
         "@t3-oss/env-core": "catalog:",
         "@trpc/server": "catalog:",
+        "ai": "catalog:",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "hono": "catalog:",

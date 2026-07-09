@@ -1,3 +1,4 @@
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
@@ -89,6 +90,9 @@ export interface ServicesParams {
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
+/** Gemini text model powering PreviewKit's AI suggestion and diagnosis enrichment passes. */
+const PREVIEWKIT_AI_MODEL_ID = "gemini-3-flash-preview";
+
 export function buildServices({
     conn,
     auth,
@@ -110,7 +114,10 @@ export function buildServices({
     const githubService = new GitHubInstallationService(conn, githubApp);
     const repoReader = new RepoReader(conn, githubApp);
     const repoIntrospectionService = new RepoIntrospectionService(repoReader);
-    const previewkitSuggestionService = new PreviewkitSuggestionService(repoReader);
+    const previewkitAiModel = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY }).languageModel(
+        PREVIEWKIT_AI_MODEL_ID,
+    );
+    const previewkitSuggestionService = new PreviewkitSuggestionService(repoReader, previewkitAiModel);
     const applicationsService = new ApplicationsService(conn, encryptionHelper);
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
@@ -162,7 +169,7 @@ export function buildServices({
         github: githubService,
         repoIntrospection: repoIntrospectionService,
         previewkitSuggestions: previewkitSuggestionService,
-        previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL),
+        previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
         issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
