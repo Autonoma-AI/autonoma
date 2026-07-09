@@ -8,7 +8,6 @@ import {
   Input,
   Label,
   Switch,
-  Textarea,
   cn,
 } from "@autonoma/blacklight";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
@@ -16,19 +15,15 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useState } from "react";
-import { AppEnvEditor } from "./app-env-editor";
-import { fieldIssueKey, type AppDraft, type AppDraftField, type DraftIssues, type EnvRowDraft } from "./topology-draft";
+import { fieldIssueKey, type AppDraft, type AppDraftField, type DraftIssues } from "./topology-draft";
 
 interface AppCardProps {
   app: AppDraft;
   issues: DraftIssues;
   /** Names this app may depend on (other apps in its repo group + managed services). */
   dependencyOptions: string[];
-  /** `{{name.field}}` tokens for the env editor. */
-  referenceTokens: string[];
-  /** Enable the per-row sensitive toggle + masked secret rows in the env editor. */
-  enableSecrets?: boolean;
-  showEnv?: boolean;
+  /** Start expanded (settings shows one card per pane, so collapsing has no place). */
+  defaultExpanded?: boolean;
   onChange: (id: number, patch: Partial<AppDraft>) => void;
   onSetPrimary: (id: number) => void;
   onRemove: (id: number) => void;
@@ -39,16 +34,14 @@ export function AppCard({
   app,
   issues,
   dependencyOptions,
-  referenceTokens,
-  enableSecrets = false,
-  showEnv = true,
+  defaultExpanded = false,
   onChange,
   onSetPrimary,
   onRemove,
 }: AppCardProps) {
   const errorCount = countIssues(issues.fieldErrors, app.id);
   const warningCount = countIssues(issues.fieldWarnings, app.id);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   // Cards with errors stay open so the offending field is always visible.
   const open = expanded || errorCount > 0;
 
@@ -58,8 +51,6 @@ export function AppCard({
       : [...app.dependsOn, name];
     onChange(app.id, { dependsOn });
   }
-
-  const buildSecretsValue = app.buildSecrets.join("\n");
 
   return (
     <div
@@ -242,66 +233,12 @@ export function AppCard({
             <FieldMessages issues={issues} draftId={app.id} field="dependsOn" />
           </div>
 
-          {showEnv ? (
-            <div className="mt-5 border-t border-border-dim pt-4">
-              <AppEnvEditor
-                appDraftId={app.id}
-                rows={app.env}
-                referenceTokens={referenceTokens}
-                showBuiltins
-                showManagedSecrets
-                enableSecrets={enableSecrets}
-                error={firstIssue(issues.fieldErrors, app.id, "env")}
-                warning={firstIssue(issues.fieldWarnings, app.id, "env")}
-                onChange={(env: EnvRowDraft[]) => onChange(app.id, { env })}
-              />
-            </div>
-          ) : undefined}
-
-          <details className="mt-5 border-t border-border-dim pt-4">
-            <summary className="cursor-pointer font-mono text-2xs uppercase tracking-widest text-text-secondary">
-              Advanced app config
-            </summary>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <AppField
-                app={app}
-                issues={issues}
-                field="replicas"
-                label="Replicas"
-                placeholder="1"
-                value={app.replicas}
-                onChange={(replicas) => onChange(app.id, { replicas })}
-                hint="PreviewKit caps replicas by platform policy."
-              />
-            </div>
-            <div className="mt-5">
-              <AppEnvEditor
-                appDraftId={app.id}
-                rows={app.buildArgs}
-                referenceTokens={[]}
-                title="Build args"
-                addLabel="Add build arg"
-                emptyLabel="No build args."
-                error={firstIssue(issues.fieldErrors, app.id, "buildArgs")}
-                warning={firstIssue(issues.fieldWarnings, app.id, "buildArgs")}
-                onChange={(buildArgs: EnvRowDraft[]) => onChange(app.id, { buildArgs })}
-              />
-            </div>
-            <div className="mt-5">
-              <Label htmlFor={`pk-app-${app.id}-buildSecrets`}>Build secrets</Label>
-              <Textarea
-                id={`pk-app-${app.id}-buildSecrets`}
-                value={buildSecretsValue}
-                onChange={(event) =>
-                  onChange(app.id, { buildSecrets: event.target.value.split("\n").map((secret) => secret.trim()) })
-                }
-                placeholder="NPM_TOKEN"
-                className={fieldClassName(issues, app.id, "buildSecrets")}
-              />
-              <p className="mt-1 text-2xs text-text-secondary">One secret key per line.</p>
-              <FieldMessages issues={issues} draftId={app.id} field="buildSecrets" />
-            </div>
-          </details>
+          <div className="mt-5 border-t border-border-dim pt-4">
+            <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Environment variables</p>
+            <p className="mt-2 text-sm text-text-secondary">
+              Secrets and connections for this app are managed in the Variables step.
+            </p>
+          </div>
         </>
       ) : undefined}
     </div>
@@ -381,8 +318,4 @@ function countIssues(bucket: Map<string, string[]>, draftId: number): number {
     if (key.startsWith(`${draftId}:`)) count += messages.length;
   }
   return count;
-}
-
-function firstIssue(bucket: Map<string, string[]>, draftId: number, field: AppDraftField): string | undefined {
-  return bucket.get(fieldIssueKey(draftId, field))?.[0];
 }

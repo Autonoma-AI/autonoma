@@ -70,29 +70,10 @@ describe("previewConfigSchema", () => {
 
     it("applies default values", () => {
         const result = previewConfigSchema.parse(validConfig);
-        expect(result.apps[0].replicas).toBe(1);
-        expect(result.apps[0].build_args).toEqual({});
-        expect(result.apps[0].env).toEqual({});
+        expect(result.apps[0].connections).toEqual([]);
+        expect(result.apps[0].build_secrets).toEqual([]);
         // On the untrusted schema, omitting resources yields the app-tier standard.
         expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
-    });
-
-    describe("replicas (clamped)", () => {
-        it("keeps values at or below the cap", () => {
-            const result = previewConfigSchema.parse({
-                version: 1,
-                apps: [{ name: "web", port: 3000, replicas: 2 }],
-            });
-            expect(result.apps[0].replicas).toBe(2);
-        });
-
-        it("clamps values above the cap instead of rejecting", () => {
-            const result = previewConfigSchema.parse({
-                version: 1,
-                apps: [{ name: "web", port: 3000, replicas: 50 }],
-            });
-            expect(result.apps[0].replicas).toBe(3);
-        });
     });
 
     describe("resources (ignored on the untrusted schema)", () => {

@@ -22,6 +22,13 @@ export const SuggestedEnvVarSchema = z.object({
     value: z.string().optional(),
     reference: z.string().optional(),
     sensitive: z.boolean(),
+    /**
+     * Whether the value must be present during the image BUILD (not just at
+     * runtime) - e.g. framework vars inlined into the client bundle
+     * (`NEXT_PUBLIC_*`, `VITE_*`) or values read by the build/install command.
+     * Maps to the row's "also inject at build time" switch. Omitted = runtime-only.
+     */
+    build_time: z.boolean().optional(),
     description: z.string().optional(),
     confidence: z.enum(["high", "medium", "low"]),
     evidence: z.array(z.string()),

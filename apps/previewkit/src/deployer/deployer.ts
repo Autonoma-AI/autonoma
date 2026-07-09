@@ -3,6 +3,7 @@ import * as k8s from "@kubernetes/client-node";
 import type { AppConfig, PreviewConfig } from "../config/schema";
 import { logger } from "../logger";
 import { computeDeployWaves } from "../pipeline/deploy-graph";
+import { parsePostgresOptions } from "../recipes/postgres-recipe";
 import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AppSecretInfo, AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
@@ -507,20 +508,17 @@ export class Deployer {
         for (const svc of config.services) {
             if (svc.recipe !== "postgres") continue;
 
-            const restoreFrom = (svc.options as Record<string, unknown>).restore_from as
-                | { bucket: string; key: string; region?: string }
-                | undefined;
-
-            if (restoreFrom == null) continue;
+            const options = parsePostgresOptions(svc);
+            if (options.restore_from == null) continue;
 
             const restorer = new PostgresRestorer(this.kc, namespace);
             await restorer.restore({
                 serviceName: svc.name,
-                bucket: restoreFrom.bucket,
-                key: restoreFrom.key,
-                region: restoreFrom.region,
-                dbUser: svc.env.POSTGRES_USER ?? "preview",
-                dbName: svc.env.POSTGRES_DB ?? "preview",
+                bucket: options.restore_from.bucket,
+                key: options.restore_from.key,
+                region: options.restore_from.region,
+                dbUser: options.user,
+                dbName: options.database,
             });
         }
     }
@@ -602,8 +600,8 @@ export class Deployer {
         const publicUrlInfo = { domain, repoFullName, prNumber, secret };
         const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
         const url = `https://${host}`;
-        const resolvedEnv = this.envInjector.resolve(
-            app.env,
+        const resolvedEnv = this.envInjector.resolveConnections(
+            app.connections,
             config.apps,
             config.services,
             namespace,

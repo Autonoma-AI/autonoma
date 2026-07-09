@@ -58,7 +58,6 @@ export class TemporalRecipe extends BaseRecipe {
                                     { name: "grpc", containerPort: GRPC_PORT },
                                     { name: "ui", containerPort: UI_PORT },
                                 ],
-                                env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
                                 resources: {
                                     requests: {
                                         cpu: "500m",

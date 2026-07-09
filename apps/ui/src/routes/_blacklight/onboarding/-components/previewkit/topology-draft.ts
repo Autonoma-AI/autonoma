@@ -18,13 +18,15 @@ export const SERVICE_OPTIONS: Array<{
     defaultName: string;
     version?: string;
     meta: string;
+    /** The fixed container port the recipe listens on ({{name.port}}); custom images define their own. */
+    defaultPort?: number;
 }> = [
-    { recipe: "postgres", label: "Postgres", defaultName: "db", version: "16", meta: "16 · 5432" },
-    { recipe: "redis", label: "Redis", defaultName: "cache", version: "7", meta: "7 · 6379" },
-    { recipe: "valkey", label: "Valkey", defaultName: "valkey", version: "7", meta: "7 · 6379" },
-    { recipe: "mongodb", label: "MongoDB", defaultName: "mongo", version: "7", meta: "7 · 27017" },
-    { recipe: "upstash", label: "Upstash", defaultName: "upstash", meta: "· 8000" },
-    { recipe: "temporal", label: "Temporal", defaultName: "temporal", meta: "· 7233" },
+    { recipe: "postgres", label: "Postgres", defaultName: "db", version: "16", meta: "16 · 5432", defaultPort: 5432 },
+    { recipe: "redis", label: "Redis", defaultName: "cache", version: "7", meta: "7 · 6379", defaultPort: 6379 },
+    { recipe: "valkey", label: "Valkey", defaultName: "valkey", version: "7", meta: "7 · 6379", defaultPort: 6379 },
+    { recipe: "mongodb", label: "MongoDB", defaultName: "mongo", version: "7", meta: "7 · 27017", defaultPort: 27017 },
+    { recipe: "upstash", label: "Upstash", defaultName: "upstash", meta: "· 8000", defaultPort: 8000 },
+    { recipe: "temporal", label: "Temporal", defaultName: "temporal", meta: "· 7233", defaultPort: 7233 },
     { recipe: "docker-image", label: "Docker image", defaultName: "container", meta: "custom image" },
 ];
 
@@ -55,17 +57,32 @@ export function serviceRecipeSupportsUrlToken(recipe: ServiceRecipe): boolean {
 /** Where an env/secret row came from on load, so a save can diff secret changes. */
 export type EnvRowOrigin = "config" | "secret" | "new";
 
+/**
+ * One variable of an app. Every variable is either:
+ *   - a secret (`sensitive: true`): a user-typed value stored in AWS Secrets
+ *     Manager and injected via `envFrom`. Its value is write-only.
+ *   - a connection (`sensitive: false`): a `{{target.property}}` binding to
+ *     another app/service, resolved at deploy time (compiles to `connections`).
+ * `buildTime` mirrors the value into the image build (a secret key becomes a
+ * `build_secrets` entry; a connection gets `build_time: true`).
+ */
 export interface EnvRowDraft {
     id: number;
     key: string;
     value: string;
-    /** When true the row is stored as a secret (AWS), not plaintext config `env`. */
     sensitive: boolean;
+    buildTime: boolean;
     origin: EnvRowOrigin;
 }
 
-export function envRow(key: string, value: string, sensitive = false, origin: EnvRowOrigin = "new"): EnvRowDraft {
-    return { id: nextDraftId(), key, value, sensitive, origin };
+export function envRow(
+    key: string,
+    value: string,
+    sensitive = false,
+    origin: EnvRowOrigin = "new",
+    buildTime = false,
+): EnvRowDraft {
+    return { id: nextDraftId(), key, value, sensitive, buildTime, origin };
 }
 
 export type AppDraftOrigin = "saved" | "manual" | "suggestion" | "starter";
@@ -84,10 +101,8 @@ export interface AppDraft {
     healthCheck: string;
     primary: boolean;
     dependsOn: string[];
+    /** Unified variable list: secrets (sensitive) and connections (bindings). */
     env: EnvRowDraft[];
-    buildArgs: EnvRowDraft[];
-    buildSecrets: string[];
-    replicas: string;
     /** Preserved but not editable in the form (set by suggestions / saved configs). */
     monorepo?: "turbo";
     origin: AppDraftOrigin;
@@ -137,7 +152,15 @@ export interface ServiceDraft {
     args: string;
     /** Readiness probe (custom-image only). */
     readiness: ServiceReadinessDraft;
-    env: EnvRowDraft[];
+    /**
+     * Recipe `options` the form does not model (postgres user/database/
+     * databases/extensions/ssl/storage/restore_from, and any future keys),
+     * preserved verbatim from load so an edit+save round-trips them instead of
+     * silently dropping them. For custom-image recipes this excludes the keys
+     * the form owns (image/port/command/args/readiness); for every other recipe
+     * it is the full options bag.
+     */
+    optionsPassthrough: Record<string, unknown>;
 }
 
 export interface RepoDraft {
@@ -221,9 +244,6 @@ export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"
         primary: false,
         dependsOn: [],
         env: [],
-        buildArgs: [],
-        buildSecrets: [],
-        replicas: "1",
         origin,
     };
 }
@@ -261,7 +281,7 @@ export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: stri
         command: "",
         args: "",
         readiness: emptyServiceReadinessDraft(),
-        env: [],
+        optionsPassthrough: {},
     };
 }
 
@@ -333,10 +353,11 @@ export function draftFromConfig(
             mode === "starter"
                 ? []
                 : primary.services.map((service) => {
+                      const recipe = toServiceRecipe(service.recipe);
                       const custom = customImageFieldsFromOptions(service.options);
                       return {
                           id: nextDraftId(),
-                          recipe: toServiceRecipe(service.recipe),
+                          recipe,
                           name: service.name,
                           version: service.version ?? "",
                           image: custom.image,
@@ -346,7 +367,7 @@ export function draftFromConfig(
                           command: custom.command,
                           args: custom.args,
                           readiness: custom.readiness,
-                          env: Object.entries(service.env).map(([key, value]) => envRow(key, value, false, "config")),
+                          optionsPassthrough: passthroughOptions(recipe, service.options),
                       };
                   }),
         repos,
@@ -367,10 +388,14 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     draft.healthCheck = app.health_check ?? "";
     draft.primary = app.primary === true;
     draft.dependsOn = app.depends_on ?? [];
-    draft.env = sortEnvRows(Object.entries(app.env).map(([key, value]) => envRow(key, value, false, "config")));
-    draft.buildArgs = Object.entries(app.build_args).map(([key, value]) => envRow(key, value, false, "config"));
-    draft.buildSecrets = app.build_secrets;
-    draft.replicas = String(app.replicas);
+    // Connections become non-sensitive binding rows; build-time secret keys seed
+    // sensitive rows (value blank - AWS never returns it), marked build-time. The
+    // remaining secrets are merged in from the AWS key list.
+    const connectionRows = app.connections.map((connection) =>
+        envRow(connection.key, connection.value, false, "config", connection.build_time),
+    );
+    const buildSecretRows = app.build_secrets.map((key) => envRow(key, "", true, "secret", true));
+    draft.env = sortEnvRows([...connectionRows, ...buildSecretRows]);
     if (app.monorepo != null) draft.monorepo = app.monorepo;
     return draft;
 }
@@ -417,6 +442,34 @@ interface CustomImageFields {
     command: string;
     args: string;
     readiness: ServiceReadinessDraft;
+}
+
+// The `options` keys the custom-image form owns end-to-end. For custom-image
+// recipes these are stripped from the passthrough (the form is their source of
+// truth, so clearing a field must actually clear it); every other key - and, for
+// non-custom-image recipes, every key - is carried through untouched.
+const MODELED_SERVICE_OPTION_KEYS = new Set([
+    "image",
+    "port_definition",
+    "additional_ports",
+    "command",
+    "args",
+    "readiness",
+]);
+
+/**
+ * The recipe `options` the form cannot edit, captured so they survive an
+ * edit+save. Custom-image recipes drop the keys the form owns; all other recipes
+ * (postgres, redis, ...) keep their entire options bag - the form models none of
+ * it, so dropping anything would silently reset it to recipe defaults at deploy.
+ */
+function passthroughOptions(recipe: ServiceRecipe, options: Record<string, unknown>): Record<string, unknown> {
+    if (!serviceRecipeUsesCustomImage(recipe)) return { ...options };
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(options)) {
+        if (!MODELED_SERVICE_OPTION_KEYS.has(key)) rest[key] = value;
+    }
+    return rest;
 }
 
 /**
@@ -515,11 +568,6 @@ function compileDocument(
     document.services = services.map((service) => {
         const compiled: Record<string, unknown> = { name: service.name.trim(), recipe: service.recipe };
         if (service.version.trim() !== "") compiled.version = service.version.trim();
-        const env: Record<string, string> = {};
-        for (const row of service.env) {
-            if (row.key.trim() !== "") env[row.key.trim()] = row.value;
-        }
-        if (Object.keys(env).length > 0) compiled.env = env;
         const options = compileServiceOptions(service);
         if (options != null) compiled.options = options;
         return compiled;
@@ -535,33 +583,35 @@ function compileDocument(
 }
 
 /**
- * Compiles a service's recipe-specific `options` block. Only custom-image
- * recipes (docker-image) have one today: the form's image, primary port (and
- * optional port name), extra ports, command/args, and readiness probe map onto
- * the recipe `options` shape. Blank fields are omitted so a half-authored
- * service stays minimal; the previewkit recipe schema enforces the required ones
- * at deploy time. Returns undefined when there are no options to emit.
+ * Compiles a service's recipe-specific `options` block. Starts from the
+ * passthrough - the options the form cannot edit (postgres user/database/
+ * restore_from, ...), preserved verbatim from load so an edit+save never drops
+ * them. Custom-image recipes then overlay the form-owned fields (image, primary
+ * port and optional name, extra ports, command/args, readiness); blank fields
+ * are omitted so a half-authored service stays minimal and clearing a field
+ * actually clears it. Returns undefined when there are no options to emit.
  */
 function compileServiceOptions(service: ServiceDraft): Record<string, unknown> | undefined {
-    if (!serviceRecipeUsesCustomImage(service.recipe)) return undefined;
+    const options: Record<string, unknown> = { ...service.optionsPassthrough };
 
-    const options: Record<string, unknown> = {};
-    if (service.image.trim() !== "") options.image = service.image.trim();
+    if (serviceRecipeUsesCustomImage(service.recipe)) {
+        if (service.image.trim() !== "") options.image = service.image.trim();
 
-    const portDefinition = compilePort(service.port, service.portName);
-    if (portDefinition != null) options.port_definition = portDefinition;
+        const portDefinition = compilePort(service.port, service.portName);
+        if (portDefinition != null) options.port_definition = portDefinition;
 
-    const additionalPorts = parsePortLines(service.additionalPorts);
-    if (additionalPorts.length > 0) options.additional_ports = additionalPorts;
+        const additionalPorts = parsePortLines(service.additionalPorts);
+        if (additionalPorts.length > 0) options.additional_ports = additionalPorts;
 
-    const command = parseTokenLines(service.command);
-    if (command.length > 0) options.command = command;
+        const command = parseTokenLines(service.command);
+        if (command.length > 0) options.command = command;
 
-    const args = parseTokenLines(service.args);
-    if (args.length > 0) options.args = args;
+        const args = parseTokenLines(service.args);
+        if (args.length > 0) options.args = args;
 
-    const readiness = compileReadiness(service);
-    if (readiness != null) options.readiness = readiness;
+        const readiness = compileReadiness(service);
+        if (readiness != null) options.readiness = readiness;
+    }
 
     return Object.keys(options).length > 0 ? options : undefined;
 }
@@ -695,23 +745,23 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     if (app.primary) compiled.primary = true;
     if (app.dependsOn.length > 0) compiled.depends_on = app.dependsOn;
 
-    const replicas = Number(app.replicas);
-    if (app.replicas.trim() !== "" && Number.isFinite(replicas)) compiled.replicas = replicas;
-    const buildArgs: Record<string, string> = {};
-    for (const row of app.buildArgs) {
-        if (row.key.trim() !== "") buildArgs[row.key.trim()] = row.value;
-    }
-    if (Object.keys(buildArgs).length > 0) compiled.build_args = buildArgs;
-    const buildSecrets = app.buildSecrets.map((secret) => secret.trim()).filter((secret) => secret !== "");
-    if (buildSecrets.length > 0) compiled.build_secrets = buildSecrets;
-
-    const env: Record<string, string> = {};
+    // Secrets (sensitive rows) live in AWS; only their build-time subset is named
+    // here. Connections (non-sensitive binding rows) are the deploy-time wiring.
+    const buildSecrets: string[] = [];
+    const connections: Array<Record<string, unknown>> = [];
     for (const row of app.env) {
-        // Sensitive rows are persisted as secrets (AWS), never as plaintext config env.
-        if (row.sensitive) continue;
-        if (row.key.trim() !== "") env[row.key.trim()] = row.value;
+        const key = row.key.trim();
+        if (key === "") continue;
+        if (row.sensitive) {
+            if (row.buildTime) buildSecrets.push(key);
+            continue;
+        }
+        // A non-sensitive row is a connection: its value is a template (possibly
+        // composite, e.g. `mongodb://{{db.host}}:{{db.port}}/x`) resolved at deploy.
+        connections.push({ key, value: row.value, build_time: row.buildTime });
     }
-    compiled.env = env;
+    if (buildSecrets.length > 0) compiled.build_secrets = buildSecrets;
+    compiled.connections = connections;
 
     return compiled;
 }
@@ -736,7 +786,11 @@ export function sortEnvRows(rows: EnvRowDraft[]): EnvRowDraft[] {
  */
 export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): EnvRowDraft[] {
     const existing = new Set(envRows.map((row) => row.key.trim()));
-    const secretRows = secretKeys.filter((key) => !existing.has(key)).map((key) => envRow(key, "", true, "secret"));
+    // Build-time secrets are already seeded from the document (build_secrets); the
+    // rest arrive here from the AWS key list as runtime-only secret rows.
+    const secretRows = secretKeys
+        .filter((key) => !existing.has(key))
+        .map((key) => envRow(key, "", true, "secret", false));
     return sortEnvRows([...envRows, ...secretRows]);
 }
 
@@ -751,7 +805,15 @@ export function envRowsFromSuggestions(
         if (seen.has(suggestion.key)) continue;
         seen.add(suggestion.key);
         const value = suggestion.reference ?? suggestion.value ?? "";
-        rows.push(envRow(suggestion.key, value, supportsSecrets && suggestion.sensitive, "new"));
+        rows.push(
+            envRow(
+                suggestion.key,
+                value,
+                supportsSecrets && suggestion.sensitive,
+                "new",
+                suggestion.build_time ?? false,
+            ),
+        );
     }
     return rows;
 }
@@ -836,9 +898,8 @@ export type AppDraftField =
     | "primary"
     | "dependsOn"
     | "env"
-    | "buildArgs"
-    | "buildSecrets"
-    | "replicas";
+    | "connections"
+    | "buildSecrets";
 
 export interface DraftIssues {
     /** Keyed `${draftId}:${field}`. */
@@ -900,10 +961,8 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     health_check: "healthCheck",
     primary: "primary",
     depends_on: "dependsOn",
-    env: "env",
-    build_args: "buildArgs",
+    connections: "connections",
     build_secrets: "buildSecrets",
-    replicas: "replicas",
 };
 
 function resolveAppField(path: Array<string | number>): AppDraftField | undefined {

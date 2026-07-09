@@ -11,7 +11,6 @@ import {
     type SuggestedService,
     SuggestedServiceSchema,
     type SuggestionServiceRef,
-    detectSensitive,
 } from "@autonoma/types";
 import { load as parseYaml } from "js-yaml";
 import { z } from "zod";
@@ -24,6 +23,12 @@ const DOTENV_FILENAMES = [".env.example", ".env.sample", ".env.template"];
 const COMPOSE_FILENAMES = ["docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"];
 /** Bound on how many dependencies / env keys we feed the model, to keep prompts small. */
 const MAX_SIGNAL_ENTRIES = 120;
+/**
+ * Env-key prefixes whose values a framework inlines into the client bundle at
+ * BUILD time (so they must be present during the image build, not just at
+ * runtime). Used by the offline heuristic to flag `build_time`.
+ */
+const BUILD_TIME_KEY_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
 
 // Default name and pre-filled version per recipe. We only suggest a version for services whose
 // image tag maps cleanly to a well-known release (postgres 16, redis/valkey/mongo 7). Recipes are
@@ -88,12 +93,29 @@ Rules:
 - Give each suggestion a short kubernetes-safe name (lowercase letters, digits, hyphens), a sensible version when applicable, a confidence, and cite the concrete evidence you used.
 - Return an empty list when nothing is clearly needed.`;
 
-const ENV_SYSTEM_PROMPT = `You are a preview-infrastructure assistant for PreviewKit. For each app, given its .env.example entries (key, example value, optional comment) and dependencies, propose the runtime environment variables it needs in a preview environment. Each app carries a "primary" flag - the primary app's URL becomes the preview URL.
+const ENV_SYSTEM_PROMPT = `You are a preview-infrastructure assistant for PreviewKit. For each app, given its .env.example entries (key, example value, optional comment) and dependencies, propose the environment variables it needs in a preview environment. Each app carries a "primary" flag - the primary app's URL becomes the preview URL.
 
-Rules:
-- For a variable that connects to a managed service, set "reference" to one of the provided reference tokens instead of a literal "value".
-- For EVERY managed service in the input, proactively propose the connection variable an app needs to reach it, wired via that service's reference token (e.g. a postgres service -> DATABASE_URL = {{db.url}}, a redis service -> REDIS_URL = {{cache.url}}) - even when no .env.example lists it. Attach it to the app whose dependencies actually use that service; when that is unclear, attach it to the primary app. Use the key name idiomatic to the app's framework, and skip a service an app already references. A reference-token variable is not itself a secret, so mark it sensitive=false.
-- Mark credentials as sensitive=true (API keys, passwords, tokens, connection strings containing credentials); mark URLs, ports, and flags as sensitive=false.
+Every variable is exactly ONE of two kinds. Classify each carefully:
+
+1. CONNECTION (sensitive=false): its value WIRES to a managed service or another app, so it must contain at least one \`{{name.property}}\` token. Put the full templated string in "reference" (NOT "value"). This is the ONLY case where sensitive=false.
+2. SECRET (sensitive=true): everything else the user supplies a value for - API keys, tokens, passwords, AND plain configuration like flags, ports, hostnames, environment names, feature toggles. On this platform every non-connection value is stored as a write-only secret. Do NOT emit a value/reference for a secret; leave "value" empty (the user fills it in). NEVER mark a plain literal (a flag, a URL you cannot template, an env name) as sensitive=false - if it has no \`{{...}}\` token it is a SECRET.
+
+Most variables are SECRETS. Only service/app wiring is a connection.
+
+Building a connection "reference":
+- You are given the exact reference tokens available. Services expose \`{{name.host}}\` and \`{{name.port}}\`; postgres/redis/valkey/mongodb also expose \`{{name.url}}\`. Apps expose \`{{name.url}}\`.
+- Use a single \`{{name.url}}\` when the standard connection URL is enough: e.g. DATABASE_URL = {{db.url}}, REDIS_URL = {{cache.url}}, an app-to-app URL API_URL = {{web.url}}.
+- Build a COMPOSITE template (literal text + tokens) when the client needs a specific connection string, or the service has no \`.url\` token:
+  - MongoDB with options: MONGO_URI = mongodb://{{db.host}}:{{db.port}}/preview?replicaSet=rs0&directConnection=true
+  - Temporal (no url token): TEMPORAL_ADDRESS = {{temporal.host}}:{{temporal.port}}
+  - Upstash (no url token): compose the endpoint the client SDK expects from {{name.host}}/{{name.port}}.
+- For EVERY managed service in the input, proactively propose the connection variable an app needs to reach it - even when no .env.example lists it - using the key idiomatic to the app's framework. Attach it to the app whose dependencies use that service; if unclear, the primary app. Skip a service an app already references.
+
+build_time:
+- Set build_time=true when the value must exist during the image BUILD, not only at runtime. Clearest cases: framework variables inlined into the client bundle at build (Next.js \`NEXT_PUBLIC_*\`, Vite \`VITE_*\`, \`PUBLIC_*\`), and any value read by the build or install command.
+- Otherwise set build_time=false (or omit). Connections are resolved at deploy and injected at runtime by default; only set build_time=true on a connection when the build itself consumes the resolved value.
+
+Also:
 - Give each variable a short description.
 - Only include a "services" group when a managed service genuinely needs configuration.
 - Do not invent variables with no basis in the signals unless they are standard and clearly required by a detected framework or a provided managed service.`;
@@ -275,7 +297,12 @@ export class PreviewkitSuggestionService extends Service {
                 userPrompt: JSON.stringify({
                     apps: appSignals,
                     services,
-                    referenceTokens: services.flatMap(referenceTokensForService),
+                    // Services expose host/port (+ url for postgres/redis/valkey/mongodb);
+                    // apps expose their public url. Both are valid connection tokens.
+                    referenceTokens: [
+                        ...services.flatMap(referenceTokensForService),
+                        ...appSignals.map((app) => `{{${app.name}.url}}`),
+                    ],
                 }),
             });
             const appNames = new Set(appSignals.map((app) => app.name));
@@ -464,17 +491,24 @@ function connectionEnvKeyForRecipe(recipe: SuggestableServiceRecipe): string {
 
 function heuristicEnvVar(entry: DotenvEntry, services: SuggestionServiceRef[]): SuggestedEnvVar {
     const reference = referenceForEnvKey(entry.key, services);
-    const sensitive = detectSensitive(entry.key, entry.value).sensitive;
     const suggestion: SuggestedEnvVar = {
         key: entry.key,
-        sensitive,
+        // Only a value that wires to a service (a `{{...}}` reference) is a
+        // connection (sensitive=false). Every other value is a write-only secret
+        // on this platform, so it carries no literal value - the user fills it in.
+        sensitive: reference == null,
         confidence: "medium",
         evidence: [".env.example"],
     };
     if (reference != null) suggestion.reference = reference;
-    else if (!sensitive && entry.value !== "") suggestion.value = entry.value;
+    if (isBuildTimeKey(entry.key)) suggestion.build_time = true;
     if (entry.comment != null) suggestion.description = entry.comment;
     return suggestion;
+}
+
+/** Whether a key's value is inlined at build time (framework client-bundle vars). */
+function isBuildTimeKey(key: string): boolean {
+    return BUILD_TIME_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /** The `{{name.field}}` tokens a service exposes, mirroring the UI's `serviceRecipeSupportsUrlToken`. */
@@ -488,7 +522,11 @@ function referenceForEnvKey(key: string, services: SuggestionServiceRef[]): stri
     if (recipe == null) return undefined;
     const service = services.find((candidate) => candidate.recipe === recipe);
     if (service == null) return undefined;
-    return recipeSupportsUrlToken(recipe) ? `{{${service.name}.url}}` : `{{${service.name}.host}}`;
+    // Recipes with a connection URL wire via a single {{name.url}}; the rest
+    // (temporal, upstash) have no URL token, so compose host:port.
+    return recipeSupportsUrlToken(recipe)
+        ? `{{${service.name}.url}}`
+        : `{{${service.name}.host}}:{{${service.name}.port}}`;
 }
 
 function recipeSupportsUrlToken(recipe: SuggestableServiceRecipe): boolean {
@@ -520,6 +558,8 @@ function mapEnvKeyToRecipe(key: string): SuggestableServiceRecipe | undefined {
     }
     if (normalized.includes("MONGO")) return "mongodb";
     if (normalized.includes("REDIS")) return "redis";
+    if (normalized.includes("TEMPORAL")) return "temporal";
+    if (normalized.includes("UPSTASH")) return "upstash";
     return undefined;
 }
 

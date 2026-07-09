@@ -69,7 +69,6 @@ export class DockerImageRecipe extends BaseRecipe<DockerImageOptions> {
         const container: k8s.V1Container = {
             name: config.name,
             image: options.image,
-            env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
             resources: {
                 requests: {
                     cpu: config.resources.cpu,

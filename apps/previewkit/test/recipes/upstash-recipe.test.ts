@@ -106,15 +106,6 @@ describe("UpstashRecipe", () => {
         expect(proxy?.readinessProbe?.tcpSocket).toBeUndefined();
     });
 
-    it("forwards env vars from the service config into the proxy container only", () => {
-        const result = recipe.generate(baseService({ env: { LOG_LEVEL: "debug" } }), "ns");
-        const containers = result.deployments[0]?.spec?.template?.spec?.containers ?? [];
-        const redis = containers.find((c) => c.name === "redis");
-        const proxy = containers.find((c) => c.name === "proxy");
-        expect(proxy?.env).toContainEqual({ name: "LOG_LEVEL", value: "debug" });
-        expect(redis?.env ?? []).toEqual([]);
-    });
-
     it("scopes resources to the requested namespace", () => {
         const result = recipe.generate(baseService(), "preview-ns");
         expect(result.deployments[0]?.metadata?.namespace).toBe("preview-ns");

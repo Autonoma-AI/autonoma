@@ -15,9 +15,9 @@
  * `PreviewkitDefaults` table - consumers and the resolver stay the same.
  */
 
-import { MAX_REPLICAS, STANDARD_RESOURCES, type ContainerResources } from "@autonoma/types";
+import { STANDARD_RESOURCES, type ContainerResources } from "@autonoma/types";
 
-export { MAX_REPLICAS, STANDARD_RESOURCES };
+export { STANDARD_RESOURCES };
 export type { ContainerResources };
 
 export interface PreviewkitDefaults {
@@ -27,13 +27,12 @@ export interface PreviewkitDefaults {
         domain: string;
         buildTimeoutMs: number;
     };
-    /** Platform defaults for omitted resource values and replica counts. */
+    /** Platform defaults for omitted resource values. */
     standards: {
         resources: {
             app: ContainerResources;
             service: ContainerResources;
         };
-        maxReplicas: number;
     };
 }
 
@@ -65,7 +64,6 @@ export function createPreviewkitDefaults(env: PreviewkitDefaultsEnv): Previewkit
                     memoryLimit: STANDARD_RESOURCES.service.memoryLimit,
                 },
             },
-            maxReplicas: MAX_REPLICAS,
         },
     };
 }

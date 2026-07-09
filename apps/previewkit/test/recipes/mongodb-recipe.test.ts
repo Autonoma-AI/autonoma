@@ -77,15 +77,6 @@ describe("MongoDbRecipe", () => {
         expect(pvc?.spec?.resources?.requests).toEqual({ storage: "1Gi" });
     });
 
-    it("forwards env vars from the service config into the container", () => {
-        const result = recipe.generate(baseService({ env: { FOO: "bar", BAZ: "qux" } }), "ns");
-        const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];
-        expect(container?.env).toEqual([
-            { name: "FOO", value: "bar" },
-            { name: "BAZ", value: "qux" },
-        ]);
-    });
-
     it("uses mongosh ping for the readiness probe", () => {
         const result = recipe.generate(baseService(), "ns");
         const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];

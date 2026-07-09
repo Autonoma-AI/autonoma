@@ -83,7 +83,6 @@ export class MongoDbRecipe extends BaseRecipe {
                                 image,
                                 args: ["--replSet", REPLICA_SET, "--bind_ip_all"],
                                 ports: [{ containerPort: PORT }],
-                                env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
                                 resources: {
                                     requests: {
                                         cpu: config.resources.cpu,

@@ -20,9 +20,7 @@ const apps: AppConfig[] = [
         name: "web",
         path: "./apps/web",
         port: 3000,
-        build_args: {},
-        env: {},
-        replicas: 1,
+        connections: [],
         resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         build_secrets: [],
     },
@@ -30,9 +28,7 @@ const apps: AppConfig[] = [
         name: "api",
         path: "./apps/api",
         port: 4000,
-        build_args: {},
-        env: {},
-        replicas: 1,
+        connections: [],
         resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         build_secrets: [],
     },
@@ -42,26 +38,49 @@ const services: ServiceConfig[] = [
     {
         name: "db",
         recipe: "postgres",
-        env: {},
         resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
-        options: undefined,
+        options: {},
     },
     {
         name: "cache",
         recipe: "redis",
-        env: {},
         resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
-        options: undefined,
+        options: {},
     },
 ];
 
 describe("EnvInjector", () => {
+    it("resolveConnections resolves each connection's template value (single-token, composite, and cross-app)", () => {
+        const resolved = injector.resolveConnections(
+            [
+                { key: "DATABASE_URL", value: "{{db.url}}", build_time: false },
+                {
+                    key: "MONGO_URI",
+                    value: "mongodb://{{db.host}}:{{db.port}}/preview?replicaSet=rs0",
+                    build_time: false,
+                },
+                { key: "API_URL", value: "{{api.url}}", build_time: true },
+            ],
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
+        expect(resolved["DATABASE_URL"]).toBe("postgresql://preview:preview@db:5432/preview");
+        // The composite template is the case a single target/property could not express.
+        expect(resolved["MONGO_URI"]).toBe("mongodb://db:5432/preview?replicaSet=rs0");
+        expect(resolved["API_URL"]).toBe(
+            `https://${buildAppHostname("api", 42, "acme-corp/my-repo", "preview.autonoma.app", "test-secret")}`,
+        );
+    });
+
     it("resolves service host and port templates", () => {
         const configEnv = {
             DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -77,7 +96,7 @@ describe("EnvInjector", () => {
             API_URL: "http://{{api.host}}:{{api.port}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -93,7 +112,7 @@ describe("EnvInjector", () => {
             REDIS_URL: "redis://{{cache.host}}:{{cache.port}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -110,7 +129,7 @@ describe("EnvInjector", () => {
             LOG_LEVEL: "info",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -126,7 +145,7 @@ describe("EnvInjector", () => {
             CONFIG: "{{db.host}}:{{db.port}},{{cache.host}}:{{cache.port}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -143,7 +162,7 @@ describe("EnvInjector", () => {
         };
 
         expect(() =>
-            injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
+            injector.applyTemplates(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo),
         ).toThrow(/Unknown reference/);
     });
 
@@ -152,7 +171,7 @@ describe("EnvInjector", () => {
             TASK_QUEUE: "pr-{{pr}}-default",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -168,7 +187,7 @@ describe("EnvInjector", () => {
             K8S_NAMESPACE: "{{namespace}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -184,7 +203,7 @@ describe("EnvInjector", () => {
             ORG: "{{owner}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -216,7 +235,7 @@ describe("EnvInjector", () => {
             TEMPORAL_TASK_QUEUE: "pr-{{pr}}-default",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             temporalServices,
@@ -234,7 +253,7 @@ describe("EnvInjector", () => {
             WORKER_ID: "{{owner}}-pr-{{pr}}-{{api.host}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -263,7 +282,7 @@ describe("EnvInjector", () => {
             GATEWAY_URL: "http://{{api-gateway.host}}:{{api-gateway.port}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             hyphenatedServices,
@@ -275,7 +294,14 @@ describe("EnvInjector", () => {
     });
 
     it("returns an empty object when there is no config env", () => {
-        const resolved = injector.resolve({}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo);
+        const resolved = injector.applyTemplates(
+            {},
+            apps,
+            services,
+            "preview-ns",
+            defaultContext,
+            defaultPublicUrlInfo,
+        );
         expect(resolved).toEqual({});
     });
 
@@ -296,7 +322,7 @@ describe("EnvInjector", () => {
             LITERAL_BRACES: "use {{ pr }} or {{api}} or {{api.host.extra}} as-is",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -313,7 +339,7 @@ describe("EnvInjector", () => {
             VITE_WEB_URL: "{{web.url}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -335,7 +361,7 @@ describe("EnvInjector", () => {
             DATABASE_URL: "{{db.url}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -351,7 +377,7 @@ describe("EnvInjector", () => {
             REDIS_URL: "{{cache.url}}",
         };
 
-        const resolved = injector.resolve(
+        const resolved = injector.applyTemplates(
             configEnv,
             apps,
             services,
@@ -380,7 +406,14 @@ describe("EnvInjector", () => {
         };
 
         expect(() =>
-            injector.resolve(configEnv, apps, temporalServices, "preview-ns", defaultContext, defaultPublicUrlInfo),
+            injector.applyTemplates(
+                configEnv,
+                apps,
+                temporalServices,
+                "preview-ns",
+                defaultContext,
+                defaultPublicUrlInfo,
+            ),
         ).toThrow(/exposes no connection URL/);
     });
 
@@ -416,7 +449,7 @@ describe("EnvInjector", () => {
                 DB_HOST: "{{neondb.host}}",
             };
 
-            const resolved = injector.resolve(
+            const resolved = injector.applyTemplates(
                 configEnv,
                 apps,
                 services,
@@ -439,7 +472,7 @@ describe("EnvInjector", () => {
         it("throws when an addon output key is missing", () => {
             const configEnv = { DATABASE_URL: "{{neondb.notARealKey}}" };
             expect(() =>
-                injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {
+                injector.applyTemplates(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {
                     neondb: { connectionString: "postgres://..." },
                 }),
             ).toThrow(/has no output named "notARealKey"/);
@@ -451,7 +484,7 @@ describe("EnvInjector", () => {
             // through (e.g. constructed by code without going through the
             // schema). Apps win because they're consulted first.
             const configEnv = { URL: "{{api.host}}" };
-            const resolved = injector.resolve(
+            const resolved = injector.applyTemplates(
                 configEnv,
                 apps,
                 services,
@@ -466,7 +499,15 @@ describe("EnvInjector", () => {
         it("apps + services constrained to host/port/url even with addons present", () => {
             const configEnv = { OOPS: "{{api.connectionString}}" };
             expect(() =>
-                injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {}),
+                injector.applyTemplates(
+                    configEnv,
+                    apps,
+                    services,
+                    "preview-ns",
+                    defaultContext,
+                    defaultPublicUrlInfo,
+                    {},
+                ),
             ).toThrow(/only host\/port\/url are supported for apps and services/);
         });
 

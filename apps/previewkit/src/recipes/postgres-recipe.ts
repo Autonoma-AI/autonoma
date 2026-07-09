@@ -41,9 +41,23 @@ const extensionName = z
 // the same way as extension names (identifier shape, not membership).
 const databaseName = z.string().regex(/^[A-Za-z0-9_-]+$/, "Invalid database name: use letters, digits, _ or -");
 
+// Standard preview credentials. The password is fixed (preview envs are
+// throwaway and network-isolated); the user/database default to these but are
+// overridable via typed options below.
+const POSTGRES_USER = "preview";
+const POSTGRES_PASSWORD = "preview";
+const POSTGRES_DB = "preview";
+
+// The role/database name Postgres boots with. These used to be overridable via
+// the free-text service `env` (POSTGRES_USER / POSTGRES_DB); with service env
+// removed they are typed options, defaulting to the standard preview values.
+const roleName = z.string().regex(/^[A-Za-z0-9_-]+$/, "Invalid user name: use letters, digits, _ or -");
+
 const optionsSchema = z.object({
     databases: z.array(databaseName).default([]),
     extensions: z.array(extensionName).default([]),
+    user: roleName.default(POSTGRES_USER),
+    database: databaseName.default(POSTGRES_DB),
     image: z
         .string()
         .refine((img) => ALLOWED_IMAGE_PREFIXES.some((prefix) => img.startsWith(prefix)), {
@@ -73,9 +87,6 @@ export type PostgresRestoreOptions = {
 };
 
 const PORT = 5432;
-const POSTGRES_USER = "preview";
-const POSTGRES_PASSWORD = "preview";
-const POSTGRES_DB = "preview";
 const DATA_MOUNT_PATH = "/var/lib/postgresql/data";
 
 // Pin PGDATA to a subdirectory of the mounted volume for every allowed image. A
@@ -103,20 +114,30 @@ const SSL_KEY_PATH = `${SSL_DIR}/server.key`;
 // chowns to 999 and chmods 600.
 const POSTGRES_UID_GID = "999:999";
 
+/**
+ * Parses a postgres service's `options` bag into its typed shape (user,
+ * database, extensions, restore target, ...). Shared by the recipe and the
+ * deployer's restore path so both agree on the boot user/database.
+ */
+export function parsePostgresOptions(config: ServiceConfig): z.infer<typeof optionsSchema> {
+    return optionsSchema.parse(config.options ?? {});
+}
+
 export class PostgresRecipe extends BaseRecipe {
     readonly name = "postgres";
     readonly schema = passthroughOptionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
+        const options = parsePostgresOptions(config);
         return {
             host: config.name,
             port: PORT,
-            url: `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${config.name}:${PORT}/${POSTGRES_DB}`,
+            url: `postgresql://${options.user}:${POSTGRES_PASSWORD}@${config.name}:${PORT}/${options.database}`,
         };
     }
 
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
-        const options = optionsSchema.parse(config.options);
+        const options = parsePostgresOptions(config);
         // Precedence: an explicit image wins; an explicit version opts out to the
         // matching stock image (which carries only the contrib extensions);
         // otherwise the default image, which bundles every baked extension.
@@ -183,14 +204,10 @@ export class PostgresRecipe extends BaseRecipe {
                                 ports: [{ containerPort: PORT }],
                                 args: postgresArgs,
                                 env: [
-                                    { name: "POSTGRES_USER", value: POSTGRES_USER },
+                                    { name: "POSTGRES_USER", value: options.user },
                                     { name: "POSTGRES_PASSWORD", value: POSTGRES_PASSWORD },
-                                    { name: "POSTGRES_DB", value: POSTGRES_DB },
+                                    { name: "POSTGRES_DB", value: options.database },
                                     { name: "PGDATA", value: PGDATA_PATH },
-                                    ...Object.entries(config.env).map(([name, value]) => ({
-                                        name,
-                                        value,
-                                    })),
                                 ],
                                 resources: {
                                     requests: {
@@ -225,7 +242,7 @@ export class PostgresRecipe extends BaseRecipe {
                                         // socket. The postgres Docker image runs init scripts
                                         // in socket-only mode; without -h the probe succeeds
                                         // during init while external TCP connections still fail.
-                                        command: ["pg_isready", "-U", POSTGRES_USER, "-h", "127.0.0.1"],
+                                        command: ["pg_isready", "-U", options.user, "-h", "127.0.0.1"],
                                     },
                                     initialDelaySeconds: 5,
                                     periodSeconds: 5,

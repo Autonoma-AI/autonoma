@@ -1555,7 +1555,17 @@ export class PreviewPipeline {
                       )
                     : {};
 
-            const mergedBuildArgs: Record<string, string> = { ...secretBuildArgs, ...app.build_args };
+            // Build-time connections are topology values (e.g. a Vite frontend's
+            // {{api.url}}) baked into the image; they resolve like runtime
+            // connections but are passed as build args. Secret build args win on
+            // a key collision (explicit secret over a wired value).
+            const buildTimeConnections: Record<string, string> = {};
+            for (const connection of app.connections) {
+                if (connection.build_time) {
+                    buildTimeConnections[connection.key] = connection.value;
+                }
+            }
+            const mergedBuildArgs: Record<string, string> = { ...buildTimeConnections, ...secretBuildArgs };
 
             const resolvedBuildArgs = ctx.envInjector.applyTemplates(
                 mergedBuildArgs,
@@ -1651,7 +1661,15 @@ export class PreviewPipeline {
         };
         const resolvedEnv = this.deployer
             .getEnvInjector()
-            .resolve(appConfig.env, config.apps, config.services, namespace, context, publicUrlInfo, addonOutputs);
+            .resolveConnections(
+                appConfig.connections,
+                config.apps,
+                config.services,
+                namespace,
+                context,
+                publicUrlInfo,
+                addonOutputs,
+            );
         this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
         const kc = this.deployer.getKubeConfig();
         await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv, {

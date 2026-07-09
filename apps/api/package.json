@@ -17,7 +17,8 @@
         "test": "vitest run --config vitest.config.ts --passWithNoTests",
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
         "test:all": "vitest run --config vitest.config.ts --passWithNoTests & vitest run --config vitest.integration.config.ts --passWithNoTests & wait",
-        "agent:execute": "tsx --env-file=../../.env src/scripts/batch-generate.ts"
+        "agent:execute": "tsx --env-file=../../.env src/scripts/batch-generate.ts",
+        "migrate:preview-config-secrets": "tsx --env-file=../../.env src/scripts/migrate-preview-config-secrets.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",

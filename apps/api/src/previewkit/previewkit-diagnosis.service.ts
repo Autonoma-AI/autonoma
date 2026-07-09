@@ -412,7 +412,9 @@ function summarizeConfig(resolvedConfig: Prisma.JsonValue | null): unknown {
             dockerfile: app.dockerfile,
             port: app.port,
             healthCheck: app.health_check,
-            envKeys: Object.keys(app.env ?? {}),
+            // Env-var keys the document declares: topology connections + build-time
+            // secret keys. Runtime secret values live in AWS, never in the config.
+            envKeys: [...app.connections.map((connection) => connection.key), ...app.build_secrets],
         })),
         services: parsed.data.services.map((service) => ({ name: service.name, recipe: service.recipe })),
         addons: parsed.data.addons.map((addon) => ({ name: addon.name, provider: addon.provider })),

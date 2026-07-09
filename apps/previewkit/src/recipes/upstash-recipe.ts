@@ -108,7 +108,6 @@ export class UpstashRecipe extends BaseRecipe<UpstashOptions> {
                 { name: "SRH_TOKEN", value: token },
                 { name: "SRH_CONNECTION_STRING", value: `redis://127.0.0.1:${REDIS_LOCAL_PORT}` },
                 { name: "SRH_PORT", value: String(PROXY_PORT) },
-                ...Object.entries(config.env).map(([name, value]) => ({ name, value })),
             ],
             ports: [{ name: "http", containerPort: PROXY_PORT }],
             resources: {

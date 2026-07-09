@@ -54,19 +54,19 @@ export class EnvInjector {
     constructor(private recipeRegistry: RecipeRegistry) {}
 
     /**
-     * Resolves runtime env from the preview config by templating its values.
+     * Resolves an app's topology connections into runtime env vars. Each
+     * connection's `value` is a template (e.g. `mongodb://{{db.host}}:{{db.port}}/x`)
+     * templated against the live app / service / addon map (see {@link applyTemplates}).
      *
-     * Sensitive runtime env (API keys, third-party credentials) lives in the
-     * per-app AWS Secrets Manager bundle and is mounted into the pod via
-     * ExternalSecretsOperator's `envFrom: secretRef`, which lands those keys
-     * as environment variables INDEPENDENTLY of this function. If both the
-     * AWS SM bundle and the preview config's `env:` define the same key, the
-     * Kubernetes `env:` list (i.e. this function's output) wins over
-     * `envFrom`, matching the kubectl rule. Treat that as the override
-     * channel for committed switches like PLAID_ENV / SEND_EMAILS_LOCALLY.
+     * Connections are the ONLY non-secret runtime env. Everything a user types
+     * is a secret, stored in the per-app AWS Secrets Manager bundle and mounted
+     * via ExternalSecretsOperator's `envFrom: secretRef` INDEPENDENTLY of this
+     * function. If a connection key and a secret key collide, the Kubernetes
+     * `env:` list (this function's output) wins over `envFrom`, matching the
+     * kubectl rule - so a connection is also the override channel.
      */
-    resolve(
-        configEnv: Record<string, string>,
+    resolveConnections(
+        connections: AppConfig["connections"],
         apps: AppConfig[],
         services: ServiceConfig[],
         namespace: string,
@@ -74,12 +74,16 @@ export class EnvInjector {
         publicUrlInfo: PublicUrlInfo,
         addonOutputs: AddonOutputs = {},
     ): Record<string, string> {
-        return this.applyTemplates(configEnv, apps, services, namespace, context, publicUrlInfo, addonOutputs);
+        const values: Record<string, string> = {};
+        for (const connection of connections) {
+            values[connection.key] = connection.value;
+        }
+        return this.applyTemplates(values, apps, services, namespace, context, publicUrlInfo, addonOutputs);
     }
 
     /**
-     * Pure templating over a value map. Used for build_args (no secret merge)
-     * and indirectly by `resolve` for env. Available substitutions:
+     * Pure templating over a value map. Used for build-time args and indirectly
+     * by `resolveConnections` for runtime env. Available substitutions:
      *   - `{{pr}}`, `{{namespace}}`, `{{owner}}`
      *   - `{{<name>.host}}` — in-cluster DNS of an app or service
      *   - `{{<name>.port}}` — in-cluster port of an app or service

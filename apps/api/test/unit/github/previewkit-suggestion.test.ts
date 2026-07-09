@@ -95,23 +95,49 @@ describe("heuristicEnvVars", () => {
         expect(result.apps[0]?.vars[0]?.value).toBeUndefined();
     });
 
-    it("passes through a plain value and flags a credential as sensitive", () => {
+    it("treats every non-connection value as a write-only secret (no literal value)", () => {
         const apps: AppEnvSignal[] = [
             {
                 name: "web",
                 entries: [
                     { key: "PORT", value: "3000" },
+                    { key: "NODE_ENV", value: "production" },
                     { key: "STRIPE_SECRET_KEY", value: "sk_test_123" },
                 ],
                 dependencies: [],
             },
         ];
         const vars = heuristicEnvVars(apps, services).apps[0]?.vars ?? [];
-        const port = vars.find((entry) => entry.key === "PORT");
-        const secret = vars.find((entry) => entry.key === "STRIPE_SECRET_KEY");
-        expect(port).toMatchObject({ value: "3000", sensitive: false });
-        expect(secret?.sensitive).toBe(true);
-        expect(secret?.value).toBeUndefined();
+        // Plain config (PORT, NODE_ENV) is now a secret, same as a credential - and none carry a value.
+        for (const key of ["PORT", "NODE_ENV", "STRIPE_SECRET_KEY"]) {
+            const entry = vars.find((v) => v.key === key);
+            expect(entry?.sensitive).toBe(true);
+            expect(entry?.reference).toBeUndefined();
+            expect(entry?.value).toBeUndefined();
+        }
+    });
+
+    it("flags framework client-bundle vars (NEXT_PUBLIC_*) as build_time", () => {
+        const apps: AppEnvSignal[] = [
+            { name: "web", entries: [{ key: "NEXT_PUBLIC_API_URL", value: "https://x" }], dependencies: [] },
+        ];
+        const vars = heuristicEnvVars(apps, services).apps[0]?.vars ?? [];
+        const entry = vars.find((v) => v.key === "NEXT_PUBLIC_API_URL");
+        expect(entry).toMatchObject({ key: "NEXT_PUBLIC_API_URL", build_time: true, sensitive: true });
+    });
+
+    it("composes host:port for a connection to a service with no url token (temporal)", () => {
+        const apps: AppEnvSignal[] = [
+            { name: "worker", entries: [{ key: "TEMPORAL_ADDRESS", value: "localhost:7233" }], dependencies: [] },
+        ];
+        const withTemporal: SuggestionServiceRef[] = [{ name: "temporal", recipe: "temporal" }];
+        const vars = heuristicEnvVars(apps, withTemporal).apps[0]?.vars ?? [];
+        const entry = vars.find((v) => v.key === "TEMPORAL_ADDRESS");
+        expect(entry).toMatchObject({
+            key: "TEMPORAL_ADDRESS",
+            reference: "{{temporal.host}}:{{temporal.port}}",
+            sensitive: false,
+        });
     });
 
     it("omits apps with no env entries", () => {

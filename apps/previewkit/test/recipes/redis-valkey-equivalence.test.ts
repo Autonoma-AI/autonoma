@@ -6,7 +6,6 @@ import { ValkeyRecipe } from "../../src/recipes/valkey-recipe";
 const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
     name: "cache",
     recipe: "redis",
-    env: { FOO: "bar" },
     options: {},
     resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
     ...overrides,
@@ -26,7 +25,6 @@ describe("RedisRecipe", () => {
             initialDelaySeconds: 3,
             periodSeconds: 5,
         });
-        expect(container?.env).toEqual([{ name: "FOO", value: "bar" }]);
         expect(container?.resources).toEqual({
             requests: { cpu: "250m", memory: "256Mi" },
             limits: { memory: "512Mi" },

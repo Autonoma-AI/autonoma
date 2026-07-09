@@ -1,27 +1,36 @@
-import { Badge, Button } from "@autonoma/blacklight";
-import { previewConfigSchema, validatePreviewConfigSemantics, zodIssuesToConfigIssues } from "@autonoma/types";
-import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
-import { PlusIcon } from "@phosphor-icons/react/Plus";
+import {
+  connectionTargets,
+  previewConfigSchema,
+  validatePreviewConfigSemantics,
+  zodIssuesToConfigIssues,
+} from "@autonoma/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreviewkitConfig, useSavePreviewkitConfig } from "lib/onboarding/onboarding-api";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
-import { useEffect, useRef, useState } from "react";
-// Reuse the onboarding PreviewKit editor building blocks. These are
-// route-excluded ("-") modules, so importing them from the settings subtree is
-// a normal cross-module import - it keeps one source of truth for the topology
-// draft model, the app/service cards, and the multirepo topology section.
-import { AppCard } from "../../../onboarding/-components/previewkit/app-card";
-import { HooksSection } from "../../../onboarding/-components/previewkit/hooks-section";
-import { MultirepoSection } from "../../../onboarding/-components/previewkit/multirepo-section";
-import { ServicesSection } from "../../../onboarding/-components/previewkit/services-section";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import {
   PRIMARY_REPO_KEY,
   type AppDraft,
+  type BranchConventionDraft,
   type CompiledDocument,
   type DraftIssues,
+  type EnvRowDraft,
+  type HookDraft,
+  type HooksDraft,
   type RepoDraft,
+  type ServiceDraft,
+  type ServiceRecipe,
   type TopologyDraft,
   diffAppSecrets,
   documentsFromDraft,
@@ -32,20 +41,72 @@ import {
   isUntouchedStarterApp,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
+  serviceDraftForRecipe,
   serviceRecipeSupportsUrlToken,
   snapshotDocument,
   withSecretRows,
 } from "../../../onboarding/-components/previewkit/topology-draft";
 
+export interface RepoGroup {
+  key: string;
+  label: string;
+  badge: string;
+}
+
+interface PreviewDraftValue {
+  appId: string;
+  draft: TopologyDraft;
+  setDraft: Dispatch<SetStateAction<TopologyDraft>>;
+  issues: DraftIssues;
+  /** Per-hook validation messages keyed `${hookId}:${"app" | "command"}`. */
+  hookErrors: Map<string, string[]>;
+  repoGroups: RepoGroup[];
+  appCountByRepoKey: Map<string, number>;
+  primaryRepoFullName?: string;
+  /** `{{name.field}}` tokens offered wherever values can reference services/apps. */
+  referenceTokens: string[];
+  /** Every app and service name, for depends-on pickers. */
+  allNames: string[];
+  /** Apps that count as real (non-starter) deployables. */
+  deployableApps: AppDraft[];
+  hasUntouchedStarterApps: boolean;
+  isDirty: boolean;
+  canSave: boolean;
+  isSaving: boolean;
+  updateApp: (id: number, patch: Partial<AppDraft>) => void;
+  setPrimaryApp: (id: number) => void;
+  /** Appends an empty app to the repo and returns its draft id, so callers can select it. */
+  addApp: (repoKey: string) => number;
+  removeApp: (id: number) => void;
+  setRepos: (repos: RepoDraft[]) => void;
+  setBranchConvention: (convention: BranchConventionDraft) => void;
+  /** Attaches a service from the recipe catalog and returns its draft id, so callers can select it. */
+  addService: (recipe: ServiceRecipe) => number;
+  /** Detaches a service and removes every app variable bound to it (plus dangling depends_on). */
+  removeService: (id: number) => void;
+  setServices: (services: ServiceDraft[]) => void;
+  setHooks: (hooks: HooksDraft) => void;
+  save: () => void;
+  cancel: () => void;
+}
+
+const PreviewDraftContext = createContext<PreviewDraftValue | undefined>(undefined);
+
+export function usePreviewDraft(): PreviewDraftValue {
+  const value = useContext(PreviewDraftContext);
+  if (value == null) throw new Error("usePreviewDraft must be used inside PreviewDraftProvider");
+  return value;
+}
+
 /**
- * Persistent (post-onboarding) editor for an application's active PreviewKit
- * config, reachable from Settings -> Preview. It edits the full topology: the
- * primary repo's apps, managed services, and the dependency-repo topology
- * (aliases, fallback branch, branch convention) - the same model the onboarding
- * builder uses. Saving writes a new revision for this application; dependency
- * configs ride along on that revision via `dependencyDocuments`.
+ * Holds the persistent (post-onboarding) editing state for an application's
+ * active PreviewKit config: the full topology draft (primary repo apps, managed
+ * services, hooks, dependency-repo topology) plus the per-app secret key sets.
+ * The Apps / Secrets / Services settings sections all read and write this one
+ * draft, and the shared save bar persists it as a single new config revision
+ * (dependency configs and secret upserts/deletes ride along on that save).
  */
-export function PreviewConfigEditor({ appId }: { appId: string }) {
+export function PreviewDraftProvider({ appId, children }: { appId: string; children: ReactNode }) {
   const configQuery = usePreviewkitConfig(appId);
   const repositoryQuery = useApplicationRepositoryFromGitHub(appId);
   const saveConfig = useSavePreviewkitConfig();
@@ -87,18 +148,28 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
         }),
       );
       if (cancelled) return;
-      const keyMap = new Map(entries);
-      loadedSecretKeys.current = keyMap;
+      const storedKeys = new Map(entries);
       setDraft((current) => {
-        const next: TopologyDraft = {
-          ...current,
-          apps: current.apps.map((app) => {
-            if (app.repoKey !== PRIMARY_REPO_KEY) return app;
-            // Merge in existing secret keys (if any) and keep the merged list sorted.
-            const keys = keyMap.get(app.name.trim()) ?? [];
-            return { ...app, env: withSecretRows(app.env, keys) };
-          }),
-        };
+        const representedKeys = new Map<string, string[]>();
+        const apps = current.apps.map((app) => {
+          if (app.repoKey !== PRIMARY_REPO_KEY) return app;
+          // Merge in existing secret keys (if any) and keep the merged list sorted.
+          const appName = app.name.trim();
+          const keys = storedKeys.get(appName) ?? [];
+          const env = withSecretRows(app.env, keys);
+          // Track only the stored keys that ended up represented by a sensitive
+          // row. A stored secret shadowed by a plaintext config row is skipped
+          // by the merge - counting it would report a phantom "delete" (dirty
+          // on load) and a save would then silently drop the secret from AWS.
+          const sensitiveKeys = new Set(env.filter((row) => row.sensitive).map((row) => row.key.trim()));
+          representedKeys.set(
+            appName,
+            keys.filter((key) => sensitiveKeys.has(key)),
+          );
+          return { ...app, env };
+        });
+        const next: TopologyDraft = { ...current, apps };
+        loadedSecretKeys.current = representedKeys;
         baselineDraft.current = structuredClone(next);
         return next;
       });
@@ -129,7 +200,7 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
   const isDirty = !sameSnapshots(snapshotCompiled(compiled), savedSnapshots) || secretsDirty;
   const canSave = isDirty && !hasBlockingIssues && !saveConfig.isPending;
 
-  const repoGroups: Array<{ key: string; label: string; badge: string }> = [
+  const repoGroups: RepoGroup[] = [
     { key: PRIMARY_REPO_KEY, label: repositoryQuery.data?.fullName ?? "Primary repo", badge: "primary" },
     ...draft.repos.map((repo) => ({ key: repo.name, label: repo.repo, badge: "dependency" })),
   ];
@@ -149,14 +220,24 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
   ];
 
   function updateApp(id: number, patch: Partial<AppDraft>) {
-    setDraft((current) => ({
-      ...current,
-      apps: current.apps.map((app) =>
+    setDraft((current) => {
+      const target = current.apps.find((app) => app.id === id);
+      const apps = current.apps.map((app) =>
         app.id === id
           ? { ...app, ...patch, origin: app.origin === "starter" ? "manual" : (patch.origin ?? app.origin) }
           : app,
-      ),
-    }));
+      );
+      const next: TopologyDraft = { ...current, apps };
+
+      // Hooks target apps by name, so they follow the app through a rename -
+      // unless another app still carries the old name (transient duplicate).
+      const oldName = target?.name.trim() ?? "";
+      const newName = patch.name?.trim();
+      if (target == null || newName == null || newName === oldName || oldName === "") return next;
+      const otherKeepsOldName = apps.some((app) => app.id !== id && app.name.trim() === oldName);
+      if (otherKeepsOldName) return next;
+      return { ...next, hooks: renameHookTargets(next.hooks, oldName, newName) };
+    });
   }
 
   function setPrimaryApp(id: number) {
@@ -170,15 +251,20 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
     }));
   }
 
-  function addApp(repoKey: string) {
-    setDraft((current) => ({ ...current, apps: [...current.apps, emptyAppDraft(repoKey)] }));
+  function addApp(repoKey: string): number {
+    const app = emptyAppDraft(repoKey);
+    setDraft((current) => ({ ...current, apps: [...current.apps, app] }));
+    return app.id;
   }
 
   function removeApp(id: number) {
-    setDraft((current) => pruneDanglingDependsOn({ ...current, apps: current.apps.filter((app) => app.id !== id) }));
+    setDraft((current) => {
+      const apps = current.apps.filter((app) => app.id !== id);
+      return pruneDanglingDependsOn({ ...current, apps, hooks: pruneHooksToApps(current.hooks, apps) });
+    });
   }
 
-  function handleReposChange(repos: RepoDraft[]) {
+  function setRepos(repos: RepoDraft[]) {
     setDraft((current) => {
       const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
       const renameByOldName = new Map<string, string>();
@@ -193,11 +279,43 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
           return renamed != null ? { ...app, repoKey: renamed } : app;
         })
         .filter((app) => validKeys.has(app.repoKey));
-      return pruneDanglingDependsOn({ ...current, repos, apps });
+      // Dropping a dependency repo drops its apps - and with them their hooks.
+      return pruneDanglingDependsOn({ ...current, repos, apps, hooks: pruneHooksToApps(current.hooks, apps) });
     });
   }
 
-  function handleSave() {
+  function setBranchConvention(branchConvention: BranchConventionDraft) {
+    setDraft((current) => ({ ...current, branchConvention }));
+  }
+
+  function addService(recipe: ServiceRecipe): number {
+    const service = serviceDraftForRecipe(
+      recipe,
+      draft.services.map((candidate) => candidate.name),
+    );
+    setDraft((current) => ({ ...current, services: [...current.services, service] }));
+    return service.id;
+  }
+
+  function removeService(id: number) {
+    setDraft((current) => {
+      const service = current.services.find((candidate) => candidate.id === id);
+      const name = service?.name.trim() ?? "";
+      const services = current.services.filter((candidate) => candidate.id !== id);
+      const apps = name === "" ? current.apps : current.apps.map((app) => withoutServiceBindings(app, name));
+      return pruneDanglingDependsOn({ ...current, services, apps });
+    });
+  }
+
+  function setServices(services: ServiceDraft[]) {
+    setDraft((current) => ({ ...current, services }));
+  }
+
+  function setHooks(hooks: HooksDraft) {
+    setDraft((current) => ({ ...current, hooks }));
+  }
+
+  function save() {
     if (!canSave) return;
     const submission = documentsFromDraft(draft);
     const secrets = draft.apps
@@ -251,125 +369,73 @@ export function PreviewConfigEditor({ appId }: { appId: string }) {
     );
   }
 
-  function handleCancel() {
+  function cancel() {
     if (baselineDraft.current != null) setDraft(structuredClone(baselineDraft.current));
   }
 
-  return (
-    <div className="flex max-w-4xl flex-col gap-6">
-      <MultirepoSection
-        repos={draft.repos}
-        branchConvention={draft.branchConvention}
-        primaryRepoFullName={repositoryQuery.data?.fullName}
-        appCountByRepoKey={appCountByRepoKey}
-        onReposChange={handleReposChange}
-        onBranchConventionChange={(branchConvention) => setDraft((current) => ({ ...current, branchConvention }))}
-      />
+  const value: PreviewDraftValue = {
+    appId,
+    draft,
+    setDraft,
+    issues,
+    hookErrors,
+    repoGroups,
+    appCountByRepoKey,
+    primaryRepoFullName: repositoryQuery.data?.fullName,
+    referenceTokens,
+    allNames,
+    deployableApps,
+    hasUntouchedStarterApps,
+    isDirty,
+    canSave,
+    isSaving: saveConfig.isPending,
+    updateApp,
+    setPrimaryApp,
+    addApp,
+    removeApp,
+    setRepos,
+    setBranchConvention,
+    addService,
+    removeService,
+    setServices,
+    setHooks,
+    save,
+    cancel,
+  };
 
-      <div className="space-y-6">
-        {repoGroups.map((group) => {
-          const groupApps = draft.apps.filter((app) => app.repoKey === group.key);
-          return (
-            <section key={group.key} className="border border-border-dim bg-surface-base">
-              <div className="flex flex-wrap items-center gap-3 border-b border-border-dim bg-surface-raised px-5 py-4">
-                <h2
-                  className="truncate font-mono text-sm font-bold uppercase tracking-widest text-text-primary"
-                  title={group.label}
-                >
-                  {group.label}
-                </h2>
-                <Badge variant="outline">{group.badge}</Badge>
-                <Button variant="outline" size="xs" className="ml-auto gap-1" onClick={() => addApp(group.key)}>
-                  <PlusIcon size={12} weight="bold" />
-                  Add app
-                </Button>
-              </div>
-              <div className="space-y-4 p-5">
-                {groupApps.length === 0 ? (
-                  <p className="text-sm text-text-secondary">
-                    No apps mapped to this repo yet. Add one to get started.
-                  </p>
-                ) : (
-                  groupApps.map((app) => (
-                    <AppCard
-                      key={app.id}
-                      app={app}
-                      issues={issues}
-                      dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
-                      referenceTokens={referenceTokens}
-                      enableSecrets={group.key === PRIMARY_REPO_KEY}
-                      onChange={updateApp}
-                      onSetPrimary={setPrimaryApp}
-                      onRemove={removeApp}
-                    />
-                  ))
-                )}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+  return <PreviewDraftContext.Provider value={value}>{children}</PreviewDraftContext.Provider>;
+}
 
-      <ServicesSection
-        services={draft.services}
-        onChange={(services) => setDraft((current) => ({ ...current, services }))}
-      />
+/** Rewrites hook rows targeting `oldName` to follow the app's rename to `newName`. */
+function renameHookTargets(hooks: HooksDraft, oldName: string, newName: string): HooksDraft {
+  const rename = (steps: HookDraft[]) =>
+    steps.map((step) => (step.app.trim() === oldName ? { ...step, app: newName } : step));
+  return { pre_deploy: rename(hooks.pre_deploy), post_deploy: rename(hooks.post_deploy) };
+}
 
-      <HooksSection
-        hooks={draft.hooks}
-        appNames={hookAppNames}
-        errors={hookErrors}
-        onChange={(hooks) => setDraft((current) => ({ ...current, hooks }))}
-      />
+/**
+ * Drops hook rows whose target app no longer exists among `apps`. Hooks live in
+ * each app's Hooks tab, so a row surviving its app would be uneditable (and
+ * would invisibly block saving on the unknown-app validation).
+ */
+function pruneHooksToApps(hooks: HooksDraft, apps: AppDraft[]): HooksDraft {
+  const names = new Set(apps.map((app) => app.name.trim()));
+  const prune = (steps: HookDraft[]) => steps.filter((step) => step.app.trim() === "" || names.has(step.app.trim()));
+  return { pre_deploy: prune(hooks.pre_deploy), post_deploy: prune(hooks.post_deploy) };
+}
 
-      {issues.documentErrors.length > 0 ? (
-        <div className="border-l-2 border-status-critical bg-status-critical/10 px-4 py-3">
-          <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Invalid config</p>
-          {issues.documentErrors.map((message) => (
-            <p key={message} className="mt-2 text-sm text-text-secondary">
-              {message}
-            </p>
-          ))}
-        </div>
-      ) : undefined}
-      {issues.documentWarnings.length > 0 ? (
-        <div className="border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
-          <p className="font-mono text-2xs uppercase tracking-widest text-status-warn">Warnings</p>
-          {issues.documentWarnings.map((message) => (
-            <p key={message} className="mt-2 text-sm text-text-secondary">
-              {message}
-            </p>
-          ))}
-        </div>
-      ) : undefined}
-      {hasUntouchedStarterApps ? (
-        <p className="text-sm text-text-secondary">
-          Edit the starter app before saving - the placeholder values are only a guide.
-        </p>
-      ) : undefined}
-
-      <div className="flex items-center justify-end gap-3 border-t border-border-dim pt-4">
-        <Button
-          variant="ghost"
-          onClick={handleCancel}
-          disabled={!isDirty || saveConfig.isPending}
-          aria-label="preview-config-cancel"
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="accent"
-          className="gap-2"
-          onClick={handleSave}
-          disabled={!canSave}
-          aria-label="preview-config-save"
-        >
-          <FloppyDiskIcon size={16} weight="bold" />
-          {saveConfig.isPending ? "Saving..." : "Save config"}
-        </Button>
-      </div>
-    </div>
-  );
+/**
+ * Drops every connection of `app` bound to `serviceName` (detaching a service
+ * removes its bindings from the apps). Secret rows never hold bindings, so they
+ * are untouched.
+ */
+function withoutServiceBindings(app: AppDraft, serviceName: string): AppDraft {
+  const references = (row: EnvRowDraft) => !row.sensitive && connectionTargets(row.value).includes(serviceName);
+  if (!app.env.some(references)) return app;
+  return {
+    ...app,
+    env: app.env.filter((row) => !references(row)),
+  };
 }
 
 /** Snapshot every compiled document (primary + each dependency) keyed by repo, for dirty tracking. */

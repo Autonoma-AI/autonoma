@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { previewConfigSchema, validateHookSteps } from "./previewkit-config";
+import {
+    connectionTargets,
+    connectionTokens,
+    previewConfigSchema,
+    validatePreviewConfigSemantics,
+    validateHookSteps,
+} from "./previewkit-config";
 
 function parseWithBuild(build: unknown) {
     return previewConfigSchema.safeParse({
@@ -118,6 +124,70 @@ describe("previewConfigSchema multirepo dependency sha", () => {
         if (result.success) {
             expect(result.data.config?.multirepo?.repos[0]?.sha).toBe("abc123def456");
         }
+    });
+});
+
+describe("connection token parsing", () => {
+    it("extracts every {{name.property}} token from a composite value", () => {
+        const value = "mongodb://{{db.host}}:{{db.port}}/preview?x={{cache.host}}";
+        expect(connectionTokens(value)).toEqual([
+            { target: "db", property: "host" },
+            { target: "db", property: "port" },
+            { target: "cache", property: "host" },
+        ]);
+        expect(connectionTargets(value)).toEqual(["db", "cache"]);
+    });
+
+    it("ignores single-word builtins with no dot ({{pr}})", () => {
+        expect(connectionTokens("https://{{pr}}.example.com/{{api.url}}")).toEqual([
+            { target: "api", property: "url" },
+        ]);
+    });
+});
+
+describe("connection validation", () => {
+    const parse = (connections: unknown) =>
+        previewConfigSchema.parse({
+            version: 1,
+            apps: [{ name: "web", port: 3000, connections }],
+            services: [{ name: "db", recipe: "postgres" }],
+        });
+
+    it("accepts a single-token connection to a declared service", () => {
+        const config = parse([{ key: "DATABASE_URL", value: "{{db.url}}" }]);
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.path.includes("connections"))).toBe(false);
+        expect(config.apps[0]?.connections[0]?.build_time).toBe(false);
+    });
+
+    it("accepts a composite connection value combining multiple tokens and literal text", () => {
+        const config = parse([{ key: "MONGO_URI", value: "mongodb://{{db.host}}:{{db.port}}/preview?replicaSet=rs0" }]);
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.path.includes("connections"))).toBe(false);
+    });
+
+    it("flags a connection referencing an unknown app or service", () => {
+        const config = parse([{ key: "MONGO_URI", value: "mongodb://{{ghost.host}}:{{db.port}}/x" }]);
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.code === "unknown_connection_target")).toBe(true);
+    });
+
+    it("flags two connections sharing a key", () => {
+        const config = parse([
+            { key: "URL", value: "{{db.host}}" },
+            { key: "URL", value: "{{db.port}}" },
+        ]);
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.code === "duplicate_connection_key")).toBe(true);
+    });
+
+    it("rejects a reserved key as a connection", () => {
+        const result = previewConfigSchema.safeParse({
+            version: 1,
+            apps: [{ name: "web", port: 3000, connections: [{ key: "AUTONOMA_PREVIEWKIT", value: "{{db.url}}" }] }],
+            services: [{ name: "db", recipe: "postgres" }],
+        });
+        expect(result.success).toBe(false);
     });
 });
 

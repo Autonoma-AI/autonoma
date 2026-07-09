@@ -129,6 +129,28 @@ describe("topology-draft docker-image options", () => {
         if (!Array.isArray(services)) throw new Error("expected services array");
         expect(services[0]).not.toHaveProperty("options");
     });
+
+    it("round-trips postgres typed options the form does not model", () => {
+        const options = {
+            user: "app_role",
+            database: "app_db",
+            databases: ["reporting"],
+            extensions: ["uuid-ossp", "pg_trgm"],
+            ssl: true,
+            storage: "5Gi",
+            restore_from: { environment: "production", service: "db" },
+        };
+        const config = previewConfigSchema.parse({
+            version: 1,
+            apps: [{ name: "api", port: 4000 }],
+            services: [{ name: "db", recipe: "postgres", options }],
+        });
+        // An unrelated edit + save must not drop any typed option.
+        const draft = draftFromConfig(config, [], "saved");
+        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const service = reparsed.services.find((candidate) => candidate.name === "db");
+        expect(service?.options).toEqual(options);
+    });
 });
 
 describe("hookFieldErrors", () => {

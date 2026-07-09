@@ -166,7 +166,8 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
             }),
         },
         spec: {
-            replicas: app.replicas,
+            // Preview apps always run a single replica
+            replicas: 1,
             selector: { matchLabels: { app: app.name } },
             template: {
                 metadata: {

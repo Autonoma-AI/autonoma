@@ -52,7 +52,6 @@ export class AwsRecipe extends BaseRecipe<AwsOptions> {
             // so presigned URLs and SQS queue URLs resolve correctly within the cluster.
             { name: "LOCALSTACK_HOST", value: `${config.name}:${PORT}` },
             { name: "DEBUG", value: "0" },
-            ...Object.entries(config.env).map(([name, value]) => ({ name, value })),
         ];
 
         const hasInit = options.queues.length > 0 || options.buckets.length > 0;

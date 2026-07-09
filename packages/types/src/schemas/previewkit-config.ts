@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
+import { SecretKeySchema } from "./secrets";
 
 export interface ContainerResources {
     cpu: string;
@@ -12,8 +14,6 @@ export const STANDARD_RESOURCES = {
 } as const;
 
 export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
-
-export const MAX_REPLICAS = 3;
 
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
@@ -176,6 +176,29 @@ const buildSchema = z.discriminatedUnion("framework", [
 ]);
 
 /**
+ * A runtime environment variable whose value is wired to the topology. Unlike a
+ * secret, a connection has no static value: its `value` is a template that
+ * references other apps/services via `{{name.property}}` tokens and is resolved
+ * at deploy time by the EnvInjector. It is never sensitive and never stored in
+ * AWS. The value can combine multiple tokens and literal text, e.g.
+ * `mongodb://{{db.host}}:{{db.port}}/preview` or `{{temporal.host}}:{{temporal.port}}` -
+ * which a single service/property pair could not express. `build_time` also
+ * passes the resolved value as a Docker build arg.
+ */
+const connectionSchema = z.object({
+    key: SecretKeySchema.superRefine((key, ctx) => {
+        if (isReservedPreviewkitEnvKey(key)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `${key} is a reserved built-in variable and cannot be set.`,
+            });
+        }
+    }),
+    value: z.string().min(1, "value is required"),
+    build_time: z.boolean().default(false),
+});
+
+/**
  * Builds the preview config schema. `allowCustomResources` is the only knob: it
  * decides whether per-app/service `resources` overrides are honored (trusted,
  * platform-authored config) or discarded in favor of the standard tier (untrusted
@@ -190,18 +213,15 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
         dockerfile: z.string().optional(),
         build: buildSchema.optional(),
         monorepo: z.enum(["turbo"]).optional(),
-        build_args: z.record(z.string(), z.string()).default({}),
+        // The AWS-secret keys to also inject at build time (Docker build args).
+        // Runtime secret values live in AWS Secrets Manager, never in this document.
         build_secrets: z.array(z.string()).default([]),
         port: z.number().int().positive(),
-        env: z.record(z.string(), z.string()).default({}),
+        // Non-secret variables wired to the topology, resolved at deploy time.
+        // All user-typed values are secrets (AWS), so they never appear here.
+        connections: z.array(connectionSchema).default([]),
         command: z.string().optional(),
         health_check: z.string().optional(),
-        replicas: z
-            .number()
-            .int()
-            .positive()
-            .default(1)
-            .transform((replicas) => Math.min(replicas, MAX_REPLICAS)),
         primary: z.boolean().optional(),
         resources: buildResourcesSchema("app", allowCustomResources),
         depends_on: z.array(z.string()).optional(),
@@ -211,7 +231,9 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
         name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
         recipe: z.string(),
         version: z.string().optional(),
-        env: z.record(z.string(), z.string()).default({}),
+        // Recipe-functional knobs (e.g. postgres user/database) live in `options`,
+        // validated per-recipe. There is no free-text service env: it was an
+        // unbounded plaintext bag, so it was removed.
         options: z.record(z.string(), z.unknown()).default({}),
         resources: buildResourcesSchema("service", allowCustomResources),
         s3: z.boolean().optional(),
@@ -269,6 +291,55 @@ export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
 // `{ cpu, memoryRequest, memoryLimit }`); only the source of the values differs.
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = PreviewConfig["apps"][number];
+export type Connection = z.infer<typeof connectionSchema>;
+
+/** A `{{target.property}}` connection token parsed into its parts. */
+export interface ConnectionToken {
+    target: string;
+    property: string;
+}
+
+// Matches a value that is EXACTLY one `{{target.property}}` reference token.
+const CONNECTION_TOKEN_PATTERN = /^\{\{\s*([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\s*\}\}$/;
+
+/**
+ * Parses a value that is exactly one `{{target.property}}` connection token, or
+ * undefined when the value is anything else.
+ */
+export function parseConnectionToken(value: string): ConnectionToken | undefined {
+    const match = CONNECTION_TOKEN_PATTERN.exec(value.trim());
+    const target = match?.[1];
+    const property = match?.[2];
+    if (target == null || property == null) return undefined;
+    return { target, property };
+}
+
+// Finds every `{{target.property}}` token anywhere in a value (a connection
+// value may combine several tokens plus literal text).
+const CONNECTION_TOKEN_GLOBAL = /\{\{\s*([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\s*\}\}/g;
+
+/** The distinct app/service names a connection value references via `{{name.property}}`. */
+export function connectionTargets(value: string): string[] {
+    const targets = new Set<string>();
+    for (const match of value.matchAll(CONNECTION_TOKEN_GLOBAL)) {
+        if (match[1] != null) targets.add(match[1]);
+    }
+    return [...targets];
+}
+
+/** Every `{{target.property}}` token in a connection value, in order (duplicates kept). */
+export function connectionTokens(value: string): ConnectionToken[] {
+    const tokens: ConnectionToken[] = [];
+    for (const match of value.matchAll(CONNECTION_TOKEN_GLOBAL)) {
+        if (match[1] != null && match[2] != null) tokens.push({ target: match[1], property: match[2] });
+    }
+    return tokens;
+}
+
+/** Whether a connection value contains at least one `{{name.property}}` token. */
+export function hasConnectionToken(value: string): boolean {
+    return connectionTargets(value).length > 0;
+}
 
 /** An app's build strategy. Discriminated union on `framework`. */
 export type Build = z.infer<typeof buildSchema>;
@@ -286,7 +357,8 @@ export type ConfigIssueCode =
     | "no_primary"
     | "multiple_primary"
     | "duplicate_name"
-    | "unknown_env_reference"
+    | "unknown_connection_target"
+    | "duplicate_connection_key"
     | "path_not_found"
     | "dockerfile_not_found";
 
@@ -315,10 +387,6 @@ export function zodIssuesToConfigIssues(error: z.ZodError): ConfigIssue[] {
         message: issue.message,
     }));
 }
-
-// Matches `{{name.field}}` template references. Single-word builtins like `{{pr}}`
-// and `{{namespace}}` have no dot and are intentionally not matched.
-const ENV_REFERENCE_PATTERN = /\{\{\s*([a-z0-9][a-z0-9-]*)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
 
 /**
  * Semantic checks layered on top of `previewConfigSchema` (which already enforces
@@ -355,19 +423,28 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
             }
         });
 
-        for (const [key, value] of Object.entries(app.env)) {
-            for (const match of value.matchAll(ENV_REFERENCE_PATTERN)) {
-                const referencedName = match[1];
-                if (referencedName != null && !names.has(referencedName)) {
+        const seenConnectionKeys = new Set<string>();
+        app.connections.forEach((connection, connectionIndex) => {
+            for (const target of connectionTargets(connection.value)) {
+                if (!names.has(target)) {
                     issues.push({
-                        severity: "warning",
-                        code: "unknown_env_reference",
-                        path: ["apps", appIndex, "env", key],
-                        message: `"{{${referencedName}.${match[2]}}}" does not reference a declared app, service, or addon`,
+                        severity: "error",
+                        code: "unknown_connection_target",
+                        path: ["apps", appIndex, "connections", connectionIndex, "value"],
+                        message: `"{{${target}...}}" does not match any app or service in this config`,
                     });
                 }
             }
-        }
+            if (seenConnectionKeys.has(connection.key)) {
+                issues.push({
+                    severity: "error",
+                    code: "duplicate_connection_key",
+                    path: ["apps", appIndex, "connections", connectionIndex, "key"],
+                    message: `Connection "${connection.key}" is defined more than once`,
+                });
+            }
+            seenConnectionKeys.add(connection.key);
+        });
     });
 
     const primaryIndexes = config.apps.flatMap((app, index) => (app.primary === true ? [index] : []));

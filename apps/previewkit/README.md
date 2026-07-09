@@ -58,19 +58,25 @@ apps:
   - name: web
     path: ./apps/web
     port: 3000
-    env:
-      API_URL: "http://{{api.host}}:{{api.port}}"
-      DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview"
+    connections:
+      - key: API_URL
+        target: api
+        property: url
     health_check: /health
 
   - name: api
     path: ./apps/api
     port: 4000
     dockerfile: ./apps/api/Dockerfile
-    env:
-      DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview"
-      REDIS_URL: "redis://{{cache.host}}:6379"
+    connections:
+      - key: DATABASE_URL
+        target: db
+        property: url
+      - key: REDIS_URL
+        target: cache
+        property: url
     health_check: /health
+    # API keys and other typed values live in the app's secret bundle, not here.
 
 services:
   - name: db
@@ -111,12 +117,10 @@ hooks:
 | `dockerfile` | No | | Path to a Dockerfile relative to repo root. If absent, the build falls back to Turbo (when `monorepo` is set) or Railpack |
 | `build_context` | No | | Build context directory. Useful for monorepos |
 | `monorepo` | No | | Workspace build tool. Currently only `turbo`; builds from the repo root with a filter for this app |
-| `build_args` | No | `{}` | Docker build arguments |
-| `build_secrets` | No | `[]` | Names of uploaded secrets to expose at build time (e.g. `NEXT_PUBLIC_*`); each must already be uploaded via the secrets API |
-| `env` | No | `{}` | Environment variables. Supports `{{name.host}}`, `{{name.port}}` and `{{name.url}}` templates |
+| `build_secrets` | No | `[]` | Secret keys to also expose at build time as Docker build args (e.g. `NEXT_PUBLIC_*`); each must already exist in the app's secret bundle |
+| `connections` | No | `[]` | Non-secret variables wired to another app/service and resolved at deploy time. Each is `{ key, target, property, build_time? }` (e.g. `DATABASE_URL` -> the `db` service's `url`). See [Connections](#connections) |
 | `command` | No | | Override the container command |
 | `health_check` | No | | HTTP path for readiness/liveness probes |
-| `replicas` | No | `1` | Number of pod replicas. Capped at 3 (platform policy); higher values are clamped, not rejected |
 | `primary` | No | | Marks this app as the environment's primary URL |
 | `depends_on` | No | | Names of apps/services this app waits for before starting |
 | `resources` | No | | **Ignored for user-authored config.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. The field is still accepted so existing configs validate, but its `cpu`/`memory` values have no effect here - resource sizing is honored only for trusted, platform-authored config. |
@@ -128,40 +132,45 @@ hooks:
 | `name` | Yes | | Name used in `{{name.host}}` templates |
 | `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `api-gateway`, `docker-image` |
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
-| `env` | No | `{}` | Extra environment variables for the service container |
-| `options` | No | `{}` | Recipe-specific options (e.g. `docker-image`'s `image` / `port` / `readiness`) |
+| `options` | No | `{}` | Recipe-specific options (e.g. postgres `user` / `database`, `docker-image`'s `image` / `port` / `readiness`) |
 | `resources` | No | | **Ignored for user-authored config** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
 
-### Template Syntax
+### Connections
 
-Use `{{name.host}}`, `{{name.port}}` and `{{name.url}}` in `env` values to reference other apps or services within the preview namespace:
+Every variable a user types is a secret (stored in AWS Secrets Manager). The one non-secret variable is a **connection**: a value wired to another app or service in the preview namespace and resolved at deploy time. It has no static value, so it is never stored as a secret.
+
+Each connection names an env `key`, the `target` app/service, the `property` to read, and an optional `build_time` flag:
 
 ```yaml
-env:
-  # Reference a service by host/port
-  DATABASE_URL: "postgresql://preview:preview@{{db.host}}:{{db.port}}/preview"
+connections:
+  # DATABASE_URL = the db service's full connection string
+  - key: DATABASE_URL
+    target: db
+    property: url
 
-  # Or let the recipe build the whole connection string with `.url`
-  DATABASE_URL: "{{db.url}}"
-
-  # Reference another app
-  API_URL: "http://{{api.host}}:{{api.port}}"
+  # VITE_API_URL = the api app's public URL, also baked into the image build
+  - key: VITE_API_URL
+    target: api
+    property: url
+    build_time: true
 ```
 
-`{{name.host}}` / `{{name.port}}` resolve to the Kubernetes service DNS name and port within the namespace (e.g. `db`, `api`).
+Properties resolve as:
+- `host` / `port` - the Kubernetes service DNS name and port within the namespace (e.g. `db`, `api`).
+- `url` -
+  - an **app**'s public HTTPS preview URL, or
+  - a **service**'s in-cluster connection string, when the recipe defines a well-known scheme:
+    - `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`
+    - `redis` / `valkey` -> `redis://<host>:<port>`
+    - `mongodb` -> `mongodb://<host>:<port>/?directConnection=true`
 
-`{{name.url}}` resolves to:
-- an **app**'s public HTTPS preview URL, or
-- a **service**'s in-cluster connection string, when the recipe defines a well-known scheme:
-  - `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`
-  - `redis` / `valkey` -> `redis://<host>:<port>`
-  - `mongodb` -> `mongodb://<host>:<port>/?directConnection=true`
+Recipes without a single-scheme URL (e.g. `temporal`, `api-gateway`) expose only `host` / `port`.
 
-Recipes without a single-scheme URL (e.g. `temporal`, `api-gateway`) don't support `{{name.url}}` - use `{{name.host}}` / `{{name.port}}` for those.
+A `build_time` connection is also passed as a Docker build arg (for values baked into the image, e.g. a Vite frontend's API URL). At runtime a connection is injected as an env var and wins over a stored secret of the same key.
 
 ### Built-in Environment Variables
 
-Every app pod is injected with these at deploy time (`Deployer.deployApp`). The names are reserved - the secrets API rejects uploads using them, and they always override any user-set value (config `env` or a stored secret):
+Every app pod is injected with these at deploy time (`Deployer.deployApp`). The names are reserved - the secrets API rejects uploads using them, and they always override any user-set value (a connection or a stored secret):
 
 | Variable | Value |
 | --- | --- |
@@ -173,14 +182,14 @@ The reserved key set lives in `@autonoma/types` (`PREVIEWKIT_BUILTIN_ENV_VARS` /
 
 ## Secrets Management
 
-Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`. They are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (`build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.
+Every user-typed variable is a secret. Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`, and are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (the keys listed in `build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.
 
-At deploy time, secrets are merged with the config's env vars. The config takes priority, allowing you to override connection strings for preview infrastructure while keeping API keys in the secret store:
+At deploy time, connections are resolved and injected as pod env, layered on top of the secret bundle. A connection wins over a stored secret of the same key, so it is the override channel for preview-infrastructure wiring while API keys stay in the secret store:
 
 ```
-Stored secrets (base)  -> { DATABASE_URL: "postgres://prod:5432", OPENAI_API_KEY: "sk-..." }
-Config env (override)  -> { DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview" }
-After merge + resolve  -> { DATABASE_URL: "postgresql://preview:preview@db:5432/preview", OPENAI_API_KEY: "sk-..." }
+Stored secrets (envFrom)  -> { DATABASE_URL: "postgres://prod:5432", OPENAI_API_KEY: "sk-..." }
+Connections (env, wins)   -> { DATABASE_URL: "{{db.url}}" }
+After resolve             -> { DATABASE_URL: "postgresql://preview:preview@db:5432/preview", OPENAI_API_KEY: "sk-..." }
 ```
 
 ### API Routes
@@ -418,7 +427,6 @@ services:
 | `port` | No | Primary container port. Omit for workers / jobs that don't need a Service |
 | `command` | No | Container `command` (entrypoint override) |
 | `args` | No | Container `args` |
-| `env` | No | Extra env vars merged on top of the service-level `env:` (options wins on collision) |
 | `additional_ports` | No | Extra named ports exposed by the Service: `[{ name, port }]` |
 | `readiness` | No | Exactly one of `http`, `exec`, `tcp`. Omit for instant readiness |
 

@@ -27,9 +27,4 @@ describe("createPreviewkitDefaults", () => {
         expect(d.standards.resources.app).toEqual(STANDARD_RESOURCES.app);
         expect(d.standards.resources.service).toEqual(STANDARD_RESOURCES.service);
     });
-
-    it("exposes the replicas cap as platform policy", () => {
-        const d = createPreviewkitDefaults(env);
-        expect(d.standards.maxReplicas).toBe(3);
-    });
 });

@@ -13,10 +13,8 @@ const baseApp: AppConfig = {
     name: "web",
     path: "./apps/web",
     port: 3000,
-    build_args: {},
     build_secrets: [],
-    env: {},
-    replicas: 1,
+    connections: [],
     resources: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
 };
 
@@ -148,6 +146,11 @@ describe("buildAppDeployment", () => {
         ]);
     });
 
+    it("always runs a single replica", () => {
+        const dep = buildAppDeployment(baseOpts);
+        expect(dep.spec!.replicas).toBe(1);
+    });
+
     it("drops user-set managed secret keys from config env so the mounted secret wins", () => {
         const dep = buildAppDeployment({
             ...baseOpts,
@@ -161,11 +164,6 @@ describe("buildAppDeployment", () => {
         expect(container.env!.some((e) => e.name === "AUTONOMA_SHARED_SECRET")).toBe(false);
         expect(container.env!.some((e) => e.name === "AUTONOMA_SIGNING_SECRET")).toBe(false);
         expect(container.env!.some((e) => e.name === "DATABASE_URL")).toBe(true);
-    });
-
-    it("sets replicas from config", () => {
-        const dep = buildAppDeployment({ ...baseOpts, app: { ...baseApp, replicas: 3 } });
-        expect(dep.spec!.replicas).toBe(3);
     });
 
     it("sets command when provided", () => {

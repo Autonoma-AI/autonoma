@@ -141,18 +141,6 @@ describe("DockerImageRecipe", () => {
         expect(() => recipe.generate(config, "ns")).toThrow(/Invalid options for docker-image recipe/);
     });
 
-    it("propagates env entries from config", () => {
-        const config = baseService({
-            env: { FOO: "bar", BAZ: "qux" },
-            options: { image: "x:1", port_definition: { port: 80 } },
-        });
-        const env = recipe.generate(config, "ns").deployments[0]?.spec?.template?.spec?.containers?.[0]?.env;
-        expect(env).toEqual([
-            { name: "FOO", value: "bar" },
-            { name: "BAZ", value: "qux" },
-        ]);
-    });
-
     it("typedGenerate skips parsing and accepts the typed shape directly", () => {
         // Sanity check that the typed entry point works for tests / wrappers.
         const config: ServiceConfig<DockerImageOptions> = {

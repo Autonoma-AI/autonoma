@@ -99,7 +99,6 @@ export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
                                 image,
                                 command: startCommand,
                                 ports: [{ containerPort: PORT }],
-                                env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
                                 resources: {
                                     requests: {
                                         cpu: config.resources.cpu,
