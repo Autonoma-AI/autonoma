@@ -313,6 +313,34 @@ await rm(planDir, { recursive: true }).catch((err) => {
 
 The one narrow exception is best-effort cleanup in test code, where a console-level log (`console.warn`) is acceptable when the package logger is not available.
 
+### Comments - Write for the Next Developer, Not the Prompt
+
+**A comment must explain the code to the next developer who reads it - never narrate the task, ticket, or conversation that produced it.** The reader has no access to the Notion doc, the PR description, the Linear ticket, or the prompt you were given. A comment that only makes sense with that context is noise the moment it lands.
+
+Delete a comment before committing if any of these are true:
+
+- **It references the origin of the work rather than the code.** Mentions of "workstream B", "phase 2", "as described in the doc", "per the ticket", "the plan says", "step 3 of the migration", a Notion/Linear/PR link, or "TODO from review" all describe *why you were asked to write this*, not *what the code does*. That context belongs in the PR description or commit message, which are attached to history - not stranded in the source.
+- **It restates the code.** `// increment count` above `count++`, `// loop over users` above `for (const user of users)`. If the code already says it, the comment is not earning its place.
+- **It is verbose.** A paragraph where a sentence would do. Trim to the single non-obvious fact the reader needs.
+- **It narrates the change instead of the state.** `// changed this to fix the bug`, `// was previously using X`, `// new approach`. Git records what changed; the comment should describe how the code behaves *now*, as if it had always been this way.
+
+A comment earns its place only when it explains something the code cannot: a non-obvious *why* (a workaround for an upstream bug - with a link to the issue, an ordering constraint, a performance trade-off, a subtle invariant), or a warning about a sharp edge. Write every comment as though the reader has never seen the task that produced it - because they haven't.
+
+```ts
+// BAD - narrates the task/ticket, useless to the next reader
+// Workstream B: the Notion doc says we need to namespace MCP tools per client
+const toolName = `${clientSlug}/${name}`;
+
+// BAD - restates the code
+// set retries to 3
+const retries = 3;
+
+// GOOD - explains a non-obvious why the code can't express
+// Base UI throws error #31 if a GroupLabel renders outside a Group, so we
+// always wrap - even single-item menus. See node_modules/@base-ui error map.
+const menu = wrapInGroup(items);
+```
+
 ### Logging - Sentry
 
 **Always use Sentry for logging and error tracking.** All backend services must initialize Sentry and use it for:

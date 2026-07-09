@@ -90,6 +90,20 @@ jobs:
               (e.g. `as` casts, `.js` import extensions, `null` over
               `undefined`, truthy checks instead of `!= null`, em dashes,
               missing instance loggers, direct `process.env` access).
+            - Comment hygiene: flag comments written for the prompt/task
+              instead of the next developer. A comment must explain the code to
+              someone who has never seen the ticket, PR, Notion doc, or prompt
+              that produced it. Flag any comment that references the origin of
+              the work rather than the code - "workstream B", "phase 2", "as
+              described in the doc", "per the ticket", "the plan says", a
+              Notion/Linear/PR link, "step N of the migration" - that context
+              belongs in the PR description, not the source. Also flag comments
+              that merely restate the code, that narrate the change rather than
+              the current state ("changed this to...", "was previously...",
+              "new approach"), or that are needlessly verbose. A comment earns
+              its place only by explaining a non-obvious why the code cannot.
+              Treat a task/ticket-narrating or redundant comment as
+              [COMMENT][LOW].
             - Outdated documentation: if the change touches an app/package's
               exports, env vars, architecture, or user-facing behavior, check
               that the relevant README.md and apps/docs pages were updated to
@@ -107,6 +121,6 @@ jobs:
 
             Prefix each comment with a category and severity, e.g.
             [BUG][HIGH], [SECURITY][MED], [UX][MED], [CONVENTION][LOW],
-            [DOCS][LOW], [LEAK][HIGH].
+            [COMMENT][LOW], [DOCS][LOW], [LEAK][HIGH].
             Be concise. Skip nitpicks and style preferences. If you find
             nothing worth raising, say so in a single short comment.
