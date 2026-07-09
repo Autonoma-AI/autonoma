@@ -63,7 +63,7 @@ function BugDetail() {
       <BugMetaStrip bug={bug} />
 
       {/* Report-driven section slots, filled by later slices of the redesign (#1269). */}
-      <BugHeroMedia />
+      <BugHeroMedia hero={bug.hero} />
       <BugWhySection report={bug.report} />
       <BugSuspectedCause />
 

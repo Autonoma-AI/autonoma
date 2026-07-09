@@ -15,6 +15,14 @@ import {
 import { boundingBoxToImageCoordinates } from "./screen-resolution";
 
 /**
+ * Max per-channel standard deviation (on the 0-255 scale) at or below which an
+ * image counts as near-uniform. A perfectly flat frame scores 0; a frame with
+ * any real UI content scores well above this (an error page with sparse text
+ * measures ~11), so the threshold sits far from both.
+ */
+const NEAR_UNIFORM_MAX_STDEV = 2;
+
+/**
  * Scale a point, with coordinates in the actual device screen resolution,
  * to the image resolution.
  */
@@ -73,6 +81,17 @@ export class Screenshot {
         const sharpImage = this.getSharpImage();
         const metadata = await Screenshot.sharpOp(() => getImageMetadata(sharpImage));
         return { width: metadata.width, height: metadata.height };
+    }
+
+    /**
+     * Whether the image is near-uniform: a blank or still-loading frame with
+     * almost no visible content. Measured as the max per-channel standard
+     * deviation being at or below `maxStdev`. Used to keep a blank capture from
+     * being surfaced as a bug's hero screenshot.
+     */
+    public async isNearUniform(maxStdev: number = NEAR_UNIFORM_MAX_STDEV): Promise<boolean> {
+        const stats = await Screenshot.sharpOp(() => this.getSharpImage().stats());
+        return stats.channels.every((channel) => channel.stdev <= maxStdev);
     }
 
     /**

@@ -19,6 +19,9 @@ const fromSharp = await Screenshot.fromSharp(sharpImage);
 // Get resolution
 const { width, height } = await screenshot.getResolution();
 
+// Detect a blank / still-loading frame (near-uniform pixels) so it can be kept out of UI
+const isBlank = await screenshot.isNearUniform();
+
 // Annotate
 const withBoxes = await screenshot.drawBoundingBoxes([box1, box2], { labelled: true });
 const withText = await screenshot.addText("Step 1");

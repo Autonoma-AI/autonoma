@@ -4,6 +4,27 @@ import { suspectedCauseSchema } from "./suspected-cause";
 
 const reviewSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
 
+/**
+ * How the healing agent designates the hero's primary screenshot: not a raw
+ * storage key (the model never sees one) but a reference into the evidence it
+ * fetched - the failing test's step order plus which captured frame. The tool
+ * resolves this against that step's real screenshots to the persisted
+ * `primaryScreenshotSchema` ({ s3Key, pin? }), so a hallucinated key can never
+ * reach the report. `pin` is derived from the step's resolved point at that
+ * time, not authored here.
+ */
+export const primaryScreenshotRefSchema = z.object({
+    stepOrder: z
+        .number()
+        .int()
+        .min(0)
+        .describe("The step order (from the failure's Execution steps / fetch_step_evidence) whose frame to feature."),
+    timing: z
+        .enum(["before", "after"])
+        .describe("Which captured frame of that step best shows the bug: the screenshot before or after the step ran."),
+});
+export type PrimaryScreenshotRef = z.infer<typeof primaryScreenshotRefSchema>;
+
 const evidenceItemSchema = z.object({
     type: z.enum(["screenshot", "video", "conversation", "step_output"]),
     description: z.string(),
@@ -133,13 +154,28 @@ export type ReportUnknownIssueAction = z.infer<typeof reportUnknownIssueActionSc
 export type ReportScenarioUnsupportedAction = z.infer<typeof reportScenarioUnsupportedActionSchema>;
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
+/**
+ * The report shape the model authors. Identical to the persisted `issueReportSchema`
+ * except `primaryScreenshot` is a step reference the tool resolves to a real
+ * `{ s3Key, pin? }` - the model designates a frame, it never handles storage keys.
+ */
+export const issueReportInputSchema = issueReportSchema.omit({ primaryScreenshot: true }).extend({
+    primaryScreenshot: primaryScreenshotRefSchema
+        .optional()
+        .describe(
+            "Optional: the frame that best shows the bug, referenced by the step you inspected with fetch_step_evidence (its order + before/after). Designate one when a step's frame shows the bug more clearly than the mechanical failing step; omit it to let the page fall back to the failing-step screenshot. Do not invent a step you did not fetch.",
+        ),
+});
+export type IssueReportInput = z.infer<typeof issueReportInputSchema>;
+
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
 // reviewLink is deterministic failure metadata attached by the runner, not authored by the model.
 // `report` is re-declared required here (it is optional on the persisted action for
-// backward-compatible parsing) so the model must author it on every report_bug.
+// backward-compatible parsing) so the model must author it on every report_bug. It uses the
+// input-form report so `primaryScreenshot` is a step reference, resolved to a storage key by the tool.
 export const reportBugInputSchema = reportBugActionSchema
     .omit({ kind: true, reviewLink: true })
-    .extend({ report: issueReportSchema });
+    .extend({ report: issueReportInputSchema });
 export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({
     kind: true,
     reviewLink: true,

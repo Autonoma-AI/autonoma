@@ -6,6 +6,9 @@ import type { BugLatestOccurrenceIssueRow } from "./bugs.service";
 
 type ScreenshotTiming = "before" | "after";
 
+/** The resolved latest-occurrence evidence block, shared with the hero builder. */
+export type LatestOccurrenceEvidence = Awaited<ReturnType<typeof buildLatestOccurrenceEvidence>>;
+
 export async function buildLatestOccurrenceEvidence(
     db: PrismaClient,
     issue: BugLatestOccurrenceIssueRow | null,

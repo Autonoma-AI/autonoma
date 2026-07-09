@@ -10,6 +10,7 @@ import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
 import type { HealingReviewLink } from "../src/healing/actions";
+import type { RenderableReviewStep } from "../src/review/kernel";
 import type { ScenarioData } from "../src/scenario-data";
 import { ScenarioIndex } from "../src/scenario-index";
 import type { ScenarioRecipeData } from "../src/scenario-recipe";
@@ -88,6 +89,8 @@ export interface HealingLoopOverrides {
     failureKeysByTestCaseId?: ReadonlyMap<string, string>;
     failureKeys?: ReadonlySet<string>;
     reviewLinksByTestCaseId?: ReadonlyMap<string, HealingReviewLink>;
+    stepEvidenceByFailureKey?: ReadonlyMap<string, RenderableReviewStep[]>;
+    screenshotLoader?: ScreenshotLoader;
 }
 
 export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAgentLoop {
@@ -107,5 +110,7 @@ export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAg
         failureKeysByTestCaseId: overrides.failureKeysByTestCaseId ?? new Map(),
         failureKeys: overrides.failureKeys ?? new Set(),
         reviewLinksByTestCaseId: overrides.reviewLinksByTestCaseId ?? new Map(),
+        stepEvidenceByFailureKey: overrides.stepEvidenceByFailureKey ?? new Map(),
+        screenshotLoader: overrides.screenshotLoader,
     });
 }

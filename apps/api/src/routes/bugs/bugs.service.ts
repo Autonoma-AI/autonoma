@@ -2,11 +2,12 @@ import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import type { BugVerdict } from "@autonoma/types";
+import type { BugVerdict, IssueReport } from "@autonoma/types";
 import { z } from "zod";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
 import { buildBugDetailBlocks } from "./bug-detail-blocks";
+import { buildHeroMedia } from "./bug-detail-hero";
 
 type EvidenceItem = { type: string; description: string; s3Key?: string };
 type BugStatus = "open" | "resolved" | "regressed";
@@ -213,6 +214,20 @@ export type BugLatestOccurrenceIssueRow = Prisma.IssueGetPayload<{
 
 function isImageEvidence(item: SignedEvidenceItem): boolean {
     return item.url != null && (item.type === "screenshot" || item.type === "image");
+}
+
+/**
+ * The report fields the bug page renders as prose. `primaryScreenshot` is
+ * deliberately omitted: it is a hero-only input (a raw storage key resolved into
+ * a signed URL before the client ever sees it), not something the client renders.
+ */
+function toClientReport(report: IssueReport | undefined) {
+    if (report == null) return undefined;
+    return {
+        expectedBehavior: report.expectedBehavior,
+        actualBehavior: report.actualBehavior,
+        narrativeMarkdown: report.narrativeMarkdown,
+    };
 }
 
 export class BugsService extends Service {
@@ -466,7 +481,8 @@ export class BugsService extends Service {
         });
 
         const blocks = await buildBugDetailBlocks(this.db, bug.issues, latestEvidenceIssue, this.storageProvider);
-        const report = latestEvidenceIssue?.report ?? undefined;
+        const persistedReport = latestEvidenceIssue?.report ?? undefined;
+        const hero = await buildHeroMedia(persistedReport, blocks.latestOccurrence, this.storageProvider);
 
         return {
             id: bug.id,
@@ -483,7 +499,8 @@ export class BugsService extends Service {
                 firstSeenAt: e.firstSeenAt,
                 lastSeenAt: e.lastSeenAt,
             })),
-            report,
+            report: toClientReport(persistedReport),
+            hero,
             latestOccurrence: blocks.latestOccurrence,
             occurrences: blocks.occurrences,
             issues: blocks.issues,
