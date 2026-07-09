@@ -19,7 +19,7 @@ export function BugWhySection({ report }: { report: BugReport }) {
       <ExpectedActual expected={report.expectedBehavior} actual={report.actualBehavior} />
       {hasNarrative && (
         <div className="border border-border-dim bg-surface-base px-4 py-3">
-          <ReasoningMarkdown content={report.narrativeMarkdown} />
+          <ReasoningMarkdown content={report.narrativeMarkdown} evidence={report.evidence} />
         </div>
       )}
     </section>

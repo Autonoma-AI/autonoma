@@ -15,4 +15,8 @@ export {
     type RemoveTestAction,
     type HealingEvidenceItem,
     type HealingReviewLink,
+    type AuthoredIssueReport,
+    type IssueReport,
+    type EvidenceManifestEntry,
+    extractEvidenceAssetIds,
 } from "@autonoma/types";

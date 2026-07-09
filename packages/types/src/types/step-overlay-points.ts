@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 /** A step interaction point tagged with its role: the click/type target, or a drag's start/end. */
-export type OverlayPoint = { x: number; y: number; role: "click" | "drag-start" | "drag-end" };
+export const overlayPointSchema = z.object({
+    x: z.number(),
+    y: z.number(),
+    role: z.enum(["click", "drag-start", "drag-end"]),
+});
+
+export type OverlayPoint = z.infer<typeof overlayPointSchema>;
 
 const pointSchema = z.object({ x: z.number(), y: z.number() });
 

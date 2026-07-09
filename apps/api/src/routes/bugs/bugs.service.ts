@@ -2,12 +2,13 @@ import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import type { BugVerdict, IssueReport } from "@autonoma/types";
+import type { BugVerdict } from "@autonoma/types";
 import { z } from "zod";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
 import { buildBugDetailBlocks } from "./bug-detail-blocks";
 import { buildHeroMedia } from "./bug-detail-hero";
+import { buildBugReportDetail } from "./bug-detail-report";
 
 type EvidenceItem = { type: string; description: string; s3Key?: string };
 type BugStatus = "open" | "resolved" | "regressed";
@@ -214,23 +215,6 @@ export type BugLatestOccurrenceIssueRow = Prisma.IssueGetPayload<{
 
 function isImageEvidence(item: SignedEvidenceItem): boolean {
     return item.url != null && (item.type === "screenshot" || item.type === "image");
-}
-
-/**
- * The report fields the bug page renders as prose. `primaryScreenshot` is
- * deliberately omitted: it is a hero-only input (a raw storage key resolved into
- * a signed URL before the client ever sees it), not something the client renders.
- * `suspectedCause` is included: the bug page renders it as prose in its own hedged,
- * subordinate section.
- */
-function toClientReport(report: IssueReport | undefined) {
-    if (report == null) return undefined;
-    return {
-        expectedBehavior: report.expectedBehavior,
-        actualBehavior: report.actualBehavior,
-        narrativeMarkdown: report.narrativeMarkdown,
-        suspectedCause: report.suspectedCause,
-    };
 }
 
 export class BugsService extends Service {
@@ -485,6 +469,9 @@ export class BugsService extends Service {
 
         const blocks = await buildBugDetailBlocks(this.db, bug.issues, latestEvidenceIssue, this.storageProvider);
         const persistedReport = latestEvidenceIssue?.report ?? undefined;
+        // Resolve the report's narrative-embedded evidence tokens to signed URLs
+        // (dropping the internal s3Keys) before it reaches the client.
+        const report = await buildBugReportDetail(persistedReport, this.storageProvider);
         const hero = await buildHeroMedia(persistedReport, blocks.latestOccurrence, this.storageProvider);
 
         return {
@@ -502,7 +489,7 @@ export class BugsService extends Service {
                 firstSeenAt: e.firstSeenAt,
                 lastSeenAt: e.lastSeenAt,
             })),
-            report: toClientReport(persistedReport),
+            report,
             hero,
             latestOccurrence: blocks.latestOccurrence,
             occurrences: blocks.occurrences,

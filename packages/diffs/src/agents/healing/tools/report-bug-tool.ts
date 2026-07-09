@@ -33,19 +33,28 @@ export class HealingReportBugTool extends AgentTool<HealingReportBugInput, Repor
     }
 
     /**
-     * Turn the model-authored, reference-form report into the persisted shape:
+     * Turn the model-authored, reference-form report into the persisted shape.
+     *
      * `primaryScreenshot` arrives as a step reference (the agent never sees storage
      * keys) and is resolved here against that step's real captured screenshot, so a
      * hallucinated key can never reach `Issue.report`. An unresolvable reference
      * degrades to no primary screenshot - the hero then falls back to the run's
      * failing-step frame.
+     *
+     * The evidence manifest is likewise derived here from what the agent actually
+     * fetched for this failure, never authored - so a narrative can only surface a
+     * screenshot the agent really pulled. A testCaseId with no failure key yields an
+     * empty manifest (buildEvidenceManifest tolerates the undefined).
      */
     private async resolveReport(input: HealingReportBugInput, loop: HealingAgentLoop): Promise<IssueReport> {
         const primaryScreenshot = await this.resolvePrimaryScreenshot(input, loop);
+        const failureKey = loop.failureKeysByTestCaseId.get(input.testCaseId);
+        const evidenceManifest = loop.buildEvidenceManifest(failureKey, input.report.narrativeMarkdown);
         return {
             expectedBehavior: input.report.expectedBehavior,
             actualBehavior: input.report.actualBehavior,
             narrativeMarkdown: input.report.narrativeMarkdown,
+            evidenceManifest,
             primaryScreenshot,
         };
     }

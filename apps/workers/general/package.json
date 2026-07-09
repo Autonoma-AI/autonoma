@@ -21,6 +21,7 @@
         "@autonoma/scenario": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
+        "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",

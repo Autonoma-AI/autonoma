@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { issueReportSchema } from "./issue-report";
+import { authoredIssueReportSchema, issueReportSchema } from "./issue-report";
 import { suspectedCauseSchema } from "./suspected-cause";
 
 const reviewSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
@@ -65,10 +65,12 @@ const reportBugActionSchema = z.object({
     suspectedCause: suspectedCauseSchema.describe(
         "The concrete code cause you re-grounded independently (>= 1 code reference). If you cannot reproduce the cause in the checked-out code, downgrade to report_unknown_issue instead of reporting a bug.",
     ),
-    // Optional on the persisted action so actions persisted without a report
-    // still parse (loadPriorActions / eval fixtures); the tool input
-    // (reportBugInputSchema) re-declares it required, so every new report_bug
-    // carries one.
+    // The persisted report carries the full shape (authored text + the
+    // system-derived evidenceManifest the report tool attaches from the agent's
+    // actual fetches). Optional so actions persisted without a report still parse
+    // (loadPriorActions / eval fixtures); the tool input (reportBugInputSchema)
+    // re-declares an authored (manifest-free) report as required, so every new
+    // report_bug carries one and the manifest is never model-authored.
     report: issueReportSchema
         .optional()
         .describe(
@@ -155,11 +157,13 @@ export type ReportScenarioUnsupportedAction = z.infer<typeof reportScenarioUnsup
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 /**
- * The report shape the model authors. Identical to the persisted `issueReportSchema`
- * except `primaryScreenshot` is a step reference the tool resolves to a real
- * `{ s3Key, pin? }` - the model designates a frame, it never handles storage keys.
+ * The report shape the model authors: the authored text core (expected/actual/
+ * narrative, with inline `evidence:<assetId>` tokens) plus a `primaryScreenshot`
+ * step reference the tool resolves to a real `{ s3Key, pin? }`. The model never
+ * handles storage keys, and it never authors the `evidenceManifest` - that is
+ * derived from its real fetches by the report tool.
  */
-export const issueReportInputSchema = issueReportSchema.omit({ primaryScreenshot: true }).extend({
+export const issueReportInputSchema = authoredIssueReportSchema.extend({
     primaryScreenshot: primaryScreenshotRefSchema
         .optional()
         .describe(
@@ -172,7 +176,9 @@ export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true })
 // reviewLink is deterministic failure metadata attached by the runner, not authored by the model.
 // `report` is re-declared required here (it is optional on the persisted action for
 // backward-compatible parsing) so the model must author it on every report_bug. It uses the
-// input-form report so `primaryScreenshot` is a step reference, resolved to a storage key by the tool.
+// input-form report: `primaryScreenshot` is a step reference the tool resolves to a storage key,
+// and there is no `evidenceManifest` - the manifest is derived from the agent's real fetches by
+// the report tool, so the model can never fabricate one.
 export const reportBugInputSchema = reportBugActionSchema
     .omit({ kind: true, reviewLink: true })
     .extend({ report: issueReportInputSchema });

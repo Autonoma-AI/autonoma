@@ -1,4 +1,5 @@
 import { AgentTool, type AgentToolModelOutput, type AgentToolModelOutputOptions, FixableToolError } from "@autonoma/ai";
+import { type EvidenceManifestEntry, getStepOverlayPoints } from "@autonoma/types";
 import { z } from "zod";
 import { buildStepSummary, type RenderableReviewStep } from "../../../review/kernel";
 import type { HealingAgentLoop } from "../healing-agent-loop";
@@ -23,12 +24,25 @@ interface StepScreenshots {
     after?: string;
 }
 
+/** The stable assetIds minted for the screenshots the model can now embed inline. */
+interface StepAssetIds {
+    before?: string;
+    after?: string;
+}
+
 type FetchStepEvidenceOutput =
     | { found: false; failureKey: string; stepOrder: number; availableOrders: number[] }
-    | { found: true; failureKey: string; stepOrder: number; summary: string; screenshots: StepScreenshots };
+    | {
+          found: true;
+          failureKey: string;
+          stepOrder: number;
+          summary: string;
+          screenshots: StepScreenshots;
+          assets: StepAssetIds;
+      };
 
 const DESCRIPTION =
-    "Fetch the concrete evidence for one executed step of a failing test: its before/after screenshots and its full step-output text. Use it to see what the app actually looked like and did at a step the reviewer flagged, so you can ground a report_bug's Expected/Actual and narrative in what really happened rather than the plan text. Callable at any point - it can inform your decision, not just your report.";
+    "Fetch the concrete evidence for one executed step of a failing test: its before/after screenshots and its full step-output text. Use it to see what the app actually looked like and did at a step the reviewer flagged, so you can ground a report_bug's Expected/Actual and narrative in what really happened rather than the plan text. Each screenshot it returns comes with a stable evidence token (e.g. `evidence:s3-before`) you can embed inline in a report_bug narrative as `![caption](evidence:s3-before)`; only screenshots you fetch this way are embeddable. Callable at any point - it can inform your decision, not just your report.";
 
 /**
  * On-demand, per-step evidence fetch for the healing agent. The failing subjects'
@@ -78,7 +92,44 @@ export class FetchStepEvidenceTool extends AgentTool<
 
         const summary = buildStepSummary([step]);
         const screenshots = await this.loadScreenshots(step, loop);
-        return { found: true, failureKey, stepOrder, summary, screenshots };
+        const assets = this.recordEvidence(loop, failureKey, step, screenshots);
+        return { found: true, failureKey, stepOrder, summary, screenshots, assets };
+    }
+
+    /**
+     * Mint a stable assetId for each screenshot the agent actually saw and record
+     * it on the loop, so a later `report_bug` narrative can embed it by token. The
+     * id encodes the step order + timing (`s<order>-before` / `s<order>-after`),
+     * which is unique within a failure's report and traces back to a concrete
+     * artifact. Only screenshots whose bytes loaded are minted - an id the agent
+     * could not view is not offered - which is the anchor that keeps the manifest
+     * to genuinely-fetched evidence. The before shot carries the resolved
+     * interaction point as its pin; the after shot has none (the action already
+     * happened).
+     */
+    private recordEvidence(
+        loop: HealingAgentLoop,
+        failureKey: string,
+        step: RenderableReviewStep,
+        screenshots: StepScreenshots,
+    ): StepAssetIds {
+        const pin = getStepOverlayPoints(step.output)[0];
+        const entries: EvidenceManifestEntry[] = [];
+        const assets: StepAssetIds = {};
+
+        if (screenshots.before != null && step.screenshotBeforeKey != null) {
+            const assetId = `s${step.order}-before`;
+            entries.push({ assetId, s3Key: step.screenshotBeforeKey, kind: "screenshot", pin });
+            assets.before = assetId;
+        }
+        if (screenshots.after != null && step.screenshotAfterKey != null) {
+            const assetId = `s${step.order}-after`;
+            entries.push({ assetId, s3Key: step.screenshotAfterKey, kind: "screenshot" });
+            assets.after = assetId;
+        }
+
+        loop.recordFetchedEvidence(failureKey, entries);
+        return assets;
     }
 
     /**
@@ -142,8 +193,25 @@ export class FetchStepEvidenceTool extends AgentTool<
             value.push({ type: "text", text: `After step ${out.stepOrder}:` });
             value.push({ type: "media", data: out.screenshots.after, mediaType: "image/png" });
         }
+
+        const embedHint = buildEmbedHint(out.assets);
+        if (embedHint != null) value.push({ type: "text", text: embedHint });
+
         return { type: "content", value };
     }
+}
+
+/**
+ * The line that tells the model exactly which evidence tokens it may embed for
+ * this step - only ids minted here are referenceable, so this is where the agent
+ * learns what it is allowed to weave into a report narrative.
+ */
+function buildEmbedHint(assets: StepAssetIds): string | undefined {
+    const lines: string[] = [];
+    if (assets.before != null) lines.push(`- before screenshot: \`![caption](evidence:${assets.before})\``);
+    if (assets.after != null) lines.push(`- after screenshot: \`![caption](evidence:${assets.after})\``);
+    if (lines.length === 0) return undefined;
+    return `To weave a screenshot into a report_bug narrative, embed it by its evidence token (only these ids are valid, and only for this step):\n${lines.join("\n")}`;
 }
 
 function toErrorJson(output: { error: string; fixSuggestion?: string }) {

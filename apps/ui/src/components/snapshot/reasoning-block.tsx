@@ -1,7 +1,23 @@
+import { type OverlayPoint } from "@autonoma/blacklight";
+import { EVIDENCE_TOKEN_SCHEME } from "@autonoma/types";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
+import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
+
+/**
+ * One narrative-embedded evidence asset, resolved to a signed URL by the API.
+ * The narrative references it by `evidence:<assetId>` token; the renderer looks it
+ * up here and renders the image inline (with pin + lightbox), or nothing when the
+ * token has no resolved asset.
+ */
+export interface InlineEvidence {
+  assetId: string;
+  url: string;
+  kind: "screenshot" | "step_output";
+  pin?: OverlayPoint;
+}
 
 interface ReasoningBlockProps {
   label: string;
@@ -35,10 +51,15 @@ export function ReasoningBlock({ label, content }: ReasoningBlockProps) {
   );
 }
 
-export function ReasoningMarkdown({ content }: { content: string }) {
+export function ReasoningMarkdown({ content, evidence }: { content: string; evidence?: InlineEvidence[] }) {
+  const evidenceById = new Map((evidence ?? []).map((asset) => [asset.assetId, asset]));
+
   return (
     <article className="prose prose-sm prose-invert max-w-none">
       <Markdown
+        // Preserve our custom evidence: token scheme (react-markdown strips unknown
+        // protocols by default); everything else still goes through the safe transform.
+        urlTransform={(url) => (url.startsWith(EVIDENCE_TOKEN_SCHEME) ? url : defaultUrlTransform(url))}
         components={{
           h1: ({ children }) => (
             <h1 className="mb-3 border-b border-border-dim pb-2 text-base font-semibold text-text-primary">
@@ -47,7 +68,15 @@ export function ReasoningMarkdown({ content }: { content: string }) {
           ),
           h2: ({ children }) => <h2 className="mb-2 mt-5 text-sm font-semibold text-text-primary">{children}</h2>,
           h3: ({ children }) => <h3 className="mb-1.5 mt-4 text-sm font-medium text-text-primary">{children}</h3>,
-          p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-text-primary">{children}</p>,
+          // A paragraph holding an image (alone or mid-sentence) must not render as
+          // <p>: the inline evidence renders a block element, and a block inside <p>
+          // is invalid DOM. A <div> with the same text styling keeps the prose intact.
+          p: ({ node, children }) =>
+            paragraphContainsImage(node) ? (
+              <div className="mb-3 text-sm leading-relaxed text-text-primary">{children}</div>
+            ) : (
+              <p className="mb-3 text-sm leading-relaxed text-text-primary">{children}</p>
+            ),
           strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
           code: ({ children }) => (
             <code className="rounded bg-surface-base px-1.5 py-0.5 font-mono text-xs text-text-primary">
@@ -61,10 +90,58 @@ export function ReasoningMarkdown({ content }: { content: string }) {
             <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-primary">{children}</ol>
           ),
           li: ({ children }) => <li className="text-sm text-text-primary">{children}</li>,
+          img: ({ src, alt }) => (
+            <InlineEvidenceImage
+              src={typeof src === "string" ? src : undefined}
+              alt={alt}
+              evidenceById={evidenceById}
+            />
+          ),
         }}
       >
         {content}
       </Markdown>
     </article>
+  );
+}
+
+function paragraphContainsImage(node: ExtraProps["node"]): boolean {
+  if (node == null) return false;
+  return node.children.some((child) => child.type === "element" && child.tagName === "img");
+}
+
+/**
+ * Render a narrative image. The content is agent-authored, so a resolvable
+ * `evidence:<assetId>` token is the ONLY src that renders: a known screenshot
+ * appears inline with its pin overlay and click-to-zoom lightbox. Everything else -
+ * an unknown token, a raw storage path or URL the agent fabricated - renders
+ * nothing, never a broken image; only evidence the agent really fetched (and the
+ * API resolved) can appear.
+ */
+function InlineEvidenceImage({
+  src,
+  alt,
+  evidenceById,
+}: {
+  src?: string;
+  alt?: string;
+  evidenceById: Map<string, InlineEvidence>;
+}) {
+  if (src == null || !src.startsWith(EVIDENCE_TOKEN_SCHEME)) return null;
+
+  const assetId = src.slice(EVIDENCE_TOKEN_SCHEME.length);
+  const asset = evidenceById.get(assetId);
+  if (asset == null || asset.kind !== "screenshot") return null;
+
+  return (
+    <div className="my-3 flex flex-col gap-1.5">
+      <ScreenshotLightbox
+        src={asset.url}
+        alt={alt != null && alt.length > 0 ? alt : "Bug evidence screenshot"}
+        className="w-full border border-border-dim"
+        points={asset.pin != null ? [asset.pin] : undefined}
+      />
+      {alt != null && alt.length > 0 && <span className="text-xs italic text-text-secondary">{alt}</span>}
+    </div>
   );
 }

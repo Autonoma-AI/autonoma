@@ -2,7 +2,12 @@ import { type AgentConfig, AgentLoop } from "@autonoma/ai";
 import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
-import type { HealingAction, HealingReviewLink } from "../../healing/actions";
+import {
+    type EvidenceManifestEntry,
+    extractEvidenceAssetIds,
+    type HealingAction,
+    type HealingReviewLink,
+} from "../../healing/actions";
 import type { RenderableReviewStep } from "../../review/kernel";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
@@ -66,6 +71,16 @@ export class HealingAgentLoop
      */
     public readonly screenshotLoader?: ScreenshotLoader;
 
+    /**
+     * The evidence assets the agent has actually fetched, keyed by failure key
+     * and then by the stable assetId the `fetch_step_evidence` tool minted. This
+     * is the anchor set: a `report_bug`'s evidence manifest is built strictly from
+     * here, so the narrative can only surface a screenshot the agent really pulled -
+     * an id it never fetched has no entry and is dropped. Populated on demand by the
+     * fetch tool; empty for a failure whose steps the agent never inspected.
+     */
+    public readonly fetchedEvidenceByFailureKey = new Map<string, Map<string, EvidenceManifestEntry>>();
+
     /** Per-failure actions the agent has recorded this iteration. */
     public readonly actions: HealingAction[] = [];
     /** testCaseIds that already have an action recorded - used by tools to reject duplicates. */
@@ -100,6 +115,39 @@ export class HealingAgentLoop
     /** Failure keys the agent has yet to address. */
     public unhandledFailureKeys(): string[] {
         return [...this.failureKeys].filter((k) => !this.handledFailureKeys.has(k));
+    }
+
+    /**
+     * Record the assets a `fetch_step_evidence` call surfaced for a failure so a
+     * later `report_bug` can reference them. Merges by assetId, so re-fetching the
+     * same step is idempotent.
+     */
+    public recordFetchedEvidence(failureKey: string, assets: readonly EvidenceManifestEntry[]): void {
+        if (assets.length === 0) return;
+        const byId = this.fetchedEvidenceByFailureKey.get(failureKey) ?? new Map<string, EvidenceManifestEntry>();
+        for (const asset of assets) byId.set(asset.assetId, asset);
+        this.fetchedEvidenceByFailureKey.set(failureKey, byId);
+    }
+
+    /**
+     * The evidence manifest for a report on `failureKey`: exactly the assets the
+     * narrative references (`evidence:<assetId>` tokens) that were actually fetched
+     * for this failure. Referenced-but-unfetched ids are silently omitted - the
+     * apply-time validator strips their dangling tokens from the narrative - which
+     * is what makes "an agent cannot surface an image it did not fetch" hold by
+     * construction rather than by prompt.
+     */
+    public buildEvidenceManifest(failureKey: string | undefined, narrativeMarkdown: string): EvidenceManifestEntry[] {
+        if (failureKey == null) return [];
+        const fetched = this.fetchedEvidenceByFailureKey.get(failureKey);
+        if (fetched == null || fetched.size === 0) return [];
+
+        const manifest: EvidenceManifestEntry[] = [];
+        for (const assetId of extractEvidenceAssetIds(narrativeMarkdown)) {
+            const asset = fetched.get(assetId);
+            if (asset != null) manifest.push(asset);
+        }
+        return manifest;
     }
 
     protected override snapshotPartial(): { actions: HealingAction[] } {

@@ -1,6 +1,7 @@
 import type { BugStatus, Prisma } from "@autonoma/db";
 import { db } from "@autonoma/db";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { stripUnbackedNarrativeImages } from "@autonoma/types";
 import type { IssueReport } from "@autonoma/workflow/activities";
 import { markActionApplied } from "./mark-applied";
 import type { ApplyReportBugInput } from "./types";
@@ -24,6 +25,13 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
         matchedBugId: input.matchedBugId,
     });
     logger.info("Applying report_bug");
+
+    // Fold the grounded suspectedCause into the authored report, then run the
+    // apply-time validation gate: any narrative image whose src is not a
+    // manifest-backed evidence token is stripped before it ever reaches the
+    // database, so a persisted narrative can only reference genuinely-fetched
+    // screenshots.
+    const report = sanitizeReport(buildIssueReport(input), logger);
 
     await db.$transaction(async (tx) => {
         // The branch a bug is scoped to is the branch of the snapshot it was detected
@@ -51,7 +59,7 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
                 // The evidence-grounded, customer-facing report the bug page renders
                 // (Expected/Actual + narrative + hedged suspected cause). Undefined
                 // leaves the column null for occurrences whose action carried no report.
-                report: buildIssueReport(input),
+                report,
                 bugId,
                 organizationId: input.organizationId,
             },
@@ -138,6 +146,28 @@ async function createNewBug(
         select: { id: true },
     });
     return bug.id;
+}
+
+/**
+ * Strip every narrative image whose src is not a manifest-backed evidence token:
+ * unbacked `evidence:` tokens, but also raw storage paths or URLs the agent
+ * fabricated instead of using a minted token. The manifest is built server-side
+ * from the agent's real fetches, so this is the last gate that keeps a persisted
+ * narrative from referencing a screenshot the agent never pulled - anything else
+ * would sit in stored markdown as an unresolvable (or worse, resolvable-by-luck)
+ * image src.
+ */
+function sanitizeReport(report: IssueReport | undefined, logger: Logger): IssueReport | undefined {
+    if (report == null) return undefined;
+
+    const backedAssetIds = new Set((report.evidenceManifest ?? []).map((asset) => asset.assetId));
+    const { markdown, strippedSrcs } = stripUnbackedNarrativeImages(report.narrativeMarkdown, backedAssetIds);
+    if (strippedSrcs.length === 0) return report;
+
+    logger.warn("Stripped unbacked narrative images from bug report before persisting", {
+        extra: { strippedSrcs },
+    });
+    return { ...report, narrativeMarkdown: markdown };
 }
 
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 } as const;

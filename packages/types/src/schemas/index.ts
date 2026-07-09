@@ -10,6 +10,7 @@ export * from "./scenarios";
 export * from "./onboarding";
 export * from "./suspected-cause";
 export * from "./issue-report";
+export * from "./evidence-tokens";
 export * from "./generation-verdict";
 export * from "./bug-verdict";
 export * from "./replay-verdict";
