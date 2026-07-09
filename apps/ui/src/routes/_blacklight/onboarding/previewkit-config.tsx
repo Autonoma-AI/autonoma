@@ -12,7 +12,6 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
-import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
 import { MinusIcon } from "@phosphor-icons/react/Minus";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,7 +27,6 @@ import {
 } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
-import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
@@ -373,7 +371,7 @@ function PreviewkitConfigContent({
     });
   }
 
-  function save() {
+  function save(onSaved?: () => void) {
     if (hasBlockingIssues) return;
     const submission = documentsFromDraft(draft);
 
@@ -462,14 +460,19 @@ function PreviewkitConfigContent({
             loadedSecretKeys.current = keyMap;
             return next;
           });
-          toastManager.add({ type: "success", title: "PreviewKit config saved" });
+          onSaved?.();
         },
       },
     );
   }
 
-  function startDeploy() {
-    if (!canDeploy) return;
+  // Marks the (optional) hooks step complete and fires the deploy. On failure the
+  // deploy hook surfaces an error toast and re-enables the button (its pending flag
+  // clears), so the user can retry; the config stays saved so the retry redeploys
+  // without re-saving. No `canDeploy` gate here: chaining after a save runs with a
+  // stale render closure where `canDeploy` is still false, so a guard would no-op.
+  function acknowledgeAndDeploy() {
+    setHooksAcknowledged(true);
     deploy.mutate(
       { applicationId: appId },
       {
@@ -478,6 +481,20 @@ function PreviewkitConfigContent({
         },
       },
     );
+  }
+
+  // One action for the final hooks step: persist the config (incl. secrets), then
+  // deploy and advance to the deploy-verify section. If the config is already saved
+  // and clean (user returned to this step), skip the redundant save. The hooks step
+  // is only acknowledged once the action commits (inside save's onSuccess, or on the
+  // already-saved path), so a failed save never marks the step complete prematurely.
+  function saveAndDeploy() {
+    if (hasBlockingIssues) return;
+    if (canDeploy) {
+      acknowledgeAndDeploy();
+      return;
+    }
+    save(acknowledgeAndDeploy);
   }
 
   const repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }> = [
@@ -702,13 +719,10 @@ function PreviewkitConfigContent({
             hasBlockingIssues={hasBlockingIssues}
             isSaving={saveConfig.isPending}
             isDeploying={deploy.isPending}
-            canDeploy={canDeploy}
             onSelect={setActiveStep}
-            onSave={save}
-            onDeploy={startDeploy}
+            onSaveAndDeploy={saveAndDeploy}
             onAdvanceFromServices={() => setServicesAcknowledged(true)}
             onAdvanceFromVariables={() => setVariablesAcknowledged(true)}
-            onAdvanceFromHooks={() => setHooksAcknowledged(true)}
           />
         </div>
       </div>
@@ -1029,7 +1043,7 @@ function ConfigIssuesBanner({
         </div>
       ) : undefined}
       {configReadyForSecrets ? (
-        <p className="text-sm text-text-secondary">Config saved. Continue to secrets, then deploy.</p>
+        <p className="text-sm text-text-secondary">Config saved. Deploy from the hooks step when you're ready.</p>
       ) : undefined}
     </>
   );
@@ -1038,8 +1052,8 @@ function ConfigIssuesBanner({
 /**
  * The footer's primary button advances through the steps
  * (`apps → services → variables → hooks`), and on the final `hooks` step it does
- * the real work: `Save config` (persisting the document + secrets in one call)
- * until everything is saved and clean, then `Start deploy`.
+ * the real work with a single `Save and deploy` action: it persists the document
+ * + secrets in one call and then triggers the deploy, advancing to deploy-verify.
  */
 function ConfigStepFooter({
   previousStep,
@@ -1047,26 +1061,20 @@ function ConfigStepFooter({
   hasBlockingIssues,
   isSaving,
   isDeploying,
-  canDeploy,
   onSelect,
-  onSave,
-  onDeploy,
+  onSaveAndDeploy,
   onAdvanceFromServices,
   onAdvanceFromVariables,
-  onAdvanceFromHooks,
 }: {
   previousStep: { id: ConfigStepId; label: string } | undefined;
   activeStep: ConfigStepId;
   hasBlockingIssues: boolean;
   isSaving: boolean;
   isDeploying: boolean;
-  canDeploy: boolean;
   onSelect: (step: ConfigStepId) => void;
-  onSave: () => void;
-  onDeploy: () => void;
+  onSaveAndDeploy: () => void;
   onAdvanceFromServices: () => void;
   onAdvanceFromVariables: () => void;
-  onAdvanceFromHooks: () => void;
 }) {
   const primaryAction = getPrimaryAction();
 
@@ -1081,20 +1089,18 @@ function ConfigStepFooter({
         <span />
       )}
       <Button variant="accent" className="gap-2" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
-        {primaryAction.icon === "save" ? <FloppyDiskIcon size={14} weight="bold" /> : undefined}
         {primaryAction.label}
-        {primaryAction.icon === "next" ? <ArrowRightIcon size={14} /> : undefined}
+        <ArrowRightIcon size={14} />
       </Button>
     </div>
   );
 
-  function getPrimaryAction(): { label: string; onClick: () => void; disabled: boolean; icon: "save" | "next" } {
+  function getPrimaryAction(): { label: string; onClick: () => void; disabled: boolean } {
     if (activeStep === "apps") {
       return {
         label: "Continue to services",
         onClick: () => onSelect("services"),
         disabled: hasBlockingIssues,
-        icon: "next",
       };
     }
     if (activeStep === "services") {
@@ -1105,7 +1111,6 @@ function ConfigStepFooter({
           onSelect("variables");
         },
         disabled: hasBlockingIssues,
-        icon: "next",
       };
     }
     if (activeStep === "variables") {
@@ -1116,26 +1121,14 @@ function ConfigStepFooter({
           onSelect("hooks");
         },
         disabled: hasBlockingIssues,
-        icon: "next",
       };
     }
-    // Hooks is the last step: save the config (incl. secrets) first, then deploy.
-    if (canDeploy) {
-      return {
-        label: isDeploying ? "Starting deploy..." : "Start deploy",
-        onClick: onDeploy,
-        disabled: !canDeploy || isDeploying,
-        icon: "next",
-      };
-    }
+    // Hooks is the last step: one action saves the config (incl. secrets) and deploys.
+    const label = isDeploying ? "Starting deploy..." : isSaving ? "Saving..." : "Save and deploy";
     return {
-      label: isSaving ? "Saving..." : "Save config",
-      onClick: () => {
-        onAdvanceFromHooks();
-        onSave();
-      },
-      disabled: hasBlockingIssues || isSaving,
-      icon: "save",
+      label,
+      onClick: onSaveAndDeploy,
+      disabled: hasBlockingIssues || isSaving || isDeploying,
     };
   }
 }
