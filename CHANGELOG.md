@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.29](https://github.com/Autonoma-AI/agent/compare/v1.8.28...v1.8.29) (2026-07-09)
+
+
+### Features
+
+* **investigation:** gate previewkit tools by integration + weight logs above code ([#1403](https://github.com/Autonoma-AI/agent/issues/1403)) ([bef0187](https://github.com/Autonoma-AI/agent/commit/bef018759fcddce93c5d6be1b9fb777eb5168a1b))
+* **previewkit:** bulk-import variables by pasting a .env file ([#1391](https://github.com/Autonoma-AI/agent/issues/1391)) ([a7e58ba](https://github.com/Autonoma-AI/agent/commit/a7e58ba53905e73e3eaab790c5c21963552d6fe3))
+* **previewkit:** queue buildkit pool admission with per-pod slot leases ([#1382](https://github.com/Autonoma-AI/agent/issues/1382)) ([1848cc9](https://github.com/Autonoma-AI/agent/commit/1848cc9614a8d683e46fb1e13eee83837dd27132))
+* **previewkit:** replace config revisions with a single latest-only config ([#1383](https://github.com/Autonoma-AI/agent/issues/1383)) ([b9d2d71](https://github.com/Autonoma-AI/agent/commit/b9d2d71b5424de424b945ffcf3d39acf44444ca8))
+
+
+### Bug Fixes
+
+* **github:** suppress PR comments until the app is fully onboarded ([#1401](https://github.com/Autonoma-AI/agent/issues/1401)) ([ff0ae8e](https://github.com/Autonoma-AI/agent/commit/ff0ae8ef5905a775bda1a3c596ed677f02ed4be3))
+* **llm-proxy:** raise per-request body cap to fit a full context window ([#1400](https://github.com/Autonoma-AI/agent/issues/1400)) ([3c92252](https://github.com/Autonoma-AI/agent/commit/3c922522c2e61e33d3cb43d23947dfd74bf5e28d))
+
 ## [1.8.28](https://github.com/Autonoma-AI/agent/compare/v1.8.27...v1.8.28) (2026-07-09)
 
 
