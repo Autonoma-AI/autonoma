@@ -12,13 +12,16 @@ import {
 } from "@autonoma/blacklight";
 import { useNavigate } from "@tanstack/react-router";
 import { useDeleteApplication } from "lib/query/applications.queries";
-import { type FormEvent, useState } from "react";
+import { useState } from "react";
 
 interface DeleteApplicationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   applicationId: string;
   applicationName: string;
+  // When provided, runs after a successful delete instead of navigating home.
+  // Onboarding uses this to stay on the repo picker while the freed repo refreshes.
+  onDeleted?: () => void;
 }
 
 export function DeleteApplicationDialog({
@@ -26,6 +29,7 @@ export function DeleteApplicationDialog({
   onOpenChange,
   applicationId,
   applicationName,
+  onDeleted,
 }: DeleteApplicationDialogProps) {
   const deleteApplication = useDeleteApplication();
   const navigate = useNavigate();
@@ -33,7 +37,7 @@ export function DeleteApplicationDialog({
 
   const canDelete = confirmation === applicationName;
 
-  function handleDelete(e: FormEvent) {
+  function handleDelete(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canDelete) return;
     deleteApplication.mutate(
@@ -42,6 +46,10 @@ export function DeleteApplicationDialog({
         onSuccess: () => {
           onOpenChange(false);
           setConfirmation("");
+          if (onDeleted != null) {
+            onDeleted();
+            return;
+          }
           void navigate({ to: "/" });
         },
       },

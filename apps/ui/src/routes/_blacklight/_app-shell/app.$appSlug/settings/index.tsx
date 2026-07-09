@@ -24,10 +24,10 @@ import {
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { createFileRoute } from "@tanstack/react-router";
+import { DeleteApplicationDialog } from "components/delete-application-dialog";
 import { useUpdateApplicationData, useUpdateApplicationSettings } from "lib/query/applications.queries";
 import { useEffect, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
-import { DeleteApplicationDialog } from "./-delete-application-dialog";
 import { SettingsTabNav } from "./-settings-tab-nav";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/settings/")({

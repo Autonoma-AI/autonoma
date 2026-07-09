@@ -15,6 +15,7 @@ import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { DeleteApplicationDialog } from "components/delete-application-dialog";
 import { useCompleteGithub } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
@@ -209,10 +210,15 @@ function RepoAndNameStep({ appId, settingsUrl }: { appId?: string; settingsUrl?:
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
   const [conflictError, setConflictError] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId);
   const selectedRepoLinkedToOtherApp =
     selectedRepo?.applicationId != null && selectedRepo.applicationId !== appId ? selectedRepo : undefined;
+  const linkedApp =
+    selectedRepoLinkedToOtherApp?.applicationId != null && selectedRepoLinkedToOtherApp.applicationName != null
+      ? { id: selectedRepoLinkedToOtherApp.applicationId, name: selectedRepoLinkedToOtherApp.applicationName }
+      : undefined;
   const slug = toSlug(name.trim());
   const isNameTaken = conflictError || (slug.length > 0 && applications.some((app) => app.slug === slug));
   const isBusy = createApp.isPending || linkRepository.isPending || completeGithub.isPending;
@@ -264,103 +270,131 @@ function RepoAndNameStep({ appId, settingsUrl }: { appId?: string; settingsUrl?:
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex max-w-lg flex-col gap-8">
-      <div className="flex flex-col gap-1.5">
-        <Label>Repository</Label>
-        <Select
-          value={selectedRepoId != null ? String(selectedRepoId) : ""}
-          onValueChange={(value) => {
-            const numValue = Number(value);
-            linkRepository.reset();
-            selectRepo(!Number.isNaN(numValue) ? numValue : undefined);
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a repository">{selectedRepo?.fullName}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {repos.map((repo) => {
-              const isLinkedToOtherApp = repo.applicationId != null && repo.applicationId !== appId;
-              return (
-                <SelectItem key={repo.id} value={String(repo.id)} disabled={isLinkedToOtherApp}>
-                  {isLinkedToOtherApp
-                    ? `${repo.fullName} (linked to ${repo.applicationName ?? "another app"})`
-                    : repo.fullName}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
-        {selectedRepoLinkedToOtherApp != null && (
-          <div className="mt-2 flex items-start gap-2 rounded border border-status-warn/20 bg-status-warn/5 px-3 py-2">
-            <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
-            <p className="font-mono text-2xs text-text-secondary">
-              {selectedRepoLinkedToOtherApp.fullName} is already linked to{" "}
-              {selectedRepoLinkedToOtherApp.applicationName ?? "another application"}. Choose an unlinked repository.
-            </p>
-          </div>
-        )}
-        {settingsUrl != null && (
-          <p className="font-mono text-2xs text-text-secondary">
-            Can't find your repository?{" "}
-            <a
-              href={settingsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary-ink underline underline-offset-2 transition-colors hover:text-primary-ink/80"
-            >
-              Configure repository access on GitHub
-            </a>
-          </p>
-        )}
-      </div>
-
-      {appId == null && selectedRepoId != null && (
+    <>
+      <form onSubmit={handleSubmit} className="flex max-w-lg flex-col gap-8">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="app-name">Application name</Label>
-          <Input
-            id="app-name"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setNameEdited(true);
-              setConflictError(false);
+          <Label>Repository</Label>
+          <Select
+            value={selectedRepoId != null ? String(selectedRepoId) : ""}
+            onValueChange={(value) => {
+              const numValue = Number(value);
+              linkRepository.reset();
+              selectRepo(!Number.isNaN(numValue) ? numValue : undefined);
             }}
-            placeholder="my-web-app"
-            className={cn(isNameTaken && "border-status-critical focus-visible:ring-status-critical")}
-          />
-          {isNameTaken ? (
-            <p className="font-mono text-3xs text-status-critical">
-              An application named "{slug}" already exists. Choose a different name.
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a repository">{selectedRepo?.fullName}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {repos.map((repo) => {
+                const isLinkedToOtherApp = repo.applicationId != null && repo.applicationId !== appId;
+                return (
+                  <SelectItem key={repo.id} value={String(repo.id)}>
+                    {isLinkedToOtherApp
+                      ? `${repo.fullName} (linked to ${repo.applicationName ?? "another app"})`
+                      : repo.fullName}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {selectedRepoLinkedToOtherApp != null && (
+            <div className="mt-2 flex flex-col gap-2 rounded border border-status-warn/20 bg-status-warn/5 px-3 py-2">
+              <div className="flex items-start gap-2">
+                <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+                <p className="font-mono text-2xs text-text-secondary">
+                  {selectedRepoLinkedToOtherApp.fullName} is already linked to{" "}
+                  {selectedRepoLinkedToOtherApp.applicationName ?? "another application"}.{" "}
+                  {linkedApp != null
+                    ? "Delete that application to free the repository, or choose another repository."
+                    : "Choose an unlinked repository."}
+                </p>
+              </div>
+              {linkedApp != null && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  aria-label="onboarding-delete-linked-app"
+                >
+                  Delete {linkedApp.name}
+                </Button>
+              )}
+            </div>
+          )}
+          {settingsUrl != null && (
+            <p className="font-mono text-2xs text-text-secondary">
+              Can't find your repository?{" "}
+              <a
+                href={settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary-ink underline underline-offset-2 transition-colors hover:text-primary-ink/80"
+              >
+                Configure repository access on GitHub
+              </a>
             </p>
-          ) : (
-            <p className="font-mono text-3xs text-text-secondary">Defaults to the repository name.</p>
           )}
         </div>
-      )}
 
-      {linkRepository.error != null && (
-        <div className="flex items-start gap-2 rounded border border-status-critical/30 bg-status-critical/5 px-3 py-2">
-          <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
-          <p className="font-mono text-2xs text-status-critical">{linkRepository.error.message}</p>
-        </div>
-      )}
+        {appId == null && selectedRepoId != null && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="app-name">Application name</Label>
+            <Input
+              id="app-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameEdited(true);
+                setConflictError(false);
+              }}
+              placeholder="my-web-app"
+              className={cn(isNameTaken && "border-status-critical focus-visible:ring-status-critical")}
+            />
+            {isNameTaken ? (
+              <p className="font-mono text-3xs text-status-critical">
+                An application named "{slug}" already exists. Choose a different name.
+              </p>
+            ) : (
+              <p className="font-mono text-3xs text-text-secondary">Defaults to the repository name.</p>
+            )}
+          </div>
+        )}
 
-      <Button
-        type="submit"
-        variant="accent"
-        className="w-fit gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
-        disabled={
-          selectedRepoId == null ||
-          selectedRepoLinkedToOtherApp != null ||
-          isBusy ||
-          (appId == null && (name.trim().length === 0 || isNameTaken))
-        }
-        aria-label="onboarding-add-app-submit"
-      >
-        {isBusy ? "Adding..." : "Add app"}
-        <ArrowRightIcon size={18} weight="bold" />
-      </Button>
-    </form>
+        {linkRepository.error != null && (
+          <div className="flex items-start gap-2 rounded border border-status-critical/30 bg-status-critical/5 px-3 py-2">
+            <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
+            <p className="font-mono text-2xs text-status-critical">{linkRepository.error.message}</p>
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          variant="accent"
+          className="w-fit gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
+          disabled={
+            selectedRepoId == null ||
+            selectedRepoLinkedToOtherApp != null ||
+            isBusy ||
+            (appId == null && (name.trim().length === 0 || isNameTaken))
+          }
+          aria-label="onboarding-add-app-submit"
+        >
+          {isBusy ? "Adding..." : "Add app"}
+          <ArrowRightIcon size={18} weight="bold" />
+        </Button>
+      </form>
+      {linkedApp != null && (
+        <DeleteApplicationDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          applicationId={linkedApp.id}
+          applicationName={linkedApp.name}
+          onDeleted={() => linkRepository.reset()}
+        />
+      )}
+    </>
   );
 }
