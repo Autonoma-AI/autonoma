@@ -3,8 +3,8 @@ import { Output, type ToolSet, generateText, stepCountIs } from "ai";
 import type z from "zod";
 import { AI_REQUEST_TIMEOUT_MS } from "../constants";
 import type { LanguageModel } from "../registry/model-registry";
+import { DEFAULT_RETRY_CONFIG, type RetryConfig, buildRetry } from "../retry";
 import { type ObjectGenerationParams, buildMessages } from "./build-messages";
-import { type RetryConfig, buildRetry } from "./retry";
 import { InvalidVideoInputError, modelSupportsVideo } from "./video/video-input";
 
 export interface ObjectGeneratorConfig<TResult> {
@@ -13,7 +13,7 @@ export interface ObjectGeneratorConfig<TResult> {
     schema: z.ZodType<TResult>;
     tools?: ToolSet;
 
-    /** Number of retries to attempt to generate the object. Defaults to 5. */
+    /** Retry policy for the generation call. Defaults to {@link DEFAULT_RETRY_CONFIG} (10 retries, capped backoff). */
     retry?: RetryConfig;
 }
 
@@ -27,7 +27,7 @@ export class ObjectGenerator<TResult> {
     private readonly retryOperation?: <T>(operation: () => Promise<T>) => Promise<T>;
 
     constructor(private readonly config: ObjectGeneratorConfig<TResult>) {
-        this.retryOperation = buildRetry(config.retry ?? { maxRetries: 5, initialDelayInMs: 100, backoffFactor: 2 });
+        this.retryOperation = buildRetry(config.retry ?? DEFAULT_RETRY_CONFIG);
     }
 
     async generate(params: ObjectGenerationParams): Promise<TResult> {

@@ -14,6 +14,20 @@ export interface RetryConfig {
 }
 
 /**
+ * Default retry policy for model calls. Deliberately generous - transient provider hiccups
+ * (rate limits, 5xx, dropped connections) are common enough that a single-digit retry count
+ * surfaces as spurious hard failures. The exponential backoff is capped by `maxDelayInMs` so
+ * the total wait before giving up stays bounded (~3 minutes of pure backoff at these values)
+ * instead of ballooning to the tens of minutes an uncapped 2^n curve would reach by retry 10.
+ */
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+    maxRetries: 10,
+    initialDelayInMs: 1000,
+    backoffFactor: 2,
+    maxDelayInMs: 30_000,
+};
+
+/**
  * Calculate retry delay based on retry headers and exponential backoff
  */
 function getRetryDelayInMs(error: APICallError, exponentialBackoffDelay: number): number {
@@ -48,7 +62,15 @@ function getRetryDelayInMs(error: APICallError, exponentialBackoffDelay: number)
     return exponentialBackoffDelay;
 }
 
-function shouldRetry(_error: Error | unknown): boolean {
+/**
+ * Only retry errors that stand a chance of succeeding on a subsequent attempt. Provider errors
+ * carry an explicit `isRetryable` signal (true for 408/409/429/5xx, false for 4xx like a bad
+ * request or invalid API key) - honour it so we fail fast on permanent errors instead of
+ * hammering them through the full backoff schedule. Non-`APICallError` failures (network drops,
+ * timeouts, unknown errors) are treated as transient and retried.
+ */
+function shouldRetry(error: Error | unknown): boolean {
+    if (APICallError.isInstance(error)) return error.isRetryable !== false;
     return true;
 }
 

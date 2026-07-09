@@ -7,9 +7,12 @@ import {
     type StepResult,
     type StopCondition,
     type Tool,
+    wrapLanguageModel,
 } from "ai";
 import type { MessageCompactor } from "../compaction/types";
 import type { LanguageModel } from "../registry/model-registry";
+import { DEFAULT_RETRY_CONFIG } from "../retry";
+import { createRetryMiddleware } from "../retry-middleware";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
@@ -194,7 +197,13 @@ export class AgentLoop<TResult = unknown> {
         );
 
         const agent = new ToolLoopAgent({
-            model: this.model,
+            // Retry transient provider failures (rate limits, 5xx, dropped connections) with capped
+            // exponential backoff via middleware, and disable the AI SDK's own retry (`maxRetries: 0`)
+            // so the two layers don't compound. The SDK default of 2 retries surfaced as AI_RetryError
+            // on brief provider blips; the middleware retries the raw model call per step, so a single
+            // flaky step no longer aborts the whole run and tool calls are never replayed.
+            model: wrapLanguageModel({ model: this.model, middleware: createRetryMiddleware(DEFAULT_RETRY_CONFIG) }),
+            maxRetries: 0,
             instructions: this.systemPrompt,
             tools,
             // Force a structured tool call on every step. Without this the AI SDK stops the loop as

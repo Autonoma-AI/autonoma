@@ -92,7 +92,7 @@ const records = costCollector.getRecords();
 
 ## ObjectGenerator
 
-Core structured output engine used by nearly every primitive in this package. Takes a Zod schema and returns validated JSON from an LLM. Supports multimodal input (text, images, video), automatic retries with exponential backoff, and tool-based agentic workflows.
+Core structured output engine used by nearly every primitive in this package. Takes a Zod schema and returns validated JSON from an LLM. Supports multimodal input (text, images, video), automatic retries with capped exponential backoff (10 retries by default, only retrying transient/retryable provider errors), and tool-based agentic workflows.
 
 ```ts
 import { ObjectGenerator } from "@autonoma/ai";
@@ -102,7 +102,8 @@ const generator = new ObjectGenerator({
   model,
   schema: z.object({ sentiment: z.enum(["positive", "negative", "neutral"]) }),
   systemPrompt: "Classify the sentiment of the text.",
-  retry: { maxRetries: 3, initialDelayInMs: 100, backoffFactor: 2 },
+  // Optional; defaults to 10 retries with capped exponential backoff.
+  retry: { maxRetries: 10, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 30_000 },
 });
 
 const result = await generator.generate({ userPrompt: "I love this product!" });
