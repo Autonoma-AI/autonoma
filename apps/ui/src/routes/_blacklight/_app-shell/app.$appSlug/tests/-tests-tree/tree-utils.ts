@@ -53,6 +53,18 @@ export function filterChildren(children: ChildNode[], lower: string): ChildNode[
     return result;
 }
 
+export function collectDescendantTests(node: FolderNode): TestCaseRecord[] {
+    const tests: TestCaseRecord[] = [];
+    for (const child of node.children) {
+        if ("children" in child) {
+            tests.push(...collectDescendantTests(child));
+        } else {
+            tests.push(child);
+        }
+    }
+    return tests;
+}
+
 export function collectAllFolderIds(children: ChildNode[]): string[] {
     const ids: string[] = [];
     for (const child of children) {

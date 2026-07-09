@@ -1,7 +1,6 @@
 import { Skeleton } from "@autonoma/blacklight";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { type ReactNode, Suspense, createContext, useContext, useState } from "react";
-import { useAppNavigate } from "../../../-use-app-navigate";
 import { useCurrentApplication } from "../../../-use-current-application";
 import { CreateFolderDialog } from "./dialogs/create-folder-dialog";
 import { DeleteFolderDialog, DeleteTestDialog } from "./dialogs/delete-dialog";
@@ -59,9 +58,13 @@ interface MoveState {
 
 export function TestsTreeProvider({ children }: { children: ReactNode }) {
   const currentApp = useCurrentApplication();
-  const appNavigate = useAppNavigate();
-  const params = useParams({ strict: false });
-  const selectedTestSlug = (params as { testSlug?: string }).testSlug;
+  const navigate = useNavigate();
+  const { appSlug } = useParams({ from: "/_blacklight/_app-shell/app/$appSlug" });
+  // `shouldThrow: false` returns the typed params on the detail route, or undefined on the index - no `as` cast.
+  const selectedTestSlug = useParams({
+    from: "/_blacklight/_app-shell/app/$appSlug/tests/$testSlug",
+    shouldThrow: false,
+  })?.testSlug;
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -86,9 +89,11 @@ export function TestsTreeProvider({ children }: { children: ReactNode }) {
   }
 
   function selectTest(slug: string) {
-    void appNavigate({
+    // Preserve the `?branch=` search param so selecting a test keeps the current branch scope.
+    void navigate({
       to: "/app/$appSlug/tests/$testSlug",
-      params: { testSlug: slug },
+      params: { appSlug, testSlug: slug },
+      search: (prev) => prev,
     });
   }
 

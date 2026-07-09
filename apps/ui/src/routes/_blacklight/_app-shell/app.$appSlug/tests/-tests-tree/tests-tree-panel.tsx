@@ -1,11 +1,13 @@
 import { Button, Input } from "@autonoma/blacklight";
 import { FolderDashedIcon } from "@phosphor-icons/react/FolderDashed";
 import { FolderPlusIcon } from "@phosphor-icons/react/FolderPlus";
+import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useAuth } from "lib/auth";
 import { trpc } from "lib/trpc";
 import { useEffect, useRef, useState } from "react";
-import { useMainBranch } from "../../-use-main-branch";
+import { useTestChanges } from "../-use-test-changes";
+import { useSelectedBranch } from "../../-use-selected-branch";
 import { useCurrentApplication } from "../../../-use-current-application";
 import { ChildRow } from "./child-row";
 import { useTestsTree } from "./tests-tree-context";
@@ -20,7 +22,8 @@ export function TestsTreePanel() {
 
   const currentApp = useCurrentApplication();
   const { data: folders } = useSuspenseQuery(trpc.folders.list.queryOptions({ applicationId: currentApp.id }));
-  const branch = useMainBranch();
+  const branch = useSelectedBranch();
+  const changes = useTestChanges();
 
   const testCases: TestCaseRecord[] = branch.activeSnapshot.testCaseAssignments.map(
     (a: { testCase: { id: string; name: string; slug: string; folderId: string }; stepsId: string | null }) => ({
@@ -128,6 +131,24 @@ export function TestsTreePanel() {
             siblingFolderIds={filteredTree.filter((c): c is FolderNode => "children" in c).map((c) => c.id)}
           />
         ))}
+
+        {!isSearching && changes.removed.length > 0 && (
+          <div className="mt-2 border-t border-border-dim pt-2">
+            <div className="px-4 py-1 font-mono text-3xs font-semibold uppercase tracking-widest text-text-secondary">
+              Removed on this branch
+            </div>
+            {changes.removed.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-1.5 py-1.5 pr-2 pl-7 text-sm text-status-critical"
+                title="Removed on this branch"
+              >
+                <MinusCircleIcon size={14} className="shrink-0" />
+                <span className="truncate line-through">{t.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

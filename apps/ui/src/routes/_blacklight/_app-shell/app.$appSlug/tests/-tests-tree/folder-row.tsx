@@ -1,11 +1,14 @@
+import { cn } from "@autonoma/blacklight";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { FolderIcon } from "@phosphor-icons/react/Folder";
 import { FolderOpenIcon } from "@phosphor-icons/react/FolderOpen";
+import { useTestChanges } from "../-use-test-changes";
 import { ChildRow } from "./child-row";
 import { FolderActionsMenu } from "./folder-actions-menu";
 import { useTestsTree } from "./tests-tree-context";
 import type { FolderNode } from "./tree-types";
+import { collectDescendantTests } from "./tree-utils";
 
 function countTests(node: FolderNode): number {
   return node.children.filter((c) => !("children" in c)).length;
@@ -32,7 +35,13 @@ export function FolderRow({ node, level, siblingFolderIds }: FolderRowProps) {
     openDeleteFolder,
   } = useTestsTree();
 
+  const changes = useTestChanges();
   const isExpanded = expandedFolders.has(node.id);
+  // A folder reads as "new" when it holds any test rendered green - either added on this branch, or a
+  // freshly-created test that has no steps yet (matches the green treatment on the test rows themselves).
+  const hasNewTest = collectDescendantTests(node).some(
+    (t) => changes.byTestId.get(t.id) === "added" || t.hasSteps === false,
+  );
 
   const childFolderIds = node.children.filter((c): c is FolderNode => "children" in c).map((c) => c.id);
 
@@ -46,9 +55,7 @@ export function FolderRow({ node, level, siblingFolderIds }: FolderRowProps) {
   }
 
   function handleNameClick() {
-    if (!isExpanded) {
-      toggleFolder(node.id);
-    }
+    toggleFolder(node.id);
   }
 
   return (
@@ -66,11 +73,14 @@ export function FolderRow({ node, level, siblingFolderIds }: FolderRowProps) {
         </button>
         <button type="button" onClick={handleNameClick} className="flex min-w-0 flex-1 items-center gap-1.5">
           {isExpanded ? (
-            <FolderOpenIcon size={14} className="shrink-0 text-text-secondary" />
+            <FolderOpenIcon
+              size={14}
+              className={cn("shrink-0", hasNewTest ? "text-primary-ink" : "text-text-secondary")}
+            />
           ) : (
-            <FolderIcon size={14} className="shrink-0 text-text-tertiary" />
+            <FolderIcon size={14} className={cn("shrink-0", hasNewTest ? "text-primary-ink" : "text-text-secondary")} />
           )}
-          <span className="truncate text-text-secondary">{node.name}</span>
+          <span className={cn("truncate", hasNewTest ? "text-primary-ink" : "text-text-secondary")}>{node.name}</span>
         </button>
         <span className="ml-auto shrink-0 text-xs text-text-tertiary">{node.children.length}</span>
         <FolderActionsMenu

@@ -252,6 +252,65 @@ export class RunsService extends Service {
         );
     }
 
+    /**
+     * The recent run history for a single test case, newest first, across every snapshot it has been
+     * assigned to. Powers the "Latest runs" panel on the test detail page: each row carries the pass/fail
+     * status, duration, and the pull request / commit / branch that triggered it. Commit author is not
+     * stored per run, so we surface the PR author login (from the branch's cached PR metadata) instead.
+     */
+    async listRunsForTestCase(testCaseId: string, organizationId: string, limit: number) {
+        this.logger.info("Listing runs for test case", { testCaseId, organizationId, limit });
+
+        const runs = await this.db.run.findMany({
+            where: {
+                assignment: {
+                    testCaseId,
+                    testCase: { application: { organizationId } },
+                },
+            },
+            include: {
+                assignment: {
+                    include: {
+                        snapshot: {
+                            select: {
+                                id: true,
+                                headSha: true,
+                                branch: {
+                                    select: {
+                                        name: true,
+                                        prInfo: {
+                                            select: { prNumber: true, prTitle: true, prAuthorLogin: true },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            take: limit,
+        });
+
+        this.logger.info("Runs for test case listed", { testCaseId, count: runs.length });
+
+        return runs.map((run) => {
+            const snapshot = run.assignment.snapshot;
+            const prInfo = snapshot.branch.prInfo;
+            return {
+                id: run.id,
+                status: run.status,
+                duration: computeDuration(run.startedAt, run.completedAt),
+                createdAt: run.createdAt.toISOString(),
+                branchName: snapshot.branch.name,
+                sha: snapshot.headSha != null ? snapshot.headSha.slice(0, 7) : undefined,
+                prNumber: prInfo?.prNumber ?? undefined,
+                prTitle: prInfo?.prTitle ?? undefined,
+                author: prInfo?.prAuthorLogin ?? undefined,
+            };
+        });
+    }
+
     async deleteRun(runId: string, organizationId: string) {
         this.logger.info("Deleting run", { runId, organizationId });
 

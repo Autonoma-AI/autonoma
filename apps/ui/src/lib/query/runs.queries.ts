@@ -51,6 +51,23 @@ export function useBranchRuns(applicationId: string, snapshotId?: string) {
     });
 }
 
+/**
+ * The recent run history for a single test case (newest first), for the "Latest runs" panel on the test
+ * detail page. Polls while a run is in flight so a just-triggered run resolves live. Not a suspense query -
+ * the panel renders its own skeleton and empty state so it never blocks the plan from rendering.
+ */
+export function useTestCaseRuns(testCaseId: string) {
+    return useQuery({
+        ...trpc.runs.listForTestCase.queryOptions({ testCaseId }),
+        refetchInterval: (query) => {
+            const data = query.state.data;
+            if (data == null) return false;
+            const hasActive = data.some((r) => r.status === "pending" || r.status === "running");
+            return hasActive ? 5000 : false;
+        },
+    });
+}
+
 export function useDeleteRun(runId: string) {
     const queryClient = useQueryClient();
     return useAPIMutation({
