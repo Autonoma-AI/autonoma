@@ -18,6 +18,22 @@ export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 /**
+ * The config-document schema version this build understands, stored on each
+ * `PreviewkitConfigRevision.schemaVersion` so older documents can be upgraded on
+ * read. Distinct from a config document's own `version` field (the config format
+ * version), which the schema below validates directly.
+ *
+ * Single source of truth shared by every producer and consumer of the column:
+ * the previewkit runner's resolver (upgrade-on-read), the API onboarding helper
+ * (stamps new revisions), and the env->secrets migration (stamps rewritten
+ * revisions). Bump this in lockstep with adding an upgrader case in the resolver.
+ *
+ * v2 is the secrets/connections model; v1 was the legacy inline env/build_args
+ * model, which the current schema strips (so v1 documents upgrade by pass-through).
+ */
+export const CURRENT_CONFIG_SCHEMA_VERSION = 2;
+
+/**
  * Per-container `resources` input. `cpu` and `memory` are the client-facing
  * knobs; the normalized `memoryRequest` / `memoryLimit` keys are accepted too so
  * that re-parsing an already-resolved config is idempotent (the merged config is

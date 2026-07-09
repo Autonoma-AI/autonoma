@@ -1,9 +1,7 @@
 import { Prisma } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
-import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
+import { CURRENT_CONFIG_SCHEMA_VERSION, previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
-
-const CURRENT_CONFIG_SCHEMA_VERSION = 1;
 
 /** The starter config used when an application has never saved a PreviewKit revision. */
 export function defaultPreviewkitConfig(): PreviewConfig {

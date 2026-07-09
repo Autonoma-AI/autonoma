@@ -34,11 +34,29 @@ describe("resolveConfig", () => {
         expect(config.apps).toHaveLength(1);
     });
 
+    it("resolves a migrated (v2) revision", () => {
+        const config = resolveConfig({ document: baseDocument, schemaVersion: 2 });
+        expect(config.apps).toHaveLength(1);
+    });
+
+    it("upgrades a legacy (v1) revision, stripping retired inline env/build_args", () => {
+        const config = resolveConfig({
+            document: {
+                version: 1,
+                apps: [{ name: "web", port: 3000, env: { FOO: "bar" }, build_args: { BAZ: "qux" } }],
+            },
+            schemaVersion: 1,
+        });
+        expect(config.apps[0].name).toBe("web");
+        expect(config.apps[0].connections).toEqual([]);
+        expect(config.apps[0].build_secrets).toEqual([]);
+    });
+
     it("rejects a document written against a newer schemaVersion", () => {
         expect(() => resolveConfig({ document: baseDocument, schemaVersion: 99 })).toThrow(/newer than this build/);
     });
 
-    it("rejects an unsupported older schemaVersion (no upgrader yet)", () => {
+    it("rejects an unsupported older schemaVersion (no upgrader)", () => {
         expect(() => resolveConfig({ document: baseDocument, schemaVersion: 0 })).toThrow(/No upgrader/);
     });
 });

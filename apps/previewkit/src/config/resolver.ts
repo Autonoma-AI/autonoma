@@ -1,13 +1,8 @@
+import { CURRENT_CONFIG_SCHEMA_VERSION } from "@autonoma/types";
 import { logger as rootLogger } from "../logger";
 import { previewConfigSchema, type PreviewConfig, trustedPreviewConfigSchema } from "./schema";
 
-/**
- * The config-document schema version this build understands. Stored on each
- * `PreviewkitConfigRevision` so older documents can be upgraded on read.
- * Distinct from the config document's own `version` field (the config format
- * version), which the schema validates directly.
- */
-export const CURRENT_CONFIG_SCHEMA_VERSION = 1;
+export { CURRENT_CONFIG_SCHEMA_VERSION };
 
 export interface ResolveConfigInput {
     /** Raw config document: a stored `PreviewkitConfigRevision.document`.
@@ -56,10 +51,18 @@ export function resolveConfig(input: ResolveConfigInput): PreviewConfig {
 }
 
 /**
- * vN -> current. v1 is the only version today, so this is a pass-through.
+ * vN -> current. Two shapes exist today, both parseable by the current schema:
+ *   - v1: the legacy inline-secrets model (app `env` / `build_args`, service `env`).
+ *   - v2: the secrets/connections model the env/build_args migration produced
+ *     (`apps/api/.../migrate-preview-config-secrets`, stamped MIGRATED_SCHEMA_VERSION = 2).
+ *
+ * The current `previewConfigSchema` is the v2 shape and strips the retired v1
+ * inline fields, so a v1 document upgrades to v2 by passing straight through to
+ * the schema (which drops `env`/`build_args` and defaults `connections` /
+ * `build_secrets`). The literal secret values a v1 document carried inline were
+ * moved to AWS Secrets Manager by the one-time migration, not re-derived here.
  * A future breaking change adds a case that rewrites the document shape
- * (v1 -> v2 -> ...), letting stored revisions be migrated server-side on read
- * instead of editing clients' configs.
+ * (v2 -> v3 -> ...) instead of editing clients' configs.
  */
 function upgradeConfigDocument(document: unknown, fromVersion: number): unknown {
     if (fromVersion === CURRENT_CONFIG_SCHEMA_VERSION) return document;
@@ -68,5 +71,6 @@ function upgradeConfigDocument(document: unknown, fromVersion: number): unknown 
             `Config schemaVersion ${fromVersion} is newer than this build supports (${CURRENT_CONFIG_SCHEMA_VERSION}); upgrade Previewkit.`,
         );
     }
+    if (fromVersion === 1) return document;
     throw new Error(`No upgrader registered for config schemaVersion ${fromVersion}`);
 }
