@@ -80,10 +80,14 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
     setSelected(blank.id);
   }
 
+  function deleteVariable(rowId: number) {
+    updateApp(app.id, removeVariable(app, rowId));
+    if (selectedView?.row.id === rowId) setSelected(undefined);
+  }
+
   function handleDelete() {
     if (selectedView == null) return;
-    updateApp(app.id, removeVariable(app, selectedView.row.id));
-    setSelected(undefined);
+    deleteVariable(selectedView.row.id);
   }
 
   return (
@@ -134,6 +138,7 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
             selectedRowId={selectedView?.row.id}
             searching={query !== ""}
             onSelect={selectVariable}
+            onDelete={deleteVariable}
           />
           <div className="sm:sticky sm:top-4 sm:max-h-[calc(100vh-2rem)] sm:self-start sm:overflow-y-auto">
             {selectedView != null ? (
