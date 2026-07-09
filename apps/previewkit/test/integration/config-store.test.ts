@@ -17,7 +17,7 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
 // owned by one app that another app then (illegally) references.
 async function seedRevision(harness: PreviewkitTestHarness, applicationId: string, document: object): Promise<string> {
     const revision = await harness.db.previewkitConfigRevision.create({
-        data: { applicationId, revision: 1, schemaVersion: 1, document },
+        data: { applicationId, revision: 1, document },
     });
     return revision.id;
 }

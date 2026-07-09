@@ -1,6 +1,6 @@
 import { Prisma } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
-import { CURRENT_CONFIG_SCHEMA_VERSION, previewConfigSchema, type PreviewConfig } from "@autonoma/types";
+import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
 
 /** The starter config used when an application has never saved a PreviewKit revision. */
@@ -98,7 +98,6 @@ export async function createAndActivateRevision(
         data: {
             applicationId,
             revision,
-            schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
             document: savedDocument,
             dependencyDocuments: savedDependencyDocuments,
         },

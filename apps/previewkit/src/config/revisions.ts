@@ -35,37 +35,25 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
 
     const revision = await db.previewkitConfigRevision.findFirst({
         where: { id: revisionId, applicationId },
-        select: { id: true, schemaVersion: true, document: true, dependencyDocuments: true },
+        select: { id: true, document: true, dependencyDocuments: true },
     });
     if (revision == null) return undefined;
 
-    logger.info("Resolving config revision", {
-        applicationId,
-        revisionId: revision.id,
-        schemaVersion: revision.schemaVersion,
-    });
+    logger.info("Resolving config revision", { applicationId, revisionId: revision.id });
     // Config revisions are platform-authored, so per-app/service `resources`
     // overrides are trusted and honored here.
-    const config = resolveConfig({
-        document: revision.document,
-        schemaVersion: revision.schemaVersion,
-        allowCustomResources: true,
-    });
-    const dependencyConfigs = resolveDependencyConfigs(revision.dependencyDocuments, revision.schemaVersion, logger);
+    const config = resolveConfig({ document: revision.document, allowCustomResources: true });
+    const dependencyConfigs = resolveDependencyConfigs(revision.dependencyDocuments, logger);
     return { config, revisionId: revision.id, dependencyConfigs };
 }
 
 /**
  * Resolves the primary revision's stored `dependencyDocuments` (one validated
- * config per multirepo dependency) through the same upgrade/validate pipeline as
- * the primary. A shape that no longer parses degrades to [] (logged) rather than
- * failing the whole deploy on a corrupt sidecar.
+ * config per multirepo dependency) through the same validation as the primary.
+ * A shape that no longer parses degrades to [] (logged) rather than failing the
+ * whole deploy on a corrupt sidecar.
  */
-function resolveDependencyConfigs(
-    value: unknown,
-    schemaVersion: number,
-    logger: ReturnType<typeof rootLogger.child>,
-): DependencyConfig[] {
+function resolveDependencyConfigs(value: unknown, logger: ReturnType<typeof rootLogger.child>): DependencyConfig[] {
     if (value == null) return [];
     const parsed = storedDependencyDocumentsSchema.safeParse(value);
     if (!parsed.success) {
@@ -74,13 +62,13 @@ function resolveDependencyConfigs(
     }
     return parsed.data.map((entry) => ({
         repo: entry.repo,
-        config: resolveConfig({ document: entry.document, schemaVersion, allowCustomResources: true }),
+        config: resolveConfig({ document: entry.document, allowCustomResources: true }),
     }));
 }
 
 /**
- * Resolves an Application's active config: its `activeConfigRevisionId` document, run
- * through the upgrade + validation pipeline in `resolveConfig`.
+ * Resolves an Application's active config: its `activeConfigRevisionId` document,
+ * validated by `resolveConfig`.
  *
  * Returns undefined when the Application has no active revision (the normal "this repo
  * hasn't adopted server-side config" signal) or when the active id points at a revision

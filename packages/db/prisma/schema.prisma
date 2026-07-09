@@ -1974,8 +1974,7 @@ model PreviewkitOrgSecret {
 // `document` is a preview config document validated against
 // `previewConfigSchema`; it is stored as opaque JSON and validated on read by
 // the resolver (boundary validation), so the DB never constrains a churning
-// config format. `schemaVersion` lets the resolver upgrade older documents
-// server-side. The Application's `activeConfigRevisionId` points at the
+// config format. The Application's `activeConfigRevisionId` points at the
 // revision currently in effect.
 model PreviewkitConfigRevision {
   id            String @id @default(cuid())
@@ -1987,6 +1986,10 @@ model PreviewkitConfigRevision {
 
   // Monotonically increasing per application. (applicationId, revision) unique.
   revision      Int
+  // Vestigial: the resolver no longer branches on this - `previewConfigSchema`
+  // strips retired fields and defaults their replacements, so every stored
+  // document parses without a version-upgrade step. Retained (default 1) to
+  // avoid a destructive column drop; can be removed in a dedicated migration.
   schemaVersion Int @default(1) @map("schema_version")
 
   // Opaque config document; validated by previewConfigSchema on read.

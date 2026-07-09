@@ -10,7 +10,6 @@ const DEP: RepoDependency = { name: "api", repo: "acme/api", fallback_branch: "m
 // dependency repos are not separate Applications, so no DB lookup happens here.
 const depConfig = resolveConfig({
     document: { version: 1, apps: [{ name: "api", path: ".", port: 4000 }] },
-    schemaVersion: 1,
     allowCustomResources: true,
 });
 

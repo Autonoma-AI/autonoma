@@ -1,11 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import {
-    CURRENT_CONFIG_SCHEMA_VERSION,
-    type Connection,
-    SecretKeySchema,
-    hasConnectionToken,
-    isReservedPreviewkitEnvKey,
-} from "@autonoma/types";
+import { type Connection, SecretKeySchema, hasConnectionToken, isReservedPreviewkitEnvKey } from "@autonoma/types";
 import { z } from "zod";
 
 /**
@@ -16,8 +10,13 @@ import { z } from "zod";
 
 const logger = rootLogger.child({ name: "migrate-preview-config-secrets" });
 
-/** Revisions this migration rewrites are stamped at the current schema version. */
-export const MIGRATED_SCHEMA_VERSION = CURRENT_CONFIG_SCHEMA_VERSION;
+/**
+ * The `schemaVersion` this one-time migration stamps onto rewritten revisions, and
+ * the threshold its skip guard compares against so a re-run is idempotent. Retained
+ * as a self-contained constant for this (already-run) historical script; the runtime
+ * config resolver no longer branches on `schemaVersion`.
+ */
+export const MIGRATED_SCHEMA_VERSION = 2;
 
 const envMapSchema = z.record(z.string(), z.string());
 const stringArraySchema = z.array(z.string());
