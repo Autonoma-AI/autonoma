@@ -32,8 +32,10 @@ const TAIL_SIZE = 8192;
  * deploy - all cases where retrying is the right move: kube-proxy routes
  * the next connection to a healthy pool pod. False positives here just burn
  * one retry attempt, so we lean inclusive.
+ *
+ * Exported for tests only.
  */
-const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
+export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /graceful_stop/,
     /connection refused/,
     /connection reset/,
@@ -43,6 +45,17 @@ const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /transport.*error while dialing/,
     /transport is closing/,
     /no such host/,
+    // Session loss: a CPU-starved pool pod drops the buildctl<->buildkitd gRPC
+    // session (or its healthcheck times out) mid-build. Bare "context deadline
+    // exceeded" is deliberately NOT listed - it also surfaces for genuine
+    // in-build timeouts (slow registry pulls, user RUN steps printing their own
+    // gRPC errors), where a retry just replays a deterministic failure. buildkitd
+    // appends that cause to the session error anyway ("no active session for
+    // <id>: context deadline exceeded"), so the anchored forms below already
+    // match the deadline variants worth retrying.
+    /no active session for/,
+    /session healthcheck failed/,
+    /failed to get session/,
 ];
 
 interface BuildKitBuilderOptions {
