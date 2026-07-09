@@ -1,9 +1,10 @@
 import { getCheckpointSummaries } from "@autonoma/checkpoint";
-import { db, type Prisma } from "@autonoma/db";
+import { db, type OnboardingStep, type Prisma } from "@autonoma/db";
 import { type GitHubAppCredentials, OctokitGitHubApp } from "@autonoma/github";
 import {
     type AutonomaCommentState,
     createGitHubPrCommentStore,
+    isOnboardingComplete,
     type PayloadBuilderInput,
     payloadBuilder,
     postOrUpdateCommentOnGithub,
@@ -27,7 +28,13 @@ const generationForCommentSelect = {
             branch: {
                 select: {
                     prInfo: { select: { prNumber: true } },
-                    application: { select: { githubRepositoryId: true, slug: true } },
+                    application: {
+                        select: {
+                            githubRepositoryId: true,
+                            slug: true,
+                            onboardingState: { select: { step: true } },
+                        },
+                    },
                     deployment: {
                         select: {
                             webDeployment: { select: { url: true } },
@@ -102,7 +109,11 @@ type GenerationForComment = {
         headSha: string | null;
         branch: {
             prInfo: { prNumber: number } | null;
-            application: { githubRepositoryId: number | null; slug: string };
+            application: {
+                githubRepositoryId: number | null;
+                slug: string;
+                onboardingState: { step: OnboardingStep } | null;
+            };
             deployment: { webDeployment: { url: string } | null } | null;
             organization: {
                 id: string;
@@ -191,6 +202,14 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
     // its stale results (the runs comment reposts with allow-new-head, so its sha isn't rejected).
     if (snapshot.status === "superseded") {
         log.info("Skipped PR comment update - snapshot superseded by a newer push", {
+            snapshotId: snapshot.id,
+            prNumber,
+        });
+        return;
+    }
+
+    if (!isOnboardingComplete(branch.application.onboardingState?.step)) {
+        log.info("Skipped PR comment update - application is not fully onboarded", {
             snapshotId: snapshot.id,
             prNumber,
         });

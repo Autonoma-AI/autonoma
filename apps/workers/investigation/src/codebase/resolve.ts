@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { db } from "@autonoma/db";
+import { db, type OnboardingStep } from "@autonoma/db";
 import { Codebase } from "@autonoma/diffs";
 import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -20,6 +20,8 @@ export interface SnapshotMeta {
     clientName: string;
     branchId: string;
     githubRepositoryId: number;
+    /** The application's onboarding step - gates whether we may post PR comments (only once `completed`). */
+    onboardingStep: OnboardingStep | undefined;
     githubClient: GitHubInstallationClient;
 }
 
@@ -46,6 +48,7 @@ export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotM
                             name: true,
                             organizationId: true,
                             githubRepositoryId: true,
+                            onboardingState: { select: { step: true } },
                         },
                     },
                 },
@@ -75,6 +78,7 @@ export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotM
         clientName: application.name,
         branchId: snapshot.branch.id,
         githubRepositoryId: application.githubRepositoryId,
+        onboardingStep: application.onboardingState?.step,
         githubClient,
     };
 }

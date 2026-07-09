@@ -1,6 +1,7 @@
 import { db } from "@autonoma/db";
 import {
     createGitHubPrCommentStore,
+    isOnboardingComplete,
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
@@ -39,6 +40,11 @@ export async function postInvestigationPrComment(
     const prMeta = await resolvePrMeta(meta);
     if (prMeta.prNumber <= 0) {
         logger.info("Skipping investigation PR comment - snapshot is not attached to a PR");
+        return { status: "skipped" };
+    }
+
+    if (!isOnboardingComplete(meta.onboardingStep)) {
+        logger.info("Skipping investigation PR comment - application is not fully onboarded");
         return { status: "skipped" };
     }
 
