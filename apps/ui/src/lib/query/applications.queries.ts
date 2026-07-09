@@ -111,3 +111,18 @@ export function useUpdateApplicationData() {
         errorToast: { title: "Failed to save deployment URL" },
     });
 }
+
+export function useRenameApplication() {
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    return useAPIMutation({
+        ...trpc.applications.updateData.mutationOptions({
+            onSettled: async () => {
+                await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                await router.invalidate();
+            },
+        }),
+        successToast: { title: "Name updated" },
+        errorToast: { title: "Failed to update name" },
+    });
+}
