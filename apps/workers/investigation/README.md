@@ -127,6 +127,10 @@ each pod's capacity; raising `maxReplicaCount` alone still bottlenecks at one ac
 touches real PRs until deliberately enabled), plus the shared DB / Temporal / S3 / Sentry vars. See
 `src/env.ts`. The deployment reads `eks/main/production/worker-investigation`.
 
+Proposed new tests are always validated by running them as a shadow generation against the app's standard
+scenario (validate->edit->retry) - concurrently with the affected-test wave - and only validated proposals are
+added to the twin suite. See the workflow in `@autonoma/workflow` and `activities/validate-proposal.ts`.
+
 ## v1 limitations
 
 - `get_app_logs` (Loki) and `get_deployment_health` (k8s) are not wired yet - they return a clear

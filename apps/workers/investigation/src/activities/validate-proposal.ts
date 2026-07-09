@@ -2,6 +2,7 @@ import { type PrismaClient, db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { CreateValidationGenerationInput, CreateValidationGenerationOutput } from "@autonoma/workflow/activities";
 import { type SnapshotMeta, resolveSnapshotMeta } from "../codebase/resolve";
+import { type ScenarioChoice, pickStandardScenario } from "./pick-standard-scenario";
 
 /**
  * The reserved slug of the ONE shadow test case per application. Every proposed-new-test validation hangs its
@@ -75,9 +76,11 @@ async function prepareModificationValidation(params: {
 }
 
 /**
- * New test: hang the draft plan off the application's reserved shadow test case, then a shadow generation. No
- * scenario is bound (a brand-new proposal has no assignment yet), so it runs without seeded data - enough to
- * prove the plan is executable. Returns `skippedReason` only when the app has no folder to place the shadow case.
+ * New test: hang the draft plan off the application's reserved shadow test case, then a shadow generation. A
+ * brand-new proposal has no assignment to inherit a scenario from, so we bind the application's STANDARD scenario
+ * (see resolveStandardScenario) - a proposal validated against no seeded data would fail the moment it needs a
+ * logged-in user or any pre-existing record. Returns `skippedReason` only when the app has no folder to place the
+ * shadow case.
  */
 async function prepareNewTestValidation(params: {
     meta: SnapshotMeta;
@@ -92,15 +95,49 @@ async function prepareNewTestValidation(params: {
         return { skippedReason: "app has no folder to place a shadow test case for new-test validation" };
     }
 
+    const scenario = await resolveStandardScenario(db, meta.applicationId, logger);
     const draftPlan = await db.testPlan.create({
-        data: { testCaseId: shadowTestCaseId, prompt: plan, organizationId: meta.organizationId },
-        select: { id: true },
+        data: {
+            testCaseId: shadowTestCaseId,
+            prompt: plan,
+            organizationId: meta.organizationId,
+            scenarioId: scenario?.id,
+            scenarioName: scenario?.name,
+        },
+        select: { id: true, scenarioId: true },
     });
 
     const generation = await createShadowGeneration(db, draftPlan.id, snapshotId, meta.organizationId);
-    logger.info("New-test validation generation ready", { extra: { testGenerationId: generation.id } });
+    logger.info("New-test validation generation ready", {
+        extra: { testGenerationId: generation.id, scenarioId: draftPlan.scenarioId ?? undefined },
+    });
     // slug is left undefined - the workflow classifies it under a generic "validation-candidate" label.
-    return { testGenerationId: generation.id, scenarioId: undefined, slug: undefined };
+    return { testGenerationId: generation.id, scenarioId: draftPlan.scenarioId ?? undefined, slug: undefined };
+}
+
+/**
+ * Resolve the scenario to seed a proposed new test against: the application's "standard" scenario. Organizations
+ * usually have exactly one scenario, conventionally named "standard"; we prefer a case-insensitive name match,
+ * fall back to the sole scenario when there is exactly one, and otherwise return undefined (the run degrades to
+ * unseeded) rather than guessing among several ambiguous scenarios. Copied scenario recipe versions on the twin
+ * make the resolved scenario provisionable at run time.
+ */
+async function resolveStandardScenario(
+    prisma: PrismaClient,
+    applicationId: string,
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<ScenarioChoice | undefined> {
+    const scenarios = await prisma.scenario.findMany({
+        where: { applicationId },
+        select: { id: true, name: true },
+    });
+    const chosen = pickStandardScenario(scenarios);
+    if (chosen == null) {
+        logger.warn("No 'standard' or sole scenario for the app; validating the proposal unseeded", {
+            extra: { applicationId, scenarioCount: scenarios.length },
+        });
+    }
+    return chosen;
 }
 
 /**

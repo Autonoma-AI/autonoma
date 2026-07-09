@@ -66,12 +66,6 @@ const web = proxyActivities<WebActivities>({
 
 export interface InvestigationWorkflowInput {
     snapshotId: string;
-    /**
-     * When true, every proposed new test and every suggested modification is VALIDATED by running it as a
-     * shadow generation (validate->edit->retry). Off by default - it needs the web worker and creates shadow
-     * rows, so it stays opt-in until that infra + a shadow-row marker are in place.
-     */
-    validateProposals?: boolean;
 }
 
 /**
@@ -137,44 +131,13 @@ async function runInvestigation(
 
     await markProgress(snapshotId, "running", "running");
 
-    // Fan tests out in bounded waves (TEST_CONCURRENCY at a time) instead of one-at-a-time, preserving order.
-    // A single test's failure is contained to its own slot - the workflow always proceeds to write the report.
-    const results: InvestigationTestResult[] = [];
-    for (let offset = 0; offset < selection.tests.length; offset += TEST_CONCURRENCY) {
-        const wave = selection.tests.slice(offset, offset + TEST_CONCURRENCY);
-        const settled = await Promise.all(
-            wave.map((test) =>
-                runOneTest(snapshotId, test).catch((error) => {
-                    const message = rootFailureMessage(error);
-                    // An SDK/provisioning/infra error that escaped run+classify is a provisioning failure, not a
-                    // classifier fault - categorize it (environment_failure / scenario_issue) so it is not buried
-                    // as a null-verdict "classification error". Genuine classifier faults (unrecognized message)
-                    // still fall through to the honest classification_error below.
-                    const infra = infraFailureResult({ slug: test.slug, message });
-                    if (infra != null) {
-                        log.warn("Investigation test hit an SDK/infra error; categorizing as a provisioning failure", {
-                            ...ids,
-                            extra: { slug: test.slug, message, category: infra.verdict?.category },
-                        });
-                        return infra;
-                    }
-                    log.error("Investigation test failed; recording as classification error and continuing", {
-                        ...ids,
-                        extra: { slug: test.slug, message },
-                    });
-                    const failed: InvestigationTestResult = {
-                        slug: test.slug,
-                        plan: "",
-                        runSuccess: false,
-                        stepCount: 0,
-                        error: message,
-                    };
-                    return failed;
-                }),
-            ),
-        );
-        results.push(...settled);
-    }
+    // Run the selected/affected tests AND validate the proposed NEW tests together, under ONE shared concurrency
+    // budget. They are independent (new-test proposals seed the app's standard scenario; affected tests use their
+    // own pinned scenarios), so making the proposals wait for the whole affected wave would only slow the run -
+    // but running two separate wave loops concurrently would double the web-worker/scenario ceiling, so they share
+    // a single TEST_CONCURRENCY budget instead. Suggested modifications are NOT validated here - they are derived
+    // from the affected-test verdicts, so they run after.
+    const results = await runTestsAndValidateProposals(snapshotId, selection.tests, selection.suggested, ids);
 
     // Route every scenario failure into a repair category (fix_test / recipe_only / recipe_and_sdk / unknown) and
     // compute the concrete candidate recipe - a DRY-RUN for every org (report + PR comment show what WOULD run).
@@ -194,9 +157,10 @@ async function runInvestigation(
         await applyTestFixes(snapshotId, results);
     }
 
-    if (input.validateProposals === true) {
-        await validateProposals(snapshotId, selection.suggested, results);
-    }
+    // Validate the classifier's suggested modifications by running each edited plan (validate->edit->retry). This
+    // runs here, after the affected wave, because each modification is derived from that test's verdict - unlike
+    // new-test proposals (validated concurrently above), it has nothing to run until the verdict exists.
+    await validateModifications(snapshotId, results);
 
     // Persist the agent's add/modify edits onto the (detached) investigation snapshot - a proposed suite the
     // merge-with-main step later reconciles into main. Writes only to the twin, never touching the diffs suite.
@@ -205,11 +169,17 @@ async function runInvestigation(
         const update = result.modificationValidation?.finalPlan ?? result.verdict?.suggestedTestUpdate;
         return update != null && update !== "" ? [{ slug: result.slug, plan: update }] : [];
     });
-    const newTests = selection.suggested.map((suggestion) => ({
-        name: suggestion.name,
-        description: suggestion.description,
-        plan: suggestion.validation?.finalPlan ?? suggestion.instruction,
-    }));
+    // Add a proposed test to the twin suite only when it is not a proven-broken plan: if validation ran and the
+    // plan could not be made to pass, adding it would seed a red test into the suite, so skip it (it still shows
+    // in the report as a proposal that failed validation). When validation did not run (flag off) we add the raw
+    // proposal as before - selection already vetted it against the strict authoring bar.
+    const newTests = selection.suggested
+        .filter((suggestion) => suggestion.validation == null || suggestion.validation.passed)
+        .map((suggestion) => ({
+            name: suggestion.name,
+            description: suggestion.description,
+            plan: suggestion.validation?.finalPlan ?? suggestion.instruction,
+        }));
     // Deletions are gated behind the same org autofix flag as recipe/test-fix writes: removing a test the PR made
     // obsolete is harder to walk back than an added/edited plan, so off-flag orgs stay observe-only here (the
     // removal recommendations still surface in the report/PR comment). Add/modify above always persist to the twin.
@@ -553,27 +523,87 @@ function setApplied(result: InvestigationTestResult, applied: boolean, note: str
 }
 
 /**
- * Validate every proposed new test and every suggested modification by actually running it, editing the plan
- * and retrying on failure. Mutates the passed `suggested` / `results` in place with the validation outcome.
- * Each validation is contained - a failure never sinks the report.
+ * Run the affected tests and validate the proposed new tests under ONE shared TEST_CONCURRENCY budget. Both are
+ * web-worker + scenario-provisioning work against the client preview, so they must share the cap that bounds it -
+ * two separate concurrent wave loops would double the ceiling. Proposals are scheduled first so they start in the
+ * first wave rather than waiting for the whole affected set. Returns the affected-test results in slug order;
+ * proposal outcomes are written back onto `suggested` in place. Every unit is contained: a single failure never
+ * sinks the run.
  */
-async function validateProposals(
+async function runTestsAndValidateProposals(
     snapshotId: string,
+    tests: InvestigationSelectedTest[],
     suggested: { instruction: string; validation?: TestValidationResult }[],
-    results: InvestigationTestResult[],
-): Promise<void> {
-    for (const proposal of suggested) {
+    ids: { snapshot: { snapshotId: string } },
+): Promise<InvestigationTestResult[]> {
+    const results = new Array<InvestigationTestResult>(tests.length);
+    const proposalTasks = suggested.map((proposal) => async () => {
         proposal.validation = await validatePlan(snapshotId, proposal.instruction, undefined).catch((error) =>
             failedValidation(snapshotId, proposal.instruction, error),
         );
+    });
+    const testTasks = tests.map((test, index) => async () => {
+        results[index] = await runOneTest(snapshotId, test).catch((error) => testRunFailure(test, error, ids));
+    });
+    await runInBoundedWaves([...proposalTasks, ...testTasks]);
+    return results;
+}
+
+/** Run tasks in bounded waves of TEST_CONCURRENCY, awaiting each wave before the next - the single choke point
+ * that holds the documented ceiling on concurrent web browsers / scenario provisions across every caller. */
+async function runInBoundedWaves(tasks: Array<() => Promise<void>>): Promise<void> {
+    for (let offset = 0; offset < tasks.length; offset += TEST_CONCURRENCY) {
+        const wave = tasks.slice(offset, offset + TEST_CONCURRENCY);
+        await Promise.all(wave.map((task) => task()));
     }
-    for (const result of results) {
+}
+
+/**
+ * Turn an error that escaped run+classify into a categorized result: a provisioning failure when the message
+ * matches an SDK/infra fault (so it is not buried as a null-verdict "classification error"), else an honest
+ * classification_error. Never throws - a single test's failure stays contained to its own slot.
+ */
+function testRunFailure(
+    test: InvestigationSelectedTest,
+    error: unknown,
+    ids: { snapshot: { snapshotId: string } },
+): InvestigationTestResult {
+    const message = rootFailureMessage(error);
+    const infra = infraFailureResult({ slug: test.slug, message });
+    if (infra != null) {
+        log.warn("Investigation test hit an SDK/infra error; categorizing as a provisioning failure", {
+            ...ids,
+            extra: { slug: test.slug, message, category: infra.verdict?.category },
+        });
+        return infra;
+    }
+    log.error("Investigation test failed; recording as classification error and continuing", {
+        ...ids,
+        extra: { slug: test.slug, message },
+    });
+    return { slug: test.slug, plan: "", runSuccess: false, stepCount: 0, error: message };
+}
+
+/**
+ * Validate every classifier-suggested MODIFICATION by running the edited plan (validate->edit->retry), sharing
+ * the TEST_CONCURRENCY budget. Mutates each result in place with `modificationValidation`. Runs after the affected
+ * wave because each edit is derived from that test's verdict. Rows autofix already validated (applyTestFixes sets
+ * `modificationValidation` on fix_test rows for opted-in orgs) are skipped - re-running them would overwrite a
+ * passing result with a fresh, possibly-flaky one and double the web-worker cost. Each validation is contained.
+ */
+async function validateModifications(snapshotId: string, results: InvestigationTestResult[]): Promise<void> {
+    const targets = results.filter((result) => {
         const update = result.verdict?.suggestedTestUpdate;
-        if (update == null || update === "") continue;
+        return update != null && update !== "" && result.modificationValidation == null;
+    });
+    const tasks = targets.map((result) => async () => {
+        const update = result.verdict?.suggestedTestUpdate;
+        if (update == null || update === "") return;
         result.modificationValidation = await validatePlan(snapshotId, update, result.slug).catch((error) =>
             failedValidation(snapshotId, update, error),
         );
-    }
+    });
+    await runInBoundedWaves(tasks);
 }
 
 function failedValidation(snapshotId: string, plan: string, error: unknown): TestValidationResult {
