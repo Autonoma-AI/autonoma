@@ -1,6 +1,15 @@
 import { previewConfigSchema, validatePreviewConfigSemantics } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
-import { documentsFromDraft, draftFromConfig, hookFieldErrors, nextDraftId, type HooksDraft } from "./topology-draft";
+import {
+    documentsFromDraft,
+    draftFromConfig,
+    envRow,
+    envRowsFromDotenv,
+    hookFieldErrors,
+    nextDraftId,
+    parseDotenv,
+    type HooksDraft,
+} from "./topology-draft";
 
 describe("topology-draft hooks", () => {
     it("round-trips pre- and post-deploy hooks through draft and back", () => {
@@ -183,5 +192,77 @@ describe("hookFieldErrors", () => {
         const errors = hookFieldErrors(draft, ["api"]);
         expect(errors.get("3:app")).toEqual(["Hook is missing an app"]);
         expect(errors.get("4:app")).toEqual(['Hook references unknown app "worker"']);
+    });
+});
+
+describe("parseDotenv", () => {
+    it("parses KEY=VALUE, skips comments/blanks, strips quotes and the export prefix", () => {
+        const entries = parseDotenv(
+            [
+                "# a comment",
+                "",
+                "DATABASE_URL=postgres://x",
+                'export API_URL="https://api.test"',
+                "TOKEN='sk_live_1'",
+                "not a valid line",
+                "123BAD=nope",
+            ].join("\n"),
+        );
+        expect(entries).toEqual([
+            { key: "DATABASE_URL", value: "postgres://x" },
+            { key: "API_URL", value: "https://api.test" },
+            { key: "TOKEN", value: "sk_live_1" },
+        ]);
+    });
+
+    it("takes the value verbatim (a `#` inside a value is not a comment)", () => {
+        expect(parseDotenv("PASSWORD=p@ss#word=1")).toEqual([{ key: "PASSWORD", value: "p@ss#word=1" }]);
+    });
+
+    it("keeps a multi-line quoted value (PEM key) intact and resumes parsing after it", () => {
+        const input = [
+            'PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----',
+            "MIIEpAABC",
+            "DEF/1+2=",
+            '-----END RSA PRIVATE KEY-----"',
+            "NEXT=after",
+        ].join("\n");
+        expect(parseDotenv(input)).toEqual([
+            {
+                key: "PRIVATE_KEY",
+                value: "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAABC\nDEF/1+2=\n-----END RSA PRIVATE KEY-----",
+            },
+            { key: "NEXT", value: "after" },
+        ]);
+    });
+});
+
+describe("envRowsFromDotenv", () => {
+    it("classifies a token value as a connection and a literal as a secret", () => {
+        const rows = envRowsFromDotenv(
+            [],
+            [
+                { key: "STRIPE_KEY", value: "sk_live_1" },
+                { key: "MONGO_URI", value: "mongodb://{{db.host}}:{{db.port}}/preview" },
+            ],
+        );
+        const byKey = new Map(rows.map((row) => [row.key, row]));
+        expect(byKey.get("STRIPE_KEY")).toMatchObject({ value: "sk_live_1", sensitive: true });
+        expect(byKey.get("MONGO_URI")).toMatchObject({
+            value: "mongodb://{{db.host}}:{{db.port}}/preview",
+            sensitive: false,
+        });
+    });
+
+    it("defaults build-time on for framework client-bundle keys", () => {
+        const rows = envRowsFromDotenv([], [{ key: "NEXT_PUBLIC_API_URL", value: "https://x" }]);
+        expect(rows[0]).toMatchObject({ key: "NEXT_PUBLIC_API_URL", buildTime: true });
+    });
+
+    it("updates an existing key in place (same id, keeps its build-time choice)", () => {
+        const existing = [envRow("STRIPE_KEY", "old", true, "config", true)];
+        const rows = envRowsFromDotenv(existing, [{ key: "STRIPE_KEY", value: "new" }]);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ id: existing[0]!.id, value: "new", sensitive: true, buildTime: true });
     });
 });

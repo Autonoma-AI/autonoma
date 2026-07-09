@@ -5,12 +5,14 @@ import { useState } from "react";
 import {
   PRIMARY_REPO_KEY,
   envRow,
+  envRowsFromDotenv,
   fieldIssueKey,
   type AppDraft,
   type DraftIssues,
   type ServiceDraft,
 } from "../../../../onboarding/-components/previewkit/topology-draft";
 import { InjectedBlock } from "./injected-block";
+import { PasteEnvDialog } from "./paste-env-dialog";
 import { VariableDrawer } from "./variable-drawer";
 import { VariableList } from "./variable-list";
 import {
@@ -80,6 +82,11 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
     setSelected(blank.id);
   }
 
+  function importDotenv(entries: Array<{ key: string; value: string }>) {
+    if (entries.length === 0) return;
+    updateApp(app.id, { env: envRowsFromDotenv(app.env, entries) });
+  }
+
   function deleteVariable(rowId: number) {
     updateApp(app.id, removeVariable(app, rowId));
     if (selectedView?.row.id === rowId) setSelected(undefined);
@@ -114,6 +121,7 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
               className="h-8 w-36 pl-7 text-2xs sm:w-44"
             />
           </div>
+          <PasteEnvDialog onImport={importDotenv} />
           <Button variant="cta" size="sm" className="gap-1" onClick={addVariable}>
             <PlusIcon size={12} weight="bold" />
             Add variable
@@ -126,10 +134,13 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
       {variables.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 border border-border-dim px-6 py-14 text-center">
           <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">No variables yet</p>
-          <Button variant="cta" size="sm" className="gap-1" onClick={addVariable}>
-            <PlusIcon size={12} weight="bold" />
-            Add variable
-          </Button>
+          <div className="flex items-center gap-2">
+            <PasteEnvDialog onImport={importDotenv} />
+            <Button variant="cta" size="sm" className="gap-1" onClick={addVariable}>
+              <PlusIcon size={12} weight="bold" />
+              Add variable
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid border border-border-dim sm:grid-cols-[18rem_minmax(0,1fr)] sm:items-start">

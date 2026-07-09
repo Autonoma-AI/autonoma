@@ -1,4 +1,5 @@
 import {
+    hasConnectionToken,
     validateHookSteps,
     type ConfigIssue,
     type HookGroupKey,
@@ -816,6 +817,87 @@ export function envRowsFromSuggestions(
         );
     }
     return rows;
+}
+
+/** Key prefixes framework toolchains inline at build time (client bundles). */
+const BUILD_TIME_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
+
+/** One `KEY=VALUE` line: optional `export`, an env-style key, then the rest of the line. */
+const DOTENV_LINE_REGEX = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
+
+/**
+ * Parses pasted `.env` text into key/value pairs so a whole file can be imported
+ * at once. Skips blank and `#` comment lines and anything without a valid env key.
+ *
+ * A value opened with a quote that is not closed on the same line spans following
+ * lines until the matching quote - so a multi-line PEM key / cert imports intact
+ * instead of being truncated to its first line.
+ */
+export function parseDotenv(text: string): Array<{ key: string; value: string }> {
+    const entries: Array<{ key: string; value: string }> = [];
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] ?? "";
+        const trimmed = line.trim();
+        if (trimmed === "" || trimmed.startsWith("#")) continue;
+        const match = DOTENV_LINE_REGEX.exec(line);
+        if (match == null) continue;
+        const key = match[1] ?? "";
+        const rest = match[2] ?? "";
+        const quote = rest[0] === '"' || rest[0] === "'" ? rest[0] : undefined;
+
+        if (quote == null) {
+            entries.push({ key, value: rest.trim() });
+            continue;
+        }
+
+        const closeIndex = rest.indexOf(quote, 1);
+        if (closeIndex !== -1) {
+            entries.push({ key, value: rest.slice(1, closeIndex) });
+            continue;
+        }
+
+        // Opening quote with no close on this line: consume following lines
+        // (PEM keys, certs) up to the matching quote, joining with newlines.
+        const parts = [rest.slice(1)];
+        while (++i < lines.length) {
+            const next = lines[i] ?? "";
+            const idx = next.indexOf(quote);
+            if (idx !== -1) {
+                parts.push(next.slice(0, idx));
+                break;
+            }
+            parts.push(next);
+        }
+        entries.push({ key, value: parts.join("\n") });
+    }
+    return entries;
+}
+
+/**
+ * Merges parsed `.env` entries into an app's variable list. A value with a
+ * `{{name.property}}` token becomes a connection; everything else a secret. An
+ * existing key is updated in place (keeping its row id and build-time choice); a
+ * new key is appended, defaulting build-time on for framework client-bundle vars.
+ */
+export function envRowsFromDotenv(
+    existing: EnvRowDraft[],
+    entries: Array<{ key: string; value: string }>,
+): EnvRowDraft[] {
+    const byKey = new Map(existing.map((row) => [row.key.trim(), row]));
+    for (const { key, value } of entries) {
+        const trimmedKey = key.trim();
+        if (trimmedKey === "") continue;
+        const sensitive = !hasConnectionToken(value);
+        const current = byKey.get(trimmedKey);
+        if (current != null) {
+            byKey.set(trimmedKey, { ...current, value, sensitive });
+        } else {
+            const buildTime = BUILD_TIME_ENV_PREFIXES.some((prefix) => trimmedKey.startsWith(prefix));
+            byKey.set(trimmedKey, envRow(trimmedKey, value, sensitive, "new", buildTime));
+        }
+    }
+    return [...byKey.values()];
 }
 
 export function applyEnvFixesToDraft(
