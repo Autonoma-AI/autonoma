@@ -578,6 +578,85 @@ cutoverSuite((test) => {
         expect(issue.bugId).toBe(bug.id);
     });
 
+    test("report_bug folds the grounded suspectedCause into the persisted Issue.report", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const subject = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+        const reviewId = await harness.createGenerationReview({ organizationId, snapshotId, planId: subject.planId });
+
+        await applyReportBug({
+            snapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Coupon double-counts",
+            description: "Applying a coupon subtracts the discount twice.",
+            severity: "high",
+            evidence: [],
+            report: {
+                expectedBehavior: "The coupon is subtracted once.",
+                actualBehavior: "The coupon is subtracted twice.",
+                narrativeMarkdown: "The order total ends up short by one coupon value.",
+            },
+            suspectedCause: {
+                explanation: "applyCoupon runs inside a reducer that already subtracted the discount upstream.",
+                codeReferences: [
+                    {
+                        file: "src/cart/total.ts",
+                        lines: "42-58",
+                        snippet: "total -= coupon.value; // already applied upstream",
+                    },
+                ],
+            },
+            reviewLink: { generationReviewId: reviewId },
+        });
+
+        const issue = await harness.db.issue.findFirstOrThrow({
+            where: { generationReviewId: reviewId },
+            select: { report: true },
+        });
+
+        // The healing text core and the grounded cause land in one report blob, and the
+        // snippet rides along with its file:line so the guess stays verifiable.
+        expect(issue.report?.actualBehavior).toBe("The coupon is subtracted twice.");
+        expect(issue.report?.suspectedCause?.explanation).toContain("reducer");
+        expect(issue.report?.suspectedCause?.codeReferences[0]?.file).toBe("src/cart/total.ts");
+        expect(issue.report?.suspectedCause?.codeReferences[0]?.snippet).toContain("already applied upstream");
+    });
+
+    test("report_bug drops a suspectedCause that has no report to live in", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const subject = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+        const reviewId = await harness.createGenerationReview({ organizationId, snapshotId, planId: subject.planId });
+
+        await applyReportBug({
+            snapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Legacy occurrence",
+            description: "An occurrence whose action carried a cause but no customer-facing report.",
+            severity: "medium",
+            evidence: [],
+            suspectedCause: {
+                explanation: "Grounded, but with no report there is no Suspected cause section to render it.",
+                codeReferences: [{ file: "src/legacy.ts" }],
+            },
+            reviewLink: { generationReviewId: reviewId },
+        });
+
+        // The cause has no home without a report (the section renders below the proven
+        // case), so the whole report column stays null rather than persisting a partial.
+        const issue = await harness.db.issue.findFirstOrThrow({
+            where: { generationReviewId: reviewId },
+            select: { report: true },
+        });
+        expect(issue.report).toBeNull();
+    });
+
     test("report_bug on the investigation twin derives branchId from the twin's (feature) branch", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },

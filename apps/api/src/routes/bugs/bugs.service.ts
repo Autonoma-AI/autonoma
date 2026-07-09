@@ -220,6 +220,8 @@ function isImageEvidence(item: SignedEvidenceItem): boolean {
  * The report fields the bug page renders as prose. `primaryScreenshot` is
  * deliberately omitted: it is a hero-only input (a raw storage key resolved into
  * a signed URL before the client ever sees it), not something the client renders.
+ * `suspectedCause` is included: the bug page renders it as prose in its own hedged,
+ * subordinate section.
  */
 function toClientReport(report: IssueReport | undefined) {
     if (report == null) return undefined;
@@ -227,6 +229,7 @@ function toClientReport(report: IssueReport | undefined) {
         expectedBehavior: report.expectedBehavior,
         actualBehavior: report.actualBehavior,
         narrativeMarkdown: report.narrativeMarkdown,
+        suspectedCause: report.suspectedCause,
     };
 }
 

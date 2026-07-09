@@ -12,7 +12,7 @@ import type {
     SuspectedCause,
 } from "@autonoma/types";
 
-export type { HealingReviewLink, IssueReport };
+export type { HealingReviewLink, IssueReport, SuspectedCause };
 
 export type HealingSeverity = "critical" | "high" | "medium" | "low";
 

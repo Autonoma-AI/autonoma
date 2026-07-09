@@ -15,6 +15,12 @@ export const codeReferenceSchema = z.object({
         .string()
         .optional()
         .describe("Line or line range within the file that contains the cause, e.g. '42' or '42-58'."),
+    snippet: z
+        .string()
+        .optional()
+        .describe(
+            "Verbatim source lines you actually read for this reference (from your bash read of the file). Always shown to the reader next to its file:line so a wrong guess is checkable, not authoritative - only include it when you have a clean, directly-copied excerpt; omit it and leave the reference file:line-only otherwise. Never paraphrase or reconstruct code here.",
+        ),
 });
 export type CodeReference = z.infer<typeof codeReferenceSchema>;
 

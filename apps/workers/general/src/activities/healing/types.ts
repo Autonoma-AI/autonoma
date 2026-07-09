@@ -3,6 +3,7 @@ import type {
     HealingReviewLink,
     HealingSeverity,
     IssueReport,
+    SuspectedCause,
 } from "@autonoma/workflow/activities";
 
 export interface ApplyUpdatePlanInput {
@@ -28,6 +29,12 @@ export interface ApplyReportBugInput {
      * leaves the occurrence without one.
      */
     report?: IssueReport;
+    /**
+     * The grounded code-level cause the healing agent re-derived independently.
+     * Folded into the persisted `report.suspectedCause` at apply time (it has no
+     * home without a report). Optional so actions that carried no cause still apply.
+     */
+    suspectedCause?: SuspectedCause;
     matchedBugId?: string;
     reviewLink: HealingReviewLink;
 }

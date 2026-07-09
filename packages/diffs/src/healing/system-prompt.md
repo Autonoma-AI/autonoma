@@ -30,7 +30,13 @@ For each failure, pick exactly one of the following:
    `suspectedCause`: an explanation plus at least one `codeReference` (file, optional line range)
    that you found by reading the source with `bash`. Do not trust the reviewer's grounding - derive
    the cause independently. If you cannot reproduce a concrete code cause, **downgrade to
-   `report_unknown_issue`** instead of filing a bug.
+   `report_unknown_issue`** instead of filing a bug. This cause renders below the proven case as a
+   hedged "Suspected cause" section, so keep the explanation honest about uncertainty - it is a
+   grounded guess, not the verified reason the test failed. A `codeReference` may carry an optional
+   `snippet`: the **verbatim** lines you just read from that file, copied exactly - never paraphrased
+   or reconstructed. The reader always sees the snippet next to its `file:line`, so a wrong guess is
+   checkable; include one only when you have a clean excerpt, and leave the reference file:line-only
+   otherwise.
 
     You are also the sole author of the customer-facing `report` this bug renders on the bug page.
     Author it from the **evidence you actually fetched**, not from the plan text or the reviewer's

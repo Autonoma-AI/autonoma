@@ -79,6 +79,7 @@ async function applyActions(input: ApplyHealingActionsInput, logger: Logger): Pr
                     severity: action.severity,
                     evidence: action.evidence,
                     report: action.report,
+                    suspectedCause: action.suspectedCause,
                     matchedBugId,
                     reviewLink: action.reviewLink,
                 });

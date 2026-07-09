@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { suspectedCauseSchema } from "./suspected-cause";
 
 /** A coordinate in the screenshot's own pixel space, used to draw the hero pin. */
 export const screenshotPinSchema = z.object({
@@ -48,6 +49,15 @@ export const issueReportSchema = z.object({
         .string()
         .describe(
             "The rich 'why this is a bug' narrative in Markdown: walk the reader through what happened and why it is wrong, weaving in the concrete evidence (screenshots, step outputs) you inspected.",
+        ),
+    // The hedged code-level cause, rendered below the proven case as a subordinate
+    // "Suspected cause" section - never as "Root cause". Captured from the healing
+    // action's grounded `suspectedCause` at apply time rather than re-authored here,
+    // so it stays the code the agent actually read. Omitted when no cause was grounded.
+    suspectedCause: suspectedCauseSchema
+        .optional()
+        .describe(
+            "The suspected code-level cause (explanation + grounded file:line references). Surfaced as a hedged, subordinate section, so a wrong guess never contaminates the proven case above it.",
         ),
     primaryScreenshot: primaryScreenshotSchema.optional(),
 });

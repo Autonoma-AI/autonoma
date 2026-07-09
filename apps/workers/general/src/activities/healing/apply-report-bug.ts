@@ -1,6 +1,7 @@
 import type { BugStatus, Prisma } from "@autonoma/db";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import type { IssueReport } from "@autonoma/workflow/activities";
 import { markActionApplied } from "./mark-applied";
 import type { ApplyReportBugInput } from "./types";
 
@@ -48,9 +49,9 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
                 title: input.title,
                 description: input.description,
                 // The evidence-grounded, customer-facing report the bug page renders
-                // (Expected/Actual + narrative). Undefined leaves the column null for
-                // occurrences whose action carried no report.
-                report: input.report,
+                // (Expected/Actual + narrative + hedged suspected cause). Undefined
+                // leaves the column null for occurrences whose action carried no report.
+                report: buildIssueReport(input),
                 bugId,
                 organizationId: input.organizationId,
             },
@@ -60,6 +61,20 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
 
     await markActionApplied(input.refinementActionId);
     logger.info("report_bug applied");
+}
+
+/**
+ * The persisted report is the healing-authored text core plus the grounded
+ * `suspectedCause` the same action carried. The cause is folded in here rather
+ * than authored inside the report so it stays the code the agent actually read
+ * for gating, captured once instead of duplicated. It has no home without a
+ * report (the section renders below the proven case), so a bare cause with no
+ * report is dropped.
+ */
+function buildIssueReport(input: ApplyReportBugInput): IssueReport | undefined {
+    if (input.report == null) return undefined;
+    if (input.suspectedCause == null) return input.report;
+    return { ...input.report, suspectedCause: input.suspectedCause };
 }
 
 async function linkExistingBug(
