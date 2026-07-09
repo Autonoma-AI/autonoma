@@ -2,6 +2,7 @@ import { type LanguageModel, type ModelMessage, type ToolSet, ToolLoopAgent, has
 import { track } from "./analytics";
 import { createStepLogger, type StepInfo } from "./display";
 import { AgentError, classifyAgentError, sleep } from "./errors";
+import { AI_MAX_RETRIES } from "./model";
 
 const MAX_RETRIES = 3;
 const STEP_TIMEOUT_MS = 120_000;
@@ -125,6 +126,7 @@ export async function runAgent<T>(
 
         const agent = new ToolLoopAgent({
             model,
+            maxRetries: AI_MAX_RETRIES,
             instructions: config.systemPrompt,
             tools,
             temperature: config.temperature,

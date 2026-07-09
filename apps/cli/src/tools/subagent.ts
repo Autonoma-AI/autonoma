@@ -1,5 +1,6 @@
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs, tool } from "ai";
 import { z } from "zod";
+import { AI_MAX_RETRIES } from "../core/model";
 import { pickString } from "../core/pick-string";
 import { buildBashTool } from "./bash";
 import { buildGlobTool } from "./glob";
@@ -63,6 +64,7 @@ export function buildSubagentTool(
 
             const subagent = new ToolLoopAgent({
                 model,
+                maxRetries: AI_MAX_RETRIES,
                 instructions: SYSTEM_PROMPT,
                 tools: {
                     ...buildSubagentTools(workingDirectory, onFileRead),

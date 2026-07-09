@@ -3,6 +3,11 @@ import { readEnv } from "../env";
 
 export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
 
+// Passed as the AI SDK's `maxRetries` on every model call. The SDK default of 2 gave up on
+// transient provider blips after 3 attempts; 10 rides them out. The SDK handles the backoff and
+// only retries retryable (429/5xx/network) errors, failing fast on 4xx.
+export const AI_MAX_RETRIES = 10;
+
 // Production API host. Overridable with AUTONOMA_API_URL to target an
 // alpha/preview host. Keep in sync with config.ts.
 const DEFAULT_API_URL = "https://autonoma.app";

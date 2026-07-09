@@ -1,6 +1,7 @@
 import { type LanguageModel, Output, generateText } from "ai";
 import { z } from "zod";
 import { formatException } from "../../core/errors";
+import { AI_MAX_RETRIES } from "../../core/model";
 import type { AuditedModel } from "./entity-order";
 
 const rankedSchema = z.object({
@@ -12,6 +13,7 @@ async function callRanker(model: LanguageModel, prompt: string): Promise<string[
         model,
         prompt,
         output: Output.object({ schema: rankedSchema }),
+        maxRetries: AI_MAX_RETRIES,
     });
     return result.output.ranked;
 }

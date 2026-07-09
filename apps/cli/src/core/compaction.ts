@@ -1,4 +1,5 @@
 import { type LanguageModel, generateText } from "ai";
+import { AI_MAX_RETRIES } from "./model";
 
 export interface CompactionInput {
     messages: { role: string; content: string }[];
@@ -10,6 +11,7 @@ export async function compactConversation(model: LanguageModel, input: Compactio
 
     const { text } = await generateText({
         model,
+        maxRetries: AI_MAX_RETRIES,
         prompt: `Summarize the following conversation into a compact context that preserves all important state needed to continue the work.
 
 MUST PRESERVE:

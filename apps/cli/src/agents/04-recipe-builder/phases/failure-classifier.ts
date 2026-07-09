@@ -1,6 +1,7 @@
 import { type LanguageModel, Output, generateText } from "ai";
 import { z } from "zod";
 import { formatException } from "../../../core/errors";
+import { AI_MAX_RETRIES } from "../../../core/model";
 
 /**
  * Which side of the test a failure originates from.
@@ -133,6 +134,7 @@ export async function classifyFailure(model: LanguageModel, args: ClassifyArgs):
             model,
             prompt: buildClassifierPrompt(args),
             output: Output.object({ schema: classificationSchema }),
+            maxRetries: AI_MAX_RETRIES,
         });
         return result.output;
     } catch (err) {

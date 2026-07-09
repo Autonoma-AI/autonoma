@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { hasToolCall, type LanguageModel, stepCountIs, tool, ToolLoopAgent } from "ai";
 import matter from "gray-matter";
 import { z } from "zod";
+import { AI_MAX_RETRIES } from "../../core/model";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
 import { type CoverageState, saveBfsState } from "./graph";
 import { VALID_VERBS } from "./validation";
@@ -217,6 +218,7 @@ export function buildSpawnResearcherTool(model: LanguageModel, workingDirectory:
 
             const subagent = new ToolLoopAgent({
                 model,
+                maxRetries: AI_MAX_RETRIES,
                 instructions:
                     "You are a code researcher. Read the files specified in your instruction, " +
                     "analyze them, and call finish with a summary of what you found. " +
