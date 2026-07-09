@@ -1,4 +1,2 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-export const PLAN_AUTHORING_GUIDE = readFileSync(join(import.meta.dirname, "plan-authoring-guide.md"), "utf-8");
+// Single-sourced in @autonoma/test-updates so the diffs and investigation agents author plans to the same guide.
+export { PLAN_AUTHORING_GUIDE } from "@autonoma/test-updates";

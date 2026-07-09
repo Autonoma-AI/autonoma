@@ -4,9 +4,12 @@ The core logic of the **shadow investigation agent** - a low-risk comparison age
 with the production diffs job. For a PR it runs on its **own detached snapshot** (a baseline clone the diffs
 agent never mutates), selects the affected tests **from that snapshot's pinned `TestCaseAssignment`s**, runs
 each as a shadow generation **using the assignment's pinned plan**, classifies the outcome (the true cause of
-pass/fail), and renders a markdown report compared against the deployed agent's result. Because selection is
-scoped to the frozen snapshot, there is no time cutoff, no whole-catalog fallback, and no latest-plan lookup -
-quarantined and plan-less assignments are simply skipped.
+pass/fail), and renders a markdown report compared against the deployed agent's result. Selection reads the
+assignment's pinned plan (never a latest-plan lookup) and has no whole-catalog fallback. It DOES apply a
+**base-relative cutoff** (`TestCatalog.listSnapshotTestCases(..., createdBefore)`): the twin is not frozen in
+practice - same-PR test cases (the deployed agent's own creations, or a prior twin's persisted proposals) get
+assigned onto it after the fork - so test cases created at/after the snapshot are excluded, leaving the genuine
+pre-PR suite. Quarantined and plan-less assignments are simply skipped.
 
 This package is **platform-agnostic logic only** - every capability (DB, S3, GitHub, the cloned repo, the
 models, the preview env) is injected. The Temporal worker (`apps/workers/investigation`) wires the real

@@ -34,7 +34,9 @@ export async function selectAffectedTests(context: SelectContext, deps: Selector
     const diffStat = await deps.codebase.diffStat();
     // The snapshot's assigned tests (slug + flow + pinned-plan description) go in the prompt up front -
     // progressive disclosure, so the model always sees every candidate instead of relying on a tool it may skip.
-    const catalog = await deps.catalog.listSnapshotTestCases(deps.snapshotId);
+    // Cut off at the snapshot's createdAt so the deployed agent's same-PR test creations (assigned onto the twin
+    // after the fork) never leak in and make us look "already covered" for behavior we should propose a test for.
+    const catalog = await deps.catalog.listSnapshotTestCases(deps.snapshotId, deps.testsCreatedBefore);
     logger.info("Catalog loaded for selection", { extra: { tests: catalog.length } });
 
     const selection = await withRetry(

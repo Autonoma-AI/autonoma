@@ -107,6 +107,53 @@ investigationDbSuite({
             expect(await catalog.resolveSnapshotPlan(quarantined.snapshotId, "quarantined")).toBeUndefined();
         });
 
+        test("base-relative cutoff drops tests created at/after it (the diffs agent's same-PR leaks)", async ({
+            harness,
+            seedResult: { organizationId, application },
+        }) => {
+            const { snapshotId, testCaseId } = await harness.setupTestCase(organizationId, application.id, "baseline");
+            const folder = await harness.db.folder.findFirstOrThrow({ where: { applicationId: application.id } });
+            const catalog = new TestCatalog(harness.db);
+
+            // Backdate this test's rows into the far past with the cutoff between them. The suite shares one
+            // application across cases, and setupTestCase relies on "the newest test case is the one I just
+            // created" (orderBy createdAt desc); keeping these rows older than every real-now row other cases
+            // create preserves that invariant. baseline (2000) < cutoff (2001) < leaked (2002).
+            const cutoff = new Date("2001-01-01T00:00:00.000Z");
+            await harness.db.testCase.update({
+                where: { id: testCaseId },
+                data: { createdAt: new Date("2000-01-01T00:00:00.000Z") },
+            });
+
+            // A test the deployed diffs agent creates for the same PR, assigned onto this snapshot AFTER the fork
+            // (createdAt after the cutoff, still in the past so it never perturbs other cases' ordering).
+            const leaked = await harness.db.testCase.create({
+                data: {
+                    name: "leaked",
+                    slug: "leaked",
+                    applicationId: application.id,
+                    organizationId,
+                    folderId: folder.id,
+                    createdAt: new Date("2002-01-01T00:00:00.000Z"),
+                },
+            });
+            const plan = await harness.db.testPlan.create({
+                data: { testCaseId: leaked.id, prompt: "leaked plan", organizationId },
+            });
+            await harness.db.testCaseAssignment.create({
+                data: { snapshotId, testCaseId: leaked.id, planId: plan.id },
+            });
+
+            // Without a cutoff both are candidates; the cutoff excludes only the post-cutoff leak.
+            const unscoped = (await catalog.listSnapshotTestCases(snapshotId)).map((testCase) => testCase.slug);
+            expect(unscoped).toContain("baseline");
+            expect(unscoped).toContain("leaked");
+
+            const scoped = (await catalog.listSnapshotTestCases(snapshotId, cutoff)).map((testCase) => testCase.slug);
+            expect(scoped).toContain("baseline");
+            expect(scoped).not.toContain("leaked");
+        });
+
         test("returns undefined for unknown app or test", async ({
             harness,
             seedResult: { organizationId, application },

@@ -1,5 +1,7 @@
 /** The test-selector's prompt, in its own file so it can be iterated without touching the orchestration. */
 
+import { PLAN_AUTHORING_GUIDE } from "@autonoma/test-updates";
+
 export const SELECTOR_SYSTEM_PROMPT = `You are a QA engineer deciding which existing end-to-end tests a pull request's diff could affect, so they can be re-run against the PR's preview.
 
 # How to decide - work by progressive disclosure
@@ -11,18 +13,21 @@ You are given UP FRONT: the PR's changed-files summary AND a one-line descriptio
 
 Be precise - over-selecting wastes runs, under-selecting misses regressions - but do NOT return an empty selection when the diff clearly affects a flow some test covers. The descriptions are in front of you so you can find it; an empty result on a real change is almost always a miss.
 
-# New tests (suggested) - only for genuinely NEW functionality, and lean AGAINST over-proposing
-If the diff introduces NEW user-visible behavior that NO existing (pre-PR) test covers, propose ONE new test. Do NOT propose one when an existing test already covers the area (prefer running/updating that test) - over-proposing new tests is a known failure mode. Each suggestion needs a short \`name\`, a one-line \`description\` (a FALSIFIABLE behavioral claim stating exactly what the test proves - e.g. "Applying a valid coupon code reduces the cart total"), the \`reasoning\` (which diff hunk it covers and why no existing test does), and an \`instruction\` that is a COMPLETE, runnable platform E2E plan:
-- Structure: Setup / Steps / Verification. The user is ALREADY authenticated (never "log in"; navigation goes in Setup, not a step).
-- Steps use ONLY: click, type, scroll, assert, hover, drag, read, refresh. BANNED (never write): wait, verify, navigate, select, check. The engine auto-waits - assert the SETTLED end state, never add a wait.
-- \`assert\` only VISIBLE text/elements with location context and EXACT on-screen text (never "or"/"e.g."/paraphrase).
-- GROUND every label in the code: UI text comes from i18n keys, so grep the locale file for the rendered string and confirm the element renders in the state your steps reach. Fewer verified assertions beat a complete-looking plan built on guesses.
+# Proposing a NEW test - for genuinely new, uncovered behavior you can test with a mutation
+When the diff introduces NEW user-visible behavior that NO existing (pre-PR) test covers AND that behavior can be exercised as a state change, PROPOSE ONE new test for it. A new, mutating, uncovered flow is exactly what you should propose - this is how new features get regression coverage, so do not leave it uncovered just because authoring a solid plan is work.
+- QUALITY BAR - mutation + functional assertion. A proposed test MUST perform a genuine state mutation (create / edit / delete / toggle / configure) and END with a functional assertion of that mutation's effect at the source of truth (the list, the detail view, the persisted setting) - exactly as required by the PLAN AUTHORING GUIDE below. Author the COMPLETE runnable plan to that bar.
+- SKIP only when the new behavior genuinely cannot be tested this way - it is purely display/read-only, or it depends entirely on an external service you cannot drive from the UI. Then propose nothing rather than an assert-only "open the page and confirm something shows" test, which proves nothing. Skipping is correct for a truly untestable change - it is NOT the default for a testable one.
+- At most ONE proposal, and only when no existing (pre-PR) test covers the area - prefer selecting/updating an existing test when one already fits.
+- Each proposal needs a short \`name\`, a one-line \`description\` (a FALSIFIABLE behavioral claim stating exactly what the test proves - e.g. "Applying a valid coupon code reduces the cart total"), the \`reasoning\` (which diff hunk it covers and why no existing test does), and an \`instruction\` that is the COMPLETE, runnable plan body authored to the PLAN AUTHORING GUIDE below (Setup / Steps / Verification / Expected Result). Ground every UI label in the code (resolve i18n keys against the locale file); fewer verified assertions beat a complete-looking plan built on guesses.
 
 # Quarantine (deleted functionality)
 If the diff REMOVES a feature / route / page / component that an EXISTING test exercises (so the test can no longer pass), recommend quarantining it: the exact \`slug\` + a \`reason\` naming the removed code. Only for genuine REMOVAL - a behavior CHANGE is a modification (handled later), not a quarantine.
 
 # Output
-Return { affected: [{ slug, reason }], suggested: [{ name, description, instruction, reasoning }], quarantine: [{ slug, reason }] }. Every \`slug\` MUST be an exact slug from the catalog. Prefer FEWER, well-justified selections over a broad net; most PRs add zero or one suggested test and zero quarantines.`;
+Return { affected: [{ slug, reason }], suggested: [{ name, description, instruction, reasoning }], quarantine: [{ slug, reason }] }. Every \`slug\` MUST be an exact slug from the catalog. Prefer FEWER, well-justified selections over a broad net; most PRs add zero or one suggested test and zero quarantines.
+
+# PLAN AUTHORING GUIDE (applies to every proposed test's \`instruction\`)
+${PLAN_AUTHORING_GUIDE}`;
 
 /** Per-test description cap + overall catalog cap, so a huge app's catalog can't dominate the base prompt. */
 const MAX_DESCRIPTION_CHARS = 160;

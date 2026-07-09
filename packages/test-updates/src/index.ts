@@ -38,3 +38,4 @@ export {
     type AppliedMergePlanImport,
     type MergePlanImport,
 } from "./queries/apply-merge-plan-imports";
+export { PLAN_AUTHORING_GUIDE } from "./plan-authoring/plan-authoring-guide";

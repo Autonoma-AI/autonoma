@@ -21,14 +21,33 @@ export class TestCatalog {
     }
 
     /**
-     * The tests assigned to one snapshot - the branch's own pinned copy of the suite - grouped by flow, the
-     * candidate set the selector chooses from. A snapshot is a frozen baseline, so its assignment set IS the
-     * pre-PR suite (no time cutoff needed). Quarantined and plan-less assignments are excluded: they are not
-     * runnable tests. The description comes from each assignment's PINNED plan, not a test case's latest plan.
+     * The tests assigned to one snapshot - the candidate set the selector chooses from - grouped by flow.
+     * Quarantined and plan-less assignments are excluded (not runnable tests); the description comes from each
+     * assignment's PINNED plan, not a test case's latest plan.
+     *
+     * `createdBefore` (the snapshot's own createdAt) applies a BASE-RELATIVE cutoff: a detached investigation
+     * twin is NOT a frozen pre-PR baseline in practice - the deployed diffs agent creates tests for the SAME PR
+     * and they get assigned onto the twin AFTER the fork (verified in prod: same-PR tests whose createdAt is
+     * minutes after the snapshot's). Considering those would leak the deployed agent's own same-PR work into our
+     * independent selection - it would make us "already covered" for behavior we should be proposing a test for.
+     * So we drop every test case created at/after the snapshot, leaving the genuine pre-PR suite. Omit the arg
+     * (e.g. in unit tests) to skip the cutoff.
+     *
+     * The cutoff is on `testCase.createdAt`, NOT `TestCaseAssignment.createdAt`, deliberately: the fork copies
+     * the baseline assignments with `createMany` (create-branch-snapshot.ts), which restamps every copied row's
+     * `createdAt` to fork time (~= the snapshot's createdAt) - so an assignment-time cutoff would drop the whole
+     * pre-PR suite along with the leaks. The pinned `plan` read below is the plan the assignment captured at
+     * fork (never re-pointed to a post-PR plan on the detached twin), so the description can't be re-contaminated
+     * by a same-PR plan edit even for a pre-PR test case.
      */
-    async listSnapshotTestCases(snapshotId: string): Promise<TestCaseInfo[]> {
+    async listSnapshotTestCases(snapshotId: string, createdBefore?: Date): Promise<TestCaseInfo[]> {
         const assignments = await this.db.testCaseAssignment.findMany({
-            where: { snapshotId, quarantineIssueId: null, planId: { not: null } },
+            where: {
+                snapshotId,
+                quarantineIssueId: null,
+                planId: { not: null },
+                testCase: createdBefore != null ? { createdAt: { lt: createdBefore } } : undefined,
+            },
             select: {
                 testCase: { select: { slug: true, name: true, folder: { select: { name: true } } } },
                 plan: { select: { prompt: true } },

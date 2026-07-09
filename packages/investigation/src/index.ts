@@ -41,6 +41,7 @@ export { CarryForwardSelector } from "./select/carry-forward";
 export { selectAffectedTests } from "./select/select-tests";
 export type { SelectContext } from "./select/select-tests";
 export { buildSelectorTools } from "./select/tools";
+export { SELECTOR_SYSTEM_PROMPT, buildSelectionPrompt } from "./select/prompt";
 export type { SelectorDeps } from "./select/dependencies";
 export { InvestigationReportPersister } from "./persist/report-persister";
 export type { PersistReportInput } from "./persist/report-persister";

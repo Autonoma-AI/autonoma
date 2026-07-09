@@ -59,12 +59,15 @@ export async function selectInvestigationTests(
             {
                 codebase: reader,
                 catalog,
-                // Select from the tests assigned to THIS (investigation) snapshot - the branch's frozen baseline
-                // suite. The snapshot is detached and never mutated by the diffs agent, so its assignment set is
-                // exactly the pre-PR suite; no time cutoff or org-catalog fallback is needed or wanted.
+                // Select from the tests assigned to THIS (investigation) snapshot, cut off at the snapshot's
+                // createdAt. The twin is detached, but the deployed diffs agent creates tests for the SAME PR
+                // that get assigned onto it after the fork; scoping to pre-snapshot test cases keeps selection on
+                // the genuine pre-PR suite so we independently propose coverage instead of seeing it "already
+                // covered" by the deployed agent's own work.
                 // Use the reliable text classifier model (gpt-5.5), not gemini/smart-visual: selection reads
                 // the diff + code (no vision needed), and gemini repeatedly returned no structured output.
                 snapshotId,
+                testsCreatedBefore: context.createdAt,
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-select" }),
                 maxSteps: env.INVESTIGATION_SELECT_MAX_STEPS,
             },

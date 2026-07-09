@@ -18,6 +18,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `BranchAlreadyHasPendingSnapshotError` | Error | Branch already has an open draft |
 | `ApplicationNotFoundError` | Error | Branch not found or does not belong to the specified organization |
 | `StepsPlanMismatchError` | Error | Step list does not belong to the assigned plan |
+| `PLAN_AUTHORING_GUIDE` | String | The shared E2E test-plan authoring ruleset (mutation + functional source-of-truth assertion, allowed/banned verbs, i18n resolution). Owned here and consumed by both the diffs agent (`@autonoma/diffs` re-exports it) and the investigation selector, so both author plans to one bar. Lives in `src/plan-authoring/`. |
 
 **Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`
 
