@@ -260,8 +260,12 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `PREVIEW_DOMAIN` | No | `preview.autonoma.app` | Base domain for preview URLs (wildcard DNS must point at the shared gateway) |
 | `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry (ECR in production) |
 | `DOCKER_HUB_MIRROR` | No | `140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub` | ECR pull-through cache prefix. Every platform-managed image that resolves to Docker Hub (service recipes, the nginx access proxy) is rewritten to pull through it; official images get the `library/` namespace. Other registries are never rewritten. Empty string disables mirroring |
-| `BUILDKIT_WARM_HOST` | No | `tcp://buildkit.buildkit.svc.cluster.local:1234` | Endpoint of the long-lived warm buildkitd pool every build dials (`deployment/buildkit/buildkitd-warm.yaml`) |
-| `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min) |
+| `BUILDKIT_WARM_HOST` | No | `tcp://buildkit.buildkit.svc.cluster.local:1234` | Service endpoint of the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`). With the admission queue on, builds dial the granting pod directly and this host is only the fail-open fallback |
+| `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min); excludes queue wait |
+| `BUILDKIT_QUEUE_ENABLED` | No | `true` | Warm-pool admission queue: each build claims a per-pod slot Lease (control-cluster `buildkit` namespace) before running, bounding concurrent builds per buildkitd pod, FIFO across all environments. Fails open to `BUILDKIT_WARM_HOST` when the queue infrastructure is unreachable |
+| `BUILDKIT_QUEUE_SLOTS_PER_POD` | No | `2` | Concurrent builds admitted per ready pool pod. Tune together with buildkitd `max-parallelism` and the KEDA threshold (both assume ~2 builds per pod) |
+| `BUILDKIT_QUEUE_MAX_WAIT_MS` | No | `1200000` | Max time a build waits for a slot (20 min) before failing with a pool-saturation error |
+| `BUILDKIT_QUEUE_POLL_MS` | No | `5000` | Queue poll interval while waiting |
 | `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared edge (Gateway, ingress-nginx, and the central Gatekeeper) |
 | `GATEKEEPER_IDLE_TIMEOUT` | No | `30m` | Idle duration before the central Gatekeeper scales an env's workloads to zero; written per namespace as the `gatekeeper.dev/idle-timeout` annotation (Go duration string). The Gatekeeper install itself lives in `deployment/previewkit/cluster/gatekeeper/` |
 | `CLUSTER_SECRET_STORE_NAME` | No | `aws-secretsmanager` | ClusterSecretStore (External Secrets Operator) pointing at AWS Secrets Manager |
@@ -475,7 +479,7 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
   - `monitoring/` -- `prometheus.yaml` + `opencost.yaml` (per-namespace/per-PR cost attribution; see the file headers for access)
 - `deployment/previewkit/cronjobs/delete-old-ns.yaml` -- nightly reaper deleting preview namespaces older than 7 days (main-branch `*-pr-0` environments excluded)
 
-Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`), which the runner dials via `BUILDKIT_WARM_HOST`; each pod's node-local NVMe cache keeps layer reuse hot across builds. KEDA autoscales the pool between 3 and 8 pods on the in-flight build count (`deployment/buildkit/buildkit-scaledobject.yaml`).
+Builds run against the long-lived warm buildkitd pool (`deployment/buildkit/buildkitd-warm.yaml`); each pod's node-local NVMe cache keeps layer reuse hot across builds. Admission is queued (`src/builder/build-queue.ts`): before spawning `buildctl`, each build claims a per-pod slot Lease in the pool's namespace and dials that pod directly, so a burst of pushes waits FIFO (visible as `bkq-*` Leases via `kubectl -n buildkit get leases`, and as "Waiting for a free buildkit build slot" lines in the build log) instead of oversubscribing the daemons into CPU thrash and OOM kills. Slot placement is rendezvous-hashed on the app's cache key for warm-cache affinity. KEDA autoscales the pool between 3 and 8 pods on the in-flight build count (`deployment/buildkit/buildkit-scaledobject.yaml`), which includes queued builds - a growing queue is exactly the scale-up signal, and new pods' slots drain it as soon as they are Ready. The queue needs the `previewkit-build-queue` Role/RoleBinding in the `buildkit` namespace (`deployment/apps/previewkit.yaml`); without it, builds fail open to the shared `BUILDKIT_WARM_HOST` Service with a warning.
 
 ### Local Development
 

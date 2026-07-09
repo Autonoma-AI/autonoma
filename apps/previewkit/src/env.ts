@@ -50,6 +50,27 @@ export const env = createEnv({
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
 
+        // Warm-pool admission queue (builder/build-queue.ts). Every build first
+        // claims a per-pod slot Lease in the control cluster's `buildkit`
+        // namespace, bounding concurrent builds per buildkitd pod instead of
+        // letting a burst of runner Jobs scatter unbounded sessions across the
+        // pool (CPU thrash + daemon OOM). Fails open when the queue
+        // infrastructure is unreachable, so it can never block all builds.
+        BUILDKIT_QUEUE_ENABLED: z
+            .enum(["true", "false"])
+            .default("true")
+            .transform((value) => value === "true"),
+        // Concurrent builds admitted per ready pool pod. Tune together with the
+        // daemon's max-parallelism (deployment/buildkit/buildkitd-config.yaml)
+        // and the KEDA threshold (deployment/buildkit/buildkit-scaledobject.yaml);
+        // all three assume ~2 builds per pod.
+        BUILDKIT_QUEUE_SLOTS_PER_POD: z.coerce.number().int().positive().default(2),
+        // Give up queueing after this long and fail the build with a clear
+        // pool-saturation error. Sized so KEDA + Karpenter (2-4 min per node,
+        // up to 4 nodes/min) can absorb a burst well within the wait.
+        BUILDKIT_QUEUE_MAX_WAIT_MS: timeoutEnv(1_200_000), // 20 minutes
+        BUILDKIT_QUEUE_POLL_MS: timeoutEnv(5_000),
+
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
         // ACM wildcard certs only match a single leftmost label; hostnames are
         // a 12-char HMAC-SHA256 hex label keyed on PREVIEW_URL_SECRET.

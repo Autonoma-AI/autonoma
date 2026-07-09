@@ -1,5 +1,5 @@
 import type { BuildLogEvent } from "./build-log-event";
-import type { BuildFinishSummary, BuildLogSink } from "./build-log-sink";
+import type { BuildFinishSummary, BuildLogSink, QueueTimeoutSummary } from "./build-log-sink";
 import { rootLogger } from "./logger-backend";
 
 /**
@@ -100,8 +100,30 @@ export class LokiBuildLogSink implements BuildLogSink {
             app: summary.app,
             builder: summary.builder,
         };
-        const line = JSON.stringify({ durationMs: summary.durationMs, host: summary.host });
+        const line = JSON.stringify({
+            durationMs: summary.durationMs,
+            queueWaitMs: summary.queueWaitMs,
+            host: summary.host,
+        });
         this.bufferLine(labels, line);
+        await this.flush();
+    }
+
+    /**
+     * Push a `kind="queue_timeout"` marker for a build that gave up waiting
+     * for a warm-pool slot, then flush so the saturation event lands promptly.
+     * Kept out of `kind="finish"` so build-speed queries never absorb the
+     * waits of builds that never ran; saturation queries unwrap `queueWaitMs`
+     * over this kind instead.
+     */
+    async markQueueTimeout(environmentId: string, summary: QueueTimeoutSummary): Promise<void> {
+        const labels = {
+            namespace: environmentId,
+            source: "build",
+            kind: "queue_timeout",
+            app: summary.app,
+        };
+        this.bufferLine(labels, JSON.stringify({ queueWaitMs: summary.queueWaitMs }));
         await this.flush();
     }
 

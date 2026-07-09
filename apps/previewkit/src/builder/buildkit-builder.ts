@@ -5,8 +5,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
+import { type BuildQueue, BuildQueueTimeoutError, type BuildSlot } from "./build-queue";
 import {
     BuildAbortedError,
     BuildError,
@@ -29,9 +29,10 @@ const TAIL_SIZE = 8192;
  * remote buildkitd disappeared mid-build rather than the build itself
  * failing. Most of these surface when the warm buildkitd pod serving the
  * build is evicted by kubelet (node pressure), OOMKilled, or rolled by a
- * deploy - all cases where retrying is the right move: kube-proxy routes
- * the next connection to a healthy pool pod. False positives here just burn
- * one retry attempt, so we lean inclusive.
+ * deploy - all cases where retrying is the right move: the retry re-acquires
+ * an admission-queue slot and dials a healthy pool pod (or, on the unqueued
+ * fallback path, kube-proxy re-routes the Service connection). False
+ * positives here just burn one retry attempt, so we lean inclusive.
  *
  * Exported for tests only.
  */
@@ -58,18 +59,34 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /failed to get session/,
 ];
 
+/**
+ * The slice of `S3Storage` the builder needs: the bucket coordinates baked
+ * into buildctl's S3 cache import/export args. `S3Storage` satisfies it
+ * structurally; tests pass a plain literal without touching storage env.
+ */
+interface CacheBucket {
+    region: string;
+    bucket: string;
+}
+
 interface BuildKitBuilderOptions {
-    /** The long-lived warm buildkitd endpoint (tcp://host:1234) every build
-     *  dials as buildctl's `--addr`. The pool's node-local layer cache stays
-     *  hot across builds (deployment/buildkit/buildkitd-warm.yaml). */
+    /** The warm buildkitd pool's Service endpoint (tcp://host:1234). With no
+     *  queue wired this is what every build dials as buildctl's `--addr`; with
+     *  a queue it is the fail-open fallback, since admitted builds dial the
+     *  granting pod directly (deployment/buildkit/buildkitd-warm.yaml). */
     warmHost: string;
     buildTimeoutMs: number;
-    storage: S3Storage;
+    storage: CacheBucket;
     /** When set, every build-output chunk is mirrored to this sink (keyed by
      *  `request.namespace`) for live streaming + durable history, in addition
      *  to the disk + S3 log. Optional so builds work unchanged when no sink is
      *  configured. */
     logSink?: BuildLogSink;
+    /** Admission queue for the warm pool. Each attempt acquires a slot on a
+     *  specific pool pod before spawning buildctl (bounding concurrent builds
+     *  per pod) and releases it after. Optional: absent means every build
+     *  dials `warmHost` immediately, exactly as before the queue existed. */
+    queue?: BuildQueue;
 }
 
 interface BuildDispatchResult {
@@ -126,8 +143,9 @@ export class BuildKitBuilder implements Builder {
     private readonly warmHost: string;
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
-    private readonly storage: S3Storage;
+    private readonly storage: CacheBucket;
     private readonly logSink?: BuildLogSink;
+    private readonly queue?: BuildQueue;
 
     constructor(options: BuildKitBuilderOptions) {
         this.warmHost = options.warmHost;
@@ -135,6 +153,7 @@ export class BuildKitBuilder implements Builder {
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
         this.logSink = options.logSink;
+        this.queue = options.queue;
     }
 
     /**
@@ -157,6 +176,7 @@ export class BuildKitBuilder implements Builder {
     async build(request: BuildRequest): Promise<BuildResult> {
         const start = Date.now();
         await this.ecr.ensureRepo(request.imageTag);
+        let queueWaitMs = 0;
 
         for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
             // A cancellation between attempts must not start another attempt.
@@ -173,14 +193,21 @@ export class BuildKitBuilder implements Builder {
                     ? new TeeBuildLog(fileStream, this.logSink, request.namespace, request.appName)
                     : fileStream;
 
+            // Acquired fresh per attempt: a retry after a pool pod died must
+            // re-queue and land on a LIVE pod, not redial the corpse.
+            let slot: BuildSlot | undefined;
             try {
-                const build = await this.dispatchBuild(request, this.warmHost, logStream);
+                slot = await this.acquireSlot(request, logStream);
+                queueWaitMs += slot.waitMs;
+                const build = await this.dispatchBuild(request, slot.addr, logStream);
                 const durationMs = Date.now() - start;
                 logger.info("Build complete", {
                     app: request.appName,
                     imageTag: build.imageTag,
                     runtime: build.runtime,
                     durationMs,
+                    queueWaitMs,
+                    pod: slot.pod,
                 });
                 // Structured build-speed marker (best-effort telemetry). Lets
                 // LogQL chart per-build duration over the same Loki stream the
@@ -190,7 +217,8 @@ export class BuildKitBuilder implements Builder {
                         app: request.appName,
                         builder: "warm",
                         durationMs,
-                        host: this.warmHost,
+                        queueWaitMs,
+                        host: slot.addr,
                     });
                 }
                 return { imageTag: build.imageTag, durationMs, runtime: build.runtime };
@@ -201,14 +229,27 @@ export class BuildKitBuilder implements Builder {
                 if (err instanceof BuildAbortedError) {
                     throw err;
                 }
+                // A saturation timeout never ran buildctl, so the success-path
+                // finish marker can't cover it - emit the dedicated saturation
+                // marker so the clearest queue-overload signal is visible in
+                // build telemetry (best-effort, like the other markers). The
+                // failed acquire returned no slot, so its wait rides the error.
+                if (err instanceof BuildQueueTimeoutError && request.namespace != null) {
+                    void this.logSink?.markQueueTimeout?.(request.namespace, {
+                        app: request.appName,
+                        queueWaitMs: queueWaitMs + err.waitedMs,
+                    });
+                }
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
                     await this.onTransientError(err, attempt, request.appName, logStream);
                     continue;
                 }
                 throw err;
             } finally {
-                // Close the per-attempt log stream (flushes the temp file and
-                // ends the sink tee) before removing the temp file.
+                // Free the pool slot before the (possibly retried) next attempt
+                // queues again, then close the per-attempt log stream (flushes
+                // the temp file and ends the sink tee) before removing the file.
+                await slot?.release();
                 await this.closeLog(logStream).catch((closeErr) => {
                     logger.warn("Failed to close build log stream", { app: request.appName, closeErr });
                 });
@@ -219,6 +260,25 @@ export class BuildKitBuilder implements Builder {
         }
 
         throw new BuildError("buildkit build loop exited without returning");
+    }
+
+    /**
+     * Admission control: waits for a free slot on a specific pool pod when the
+     * queue is wired, streaming wait/grant progress into the build log. With
+     * no queue, resolves immediately to the shared Service endpoint.
+     */
+    private async acquireSlot(request: BuildRequest, logStream: BuildLogWriter): Promise<BuildSlot> {
+        if (this.queue == null) {
+            return { addr: this.warmHost, waitMs: 0, release: async () => {} };
+        }
+        return await this.queue.acquire({
+            appName: request.appName,
+            cacheKey: request.cacheKey,
+            signal: request.signal,
+            onWait: (message) => {
+                logStream.write(`\n[previewkit] ${message}\n`);
+            },
+        });
     }
 
     private dispatchBuild(

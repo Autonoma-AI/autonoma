@@ -4,19 +4,24 @@ import { Gauge, type Registry } from "prom-client";
 
 // A `building` app row older than this is treated as leaked (a runner that
 // died without writing a terminal state) and excluded from the gauge, so a
-// crash can only inflate the metric for a bounded window. Sized to the worst
-// legitimate case - BUILD_TIMEOUT_MS (30 min) per attempt with up to 3
-// transient-retry attempts - so a real build is never dropped mid-flight.
-const BUILDING_FRESHNESS_MS = 90 * 60 * 1000;
+// crash can only inflate the metric for a bounded window. Invariant: must stay
+// ABOVE the deploy Job's activeDeadlineSeconds (90 min - PreviewkitJobLauncher),
+// which bounds how long a row can legitimately sit `building` (buildkit queue
+// wait counts as `building`, and transient retries never refresh updatedAt) -
+// a real build must never be dropped from the demand signal KEDA scales the
+// pool on while its Job is still alive.
+const BUILDING_FRESHNESS_MS = 100 * 60 * 1000;
 
 /**
  * Exports this environment's previewkit build load for Prometheus. The value
  * is recomputed from the DB on every scrape: previewkit runners transition
- * each app row to `building` when its image build starts and to a terminal
- * state when it ends, so the count of fresh `building` rows is the number of
- * concurrent Solves this env currently has in flight on the shared warm
- * buildkit pool (buildkitd itself only exposes Go runtime metrics - there is
- * no daemon-side in-flight gauge to scrape).
+ * each app row to `building` when its build is admitted to the warm pool's
+ * queue and to a terminal state when it ends, so the count of fresh
+ * `building` rows is this env's DEMAND on the shared warm buildkit pool -
+ * builds queued for a slot plus builds running (buildkitd itself only exposes
+ * Go runtime metrics - there is no daemon-side in-flight gauge to scrape).
+ * Queued builds counting toward the series is what lets KEDA scale the pool
+ * out to drain the queue.
  *
  * Every env's API (prod / beta / alpha) exports its own DB view; the
  * `previewkit:app_builds_in_flight:sum` recording rule

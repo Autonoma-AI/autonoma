@@ -6,6 +6,7 @@ import { AddonManager } from "./addons/addon-manager";
 import { OrgSecretResolver } from "./addons/org-secret-resolver";
 import { NeonProvider } from "./addons/providers/neon";
 import { AddonProviderRegistry } from "./addons/registry";
+import { BuildQueue } from "./builder/build-queue";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
@@ -82,12 +83,16 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // Builder. Every build dials the warm buildkitd pool in the control
     // cluster via in-cluster DNS. The BuildKit layer cache shares the storage
     // bucket with build logs; each writes under a distinct top-level key
-    // prefix so they can coexist.
+    // prefix so they can coexist. When the admission queue is on, each build
+    // first claims a per-pod slot and dials that pod directly; the Service
+    // host remains the fail-open fallback.
+    const buildQueue = createBuildQueue();
     const builder = new BuildKitBuilder({
         warmHost: env.BUILDKIT_WARM_HOST,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         storage,
         ...(logSink != null ? { logSink } : {}),
+        ...(buildQueue != null ? { queue: buildQueue } : {}),
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.
@@ -153,4 +158,34 @@ function createBuildLogSink(): BuildLogSink | undefined {
         return undefined;
     }
     return new LokiBuildLogSink(env.LOKI_URL);
+}
+
+/**
+ * Builds the optional warm-pool admission queue. The queue talks to the
+ * CONTROL cluster (the one the runner Job itself executes in, where the
+ * buildkit pool lives), so it always uses the pod's own in-cluster
+ * credentials - never the deployer's preview-cluster (EKS) client. Returns
+ * undefined - disabling admission control - when the queue is switched off or
+ * no local kube context can be loaded (local dev outside a cluster).
+ */
+function createBuildQueue(): BuildQueue | undefined {
+    if (!env.BUILDKIT_QUEUE_ENABLED) {
+        logger.warn("BUILDKIT_QUEUE_ENABLED=false - builds dial the warm pool without admission control");
+        return undefined;
+    }
+    try {
+        const controlKc = new k8s.KubeConfig();
+        controlKc.loadFromDefault();
+        return new BuildQueue({
+            leaseApi: controlKc.makeApiClient(k8s.CoordinationV1Api),
+            podsApi: controlKc.makeApiClient(k8s.CoreV1Api),
+            fallbackAddr: env.BUILDKIT_WARM_HOST,
+            slotsPerPod: env.BUILDKIT_QUEUE_SLOTS_PER_POD,
+            maxWaitMs: env.BUILDKIT_QUEUE_MAX_WAIT_MS,
+            pollIntervalMs: env.BUILDKIT_QUEUE_POLL_MS,
+        });
+    } catch (err) {
+        logger.warn("Failed to load control-cluster kube config - build queue disabled", { err });
+        return undefined;
+    }
 }

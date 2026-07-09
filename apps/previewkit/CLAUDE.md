@@ -156,16 +156,28 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
 2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 
-All paths run `buildctl` against the long-lived warm buildkitd pool (`BUILDKIT_WARM_HOST`,
-`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Pool load is
+All paths run `buildctl` against the long-lived warm buildkitd pool
+(`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Admission is
+queued (`builder/build-queue.ts`): before each attempt, the builder claims a per-pod slot
+Lease in the control cluster's `buildkit` namespace (`BUILDKIT_QUEUE_SLOTS_PER_POD` per ready
+pod, FIFO tickets, global across prod/beta/alpha runners - the k8s API is the one medium every
+runner shares, since their DATABASE_URLs differ) and dials the granting pod's IP directly,
+with rendezvous-hash cache affinity per app. A burst of pushes therefore waits in the queue
+(surfaced in the build-log viewer as "Waiting for a free buildkit build slot" lines) instead
+of oversubscribing the daemons; excess wait past `BUILDKIT_QUEUE_MAX_WAIT_MS` fails the build
+with a clear saturation error, and queue-infrastructure failures fail OPEN to the shared
+`BUILDKIT_WARM_HOST` Service (the pre-queue behavior) after a short error streak. The RBAC
+grant lives in `deployment/apps/previewkit.yaml` (`previewkit-build-queue`). Pool load is
 observable as `previewkit_app_builds_in_flight`, exported per env by the autonoma API's
 metrics endpoint (`apps/api/src/metrics/`) from the DB's fresh `building` app rows and
 summed pool-wide by the `previewkit:app_builds_in_flight:sum` recording rule
-(`deployment/prometheus/alert-rules.yaml`) - buildkitd itself has no in-flight metric. KEDA
+(`deployment/prometheus/alert-rules.yaml`) - buildkitd itself has no in-flight metric. An app
+row stays `building` while queued, so the series measures demand (queued + running). KEDA
 autoscales the pool on that series (`deployment/buildkit/buildkit-scaledobject.yaml`, min 3 /
-max 8 pods at ~2 builds per pod; one pod per Karpenter node). Each daemon caps concurrent
-build steps at `max-parallelism=4` (`deployment/buildkit/buildkitd-config.yaml`) so a burst of
-pushes queues in buildkit's scheduler instead of oversubscribing a pod's CPU/memory. Build logs
+max 8 pods at ~2 builds per pod; one pod per Karpenter node), and new pods' slots drain the
+queue as soon as they are Ready. Each daemon additionally caps concurrent build steps at
+`max-parallelism=4` (`deployment/buildkit/buildkitd-config.yaml`); slots-per-pod, the KEDA
+threshold, and max-parallelism are tuned together around ~2 builds per pod. Build logs
 stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
 attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
 calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the
@@ -248,8 +260,10 @@ reason=InvalidRoutes`).
 image resolving to Docker Hub - the recipe services - is
 rewritten through it via `deployer/image-mirror.ts`; the Gatekeeper proxy (public.ecr.aws) and client
 app images are never touched;
-empty string disables), `BUILDKIT_WARM_HOST` (endpoint of the long-lived warm
-buildkitd pool every build dials), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
+empty string disables), `BUILDKIT_WARM_HOST` (Service endpoint of the warm buildkitd pool;
+the admission queue's fail-open fallback - admitted builds dial their granted pod directly),
+`BUILDKIT_QUEUE_ENABLED` / `BUILDKIT_QUEUE_SLOTS_PER_POD` / `BUILDKIT_QUEUE_MAX_WAIT_MS` /
+`BUILDKIT_QUEUE_POLL_MS` (warm-pool admission queue), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_NAMESPACE` (the shared edge namespace:
 Gateway + ingress-nginx + the central Gatekeeper), `GATEKEEPER_IDLE_TIMEOUT` (written per
 namespace as the gatekeeper.dev/idle-timeout annotation; the Gatekeeper image itself is
