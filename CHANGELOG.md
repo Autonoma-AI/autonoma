@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.8.25](https://github.com/Autonoma-AI/agent/compare/v1.8.24...v1.8.25) (2026-07-09)
+
+
+### Features
+
+* bug page adaptive hero media (screenshot + video side by side) ([#1313](https://github.com/Autonoma-AI/agent/issues/1313)) ([8bcbbaa](https://github.com/Autonoma-AI/agent/commit/8bcbbaa1632c981e99c8347bf8aab6db94e94919))
+* inline evidence in bug narrative (anchor-by-id + manifest + validation) ([#1331](https://github.com/Autonoma-AI/agent/issues/1331)) ([ee6add8](https://github.com/Autonoma-AI/agent/commit/ee6add85dac7dac75ac0f15f9e6865d2ecba658f))
+* **llm-proxy:** cap free-account CLI spend and per-request size to prevent abuse ([#1351](https://github.com/Autonoma-AI/agent/issues/1351)) ([1f0807f](https://github.com/Autonoma-AI/agent/commit/1f0807f1fc10123f78f71b6c941c31c18f8c23de))
+* persist and surface hedged suspected cause on the bug page ([#1330](https://github.com/Autonoma-AI/agent/issues/1330)) ([cbda686](https://github.com/Autonoma-AI/agent/commit/cbda686c7aab8efb8c7f65899662eb974f1fc874))
+* **ui:** preview-config section nav + redesign secrets manager ([#1242](https://github.com/Autonoma-AI/agent/issues/1242)) ([10fec27](https://github.com/Autonoma-AI/agent/commit/10fec27c772fa70a40eb330b222be40f85044913))
+* **ui:** redesign Tests page with branch picker, plan view, and runs panel ([#1370](https://github.com/Autonoma-AI/agent/issues/1370)) ([db76096](https://github.com/Autonoma-AI/agent/commit/db7609644c8fc0f8ed1366239e77fad30dbfaf99))
+
+
+### Bug Fixes
+
+* **buildkit:** raise pod memory limit to 26Gi (rootless made 16Gi bind) ([#1366](https://github.com/Autonoma-AI/agent/issues/1366)) ([b7f6f7a](https://github.com/Autonoma-AI/agent/commit/b7f6f7a3492f86903cff3fcaf8cd685404573103))
+* **investigation:** give the worker an IRSA SA to read previewkit secrets ([#1360](https://github.com/Autonoma-AI/agent/issues/1360)) ([9e11daa](https://github.com/Autonoma-AI/agent/commit/9e11daa58b87305560a4aa4ebd5f36212b889073))
+* **investigation:** PR-comment finding deep links and replay CTA gating ([#1369](https://github.com/Autonoma-AI/agent/issues/1369)) ([498d885](https://github.com/Autonoma-AI/agent/commit/498d885ce3a64e1d46151a70ff32eade271fbbb1))
+* **onboarding:** let users delete the app holding a repo so they can relink it ([#1371](https://github.com/Autonoma-AI/agent/issues/1371)) ([1ffd6c0](https://github.com/Autonoma-AI/agent/commit/1ffd6c064290ad80de7ce958eafa285cf12aa75d))
+* **previewkit:** resolve preview secrets by Application, not org-wide by appName ([#1367](https://github.com/Autonoma-AI/agent/issues/1367)) ([cd68a26](https://github.com/Autonoma-AI/agent/commit/cd68a26d8c5b88a710f934fe3401029ff1937e7b))
+
 ## [1.8.24](https://github.com/Autonoma-AI/agent/compare/v1.8.23...v1.8.24) (2026-07-08)
 
 
