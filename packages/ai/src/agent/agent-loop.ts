@@ -7,12 +7,9 @@ import {
     type StepResult,
     type StopCondition,
     type Tool,
-    wrapLanguageModel,
 } from "ai";
 import type { MessageCompactor } from "../compaction/types";
 import type { LanguageModel } from "../registry/model-registry";
-import { DEFAULT_RETRY_CONFIG } from "../retry";
-import { createRetryMiddleware } from "../retry-middleware";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
@@ -29,6 +26,13 @@ type AgentStepResult = StepResult<GenericToolSet>;
  * as a runaway backstop, not a tuning knob - well above any healthy run's real step count.
  */
 export const DEFAULT_MAX_STEPS = 1000;
+
+/**
+ * The AI SDK's `maxRetries` for each model call in the loop. Well above the SDK default of 2 so a
+ * transient provider failure (rate limit, 5xx, dropped connection) doesn't abort a run; the SDK's
+ * own backoff is uncapped, so raising this trades a longer worst-case wait for fewer spurious fails.
+ */
+export const MODEL_MAX_RETRIES = 10;
 
 export interface AgentConfig<TResult> {
     /** A descriptive name for this type of agent, used for observability. */
@@ -197,13 +201,11 @@ export class AgentLoop<TResult = unknown> {
         );
 
         const agent = new ToolLoopAgent({
-            // Retry transient provider failures (rate limits, 5xx, dropped connections) with capped
-            // exponential backoff via middleware, and disable the AI SDK's own retry (`maxRetries: 0`)
-            // so the two layers don't compound. The SDK default of 2 retries surfaced as AI_RetryError
-            // on brief provider blips; the middleware retries the raw model call per step, so a single
-            // flaky step no longer aborts the whole run and tool calls are never replayed.
-            model: wrapLanguageModel({ model: this.model, middleware: createRetryMiddleware(DEFAULT_RETRY_CONFIG) }),
-            maxRetries: 0,
+            model: this.model,
+            // The SDK default of 2 retries surfaced as AI_RetryError on brief provider blips; 10 rides
+            // them out. The SDK retries the model call per step (never replaying tool calls), with its
+            // own exponential backoff, Retry-After handling, and retryable-only (429/5xx) filtering.
+            maxRetries: MODEL_MAX_RETRIES,
             instructions: this.systemPrompt,
             tools,
             // Force a structured tool call on every step. Without this the AI SDK stops the loop as
