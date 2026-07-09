@@ -41,7 +41,9 @@ src/
     prompt.ts                   the classifier system + verdict prompts (generic, no client specifics)
     verdict-schema.ts           the model-output schema + null->undefined normalizer
     dependencies.ts             the classifier's injected capability interfaces
-    tools.ts                    the 11 investigation tools (one factory fn each)
+    tools.ts                    the 11 investigation tools (one factory fn each); buildClassifierTools omits the
+                                previewkit-only tools (run_script / get_preview_env / get_app_logs) when the preview
+                                is not integrated, and describeUnavailableTools notes their absence to the model
     classify-run.ts             classifyRun - the orchestrator (investigate -> commit to a verdict)
   select/
     schema.ts · prompt.ts · dependencies.ts · tools.ts

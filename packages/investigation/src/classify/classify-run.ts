@@ -10,7 +10,7 @@ import {
     VISUAL_SANITY_PROBE_PROMPT,
     buildVerdictPrompt,
 } from "./prompt";
-import { buildClassifierTools } from "./tools";
+import { buildClassifierTools, describeUnavailableTools } from "./tools";
 import { VerdictForModel, toRunVerdict } from "./verdict-schema";
 
 /** The static facts about the run being classified (the injected capabilities live in ClassifierDeps). */
@@ -79,9 +79,11 @@ function buildInvestigationPrompt(
     errorScan: string,
     fidelityScan: string,
     visualScan: string,
+    toolNote: string | undefined,
 ): string {
     return [
         "Classify this test run.",
+        ...(toolNote != null ? [`\n--- BACKEND INTROSPECTION UNAVAILABLE ---\n${toolNote}`] : []),
         `App: ${context.appSlug}  PR #${context.prNumber}  Test: ${context.test.slug}`,
         "\nPR INTENT (the author's stated goal - a behavior change the PR set out to make is NOT a bug):",
         `  title: ${context.prTitle != null && context.prTitle !== "" ? context.prTitle : "(unavailable)"}`,
@@ -144,8 +146,12 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
     });
 
     const tools = buildClassifierTools(deps);
+    const toolNote = describeUnavailableTools(deps);
     const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: Uint8Array }> = [
-        { type: "text", text: buildInvestigationPrompt(context, deps.run, errorScan, fidelityScan, visualScan) },
+        {
+            type: "text",
+            text: buildInvestigationPrompt(context, deps.run, errorScan, fidelityScan, visualScan, toolNote),
+        },
     ];
     if (deps.run.finalScreenshot != null) {
         userContent.push({ type: "image", image: deps.run.finalScreenshot });

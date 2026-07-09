@@ -1,7 +1,7 @@
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import type { ClassifierDeps } from "../../src/classify/dependencies";
-import { buildClassifierTools } from "../../src/classify/tools";
+import { buildClassifierTools, describeUnavailableTools } from "../../src/classify/tools";
 
 const TOOL_OPTIONS = { toolCallId: "test-call", messages: [] };
 
@@ -88,5 +88,49 @@ describe("buildClassifierTools", () => {
         await expect(tools.analyze_video?.execute?.({ question: "what happened?" }, TOOL_OPTIONS)).resolves.toBe(
             "No video recorded for this run.",
         );
+    });
+
+    it("omits the previewkit-dependent tools when the preview is not integrated", () => {
+        const tools = buildClassifierTools(makeDeps({ preview: undefined, loadAppLogs: undefined }));
+        const names = Object.keys(tools);
+        expect(names).not.toContain("run_script");
+        expect(names).not.toContain("get_preview_env");
+        expect(names).not.toContain("get_app_logs");
+        // The codebase / prior-runs / vision tools are always available.
+        expect(names).toContain("read_code");
+        expect(names).toContain("prior_runs");
+        expect(names).toContain("analyze_video");
+    });
+
+    it("keeps app logs but drops the backend harness when only the preview backend is absent", () => {
+        const tools = buildClassifierTools(makeDeps({ preview: undefined }));
+        const names = Object.keys(tools);
+        expect(names).toContain("get_app_logs");
+        expect(names).not.toContain("run_script");
+        expect(names).not.toContain("get_preview_env");
+    });
+});
+
+describe("describeUnavailableTools", () => {
+    it("returns undefined when every introspection capability is present", () => {
+        expect(describeUnavailableTools(makeDeps())).toBeUndefined();
+    });
+
+    it("names the missing tools and forbids raising an unproven bug when nothing is introspectable", () => {
+        const note = describeUnavailableTools(makeDeps({ preview: undefined, loadAppLogs: undefined }));
+        expect(note).toContain("run_script");
+        expect(note).toContain("get_app_logs");
+        expect(note).toContain("not managed by our previewkit");
+        expect(note).toContain("LOW confidence");
+    });
+
+    it("does not claim the preview is un-integrated when only app logs are missing (run_script still works)", () => {
+        const note = describeUnavailableTools(makeDeps({ loadAppLogs: undefined }));
+        expect(note).toContain("get_app_logs");
+        // The preview IS integrated here - the note must NOT say otherwise and must point at the working harness.
+        expect(note).not.toContain("not managed by our previewkit");
+        expect(note).toContain("run_script");
+        expect(note).toContain("previewkit-managed");
+        expect(note).toContain("LOW confidence");
     });
 });

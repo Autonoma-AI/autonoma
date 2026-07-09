@@ -103,9 +103,22 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         const prMeta = await resolvePrMeta(context);
         const previewNamespace = await resolvePreviewNamespace(context.repoFullName, prMeta.prNumber, logger);
         const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
-        const preview = new PreviewEnvironment(PreviewSecrets.create(), context.repoFullName);
         const session = createModelSession();
         const priorRuns = new PriorRuns(db);
+
+        // Gate the previewkit-dependent tools on whether this PR's preview is actually managed by previewkit. The
+        // namespace only resolves for a previewkit-deployed preview; when it does not (a self-hosted / non-integrated
+        // client), there is no Loki stream and the backend script harness cannot authenticate - so we omit
+        // get_app_logs / run_script / get_preview_env rather than let them fail with confusing errors the classifier
+        // mistakes for signal. App logs additionally need LOKI configured on this worker.
+        const previewIntegrated = previewNamespace != null;
+        const appLogsAvailable = previewIntegrated && env.LOKI_URL != null && env.LOKI_URL !== "";
+        const preview = previewIntegrated
+            ? new PreviewEnvironment(PreviewSecrets.create(), context.repoFullName)
+            : undefined;
+        logger.info("Resolved preview introspection availability", {
+            extra: { previewIntegrated, appLogsAvailable },
+        });
 
         const verdict = await classifyRun(
             {
@@ -122,15 +135,17 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 run: runArtifacts,
                 preview,
                 loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.appSlug, slug)),
-                loadAppLogs: (regex) =>
-                    loadPreviewAppLogs({
-                        regex,
-                        lokiUrl: env.LOKI_URL,
-                        namespace: previewNamespace,
-                        startEpoch: runArtifacts.startEpoch,
-                        endEpoch: runArtifacts.endEpoch,
-                        logger,
-                    }),
+                loadAppLogs: appLogsAvailable
+                    ? (regex) =>
+                          loadPreviewAppLogs({
+                              regex,
+                              lokiUrl: env.LOKI_URL,
+                              namespace: previewNamespace,
+                              startEpoch: runArtifacts.startEpoch,
+                              endEpoch: runArtifacts.endEpoch,
+                              logger,
+                          })
+                    : undefined,
                 loadDeploymentHealth: async () =>
                     "Deployment health is not wired in investigation v1 (no cross-cluster k8s read configured) - infer service health from the run + app logs instead.",
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-classify" }),

@@ -42,11 +42,20 @@ export interface PreviewAccess {
 export interface ClassifierDeps {
     codebase: CodebaseReader;
     run: RunArtifacts;
-    preview: PreviewAccess;
+    /**
+     * The PR's preview backend (run_script + get_preview_env). Present ONLY when the preview is managed by our
+     * previewkit; `undefined` for a self-hosted / non-integrated preview, where there is no backend harness to
+     * reach - the tools are then omitted rather than offered and left to fail with confusing credential errors.
+     */
+    preview?: PreviewAccess;
     /** The formatted prior-runs baseline (worker injects getPriorRunsHistory + formatPriorRunsBaseline). */
     loadBaseline(): Promise<string>;
-    /** App logs over the run window, filtered by a regex (worker injects queryLokiLogs). */
-    loadAppLogs(regex: string): Promise<string>;
+    /**
+     * App logs over the run window, filtered by a regex (worker injects queryLokiLogs). Present ONLY when the
+     * preview's Loki stream is reachable (previewkit namespace resolved + LOKI configured); `undefined` for a
+     * non-integrated preview, where get_app_logs is omitted instead of returning an "unavailable" note.
+     */
+    loadAppLogs?: (regex: string) => Promise<string>;
     /** The preview's k8s deployment health (worker injects the k8s client). */
     loadDeploymentHealth(): Promise<string>;
     reasoningModel: LanguageModel;

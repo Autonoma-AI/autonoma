@@ -283,14 +283,18 @@ export function createViewStepScreenshotTool(run: RunArtifacts, visionModel: Lan
     });
 }
 
-/** Assemble the full classifier tool set from the injected capabilities, sharing one per-run output budget. */
+/**
+ * Assemble the classifier tool set from the injected capabilities, sharing one per-run output budget. The
+ * preview-backend tools (run_script, get_preview_env) and get_app_logs are included ONLY when the preview is
+ * integrated with our previewkit (deps.preview / deps.loadAppLogs present) - a non-integrated preview has no
+ * backend harness or log stream, so offering those tools only wastes steps and produces confusing failures
+ * (a credential error, an "unavailable" note) that the model can mistake for signal. describeUnavailableTools
+ * tells the model, in the run prompt, which introspection it is missing and why.
+ */
 export function buildClassifierTools(deps: ClassifierDeps): Record<string, Tool> {
     const cap = createToolBudget();
-    return {
+    const tools: Record<string, Tool> = {
         prior_runs: createPriorRunsTool(deps.loadBaseline, cap),
-        run_script: createRunScriptTool(deps.preview, cap),
-        get_preview_env: createPreviewEnvTool(deps.preview, cap),
-        get_app_logs: createAppLogsTool(deps.loadAppLogs, cap),
         get_deployment_health: createDeploymentHealthTool(deps.loadDeploymentHealth, cap),
         read_code: createReadCodeTool(deps.codebase, cap),
         grep_code: createGrepCodeTool(deps.codebase, cap),
@@ -299,4 +303,55 @@ export function buildClassifierTools(deps: ClassifierDeps): Record<string, Tool>
         analyze_screenshot: createAnalyzeScreenshotTool(deps.run, deps.visionModel, cap),
         view_step_screenshot: createViewStepScreenshotTool(deps.run, deps.visionModel, cap),
     };
+    if (deps.preview != null) {
+        tools.run_script = createRunScriptTool(deps.preview, cap);
+        tools.get_preview_env = createPreviewEnvTool(deps.preview, cap);
+    }
+    if (deps.loadAppLogs != null) {
+        tools.get_app_logs = createAppLogsTool(deps.loadAppLogs, cap);
+    }
+    return tools;
+}
+
+/**
+ * A run-prompt note naming the backend introspection the model does NOT have for this run, or undefined when
+ * everything is available. The framing branches on WHICH capability is missing - it must never tell the model
+ * "there is no backend harness" while run_script is in its toolset - so a missing tool is never read as a
+ * workaround target, as evidence, or (in the integrated-but-no-logs case) as a reason to stop introspecting.
+ */
+export function describeUnavailableTools(deps: ClassifierDeps): string | undefined {
+    const backendMissing = deps.preview == null;
+    const logsMissing = deps.loadAppLogs == null;
+    if (!backendMissing && !logsMissing) return undefined;
+
+    // Nothing to introspect: the preview is not previewkit-managed, so neither logs nor the backend are reachable.
+    if (backendMissing && logsMissing) {
+        return [
+            "NOT AVAILABLE for this run: run_script (query the live backend), get_preview_env (read the preview's",
+            "configured env), get_app_logs (read the app's server logs). This PR's preview is not managed by our",
+            "previewkit, so there is no server-side log stream or backend script harness to reach. Do NOT treat their",
+            "absence as evidence and do NOT try to work around it. Because you cannot read the logs or query the",
+            "backend, you canNOT confirm an UNSEEN mechanism (a failed or rejected write, a 5xx, a thrown exception):",
+            "a persistence/data-integrity or unseen-backend symptom is UNPROVABLE here - do not raise it above LOW",
+            "confidence, prefer environment_failure / scenario_issue / a labelled hypothesis over a client_bug you",
+            "cannot verify. Classify by what you DIRECTLY observed and say plainly what you could not check.",
+        ].join(" ");
+    }
+    // Integrated preview, but the app-log stream is not configured on this worker. The backend harness DOES work,
+    // so point the model at run_script rather than telling it introspection is impossible.
+    if (logsMissing) {
+        return [
+            "NOT AVAILABLE for this run: get_app_logs (read the app's server logs) - the log stream is not configured",
+            "for this worker. The preview IS previewkit-managed, so run_script (query the live backend) and",
+            "get_preview_env (read the preview's configured env) DO work: USE run_script to confirm backend state",
+            "(whether a write landed, whether a record exists) in place of the logs. Any claim that rests",
+            "specifically on a log line you could not read stays at LOW confidence until run_script corroborates it.",
+        ].join(" ");
+    }
+    // Backend harness absent but logs present (does not arise from the worker's gating, but keep the note honest).
+    return [
+        "NOT AVAILABLE for this run: run_script (query the live backend), get_preview_env (read the preview's",
+        "configured env). get_app_logs (read the app's server logs) IS available - use it to confirm what actually",
+        "happened; any claim that needs a live backend query you could not run stays at LOW confidence.",
+    ].join(" ");
 }

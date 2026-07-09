@@ -133,9 +133,12 @@ added to the twin suite. See the workflow in `@autonoma/workflow` and `activitie
 
 ## v1 limitations
 
-- `get_app_logs` (Loki) and `get_deployment_health` (k8s) are not wired yet - they return a clear
-  "unavailable" note and the classifier degrades gracefully. The high-value tools (codebase, prior runs,
-  run_script, preview env, vision) are fully wired.
+- The previewkit-dependent tools - `get_app_logs` (Loki), `run_script`, and `get_preview_env` - are offered ONLY
+  when this PR's preview is previewkit-managed (its namespace resolves; `get_app_logs` also needs `LOKI_URL`). For a
+  self-hosted / non-integrated client (no previewkit namespace) they are omitted entirely and the classifier is told
+  in the run prompt that backend/log introspection is unavailable, so it can't confirm an unseen mechanism and must
+  not raise a persistence/backend symptom above low confidence. `get_deployment_health` (cross-cluster k8s) is still
+  a stub. The always-available tools (codebase, prior runs, vision) are fully wired.
 - Web apps only (shadow generations run on the web worker); non-web tests are skipped.
 - Shadow `TestGeneration` rows are real rows, but carry `shadow = true` so they are excluded from every
   user-facing generation view and from the refinement loop's per-test-case dedup/invariant. The `shadow` flag
