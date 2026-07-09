@@ -77,7 +77,6 @@ export { buildCheckpointSummary, type BuildCheckpointSummaryInputs } from "./pre
 export {
     listExecutedTestsForSnapshot,
     listExecutedTestsForSnapshots,
-    finalOutcomeForRunStatus,
     finalOutcomeForGenerationStatus,
     type SnapshotExecutedTest,
     type SnapshotExecutedTestFinalOutcome,

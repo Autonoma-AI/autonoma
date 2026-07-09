@@ -8,7 +8,6 @@ import {
 import * as Sentry from "@sentry/node";
 import type { ActivityInterceptorsFactory } from "@temporalio/worker";
 import { loadGenerationObservabilityContext } from "../observability/load-generation-context";
-import { loadRunObservabilityContext } from "../observability/load-run-context";
 import { loadSnapshotObservabilityContext } from "../observability/load-snapshot-context";
 
 /**
@@ -111,8 +110,7 @@ function mergeShallow(a: ObservabilityContext, b: ObservabilityContext): Observa
  * one extra Prisma query per activity entry.
  *
  *   1. snapshotId  -> Snapshot graph directly
- *   2. runId       -> Run -> Snapshot graph
- *   3. testGenerationId -> TestGeneration -> Snapshot graph
+ *   2. testGenerationId -> TestGeneration -> Snapshot graph
  *
  * No-op when the input has none of these. Never throws.
  */
@@ -122,10 +120,6 @@ async function maybeBootstrapEntityContext(args: readonly unknown[]): Promise<vo
     try {
         if (ids.snapshotId != null) {
             extendObservabilityContext(await loadSnapshotObservabilityContext(ids.snapshotId));
-            return;
-        }
-        if (ids.runId != null) {
-            extendObservabilityContext(await loadRunObservabilityContext(ids.runId));
             return;
         }
         if (ids.testGenerationId != null) {
@@ -141,7 +135,6 @@ async function maybeBootstrapEntityContext(args: readonly unknown[]): Promise<vo
 
 interface EntityIds {
     snapshotId?: string;
-    runId?: string;
     testGenerationId?: string;
 }
 
@@ -152,10 +145,6 @@ function extractEntityIds(args: readonly unknown[]): EntityIds {
         if (out.snapshotId == null && "snapshotId" in arg) {
             const value: unknown = arg.snapshotId;
             if (typeof value === "string" && value.length > 0) out.snapshotId = value;
-        }
-        if (out.runId == null && "runId" in arg) {
-            const value: unknown = arg.runId;
-            if (typeof value === "string" && value.length > 0) out.runId = value;
         }
         if (out.testGenerationId == null && "testGenerationId" in arg) {
             const value: unknown = arg.testGenerationId;

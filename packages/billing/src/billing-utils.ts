@@ -5,17 +5,6 @@ export function isUniqueConstraintError(error: unknown) {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
-export function getRunCreditCost(architecture: ApplicationArchitecture, pricing: BillingPricingValues) {
-    switch (architecture) {
-        case ApplicationArchitecture.WEB:
-            return pricing.creditsWebRunCost;
-        case ApplicationArchitecture.IOS:
-            return pricing.creditsIosRunCost;
-        case ApplicationArchitecture.ANDROID:
-            return pricing.creditsAndroidRunCost;
-    }
-}
-
 export function getGenerationCreditCost(architecture: ApplicationArchitecture, pricing: BillingPricingValues) {
     switch (architecture) {
         case ApplicationArchitecture.WEB:

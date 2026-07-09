@@ -45,7 +45,6 @@ export type ListPromoCodesResult = {
     totalPages: number;
 };
 
-export type BillingConsumptionTarget = "generation" | "run";
 export type DeductGenerationContext = {
     organizationId?: string;
     architecture?: ApplicationArchitecture;
@@ -90,14 +89,8 @@ export interface BillingService {
     createPortalSession(organizationId: string, returnPath?: string): Promise<BillingSessionResult>;
     getBillingStatus(organizationId: string): Promise<BillingStatusResult>;
     updateAutoTopUp(organizationId: string, enabled: boolean, threshold: number): Promise<void>;
-    checkCreditsGate(
-        organizationId: string,
-        runCount: number,
-        architecture: ApplicationArchitecture,
-        target?: BillingConsumptionTarget,
-    ): Promise<void>;
+    checkCreditsGate(organizationId: string, runCount: number, architecture: ApplicationArchitecture): Promise<void>;
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext): Promise<boolean>;
-    deductCreditsForRun(runId: string): Promise<boolean>;
     checkLlmProxyGate(organizationId: string, freeCliCreditCap: number): Promise<LlmProxyGateResult>;
     deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string): Promise<boolean>;
     refundCreditsForGeneration(generationId: string): Promise<void>;

@@ -1,10 +1,9 @@
 import {
     type AffectedReason,
+    type GenerationReviewVerdict,
     type GenerationStatus,
     type Prisma,
     type PrismaClient,
-    type RunReviewVerdict,
-    type RunStatus,
     type ScenarioInstanceStatus,
     applyMigrations,
     createClient,
@@ -63,87 +62,11 @@ export interface SeedScenario {
     upWebhookCreate?: Prisma.InputJsonValue;
 }
 
-/** One executed step to materialize as a StepInput + StepOutput pair on a run. */
-export interface SeedStep {
-    order: number;
-    interaction: string;
-    params: object;
-    output: object;
-    screenshotBefore?: string;
-    screenshotAfter?: string;
-}
-
-export interface SeedFailedRunParams {
-    organizationId: string;
-    applicationId: string;
-    /** When omitted, the snapshot is created without SHAs (exercises the SHA-missing path). */
-    baseSha?: string;
-    headSha?: string;
-    /** When provided, a DiffsJob is created carrying this analysis reasoning. */
-    analysisReasoning?: string;
-    /** When provided, an AffectedTest row links this run with the given reason + reasoning. */
-    affected?: { reason: AffectedReason; reasoning: string };
-    testName?: string;
-    testPlanPrompt?: string;
-    steps?: SeedStep[];
-    /** When provided, a Scenario + ScenarioInstance is created and the run is linked to it. */
-    scenario?: SeedScenario;
-}
-
-export interface SeededRun {
-    runId: string;
-    snapshotId: string;
-    testCaseId: string;
-    assignmentId: string;
-    planId: string;
-    scenarioInstanceId?: string;
-}
-
-/** One flagged, replayed run to materialize inside a shared snapshot. */
-export interface SeedSnapshotRun {
-    /** Test case name; the slug is derived and returned keyed by this name. */
-    testName: string;
-    affectedReason: AffectedReason;
-    affectedReasoning: string;
-    /** Run terminal status. Defaults to `"failed"`. */
-    runStatus?: RunStatus;
-    planPrompt?: string;
-    /**
-     * A completed `RunReview` for this run. Omit to leave the run without a
-     * completed review (so resolution sees no actionable verdict for it).
-     * Provide `issue` to also link a bug Issue carrying title/description.
-     */
-    review?: {
-        status?: "pending" | "completed" | "failed";
-        verdict?: RunReviewVerdict;
-        reasoning?: string;
-        issue?: { title: string; description: string };
-    };
-    /** Attach a scenario instance whose generated-data graph the loader materializes. */
-    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
-}
-
-export interface SeedResolutionSnapshotParams {
-    organizationId: string;
-    applicationId: string;
-    baseSha?: string;
-    headSha?: string;
-    /** When provided (or any run is flagged), a DiffsJob is created carrying this reasoning. */
-    analysisReasoning?: string;
-    runs: SeedSnapshotRun[];
-}
-
-export interface SeededResolutionSnapshot {
-    snapshotId: string;
-    /** Map from a run's test name to its run id, for assertions. */
-    runIdByTestName: Record<string, string>;
-}
-
 /** One refinement iteration to materialize in a lineage graph. */
 export interface SeedIteration {
     /** 1-based iteration number; iteration 1 is the seed iteration. */
     number: number;
-    /** The plan prompt this iteration's run executed. */
+    /** The plan prompt this iteration's generation executed. */
     planPrompt: string;
     /**
      * The healing agent's reasoning that produced *this* iteration's plan. Maps
@@ -152,30 +75,12 @@ export interface SeedIteration {
      */
     healingReasoning?: string;
     /**
-     * A completed review verdict for this iteration's run. Omit to leave the run
-     * without a completed review (so it contributes no prior verdict).
+     * A completed review verdict for this iteration's generation. Omit to leave
+     * the generation without a completed review (so it contributes no prior verdict).
      */
-    verdict?: { verdict: RunReviewVerdict; reasoning: string };
-    /** Marks this iteration's run as the subject under review. Exactly one required. */
+    verdict?: { verdict: GenerationReviewVerdict; reasoning: string };
+    /** Marks this iteration's generation as the subject under review. Exactly one required. */
     subject?: boolean;
-}
-
-export interface SeedRefinementLineageParams {
-    organizationId: string;
-    applicationId: string;
-    baseSha?: string;
-    headSha?: string;
-    testName?: string;
-    iterations: SeedIteration[];
-    /** Steps attached to the subject run. */
-    steps?: SeedStep[];
-}
-
-export interface SeededLineage {
-    subjectRunId: string;
-    snapshotId: string;
-    testCaseId: string;
-    loopId: string;
 }
 
 /**
@@ -238,9 +143,9 @@ export interface SeedGenerationIteration {
     number: number;
     planPrompt: string;
     healingReasoning?: string;
-    /** A completed RunReview verdict for this iteration's run. Omit to contribute no prior verdict. */
-    verdict?: { verdict: RunReviewVerdict; reasoning: string };
-    /** Marks this iteration as the subject - it materializes a generation, not a run. Exactly one required. */
+    /** A completed GenerationReview verdict for this iteration's generation. Omit to contribute no prior verdict. */
+    verdict?: { verdict: GenerationReviewVerdict; reasoning: string };
+    /** Marks this iteration as the subject - it materializes the failing generation. Exactly one required. */
     subject?: boolean;
 }
 
@@ -266,17 +171,14 @@ export interface SeededGenerationLineage {
 /**
  * One failing test in a healing iteration. Its `iterations` describe the full
  * refinement chain oldest-first; the entry flagged `subject: true` is the
- * iteration whose generation/run is the *current* failure healing must address
+ * iteration whose generation is the *current* failure healing must address
  * (earlier iterations contribute the lineage: their plan rewrites + verdicts).
- * `subjectSource` selects whether that failing subject is a generation or a run.
  */
 export interface SeedHealingSubject {
     testName: string;
     /** When provided, an AffectedTest row links the failing subject with this reason + reasoning. */
     affected?: { reason: AffectedReason; reasoning: string };
     iterations: SeedIteration[];
-    /** The failing subject is a generation when "generation", else a run. Defaults to "replay". */
-    subjectSource?: "generation" | "replay";
     /** Attach a scenario instance to the failing subject whose generated-data graph the loader materializes. */
     scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
 }
@@ -293,7 +195,6 @@ export interface SeedHealingIterationParams {
 /** A failing subject as the workflow would describe it to {@link DiffJobContextLoader.loadHealingContext}. */
 export interface SeededHealingSubject {
     failureKey: string;
-    source: "generation" | "replay";
     sourceId: string;
     planId: string;
     testCaseId: string;
@@ -352,251 +253,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
             data: { name: `App ${suffix}`, slug: `app-${suffix}`, organizationId, architecture: "WEB" },
         });
         return app.id;
-    }
-
-    /**
-     * Materialize a complete failed-run graph the loader reads from: a snapshot
-     * (optionally with SHAs + a DiffsJob), a test case + plan + assignment, the
-     * run with its executed steps, and an optional AffectedTest linking the run.
-     */
-    async seedFailedRun(params: SeedFailedRunParams): Promise<SeededRun> {
-        const { organizationId, applicationId } = params;
-        const suffix = uniqueSuffix();
-
-        const branch = await this.db.branch.create({
-            data: { name: `branch-${suffix}`, organizationId, applicationId },
-        });
-        const folder = await this.db.folder.create({
-            data: { name: `folder-${suffix}`, applicationId, organizationId },
-        });
-
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "MANUAL",
-                baseSha: params.baseSha ?? null,
-                headSha: params.headSha ?? null,
-            },
-        });
-
-        // AffectedTest.snapshotId is an FK to DiffsJob.snapshotId, so a DiffsJob
-        // must exist whenever the run is flagged - even if analysis recorded no
-        // reasoning. Mirror that: create the job if either piece is present.
-        if (params.analysisReasoning != null || params.affected != null) {
-            await this.db.diffsJob.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    organizationId,
-                    status: "completed",
-                    analysisReasoning: params.analysisReasoning ?? null,
-                },
-            });
-        }
-
-        const testCase = await this.db.testCase.create({
-            data: {
-                name: params.testName ?? `Test ${suffix}`,
-                slug: `test-${suffix}`,
-                applicationId,
-                folderId: folder.id,
-                organizationId,
-            },
-        });
-
-        const plan = await this.db.testPlan.create({
-            data: {
-                testCaseId: testCase.id,
-                prompt: params.testPlanPrompt ?? "Original plan prompt",
-                organizationId,
-            },
-        });
-
-        const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: plan.id },
-        });
-
-        const scenarioInstanceId =
-            params.scenario != null
-                ? await this.createScenarioInstance(organizationId, applicationId, params.scenario)
-                : undefined;
-
-        const run = await this.db.run.create({
-            data: {
-                assignmentId: assignment.id,
-                planId: plan.id,
-                organizationId,
-                status: "failed",
-                scenarioInstanceId,
-            },
-        });
-
-        await this.attachSteps(run.id, plan.id, organizationId, params.steps ?? []);
-
-        if (params.affected != null) {
-            await this.db.affectedTest.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    testCaseId: testCase.id,
-                    affectedReason: params.affected.reason,
-                    reasoning: params.affected.reasoning,
-                    runId: run.id,
-                    organizationId,
-                },
-            });
-        }
-
-        return {
-            runId: run.id,
-            snapshotId: snapshot.id,
-            testCaseId: testCase.id,
-            assignmentId: assignment.id,
-            planId: plan.id,
-            scenarioInstanceId,
-        };
-    }
-
-    /**
-     * Materialize a single snapshot carrying multiple flagged, replayed runs -
-     * the graph `DiffJobContextLoader.loadSnapshot` reads. Each run gets its own
-     * test case + plan + assignment + run + AffectedTest, plus an optional
-     * completed review (with an optional linked Issue) and scenario instance.
-     * Unlike {@link seedFailedRun}, every run shares one snapshot, which is the
-     * whole point of snapshot-scope gathering.
-     */
-    async seedResolutionSnapshot(params: SeedResolutionSnapshotParams): Promise<SeededResolutionSnapshot> {
-        const { organizationId, applicationId } = params;
-        const suffix = uniqueSuffix();
-
-        const branch = await this.db.branch.create({
-            data: { name: `branch-${suffix}`, organizationId, applicationId },
-        });
-        const folder = await this.db.folder.create({
-            data: { name: `folder-${suffix}`, applicationId, organizationId },
-        });
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "MANUAL",
-                baseSha: params.baseSha ?? null,
-                headSha: params.headSha ?? null,
-            },
-        });
-
-        // AffectedTest.snapshotId FKs to DiffsJob.snapshotId, so a flagged run
-        // requires a DiffsJob - create one whenever there is anything to flag.
-        if (params.analysisReasoning != null || params.runs.length > 0) {
-            await this.db.diffsJob.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    organizationId,
-                    status: "completed",
-                    analysisReasoning: params.analysisReasoning ?? null,
-                },
-            });
-        }
-
-        const runIdByTestName: Record<string, string> = {};
-
-        for (const [index, spec] of params.runs.entries()) {
-            const runId = await this.seedSnapshotRun(
-                snapshot.id,
-                folder.id,
-                organizationId,
-                applicationId,
-                index,
-                spec,
-            );
-            runIdByTestName[spec.testName] = runId;
-        }
-
-        return { snapshotId: snapshot.id, runIdByTestName };
-    }
-
-    private async seedSnapshotRun(
-        snapshotId: string,
-        folderId: string,
-        organizationId: string,
-        applicationId: string,
-        index: number,
-        spec: SeedSnapshotRun,
-    ): Promise<string> {
-        const suffix = uniqueSuffix();
-        const testCase = await this.db.testCase.create({
-            data: {
-                name: spec.testName,
-                slug: `test-${index}-${suffix}`,
-                applicationId,
-                folderId,
-                organizationId,
-            },
-        });
-        const plan = await this.db.testPlan.create({
-            data: { testCaseId: testCase.id, prompt: spec.planPrompt ?? "Original plan prompt", organizationId },
-        });
-
-        const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId, testCaseId: testCase.id, planId: plan.id },
-        });
-
-        const scenarioInstanceId =
-            spec.scenario != null
-                ? await this.createScenarioInstance(organizationId, applicationId, spec.scenario)
-                : undefined;
-
-        const run = await this.db.run.create({
-            data: {
-                assignmentId: assignment.id,
-                planId: plan.id,
-                organizationId,
-                status: spec.runStatus ?? "failed",
-                scenarioInstanceId,
-            },
-        });
-
-        if (spec.review != null) {
-            await this.createRunReview(run.id, organizationId, spec.review);
-        }
-
-        await this.db.affectedTest.create({
-            data: {
-                snapshotId,
-                testCaseId: testCase.id,
-                affectedReason: spec.affectedReason,
-                reasoning: spec.affectedReasoning,
-                runId: run.id,
-                organizationId,
-            },
-        });
-
-        return run.id;
-    }
-
-    private async createRunReview(
-        runId: string,
-        organizationId: string,
-        review: NonNullable<SeedSnapshotRun["review"]>,
-    ): Promise<void> {
-        const created = await this.db.runReview.create({
-            data: {
-                runId,
-                organizationId,
-                status: review.status ?? "completed",
-                verdict: review.verdict ?? null,
-                reasoning: review.reasoning ?? null,
-            },
-        });
-
-        if (review.issue != null) {
-            await this.db.issue.create({
-                data: {
-                    runReviewId: created.id,
-                    organizationId,
-                    severity: "high",
-                    title: review.issue.title,
-                    description: review.issue.description,
-                },
-            });
-        }
     }
 
     /**
@@ -706,135 +362,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
         });
 
         return scenario.id;
-    }
-
-    /**
-     * Re-point an assignment's plan to a freshly created plan (simulating a
-     * healing `updatePlan`). The run keeps its original `planId`, which is what
-     * the loader must read - this is the point-in-time guarantee.
-     */
-    async repointAssignmentPlan(
-        assignmentId: string,
-        testCaseId: string,
-        organizationId: string,
-        newPrompt: string,
-    ): Promise<string> {
-        const newPlan = await this.db.testPlan.create({
-            data: { testCaseId, prompt: newPrompt, organizationId },
-        });
-        await this.db.testCaseAssignment.update({ where: { id: assignmentId }, data: { planId: newPlan.id } });
-        return newPlan.id;
-    }
-
-    /**
-     * Materialize a full refinement-loop lineage graph for a single test: a
-     * snapshot, a loop, and one iteration per entry in `params.iterations`, each
-     * with its own plan, run, optional completed review, and (for non-seed
-     * iterations) an `update_plan` action carrying the healing reasoning. Returns
-     * the subject run id (the iteration flagged `subject: true`).
-     */
-    async seedRefinementLineage(params: SeedRefinementLineageParams): Promise<SeededLineage> {
-        const { organizationId, applicationId } = params;
-        const suffix = uniqueSuffix();
-
-        const branch = await this.db.branch.create({
-            data: { name: `branch-${suffix}`, organizationId, applicationId },
-        });
-        const folder = await this.db.folder.create({
-            data: { name: `folder-${suffix}`, applicationId, organizationId },
-        });
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "MANUAL",
-                baseSha: params.baseSha ?? null,
-                headSha: params.headSha ?? null,
-            },
-        });
-        const testCase = await this.db.testCase.create({
-            data: {
-                name: params.testName ?? `Test ${suffix}`,
-                slug: `test-${suffix}`,
-                applicationId,
-                folderId: folder.id,
-                organizationId,
-            },
-        });
-        const loop = await this.db.refinementLoop.create({
-            data: { snapshotId: snapshot.id, triggeredBy: "diffs", organizationId },
-        });
-
-        // One assignment per snapshot+test; its plan is re-pointed each iteration,
-        // mirroring how healing updates the assignment while each run keeps its own
-        // executed plan via run.planId.
-        const firstPlan = await this.createPlan(
-            testCase.id,
-            params.iterations[0]?.planPrompt ?? "seed",
-            organizationId,
-        );
-        const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: firstPlan.id },
-        });
-
-        const created: Array<{ id: string; planId: string }> = [];
-        let subjectRunId: string | undefined;
-
-        for (const [index, spec] of params.iterations.entries()) {
-            const plan = index === 0 ? firstPlan : await this.createPlan(testCase.id, spec.planPrompt, organizationId);
-
-            const iteration = await this.db.refinementIteration.create({
-                data: { loopId: loop.id, number: spec.number, status: "completed" },
-            });
-            await this.db.refinementIterationInput.create({
-                data: { iterationId: iteration.id, planId: plan.id },
-            });
-
-            // The action that produced this plan is attached to the *previous*
-            // iteration (the one whose healing run authored the rewrite).
-            const previous = created[index - 1];
-            if (spec.healingReasoning != null && previous != null) {
-                await this.db.refinementAction.create({
-                    data: {
-                        iterationId: previous.id,
-                        planId: plan.id,
-                        testCaseId: testCase.id,
-                        kind: "update_plan",
-                        payload: {},
-                        reasoning: spec.healingReasoning,
-                    },
-                });
-            }
-
-            await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
-            const run = await this.db.run.create({
-                data: { assignmentId: assignment.id, planId: plan.id, organizationId, status: "failed" },
-            });
-
-            if (spec.verdict != null) {
-                await this.db.runReview.create({
-                    data: {
-                        runId: run.id,
-                        organizationId,
-                        status: "completed",
-                        verdict: spec.verdict.verdict,
-                        reasoning: spec.verdict.reasoning,
-                    },
-                });
-            }
-
-            if (spec.subject === true) {
-                subjectRunId = run.id;
-                await this.attachSteps(run.id, plan.id, organizationId, params.steps ?? []);
-            }
-
-            created.push({ id: iteration.id, planId: plan.id });
-        }
-
-        if (subjectRunId == null) {
-            throw new Error("seedRefinementLineage requires exactly one iteration flagged subject: true");
-        }
-
-        return { subjectRunId, snapshotId: snapshot.id, testCaseId: testCase.id, loopId: loop.id };
     }
 
     /**
@@ -1010,13 +537,17 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 });
                 subjectGenerationId = generation.id;
             } else {
-                const run = await this.db.run.create({
-                    data: { assignmentId: assignment.id, planId: plan.id, organizationId, status: "failed" },
+                const generation = await this.createGeneration({
+                    organizationId,
+                    snapshotId: snapshot.id,
+                    planId: plan.id,
+                    status: "failed",
+                    steps: [],
                 });
                 if (spec.verdict != null) {
-                    await this.db.runReview.create({
+                    await this.db.generationReview.create({
                         data: {
-                            runId: run.id,
+                            generationId: generation.id,
                             organizationId,
                             status: "completed",
                             verdict: spec.verdict.verdict,
@@ -1145,7 +676,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 ? await this.createScenarioInstance(organizationId, applicationId, spec.scenario)
                 : undefined;
 
-        let subjectInfo: { source: "generation" | "replay"; sourceId: string; planId: string } | undefined;
+        let subjectInfo: { sourceId: string; planId: string } | undefined;
 
         for (const [iterIndex, it] of spec.iterations.entries()) {
             const plan =
@@ -1156,7 +687,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
             await this.db.refinementIterationInput.create({ data: { iterationId, planId: plan.id } });
 
             // The rewrite that produced this plan is attached to the previous
-            // iteration (the one whose healing run authored it).
+            // iteration (the one whose healing generation authored it).
             const previousIterationId = iterationByNumber.get(it.number - 1);
             if (it.healingReasoning != null && previousIterationId != null) {
                 await this.db.refinementAction.create({
@@ -1174,39 +705,26 @@ export class DiffJobContextHarness implements IntegrationHarness {
             await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
 
             const isSubject = it.subject === true;
-            if (isSubject && spec.subjectSource === "generation") {
-                const generation = await this.createGeneration({
-                    organizationId,
-                    snapshotId,
-                    planId: plan.id,
-                    status: "failed",
-                    steps: [],
-                    scenarioInstanceId,
-                });
-                subjectInfo = { source: "generation", sourceId: generation.id, planId: plan.id };
-            } else {
-                const run = await this.db.run.create({
+            const generation = await this.createGeneration({
+                organizationId,
+                snapshotId,
+                planId: plan.id,
+                status: "failed",
+                steps: [],
+                scenarioInstanceId: isSubject ? scenarioInstanceId : undefined,
+            });
+            if (it.verdict != null) {
+                await this.db.generationReview.create({
                     data: {
-                        assignmentId: assignment.id,
-                        planId: plan.id,
+                        generationId: generation.id,
                         organizationId,
-                        status: "failed",
-                        scenarioInstanceId: isSubject ? scenarioInstanceId : undefined,
+                        status: "completed",
+                        verdict: it.verdict.verdict,
+                        reasoning: it.verdict.reasoning,
                     },
                 });
-                if (it.verdict != null) {
-                    await this.db.runReview.create({
-                        data: {
-                            runId: run.id,
-                            organizationId,
-                            status: "completed",
-                            verdict: it.verdict.verdict,
-                            reasoning: it.verdict.reasoning,
-                        },
-                    });
-                }
-                if (isSubject) subjectInfo = { source: "replay", sourceId: run.id, planId: plan.id };
             }
+            if (isSubject) subjectInfo = { sourceId: generation.id, planId: plan.id };
         }
 
         if (subjectInfo == null) {
@@ -1220,8 +738,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
                     testCaseId: testCase.id,
                     affectedReason: spec.affected.reason,
                     reasoning: spec.affected.reasoning,
-                    runId: subjectInfo.source === "replay" ? subjectInfo.sourceId : null,
-                    generationId: subjectInfo.source === "generation" ? subjectInfo.sourceId : null,
+                    generationId: subjectInfo.sourceId,
                     organizationId,
                 },
             });
@@ -1229,7 +746,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
 
         return {
             failureKey: subjectInfo.sourceId,
-            source: subjectInfo.source,
             sourceId: subjectInfo.sourceId,
             planId: subjectInfo.planId,
             testCaseId: testCase.id,
@@ -1356,36 +872,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
 
     private async createPlan(testCaseId: string, prompt: string, organizationId: string) {
         return this.db.testPlan.create({ data: { testCaseId, prompt, organizationId } });
-    }
-
-    private async attachSteps(runId: string, planId: string, organizationId: string, steps: SeedStep[]): Promise<void> {
-        if (steps.length === 0) return;
-
-        const stepInputList = await this.db.stepInputList.create({ data: { planId, organizationId } });
-        const stepOutputList = await this.db.stepOutputList.create({ data: { runId, organizationId } });
-
-        for (const step of steps) {
-            const stepInput = await this.db.stepInput.create({
-                data: {
-                    listId: stepInputList.id,
-                    order: step.order,
-                    interaction: step.interaction,
-                    params: step.params,
-                    organizationId,
-                },
-            });
-            await this.db.stepOutput.create({
-                data: {
-                    listId: stepOutputList.id,
-                    order: step.order,
-                    output: step.output,
-                    stepInputId: stepInput.id,
-                    screenshotBefore: step.screenshotBefore ?? null,
-                    screenshotAfter: step.screenshotAfter ?? null,
-                    organizationId,
-                },
-            });
-        }
     }
 }
 

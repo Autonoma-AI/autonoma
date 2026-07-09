@@ -155,7 +155,7 @@ function formatFailure(f: FailureRecord): string {
     const lines = [
         `## ${f.testCaseName} (slug: \`${f.testCaseSlug}\`)`,
         `- **Failure key**: \`${f.key}\``,
-        `- **Source**: ${f.source} (${f.sourceId}, status: ${f.sourceStatus})`,
+        `- **Generation**: ${f.sourceId} (status: ${f.sourceStatus})`,
         `- **Test case ID**: ${f.testCaseId}`,
         `- **Plan ID**: ${f.planId}`,
     ];

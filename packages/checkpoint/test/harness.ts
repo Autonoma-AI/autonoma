@@ -1,4 +1,4 @@
-import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { type GenerationReviewVerdict, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestAPI } from "vitest";
@@ -92,36 +92,56 @@ export class CheckpointHarness implements IntegrationHarness {
         return { id: assignment.id, testCaseId: testCase.id };
     }
 
-    async createRun(input: {
+    /**
+     * Creates a test generation for the given test case on the snapshot, with an
+     * optional completed review. Executed tests are derived from generations, so
+     * this is how a test "runs" against a snapshot. Returns the generation id so a
+     * caller can attach an open bug via {@link fileOpenBug}.
+     */
+    async createGeneration(input: {
         organizationId: string;
-        assignmentId: string;
-        status: "pending" | "running" | "success" | "failed";
+        testCaseId: string;
+        snapshotId: string;
+        status: "pending" | "queued" | "running" | "success" | "failed";
         at: Date;
         failure?: { kind: string; message?: string };
-    }) {
-        return this.db.run.create({
+        review?: { verdict: GenerationReviewVerdict; reasoning?: string };
+    }): Promise<{ generationId: string; reviewId?: string }> {
+        const plan = await this.db.testPlan.create({
             data: {
-                assignmentId: input.assignmentId,
-                status: input.status,
-                startedAt: input.at,
-                createdAt: input.at,
-                failure: input.failure,
+                testCaseId: input.testCaseId,
+                prompt: "Do the thing.",
                 organizationId: input.organizationId,
             },
         });
+        const generation = await this.db.testGeneration.create({
+            data: {
+                testPlanId: plan.id,
+                snapshotId: input.snapshotId,
+                status: input.status,
+                failure: input.failure,
+                createdAt: input.at,
+                updatedAt: input.at,
+                organizationId: input.organizationId,
+            },
+        });
+
+        if (input.review == null) return { generationId: generation.id };
+
+        const review = await this.db.generationReview.create({
+            data: {
+                generationId: generation.id,
+                status: "completed",
+                verdict: input.review.verdict,
+                reasoning: input.review.reasoning ?? "Reviewed.",
+                organizationId: input.organizationId,
+            },
+        });
+        return { generationId: generation.id, reviewId: review.id };
     }
 
-    /** Files an open application bug attached to a run review on the given run. */
-    async fileOpenBug(input: { organizationId: string; applicationId: string; runId: string }) {
-        const review = await this.db.runReview.create({
-            data: {
-                runId: input.runId,
-                status: "completed",
-                verdict: "application_bug",
-                reasoning: "Application bug.",
-                organizationId: input.organizationId,
-            },
-        });
+    /** Files an open application bug attached to the given generation review. */
+    async fileOpenBug(input: { organizationId: string; applicationId: string; reviewId: string }) {
         const bug = await this.db.bug.create({
             data: {
                 status: "open",
@@ -134,7 +154,7 @@ export class CheckpointHarness implements IntegrationHarness {
         });
         await this.db.issue.create({
             data: {
-                runReviewId: review.id,
+                generationReviewId: input.reviewId,
                 bugId: bug.id,
                 kind: "application_bug",
                 severity: "high",

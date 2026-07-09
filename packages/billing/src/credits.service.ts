@@ -5,7 +5,7 @@ import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "@
 import * as Sentry from "@sentry/node";
 import type { AutoTopUpService } from "./auto-topup.service";
 import type { BillingPricingService } from "./billing-pricing.service";
-import { getGenerationCreditCost, getRunCreditCost, isUniqueConstraintError } from "./billing-utils";
+import { getGenerationCreditCost, isUniqueConstraintError } from "./billing-utils";
 import type {
     DeductCreditsResultRow,
     GenerationRefundResultRow,
@@ -13,7 +13,7 @@ import type {
     TopupRefundResultRow,
 } from "./billing.types";
 import { Service } from "./service";
-import type { BillingConsumptionTarget, DeductGenerationContext, LlmProxyGateResult } from "./types";
+import type { DeductGenerationContext, LlmProxyGateResult } from "./types";
 
 type TxClient = Prisma.TransactionClient;
 type RawTxClient = TxClient & Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -27,12 +27,7 @@ export class CreditsService extends Service {
         super();
     }
 
-    async checkCreditsGate(
-        organizationId: string,
-        runCount: number,
-        architecture: ApplicationArchitecture,
-        target: BillingConsumptionTarget = "generation",
-    ) {
+    async checkCreditsGate(organizationId: string, runCount: number, architecture: ApplicationArchitecture) {
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
         const customer = await this.db.billingCustomer.findUnique({
             where: { organizationId },
@@ -40,8 +35,7 @@ export class CreditsService extends Service {
         });
 
         const creditBalance = customer?.creditBalance ?? 0;
-        const unitCost =
-            target === "run" ? getRunCreditCost(architecture, pricing) : getGenerationCreditCost(architecture, pricing);
+        const unitCost = getGenerationCreditCost(architecture, pricing);
         const required = runCount * unitCost;
         const gracePeriodEndsAt = customer?.gracePeriodEndsAt ?? null;
 
@@ -50,7 +44,6 @@ export class CreditsService extends Service {
             creditBalance,
             required,
             unitCost,
-            target,
             runCount,
             architecture,
             gracePeriodEndsAt,
@@ -60,7 +53,6 @@ export class CreditsService extends Service {
             this.logger.warn("Credits gate blocked by expired grace period", {
                 organizationId,
                 architecture,
-                target,
                 gracePeriodEndsAt: gracePeriodEndsAt.toISOString(),
                 required,
                 creditBalance,
@@ -238,146 +230,6 @@ export class CreditsService extends Service {
             .catch((error: unknown) => {
                 if (isUniqueConstraintError(error)) {
                     this.logger.info("Credit deduction already recorded, skipping", { generationId });
-                    return false;
-                }
-                throw error;
-            });
-
-        if (didDeduct) {
-            await this.autoTopUpService.triggerAutoTopUp(organizationId, pricing);
-        }
-        return didDeduct;
-    }
-
-    async deductCreditsForRun(runId: string): Promise<boolean> {
-        const run = await this.db.run.findUnique({
-            where: { id: runId },
-            select: {
-                id: true,
-                organizationId: true,
-                assignment: {
-                    select: {
-                        testCase: {
-                            select: {
-                                application: {
-                                    select: { architecture: true },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-        if (run == null) {
-            this.logger.warn("Run not found for billing deduction", { runId });
-            return false;
-        }
-
-        const organizationId = run.organizationId;
-        const architecture = run.assignment.testCase.application.architecture;
-        const pricing = await this.pricingService.getOrCreatePricing(organizationId);
-        const cost = getRunCreditCost(architecture, pricing);
-        const transactionId = `ctr_run_${runId}`;
-
-        const didDeduct = await this.db
-            .$transaction(async (tx) => {
-                const rawTx = this.asRawTx(tx);
-                const [result] = await rawTx.$queryRaw<Array<DeductCreditsResultRow>>`
-                    WITH customer AS (
-                        SELECT organization_id, credit_balance, subscription_credit_balance
-                        FROM billing_customer
-                        WHERE organization_id = ${organizationId}
-                        FOR UPDATE
-                    ),
-                    eligible AS (
-                        SELECT
-                            organization_id,
-                            credit_balance,
-                            subscription_credit_balance,
-                            LEAST(subscription_credit_balance, ${cost}) AS subscription_consumed
-                        FROM customer
-                        WHERE credit_balance >= ${cost}
-                    ),
-                    inserted AS (
-                        INSERT INTO credit_transaction (
-                            id,
-                            organization_id,
-                            type,
-                            amount,
-                            balance_after,
-                            run_id
-                        )
-                        SELECT
-                            ${transactionId},
-                            organization_id,
-                            'RUN_CONSUMPTION'::credit_transaction_type,
-                            ${-cost},
-                            credit_balance - ${cost},
-                            ${runId}
-                        FROM eligible
-                        ON CONFLICT (run_id) DO NOTHING
-                        RETURNING id
-                    ),
-                    updated AS (
-                        UPDATE billing_customer bc
-                        SET
-                            credit_balance = eligible.credit_balance - ${cost},
-                            subscription_credit_balance = eligible.subscription_credit_balance - eligible.subscription_consumed
-                        FROM eligible
-                        WHERE bc.organization_id = eligible.organization_id
-                          AND EXISTS (SELECT 1 FROM inserted)
-                        RETURNING bc.credit_balance, bc.subscription_credit_balance
-                    )
-                    SELECT
-                        (SELECT COUNT(*)::bigint FROM inserted) AS inserted_count,
-                        (SELECT credit_balance FROM updated LIMIT 1) AS new_balance,
-                        (SELECT subscription_credit_balance FROM updated LIMIT 1) AS new_subscription_balance
-                `;
-                if (result == null) {
-                    this.logger.warn("Run deduction query returned no result row", { runId, organizationId });
-                    return false;
-                }
-
-                if (result.inserted_count === 0n) {
-                    const existing = await tx.creditTransaction.findUnique({
-                        where: { id: transactionId },
-                        select: { id: true },
-                    });
-                    if (existing != null) {
-                        this.logger.info("Run deduction already recorded, skipping", { runId });
-                        return false;
-                    }
-
-                    this.logger.warn("No billing customer with sufficient credits for run deduction", {
-                        organizationId,
-                        runId,
-                        cost,
-                    });
-                    throw new InsufficientCreditsError(
-                        `Insufficient credits to deduct for run ${runId} (organization ${organizationId}).`,
-                    );
-                }
-
-                const newBalance = result.new_balance;
-                if (newBalance == null) {
-                    this.logger.warn("Run deduction inserted but balance was not updated", { organizationId, runId });
-                    return false;
-                }
-
-                const newSubscriptionBalance = result.new_subscription_balance ?? null;
-                this.logger.info("Run credits deducted", {
-                    organizationId,
-                    runId,
-                    cost,
-                    newBalance,
-                    newSubscriptionBalance,
-                    architecture,
-                });
-                return true;
-            })
-            .catch((error: unknown) => {
-                if (isUniqueConstraintError(error)) {
-                    this.logger.info("Run deduction already recorded, skipping", { runId });
                     return false;
                 }
                 throw error;

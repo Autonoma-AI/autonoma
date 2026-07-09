@@ -1,4 +1,4 @@
-import { RunReviewVerdict } from "@autonoma/db";
+import { GenerationReviewVerdict } from "@autonoma/db";
 import {
     type ExistingTestInfo,
     type FlowInfo,
@@ -11,13 +11,7 @@ import {
     healingActionSchema,
     scenarioDataSchema,
 } from "@autonoma/diffs";
-import {
-    generationVerdictKindSchema,
-    generationVerdictSchema,
-    healingReviewLinkSchema,
-    replayVerdictKindSchema,
-    replayVerdictSchema,
-} from "@autonoma/types";
+import { generationVerdictKindSchema, generationVerdictSchema, healingReviewLinkSchema } from "@autonoma/types";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
@@ -39,7 +33,7 @@ const iterationLineageSchema = z.array(
         iterationNumber: z.number().int().positive(),
         prompt: z.string(),
         healingReasoning: z.string().optional(),
-        verdicts: z.array(z.object({ verdict: z.enum(RunReviewVerdict), reasoning: z.string() })),
+        verdicts: z.array(z.object({ verdict: z.enum(GenerationReviewVerdict), reasoning: z.string() })),
     }),
 );
 
@@ -63,14 +57,13 @@ const renderableReviewStepSchema = z.object({
 
 const failureRecordSchema = z.object({
     key: z.string(),
-    source: z.enum(["generation", "replay"]),
     testCaseId: z.string(),
     testCaseSlug: z.string(),
     testCaseName: z.string(),
     planId: z.string(),
     planPrompt: z.string(),
-    verdict: z.union([generationVerdictSchema, replayVerdictSchema]).optional(),
-    verdictKind: z.union([generationVerdictKindSchema, replayVerdictKindSchema]).optional(),
+    verdict: generationVerdictSchema.optional(),
+    verdictKind: generationVerdictKindSchema.optional(),
     sourceId: z.string(),
     sourceStatus: z.string(),
     reviewReasoning: z.string().optional(),

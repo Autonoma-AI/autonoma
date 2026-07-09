@@ -8,7 +8,6 @@ export {
     scenarioEntityRecordSchema,
     materializeScenarioData,
 } from "@autonoma/scenario";
-export { resolveScenarioDataForRun } from "./resolve-scenario-data";
 export { resolveScenarioDataForGeneration } from "./resolve-scenario-data-for-generation";
 export { summarizeScenarioData } from "./summarize-scenario-data";
 // Shared entity-graph primitives, reused by the scenario-recipe capability.

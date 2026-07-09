@@ -18,8 +18,8 @@ export interface AttemptData<TSpec extends CommandSpec> {
     /** 1-based position in the full attempt timeline (counts failures). */
     order: number;
 
-    /** 1-based position in the successful-only replay list. Present only for successful attempts. */
-    replayOrder?: number;
+    /** 1-based position in the successful-only step list. Present only for successful attempts. */
+    successfulOrder?: number;
 }
 
 /** Events emitted by the headless runner */

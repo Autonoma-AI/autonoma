@@ -1,7 +1,6 @@
 import { materializeScenarioData } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
-import { recoverScenarioDataForRun } from "../evals/capture/recover-scenario-data";
 import { recoverScenarioDataForGeneration } from "../evals/capture/recover-scenario-data-for-generation";
 import { diffJobContextSuite } from "./harness";
 
@@ -19,27 +18,6 @@ const CREATE_GRAPH = {
 diffJobContextSuite({
     name: "recoverScenarioData (eval-only webhook fallback)",
     cases: (test) => {
-        test("recovers a run's scenario data from the UP webhook when generatedData is null", async ({
-            harness,
-            seedResult,
-        }) => {
-            const { runId } = await harness.seedFailedRun({
-                organizationId: seedResult.organizationId,
-                applicationId: seedResult.applicationId,
-                steps: [{ order: 0, interaction: "click", params: { target: "project" }, output: { outcome: "fail" } }],
-                // Pre-#822 legacy instance: it came up, but generatedData was never
-                // persisted - only the UP webhook carries the create graph.
-                scenario: { name: "Org with one user and project", upWebhookCreate: CREATE_GRAPH },
-            });
-
-            const recovered = await recoverScenarioDataForRun(harness.db, runId);
-
-            // Recovery must equal what a populated generatedData would have yielded.
-            expect(recovered).toEqual(materializeScenarioData("Org with one user and project", CREATE_GRAPH, logger));
-            expect(recovered?.scenarioName).toBe("Org with one user and project");
-            expect(Object.keys(recovered?.entities ?? {})).toEqual(expect.arrayContaining(["User", "Project"]));
-        });
-
         test("recovers a generation's scenario data from the UP webhook when generatedData is null", async ({
             harness,
             seedResult,
@@ -59,36 +37,39 @@ diffJobContextSuite({
             harness,
             seedResult,
         }) => {
-            const { runId } = await harness.seedFailedRun({
+            const { generationId } = await harness.seedGeneration({
                 organizationId: seedResult.organizationId,
                 applicationId: seedResult.applicationId,
                 scenario: { name: "Failed to provision", status: "UP_FAILED", upWebhookCreate: CREATE_GRAPH },
             });
 
-            expect(await recoverScenarioDataForRun(harness.db, runId)).toBeUndefined();
+            expect(await recoverScenarioDataForGeneration(harness.db, generationId)).toBeUndefined();
         });
 
         test("returns undefined when the instance came up but no UP webhook survives", async ({
             harness,
             seedResult,
         }) => {
-            const { runId } = await harness.seedFailedRun({
+            const { generationId } = await harness.seedGeneration({
                 organizationId: seedResult.organizationId,
                 applicationId: seedResult.applicationId,
                 // UP_SUCCESS instance, but neither generatedData nor a webhook row.
                 scenario: { name: "No log survives" },
             });
 
-            expect(await recoverScenarioDataForRun(harness.db, runId)).toBeUndefined();
+            expect(await recoverScenarioDataForGeneration(harness.db, generationId)).toBeUndefined();
         });
 
-        test("returns undefined when the run has no scenario instance at all", async ({ harness, seedResult }) => {
-            const { runId } = await harness.seedFailedRun({
+        test("returns undefined when the generation has no scenario instance at all", async ({
+            harness,
+            seedResult,
+        }) => {
+            const { generationId } = await harness.seedGeneration({
                 organizationId: seedResult.organizationId,
                 applicationId: seedResult.applicationId,
             });
 
-            expect(await recoverScenarioDataForRun(harness.db, runId)).toBeUndefined();
+            expect(await recoverScenarioDataForGeneration(harness.db, generationId)).toBeUndefined();
         });
     },
 });

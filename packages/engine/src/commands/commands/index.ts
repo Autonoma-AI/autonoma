@@ -40,7 +40,3 @@ export * from "./scroll/scroll.def";
 // Type
 export * from "./type/type.command";
 export * from "./type/type.def";
-
-// Wait Until
-export * from "./wait-until/wait-until.command";
-export * from "./wait-until/wait-until.def";

@@ -37,20 +37,19 @@ export interface RefinementLoopResult {
  *
  * Each iteration has the same shape: analyze results that already exist, heal
  * if any failed, then (if healing produced plan changes) fire the next
- * iteration's gen-replay pipeline. Iter 1's analyzable data is fired by the
+ * iteration's generation pipeline. Iter 1's analyzable data is fired by the
  * init phase below; subsequent iterations have their data fired by the
  * previous iteration's tail.
  *
  * The loop's scope - which plans each iteration is responsible for - is
  * recorded in `RefinementIterationInput` rows. Iter 1's rows are seeded by
- * trigger (diffs -> the affected tests' committed replay plans plus the new
- * tests the diffs agent authored; onboarding -> the snapshot's pending
- * generations); iter N+1's rows come from the planIds that healing's
- * update_plan actions produced. `analyzeResults` reads that table directly; the
- * loop has no implicit reads of upstream state.
+ * trigger from the snapshot's pending generations (diffs -> a pending generation
+ * per affected test plus the new tests the diffs agent authored; onboarding ->
+ * the planner's pending generations); iter N+1's rows come from the planIds that
+ * healing's update_plan actions produced. `analyzeResults` reads that table
+ * directly; the loop has no implicit reads of upstream state.
  *
- * Iteration 1 analyzes whatever its seeded plans produced (replays that already
- * ran, plus any new-test generations fired by the iter-1 pipeline) and heals the
+ * Iteration 1 analyzes whatever its seeded plans generated and heals the
  * failures, exactly like later iterations.
  */
 export async function refinementLoopWorkflow(input: RefinementLoopInput): Promise<RefinementLoopResult> {

@@ -9,9 +9,8 @@ AI agents that drive the diff-analysis, healing, and review pipeline. Every agen
 | `DiffsAgent` | PR diffs | Which existing tests might be affected; and authors any missing tests directly via `create_test` (mints the test case + plan + a pending generation, with a required coverage justification) |
 | `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / report_unknown_issue / report_scenario_unsupported / remove_test). `report_bug` requires a re-grounded `suspectedCause` (explanation + `file:line` code references, each with an optional verbatim `snippet` from the agent's bash read); when the cause can't be grounded it downgrades to `report_unknown_issue` (Issue without a customer-facing Bug). `report_bug` also authors the customer-facing `report` (Expected/Actual + narrative, plus an optional `primaryScreenshot` designating the frame that best shows the bug - referenced by fetched step + before/after, resolved to a storage key by the tool) the bug page renders, grounded in evidence the agent pulls on demand via `fetch_step_evidence`; the narrative embeds specific screenshots inline by `evidence:<assetId>` token, anchored to a system-built `evidenceManifest` of only the assets the agent actually fetched (so it can never surface an image it did not pull). It is persisted on the occurrence's `Issue.report`, and the `suspectedCause` is folded into that same report at apply time so the bug page can render it as a hedged, subordinate "Suspected cause" section below the proven case. `report_scenario_unsupported` files a Bug-less Issue for a test impossible given the current scenario data (carrying a proposed scenario extension as prose) and removes the test from the suite, since it can never pass until a human extends the scenario. It only heals and culls - it never authors tests |
 | `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug / unknown_issue / scenario_unsupported). `application_bug` requires a `suspectedCause` grounding the bug in code; ungroundable suspicions are `unknown_issue`; a test impossible given the current scenario data (with a description anchoring intent) is `scenario_unsupported` and carries a `proposedScenarioExtension` |
-| `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug / unknown_issue). Same grounding rule: `application_bug` carries a `suspectedCause`, ungroundable suspicions are `unknown_issue` |
 
-All four extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
+All three extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
 
 ## Code layout
 
@@ -30,13 +29,13 @@ src/agents/
 ├── healing/                 HealingAgent + tools (incl. fetch_step_evidence: per-step
 │                            before/after screenshots + step-output text, on demand, each returning a
 │                            stable evidence token the narrative can embed inline) + result tool
-└── reviewers/               GenerationReviewer, ReplayReviewer, shared ReviewerLoop
+└── reviewers/               GenerationReviewer, shared ReviewerLoop
 
 src/scenario-data/           Reusable, agent-agnostic scenario-data capability:
-                             resolveScenarioDataForRun / resolveScenarioDataForGeneration (DB)
+                             resolveScenarioDataForGeneration (DB)
                              + materializeScenarioData (pure) + summarizeScenarioData (bounded
                              prompt summary). The read_scenario_entities tool discloses full
-                             records on demand. Both resolvers share the instance-unwrap
+                             records on demand. The resolver shares the instance-unwrap
                              (materializeInstanceScenarioData). Shared entity-graph primitives
                              (normalizeEntities, summarizeEntities) are reused by scenario-recipe.
 
@@ -48,19 +47,19 @@ src/scenario-recipe/         Template-level sibling of scenario-data, for the di
                              records on demand.
 ```
 
-### Recipe (template) data vs per-run (instance) data
+### Recipe (template) data vs per-generation (instance) data
 
 These two capabilities are deliberately distinct data shapes:
 
-- **`scenario-data`** is per-subject **instance** data - the concrete rows a single run's
-  or generation's scenario instance *actually generated* (`ScenarioInstance.generatedData`).
-  The replay and generation reviewers and healing use it to judge whether a
-  subject's plan referenced data the scenario really seeded (a strong `engine_error` /
+- **`scenario-data`** is per-subject **instance** data - the concrete rows a single
+  generation's scenario instance *actually generated* (`ScenarioInstance.generatedData`).
+  The generation reviewer and healing use it to judge whether a
+  subject's plan referenced data the scenario really seeded (a strong `agent_limitation` /
   `plan_mismatch` signal; healing gets it per failing subject so it can rewrite a plan to
   match the seed rather than report a bug).
 - **`scenario-recipe`** is **recipe template** data - what each scenario is *designed to
   seed*, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
-  The diffs **analysis** agent uses it: analysis runs *before any replay*, so no instance
+  The diffs **analysis** agent uses it: analysis runs *before generation*, so no instance
   exists yet - the recipe is the only artifact describing each scenario's data. Field values
   may still be unresolved variable placeholders (e.g. `{{testRunId}}`).
 
@@ -102,7 +101,7 @@ Tools classify their failures explicitly:
 
 ## Entry points
 
-`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` / `ReplayReviewer` agent classes and the loader interfaces they consume (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`, `buildReplayReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runners (`runGenerationReview` / `runReplayReview`), the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
+`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` agent class and the loader interfaces it consumes (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runner (`runGenerationReview`), the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
 
 ## Sub-packages
 

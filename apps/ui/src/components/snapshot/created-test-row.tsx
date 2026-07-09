@@ -18,9 +18,8 @@ interface CreatedTestRowProps {
 export function CreatedTestRow({ test }: CreatedTestRowProps) {
   const description = test.description?.trim() ?? "";
   const generationReview = test.generation?.reviewReasoning?.trim() ?? "";
-  const runReview = test.run?.reviewReasoning?.trim() ?? "";
   const plan = test.plan.trim();
-  const hasDetails = description.length > 0 || plan.length > 0 || generationReview.length > 0 || runReview.length > 0;
+  const hasDetails = description.length > 0 || plan.length > 0 || generationReview.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-raised">
@@ -36,13 +35,11 @@ export function CreatedTestRow({ test }: CreatedTestRowProps) {
           {test.testCase.name}
         </AppLink>
         {test.generation != null && <StatusBadge label="gen" status={test.generation.status} />}
-        {test.run != null && <StatusBadge label="run" status={test.run.status} />}
       </div>
       <PipelineIds
         ids={[
           { label: "test", value: test.testCase.id },
           { label: "generation", value: test.generation?.id },
-          { label: "run", value: test.run?.id },
         ]}
         className="border-t border-border-dim bg-surface-base px-4 py-2"
       />
@@ -51,7 +48,6 @@ export function CreatedTestRow({ test }: CreatedTestRowProps) {
           {description.length > 0 && <ReasoningSection label="Description" content={description} />}
           {plan.length > 0 && <ReasoningSection label="Plan" content={plan} />}
           {generationReview.length > 0 && <ReasoningSection label="Generation review" content={generationReview} />}
-          {runReview.length > 0 && <ReasoningSection label="Run review" content={runReview} />}
         </div>
       )}
     </div>

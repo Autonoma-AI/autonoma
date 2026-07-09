@@ -1,4 +1,4 @@
-import type { AffectedTest, CreatedTest, ExecutedTest, SnapshotChange } from "./diffs-timeline-types";
+import type { AffectedTest, CreatedTest, SnapshotChange } from "./diffs-timeline-types";
 
 export type EntryCategory = "added" | "modified" | "checked" | "removed";
 
@@ -11,7 +11,6 @@ export interface TestEntry {
     plan?: string;
     previousPlan?: string;
     generation?: { id: string; status: string; reviewReasoning?: string };
-    run?: { id: string; status: string; verdict?: string; reviewReasoning?: string };
 }
 
 export interface Section {
@@ -34,15 +33,12 @@ export function buildSections({
     changes,
     affectedTests,
     createdTests,
-    executedTests,
 }: {
     changes: SnapshotChange[];
     affectedTests: AffectedTest[];
     createdTests: CreatedTest[];
-    executedTests: ExecutedTest[];
 }): Section[] {
     const affectedByTestCaseId = new Map(affectedTests.map((t) => [t.testCase.id, t]));
-    const executedByTestCaseId = new Map(executedTests.map((e) => [e.testCase.id, e]));
     const createdByTestCaseId = new Map(createdTests.map((t) => [t.testCase.id, t]));
 
     const added: TestEntry[] = [];
@@ -54,8 +50,7 @@ export function buildSections({
 
     for (const change of changes) {
         if (change.type === "added") {
-            // Fall back to the change's plan + latest executed run when no created-test
-            // record exists (legacy snapshots).
+            // Fall back to the change's plan when no created-test record exists (legacy snapshots).
             const created = createdByTestCaseId.get(change.testCaseId);
             added.push({
                 urlId: change.testCaseId,
@@ -65,7 +60,6 @@ export function buildSections({
                 reasoning: created?.description,
                 plan: created?.plan ?? change.plan,
                 generation: createdGeneration(created),
-                run: createdRun(created) ?? executedRun(executedByTestCaseId.get(change.testCaseId)),
             });
             surfaced.add(change.testCaseId);
             continue;
@@ -81,7 +75,6 @@ export function buildSections({
                 plan: change.plan,
                 previousPlan: change.previousPlan,
                 generation: affectedGeneration(affected),
-                run: modifiedRun(affected, executedByTestCaseId.get(change.testCaseId)),
             });
             surfaced.add(change.testCaseId);
             continue;
@@ -108,7 +101,6 @@ export function buildSections({
             testSlug: affected.testCase.slug,
             reasoning: affected.reasoning,
             generation: affectedGeneration(affected),
-            run: modifiedRun(affected, executedByTestCaseId.get(affected.testCase.id)),
         });
         surfaced.add(affected.testCase.id);
     }
@@ -134,27 +126,6 @@ function createdGeneration(created: CreatedTest | undefined): TestEntry["generat
     };
 }
 
-function createdRun(created: CreatedTest | undefined): TestEntry["run"] {
-    if (created?.run == null) return undefined;
-    return {
-        id: created.run.id,
-        status: created.run.status,
-        verdict: created.run.verdict ?? undefined,
-        reviewReasoning: created.run.reviewReasoning ?? undefined,
-    };
-}
-
-/** The latest executed run for a test case in this snapshot, when one exists. */
-function executedRun(executed: ExecutedTest | undefined): TestEntry["run"] {
-    if (executed?.runId == null) return undefined;
-    return {
-        id: executed.runId,
-        status: executed.status,
-        verdict: executed.verdict ?? undefined,
-        reviewReasoning: executed.reviewReasoning ?? undefined,
-    };
-}
-
 function affectedGeneration(t: AffectedTest | undefined): TestEntry["generation"] {
     if (t?.generation == null) return undefined;
     return {
@@ -162,31 +133,4 @@ function affectedGeneration(t: AffectedTest | undefined): TestEntry["generation"
         status: t.generation.status,
         reviewReasoning: t.generation.generationReview?.reasoning ?? undefined,
     };
-}
-
-function affectedRun(t: AffectedTest | undefined): TestEntry["run"] {
-    if (t?.run == null) return undefined;
-    return {
-        id: t.run.id,
-        status: t.run.status,
-        verdict: t.run.runReview?.verdict ?? undefined,
-        reviewReasoning: t.run.runReview?.reasoning ?? undefined,
-    };
-}
-
-// `AffectedTest.run` is pinned to the *initial* replay that detected the test as
-// affected and is never re-pointed at the post-fix validation run created by the
-// refinement loop. For a modified test the user expects the latest replay, so
-// prefer the snapshot's latest executed run for the test case and fall back to
-// the initial replay only when no executed run exists yet.
-function modifiedRun(t: AffectedTest | undefined, executed: ExecutedTest | undefined): TestEntry["run"] {
-    if (executed?.runId != null) {
-        return {
-            id: executed.runId,
-            status: executed.status,
-            verdict: executed.verdict ?? undefined,
-            reviewReasoning: executed.reviewReasoning ?? undefined,
-        };
-    }
-    return affectedRun(t);
 }

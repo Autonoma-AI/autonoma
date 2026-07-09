@@ -1,5 +1,5 @@
 import type { AffectedReason } from "@autonoma/db";
-import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
+import type { GenerationVerdict, GenerationVerdictKind } from "@autonoma/types";
 import type { IterationLineage, RenderableReviewStep } from "../review/kernel";
 import type { ScenarioData } from "../scenario-data";
 import type { ScenarioIndex } from "../scenario-index";
@@ -7,7 +7,7 @@ import type { HealingReviewLink } from "./actions";
 import type { FlowSummary } from "./plan-authoring/types";
 
 /**
- * One failing plan or run, summarised for the agent. Includes the reviewer's
+ * One failing generation, summarised for the agent. Includes the reviewer's
  * verdict and reasoning so the agent can decide an action without having to
  * re-load the full review row.
  *
@@ -18,9 +18,8 @@ import type { FlowSummary } from "./plan-authoring/types";
  * without a scenario); `lineage` is empty for a first-iteration failure.
  */
 export interface FailureRecord {
-    /** Unique key the agent uses to refer to this failure (typically planId or runId). */
+    /** Unique key the agent uses to refer to this failure (the generationId). */
     key: string;
-    source: "generation" | "replay";
     testCaseId: string;
     testCaseSlug: string;
     testCaseName: string;
@@ -28,9 +27,9 @@ export interface FailureRecord {
     /** The plan prompt that produced this failure. */
     planPrompt: string;
     /** Reviewer's verdict, when one was produced. */
-    verdict?: GenerationVerdict | ReplayVerdict;
-    verdictKind?: GenerationVerdictKind | ReplayVerdictKind;
-    /** Whichever id (generationId / runId) is the source's primary key. */
+    verdict?: GenerationVerdict;
+    verdictKind?: GenerationVerdictKind;
+    /** The failing generation's id (the source's primary key). */
     sourceId: string;
     sourceStatus: string;
     /** Reviewer's free-text reasoning. */
@@ -55,11 +54,10 @@ export interface FailureRecord {
     /**
      * The source review a `report_bug` / `report_engine_limitation` on this
      * failure links its evidence to - deterministic failure metadata the runner
-     * stamps, not authored by the model. A failure surfaced at generation links
-     * to its generation review, one surfaced at replay to its run review. Absent
-     * when the failure carries no source review (e.g. the generation/run failed
-     * before review); a failure with no review link cannot be the target of a
-     * report action.
+     * stamps, not authored by the model. Links to the generation review that
+     * surfaced the failure. Absent when the failure carries no source review
+     * (e.g. the generation failed before review); a failure with no review link
+     * cannot be the target of a report action.
      */
     reviewLink?: HealingReviewLink;
     /**

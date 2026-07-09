@@ -21,7 +21,7 @@ export {
     type ProvisionedInstance,
     type TeardownConfig,
 } from "./scenario-provisioner";
-export { type ScenarioSubject, GenerationSubject, RunSubject } from "./scenario-subject";
+export { type ScenarioSubject, GenerationSubject } from "./scenario-subject";
 export {
     type ScenarioData,
     type ScenarioEntities,

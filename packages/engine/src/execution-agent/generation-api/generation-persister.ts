@@ -166,17 +166,17 @@ export class GenerationPersister<TSpec extends CommandSpec> {
     /**
      * Live-persist a single command attempt as it happens.
      *
-     * Successes write a `StepAttempt(success)` plus the replay rows
+     * Successes write a `StepAttempt(success)` plus the committed step rows
      * (`StepInput` + `StepOutput`), reusing the StepInput screenshot keys.
      * Failures write only a `StepAttempt(failed)` under a separate screenshot
      * namespace so they cannot collide with the order-keyed StepInput screenshots.
      */
-    public async recordAttempt({ attempt, order, replayOrder }: AttemptData<TSpec>) {
+    public async recordAttempt({ attempt, order, successfulOrder }: AttemptData<TSpec>) {
         if (attempt.status === "success") {
-            if (replayOrder == null) {
-                throw new Error("Successful attempt is missing its replay order");
+            if (successfulOrder == null) {
+                throw new Error("Successful attempt is missing its successful-step order");
             }
-            await this.recordSuccessfulAttempt(attempt, order, replayOrder);
+            await this.recordSuccessfulAttempt(attempt, order, successfulOrder);
             return;
         }
 
@@ -184,12 +184,16 @@ export class GenerationPersister<TSpec extends CommandSpec> {
     }
 
     /**
-     * Persist a successful attempt: the `StepInput` + `StepOutput` replay rows and
-     * a `StepAttempt(success)` that reuses the same screenshot keys (no re-upload).
+     * Persist a successful attempt: the `StepInput` + `StepOutput` committed step
+     * rows and a `StepAttempt(success)` that reuses the same screenshot keys (no re-upload).
      */
-    private async recordSuccessfulAttempt(step: GeneratedStep<TSpec>, order: number, replayOrder: number) {
+    private async recordSuccessfulAttempt(step: GeneratedStep<TSpec>, order: number, successfulOrder: number) {
         const stepData = step.executionOutput.stepData;
-        this.logger.info("Persisting successful attempt", { interaction: stepData.interaction, order, replayOrder });
+        this.logger.info("Persisting successful attempt", {
+            interaction: stepData.interaction,
+            order,
+            successfulOrder,
+        });
 
         if (this.stepInputListId == null || this.stepOutputListId == null || this.organizationId == null) {
             throw new Error("Step lists not initialized - call markRunning() first");
@@ -200,11 +204,11 @@ export class GenerationPersister<TSpec extends CommandSpec> {
         try {
             [screenshotBeforeUrl, screenshotAfterUrl] = await Promise.all([
                 this.config.storageProvider.upload(
-                    this.screenshotKey(this.id, replayOrder, "before"),
+                    this.screenshotKey(this.id, successfulOrder, "before"),
                     step.beforeMetadata.screenshot.buffer,
                 ),
                 this.config.storageProvider.upload(
-                    this.screenshotKey(this.id, replayOrder, "after"),
+                    this.screenshotKey(this.id, successfulOrder, "after"),
                     step.afterMetadata.screenshot.buffer,
                 ),
             ]);
@@ -217,7 +221,7 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             data: {
                 listId: this.stepInputListId,
                 organizationId: this.organizationId,
-                order: replayOrder,
+                order: successfulOrder,
                 interaction: stepData.interaction,
                 params: stripNullBytes(stepData.params),
                 screenshotBefore: screenshotBeforeUrl,
@@ -230,7 +234,7 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             data: {
                 listId: this.stepOutputListId,
                 organizationId: this.organizationId,
-                order: replayOrder,
+                order: successfulOrder,
                 output: stripNullBytes(step.executionOutput.result),
                 stepInputId: stepInput.id,
                 screenshotBefore: screenshotBeforeUrl,
@@ -255,7 +259,7 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             select: { id: true },
         });
 
-        this.logger.info("Successful attempt persisted", { stepInputId: stepInput.id, order, replayOrder });
+        this.logger.info("Successful attempt persisted", { stepInputId: stepInput.id, order, successfulOrder });
     }
 
     /**
@@ -351,25 +355,6 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                 memory: result.memory,
             },
         });
-
-        if (this.stepInputListId != null) {
-            this.logger.info("Recording step wait conditions");
-            const listId = this.stepInputListId;
-
-            await Promise.all(
-                result.generatedSteps.map(async (step, index) => {
-                    const order = index + 1;
-                    const waitCondition = step.waitCondition;
-
-                    this.logger.info("Saving wait condition for step", { order, waitCondition });
-
-                    await this.db.stepInput.update({
-                        where: { listId_order: { listId, order } },
-                        data: { waitCondition },
-                    });
-                }),
-            );
-        }
 
         this.logger.info("Uploading video", { videoPath });
         const videoBuffer = await readFile(videoPath);

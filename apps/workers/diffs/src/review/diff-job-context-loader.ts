@@ -9,15 +9,9 @@ import {
     type IterationLineage,
     type IterationVerdict,
     type RenderableReviewStep,
-    type RunContext,
-    type RunStepData,
     type ScenarioData,
     type SnapshotChangeContext,
-    type SnapshotContext,
-    type SnapshotRunContext,
-    type SnapshotRunReview,
     resolveScenarioDataForGeneration,
-    resolveScenarioDataForRun,
 } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
@@ -66,32 +60,19 @@ interface GenerationStepInputRow {
     outputs: { output: unknown }[];
 }
 
-/** One persisted replay `StepOutput` (+ its `StepInput`), the replay step source. */
-interface ReplayStepOutputRow {
-    order: number;
-    output: unknown;
-    screenshotBefore: string | null;
-    screenshotAfter: string | null;
-    stepInput: { interaction: string; params: unknown };
-}
-
 /**
  * Gathers everything a diff-job agent needs from the database, at one of two
  * scopes:
  *
- * - **Subject scope** (`load` / `loadGeneration`): everything a reviewer needs
- *   for a single subject - a failed replay run **or** a test generation: the
- *   executed steps + test metadata, the subject-scoped change context (base/head
- *   SHAs, the diffs-agent's analysis reasoning, and why this test was flagged),
- *   the point-in-time refinement-loop lineage, and (for runs) the materialized
- *   scenario data.
- * - **Snapshot scope** (`loadSnapshot`): the same diff-job context gathered
- *   across *all* replayed runs in a snapshot, for agents that reason over the
- *   whole batch at once (resolution) rather than one subject.
+ * - **Subject scope** (`loadGeneration`): everything the generation reviewer
+ *   needs for a single generation - the executed steps + test metadata, the
+ *   subject-scoped change context (base/head SHAs, the diffs-agent's analysis
+ *   reasoning, and why this test was flagged), the point-in-time refinement-loop
+ *   lineage, and the materialized scenario data.
  * - **Healing scope** (`loadHealingContext`): the diff-job context for one
- *   refinement iteration's failing subjects (failed generations *and* runs,
- *   supplied by the caller), each carrying its full per-test lineage, the shared
- *   change facts, and its materialized scenario data.
+ *   refinement iteration's failing generations, supplied by the caller, each
+ *   carrying its full per-test lineage, the shared change facts, and its
+ *   materialized scenario data.
  *
  * This is the only piece of the diff-job path with DB access. It performs no git
  * or filesystem work - the agent derives the changed files and diff hunks itself
@@ -114,141 +95,20 @@ export class DiffJobContextLoader {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
-    async load(runId: string): Promise<RunContext> {
-        this.logger.info("Loading replay review context", { runId });
-
-        const run = await this.db.run.findUniqueOrThrow({
-            where: { id: runId },
-            select: {
-                id: true,
-                organizationId: true,
-                // The plan this run actually executed (captured at run creation). It
-                // also anchors the lineage walk: this plan id locates the run's
-                // refinement iteration, which bounds the point-in-time history.
-                planId: true,
-                // `run.plan` is the snapshot of the plan this run actually executed,
-                // captured at run creation time. Reading it from `assignment.plan`
-                // instead would be wrong after any `updatePlan` call (e.g. healing),
-                // which re-points `assignment.planId` to a *new* TestPlan row -
-                // so the reviewer would otherwise grade the run against a prompt
-                // it never saw.
-                plan: { select: { prompt: true } },
-                assignment: {
-                    select: {
-                        testCase: { select: { id: true, name: true, description: true } },
-                        snapshot: {
-                            select: {
-                                headSha: true,
-                                baseSha: true,
-                                diffsJob: { select: { analysisReasoning: true } },
-                                branch: { select: { application: { select: { architecture: true } } } },
-                            },
-                        },
-                    },
-                },
-                // The AffectedTest row for this run carries why the diffs-agent
-                // flagged this test (its category + free-text reasoning).
-                affectedTest: { select: { affectedReason: true, reasoning: true } },
-                outputs: {
-                    select: {
-                        list: {
-                            select: {
-                                order: true,
-                                output: true,
-                                screenshotBefore: true,
-                                screenshotAfter: true,
-                                stepInput: { select: { interaction: true, params: true } },
-                            },
-                            orderBy: { order: "asc" },
-                        },
-                    },
-                },
-            },
-        });
-
-        const outputSteps = run.outputs?.list ?? [];
-
-        const steps: RunStepData[] = outputSteps.map((step) => this.toReplayStep(step));
-
-        const lastStep = outputSteps[outputSteps.length - 1];
-        const finalScreenshotKey = lastStep?.screenshotAfter ?? lastStep?.screenshotBefore ?? undefined;
-
-        const change = this.buildChangeContext(runId, run.assignment.snapshot, run.affectedTest);
-        const lineage = await this.buildLineage(runId, run.planId, run.assignment.testCase.id);
-
-        // Resolved + materialized via the shared, agent-agnostic helper so the
-        // loader stays DB-only and resolution/healing reuse the same path.
-        // Returns undefined (and we omit it) when the run has no scenario, UP
-        // never succeeded, or the graph is empty.
-        const scenario = await resolveScenarioDataForRun(this.db, runId);
-
-        this.logger.info("Replay review context loaded", {
-            runId,
-            stepCount: steps.length,
-            hasChange: change != null,
-            hasLineage: lineage.length > 0,
-            hasScenario: scenario != null,
-        });
-
-        return {
-            runId: run.id,
-            organizationId: run.organizationId,
-            testPlanPrompt: run.plan?.prompt ?? "No test plan prompt available",
-            testCaseName: run.assignment.testCase.name,
-            testCaseDescription: run.assignment.testCase.description ?? undefined,
-            steps,
-            videoS3Key: `run/${runId}/video.webm`,
-            finalScreenshotKey,
-            architecture: run.assignment.snapshot.branch.application.architecture,
-            change,
-            lineage,
-            scenario,
-        };
-    }
-
-    /**
-     * Map one persisted replay `StepOutput` to the normalized reviewer step
-     * shape. The replay run stores every step's result in a single `output` JSON
-     * blob with no status column, so the discriminant is the `errorName` the run
-     * persister writes only on failure: present means a failed step whose
-     * `outcome` is the error message; absent means a successful step whose
-     * `output` is the command's structured result. This mirrors the generation
-     * path's `StepAttempt` mapping, so both reviewers feed the shared renderer the
-     * same shape.
-     */
-    private toReplayStep(step: ReplayStepOutputRow): RunStepData {
-        const overlayPoints = getStepOverlayPoints(step.output);
-        const failure = readPersistedFailure(step.output);
-
-        return {
-            order: step.order,
-            interaction: step.stepInput.interaction,
-            params: step.stepInput.params,
-            status: failure != null ? "failed" : "success",
-            screenshotBeforeKey: step.screenshotBefore ?? undefined,
-            screenshotAfterKey: step.screenshotAfter ?? undefined,
-            overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
-            // Failure attribution on failed steps; the command's structured result on successful ones.
-            error: failure?.error,
-            errorName: failure?.errorName,
-            output: failure == null ? (step.output ?? undefined) : undefined,
-        };
-    }
-
     /**
      * Gather everything the generation reviewer needs for a single generation:
      * the executed steps, the agent conversation (downloaded from S3), and the
-     * same subject-scoped change facts + point-in-time lineage the replay path
-     * gets. The generation reviewer already reasons over the conversation; this
-     * widens it with the change + lineage the replay reviewer gained in #804/#805.
+     * subject-scoped change facts + point-in-time lineage. The generation reviewer
+     * already reasons over the conversation; this widens it with the change +
+     * lineage gained in #804/#805.
      *
      * Steps come from the `StepAttempt` timeline - every attempt in true order,
      * counting failures - so the Step Summary surfaces failed attempts (the most
-     * diagnostic moments) the successful-only `StepInput` replay list omits. Each
+     * diagnostic moments) the successful-only `StepInput` list omits. Each
      * attempt maps to the normalized reviewer step shape: `output` on success,
      * `error` + `errorName` on failure. Generations that predate the `StepAttempt`
      * table have no attempts; for those (and re-captures of them) the loader falls
-     * back to the `StepInput` replay list, mapping each step as a success.
+     * back to the `StepInput` list, mapping each step as a success.
      */
     async loadGeneration(generationId: string): Promise<GenerationContext> {
         this.logger.info("Loading generation review context", { generationId });
@@ -303,7 +163,7 @@ export class DiffJobContextLoader {
                     },
                     orderBy: { order: "asc" },
                 },
-                // The successful-only StepInput replay list - the fallback source
+                // The successful-only StepInput list - the fallback source
                 // for generations that predate the StepAttempt table (see below).
                 steps: {
                     select: {
@@ -330,9 +190,8 @@ export class DiffJobContextLoader {
         const lineage = await this.buildLineage(generationId, generation.testPlanId, generation.testPlan.testCaseId);
 
         // Resolved + materialized via the shared, agent-agnostic helper so the
-        // loader stays DB-only and the generation reviewer reaches parity with
-        // replay. Returns undefined (and we omit it) when the generation has no
-        // scenario, UP never succeeded, or the graph is empty.
+        // loader stays DB-only. Returns undefined (and we omit it) when the
+        // generation has no scenario, UP never succeeded, or the graph is empty.
         const scenario = await resolveScenarioDataForGeneration(this.db, generationId);
 
         this.logger.info("Generation review context loaded", {
@@ -366,7 +225,7 @@ export class DiffJobContextLoader {
     /**
      * Map a generation's persisted steps to the normalized reviewer step shape,
      * preferring the `StepAttempt` timeline (failures included) and falling back
-     * to the successful-only `StepInput` replay list for generations that predate
+     * to the successful-only `StepInput` list for generations that predate
      * the `StepAttempt` table. The fallback marks every step a success, which is
      * exact: that era only ever persisted successful steps.
      */
@@ -394,7 +253,7 @@ export class DiffJobContextLoader {
         }
 
         if (stepInputs.length > 0) {
-            this.logger.info("No StepAttempt rows for generation; falling back to the StepInput replay list", {
+            this.logger.info("No StepAttempt rows for generation; falling back to the StepInput list", {
                 generationId,
                 stepInputCount: stepInputs.length,
             });
@@ -417,141 +276,13 @@ export class DiffJobContextLoader {
     }
 
     /**
-     * Snapshot-scope sibling of {@link load}: gather the diff-job context across
-     * every replayed, flagged run in a snapshot. Resolution reasons over the
-     * whole replay batch at once (not a single subject), so it consumes this
-     * instead of N separate {@link load} calls; healing reuses the same shape.
+     * Gather the unified diff-job context for one refinement iteration's failing
+     * generations. The healing agent runs over a batch of failures, so it
+     * consumes this instead of N per-subject calls.
      *
-     * Returns the snapshot-level facts once - the diff anchor (SHAs) and the
-     * diffs-agent's analysis reasoning, which is carried independently so it
-     * survives a SHA-less snapshot - plus one
-     * {@link SnapshotRunContext} per flagged run carrying why the test was
-     * flagged, the reviewer's completed verdict (if any), the run's materialized
-     * scenario data, and its point-in-time lineage (virtually always empty here,
-     * since resolution runs before any refinement loop). Every replayed run is
-     * returned regardless of outcome - the consumer filters for actionability.
-     */
-    async loadSnapshot(snapshotId: string): Promise<SnapshotContext> {
-        this.logger.info("Loading snapshot-scope diff-job context", { snapshotId });
-
-        const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
-            where: { id: snapshotId },
-            select: {
-                headSha: true,
-                baseSha: true,
-                branch: { select: { organizationId: true } },
-                diffsJob: { select: { analysisReasoning: true } },
-            },
-        });
-
-        const affectedTests = await this.db.affectedTest.findMany({
-            where: { snapshotId, runId: { not: null } },
-            select: {
-                affectedReason: true,
-                reasoning: true,
-                testCase: {
-                    select: {
-                        id: true,
-                        name: true,
-                        slug: true,
-                    },
-                },
-                run: {
-                    select: {
-                        id: true,
-                        status: true,
-                        // The plan the run actually executed (point-in-time), not the
-                        // assignment's possibly-repointed plan - mirrors `load`.
-                        planId: true,
-                        plan: { select: { prompt: true } },
-                        runReview: {
-                            select: {
-                                status: true,
-                                verdict: true,
-                                reasoning: true,
-                                issue: { select: { title: true, description: true } },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        const change = this.buildSnapshotChange(snapshotId, snapshot);
-
-        // Each run's scenario + lineage are independent DB resolutions, so gather
-        // them concurrently across runs (and within a run) rather than serially.
-        const runs = (
-            await Promise.all(
-                affectedTests.map(async (affected): Promise<SnapshotRunContext | undefined> => {
-                    const run = affected.run;
-                    if (run == null) return undefined;
-
-                    const [scenario, lineage] = await Promise.all([
-                        resolveScenarioDataForRun(this.db, run.id),
-                        this.buildLineage(run.id, run.planId, affected.testCase.id),
-                    ]);
-
-                    const completedReview = run.runReview?.status === "completed" ? run.runReview : undefined;
-                    const review: SnapshotRunReview | undefined =
-                        completedReview == null
-                            ? undefined
-                            : {
-                                  reasoning: completedReview.reasoning ?? "",
-                                  verdict: completedReview.verdict ?? undefined,
-                                  issueTitle: completedReview.issue?.title ?? undefined,
-                                  issueDescription: completedReview.issue?.description ?? undefined,
-                              };
-
-                    return {
-                        runId: run.id,
-                        testCaseId: affected.testCase.id,
-                        testSlug: affected.testCase.slug,
-                        testName: affected.testCase.name,
-                        testPlanPrompt: run.plan?.prompt ?? "",
-                        runStatus: run.status,
-                        affectedReason: affected.affectedReason,
-                        affectedReasoning: affected.reasoning,
-                        review,
-                        scenario,
-                        lineage,
-                    };
-                }),
-            )
-        ).filter((run): run is SnapshotRunContext => run != null);
-
-        // Always set post-analysis; the null collapses the unreachable states.
-        const analysisReasoning = snapshot.diffsJob?.analysisReasoning ?? "";
-
-        this.logger.info("Snapshot-scope diff-job context loaded", {
-            snapshotId,
-            runCount: runs.length,
-            hasChange: change != null,
-            hasAnalysisReasoning: analysisReasoning.length > 0,
-            runsWithScenario: runs.filter((r) => r.scenario != null).length,
-        });
-
-        return {
-            snapshotId,
-            organizationId: snapshot.branch.organizationId,
-            runs,
-            change,
-            // Analysis reasoning is a snapshot-level fact, not part of the diff
-            // anchor: it is carried even when the SHAs (and thus `change`) are absent.
-            analysisReasoning,
-        };
-    }
-
-    /**
-     * Healing-scope sibling of {@link loadSnapshot}: gather the unified diff-job
-     * context for one refinement iteration's failing subjects. The healing agent
-     * runs over a batch of failures (some failed at generation, some at replay),
-     * so it consumes this instead of N per-subject {@link load} calls.
-     *
-     * Unlike {@link loadSnapshot}, the failing subjects are *supplied* by the
-     * caller rather than discovered from `AffectedTest`: a healing iteration's
-     * failures include generation-stage failures that have no run, and the
-     * workflow already bucketed exactly which subjects failed this iteration.
+     * The failing subjects are *supplied* by the caller rather than discovered
+     * from `AffectedTest`: the workflow already bucketed exactly which subjects
+     * failed this iteration.
      *
      * Returns the snapshot-level facts once - the diff anchor (SHAs) and the
      * diffs-agent's analysis reasoning (carried independently so it survives a
@@ -636,29 +367,23 @@ export class DiffJobContextLoader {
     }
 
     /**
-     * Resolve the materialized scenario data for one healing subject via the
-     * source-appropriate shared helper: a generation failure resolves from its
-     * generation, a replay failure from its run.
+     * Resolve the materialized scenario data for one healing subject from its
+     * failing generation via the shared helper.
      */
     private resolveSubjectScenario(subject: HealingFailureSubject): Promise<ScenarioData | undefined> {
-        if (subject.source === "generation") {
-            return resolveScenarioDataForGeneration(this.db, subject.sourceId);
-        }
-        return resolveScenarioDataForRun(this.db, subject.sourceId);
+        return resolveScenarioDataForGeneration(this.db, subject.sourceId);
     }
 
     /**
      * Load one healing subject's executed steps (screenshot keys + step-output
      * text) so the healing agent's `fetch_step_evidence` tool can inspect any
-     * step on demand. Sourced exactly the way the reviewers source theirs - the
-     * generation `StepAttempt` timeline (failures included), or the replay
-     * `StepOutput` list - so the agent sees the same steps the reviewer graded.
-     * Only step metadata is loaded here; the screenshot bytes are rehydrated
-     * lazily by the tool via the screenshot loader.
+     * step on demand. Sourced the way the reviewer sources its own - the
+     * generation `StepAttempt` timeline (failures included) - so the agent sees
+     * the same steps the reviewer graded. Only step metadata is loaded here; the
+     * screenshot bytes are rehydrated lazily by the tool via the screenshot loader.
      */
     private loadSubjectSteps(subject: HealingFailureSubject): Promise<RenderableReviewStep[]> {
-        if (subject.source === "generation") return this.loadGenerationSteps(subject.sourceId);
-        return this.loadRunSteps(subject.sourceId);
+        return this.loadGenerationSteps(subject.sourceId);
     }
 
     private async loadGenerationSteps(generationId: string): Promise<RenderableReviewStep[]> {
@@ -703,39 +428,13 @@ export class DiffJobContextLoader {
         return this.resolveGenerationSteps(generationId, generation.attempts, generation.steps?.list ?? []);
     }
 
-    private async loadRunSteps(runId: string): Promise<RenderableReviewStep[]> {
-        const run = await this.db.run.findUnique({
-            where: { id: runId },
-            select: {
-                outputs: {
-                    select: {
-                        list: {
-                            select: {
-                                order: true,
-                                output: true,
-                                screenshotBefore: true,
-                                screenshotAfter: true,
-                                stepInput: { select: { interaction: true, params: true } },
-                            },
-                            orderBy: { order: "asc" },
-                        },
-                    },
-                },
-            },
-        });
-        if (run == null) {
-            this.logger.warn("Healing subject run not found - no step evidence", { runId });
-            return [];
-        }
-        return (run.outputs?.list ?? []).map((step) => this.toReplayStep(step));
-    }
-
     /**
-     * Assemble the snapshot's diff anchor (base/head SHAs) shared by every run.
-     * Returns `undefined` when the snapshot is missing its SHAs - without them
-     * there is nothing to `git diff` against, matching {@link buildChangeContext}'s
-     * per-subject behavior. Analysis reasoning is deliberately *not* gated on this:
-     * it is a snapshot-level fact handled separately by {@link loadSnapshot}.
+     * Assemble the snapshot's diff anchor (base/head SHAs) shared by every
+     * subject. Returns `undefined` when the snapshot is missing its SHAs - without
+     * them there is nothing to `git diff` against, matching
+     * {@link buildChangeContext}'s per-subject behavior. Analysis reasoning is
+     * deliberately *not* gated on this: it is a snapshot-level fact carried
+     * separately by {@link loadHealingContext}.
      */
     private buildSnapshotChange(snapshotId: string, snapshot: ChangeSnapshot): SnapshotChangeContext | undefined {
         if (snapshot.baseSha == null || snapshot.headSha == null) {
@@ -859,9 +558,10 @@ export class DiffJobContextLoader {
     }
 
     /**
-     * The completed verdicts each *earlier* iteration's runs reached on this test,
-     * keyed by iteration number (oldest-first within each, by run creation). The
-     * subject iteration's own runs are excluded - that's the review in progress.
+     * The completed verdicts each *earlier* iteration's generations reached on
+     * this test, keyed by iteration number (oldest-first within each, by
+     * generation creation). The subject iteration's own generations are excluded -
+     * that's the review in progress.
      */
     private async loadVerdictsByIteration(
         inputs: IterationPlanInput[],
@@ -874,25 +574,26 @@ export class DiffJobContextLoader {
 
         const iterationByPlanId = new Map(earlierInputs.map((input) => [input.plan.id, input.iteration.number]));
 
-        const priorRuns = await this.db.run.findMany({
+        const priorGenerations = await this.db.testGeneration.findMany({
             where: {
-                planId: { in: earlierInputs.map((input) => input.plan.id) },
-                runReview: { status: "completed", verdict: { not: null } },
+                testPlanId: { in: earlierInputs.map((input) => input.plan.id) },
+                shadow: false,
+                generationReview: { status: "completed", verdict: { not: null } },
             },
             select: {
-                planId: true,
-                runReview: { select: { verdict: true, reasoning: true } },
+                testPlanId: true,
+                generationReview: { select: { verdict: true, reasoning: true } },
             },
             orderBy: { createdAt: "asc" },
         });
 
-        for (const run of priorRuns) {
-            const verdict = run.runReview?.verdict;
-            if (run.planId == null || verdict == null) continue;
-            const iterationNumber = iterationByPlanId.get(run.planId);
+        for (const generation of priorGenerations) {
+            const verdict = generation.generationReview?.verdict;
+            if (verdict == null) continue;
+            const iterationNumber = iterationByPlanId.get(generation.testPlanId);
             if (iterationNumber == null) continue;
             const verdicts = byIteration.get(iterationNumber) ?? [];
-            verdicts.push({ verdict, reasoning: run.runReview?.reasoning ?? "" });
+            verdicts.push({ verdict, reasoning: generation.generationReview?.reasoning ?? "" });
             byIteration.set(iterationNumber, verdicts);
         }
 
@@ -927,25 +628,4 @@ export class DiffJobContextLoader {
             affectedReasoning: affectedTest?.reasoning,
         };
     }
-}
-
-/**
- * Read the failure attribution a replay step's persisted `output` carries, or
- * `undefined` when the step succeeded. The run persister writes a string
- * `errorName` only on failure (alongside the error message under `outcome`), and
- * no successful command output ever carries an `errorName` field - so a string
- * `errorName` is an exact failure discriminant.
- */
-function readPersistedFailure(output: unknown): { error?: string; errorName: string } | undefined {
-    if (!isRecord(output)) return undefined;
-
-    const errorName = output["errorName"];
-    if (typeof errorName !== "string") return undefined;
-
-    const outcome = output["outcome"];
-    return { errorName, error: typeof outcome === "string" ? outcome : undefined };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

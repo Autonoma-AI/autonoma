@@ -31,7 +31,6 @@ src/
     mobile-agent/        # Factory that assembles the execution agent with mobile commands
     generation-api/      # Production entry point - runs a generation job by ID
     local-dev/           # Local development entry point - runs from markdown test files
-  replay/                # Replay command definitions for deterministic re-execution
 test-prompts/            # Sample markdown test cases for local development
 ```
 

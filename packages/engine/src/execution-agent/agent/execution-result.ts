@@ -7,7 +7,7 @@ export type StepMetadata = { screenshot: Screenshot } & Record<string, unknown>;
 
 /**
  * A successful command attempt: parameter extraction and `execute()` both
- * completed without throwing. These are the only attempts eligible for replay.
+ * completed without throwing.
  *
  * ! WARNING: Avoid sending this object through the network, since it may contain screenshot data.
  */
@@ -17,9 +17,6 @@ export type GeneratedStep<TSpec extends CommandSpec> = {
 
     /** The output of the step execution */
     executionOutput: AgentExecutionOutput<TSpec>;
-
-    /** The wait condition generated for this step, if any */
-    waitCondition?: string;
 
     /** The metadata from before the step execution */
     beforeMetadata: StepMetadata;
@@ -31,8 +28,7 @@ export type GeneratedStep<TSpec extends CommandSpec> = {
 /**
  * A failed command attempt: parameter extraction or `execute()` threw (e.g. an
  * assertion that did not hold, a point-detection miss, a driver error). Failed
- * attempts are never replayed - they exist to make the agent's botched attempts
- * visible to users and to review.
+ * attempts exist to make the agent's botched attempts visible to users and to review.
  *
  * ! WARNING: Avoid sending this object through the network, since it may contain screenshot data.
  */
@@ -67,7 +63,7 @@ export type FailedStep<TSpec extends CommandSpec> = {
 
 /**
  * A single command attempt in the full generation timeline, discriminated on
- * `status`. The replay subset is derived by filtering `status === "success"`.
+ * `status`. The successful subset is derived by filtering `status === "success"`.
  */
 export type StepAttempt<TSpec extends CommandSpec> = GeneratedStep<TSpec> | FailedStep<TSpec>;
 

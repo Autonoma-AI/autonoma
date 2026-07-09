@@ -13,7 +13,6 @@ export * from "./issue-report";
 export * from "./evidence-tokens";
 export * from "./generation-verdict";
 export * from "./bug-verdict";
-export * from "./replay-verdict";
 export * from "./generation";
 export * from "./api-key";
 export * from "./secrets";

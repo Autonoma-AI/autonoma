@@ -1,4 +1,4 @@
-import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, type VisualConditionChecker } from "@autonoma/ai";
+import { AI_REQUEST_TIMEOUT_MS, type LanguageModel } from "@autonoma/ai";
 import { external } from "@autonoma/errors";
 import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
@@ -10,9 +10,8 @@ import {
     hasToolCall,
     stepCountIs,
 } from "ai";
-import type { CommandSpec, StepData } from "../../commands";
+import type { CommandSpec } from "../../commands";
 import type { BaseCommandContext } from "../../platform";
-import type { WaitPlanner } from "./components/wait-planner";
 import type { ExecutionResult, FailedStep, GeneratedStep, StepAttempt, StepMetadata } from "./execution-result";
 import { MemoryStore } from "./memory";
 import { type AskUserHandler, buildAskUserTool } from "./tools/ask-user-tool";
@@ -42,8 +41,8 @@ export interface OnAttemptArgs<TSpec extends CommandSpec, TContext extends BaseC
     /** 1-based position in the full attempt timeline (counts failures). */
     order: number;
 
-    /** 1-based position in the successful-only replay list. Present only for successful attempts. */
-    replayOrder?: number;
+    /** 1-based position in the successful-only step list. Present only for successful attempts. */
+    successfulOrder?: number;
 }
 
 export interface ExecutionAgentRunParams<TSpec extends CommandSpec, TContext extends BaseCommandContext> {
@@ -90,29 +89,9 @@ export interface ExecutionAgentConfig<TSpec extends CommandSpec, TContext extend
     /** Maximum time to wait between steps, in milliseconds */
     maxTimeBetweenSteps: number;
 
-    /** Wait planner */
-    waitPlanner: WaitPlanner<TSpec>;
-
     /** Optional handler for asking the user questions (only available in frontend-connected sessions) */
     askUserHandler?: AskUserHandler;
-
-    /**
-     * When provided, each wait condition is validated against the step's
-     * pre-screenshot in-flight during execution (as part of the step's
-     * `waitConditionPromise`). Conditions that fail are replanned, and stripped
-     * if replanning also fails, so they cannot cause false-negative timeouts
-     * during replay.
-     */
-    waitConditionValidator?: VisualConditionChecker;
 }
-
-/** Internal representation of a successful step, carrying the still-pending wait condition. */
-type InternalSuccessStep<TSpec extends CommandSpec> = Omit<GeneratedStep<TSpec>, "waitCondition"> & {
-    waitConditionPromise: Promise<string | null>;
-};
-
-/** Internal representation of a single attempt in the full timeline. */
-type InternalAttempt<TSpec extends CommandSpec> = InternalSuccessStep<TSpec> | FailedStep<TSpec>;
 
 export interface ExecutionState<TSpec extends CommandSpec = CommandSpec> {
     /** The full attempt timeline, including failures. */
@@ -127,7 +106,7 @@ export class UnknownGenerationError extends Error {
 }
 
 export class InvalidStepError extends Error {
-    constructor(public readonly step: Partial<InternalSuccessStep<CommandSpec>>) {
+    constructor(public readonly step: Partial<GeneratedStep<CommandSpec>>) {
         super("There was an error generating an execution step. This is probably a bug in the execution agent.");
     }
 }
@@ -138,8 +117,8 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
     private readonly agent: ReturnType<typeof this.buildAgent>;
 
     /** The full attempt timeline (successes and failures), in order. */
-    private readonly attempts: InternalAttempt<TSpec>[] = [];
-    public currentStep: Partial<InternalSuccessStep<TSpec>> = {};
+    private readonly attempts: StepAttempt<TSpec>[] = [];
+    public currentStep: Partial<GeneratedStep<TSpec>> = {};
 
     private stepResults: AIStepResult<ReturnType<typeof this.buildTools>>[] = [];
 
@@ -187,7 +166,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
     /** Get the current execution state. */
     public getState(): ExecutionState<TSpec> {
         return {
-            attempts: this.attempts.map((attempt) => toPublicAttempt(attempt)),
+            attempts: [...this.attempts],
             conversation: this.stepResults.flatMap((step) => step.response.messages),
         };
     }
@@ -400,20 +379,14 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             });
         }
 
-        // Plan a wait if needed. The "previous step" for wait planning is the last
-        // *successful* step - failed attempts never get a wait condition.
-        const lastStepData = this.lastSuccessfulStep();
-        const beforeScreenshot = this.currentStep.beforeMetadata?.screenshot ?? screenshot;
-        const waitConditionPromise = this.planWaitCondition(lastStepData, output.stepData, beforeScreenshot);
-
         this.logger.info("Saving generated step", this.currentStep.executionOutput.stepData);
-        const step = this.pushStep({ ...this.currentStep, waitConditionPromise });
+        const step = this.pushStep({ ...this.currentStep });
 
         await this.params.onAttempt({
             agent: this,
-            attempt: toPublicAttempt(step),
+            attempt: step,
             order: this.attempts.length,
-            replayOrder: this.successfulCount(),
+            successfulOrder: this.successfulCount(),
         });
     }
 
@@ -468,23 +441,14 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         }
     }
 
-    /** The most recent successful step, used as the reference for wait planning. */
-    private lastSuccessfulStep(): InternalSuccessStep<TSpec> | undefined {
-        for (let i = this.attempts.length - 1; i >= 0; i--) {
-            const attempt = this.attempts[i];
-            if (attempt?.status === "success") return attempt;
-        }
-        return undefined;
-    }
-
     /** Number of successful attempts recorded so far. */
     private successfulCount(): number {
         return this.attempts.filter((attempt) => attempt.status === "success").length;
     }
 
     /** Validates and adds a successful step to the attempt timeline, returning it. */
-    private pushStep(agentStep: Partial<InternalSuccessStep<TSpec>>): InternalSuccessStep<TSpec> {
-        const { beforeMetadata, afterMetadata, waitConditionPromise, executionOutput } = agentStep;
+    private pushStep(agentStep: Partial<GeneratedStep<TSpec>>): GeneratedStep<TSpec> {
+        const { beforeMetadata, afterMetadata, executionOutput } = agentStep;
 
         if (beforeMetadata == null) {
             this.logger.fatal("Missing before step screenshot");
@@ -496,132 +460,27 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             throw new InvalidStepError(agentStep);
         }
 
-        if (waitConditionPromise == null) {
-            this.logger.fatal("Missing wait condition");
-            throw new InvalidStepError(agentStep);
-        }
-
         if (executionOutput == null) {
             this.logger.fatal("Missing step");
             throw new InvalidStepError(agentStep);
         }
 
-        const step: InternalSuccessStep<TSpec> = {
+        const step: GeneratedStep<TSpec> = {
             status: "success",
             executionOutput,
             beforeMetadata,
             afterMetadata,
-            waitConditionPromise,
         };
         this.attempts.push(step);
         return step;
     }
 
-    /**
-     * Plans the wait condition for a step and, when a validator is configured,
-     * validates it against the step's pre-screenshot - replanning or stripping
-     * conditions that don't match the UI. This runs as part of the in-flight
-     * `waitConditionPromise` (created in `afterExecute`) so validation is spread
-     * across execution rather than bursting at the end of the generation.
-     */
-    private async planWaitCondition(
-        prevStep: InternalSuccessStep<TSpec> | undefined,
-        newStepData: StepData<TSpec>,
-        beforeScreenshot: Screenshot,
-    ): Promise<string | null> {
-        const condition =
-            prevStep == null
-                ? this.params.waitPlanner.planFirstWait(newStepData)
-                : await this.params.waitPlanner.planWait({
-                      prevStep: prevStep.executionOutput.stepData,
-                      prevScreenshot: prevStep.afterMetadata.screenshot,
-                      newStep: newStepData,
-                      newScreenshot: beforeScreenshot,
-                  });
-
-        const validator = this.params.waitConditionValidator;
-        if (condition == null || validator == null) return condition;
-
-        try {
-            const check = await validator.checkCondition(condition, beforeScreenshot);
-            if (check.metCondition) return condition;
-
-            this.logger.warn("Wait condition failed against generation screenshot, replanning", {
-                interaction: newStepData.interaction,
-                waitCondition: condition,
-                reason: check.reason,
-            });
-
-            if (prevStep == null) {
-                this.logger.warn("No previous step available for replanning, stripping condition", {
-                    interaction: newStepData.interaction,
-                });
-                return null;
-            }
-            return await this.replanWaitCondition(prevStep, newStepData, beforeScreenshot, condition, check.reason);
-        } catch (err) {
-            this.logger.warn("Wait condition validation failed, keeping as-is", {
-                interaction: newStepData.interaction,
-                err,
-            });
-            return condition;
-        }
-    }
-
-    private async replanWaitCondition(
-        prevStep: InternalSuccessStep<TSpec>,
-        newStepData: StepData<TSpec>,
-        beforeScreenshot: Screenshot,
-        failedCondition: string,
-        failureReason: string,
-    ): Promise<string | null> {
-        try {
-            const replanned = await this.params.waitPlanner.replanWait({
-                prevStep: prevStep.executionOutput.stepData,
-                prevScreenshot: prevStep.afterMetadata.screenshot,
-                newStep: newStepData,
-                newScreenshot: beforeScreenshot,
-                failedCondition,
-                failureReason,
-            });
-            this.logger.info("Wait condition replanned", {
-                interaction: newStepData.interaction,
-                replanned,
-            });
-            return replanned;
-        } catch (err) {
-            this.logger.warn("Wait condition replan failed, stripping", {
-                interaction: newStepData.interaction,
-                err,
-            });
-            return null;
-        }
-    }
-
     private async buildExecutionResult(
         steps: AIStepResult<ReturnType<typeof this.buildTools>>[],
     ): Promise<ExecutionResult<TSpec>> {
-        // The replay subset is derived by filtering the full timeline to successes.
-        const successfulSteps = this.attempts.filter(
-            (attempt): attempt is InternalSuccessStep<TSpec> => attempt.status === "success",
-        );
-        const generatedSteps: GeneratedStep<TSpec>[] = await Promise.all(
-            successfulSteps.map(async ({ waitConditionPromise, ...agentStep }) => {
-                let waitCondition: string | null | undefined;
-                try {
-                    waitCondition = await waitConditionPromise;
-                } catch (error) {
-                    this.logger.fatal("Failed to generate wait condition for step", {
-                        interaction: agentStep.executionOutput.stepData.interaction,
-                        error,
-                    });
-                }
-
-                return {
-                    ...agentStep,
-                    waitCondition: waitCondition ?? undefined,
-                };
-            }),
+        // The successful subset is derived by filtering the full timeline to successes.
+        const generatedSteps: GeneratedStep<TSpec>[] = this.attempts.filter(
+            (attempt): attempt is GeneratedStep<TSpec> => attempt.status === "success",
         );
 
         let success = this.outputData?.success ?? false;
@@ -658,15 +517,8 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
     }
 }
 
-/** Strips the internal wait-condition promise from a successful step, leaving the public shape. */
-function toPublicAttempt<TSpec extends CommandSpec>(attempt: InternalAttempt<TSpec>): StepAttempt<TSpec> {
-    if (attempt.status === "failed") return attempt;
-    const { waitConditionPromise: _waitConditionPromise, ...step } = attempt;
-    return step;
-}
-
 /** Builds the compact, model-facing summary of an attempt for the "steps so far" context. */
-function summarizeAttempt<TSpec extends CommandSpec>(attempt: InternalAttempt<TSpec>, order: number) {
+function summarizeAttempt<TSpec extends CommandSpec>(attempt: StepAttempt<TSpec>, order: number) {
     if (attempt.status === "failed") {
         return {
             order,

@@ -102,7 +102,6 @@ export async function bucketPlanOutcomes(
         }
 
         const failure: GenerationOutcomeFailure = {
-            bucket: "failed_at_generation",
             failureKey: generation.id,
             testCaseId: generation.testPlan.testCase.id,
             testCaseSlug: generation.testPlan.testCase.slug,

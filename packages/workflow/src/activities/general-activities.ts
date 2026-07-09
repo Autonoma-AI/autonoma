@@ -8,7 +8,6 @@ import type {
     GenerationVerdictKind,
     HealingReviewLink,
     IssueReport,
-    ReplayVerdict,
     SuspectedCause,
 } from "@autonoma/types";
 
@@ -25,7 +24,6 @@ export interface HealingEvidenceItem {
 }
 
 export interface ScenarioUpInput {
-    scenarioJobType: string;
     entityId: string;
     scenarioId: string;
     sdkUrlOverride?: string;
@@ -48,15 +46,6 @@ export interface ReviewGenerationOutput {
     verdict?: GenerationVerdict;
 }
 
-export interface ReviewReplayInput {
-    runId: string;
-}
-
-export interface ReviewReplayOutput {
-    status: "completed" | "failed" | "skipped";
-    verdict?: ReplayVerdict;
-}
-
 export interface AssignGenerationResultsInput {
     snapshotId: string;
     generationIds: string[];
@@ -72,12 +61,6 @@ export interface MarkGenerationFailedInput {
     failure: PrismaJson.GenerationFailure;
 }
 
-export interface MarkRunFailedInput {
-    runId: string;
-    /** Structured reason the run failed; persisted to the `failure` column. */
-    failure: PrismaJson.RunFailure;
-}
-
 // Refinement loop activity inputs.
 
 /**
@@ -85,14 +68,13 @@ export interface MarkRunFailedInput {
  * and iter 1's RefinementIterationInput rows, seeded by trigger. Single
  * transaction so iter 1 is fully formed before the workflow continues.
  *
- *  - Onboarding seeds from the snapshot's *pending generations* (the system's
- *    record of "work the loop must finish before activating the snapshot"),
- *    which iter 1's generation pipeline then generates/runs/reviews.
- *  - Diffs seeds from the *affected tests' committed plans* (whose replays
- *    already ran upstream in the diffs workflow) plus the new tests the diffs
- *    agent authored during analysis (which carry pending generations). Iter 1's
- *    pipeline generates/runs the new tests; the affected-test replays are
- *    bucketed directly from their existing runs.
+ * Both triggers seed identically from the snapshot's *pending generations* - the
+ * system's record of "work the loop must finish before activating the snapshot":
+ *  - Onboarding: the planner's pending generations.
+ *  - Diffs: a pending generation per affected test (queued by analysis) plus the
+ *    new tests the diffs agent authored during analysis.
+ * Iter 1's generation pipeline generates + reviews them; a generation passing its
+ * review is the definition of "validated".
  */
 export interface InitRefinementLoopInput {
     snapshotId: string;
@@ -104,11 +86,8 @@ export interface InitRefinementLoopOutput {
     firstIterationId: string;
     /**
      * Whether the workflow should fire iter 1's generation pipeline. True iff the
-     * snapshot has pending generations to generate/run/review when the loop
-     * starts. Onboarding: its planner-queued pending gens. Diffs: the new tests
-     * the diffs agent authored during analysis (the affected-test replays already
-     * ran upstream, so they need no generation). False when there is nothing to
-     * generate (a diffs snapshot that authored no new tests).
+     * snapshot has pending generations to generate/review when the loop starts.
+     * False when there is nothing to generate.
      */
     runFirstIterationPipeline: boolean;
 }
@@ -155,7 +134,6 @@ export interface PrepareGenerationQueueOutput {
 }
 
 export interface GenerationOutcomeFailure {
-    bucket: "failed_at_generation";
     failureKey: string;
     testCaseId: string;
     testCaseSlug: string;
@@ -169,13 +147,6 @@ export interface GenerationOutcomeFailure {
     reviewReasoning?: string;
     generationReviewId?: string;
 }
-export interface GenerationOutcomeSuccess {
-    bucket: "success";
-    generationId: string;
-    architecture: WorkflowArchitecture;
-    scenarioId?: string;
-}
-export type GenerationOutcome = GenerationOutcomeFailure | GenerationOutcomeSuccess;
 
 /**
  * A failure routed out of the healable buckets because healing cannot fix it -
@@ -339,7 +310,6 @@ export interface GeneralActivities {
     scenarioDown(input: ScenarioDownInput): Promise<void>;
     assignGenerationResults(input: AssignGenerationResultsInput): Promise<void>;
     markGenerationFailed(input: MarkGenerationFailedInput): Promise<void>;
-    markRunFailed(input: MarkRunFailedInput): Promise<void>;
     notifyGenerationExit(input: NotifyGenerationExitInput): Promise<void>;
     applyHealingActions(input: ApplyHealingActionsInput): Promise<ApplyHealingActionsOutput>;
     initRefinementLoop(input: InitRefinementLoopInput): Promise<InitRefinementLoopOutput>;

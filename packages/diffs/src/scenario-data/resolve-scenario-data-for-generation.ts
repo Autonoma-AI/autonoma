@@ -7,9 +7,8 @@ import type { ScenarioData } from "./types";
  * Resolve the scenario instance a generation executed against and materialize
  * its generated-data graph into the serializable {@link ScenarioData} payload.
  *
- * The generation sibling of `resolveScenarioDataForRun`: a generation hangs off
- * the same first-class `ScenarioInstance` (#815) as a run, so this fetches the
- * identical instance shape off the generation and hands it to the shared
+ * A generation hangs off a first-class `ScenarioInstance` (#815), so this
+ * fetches the instance shape off the generation and hands it to the shared
  * `materializeInstanceScenarioData` unwrap. Kept agent-agnostic so the
  * generation reviewer, resolution, and healing all share one resolution path.
  *

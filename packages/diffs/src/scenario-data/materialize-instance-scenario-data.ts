@@ -20,10 +20,9 @@ export interface ScenarioInstanceData {
  * payload, gracefully returning `undefined` - so the caller omits the scenario
  * context - when the subject has no instance or UP never wrote generated data.
  *
- * This is the agent-agnostic core shared by `resolveScenarioDataForRun` and
- * `resolveScenarioDataForGeneration`: both fetch the same instance shape off
- * their subject and hand it here, so the unwrap-and-materialize path lives in
- * one place.
+ * This is the agent-agnostic core `resolveScenarioDataForGeneration` builds on:
+ * it fetches the instance shape off its subject and hands it here, so the
+ * unwrap-and-materialize path lives in one place.
  */
 export function materializeInstanceScenarioData(
     instance: ScenarioInstanceData | null | undefined,

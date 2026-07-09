@@ -9,19 +9,6 @@ import { CATEGORY, type TestEntry } from "./snapshot-entries";
 import { useChangesDetailParams } from "./use-changes-params";
 import { useSnapshotEntry } from "./use-snapshot-sections";
 
-const RUN_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "status-passed" | "status-failed"> = {
-  pending: "status-pending",
-  running: "status-running",
-  success: "status-passed",
-  failed: "status-failed",
-};
-
-const RUN_VERDICT_BADGE: Record<string, { label: string; variant: "critical" | "warn" | "secondary" }> = {
-  engine_error: { label: "engine error", variant: "warn" },
-  application_bug: { label: "app bug", variant: "critical" },
-  unknown_issue: { label: "unknown issue", variant: "secondary" },
-};
-
 const GENERATION_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "status-passed" | "status-failed"> =
   {
     pending: "status-pending",
@@ -49,8 +36,6 @@ export function SnapshotChangesDetail() {
 function TestEntryDetail({ entry }: { entry: TestEntry }) {
   const app = useCurrentApplication();
   const { prNumber } = useChangesDetailParams();
-  const generationFailed = entry.generation?.status === "failed";
-  const showRun = entry.run != null && !generationFailed;
 
   return (
     <article className="flex flex-col">
@@ -96,13 +81,6 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
           reasoning={entry.generation.reviewReasoning}
         />
       )}
-      {showRun && entry.run != null && (
-        <DetailSection
-          label="Run"
-          headerExtras={<RunActions run={entry.run} />}
-          reasoning={entry.run.reviewReasoning}
-        />
-      )}
     </article>
   );
 }
@@ -144,28 +122,6 @@ function GenerationActions({ generation }: { generation: NonNullable<TestEntry["
       <AppLink
         to="/app/$appSlug/generations/$generationId"
         params={{ generationId: generation.id }}
-        className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
-      >
-        <ArrowSquareOutIcon size={11} />
-        View
-      </AppLink>
-    </>
-  );
-}
-
-function RunActions({ run }: { run: NonNullable<TestEntry["run"]> }) {
-  const variant = RUN_STATUS_BADGE[run.status] ?? "status-pending";
-  return (
-    <>
-      <Badge variant={variant}>{run.status}</Badge>
-      {run.verdict != null && (
-        <Badge variant={RUN_VERDICT_BADGE[run.verdict]?.variant ?? "warn"}>
-          {RUN_VERDICT_BADGE[run.verdict]?.label ?? run.verdict.replaceAll("_", " ")}
-        </Badge>
-      )}
-      <AppLink
-        to="/app/$appSlug/runs/$runId"
-        params={{ runId: run.id }}
         className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
       >
         <ArrowSquareOutIcon size={11} />

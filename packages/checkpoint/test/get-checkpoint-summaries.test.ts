@@ -21,19 +21,41 @@ async function seedMixedSnapshot(harness: CheckpointHarness) {
     const setup = await make("Setup check");
     const running = await make("Running check");
 
-    await harness.createRun({ organizationId, assignmentId: passing.id, status: "success", at });
-
-    const failedRun = await harness.createRun({ organizationId, assignmentId: failing.id, status: "failed", at });
-    await harness.fileOpenBug({ organizationId, applicationId, runId: failedRun.id });
-
-    await harness.createRun({
+    await harness.createGeneration({
         organizationId,
-        assignmentId: setup.id,
+        testCaseId: passing.testCaseId,
+        snapshotId,
+        status: "success",
+        at,
+        review: { verdict: "success" },
+    });
+
+    const failed = await harness.createGeneration({
+        organizationId,
+        testCaseId: failing.testCaseId,
+        snapshotId,
+        status: "success",
+        at,
+        review: { verdict: "application_bug" },
+    });
+    if (failed.reviewId == null) throw new Error("expected a review id for the failing generation");
+    await harness.fileOpenBug({ organizationId, applicationId, reviewId: failed.reviewId });
+
+    await harness.createGeneration({
+        organizationId,
+        testCaseId: setup.testCaseId,
+        snapshotId,
         status: "failed",
         at,
         failure: { kind: "scenario_setup", message: "Environment never came up." },
     });
-    await harness.createRun({ organizationId, assignmentId: running.id, status: "running", at });
+    await harness.createGeneration({
+        organizationId,
+        testCaseId: running.testCaseId,
+        snapshotId,
+        status: "running",
+        at,
+    });
 
     return { snapshotId };
 }

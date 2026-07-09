@@ -1,6 +1,6 @@
 # @autonoma/workflow
 
-Temporal-based workflow orchestration for Autonoma. Defines workflows, activities, trigger functions, and worker helpers for all test execution pipelines (generation, replay, diffs, review).
+Temporal-based workflow orchestration for Autonoma. Defines workflows, activities, trigger functions, and worker helpers for all test execution pipelines (generation, diffs, review).
 
 ## Package Structure
 
@@ -18,17 +18,13 @@ src/
 │   └── mobile-activities.ts             # Mobile worker activity inputs and MobileActivities interface
 ├── workflows/                            # Temporal workflow definitions
 │   ├── batch-generation.workflow.ts      # Parallel generation + assignment
-│   ├── run-replay.workflow.ts            # Replay execution + review
 │   ├── generation-review.workflow.ts     # Standalone generation review
-│   ├── replay-review.workflow.ts         # Standalone replay review
 │   ├── diffs.workflow.ts                 # Diffs analysis
 │   ├── previewkit.workflow.ts            # Preview deploy (per PR push / redeploy / main branch)
 │   └── previewkit-teardown.workflow.ts   # Preview teardown (shares the deploy workflowId = per-env mutex)
 ├── triggers/                             # Functions to start workflows via Temporal client
 │   ├── batch-generation.ts               # triggerBatchGeneration
-│   ├── run-replay.ts                     # triggerRunWorkflow
 │   ├── generation-review.ts              # triggerGenerationReviewWorkflow
-│   ├── replay-review.ts                  # triggerReplayReviewWorkflow
 │   ├── diffs.ts                          # triggerDiffsJob
 │   └── previewkit.ts                     # triggerPreviewDeploy / triggerPreviewTeardown
 └── worker/
@@ -40,14 +36,11 @@ src/
 ```ts
 // Trigger functions - start Temporal workflows
 triggerBatchGeneration(params: TriggerBatchGenerationParams): Promise<void>
-triggerRunWorkflow(params: TriggerRunWorkflowParams): Promise<void>
 triggerDiffsJob(params: TriggerDiffsJobParams): Promise<void>
 triggerGenerationReviewWorkflow(generationId: string): Promise<void>
-triggerReplayReviewWorkflow(runId: string): Promise<void>
 
 // Query functions
 findLatestWorkflowByGenerationId(generationId: string): Promise<WorkflowRef | undefined>
-findLatestWorkflowByRunId(runId: string): Promise<WorkflowRef | undefined>
 
 // Worker helpers
 createTemporalWorker(options: CreateWorkerOptions): Promise<Worker>
@@ -58,7 +51,6 @@ resetTemporalClient(): void
 
 // Types
 type TriggerBatchGenerationParams
-type TriggerRunWorkflowParams
 type TriggerDiffsJobParams
 type TestPlanItem
 type WorkflowArchitecture  // "WEB" | "IOS" | "ANDROID"
@@ -71,7 +63,6 @@ type TaskQueue             // "web" | "mobile" | "general"
 ```ts
 import {
   triggerBatchGeneration,
-  triggerRunWorkflow,
 } from "@autonoma/workflow";
 
 // Batch generation - spawns one singleGenerationWorkflow per test plan and
@@ -79,14 +70,6 @@ import {
 await triggerBatchGeneration({
   testPlans: [{ testGenerationId: "gen-1", scenarioId: "scenario-1" }],
   architecture: "WEB",
-});
-
-// Trigger a run replay workflow
-await triggerRunWorkflow({
-  runId: "run-123",
-  architecture: "web",
-  agentVersion: "1.0.0",
-  scenarioId: "scenario-1", // optional - adds scenario up/down steps
 });
 ```
 

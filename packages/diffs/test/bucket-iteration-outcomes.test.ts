@@ -231,7 +231,6 @@ bucketerSuite((test) => {
         expect(outcomes.validatedTestCaseIds).toEqual([passing.testCaseId]);
         expect(outcomes.failuresAtGeneration).toEqual([
             {
-                bucket: "failed_at_generation",
                 failureKey: generationId,
                 testCaseId: failing.testCaseId,
                 testCaseSlug: failing.testCaseSlug,
@@ -282,7 +281,6 @@ bucketerSuite((test) => {
         expect(outcomes.failuresAtGeneration).toEqual([]);
         expect(outcomes.systemBlocked).toEqual([
             {
-                bucket: "failed_at_generation",
                 failureKey: generationId,
                 testCaseId: blocked.testCaseId,
                 testCaseSlug: blocked.testCaseSlug,
@@ -348,7 +346,6 @@ bucketerSuite((test) => {
         // one is routed out, so the loop still heals the genuine regression.
         expect(outcomes.failuresAtGeneration).toEqual([
             {
-                bucket: "failed_at_generation",
                 failureKey: healableGenId,
                 testCaseId: healable.testCaseId,
                 testCaseSlug: healable.testCaseSlug,

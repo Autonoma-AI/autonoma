@@ -15,12 +15,11 @@ Manages scenario lifecycle (sync from recipes, up, down) for test environments p
 | `EncryptionHelper`        | AES-256-GCM encryption/decryption for SDK shared secrets stored in the database                                          |
 | `ScenarioSubject`         | Interface (`resolveDeployment` + optional `linkInstance`) for the entity that needs a scenario                           |
 | `GenerationSubject`       | `ScenarioSubject` implementation backed by a test generation                                                             |
-| `RunSubject`              | `ScenarioSubject` implementation backed by a test run                                                                    |
 
 ## Usage
 
 ```ts
-import { ScenarioManager, ScenarioRecipeStore, EncryptionHelper, RunSubject } from "@autonoma/scenario";
+import { ScenarioManager, ScenarioRecipeStore, EncryptionHelper, GenerationSubject } from "@autonoma/scenario";
 
 // Production wiring
 const encryption = new EncryptionHelper(process.env.SCENARIO_ENCRYPTION_KEY);
@@ -31,11 +30,11 @@ const recipeStore = new ScenarioRecipeStore(prisma);
 // recipes are uploaded:
 await recipeStore.replaceScenarioRecipes({ snapshotId, applicationId, recipesFile });
 
-// Spin up a scenario instance before a test run
-const subject = new RunSubject(prisma, runId);
+// Spin up a scenario instance before a test generation
+const subject = new GenerationSubject(prisma, generationId);
 const instance = await manager.up(subject, scenarioId);
 
-// Tear down the instance after the run completes
+// Tear down the instance after the generation completes
 await manager.down(instance.id);
 ```
 
@@ -58,7 +57,7 @@ const result = await client.discover();
 
 1. **Ingest recipes** - `ApplicationSetupService` calls `ScenarioRecipeStore.replaceScenarioRecipes` when recipes are uploaded through `POST .../scenario-recipe-versions`. The payload is split into a snapshot-scoped `scenario_schema_snapshot` (keyed by `applicationId + snapshotId`) plus per-scenario `scenario_recipe_version.fixture_json` (keyed by `scenarioId + snapshotId`). The active recipe pointer on `scenario` is updated, and names no longer present are disabled. Re-uploading for the same snapshot replaces recipe versions transactionally.
 
-2. **Up** - Resolves the active recipe's `create` payload into concrete data using the generated run id, creates a `scenarioInstance` record in `REQUESTED` status, links it to the subject (run or generation), then calls the SDK endpoint with `action: "up"` and the populated payload. On success, the instance is updated to `UP_SUCCESS` with auth credentials, refs, and metadata returned by the endpoint. On failure, it transitions to `UP_FAILED`.
+2. **Up** - Resolves the active recipe's `create` payload into concrete data using the generated run id, creates a `scenarioInstance` record in `REQUESTED` status, links it to the subject (generation), then calls the SDK endpoint with `action: "up"` and the populated payload. On success, the instance is updated to `UP_SUCCESS` with auth credentials, refs, and metadata returned by the endpoint. On failure, it transitions to `UP_FAILED`.
 
 3. **Down** - Calls the SDK endpoint with `action: "down"`, passing back the `refs` and `refsToken` from the up response so the customer can clean up. Transitions to `DOWN_SUCCESS` or `DOWN_FAILED`. Already-torn-down instances are skipped.
 
@@ -74,7 +73,7 @@ In production, `ScenarioManager` constructs `SdkClient` with a `DbSdkCallRecorde
 
 ### `ScenarioSubject` pattern
 
-`ScenarioSubject` abstracts the entity that needs a scenario. This lets `ScenarioManager.up()` work identically for test generations and test runs without knowing which one it is dealing with. Each subject implements `resolveDeployment()` to return the `(applicationId, deploymentId)` tuple it is associated with - the SDK config lookup and decryption then happens inside `ScenarioManager`. Subjects that need to link the created instance back (run, generation) implement the optional `linkInstance(instanceId)` method; dry-run subjects omit it.
+`ScenarioSubject` abstracts the entity that needs a scenario. This lets `ScenarioManager.up()` work against any subject without knowing the concrete type it is dealing with. Each subject implements `resolveDeployment()` to return the `(applicationId, deploymentId)` tuple it is associated with - the SDK config lookup and decryption then happens inside `ScenarioManager`. Subjects that need to link the created instance back (generation) implement the optional `linkInstance(instanceId)` method; dry-run subjects omit it.
 
 The scenario ID and snapshot ID are resolved by the caller (the scenario-up job) and passed explicitly to `ScenarioManager.up()`.
 

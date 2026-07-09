@@ -39,7 +39,7 @@ describe("scenarioUp", () => {
         const instance = fakeInstance();
         const manager = { up: vi.fn().mockResolvedValue(instance) } as unknown as ScenarioManager;
 
-        await scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager });
+        await scenarioUp({ entityId: "gen-1" }, { db: fakeDb(), manager });
 
         expect(manager.up).toHaveBeenCalledWith(expect.anything(), "scen-1", { snapshotId: "snap-1" });
     });
@@ -48,7 +48,7 @@ describe("scenarioUp", () => {
         const instance = fakeInstance({ id: "inst-42" });
         const manager = { up: vi.fn().mockResolvedValue(instance) } as unknown as ScenarioManager;
 
-        const instanceId = await scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager });
+        const instanceId = await scenarioUp({ entityId: "gen-1" }, { db: fakeDb(), manager });
 
         expect(instanceId).toBe("inst-42");
     });
@@ -60,8 +60,6 @@ describe("scenarioUp", () => {
         });
         const manager = { up: vi.fn().mockResolvedValue(instance) } as unknown as ScenarioManager;
 
-        await expect(scenarioUp({ type: "generation", entityId: "gen-1" }, { db: fakeDb(), manager })).rejects.toThrow(
-            "webhook 500",
-        );
+        await expect(scenarioUp({ entityId: "gen-1" }, { db: fakeDb(), manager })).rejects.toThrow("webhook 500");
     });
 });

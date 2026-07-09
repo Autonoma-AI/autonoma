@@ -126,7 +126,6 @@ function finalOutcomeLabel(test: ExecutedTest): string {
 
 const VERDICT_BADGE: Record<NonNullable<ExecutedTest["verdict"]>, { label: string; variant: VerdictBadgeVariant }> = {
   success: { label: "verified", variant: "success" },
-  engine_error: { label: "engine issue", variant: "warn" },
   application_bug: { label: "app bug", variant: "critical" },
   agent_limitation: { label: "agent limitation", variant: "warn" },
   plan_mismatch: { label: "plan mismatch", variant: "warn" },

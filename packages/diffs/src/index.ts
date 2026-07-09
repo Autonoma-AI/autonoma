@@ -37,9 +37,6 @@ export {
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
-    ReplayReviewer,
-    type ReplayReviewerConfig,
-    type ReplayReviewInput,
     type ReviewStepScreenshots,
     ReviewerLoop,
     type ScenarioDataLoop,
@@ -84,7 +81,6 @@ export {
 } from "./merge-detection";
 export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
 export { loadFlows } from "./loaders/load-flows";
-export { buildVerdicts, type RunReviewVerdict } from "./loaders/build-verdicts";
 
 export { Codebase } from "./codebase";
 
@@ -132,8 +128,7 @@ export {
     type IterationVerdict,
 } from "./review/kernel";
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
-export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./review/replay";
-export type { SnapshotChangeContext, SnapshotContext, SnapshotRunContext, SnapshotRunReview } from "./review/snapshot";
+export type { SnapshotChangeContext } from "./review/snapshot";
 export type { HealingContext, HealingFailureSubject, HealingSubjectContext } from "./review/snapshot";
 
 // Scenario-data capability - reusable, agent-agnostic resolution + presentation
@@ -141,7 +136,6 @@ export type { HealingContext, HealingFailureSubject, HealingSubjectContext } fro
 export {
     materializeScenarioData,
     resolveScenarioDataForGeneration,
-    resolveScenarioDataForRun,
     summarizeScenarioData,
     type ScenarioData,
     type ScenarioEntities,

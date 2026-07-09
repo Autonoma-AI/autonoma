@@ -79,9 +79,8 @@ export function tallyExecutedTests(tests: SnapshotExecutedTest[]): ExecutedTestT
     return tally;
 }
 
-/** The Issue kind linked to an execution, keyed by the run or generation it reviewed. */
+/** The Issue kind linked to an execution, keyed by the generation it reviewed. */
 export interface IssueKindsByExecution {
-    byRunId: Map<string, IssueKind>;
     byGenerationId: Map<string, IssueKind>;
 }
 
@@ -89,16 +88,14 @@ export interface IssueKindsByExecution {
  * Splits the failing tests that carry a linked Issue into the engine-vs-app
  * buckets. A test with no linked Issue (or a non-failing outcome) is ignored -
  * the attribution is only meaningful for failures healing has already triaged.
- * The Issue rides the review chain, so it is matched to the specific run or
- * generation whose review it belongs to.
+ * The Issue rides the review chain, so it is matched to the specific generation
+ * whose review it belongs to.
  */
 export function computeFailingByKind(tests: SnapshotExecutedTest[], issueKinds: IssueKindsByExecution): FailingByKind {
     const failingByKind: FailingByKind = { engine: 0, app: 0 };
     for (const test of tests) {
         if (test.finalOutcome !== "failed") continue;
-        const kind =
-            (test.runId != null ? issueKinds.byRunId.get(test.runId) : undefined) ??
-            (test.generationId != null ? issueKinds.byGenerationId.get(test.generationId) : undefined);
+        const kind = test.generationId != null ? issueKinds.byGenerationId.get(test.generationId) : undefined;
         if (kind == null) continue;
         if (kind === "engine_limitation") failingByKind.engine += 1;
         else failingByKind.app += 1;
@@ -107,57 +104,44 @@ export function computeFailingByKind(tests: SnapshotExecutedTest[], issueKinds: 
 }
 
 /**
- * Loads the Issue kind for each of the given runs/generations. The Issue ->
- * TestCase link rides the review chain (`runReviewId` / `generationReviewId`),
- * so this matches on the reviewed run/generation directly rather than walking
- * back to the snapshot - a shallow, single query the callers batch across every
- * failing test.
+ * Loads the Issue kind for each of the given generations. The Issue -> TestCase
+ * link rides the review chain (`generationReviewId`), so this matches on the
+ * reviewed generation directly rather than walking back to the snapshot - a
+ * shallow, single query the callers batch across every failing test.
  */
 export async function loadIssueKindsForExecutions(
     db: PrismaClient,
-    runIds: string[],
     generationIds: string[],
 ): Promise<IssueKindsByExecution> {
-    const result: IssueKindsByExecution = { byRunId: new Map(), byGenerationId: new Map() };
-    if (runIds.length === 0 && generationIds.length === 0) return result;
+    const result: IssueKindsByExecution = { byGenerationId: new Map() };
+    if (generationIds.length === 0) return result;
 
     const issues = await db.issue.findMany({
-        where: {
-            OR: [
-                { runReview: { is: { runId: { in: runIds } } } },
-                { generationReview: { is: { generationId: { in: generationIds } } } },
-            ],
-        },
+        where: { generationReview: { is: { generationId: { in: generationIds } } } },
         select: {
             kind: true,
-            runReview: { select: { runId: true } },
             generationReview: { select: { generationId: true } },
         },
     });
 
     for (const issue of issues) {
-        if (issue.runReview != null) result.byRunId.set(issue.runReview.runId, issue.kind);
-        else if (issue.generationReview != null)
-            result.byGenerationId.set(issue.generationReview.generationId, issue.kind);
+        if (issue.generationReview != null) result.byGenerationId.set(issue.generationReview.generationId, issue.kind);
     }
     return result;
 }
 
-/** Collects the run/generation ids of the failing tests, deduplicated, for the issue-kind lookup. */
+/** Collects the generation ids of the failing tests, deduplicated, for the issue-kind lookup. */
 export function failingExecutionIds(testsBySnapshot: Iterable<SnapshotExecutedTest[]>): {
-    runIds: string[];
     generationIds: string[];
 } {
-    const runIds = new Set<string>();
     const generationIds = new Set<string>();
     for (const tests of testsBySnapshot) {
         for (const test of tests) {
             if (test.finalOutcome !== "failed") continue;
-            if (test.runId != null) runIds.add(test.runId);
-            else if (test.generationId != null) generationIds.add(test.generationId);
+            if (test.generationId != null) generationIds.add(test.generationId);
         }
     }
-    return { runIds: [...runIds], generationIds: [...generationIds] };
+    return { generationIds: [...generationIds] };
 }
 
 export async function aggregateSnapshotHealth(
@@ -179,8 +163,8 @@ export async function aggregateSnapshotHealth(
         listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
 
-    const { runIds, generationIds } = failingExecutionIds(executedTestsBySnapshot.values());
-    const issueKinds = await loadIssueKindsForExecutions(db, runIds, generationIds);
+    const { generationIds } = failingExecutionIds(executedTestsBySnapshot.values());
+    const issueKinds = await loadIssueKindsForExecutions(db, generationIds);
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {
@@ -190,8 +174,8 @@ export async function aggregateSnapshotHealth(
         const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
         const tally = tallyExecutedTests(executedTests);
 
-        const replayed = tally.passing + tally.failing + tally.setupFailed + tally.running;
-        const notAffected = Math.max(totalTests - replayed, 0);
+        const executedCount = tally.passing + tally.failing + tally.setupFailed + tally.running;
+        const notAffected = Math.max(totalTests - executedCount, 0);
 
         const counts: SnapshotHealthCounts = {
             failing: tally.failing,

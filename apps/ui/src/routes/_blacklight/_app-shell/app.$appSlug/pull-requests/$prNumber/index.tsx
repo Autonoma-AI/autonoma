@@ -409,7 +409,6 @@ function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSec
       changes: detail.changes,
       affectedTests: detail.diffsJob.affectedTests,
       createdTests: detail.createdTests,
-      executedTests: detail.executedTests,
     });
 
     for (const section of sections) {
@@ -433,7 +432,7 @@ function sortTestEntries(entries: PRTestEntry[]): PRTestEntry[] {
 }
 
 function testEntryPriority(entry: TestEntry): number {
-  const status = entry.run?.status ?? entry.generation?.status;
+  const status = entry.generation?.status;
   if (status === "failed") return 0;
   if (entry.category === "modified") return 1;
   if (status === "running" || status === "pending" || status === "queued") return 2;

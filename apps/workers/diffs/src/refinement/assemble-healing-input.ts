@@ -137,7 +137,6 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
 export function toHealingSubject(failure: FailureRecord): HealingFailureSubject {
     return {
         failureKey: failure.key,
-        source: failure.source,
         sourceId: failure.sourceId,
         planId: failure.planId,
         testCaseId: failure.testCaseId,
@@ -204,7 +203,6 @@ export async function loadPriorActions(currentIterationId: string): Promise<Heal
 export function collectFailureRecords(failuresAtGeneration: GenerationOutcomeFailure[]): FailureRecord[] {
     return failuresAtGeneration.map((f) => ({
         key: f.failureKey,
-        source: "generation",
         testCaseId: f.testCaseId,
         testCaseSlug: f.testCaseSlug,
         testCaseName: f.testCaseName,

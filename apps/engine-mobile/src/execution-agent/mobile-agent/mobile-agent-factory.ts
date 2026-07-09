@@ -15,7 +15,6 @@ import {
     ExecutionAgentFactory,
     ScrollTool,
     TypeTool,
-    WaitPlanner,
 } from "@autonoma/engine";
 import type { MobileContext } from "../../platform";
 import type { MobileCommandSpec } from "./mobile-agent-types";
@@ -45,9 +44,6 @@ export function createMobileAgentFactory(
     return new ExecutionAgentFactory({
         model: models.getModel({ model: "smart-visual", tag: "agent-loop" }),
         commandTools: createTools(models),
-        waitPlanner: new WaitPlanner<MobileCommandSpec>({
-            model: models.getModel({ model: "fast-visual", tag: "wait-planner" }),
-        }),
         architecture: "mobile",
         platformMetadata: async ({ context }) => ({ platform: context.platform }),
     });

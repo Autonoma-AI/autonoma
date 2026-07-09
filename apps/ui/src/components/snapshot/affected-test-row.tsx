@@ -13,7 +13,6 @@ const REASON_BADGE: Record<AffectedTest["affectedReason"], { label: string; vari
 
 type NameLink =
   | { kind: "test" }
-  | { kind: "run"; runId: string }
   | { kind: "generation"; generationId: string }
   | { kind: "pr-suite"; prNumber: number };
 
@@ -35,11 +34,7 @@ export function AffectedTestRow({
 
   const nameClassName = "min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline";
   const nameNode =
-    nameLink.kind === "run" ? (
-      <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: nameLink.runId }} className={nameClassName}>
-        {test.testCase.name}
-      </AppLink>
-    ) : nameLink.kind === "generation" ? (
+    nameLink.kind === "generation" ? (
       <AppLink
         to="/app/$appSlug/generations/$generationId"
         params={{ generationId: nameLink.generationId }}
@@ -78,7 +73,6 @@ export function AffectedTestRow({
       <PipelineIds
         ids={[
           { label: "test", value: test.testCase.id },
-          { label: "run", value: test.run?.id },
           { label: "generation", value: test.generation?.id },
         ]}
         className="border-t border-border-dim bg-surface-base px-4 py-2"

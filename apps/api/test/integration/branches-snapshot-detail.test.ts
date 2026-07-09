@@ -8,23 +8,32 @@ apiTestSuite({
     cases: (test) => {
         test("returns executed test rows matching snapshot health counts", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness);
-            const olderRunTime = new Date("2026-01-01T10:00:00Z");
-            const latestRunTime = new Date("2026-01-01T11:00:00Z");
+            const olderTime = new Date("2026-01-01T10:00:00Z");
+            const latestTime = new Date("2026-01-01T11:00:00Z");
 
-            await createRun(harness, fixture.assignments.passing.id, "failed", olderRunTime);
-            const latestPassingRun = await createRun(harness, fixture.assignments.passing.id, "success", latestRunTime);
-            const failedRun = await createRun(harness, fixture.assignments.failing.id, "failed", latestRunTime);
-            await harness.db.runReview.create({
-                data: {
-                    runId: failedRun.id,
-                    status: "completed",
-                    verdict: "application_bug",
-                    reasoning: "The submit button never becomes enabled.",
-                    organizationId: harness.organizationId,
-                },
+            const passingPlan = await createPlanFor(harness, fixture.assignments.passing);
+            // An earlier failed generation is superseded by the later passing one.
+            await createFailedGeneration(harness, fixture.snapshotId, passingPlan.id, olderTime);
+            const latestPassingGeneration = await createSuccessfulGeneration(
+                harness,
+                fixture.snapshotId,
+                passingPlan.id,
+                latestTime,
+            );
+
+            const failingPlan = await createPlanFor(harness, fixture.assignments.failing);
+            const failedGeneration = await createReviewedGeneration(harness, fixture.snapshotId, failingPlan.id, {
+                at: latestTime,
+                status: "success",
+                verdict: "application_bug",
+                reasoning: "The submit button never becomes enabled.",
             });
-            await createRun(harness, fixture.assignments.running.id, "running", latestRunTime);
-            await createRun(harness, fixture.assignments.extra.id, "success", latestRunTime);
+
+            const runningPlan = await createPlanFor(harness, fixture.assignments.running);
+            await createRunningGeneration(harness, fixture.snapshotId, runningPlan.id, latestTime);
+
+            const extraPlan = await createPlanFor(harness, fixture.assignments.extra);
+            await createSuccessfulGeneration(harness, fixture.snapshotId, extraPlan.id, latestTime);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
@@ -43,14 +52,15 @@ apiTestSuite({
 
             const passing = detail.executedTests.find((row) => row.testCase.slug === "passing-check");
             expect(passing).toMatchObject({
-                runId: latestPassingRun.id,
+                generationId: latestPassingGeneration.id,
                 status: "success",
+                finalOutcome: "passed",
             });
 
             const failed = detail.executedTests.find((row) => row.testCase.slug === "failing-check");
             expect(failed).toMatchObject({
-                runId: failedRun.id,
-                status: "failed",
+                generationId: failedGeneration.id,
+                finalOutcome: "failed",
                 verdict: "application_bug",
                 reviewReasoning: "The submit button never becomes enabled.",
             });
@@ -60,15 +70,15 @@ apiTestSuite({
             const fixture = await createSnapshotDetailFixture(harness);
             const at = new Date("2026-01-01T11:00:00Z");
 
-            // An engine-limitation failure: failed run -> review -> engine_limitation Issue.
-            const engineRun = await createRun(harness, fixture.assignments.failing.id, "failed", at);
-            const engineReview = await harness.db.runReview.create({
-                data: {
-                    runId: engineRun.id,
-                    status: "completed",
-                    verdict: "engine_error",
-                    organizationId: harness.organizationId,
-                },
+            // An engine-limitation failure: failed generation -> review -> engine_limitation Issue.
+            const enginePlan = await createPlanFor(harness, fixture.assignments.failing);
+            const engineGeneration = await createReviewedGeneration(harness, fixture.snapshotId, enginePlan.id, {
+                at,
+                status: "failed",
+                verdict: "agent_limitation",
+            });
+            const engineReview = await harness.db.generationReview.findFirstOrThrow({
+                where: { generationId: engineGeneration.id },
             });
             await harness.db.issue.create({
                 data: {
@@ -76,20 +86,20 @@ apiTestSuite({
                     severity: "low",
                     title: "Engine cannot interact with the canvas element",
                     description: "The drawing surface is not addressable by the driver.",
-                    runReviewId: engineReview.id,
+                    generationReviewId: engineReview.id,
                     organizationId: harness.organizationId,
                 },
             });
 
-            // An application-bug failure: failed run -> review -> application_bug Issue.
-            const appRun = await createRun(harness, fixture.assignments.extra.id, "failed", at);
-            const appReview = await harness.db.runReview.create({
-                data: {
-                    runId: appRun.id,
-                    status: "completed",
-                    verdict: "application_bug",
-                    organizationId: harness.organizationId,
-                },
+            // An application-bug failure: failed generation -> review -> application_bug Issue.
+            const appPlan = await createPlanFor(harness, fixture.assignments.extra);
+            const appGeneration = await createReviewedGeneration(harness, fixture.snapshotId, appPlan.id, {
+                at,
+                status: "failed",
+                verdict: "application_bug",
+            });
+            const appReview = await harness.db.generationReview.findFirstOrThrow({
+                where: { generationId: appGeneration.id },
             });
             await harness.db.issue.create({
                 data: {
@@ -97,7 +107,7 @@ apiTestSuite({
                     severity: "high",
                     title: "Checkout crashes on submit",
                     description: "Submitting the order throws a 500.",
-                    runReviewId: appReview.id,
+                    generationReviewId: appReview.id,
                     organizationId: harness.organizationId,
                 },
             });
@@ -123,7 +133,7 @@ apiTestSuite({
             expect(detail.executedTests).toEqual([]);
         });
 
-        test("returns tests created this snapshot with their coverage justification and generation/run", async ({
+        test("returns tests created this snapshot with their coverage justification and generation", async ({
             harness,
         }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Guest check"] });
@@ -141,11 +151,8 @@ apiTestSuite({
                 plan.id,
                 new Date("2026-01-01T10:02:00Z"),
             );
-            const run = await createRun(harness, assignment.id, "success", new Date("2026-01-01T10:05:00Z"), {
-                planId: plan.id,
-            });
 
-            // Created tests carry the generation/run inspector, which only loads on the full
+            // Created tests carry the generation inspector, which only loads on the full
             // single-snapshot payload (the lean PR-overview fan-out skips it for query budget).
             const detail = await harness
                 .request()
@@ -157,7 +164,6 @@ apiTestSuite({
                 description: "A guest can complete checkout without signing in and reach order confirmation.",
                 plan: "Complete checkout",
                 generation: { id: generation.id, status: "success", verdict: "success" },
-                run: { id: run.id, status: "success" },
             });
         });
 
@@ -226,7 +232,6 @@ apiTestSuite({
             expect(detail.executedTests).toHaveLength(1);
             expect(detail.executedTests[0]).toMatchObject({
                 generationId: passingGeneration.id,
-                runId: null,
                 status: "success",
                 finalOutcome: "passed",
             });
@@ -280,7 +285,6 @@ apiTestSuite({
             expect(detail.executedTests).toHaveLength(1);
             expect(detail.executedTests[0]).toMatchObject({
                 finalOutcome: "failed",
-                runId: null,
             });
             expect(detail.executedTests[0]?.generationId).not.toBeNull();
             expect(detail.healthCounts).toMatchObject({ failing: 1, running: 0, passing: 0 });
@@ -377,6 +381,16 @@ async function attachPlan(harness: APITestHarness, assignment: { id: string; tes
     return { plan };
 }
 
+async function createPlanFor(harness: APITestHarness, assignment: { testCaseId: string }) {
+    return harness.db.testPlan.create({
+        data: {
+            testCaseId: assignment.testCaseId,
+            prompt: "Complete checkout",
+            organizationId: harness.organizationId,
+        },
+    });
+}
+
 async function createRefinementLoop(harness: APITestHarness, snapshotId: string) {
     return harness.db.refinementLoop.create({
         data: {
@@ -451,25 +465,6 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
     };
 }
 
-async function createRun(
-    harness: APITestHarness,
-    assignmentId: string,
-    status: "pending" | "running" | "success" | "failed",
-    at: Date,
-    input: { planId?: string } = {},
-) {
-    return harness.db.run.create({
-        data: {
-            assignmentId,
-            planId: input.planId,
-            status,
-            startedAt: at,
-            createdAt: at,
-            organizationId: harness.organizationId,
-        },
-    });
-}
-
 async function createRefinementIteration(
     harness: APITestHarness,
     loopId: string,
@@ -514,6 +509,52 @@ async function createScenarioSetupFailedGeneration(
             organizationId: harness.organizationId,
         },
     });
+}
+
+async function createRunningGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {
+    return harness.db.testGeneration.create({
+        data: {
+            snapshotId,
+            testPlanId,
+            status: "running",
+            createdAt: at,
+            updatedAt: at,
+            organizationId: harness.organizationId,
+        },
+    });
+}
+
+async function createReviewedGeneration(
+    harness: APITestHarness,
+    snapshotId: string,
+    testPlanId: string,
+    input: {
+        at: Date;
+        status: "success" | "failed";
+        verdict: "success" | "agent_limitation" | "application_bug" | "plan_mismatch";
+        reasoning?: string;
+    },
+) {
+    const generation = await harness.db.testGeneration.create({
+        data: {
+            snapshotId,
+            testPlanId,
+            status: input.status,
+            createdAt: input.at,
+            updatedAt: input.at,
+            organizationId: harness.organizationId,
+        },
+    });
+    await harness.db.generationReview.create({
+        data: {
+            generationId: generation.id,
+            status: "completed",
+            verdict: input.verdict,
+            reasoning: input.reasoning,
+            organizationId: harness.organizationId,
+        },
+    });
+    return generation;
 }
 
 async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {

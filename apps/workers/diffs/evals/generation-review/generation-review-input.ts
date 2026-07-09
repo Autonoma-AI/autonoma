@@ -1,4 +1,4 @@
-import { AffectedReason, RunReviewVerdict } from "@autonoma/db";
+import { AffectedReason, GenerationReviewVerdict } from "@autonoma/db";
 import { type GenerationContext, sanitizeConversation, scenarioDataSchema } from "@autonoma/diffs";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
@@ -69,7 +69,7 @@ export const generationReviewCaseInputSchema = z.object({
                     iterationNumber: z.number().int().positive(),
                     prompt: z.string(),
                     healingReasoning: z.string().optional(),
-                    verdicts: z.array(z.object({ verdict: z.enum(RunReviewVerdict), reasoning: z.string() })),
+                    verdicts: z.array(z.object({ verdict: z.enum(GenerationReviewVerdict), reasoning: z.string() })),
                 }),
             )
             .default([]),

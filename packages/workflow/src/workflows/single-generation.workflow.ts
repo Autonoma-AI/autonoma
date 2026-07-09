@@ -35,7 +35,6 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
         log.info("Starting scenario setup", { testGenerationId, scenarioId });
         try {
             const scenarioUpResult = await general.scenarioUp({
-                scenarioJobType: "generation",
                 entityId: testGenerationId,
                 scenarioId,
                 sdkUrlOverride,

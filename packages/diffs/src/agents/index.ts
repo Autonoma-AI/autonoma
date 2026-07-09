@@ -17,7 +17,6 @@ export {
     type GenerationReviewerConfig,
     type GenerationReviewInput,
 } from "./reviewers/generation/generation-reviewer";
-export { ReplayReviewer, type ReplayReviewerConfig, type ReplayReviewInput } from "./reviewers/replay/replay-reviewer";
 export {
     affectedReasonSchema,
     affectedTestSchema,

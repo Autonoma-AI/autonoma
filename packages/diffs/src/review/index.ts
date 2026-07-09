@@ -22,13 +22,8 @@ export {
 // context loader, the persister) lives in `apps/workers/diffs`.
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./generation";
 
-// Replay reviewer prompt-building blocks. Orchestration lives in `apps/workers/diffs`.
-export { buildReplayReviewMessages, type RunContext, type RunStepData } from "./replay";
-
-// Snapshot-scope context: the diff-job context gathered across all replayed
-// runs in a snapshot. Consumed by resolution today. The loader that builds it
-// lives in `apps/workers/diffs`.
-export type { SnapshotChangeContext, SnapshotContext, SnapshotRunContext, SnapshotRunReview } from "./snapshot";
+// The snapshot diff anchor (base/head SHAs) shared by every failing subject.
+export type { SnapshotChangeContext } from "./snapshot";
 
 // Healing-scope context: the diff-job context for one refinement iteration's
 // failing subjects (full per-test lineage + change facts + per-subject scenario).

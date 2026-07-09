@@ -1,6 +1,5 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
-import { PlayIcon } from "@phosphor-icons/react/Play";
 import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { formatDate } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
@@ -34,13 +33,6 @@ export function BugMetaStrip({ bug }: { bug: BugDetail }) {
           <AppLink to="/app/$appSlug/tests/$testSlug" params={{ testSlug }} className={QUICK_LINK_CLASS}>
             <FlaskIcon size={12} />
             View test
-            <ArrowSquareOutIcon size={11} />
-          </AppLink>
-        )}
-        {latest?.runId != null && (
-          <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: latest.runId }} className={QUICK_LINK_CLASS}>
-            <PlayIcon size={12} />
-            View run
             <ArrowSquareOutIcon size={11} />
           </AppLink>
         )}

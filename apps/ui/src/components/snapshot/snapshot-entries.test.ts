@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AffectedTest, CreatedTest, ExecutedTest, SnapshotChange } from "./diffs-timeline-types";
+import type { AffectedTest, CreatedTest, SnapshotChange } from "./diffs-timeline-types";
 import { buildSections, type Section, type TestEntry } from "./snapshot-entries";
 
 const TEST_CASE = { id: "tc-1", name: "Checkout flow", slug: "checkout-flow" };
@@ -23,7 +23,6 @@ function createdTest(): CreatedTest {
         description: "A guest user can complete checkout without signing in and reach the order confirmation page.",
         plan: "authored plan",
         generation: { id: "gen-new", status: "success", verdict: "success", reviewReasoning: "Generated cleanly." },
-        run: { id: "run-new", status: "success", verdict: undefined, reviewReasoning: undefined },
     };
 }
 
@@ -39,42 +38,18 @@ function updatedChange(): SnapshotChange {
     };
 }
 
-// The affected test pins `run` to the initial replay that detected the failure
-// (status "failed"), and links the generation that subsequently modified it.
-function affectedWithInitialRun(): AffectedTest {
+// An affected test links the generation that regenerated it to confirm the
+// change did not break it.
+function affectedTest(): AffectedTest {
     return {
         affectedReason: "code_change",
         reasoning: "Login selector changed",
         testCase: TEST_CASE,
-        run: {
-            id: "run-initial",
-            status: "failed",
-            runReview: { verdict: "engine_error", reasoning: "Element not found" },
-        },
         generation: {
             id: "gen-1",
             status: "success",
             generationReview: { reasoning: "Healed selector" },
         },
-    };
-}
-
-// The latest executed run for the test case is the post-fix validation replay
-// (status "success") created by the refinement loop.
-function executedWithLatestRun(): ExecutedTest {
-    return {
-        source: "replay",
-        testCase: TEST_CASE,
-        runId: "run-latest",
-        generationId: "gen-1",
-        status: "success",
-        finalOutcome: "passed",
-        verdict: null,
-        reviewReasoning: null,
-        startedAt: new Date("2026-01-01T10:05:00Z"),
-        completedAt: new Date("2026-01-01T10:06:00Z"),
-        createdAt: new Date("2026-01-01T10:04:00Z"),
-        latestRunAt: new Date("2026-01-01T10:05:00Z"),
     };
 }
 
@@ -86,58 +61,40 @@ function modifiedEntry(sections: Section[]): TestEntry | undefined {
     return entryIn(sections, "Modified");
 }
 
-describe("buildSections - modified test run", () => {
-    it("shows the latest replay run, not the initial replay that detected the failure", () => {
+describe("buildSections - affected test categorization", () => {
+    it("surfaces the affected test's generation on the modified entry", () => {
         const sections = buildSections({
             changes: [updatedChange()],
-            affectedTests: [affectedWithInitialRun()],
+            affectedTests: [affectedTest()],
             createdTests: [],
-            executedTests: [executedWithLatestRun()],
         });
 
         const entry = modifiedEntry(sections);
-        expect(entry?.run?.id).toBe("run-latest");
-        expect(entry?.run?.status).toBe("success");
+        expect(entry?.generation?.id).toBe("gen-1");
     });
 
-    it("falls back to the initial replay run when no executed run exists yet", () => {
-        const sections = buildSections({
-            changes: [updatedChange()],
-            affectedTests: [affectedWithInitialRun()],
-            createdTests: [],
-            executedTests: [],
-        });
-
-        const entry = modifiedEntry(sections);
-        expect(entry?.run?.id).toBe("run-initial");
-        expect(entry?.run?.status).toBe("failed");
-    });
-
-    // An affected test with no "updated" change was replayed but never edited, so
-    // it lands in the "Checked" section rather than "Modified". It should still
-    // surface its latest run.
-    it("surfaces the latest run for a checked test (affected but not modified)", () => {
+    // An affected test with no "updated" change was regenerated but never edited, so
+    // it lands in the "Checked" section rather than "Modified".
+    it("categorizes an affected-but-not-modified test as checked", () => {
         const sections = buildSections({
             changes: [],
-            affectedTests: [affectedWithInitialRun()],
+            affectedTests: [affectedTest()],
             createdTests: [],
-            executedTests: [executedWithLatestRun()],
         });
 
         expect(modifiedEntry(sections)).toBeUndefined();
         const entry = entryIn(sections, "Checked");
         expect(entry?.category).toBe("checked");
-        expect(entry?.run?.id).toBe("run-latest");
+        expect(entry?.generation?.id).toBe("gen-1");
     });
 });
 
 describe("buildSections - created tests", () => {
-    it("surfaces the coverage justification and generation/run inspector for an added test", () => {
+    it("surfaces the coverage justification and generation inspector for an added test", () => {
         const sections = buildSections({
             changes: [addedChange()],
             affectedTests: [],
             createdTests: [createdTest()],
-            executedTests: [],
         });
 
         const entry = sections.find((s) => s.title === "Added")?.entries.find((e) => e.urlId === NEW_TEST_CASE.id);
@@ -146,7 +103,6 @@ describe("buildSections - created tests", () => {
         );
         expect(entry?.plan).toBe("authored plan");
         expect(entry?.generation?.id).toBe("gen-new");
-        expect(entry?.run?.id).toBe("run-new");
     });
 
     it("falls back to the change plan when no created-test record exists (legacy snapshot)", () => {
@@ -154,7 +110,6 @@ describe("buildSections - created tests", () => {
             changes: [addedChange()],
             affectedTests: [],
             createdTests: [],
-            executedTests: [],
         });
 
         const entry = sections.find((s) => s.title === "Added")?.entries.find((e) => e.urlId === NEW_TEST_CASE.id);

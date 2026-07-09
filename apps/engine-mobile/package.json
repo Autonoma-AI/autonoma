@@ -6,8 +6,7 @@
     "type": "module",
     "exports": {
         ".": "./src/index.ts",
-        "./generation": "./src/execution-agent/generation-api/run-generation-job.ts",
-        "./replay": "./src/replay/run-replay-job.ts"
+        "./generation": "./src/execution-agent/generation-api/run-generation-job.ts"
     },
     "scripts": {
         "build": "tsup",
@@ -16,8 +15,7 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests",
         "dev": "tsx --env-file=../../.env src/execution-agent/local-dev/run-execution.ts",
-        "run-generation": "tsx --env-file=../../.env src/execution-agent/generation-api/run-generation-job.ts",
-        "run-replay": "tsx --env-file=../../.env src/replay/run-replay-job.ts"
+        "run-generation": "tsx --env-file=../../.env src/execution-agent/generation-api/run-generation-job.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",

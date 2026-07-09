@@ -92,7 +92,7 @@ integrationTestSuite({
             await persister.recordAttempt({
                 attempt: successAttempt("the dashboard is visible", "before-1", "after-1"),
                 order: 1,
-                replayOrder: 1,
+                successfulOrder: 1,
             });
 
             const attempts = await harness.db.stepAttempt.findMany({ where: { generationId: seed.generationId } });
@@ -214,7 +214,7 @@ integrationTestSuite({
             await persister.recordAttempt({
                 attempt: successAttempt("step one done", "b1", "a1"),
                 order: 1,
-                replayOrder: 1,
+                successfulOrder: 1,
             });
             await persister.recordAttempt({
                 attempt: failedAttempt("step two condition", "b2", "a2"),
@@ -223,7 +223,7 @@ integrationTestSuite({
             await persister.recordAttempt({
                 attempt: successAttempt("step three done", "b3", "a3"),
                 order: 3,
-                replayOrder: 2,
+                successfulOrder: 2,
             });
 
             const attempts = await harness.db.stepAttempt.findMany({

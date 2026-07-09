@@ -5,11 +5,8 @@ export type {
     ScenarioDownInput,
     ReviewGenerationInput,
     ReviewGenerationOutput,
-    ReviewReplayInput,
-    ReviewReplayOutput,
     AssignGenerationResultsInput,
     MarkGenerationFailedInput,
-    MarkRunFailedInput,
     NotifyGenerationExitInput,
     ApplyHealingActionsInput,
     ApplyHealingActionsOutput,
@@ -32,7 +29,6 @@ export type {
     PrepareGenerationQueueInput,
     PrepareGenerationQueueOutput,
     GenerationOutcomeFailure,
-    GenerationOutcomeSuccess,
     SystemBlockedOutcome,
     PersistedHealingAction,
     RunHealingAgentForRefinementInput,
@@ -47,9 +43,9 @@ export type {
     FinalizeDiffsInput,
 } from "./diffs-activities";
 
-export type { WebActivities, RunWebGenerationInput, RunWebReplayInput } from "./web-activities";
+export type { WebActivities, RunWebGenerationInput } from "./web-activities";
 
-export type { MobileActivities, RunMobileGenerationInput, RunMobileReplayInput } from "./mobile-activities";
+export type { MobileActivities, RunMobileGenerationInput } from "./mobile-activities";
 
 export type {
     InvestigationActivities,

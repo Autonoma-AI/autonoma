@@ -12,8 +12,8 @@ export const env = createEnv({
         HEADLESS: z.string().optional(),
         PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
         /**
-         * Auto-handle native browser dialogs (alert / confirm / prompt) during generation and
-         * replay. Defaults to enabled; set to "false" as a kill switch for both.
+         * Auto-handle native browser dialogs (alert / confirm / prompt) during generation.
+         * Defaults to enabled; set to "false" as a kill switch.
          */
         NATIVE_DIALOGS_ENABLED: z
             .enum(["true", "false"])

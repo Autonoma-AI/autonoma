@@ -1,5 +1,4 @@
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
-import { PlayIcon } from "@phosphor-icons/react/Play";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppLink } from "../../-app-link";
 import { useCurrentApplication } from "../../-use-current-application";
@@ -27,19 +26,13 @@ function AppAdminPage() {
           title="Generations"
           description="Every test generation for this app."
         />
-        <AdminCard
-          to="/app/$appSlug/admin/runs"
-          icon={<PlayIcon size={18} className="text-text-tertiary" />}
-          title="Runs"
-          description="Every test run for this app."
-        />
       </div>
     </div>
   );
 }
 
 interface AdminCardProps {
-  to: "/app/$appSlug/admin/generations" | "/app/$appSlug/admin/runs";
+  to: "/app/$appSlug/admin/generations";
   icon: React.ReactNode;
   title: string;
   description: string;

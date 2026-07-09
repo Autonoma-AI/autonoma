@@ -26,21 +26,20 @@ const coords: CodebaseCoords = {
  * their values through - or default cleanly when an older fixture omits them.
  */
 describe("healing fixture round-trip", () => {
-    it("carries a fixture's replay failures and suite context through capture/replay", () => {
+    it("carries a fixture's generation failures and suite context through capture/replay", () => {
         const failures: FailureRecord[] = [
             {
-                key: "run-1",
-                source: "replay",
+                key: "gen-1",
                 testCaseId: "tc-1",
                 testCaseSlug: "checkout-flow",
                 testCaseName: "Checkout flow",
                 planId: "plan-1",
                 planPrompt: "Add an item to the cart and check out",
-                sourceId: "run-1",
+                sourceId: "gen-1",
                 sourceStatus: "failed",
                 reviewReasoning: "The pay button moved behind a new modal.",
                 lineage: [],
-                reviewLink: { runReviewId: "rr-1" },
+                reviewLink: { generationReviewId: "gr-1" },
                 steps: [
                     {
                         order: 0,
@@ -49,8 +48,8 @@ describe("healing fixture round-trip", () => {
                         status: "failed",
                         error: "Element not found",
                         errorName: "ElementNotFoundError",
-                        screenshotBeforeKey: "run-1/step-0-before",
-                        screenshotAfterKey: "run-1/step-0-after",
+                        screenshotBeforeKey: "gen-1/step-0-before",
+                        screenshotAfterKey: "gen-1/step-0-after",
                     },
                 ],
             },
@@ -98,7 +97,7 @@ describe("healing fixture round-trip", () => {
         const reparsed = healingCaseInputSchema.parse(JSON.parse(JSON.stringify(frozen)));
         const { agentInput } = rehydrateHealingInput(reparsed);
 
-        // Replay failures keep their discriminated reviewLink + lineage.
+        // Failures keep their reviewLink + lineage.
         expect(agentInput.failures).toEqual(failures);
         // The suite + flow/scenario indices rebuild from their frozen array forms.
         expect(agentInput.existingTests).toEqual(existingTests);
@@ -124,7 +123,6 @@ describe("healing fixture round-trip", () => {
             failures: [
                 {
                     key: "gen-9",
-                    source: "generation",
                     testCaseId: "tc-9",
                     testCaseSlug: "login",
                     testCaseName: "Login",

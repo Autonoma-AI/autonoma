@@ -38,7 +38,6 @@ import { IssuesService } from "./issues/issues.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { OrgSecretsService } from "./org-secrets/org-secrets.service";
-import { RunsService } from "./runs/runs.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
@@ -53,7 +52,6 @@ export interface Services {
     bugs: BugsService;
     deployments: DeploymentsService;
     previewkitEnvFactory: PreviewkitEnvFactoryService;
-    runs: RunsService;
     testGenerations: TestGenerationsService;
     tests: TestsService;
     folders: FoldersService;
@@ -159,7 +157,6 @@ export function buildServices({
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
-        runs: new RunsService(conn, storageProvider),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),

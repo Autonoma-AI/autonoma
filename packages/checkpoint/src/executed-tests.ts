@@ -1,41 +1,19 @@
-import type {
-    GenerationReviewVerdict,
-    GenerationStatus,
-    Prisma,
-    PrismaClient,
-    RunReviewVerdict,
-    RunStatus,
-} from "@autonoma/db";
+import type { GenerationReviewVerdict, GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
 import { computeIterationOutcomes } from "./refinement-outcomes";
 
 export type SnapshotExecutedTestFinalOutcome = "passed" | "failed" | "setup_failed" | "unresolved";
 
 export interface SnapshotExecutedTest {
-    source: "replay" | "generation" | "refinement";
+    source: "generation" | "refinement";
     testCase: { id: string; name: string; slug: string };
-    runId: string | null;
     generationId: string | null;
-    status: RunStatus | GenerationStatus;
+    status: GenerationStatus;
     finalOutcome: SnapshotExecutedTestFinalOutcome;
-    verdict: RunReviewVerdict | GenerationReviewVerdict | null;
+    verdict: GenerationReviewVerdict | null;
     reviewReasoning: string | null;
-    startedAt: Date | null;
-    completedAt: Date | null;
     createdAt: Date;
     latestRunAt: Date;
 }
-
-const runSelect = {
-    id: true,
-    status: true,
-    failure: true,
-    startedAt: true,
-    completedAt: true,
-    createdAt: true,
-    planId: true,
-    assignment: { select: { testCaseId: true, snapshotId: true } },
-    runReview: { select: { verdict: true, reasoning: true, status: true } },
-} satisfies Prisma.RunSelect;
 
 const generationSelect = {
     id: true,
@@ -78,7 +56,6 @@ const refinementLoopSelect = {
     },
 } satisfies Prisma.RefinementLoopSelect;
 
-type RunRow = Prisma.RunGetPayload<{ select: typeof runSelect }>;
 type GenerationRow = Prisma.TestGenerationGetPayload<{ select: typeof generationSelect }>;
 type RefinementLoopRow = Prisma.RefinementLoopGetPayload<{ select: typeof refinementLoopSelect }>;
 type AssignmentRow = Prisma.TestCaseAssignmentGetPayload<{ select: typeof assignmentSelect }>;
@@ -87,14 +64,10 @@ export async function listExecutedTestsForSnapshot(
     db: PrismaClient,
     snapshotId: string,
 ): Promise<SnapshotExecutedTest[]> {
-    const [assignments, runs, generations, refinementLoop] = await Promise.all([
+    const [assignments, generations, refinementLoop] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId },
             select: assignmentSelect,
-        }),
-        db.run.findMany({
-            where: { assignment: { snapshotId } },
-            select: runSelect,
         }),
         db.testGeneration.findMany({
             where: {
@@ -116,7 +89,7 @@ export async function listExecutedTestsForSnapshot(
         }),
     ]);
 
-    return buildExecutedTests(assignments, runs, generations, refinementLoop);
+    return buildExecutedTests(assignments, generations, refinementLoop);
 }
 
 /**
@@ -133,14 +106,10 @@ export async function listExecutedTestsForSnapshots(
 ): Promise<Map<string, SnapshotExecutedTest[]>> {
     if (snapshotIds.length === 0) return new Map();
 
-    const [assignments, runs, generations, refinementLoops] = await Promise.all([
+    const [assignments, generations, refinementLoops] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId: { in: snapshotIds } },
             select: { ...assignmentSelect, snapshotId: true },
-        }),
-        db.run.findMany({
-            where: { assignment: { snapshotId: { in: snapshotIds } } },
-            select: runSelect,
         }),
         db.testGeneration.findMany({
             where: {
@@ -163,7 +132,6 @@ export async function listExecutedTestsForSnapshots(
     ]);
 
     const assignmentsBySnapshot = groupBy(assignments, (a) => a.snapshotId);
-    const runsBySnapshot = groupBy(runs, (r) => r.assignment.snapshotId);
     const generationsBySnapshot = groupBy(generations, (g) => g.snapshotId);
     const refinementLoopBySnapshot = new Map(refinementLoops.map((loop) => [loop.snapshotId, loop]));
 
@@ -173,7 +141,6 @@ export async function listExecutedTestsForSnapshots(
             snapshotId,
             buildExecutedTests(
                 assignmentsBySnapshot.get(snapshotId) ?? [],
-                runsBySnapshot.get(snapshotId) ?? [],
                 generationsBySnapshot.get(snapshotId) ?? [],
                 refinementLoopBySnapshot.get(snapshotId) ?? null,
             ),
@@ -198,21 +165,11 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
 
 function buildExecutedTests(
     assignments: AssignmentRow[],
-    runs: RunRow[],
     generations: GenerationRow[],
     refinementLoop: RefinementLoopRow | null,
 ): SnapshotExecutedTest[] {
-    const latestRunByTestCaseId = new Map<string, RunRow>();
     const latestGenerationByTestCaseId = new Map<string, GenerationRow>();
     const generationById = new Map(generations.map((generation) => [generation.id, generation]));
-
-    for (const run of runs) {
-        const testCaseId = run.assignment.testCaseId;
-        const existing = latestRunByTestCaseId.get(testCaseId);
-        if (existing == null || timeOf(run) > timeOf(existing)) {
-            latestRunByTestCaseId.set(testCaseId, run);
-        }
-    }
 
     for (const generation of generations) {
         const testCaseId = generation.testPlan.testCaseId;
@@ -233,26 +190,6 @@ function buildExecutedTests(
             const refinementOutcome = refinementOutcomeByTestCaseId.get(assignment.testCaseId);
             if (refinementOutcome != null) return [refinementOutcome];
 
-            const run = latestRunByTestCaseId.get(assignment.testCaseId);
-            if (run != null) {
-                return [
-                    {
-                        source: "replay" as const,
-                        testCase: assignment.testCase,
-                        runId: run.id,
-                        generationId: null,
-                        status: run.status,
-                        finalOutcome: finalOutcomeForRunStatus(run.status, run.failure),
-                        verdict: run.runReview?.verdict ?? null,
-                        reviewReasoning: run.runReview?.reasoning ?? setupFailureMessage(run.failure) ?? null,
-                        startedAt: run.startedAt,
-                        completedAt: run.completedAt,
-                        createdAt: run.createdAt,
-                        latestRunAt: run.startedAt ?? run.createdAt,
-                    },
-                ];
-            }
-
             const generation = latestGenerationByTestCaseId.get(assignment.testCaseId);
             if (generation == null) return [];
 
@@ -260,7 +197,6 @@ function buildExecutedTests(
                 {
                     source: "generation" as const,
                     testCase: assignment.testCase,
-                    runId: null,
                     generationId: generation.id,
                     status: generation.status,
                     finalOutcome: finalOutcomeForGenerationStatus(
@@ -271,18 +207,12 @@ function buildExecutedTests(
                     verdict: generation.generationReview?.verdict ?? null,
                     reviewReasoning:
                         generation.generationReview?.reasoning ?? setupFailureMessage(generation.failure) ?? null,
-                    startedAt: null,
-                    completedAt: null,
                     createdAt: generation.createdAt,
                     latestRunAt: generation.updatedAt,
                 },
             ];
         })
         .sort((left, right) => left.testCase.name.localeCompare(right.testCase.name));
-}
-
-function timeOf(run: { startedAt: Date | null; createdAt: Date }): number {
-    return run.startedAt?.getTime() ?? run.createdAt.getTime();
 }
 
 function computeFinalRefinementOutcomes({
@@ -332,14 +262,11 @@ function computeFinalRefinementOutcomes({
             outcomes.set(outcome.testCase.id, {
                 source: "generation",
                 testCase: outcome.testCase,
-                runId: null,
                 generationId: outcome.generationId,
                 status: "success",
                 finalOutcome: "passed",
                 verdict: generation?.generationReview?.verdict ?? null,
                 reviewReasoning: generation?.generationReview?.reasoning ?? null,
-                startedAt: null,
-                completedAt: null,
                 createdAt: generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
                 latestRunAt:
                     generation?.updatedAt ?? generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
@@ -352,14 +279,11 @@ function computeFinalRefinementOutcomes({
             outcomes.set(outcome.testCase.id, {
                 source: "generation",
                 testCase: outcome.testCase,
-                runId: null,
                 generationId: outcome.generationId,
                 status: outcome.generationStatus,
                 finalOutcome: terminalFailureOutcome(generation?.failure ?? null),
                 verdict: outcome.verdictKind ?? null,
                 reviewReasoning: outcome.reviewReasoning ?? setupFailureMessage(generation?.failure ?? null) ?? null,
-                startedAt: null,
-                completedAt: null,
                 createdAt: generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
                 latestRunAt:
                     generation?.updatedAt ?? generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
@@ -383,29 +307,17 @@ function unresolvedRefinementRow(
     return {
         source: "refinement",
         testCase: input.testCase,
-        runId: null,
         generationId: null,
         status: "pending",
         finalOutcome: "unresolved",
         verdict: null,
         reviewReasoning: null,
-        startedAt: null,
-        completedAt: null,
         createdAt: at,
         latestRunAt: at,
     };
 }
 
-type SystemFailureRow = RunRow["failure"] | GenerationRow["failure"];
-
-export function finalOutcomeForRunStatus(
-    status: RunStatus,
-    failure: RunRow["failure"],
-): SnapshotExecutedTestFinalOutcome {
-    if (status === "success") return "passed";
-    if (status === "failed") return terminalFailureOutcome(failure);
-    return "unresolved";
-}
+type SystemFailureRow = GenerationRow["failure"];
 
 export function finalOutcomeForGenerationStatus(
     status: GenerationStatus,
@@ -426,7 +338,7 @@ export function finalOutcomeForGenerationStatus(
  * Maps a terminal failure to its outcome bucket. A scenario-setup failure means
  * the test never got a chance to run (the environment never came up), so it
  * surfaces as the distinct `setup_failed` outcome; every other failure kind
- * (engine_error, agent_failed, max_steps, replay_failed) is a real `failed`.
+ * (engine_error, agent_failed, max_steps) is a real `failed`.
  */
 function terminalFailureOutcome(failure: SystemFailureRow): SnapshotExecutedTestFinalOutcome {
     return failure?.kind === "scenario_setup" ? "setup_failed" : "failed";

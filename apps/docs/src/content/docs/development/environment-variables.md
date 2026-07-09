@@ -276,11 +276,11 @@ Diffs analysis and resolution run as Temporal activities in the `@autonoma/worke
 | `GITHUB_APP_SLUG` | Yes | - | GitHub App slug (URL-friendly name). |
 | `SENTRY_DSN_WORKER_DIFFS` | No | - | Sentry DSN for the diffs worker. |
 
-### Review Jobs (Generation Reviewer, Replay Reviewer)
+### Review Jobs (Generation Reviewer)
 
 **Source:** `packages/diffs/src/env.ts`
 
-Both the generation reviewer and replay reviewer jobs re-export from `@autonoma/diffs/env`, which extends the AI, logger, and storage environments. No additional variables beyond those from the AI, logger, and storage sections.
+The generation reviewer job re-exports from `@autonoma/diffs/env`, which extends the AI, logger, and storage environments. No additional variables beyond those from the AI, logger, and storage sections.
 
 ---
 

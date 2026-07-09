@@ -63,7 +63,7 @@ describe("generation review fixture round-trip", () => {
                 {
                     iterationNumber: 1,
                     prompt: "Click the old Submit button",
-                    verdicts: [{ verdict: "engine_error", reasoning: "Selector looked stale." }],
+                    verdicts: [{ verdict: "unknown_issue", reasoning: "Selector looked stale." }],
                 },
                 {
                     iterationNumber: 2,

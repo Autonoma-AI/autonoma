@@ -7,11 +7,6 @@ export interface RunMobileGenerationInput {
     testGenerationId: string;
 }
 
-export interface RunMobileReplayInput {
-    runId: string;
-}
-
 export interface MobileActivities {
     runMobileGeneration(input: RunMobileGenerationInput): Promise<void>;
-    runMobileReplay(input: RunMobileReplayInput): Promise<void>;
 }

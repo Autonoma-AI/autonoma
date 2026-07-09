@@ -73,20 +73,12 @@ export function RefinementActionRow({ action }: RefinementActionRowProps) {
 function CitedReviewLink({ reviewLink }: { reviewLink: NonNullable<RefinementAction["reviewLink"]> }) {
   const className =
     "inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-secondary transition-colors hover:text-text-primary hover:underline";
-  if (reviewLink.kind === "generation") {
-    return (
-      <AppLink
-        to="/app/$appSlug/generations/$generationId"
-        params={{ generationId: reviewLink.id }}
-        className={className}
-      >
-        <ArrowSquareOutIcon size={11} />
-        cited review
-      </AppLink>
-    );
-  }
   return (
-    <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: reviewLink.id }} className={className}>
+    <AppLink
+      to="/app/$appSlug/generations/$generationId"
+      params={{ generationId: reviewLink.id }}
+      className={className}
+    >
       <ArrowSquareOutIcon size={11} />
       cited review
     </AppLink>

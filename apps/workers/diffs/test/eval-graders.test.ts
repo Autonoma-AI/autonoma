@@ -37,7 +37,7 @@ function removeAction(testCaseId: string): HealingAction {
         kind: "remove_test",
         testCaseId,
         reason: "Test asserts a screen the diff deleted; never a viable flow.",
-        reviewLink: { runReviewId: "rr-1" },
+        reviewLink: { generationReviewId: "gr-1" },
     };
 }
 
@@ -64,7 +64,7 @@ function reportBugAction(testCaseId: string): HealingAction {
             explanation: "The pay handler swallows the click without dispatching the charge.",
             codeReferences: [{ file: "src/checkout/PayButton.tsx", lines: "42-58" }],
         },
-        reviewLink: { runReviewId: "rr-2" },
+        reviewLink: { generationReviewId: "gr-2" },
     };
 }
 
@@ -77,7 +77,7 @@ function reportUnknownIssueAction(testCaseId: string): HealingAction {
         severity: "medium",
         evidence: [],
         reasoning: "Suspected application issue we could not ground in the checked-out code.",
-        reviewLink: { runReviewId: "rr-3" },
+        reviewLink: { generationReviewId: "gr-3" },
     };
 }
 
@@ -92,24 +92,23 @@ function reportScenarioUnsupportedAction(testCaseId: string): HealingAction {
         evidence: [],
         reasoning:
             "Impossible given the current scenario data - the scenario must be extended, not the plan rewritten.",
-        reviewLink: { runReviewId: "rr-4" },
+        reviewLink: { generationReviewId: "gr-4" },
     };
 }
 
 /** A minimal HealingCase carrying only what the load-time validators read. */
 function healingCase(
-    failures: { testCaseId: string; reviewLink?: { runReviewId: string } }[],
+    failures: { testCaseId: string; reviewLink?: { generationReviewId: string } }[],
     frontmatter: HealingCase["frontmatter"],
 ): HealingCase {
     const fullFailures = failures.map((f, i) => ({
         key: `key-${i}`,
-        source: "replay" as const,
         testCaseId: f.testCaseId,
         testCaseSlug: `slug-${i}`,
         testCaseName: `Test ${i}`,
         planId: `plan-${i}`,
         planPrompt: "Do a thing",
-        sourceId: `run-${i}`,
+        sourceId: `gen-${i}`,
         sourceStatus: "failed",
         lineage: [],
         steps: [],
@@ -204,7 +203,7 @@ describe("validateHealingCase removal citability", () => {
     it("accepts a removal whose failure carries a review", () => {
         expect(() =>
             validateHealingCase(
-                healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
+                healingCase([{ testCaseId: "tc-1", reviewLink: { generationReviewId: "gr-1" } }], {
                     provenance: { "tc-1": "removed" },
                 }),
             ),
@@ -214,7 +213,7 @@ describe("validateHealingCase removal citability", () => {
     it("throws on a provenance key that is not a failing test case", () => {
         expect(() =>
             validateHealingCase(
-                healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
+                healingCase([{ testCaseId: "tc-1", reviewLink: { generationReviewId: "gr-1" } }], {
                     provenance: { "tc-other": "kept" },
                 }),
             ),

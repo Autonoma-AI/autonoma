@@ -9,12 +9,6 @@ export interface RunWebGenerationInput {
     sdkUrlOverride?: string;
 }
 
-export interface RunWebReplayInput {
-    runId: string;
-    urlOverride?: string;
-}
-
 export interface WebActivities {
     runWebGeneration(input: RunWebGenerationInput): Promise<void>;
-    runWebReplay(input: RunWebReplayInput): Promise<void>;
 }

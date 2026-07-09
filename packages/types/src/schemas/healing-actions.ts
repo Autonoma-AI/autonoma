@@ -36,13 +36,9 @@ export type HealingEvidenceItem = z.infer<typeof evidenceItemSchema>;
 /**
  * The source review a report action links its evidence to. Deterministic
  * metadata about the failure (not authored by the model): a failure surfaced
- * at generation links to its generation review, one surfaced at replay links
- * to its run review.
+ * at generation links to its generation review.
  */
-export const healingReviewLinkSchema = z.union([
-    z.object({ generationReviewId: z.string() }),
-    z.object({ runReviewId: z.string() }),
-]);
+export const healingReviewLinkSchema = z.object({ generationReviewId: z.string() });
 
 export type HealingReviewLink = z.infer<typeof healingReviewLinkSchema>;
 

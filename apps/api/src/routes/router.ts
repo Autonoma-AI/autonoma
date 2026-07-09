@@ -14,7 +14,6 @@ import { issuesRouter } from "./issues/issues.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
 import { orgSecretsRouter } from "./org-secrets/org-secrets.router";
 import { previewAccessRouter } from "./preview-access/preview-access.router";
-import { runsRouter } from "./runs/runs.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
 import { secretsRouter } from "./secrets/secrets.router";
 import { snapshotEditRouter } from "./snapshot-edit/snapshot-edit.router";
@@ -32,7 +31,6 @@ const appRouterImpl = router({
     bugs: bugsRouter,
     deployments: deploymentsRouter,
     folders: foldersRouter,
-    runs: runsRouter,
     generations: generationsRouter,
     issues: issuesRouter,
     tests: testsRouter,

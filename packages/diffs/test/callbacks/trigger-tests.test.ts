@@ -18,7 +18,6 @@ function createMockBillingService(overrides?: Partial<BillingService>): BillingS
         updateAutoTopUp: vi.fn(),
         checkCreditsGate: vi.fn(),
         deductCreditsForGeneration: vi.fn().mockResolvedValue(true),
-        deductCreditsForRun: vi.fn().mockResolvedValue(true),
         refundCreditsForGeneration: vi.fn(),
         redeemPromoCode: vi.fn(),
         listPromoCodes: vi.fn(),

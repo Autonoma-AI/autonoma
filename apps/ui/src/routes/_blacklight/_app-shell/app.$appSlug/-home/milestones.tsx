@@ -1,6 +1,5 @@
 import { useBugsSummary } from "lib/query/bugs.queries";
 import { useGithubInstallation } from "lib/query/github.queries";
-import { useRuns } from "lib/query/runs.queries";
 import { useCurrentApplication } from "../../-use-current-application";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,11 +34,6 @@ const DEFINITIONS = [
     tooltip: "Connect your GitHub repository to trigger tests on deployments",
   },
   {
-    id: "first_run",
-    label: "FIRST RUN",
-    tooltip: "Execute your first test run against your application",
-  },
-  {
     id: "first_bug",
     label: "FIRST BUG FIX",
     tooltip: "Find and resolve your first bug detected by Autonoma",
@@ -51,7 +45,6 @@ export function useMilestones(): Milestone[] {
 
   const base = `/app/${appSlug}`;
 
-  const { data: runs } = useRuns();
   const { data: bugs } = useBugsSummary();
   const { data: installation } = useGithubInstallation();
 
@@ -59,7 +52,6 @@ export function useMilestones(): Milestone[] {
     install_agent: true,
     configure_tests: true,
     ci: installation != null,
-    first_run: runs.length > 0,
     first_bug: bugs.some((b) => b.status === "resolved"),
   };
 
@@ -67,7 +59,6 @@ export function useMilestones(): Milestone[] {
     install_agent: base,
     configure_tests: base,
     ci: `${base}/settings`,
-    first_run: `${base}/tests`,
     first_bug: base,
   };
 

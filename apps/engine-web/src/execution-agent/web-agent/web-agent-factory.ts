@@ -32,7 +32,6 @@ import {
     SaveClipboardTool,
     ScrollTool,
     TypeTool,
-    WaitPlanner,
 } from "@autonoma/engine";
 import type { WebCommandSpec } from ".";
 import type { WebContext } from "../../platform";
@@ -72,12 +71,6 @@ export function createWebAgentFactory(models: EngineModelRegistry): ExecutionAge
     return new ExecutionAgentFactory({
         model: models.getModel({ model: "smart-visual", tag: "agent-loop" }),
         commandTools: createTools(models),
-        waitPlanner: new WaitPlanner<WebCommandSpec>({
-            model: models.getModel({ model: "fast-visual", tag: "wait-planner" }),
-        }),
-        waitConditionValidator: new VisualConditionChecker({
-            model: models.getModel({ model: "fast-visual", tag: "wait-condition-validator" }),
-        }),
         architecture: "web",
         platformMetadata: async ({ context }) => ({
             url: await context.navigation.getCurrentUrl(),

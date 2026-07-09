@@ -25,7 +25,7 @@ export interface AppliedMergePlanImport {
 /**
  * Applies the winning plan/steps from source snapshots into the target snapshot's
  * TestCaseAssignments. Used for the `unilateral_update` and `new_test`
- * classifications before dispatching replay runs with `merge_plan_imported`.
+ * classifications before regenerating with `merge_plan_imported`.
  *
  * - If the target already has an assignment for the slug, it is updated in
  *   place so the assignmentId stays stable for downstream consumers.

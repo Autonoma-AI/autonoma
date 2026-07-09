@@ -1,8 +1,6 @@
 import type {
     ReviewGenerationInput,
     ReviewGenerationOutput,
-    ReviewReplayInput,
-    ReviewReplayOutput,
     RunHealingAgentForRefinementInput,
     RunHealingAgentForRefinementOutput,
 } from "./general-activities";
@@ -31,6 +29,5 @@ export interface DiffsActivities {
     markDiffsGenerating(input: MarkDiffsGeneratingInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
     reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput>;
-    reviewReplay(input: ReviewReplayInput): Promise<ReviewReplayOutput>;
     runHealingAgentForRefinement(input: RunHealingAgentForRefinementInput): Promise<RunHealingAgentForRefinementOutput>;
 }

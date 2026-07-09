@@ -4,15 +4,15 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Four steps are currently under eval: **Diff Analysis**, **Generation Review**,
-**Replay Review**, and **Diff Healing**. The reviewer evals additionally exercise
+Three steps are currently under eval: **Diff Analysis**, **Generation Review**,
+and **Diff Healing**. The reviewer evals additionally exercise
 the **multimedia rehydration path** - they download screenshots + the recording
 from S3 at run time via the production evidence loader. No media bytes are ever
 committed.
 
 Diff Resolution no longer has its own step. The Resolution agent was folded into
 the Healing agent as iteration 1 of the refinement loop, so a first-turn case
-(the affected-test replay failures) is now just another Healing fixture -
+(the affected-test generation failures) is now just another Healing fixture -
 captured and graded through the single Healing capture/eval path described below.
 New tests are authored upstream by the diffs agent (`create_test`); healing only
 heals and culls, so it has no test-authoring channel to grade.
@@ -45,7 +45,6 @@ some-parent/
 └── eval-cases/                              # corpus (private), DIFFS_EVAL_CASES_DIR
     ├── analysis/cases/<name>/
     ├── generation-review/cases/<name>/
-    ├── replay-review/cases/<name>/
     └── healing/cases/<name>/
 ```
 
@@ -112,16 +111,16 @@ was authored (how many, into which folders), and every created test is checked f
 non-blank coverage justification; whether each test is *genuinely* non-redundant and
 its justification *sound* is graded by the judge.
 
-### Reviewer frontmatter (generation + replay)
+### Reviewer frontmatter (generation)
 
-Both reviewer evals share the same shape. Only `verdict` is graded
+Only `verdict` is graded
 deterministically; the reviewer's other fields (`title`, `reasoning`,
 `failurePoint`, `evidence`) are free-text and graded by the judge rubric. The
-verdict enum differs per reviewer:
-`success | agent_limitation | application_bug | plan_mismatch | unknown_issue | scenario_unsupported`
-for generation, `engine_error | application_bug | unknown_issue` for replay. An `application_bug` must
+generation verdict enum is
+`success | agent_limitation | application_bug | plan_mismatch | unknown_issue | scenario_unsupported`.
+An `application_bug` must
 carry a `suspectedCause` grounding it in code; a suspected bug that can't be grounded is
-`unknown_issue`. `scenario_unsupported` (generation only) is a test impossible given the current
+`unknown_issue`. `scenario_unsupported` is a test impossible given the current
 scenario data; it carries a `proposedScenarioExtension` and is selectable only when the test case has
 a description.
 
@@ -249,22 +248,21 @@ the new case in the private `eval-cases` repo, never here.
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:generation-review      <generationId> [--name <case-name>] [--force]
-pnpm --filter @autonoma/worker-diffs capture:replay-review          <runId>        [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:healing                <iterationId>  [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:healing-from-snapshot  <snapshotId>   [--name <case-name>] [--force]
 ```
 
 A diffs **first turn** is captured with `capture:healing` like any other
 iteration - pass iteration 1 of a diffs refinement loop. The capture buckets its
-outcomes (affected-test replays have a run but no generation; the diffs agent's
-new tests have a generation + run), so the frozen `input.json` carries those
+outcomes (affected tests are regenerated, so each has a generation + run, as do
+the diffs agent's new tests), so the frozen `input.json` carries those
 `failures`.
 
 **Pre-#986 / loop-less snapshots use `capture:healing-from-snapshot <snapshotId>`.**
 Before the cut-over (#986), "resolution" ran outside the refinement loop, so those
 snapshots have no `RefinementIteration` for `capture:healing` to start from. This
 command reconstructs the same first-turn `HealingInput` straight from the snapshot:
-failures from the affected-test replays (the plans diffs iteration 1 is seeded
+failures from the affected-test generations (the plans diffs iteration 1 is seeded
 from) and the change / analysis reasoning / per-failure lineage from the shared
 `DiffJobContextLoader`. It is the migration path for the legacy resolution corpus,
 and produces a fixture identical in shape to an iteration-based first-turn capture.
@@ -273,8 +271,7 @@ pre-#986 resolution mutated this snapshot's own assignments (modify/remove) - th
 previous snapshot holds the unmutated baseline the first turn saw, exactly as the
 old `capture:resolution` did (the "Baseline snapshot state" note below).
 
-(Replay review is failure-only - it refuses runs whose status is not `"failed"`,
-mirroring production.) After capture, fill in the frontmatter checks and the rubric
+After capture, fill in the frontmatter checks and the rubric
 in `expected.md`, then flip `skip: false`.
 
 **Baseline snapshot state (Analysis).** Analysis grades against the snapshot as it stood _before_
@@ -288,12 +285,11 @@ This is controlled by the `testSuiteSource` option on the shared `assembleDiffsA
 **Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
 `bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
 time). Those reads only touch rows that the rest of the pipeline never mutates by id
-(`TestGeneration`, `Run`, their reviews; `update_plan` creates a _new_ `TestPlan` rather than
+(`TestGeneration` and its review; `update_plan` creates a _new_ `TestPlan` rather than
 mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
 filtered out). The bucketing reproduces exactly - including a **diffs first turn**, whose seeded
-plans mix replay-only affected tests (a pre-existing test replayed against the diff has a `Run` but
-no `TestGeneration`, bucketed by run outcome) and the diffs agent's new tests (a `TestGeneration` +
-`Run`, bucketed by both).
+plans mix affected tests (a pre-existing test regenerated against the diff has a `TestGeneration`)
+and the diffs agent's new tests (also a `TestGeneration`); both are bucketed by generation outcome.
 
 **Per-failure diff-job context (Healing).** Healing assembles its input through the shared
 `DiffJobContextLoader` (`loadHealingContext`), the same path the reviewers use, so

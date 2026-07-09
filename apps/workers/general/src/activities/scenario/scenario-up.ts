@@ -1,9 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { GenerationSubject, RunSubject, type ScenarioManager, type ScenarioSubject } from "@autonoma/scenario";
+import { GenerationSubject, type ScenarioManager } from "@autonoma/scenario";
 
 export interface ScenarioUpParams {
-    type: "run" | "generation";
     entityId: string;
     sdkUrlOverride?: string;
 }
@@ -22,13 +21,13 @@ export interface ScenarioUpDeps {
  * side effect themselves.
  */
 export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps): Promise<string> {
-    const { type, entityId } = params;
+    const { entityId } = params;
     const { db, manager } = deps;
-    const logger = rootLogger.child({ name: "scenarioUp", type, entityId });
+    const logger = rootLogger.child({ name: "scenarioUp", entityId });
 
     logger.info("Resolving scenario context");
-    const subject = createSubject(type, db, entityId);
-    const { scenarioId, snapshotId } = await resolveScenarioContext(type, db, entityId, logger);
+    const subject = new GenerationSubject(db, entityId);
+    const { scenarioId, snapshotId } = await resolveScenarioContext(db, entityId, logger);
     logger.info("Scenario context resolved", { scenarioId, snapshotId });
 
     const instance = await manager.up(subject, scenarioId, { snapshotId, sdkUrlOverride: params.sdkUrlOverride });
@@ -48,54 +47,26 @@ export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps)
     return instance.id;
 }
 
-function createSubject(type: "run" | "generation", db: PrismaClient, entityId: string): ScenarioSubject {
-    if (type === "generation") return new GenerationSubject(db, entityId);
-    return new RunSubject(db, entityId);
-}
-
 async function resolveScenarioContext(
-    type: "run" | "generation",
     db: PrismaClient,
     entityId: string,
     logger: ReturnType<typeof rootLogger.child>,
 ): Promise<{ scenarioId: string; snapshotId: string }> {
-    if (type === "generation") {
-        const generation = await db.testGeneration.findUniqueOrThrow({
-            where: { id: entityId },
-            select: {
-                snapshotId: true,
-                testPlan: { select: { scenarioId: true } },
-            },
-        });
-        const scenarioId = generation.testPlan.scenarioId;
-        if (scenarioId == null) {
-            logger.error("scenarioUp called but generation test plan has no linked scenario", { entityId });
-            throw new Error(`Generation ${entityId} has no linked scenario`);
-        }
-        if (generation.snapshotId == null) {
-            logger.error("Generation has no linked snapshot", { entityId });
-            throw new Error(`Generation ${entityId} has no linked snapshot`);
-        }
-        return { scenarioId, snapshotId: generation.snapshotId };
-    }
-
-    const run = await db.run.findUniqueOrThrow({
+    const generation = await db.testGeneration.findUniqueOrThrow({
         where: { id: entityId },
         select: {
-            assignment: {
-                select: {
-                    snapshotId: true,
-                    plan: {
-                        select: { scenarioId: true },
-                    },
-                },
-            },
+            snapshotId: true,
+            testPlan: { select: { scenarioId: true } },
         },
     });
-    const scenarioId = run.assignment.plan?.scenarioId;
+    const scenarioId = generation.testPlan.scenarioId;
     if (scenarioId == null) {
-        logger.error("scenarioUp called but run assignment has no linked scenario", { entityId });
-        throw new Error(`Run ${entityId} has no linked scenario`);
+        logger.error("scenarioUp called but generation test plan has no linked scenario", { entityId });
+        throw new Error(`Generation ${entityId} has no linked scenario`);
     }
-    return { scenarioId, snapshotId: run.assignment.snapshotId };
+    if (generation.snapshotId == null) {
+        logger.error("Generation has no linked snapshot", { entityId });
+        throw new Error(`Generation ${entityId} has no linked snapshot`);
+    }
+    return { scenarioId, snapshotId: generation.snapshotId };
 }

@@ -3,7 +3,7 @@ import type { BillingCheckoutType } from "@autonoma/types";
 import { BillingCustomerService } from "./billing-customer.service";
 import { BillingPricingService } from "./billing-pricing.service";
 import { BillingPromoService } from "./billing-promo.service";
-import type { BillingConsumptionTarget, BillingService, DeductGenerationContext, LlmProxyGateResult } from "./types";
+import type { BillingService, DeductGenerationContext, LlmProxyGateResult } from "./types";
 
 export class DisabledBillingService implements BillingService {
     private readonly billingCustomerService: BillingCustomerService;
@@ -38,20 +38,11 @@ export class DisabledBillingService implements BillingService {
         return this.billingCustomerService.updateAutoTopUp(organizationId, enabled, threshold);
     }
 
-    checkCreditsGate(
-        _organizationId: string,
-        _runCount: number,
-        _architecture: ApplicationArchitecture,
-        _target: BillingConsumptionTarget = "generation",
-    ) {
+    checkCreditsGate(_organizationId: string, _runCount: number, _architecture: ApplicationArchitecture) {
         return Promise.resolve();
     }
 
     deductCreditsForGeneration(_generationId: string, _context?: DeductGenerationContext) {
-        return Promise.resolve(false);
-    }
-
-    deductCreditsForRun(_runId: string) {
         return Promise.resolve(false);
     }
 

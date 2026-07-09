@@ -5,7 +5,7 @@ import { BillingCustomerService } from "./billing-customer.service";
 import { BillingPricingService } from "./billing-pricing.service";
 import { BillingPromoService } from "./billing-promo.service";
 import { CreditsService } from "./credits.service";
-import type { BillingConsumptionTarget, BillingService, DeductGenerationContext, StripeBillingService } from "./types";
+import type { BillingService, DeductGenerationContext, StripeBillingService } from "./types";
 
 export class EnabledBillingService implements BillingService, StripeBillingService {
     private readonly billingCustomerService: BillingCustomerService;
@@ -43,21 +43,12 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.billingCustomerService.updateAutoTopUp(organizationId, enabled, threshold);
     }
 
-    checkCreditsGate(
-        organizationId: string,
-        runCount: number,
-        architecture: ApplicationArchitecture,
-        target: BillingConsumptionTarget = "generation",
-    ) {
-        return this.creditsService.checkCreditsGate(organizationId, runCount, architecture, target);
+    checkCreditsGate(organizationId: string, runCount: number, architecture: ApplicationArchitecture) {
+        return this.creditsService.checkCreditsGate(organizationId, runCount, architecture);
     }
 
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext) {
         return this.creditsService.deductCreditsForGeneration(generationId, context);
-    }
-
-    deductCreditsForRun(runId: string) {
-        return this.creditsService.deductCreditsForRun(runId);
     }
 
     checkLlmProxyGate(organizationId: string, freeCliCreditCap: number) {

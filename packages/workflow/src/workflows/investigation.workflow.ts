@@ -444,7 +444,7 @@ async function validateCandidateOnTwin(
 
     let scenarioInstanceId: string | undefined;
     try {
-        const up = await general.scenarioUp({ scenarioJobType: "generation", entityId: testGenerationId, scenarioId });
+        const up = await general.scenarioUp({ entityId: testGenerationId, scenarioId });
         scenarioInstanceId = up.scenarioInstanceId;
         try {
             await web.runWebGeneration({ testGenerationId });
@@ -636,7 +636,6 @@ async function validatePlan(
         try {
             if (created.scenarioId != null) {
                 const up = await general.scenarioUp({
-                    scenarioJobType: "generation",
                     entityId: testGenerationId,
                     scenarioId: created.scenarioId,
                 });
@@ -694,7 +693,6 @@ async function runOneTest(snapshotId: string, test: InvestigationSelectedTest): 
         let scenarioInstanceId: string;
         try {
             const up = await general.scenarioUp({
-                scenarioJobType: "generation",
                 entityId: test.testGenerationId,
                 scenarioId: test.scenarioId,
             });

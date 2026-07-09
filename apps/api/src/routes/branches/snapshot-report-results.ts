@@ -16,11 +16,8 @@ export function buildResultsBlock(executedTests: SnapshotExecutedTest[], parentL
         name: test.testCase.name,
         slug: test.testCase.slug,
         status: reportStatusForExecutedTest(test),
-        runId: test.runId ?? undefined,
-        durationMs: durationForTest(test),
     }));
 
-    const phaseDurationMs = runPhaseDuration(executedTests);
     // Terminal outcomes (passed / failed / setup_failed) come from the shared
     // classifier so the report header agrees with the panel and health counts.
     // The pending vs running split is a presentation concern over the remaining
@@ -29,11 +26,10 @@ export function buildResultsBlock(executedTests: SnapshotExecutedTest[], parentL
     const { pending, running } = countInFlight(tests);
 
     logger.info("Built results block", {
-        extra: { executedTests: executedTests.length, phaseDurationMs },
+        extra: { executedTests: executedTests.length },
     });
 
     return {
-        durationMs: phaseDurationMs != null && phaseDurationMs > 0 ? phaseDurationMs : undefined,
         passed: tally.passing,
         failed: tally.failing,
         setupFailed: tally.setupFailed,
@@ -52,11 +48,6 @@ function reportStatusForExecutedTest(test: SnapshotExecutedTest): ReportTestStat
     return "pending";
 }
 
-function durationForTest(test: SnapshotExecutedTest): number | undefined {
-    if (test.startedAt == null || test.completedAt == null) return undefined;
-    return test.completedAt.getTime() - test.startedAt.getTime();
-}
-
 function countInFlight(tests: SnapshotReportTestResult[]) {
     let running = 0;
     let pending = 0;
@@ -67,10 +58,4 @@ function countInFlight(tests: SnapshotReportTestResult[]) {
     }
 
     return { pending, running };
-}
-
-function runPhaseDuration(tests: Array<{ startedAt: Date | null; completedAt: Date | null }>): number | undefined {
-    const startTimes = tests.map((t) => t.startedAt?.getTime()).filter((t): t is number => t != null);
-    const endTimes = tests.map((t) => t.completedAt?.getTime()).filter((t): t is number => t != null);
-    return startTimes.length > 0 && endTimes.length > 0 ? Math.max(...endTimes) - Math.min(...startTimes) : undefined;
 }

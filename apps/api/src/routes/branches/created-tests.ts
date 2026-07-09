@@ -1,11 +1,4 @@
-import type {
-    GenerationReviewVerdict,
-    GenerationStatus,
-    Prisma,
-    PrismaClient,
-    RunReviewVerdict,
-    RunStatus,
-} from "@autonoma/db";
+import type { GenerationReviewVerdict, GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 
 export interface CreatedTestGeneration {
@@ -15,25 +8,16 @@ export interface CreatedTestGeneration {
     reviewReasoning?: string;
 }
 
-export interface CreatedTestRun {
-    id: string;
-    status: RunStatus;
-    verdict?: RunReviewVerdict;
-    reviewReasoning?: string;
-}
-
 /**
  * A test the diffs agent (or onboarding) authored during this snapshot's
  * analysis. Each carries the durable description (the test's intent) plus the
- * `generation -> run` pipeline that generated and validated it in the refinement
- * loop.
+ * generation that authored and validated it in the refinement loop.
  */
 export interface SnapshotCreatedTest {
     testCase: { id: string; name: string; slug: string; folderId: string };
     description?: string;
     plan: string;
     generation?: CreatedTestGeneration;
-    run?: CreatedTestRun;
 }
 
 const assignmentSelect = {
@@ -51,24 +35,14 @@ const generationSelect = {
     generationReview: { select: { verdict: true, reasoning: true } },
 } satisfies Prisma.TestGenerationSelect;
 
-const runSelect = {
-    id: true,
-    status: true,
-    startedAt: true,
-    createdAt: true,
-    assignment: { select: { testCaseId: true } },
-    runReview: { select: { verdict: true, reasoning: true } },
-} satisfies Prisma.RunSelect;
-
 type AssignmentRow = Prisma.TestCaseAssignmentGetPayload<{ select: typeof assignmentSelect }>;
 type GenerationRow = Prisma.TestGenerationGetPayload<{ select: typeof generationSelect }>;
-type RunRow = Prisma.RunGetPayload<{ select: typeof runSelect }>;
 
 /**
  * Loads the tests created in this snapshot (those whose assignment is new
  * relative to the previous snapshot, identified by the caller from the snapshot
  * changes) together with their description (the test's durable intent) and the
- * latest generation + run that authored and validated each one.
+ * latest generation that authored and validated each one.
  *
  * Sourced from the assignments + generations created during analysis.
  */
@@ -83,7 +57,7 @@ export async function loadCreatedTests(
 
     logger.info("Loading created tests", { extra: { count: createdTestCaseIds.length } });
 
-    const [assignments, generations, runs] = await Promise.all([
+    const [assignments, generations] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId, testCaseId: { in: createdTestCaseIds } },
             select: assignmentSelect,
@@ -92,10 +66,6 @@ export async function loadCreatedTests(
             where: { snapshotId, shadow: false, testPlan: { testCaseId: { in: createdTestCaseIds } } },
             select: generationSelect,
         }),
-        db.run.findMany({
-            where: { assignment: { snapshotId, testCaseId: { in: createdTestCaseIds } } },
-            select: runSelect,
-        }),
     ]);
 
     const latestGenByTestCase = pickLatest(
@@ -103,24 +73,17 @@ export async function loadCreatedTests(
         (g) => g.testPlan.testCaseId,
         (g) => g.updatedAt.getTime(),
     );
-    const latestRunByTestCase = pickLatest(
-        runs,
-        (r) => r.assignment.testCaseId,
-        (r) => (r.startedAt ?? r.createdAt).getTime(),
-    );
 
     return assignments
-        .map((assignment) => buildCreatedTest(assignment, latestGenByTestCase, latestRunByTestCase))
+        .map((assignment) => buildCreatedTest(assignment, latestGenByTestCase))
         .sort((left, right) => left.testCase.name.localeCompare(right.testCase.name));
 }
 
 function buildCreatedTest(
     assignment: AssignmentRow,
     latestGenByTestCase: Map<string, GenerationRow>,
-    latestRunByTestCase: Map<string, RunRow>,
 ): SnapshotCreatedTest {
     const generation = latestGenByTestCase.get(assignment.testCaseId);
-    const run = latestRunByTestCase.get(assignment.testCaseId);
 
     return {
         testCase: {
@@ -138,15 +101,6 @@ function buildCreatedTest(
                       status: generation.status,
                       verdict: generation.generationReview?.verdict ?? undefined,
                       reviewReasoning: generation.generationReview?.reasoning ?? undefined,
-                  }
-                : undefined,
-        run:
-            run != null
-                ? {
-                      id: run.id,
-                      status: run.status,
-                      verdict: run.runReview?.verdict ?? undefined,
-                      reviewReasoning: run.runReview?.reasoning ?? undefined,
                   }
                 : undefined,
     };

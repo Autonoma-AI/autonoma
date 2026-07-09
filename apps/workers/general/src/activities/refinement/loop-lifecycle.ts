@@ -28,11 +28,10 @@ import type {
  * Invariant this depends on: at trigger time, the seed set is exactly the plans
  * that need refinement. Maintained by the upstream flows that trigger the loop:
  *
- *   - Diffs: the diffs analysis step replays every affected test against the
- *     diff, so the affected tests' committed plans (the ones whose replays ran)
- *     are part of iter 1's scope; alongside them, the new tests the diffs agent
- *     authored have pending generations that iter 1's pipeline generates + runs.
- *     The seed set is the union of both.
+ *   - Diffs: analysis queues a pending generation for every affected test (so
+ *     the affected tests' plans are part of iter 1's scope), alongside the new
+ *     tests the diffs agent authored, which also carry pending generations that
+ *     iter 1's pipeline generates. The seed set is the union of both.
  *   - Onboarding: `AddTest` changes during snapshot setup queue pending gens
  *     for every test the loop should validate; `addJob`'s per-test-case dedup
  *     prevents stale pending rows from accumulating.

@@ -716,13 +716,6 @@ export class BranchesService extends Service {
                                 affectedReason: true,
                                 reasoning: true,
                                 testCase: { select: { id: true, name: true, slug: true } },
-                                run: {
-                                    select: {
-                                        id: true,
-                                        status: true,
-                                        runReview: { select: { verdict: true, reasoning: true } },
-                                    },
-                                },
                                 generation: {
                                     select: {
                                         id: true,
@@ -797,8 +790,8 @@ export class BranchesService extends Service {
 
         // Attribute failing tests that carry a linked Issue to engine vs app by Issue kind. The
         // lookup no-ops (no query) when nothing failed, keeping the all-green path query-flat.
-        const { runIds, generationIds } = failingExecutionIds([executedTests]);
-        const issueKinds = await loadIssueKindsForExecutions(this.db, runIds, generationIds);
+        const { generationIds } = failingExecutionIds([executedTests]);
+        const issueKinds = await loadIssueKindsForExecutions(this.db, generationIds);
         const failingByKind = computeFailingByKind(executedTests, issueKinds);
         const suiteChangeCount = changes.filter(
             (c) => c.type === "added" || c.type === "updated" || c.type === "removed",
