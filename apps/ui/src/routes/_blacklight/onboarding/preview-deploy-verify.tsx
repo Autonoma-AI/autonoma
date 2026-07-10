@@ -8,6 +8,7 @@ import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import * as Sentry from "@sentry/react";
 import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
   useCompletePreviewOnboarding,
@@ -238,6 +239,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
         <DeployLogsSection
           repoFullName={data.diagnostics.logs.repoFullName}
           prNumber={data.diagnostics.logs.prNumber}
+          services={data.services}
           appBuilding={appBuilding}
           source={logSource}
           onSourceChange={setLogSourceOverride}
@@ -262,34 +264,44 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
 }
 
 /**
- * The deploy's logs as App/Build tabs. App (runtime) logs are where a crash-at-
- * start surfaces, so they are the focus once the container is running; the build
- * output stays one tab over. The active tab is driven by the caller.
+ * The deploy's logs as App/Build tabs, scoped to one app or service at a time.
+ * App (runtime) logs are where a crash-at-start surfaces, so they are the focus
+ * once the container is running; the build output stays one tab over. The active
+ * tab is driven by the caller; the app filter (defaulting to the first) picks
+ * which app's build + runtime logs stream.
  */
 function DeployLogsSection({
   repoFullName,
   prNumber,
+  services,
   appBuilding,
   source,
   onSourceChange,
 }: {
   repoFullName: string;
   prNumber: number;
+  services: PreviewReadinessData["services"];
   appBuilding: boolean;
   source: PreviewLogSource;
   onSourceChange: (source: PreviewLogSource) => void;
 }) {
   const [owner = "", repo = ""] = repoFullName.split("/");
+  const appNames = services.map((service) => service.name);
+  const [selectedApp, setSelectedApp] = useState<string | undefined>(() => appNames[0]);
   return (
     <section className="mt-6 border border-border-dim bg-surface-base">
       <div className="border-b border-border-dim bg-surface-raised px-5 py-4">
         <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Logs</h2>
       </div>
-      <div className="p-5">
+      <div className="flex flex-col gap-3 p-5">
+        {appNames.length > 0 ? (
+          <LogAppFilter apps={appNames} selectedApp={selectedApp} onSelect={setSelectedApp} />
+        ) : undefined}
         <PreviewLogsTabs
           owner={owner}
           repo={repo}
           pr={prNumber}
+          app={selectedApp}
           appBuilding={appBuilding}
           source={source}
           onSourceChange={onSourceChange}

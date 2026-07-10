@@ -30,6 +30,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
+import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
@@ -528,35 +529,6 @@ function EnvironmentLogsPanel({ environment }: { environment: PreviewEnvironment
     <div className="flex flex-col gap-2 border-t border-border-dim p-3">
       {appNames.length > 0 && <LogAppFilter apps={appNames} selectedApp={selectedApp} onSelect={setSelectedApp} />}
       <PreviewLogsTabs owner={owner} repo={repo} pr={environment.prNumber} app={selectedApp} />
-    </div>
-  );
-}
-
-// Segmented selector that scopes the logs to one app (one is always selected).
-// Mirrors the card's other toggles: active = secondary, inactive = outline.
-function LogAppFilter({
-  apps,
-  selectedApp,
-  onSelect,
-}: {
-  apps: string[];
-  selectedApp: string | undefined;
-  onSelect: (app: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-0.5 font-mono text-3xs uppercase tracking-widest text-text-secondary">App</span>
-      {apps.map((app) => (
-        <Button
-          key={app}
-          variant={selectedApp === app ? "secondary" : "outline"}
-          size="xs"
-          aria-pressed={selectedApp === app}
-          onClick={() => onSelect(app)}
-        >
-          {app}
-        </Button>
-      ))}
     </div>
   );
 }
