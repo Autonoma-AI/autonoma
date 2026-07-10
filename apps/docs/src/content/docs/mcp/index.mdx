@@ -1,0 +1,198 @@
+---
+title: Connect your coding agent (MCP)
+description: Connect your coding agent to Autonoma's MCP server so it can see why a pull request's preview broke - deploy status, logs, diagnosis, and missing secrets - and fix it in your repo.
+---
+
+import Tabs from "../../../components/Tabs.astro"
+import TabItem from "../../../components/TabItem.astro"
+
+<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's live debugging data - deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix a broken preview from inside your repo, the same way it fixes anything else.</p>
+
+When Autonoma flags a problem on your PR, the fix usually lives in your codebase. Instead of copying logs out of a dashboard, point your agent at the MCP server and let it pull exactly what it needs.
+
+## Connection details
+
+Everything below is the same server, just configured per client. When a client asks for these values, use:
+
+| Setting | Value |
+| --- | --- |
+| **URL** | `https://api.autonoma.app/v1/mcp/debug` |
+| **Transport** | Streamable HTTP |
+| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
+
+:::note
+You need an Autonoma account with your app connected, and a pull request that has a preview environment. The MCP is scoped to your organization - it only ever sees your own deploys, logs, and secret status.
+:::
+
+## Connect your coding agent
+
+<Tabs group="mcp-client">
+
+<TabItem label="Claude Code">
+
+Add the server with the Claude Code CLI:
+
+```bash
+claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug
+```
+
+The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize. Run `claude mcp list` to confirm it connected.
+
+</TabItem>
+
+<TabItem label="Cursor">
+
+Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your project:
+
+```json
+// .cursor/mcp.json
+{
+  "mcpServers": {
+    "autonoma": {
+      "url": "https://api.autonoma.app/v1/mcp/debug"
+    }
+  }
+}
+```
+
+Reload Cursor, then complete the browser sign-in when prompted from **Settings → MCP**.
+
+</TabItem>
+
+<TabItem label="VS Code">
+
+For GitHub Copilot's agent mode, add the server to `.vscode/mcp.json`:
+
+```json
+// .vscode/mcp.json
+{
+  "servers": {
+    "autonoma": {
+      "type": "http",
+      "url": "https://api.autonoma.app/v1/mcp/debug"
+    }
+  }
+}
+```
+
+Start the server from the `mcp.json` editor lens, then authorize in the browser when prompted.
+
+</TabItem>
+
+<TabItem label="Windsurf">
+
+Add the server to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+// ~/.codeium/windsurf/mcp_config.json
+{
+  "mcpServers": {
+    "autonoma": {
+      "serverUrl": "https://api.autonoma.app/v1/mcp/debug"
+    }
+  }
+}
+```
+
+Refresh MCP servers from Cascade's settings, then complete the browser sign-in.
+
+</TabItem>
+
+<TabItem label="Codex">
+
+Codex reaches remote servers through the `mcp-remote` bridge, which also handles the OAuth browser flow. Add it to `~/.codex/config.toml`:
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.autonoma]
+command = "npx"
+args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
+```
+
+</TabItem>
+
+<TabItem label="Other clients">
+
+Any MCP client that speaks Streamable HTTP can connect with the [connection details](#connection-details) above. For a client that only supports STDIO servers, bridge to the remote server with [`mcp-remote`](https://github.com/geelen/mcp-remote):
+
+```json
+{
+  "mcpServers": {
+    "autonoma": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
+    }
+  }
+}
+```
+
+`mcp-remote` opens the browser for the OAuth sign-in and proxies the connection over STDIO.
+
+</TabItem>
+
+</Tabs>
+
+:::caution
+Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
+:::
+
+## Point your agent at it
+
+The server gives your agent the tools; a short line in your agent's instructions tells it *when* to reach for them. The fastest way is to invoke the **`setup_autonoma`** prompt - your agent adds the section to `AGENTS.md` (or `CLAUDE.md`) for you. Or add it by hand:
+
+```markdown
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a
+problem, use the Autonoma MCP tools to find the cause (get_deploy_status,
+diagnose_deploy, get_build_logs, get_app_logs, get_secret_status), fix it
+(set_secret for a missing value, edit_previewkit_config for build/wiring),
+and confirm with wait_for_deploy - before merging.
+```
+
+Because that file is read every session, your agent pauses to check the preview without you having to ask.
+
+The server also ships two things any client can use without a setup file: a **`debug_broken_preview`** prompt (a guided fix flow for a given PR) and a readable **debugging guide** resource. And its connect-time instructions already tell your agent what Autonoma is and the recommended order to use the tools - so even an agent that has never heard of Autonoma knows where to start.
+
+## What your agent can do
+
+Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR number. Your organization is inferred from the repo (which you must belong to), so every call is automatically scoped to it. You don't need to hand your agent the repo name - it infers it from the repository's git remote, or calls `list_apps` to let you pick. You do not need GitHub access; the repo name is just how Autonoma identifies your app.
+
+### Read the evidence
+
+| Tool | Input | Returns |
+| --- | --- | --- |
+| `list_apps` | none | The repos you can debug across your organizations - use when the repo isn't obvious |
+| `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
+| `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service/addon states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
+| `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |
+| `get_app_logs` | repo, PR | Runtime (stdout/stderr) log lines, from the `tail` (a crash) or `head` (startup) |
+| `get_endpoints` | repo, PR | The preview URL, a suggested SDK URL, and one entry per service (internal services like a database report `url: null` with a reason) |
+| `get_secret_status` | repo | The full env-var surface per app: topology connections (with template values) and secret-backed vars (declared build secrets + runtime secrets), with masked length and a fingerprint only, plus which declared build secrets are missing |
+
+### Fix and confirm
+
+| Tool | Input | Returns |
+| --- | --- | --- |
+| `set_secret` | repo, PR, app, key, value? | Sets (or, without a value, removes) a secret env var's value and applies it - rebuilds if it's a build secret, restarts otherwise. Values are stored encrypted and never returned |
+| `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
+| `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret` or `edit_previewkit_config` rebuild |
+
+The two write tools split cleanly by what they change, so your agent never has to guess which to use:
+
+- A **secret value** (an API key, token, or password) - `set_secret`. It stores the value and applies the minimal action itself: a rebuild if the key is a declared build secret (baked into the image at build), a restart otherwise. You do not tell it which; it reads your config.
+- **How the app is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds the service.
+
+Both apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
+
+:::caution[Secrets are never exposed]
+The MCP never returns a secret's value - not through `get_secret_status`, not through `set_secret`, not anywhere. To let your agent check whether a set value matches one it already holds, both return a non-reversible **fingerprint** (the first 12 hex chars of SHA-256 of the value) instead: your agent computes `sha256(value).hex.slice(0, 12)` on its candidate and compares. The value never leaves Autonoma; only whether it matches can be inferred.
+:::
+
+## Troubleshooting
+
+**The tools do not show up.** Confirm the client connected (e.g. `claude mcp list`) and that you completed the browser sign-in. A client that only supports STDIO needs the `mcp-remote` bridge shown under **Other clients**.
+
+**A tool says no preview environment was found.** The tools work against a PR that has a preview environment in your connected repo. Open the PR and let its preview deploy first.
+
+**Logs come back empty or a tool 404s on an old PR.** Preview logs are retained for about 30 days, and previews are torn down after testing. Re-run the preview to get fresh logs.
+
+**Which pull requests can I use?** Any PR in a repo you have connected to Autonoma, in an organization you belong to.

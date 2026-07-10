@@ -2,6 +2,7 @@ import { analytics } from "@autonoma/analytics";
 import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-auth/plugins";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
@@ -10,6 +11,7 @@ import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { llmProxyHttpRouter } from "./llm-proxy/llm-proxy-http.router";
+import { mcpHttpRouter } from "./mcp/mcp-http.router";
 import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
 import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
 import { onboardingHttpRouter } from "./routes/onboarding/onboarding-http.router";
@@ -93,6 +95,13 @@ export function createApiApp() {
 
     app.on(["POST", "GET"], "/v1/auth/**", (c) => auth.handler(c.req.raw));
 
+    // MCP clients discover the authorization server from these well-known
+    // endpoints (Better Auth's `mcp()` plugin serves the metadata). CORS is
+    // enabled so browser-based MCP clients (e.g. ChatGPT) can fetch them.
+    app.use("/.well-known/oauth-*", cors(corsOptions));
+    app.get("/.well-known/oauth-authorization-server", (c) => oAuthDiscoveryMetadata(auth)(c.req.raw));
+    app.get("/.well-known/oauth-protected-resource", (c) => oAuthProtectedResourceMetadata(auth)(c.req.raw));
+
     // ─── Application Setup (Claude plugin API) ────────────────────────
 
     app.route("/v1/setup", applicationSetupHttpRouter);
@@ -129,6 +138,11 @@ export function createApiApp() {
     // environments (with credentials), so CORS must mirror the tRPC mount.
     app.use("/v1/previewkit/*", cors(corsOptions));
     app.route("/v1/previewkit", previewkitHttpRouter);
+
+    // Namespaced resource servers under /v1/mcp/<name> (today: "debug").
+    // CORS so browser-based MCP clients can call the Streamable HTTP endpoint.
+    app.use("/v1/mcp/*", cors(corsOptions));
+    app.route("/v1/mcp", mcpHttpRouter);
 
     // ─── Onboarding HTTP integrations ────────────────────────────────
 

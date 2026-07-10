@@ -4,6 +4,12 @@ import { SuggestedEnvVarSchema } from "./previewkit-env-suggestion";
 /** `deployFingerprint` keys the query cache so the diagnosis runs once per failed deploy. */
 export const DiagnosePreviewkitDeployInputSchema = z.object({
     applicationId: z.string(),
+    /**
+     * Which preview environment to diagnose. Omitted defaults (in the service) to
+     * 0 - the main-branch (onboarding) preview - so the original onboarding caller
+     * is unchanged; MCP / per-PR callers pass the real PR number.
+     */
+    prNumber: z.number().int().min(0).optional(),
     deployFingerprint: z.string().optional(),
 });
 

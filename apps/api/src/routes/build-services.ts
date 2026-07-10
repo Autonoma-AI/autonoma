@@ -3,6 +3,7 @@ import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
+import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
@@ -22,8 +23,12 @@ import { PullRequestCacheService } from "../github/pull-request-cache.service";
 import { RepoIntrospectionService } from "../github/repo-introspection.service";
 import { RepoReader } from "../github/repo-reader";
 import { PreviewkitDiagnosisService } from "../previewkit/previewkit-diagnosis.service";
+import { PreviewkitEnvironmentsService } from "../previewkit/previewkit-environments.service";
+import { PreviewkitLogsService } from "../previewkit/previewkit-logs.service";
+import { PreviewkitSecretStatusService } from "../previewkit/previewkit-secret-status.service";
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
+import { PreviewkitWriteService } from "../previewkit/previewkit-write.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
@@ -37,6 +42,7 @@ import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
+import { PreviewkitConfigService } from "./onboarding/previewkit-config-service";
 import { OrgSecretsService } from "./org-secrets/org-secrets.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
@@ -57,6 +63,8 @@ export interface Services {
     folders: FoldersService;
     scenarios: ScenariosService;
     secrets: PreviewkitSecretsService;
+    previewkitSecretStatus: PreviewkitSecretStatusService;
+    previewkitLogs: PreviewkitLogsService;
     orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
     repoIntrospection: RepoIntrospectionService;
@@ -69,6 +77,8 @@ export interface Services {
     applicationSetups: ApplicationSetupsService;
     diffsTrigger: DiffsTriggerService;
     previewkitTrigger: PreviewkitTriggerService;
+    previewkitWrite: PreviewkitWriteService;
+    previewkitEnvironments: PreviewkitEnvironmentsService;
 }
 
 export interface ServicesParams {
@@ -109,6 +119,13 @@ export function buildServices({
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
     const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn);
+    const previewkitEnvironmentsService = new PreviewkitEnvironmentsService(conn);
+    // Loki-backed log tails for the MCP get_build_logs / get_app_logs tools.
+    // Undefined when PREVIEWKIT_LOKI_URL is unset (dev / self-host), mirroring the
+    // SSE stream route; the logs service then reports "not configured".
+    const buildLogStore =
+        env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "build") : undefined;
+    const appLogStore = env.PREVIEWKIT_LOKI_URL != null ? new LokiLogStore(env.PREVIEWKIT_LOKI_URL, "app") : undefined;
     const githubService = new GitHubInstallationService(conn, githubApp);
     const repoReader = new RepoReader(conn, githubApp);
     const repoIntrospectionService = new RepoIntrospectionService(repoReader);
@@ -124,13 +141,13 @@ export function buildServices({
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,
     );
-    const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, {
+    const onboardingOptions = {
         previewkitClient: {
             isConfigured: () => env.PREVIEWKIT_ENABLED,
-            deployApplicationMain: async (applicationId, organizationId) => {
+            deployApplicationMain: async (applicationId: string, organizationId: string) => {
                 await previewkitTrigger.deployMainBranch(applicationId, organizationId);
             },
-            redeploy: async (repoFullName, prNumber, organizationId) => {
+            redeploy: async (repoFullName: string, prNumber: number, organizationId: string) => {
                 await previewkitTrigger.redeploy(repoFullName, prNumber, organizationId);
             },
         },
@@ -138,7 +155,14 @@ export function buildServices({
         repoIntrospection: repoIntrospectionService,
         github: githubService,
         applications: applicationsService,
-    });
+    };
+    const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, onboardingOptions);
+    const previewkitConfigService = new PreviewkitConfigService(conn, onboardingOptions);
+    const previewkitWrite = new PreviewkitWriteService(
+        previewkitConfigService,
+        previewkitSecretsService,
+        previewkitTrigger,
+    );
     const prCacheService = new PullRequestCacheService(conn, githubService);
     const apiKeysService = new ApiKeysService(conn);
     const applicationSetupService = new ApplicationSetupService(
@@ -161,7 +185,9 @@ export function buildServices({
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
-        secrets: new PreviewkitSecretsService(env.S3_REGION, conn),
+        secrets: previewkitSecretsService,
+        previewkitSecretStatus: new PreviewkitSecretStatusService(conn, previewkitSecretsService),
+        previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
         repoIntrospection: repoIntrospectionService,
@@ -181,5 +207,7 @@ export function buildServices({
             cancelInvestigationJob,
         ),
         previewkitTrigger,
+        previewkitWrite,
+        previewkitEnvironments: previewkitEnvironmentsService,
     };
 }

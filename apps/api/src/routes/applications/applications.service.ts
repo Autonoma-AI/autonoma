@@ -349,6 +349,38 @@ export class ApplicationsService extends Service {
         return { sharedSecret: this.encryption.decrypt(app.signingSecretEnc) };
     }
 
+    /**
+     * Resolve an application from a repo full name (`owner/repo`), scoped to the
+     * caller's org. `repoFullName` is not stored on `Application`; it maps through
+     * any preview environment for that repo (which carries `githubRepositoryId`),
+     * then to the org's application linked to that GitHub repository. Throws
+     * NotFoundError when no such environment/application exists in the org.
+     */
+    async findByRepoFullName(
+        repoFullName: string,
+        organizationId: string,
+    ): Promise<{ id: string; githubRepositoryId: number }> {
+        this.logger.info("Resolving application by repo full name", { organizationId, extra: { repoFullName } });
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: { repoFullName, organizationId, githubRepositoryId: { not: null } },
+            select: { githubRepositoryId: true },
+        });
+        const githubRepositoryId = environment?.githubRepositoryId;
+        if (githubRepositoryId == null) {
+            throw new NotFoundError(`No preview environment found for ${repoFullName}`);
+        }
+
+        const app = await this.db.application.findFirst({
+            where: { organizationId, githubRepositoryId },
+            select: { id: true },
+        });
+        if (app == null) {
+            throw new NotFoundError(`No application linked to ${repoFullName}`);
+        }
+        return { id: app.id, githubRepositoryId };
+    }
+
     async deleteApplication(id: string, organizationId: string) {
         this.logger.info("Disabling application", { applicationId: id, organizationId });
 

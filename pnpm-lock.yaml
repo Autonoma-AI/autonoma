@@ -18,9 +18,15 @@ catalogs:
     '@better-auth/api-key':
       specifier: ^1.6.14
       version: 1.6.14
+    '@hono/mcp':
+      specifier: ^0.3.0
+      version: 0.3.0
     '@kubernetes/client-node':
       specifier: ^1.4.0
       version: 1.4.0
+    '@modelcontextprotocol/sdk':
+      specifier: ^1.29.0
+      version: 1.29.0
     '@octokit/app':
       specifier: ^16.1.2
       version: 16.1.2
@@ -236,12 +242,18 @@ importers:
       '@better-auth/redis-storage':
         specifier: ^1.6.14
         version: 1.6.14(@better-auth/core@1.6.14(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.1.21)(@opentelemetry/api@1.9.0)(better-call@1.3.5(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)
+      '@hono/mcp':
+        specifier: 'catalog:'
+        version: 0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.25)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.25)(zod@4.3.6)
       '@hono/node-server':
         specifier: ^1.19.14
         version: 1.19.14(hono@4.12.25)
       '@kubernetes/client-node':
         specifier: 'catalog:'
         version: 1.4.0
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.29.0(zod@4.3.6)
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -578,7 +590,7 @@ importers:
         version: 1.1.0
       '@google/genai':
         specifier: ^1.42.0
-        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
+        version: 1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -936,7 +948,7 @@ importers:
         version: link:../../../packages/workflow
       '@google/genai':
         specifier: ^1.42.0
-        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
+        version: 1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -1232,7 +1244,7 @@ importers:
         version: link:../logger
       '@google/genai':
         specifier: ^1.42.0
-        version: 1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))
+        version: 1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
       '@openrouter/ai-sdk-provider':
         specifier: ^2.10.0
         version: 2.10.0(ai@6.0.94(zod@4.3.6))(zod@4.3.6)
@@ -3666,6 +3678,14 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
+  '@hono/mcp@0.3.0':
+    resolution: {integrity: sha512-UhSWFbZwRxHBdptOn2r1HyB8Vt6gU+BL3AbTis2t8TBW69ZhG4soJQ09yEL/t/ymxszJnWp5Rq6tOXXOjuK1qg==}
+    peerDependencies:
+      '@modelcontextprotocol/sdk': ^1.25.1
+      hono: '*'
+      hono-rate-limiter: ^0.5.3
+      zod: ^3.25.0 || ^4.0.0
+
   '@hono/node-server@1.19.14':
     resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
     engines: {node: '>=18.14.1'}
@@ -4159,6 +4179,16 @@ packages:
 
   '@modelcontextprotocol/sdk@1.27.1':
     resolution: {integrity: sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@cfworker/json-schema': ^4.1.1
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@cfworker/json-schema':
+        optional: true
+
+  '@modelcontextprotocol/sdk@1.29.0':
+    resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -8834,6 +8864,15 @@ packages:
     resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
     engines: {node: '>=12.0.0'}
 
+  hono-rate-limiter@0.5.3:
+    resolution: {integrity: sha512-M0DxbVMpPELEzLi0AJg1XyBHLGJXz7GySjsPoK+gc5YeeBsdGDGe+2RvVuCAv8ydINiwlbxqYMNxUEyYfRji/A==}
+    peerDependencies:
+      hono: ^4.10.8
+      unstorage: ^1.17.3
+    peerDependenciesMeta:
+      unstorage:
+        optional: true
+
   hono@4.12.25:
     resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
     engines: {node: '>=16.9.0'}
@@ -9500,10 +9539,6 @@ packages:
 
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
-
-  lru-cache@11.3.6:
-    resolution: {integrity: sha512-Gf/KoL3C/MlI7Bt0PGI9I+TeTC/I6r/csU58N4BSNc4lppLBeKsOdFYkK+dX0ABDUMJNfCHTyPpzwwO21Awd3A==}
-    engines: {node: 20 || >=22}
 
   lru-cache@11.5.1:
     resolution: {integrity: sha512-RPimw/7aMdv2oqRrxKwvZXcPfwBrn/JZ2xYcY9Hus/6LaS3VOAKVWKWgNLCFSiOm1ESXinjsDlidVU7JlnCN2A==}
@@ -14750,14 +14785,14 @@ snapshots:
 
   '@fontsource-variable/geist-mono@5.2.7': {}
 
-  '@google/genai@1.42.0(@modelcontextprotocol/sdk@1.27.1(zod@4.3.6))':
+  '@google/genai@1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))':
     dependencies:
       google-auth-library: 10.5.0
       p-retry: 4.6.2
       protobufjs: 7.6.4
       ws: 8.21.0
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.27.1(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -14781,6 +14816,14 @@ snapshots:
       long: 5.3.2
       protobufjs: 7.6.4
       yargs: 17.7.2
+
+  '@hono/mcp@0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.25)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.25)(zod@4.3.6)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
+      hono: 4.12.25
+      hono-rate-limiter: 0.5.3(hono@4.12.25)(unstorage@1.17.5(ioredis@5.9.3))
+      pkce-challenge: 5.0.1
+      zod: 4.3.6
 
   '@hono/node-server@1.19.14(hono@4.12.25)':
     dependencies:
@@ -15280,7 +15323,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.27.1(zod@4.3.6)':
+  '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.26)
       ajv: 8.20.0
@@ -15301,7 +15344,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.3.6)
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   '@mswjs/interceptors@0.41.9':
     dependencies:
@@ -20583,6 +20625,12 @@ snapshots:
 
   highlight.js@11.11.1: {}
 
+  hono-rate-limiter@0.5.3(hono@4.12.25)(unstorage@1.17.5(ioredis@5.9.3)):
+    dependencies:
+      hono: 4.12.25
+    optionalDependencies:
+      unstorage: 1.17.5(ioredis@5.9.3)
+
   hono@4.12.25: {}
 
   hono@4.12.26: {}
@@ -21162,8 +21210,6 @@ snapshots:
       js-tokens: 4.0.0
 
   lru-cache@10.4.3: {}
-
-  lru-cache@11.3.6: {}
 
   lru-cache@11.5.1: {}
 
@@ -24086,7 +24132,7 @@ snapshots:
       chokidar: 5.0.0
       destr: 2.0.5
       h3: 1.15.11
-      lru-cache: 11.3.6
+      lru-cache: 11.5.1
       node-fetch-native: 1.6.7
       ofetch: 1.5.1
       ufo: 1.6.4
@@ -24745,7 +24791,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.3.6):
     dependencies:
       zod: 4.3.6
-    optional: true
 
   zod@3.25.76: {}
 

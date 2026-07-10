@@ -6,7 +6,7 @@ import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { betterAuth } from "better-auth/minimal";
-import { organization } from "better-auth/plugins";
+import { jwt, mcp, organization } from "better-auth/plugins";
 import type Redis from "ioredis";
 import { env } from "./env";
 import { PlatformEventEmitter } from "./posthog/emit-platform-events";
@@ -70,6 +70,16 @@ export interface Auth {
     handler(request: Request): Promise<Response>;
     api: {
         getSession(params: { headers: Headers }): Promise<{ user: AuthUser; session: AuthSession } | null>;
+        /**
+         * Verifies an MCP OAuth bearer access token (from the `mcp()` plugin) and
+         * returns its claims, or null when absent/invalid. Used by the /v1/mcp
+         * resource route to authenticate agents.
+         */
+        getMcpSession(params: { headers: Headers }): Promise<{ userId: string; scopes: string } | null>;
+        /** Backs `oAuthDiscoveryMetadata(auth)` - serves the OAuth AS metadata. */
+        getMcpOAuthConfig(...args: unknown[]): unknown;
+        /** Backs `oAuthProtectedResourceMetadata(auth)` - serves the protected-resource metadata. */
+        getMCPProtectedResource(...args: unknown[]): unknown;
     };
     $context: Promise<{
         secondaryStorage?: {
@@ -196,6 +206,14 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
     const platformEvents = injectedPlatformEvents ?? new PlatformEventEmitter(conn);
 
     return betterAuth({
+        // Explicit origin (not inferred from the request) so the MCP OAuth
+        // discovery metadata has an `issuer`/`baseURL` - without it better-auth's
+        // oAuthDiscoveryMetadata throws and the .well-known endpoints return null,
+        // and the WWW-Authenticate challenge is built with the wrong (http) scheme
+        // behind the TLS-terminating ingress. APP_URL is the canonical app origin,
+        // which is already where every auth request lands, so this is a no-op for
+        // existing cookie/session auth and only enables the OAuth server metadata.
+        baseURL: APP_URL,
         basePath: "/v1/auth",
         database: prismaAdapter(conn, { provider: "postgresql" }),
         secondaryStorage: redisStorage({
@@ -356,6 +374,14 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                     apikey: { modelName: "apiKey" },
                 },
             }),
+            // MCP OAuth (Workstream B): turns Better Auth into the OAuth
+            // authorization server for the /v1/mcp/* resource servers. `jwt()`
+            // signs the access tokens (locally verifiable, no introspection
+            // round-trip). Unauthenticated MCP OAuth flows are sent to the UI
+            // login page. Adds oauthApplication / oauthAccessToken / oauthConsent
+            // (+ jwks) models - run a migration.
+            mcp({ loginPage: `${APP_URL}/login` }),
+            jwt(),
         ],
     });
 }

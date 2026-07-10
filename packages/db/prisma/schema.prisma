@@ -38,6 +38,9 @@ model User {
   apiKeys           ApiKey[]
   applicationSetups ApplicationSetup[]
   signupHookStates  SignupHookState[]
+  oauthApplications OauthApplication[]
+  oauthAccessTokens OauthAccessToken[]
+  oauthConsents     OauthConsent[]
 
   @@map("user")
 }
@@ -463,6 +466,82 @@ model ApiKey {
   @@index([userId])
   @@index([organizationId])
   @@map("api_key")
+}
+
+// ─── Better Auth: MCP OAuth (jwt + mcp/oidc-provider plugins) ───────
+// Backing tables for the `jwt()` and `mcp()` plugins in apps/api/src/auth.ts.
+// The jwt plugin signs a JWT on every session response, so `Jwks` is read on
+// normal app operation, not only the MCP OAuth path. Field names mirror
+// better-auth's plugin schema exactly (it queries by Prisma field name); the
+// snake_case columns are transparent to it.
+
+model Jwks {
+  id         String    @id @default(cuid())
+  publicKey  String    @map("public_key")
+  privateKey String    @map("private_key")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@map("jwks")
+}
+
+model OauthApplication {
+  id           String   @id @default(cuid())
+  name         String
+  icon         String?
+  metadata     String?
+  clientId     String   @unique @map("client_id")
+  clientSecret String?  @map("client_secret")
+  redirectUrls String   @map("redirect_urls")
+  type         String
+  disabled     Boolean? @default(false)
+  userId       String?  @map("user_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user         User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessTokens OauthAccessToken[]
+  consents     OauthConsent[]
+
+  @@index([userId])
+  @@map("oauth_application")
+}
+
+model OauthAccessToken {
+  id                    String   @id @default(cuid())
+  accessToken           String   @unique @map("access_token")
+  refreshToken          String   @unique @map("refresh_token")
+  accessTokenExpiresAt  DateTime @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime @map("refresh_token_expires_at")
+  clientId              String   @map("client_id")
+  userId                String?  @map("user_id")
+  scopes                String
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  application OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_access_token")
+}
+
+model OauthConsent {
+  id           String   @id @default(cuid())
+  clientId     String   @map("client_id")
+  userId       String   @map("user_id")
+  scopes       String
+  consentGiven Boolean  @map("consent_given")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  application OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_consent")
 }
 
 // ─── Enums ─────────────────────────────────────────────────────────

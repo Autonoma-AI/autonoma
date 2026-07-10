@@ -92,6 +92,39 @@ const environmentSelect = {
 
 type EnvironmentRow = Prisma.PreviewkitEnvironmentGetPayload<{ select: typeof environmentSelect }>;
 
+/**
+ * Raw, deterministic diagnostic signals for a preview deploy - everything the AI
+ * pass is fed, minus the AI. Returned by {@link PreviewkitDiagnosisService.signals}
+ * for the MCP `diagnose_deploy` tool, whose consumer is a coding agent that has the
+ * repo in front of it and can reason for itself. Giving it the source signals (state,
+ * rule-based failure classification, service/addon states, config env-key surface,
+ * error-shaped logs) is more useful - and less hallucination-prone - than a prose
+ * summary. The deterministic `findings` (rule-based, not AI) are included as a
+ * starting-point categorization the agent can trust. The dashboard keeps the
+ * AI-enriched {@link PreviewkitDiagnosisService.diagnose} path.
+ */
+export interface PreviewDeploySignals {
+    /** "ok" = no failure detected; "failing" = at least one classified failure; "unavailable" = nothing to diagnose. */
+    status: "ok" | "failing" | "unavailable";
+    /** Present only when status is "unavailable" (no repo link, or no environment yet). */
+    reason?: string;
+    deploy?: { status: string; phase?: string; error?: string };
+    services?: Array<{ name: string; status: string; error?: string; url?: string; imageTag?: string }>;
+    addons?: Array<{ name: string; provider: string; status: string; error?: string }>;
+    build?: { status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number };
+    /** Rule-based (not AI) failure classification: the same signals the UI's AI pass reasons over. */
+    failures?: PreviewFailure[];
+    /** Env-key surface + app paths/ports the config declares (never secret values). */
+    config?: unknown;
+    /** Error-shaped log lines (secret-masked), fetched only when the deploy is failing. */
+    logs?: string[];
+    /** Deterministic, rule-based findings (missing_env_var / user_setup / autonoma_error) - no AI, safe to trust. */
+    findings?: PreviewDiagnosisFinding[];
+}
+
+/** Resolved environment, or a reason it can't be diagnosed yet. */
+type ResolvedEnvironment = { environment: EnvironmentRow } | { reason: string };
+
 const DIAGNOSIS_SYSTEM_PROMPT = `You are a preview-infrastructure diagnostician for PreviewKit. Given a failed deploy's status, structured failures, service and addon states, the resolved deploy config, and recent build/runtime log lines, produce a short summary and a list of findings that explain what went wrong and how to fix it.
 
 Classify each finding into exactly one category:
@@ -126,29 +159,33 @@ export class PreviewkitDiagnosisService extends Service {
         this.logger.info("Diagnosing PreviewKit deploy", {
             organizationId,
             applicationId: input.applicationId,
+            prNumber: input.prNumber ?? MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
         });
 
-        const application = await this.db.application.findFirst({
-            where: { id: input.applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-        if (application?.githubRepositoryId == null) {
-            return { status: "unavailable", reason: "Application is not linked to a GitHub repository.", findings: [] };
-        }
-
-        const environment = await this.db.previewkitEnvironment.findFirst({
-            where: {
-                organizationId,
-                githubRepositoryId: application.githubRepositoryId,
-                prNumber: MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
-            },
-            select: environmentSelect,
-        });
-        if (environment == null) {
-            return { status: "unavailable", reason: "No PreviewKit environment exists to diagnose yet.", findings: [] };
-        }
+        const resolved = await this.resolveEnvironment(organizationId, input);
+        if ("reason" in resolved) return { status: "unavailable", reason: resolved.reason, findings: [] };
+        const environment = resolved.environment;
 
         const failures = this.classifyFailures(environment);
+
+        // Only diagnose an actually-failing deploy. When nothing is wrong (build
+        // succeeded, all services/addons healthy, no environment error), skip the
+        // log fetch and the AI pass entirely: feeding error-grepped logs to the
+        // model on a healthy deploy makes it manufacture findings from transient or
+        // resolved startup noise (e.g. a "prisma connection" line logged during boot
+        // before the DB was ready), directly contradicting a "ready" status.
+        if (failures.length === 0) {
+            this.logger.info("No deploy failure detected; reporting healthy without AI diagnosis", {
+                applicationId: input.applicationId,
+                status: environment.status,
+            });
+            return {
+                status: "ok",
+                summary: "No problems detected - the preview built and deployed successfully.",
+                findings: [],
+            };
+        }
+
         const logs = await this.fetchLogs(environment);
         this.logger.info("Collected diagnosis signals", {
             applicationId: input.applicationId,
@@ -163,6 +200,96 @@ export class PreviewkitDiagnosisService extends Service {
             findingCount: findings.length,
         });
         return { status: "ok", summary: enriched.summary, findings };
+    }
+
+    /**
+     * The raw, deterministic diagnostic signals for the MCP `diagnose_deploy` tool
+     * (agent consumer): environment/build state, rule-based failure classification,
+     * per-service and per-addon states, the config env-key surface, error-shaped
+     * logs (masked, only when failing), and the deterministic rule-based findings.
+     * No AI pass - the client agent reasons over the source signals itself.
+     */
+    async signals(organizationId: string, input: DiagnosePreviewkitDeployInput): Promise<PreviewDeploySignals> {
+        this.logger.info("Collecting PreviewKit deploy signals", {
+            organizationId,
+            applicationId: input.applicationId,
+            prNumber: input.prNumber ?? MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
+        });
+
+        const resolved = await this.resolveEnvironment(organizationId, input);
+        if ("reason" in resolved) return { status: "unavailable", reason: resolved.reason };
+        const environment = resolved.environment;
+
+        const failures = this.classifyFailures(environment);
+        const logs = failures.length > 0 ? await this.fetchLogs(environment) : [];
+        const findings = this.postProcess(
+            heuristicFindings(failures, environment.error ?? undefined).findings,
+            environment,
+        );
+        const latestBuild = environment.builds[0];
+
+        this.logger.info("PreviewKit deploy signals collected", {
+            applicationId: input.applicationId,
+            failureCount: failures.length,
+            logLines: logs.length,
+        });
+        return {
+            status: failures.length === 0 ? "ok" : "failing",
+            deploy: {
+                status: environment.status,
+                phase: environment.phase ?? undefined,
+                error: maskMaybeSecret(environment.error),
+            },
+            services: environment.appInstances.map((instance) => ({
+                name: instance.appName,
+                status: instance.status,
+                error: maskMaybeSecret(instance.error),
+                url: instance.url ?? undefined,
+                imageTag: instance.imageTag ?? undefined,
+            })),
+            addons: environment.addons.map((addon) => ({
+                name: addon.name,
+                provider: addon.provider,
+                status: addon.status,
+                error: maskMaybeSecret(addon.error),
+            })),
+            build:
+                latestBuild == null
+                    ? undefined
+                    : {
+                          status: latestBuild.status,
+                          error: maskMaybeSecret(latestBuild.error),
+                          startedAt: latestBuild.startedAt?.toISOString(),
+                          finishedAt: latestBuild.finishedAt?.toISOString(),
+                          durationMs: latestBuild.durationMs ?? undefined,
+                      },
+            failures,
+            config: summarizeConfig(environment.resolvedConfig),
+            logs,
+            findings,
+        };
+    }
+
+    private async resolveEnvironment(
+        organizationId: string,
+        input: DiagnosePreviewkitDeployInput,
+    ): Promise<ResolvedEnvironment> {
+        const prNumber = input.prNumber ?? MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER;
+
+        const application = await this.db.application.findFirst({
+            where: { id: input.applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        if (application?.githubRepositoryId == null) {
+            return { reason: "Application is not linked to a GitHub repository." };
+        }
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: { organizationId, githubRepositoryId: application.githubRepositoryId, prNumber },
+            select: environmentSelect,
+        });
+        if (environment == null) return { reason: "No PreviewKit environment exists to diagnose yet." };
+        return { environment };
     }
 
     private classifyFailures(environment: EnvironmentRow): PreviewFailure[] {

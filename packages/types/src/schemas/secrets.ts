@@ -68,6 +68,13 @@ export type SecretSummary = {
     key: string;
     maskedLength: number;
     updatedAt: Date;
+    /**
+     * The first 12 hex chars of SHA-256 of the value - a non-reversible fingerprint
+     * for checking whether a value MATCHES a candidate you already hold, without
+     * exposing the value. Recompute it as `sha256(value).hex.slice(0, 12)` and
+     * compare. Undefined when the value is unavailable.
+     */
+    fingerprint?: string;
 };
 
 // Per-app secret changes batched alongside a preview-config save, so the editor

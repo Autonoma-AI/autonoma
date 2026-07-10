@@ -14,6 +14,7 @@ import {
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
 import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
+import { secretFingerprint } from "./secret-fingerprint";
 
 /**
  * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
@@ -88,6 +89,7 @@ export class PreviewkitSecretsService {
                 key,
                 maskedLength: Math.min(value.length, 32),
                 updatedAt: now,
+                fingerprint: secretFingerprint(value),
             }))
             .sort((a, b) => a.key.localeCompare(b.key));
     }

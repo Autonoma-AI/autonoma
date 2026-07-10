@@ -175,6 +175,76 @@ describe("LokiLogStore (integration)", () => {
         expect(buildBatch[499]?.event.message).toBe("build line 499");
     });
 
+    it("readLastN returns the newest N lines in ascending order and respects the limit", async () => {
+        const namespace = "preview-acme-api-pr-tail";
+        const buildStore = new LokiLogStore(baseUrl, "build");
+
+        const values: [string, string][] = [];
+        for (let i = 0; i < 50; i++) values.push([nextNs(), `build line ${i}`]);
+        await push({ namespace, source: "build", app: "api", kind: "log" }, values);
+
+        // Poll via readLastN until all 50 have landed, then assert the tail shape.
+        const deadline = Date.now() + 10_000;
+        let tail = await buildStore.readLastN(namespace, 10);
+        while (tail.length < 10 && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            tail = await buildStore.readLastN(namespace, 10);
+        }
+
+        // The newest 10 of 50, returned oldest-to-newest.
+        expect(tail).toHaveLength(10);
+        expect(tail[0]?.event.message).toBe("build line 40");
+        expect(tail[9]?.event.message).toBe("build line 49");
+    });
+
+    it("readLastN narrows to one app and applies a case-insensitive filter", async () => {
+        const namespace = "preview-acme-api-pr-tail2";
+        const appStoreLocal = new LokiLogStore(baseUrl, "app");
+
+        await push({ namespace, source: "app", app: "web", stream: "stdout", kind: "log" }, [
+            [nextNs(), "WEB booting"],
+            [nextNs(), "web ERROR: boom"],
+        ]);
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [[nextNs(), "api ok"]]);
+
+        const deadline = Date.now() + 10_000;
+        let filtered = await appStoreLocal.readLastN(namespace, 20, { app: "web", filter: "error" });
+        while (filtered.length < 1 && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            filtered = await appStoreLocal.readLastN(namespace, 20, { app: "web", filter: "error" });
+        }
+
+        expect(filtered.map((entry) => entry.event.message)).toEqual(["web ERROR: boom"]);
+    });
+
+    it("readLastN from 'head' returns the oldest N lines and never truncates line content", async () => {
+        const namespace = "preview-acme-api-pr-head";
+        const buildStore = new LokiLogStore(baseUrl, "build");
+
+        const values: [string, string][] = [];
+        // A start marker so "head" replays from the build's beginning, then 30 lines,
+        // the first of which is a huge single-line blob that must come back WHOLE.
+        values.push([nextNs(), "start"]);
+        const huge = "x".repeat(9000);
+        values.push([nextNs(), `build line 0 ${huge}`]);
+        for (let i = 1; i < 30; i++) values.push([nextNs(), `build line ${i}`]);
+        await push({ namespace, source: "build", app: "api", kind: "start" }, [values[0]!]);
+        await push({ namespace, source: "build", app: "api", kind: "log" }, values.slice(1));
+
+        const deadline = Date.now() + 10_000;
+        let head = await buildStore.readLastN(namespace, 5, { from: "head" });
+        while (head.length < 5 && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            head = await buildStore.readLastN(namespace, 5, { from: "head" });
+        }
+
+        // The oldest 5 lines from the build's start (start marker excluded from output).
+        expect(head).toHaveLength(5);
+        expect(head[4]?.event.message).toBe("build line 4");
+        // The huge first line is returned in full - no truncation at the store layer.
+        expect(head[0]?.event.message).toBe(`build line 0 ${huge}`);
+    });
+
     it("replays a build only from the latest start marker, overwriting prior attempts", async () => {
         const namespace = "preview-acme-api-pr-10";
         const buildStore = new LokiLogStore(baseUrl, "build");

@@ -1,0 +1,611 @@
+import { NotFoundError } from "@autonoma/errors";
+import { logger as rootLogger } from "@autonoma/logger";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
+import type { Services } from "../routes/build-services";
+import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
+
+/** Ceiling on log lines a single tail tool can request. */
+const MAX_LOG_LINES = 1000;
+const DEFAULT_LOG_LINES = 200;
+/** How many recent log lines wait_for_deploy attaches so the agent sees live progress (or the failure). */
+const WAIT_RECENT_LOG_LINES = 20;
+/** Watched statuses whose relevant logs are the BUILD stream; everything else reads the app (runtime) stream. */
+const BUILD_PHASE_STATUSES = new Set(["pending", "building", "build_failed", "failed"]);
+
+/**
+ * Server-level guidance the MCP client reads on connect. It is the portable,
+ * client-agnostic place to teach an agent what Autonoma is and how to debug a
+ * broken preview - so a Cursor / Codex / Claude agent that has never heard of
+ * Autonoma still knows the recommended flow without a per-client skill.
+ */
+const DEBUG_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a per-PR preview deployment of your app and reviews the result. When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
+
+Every tool is keyed by repoFullName ("owner/repo"). You almost never need to ask the user for it:
+- It is this repository's GitHub remote. Infer it from the working directory (e.g. run \`git remote get-url origin\` and parse "owner/repo"). Use that directly.
+- Only if you are not inside the app's repo, or can't determine the remote, call list_apps to see the repos you can debug and ask the user which one.
+You do NOT need GitHub access - repoFullName is just how Autonoma identifies your app; the org is inferred from it and you must be a member.
+
+Recommended flow when Autonoma flags a problem on a pull request:
+1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
+2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
+3. If a service BUILT but crashes or errors at RUNTIME: call get_app_logs (from="tail" for the crash, from="head" for startup).
+4. Call diagnose_deploy(repoFullName, prNumber) to get all the raw evidence in one call - status, each service/addon state, the latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, a setup problem, or a platform error. Reason over the signals yourself; a "platform error" (autonoma_error) is on Autonoma, so contact support rather than editing your repo.
+5. Call get_secret_status(repoFullName) to see the full env-var surface per app: topology connections (with their template values) and secret-backed vars (declared build secrets + registered runtime secrets), including which declared build secrets are missing. Secret VALUES are never returned - only presence and masked length.
+6. Apply the fix. Two kinds:
+   - A missing secret VALUE (an API key, token, password): call set_secret(repoFullName, prNumber, app, key, value). It stores the value and rebuilds or restarts the service automatically.
+   - How the app is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves a new config revision and rebuilds the service.
+   For anything in your source (code, a committed Dockerfile), edit this repo and push - Autonoma re-runs on the new commit.
+7. set_secret and edit_previewkit_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. If it returns settled:false, the deploy is still running - call it again.
+
+Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take prNumber. The organization is inferred from the repo (which you must be a member of), so everything is automatically scoped to it.`;
+
+/** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
+const AGENTS_MD_SNIPPET = `## Autonoma
+
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause (get_deploy_status, diagnose_deploy, get_build_logs, get_app_logs, get_secret_status), fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+
+/** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
+export interface DebugMcpDeps {
+    services: Services;
+    /**
+     * Resolve the organization a call acts in from the `repoFullName` it names,
+     * verifying the authenticated user is a member. Throws NotFoundError when the
+     * repo has no preview environment or the user is not a member of its org.
+     */
+    resolveOrg: (repoFullName: string) => Promise<string>;
+    /** List the repos the authenticated user can debug (across their orgs). */
+    listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
+}
+
+/** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
+const repoPrInput = {
+    repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
+    prNumber: z.number().int().min(0),
+};
+
+/** A tool result carrying a JSON payload as text (MCP's lowest-common-denominator content). */
+function jsonResult(payload: unknown) {
+    return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
+}
+
+/** An error result the client's agent can read, instead of a transport-level 500. */
+function errorResult(message: string) {
+    return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
+/**
+ * A structured "nothing to act on yet" result (NOT an error). Every PR-scoped tool
+ * returns this same shape when the repo/PR has no preview environment, so the agent
+ * can branch on `status: "unavailable"` instead of string-matching error text.
+ */
+function unavailableResult(reason: string) {
+    return jsonResult({ status: "unavailable", reason });
+}
+
+/**
+ * Map a thrown error to a tool result. A NotFoundError (no preview env for this
+ * repo/PR, or the user isn't a member) is an expected "unavailable" state, not a
+ * failure - return it structured. Anything else is a real error the agent should see.
+ */
+function toToolResult(err: unknown) {
+    if (err instanceof NotFoundError) return unavailableResult(err.message);
+    return errorResult(describeError(err));
+}
+
+/**
+ * Builds the "debug" MCP server: the client-facing, previewkit-scoped slice of
+ * Workstream B. Every tool resolves its org from the `repoFullName` it names via
+ * `deps.resolveOrg` (which verifies the authenticated user is a member) and then
+ * reuses an existing org-scoped service - this layer only maps the agent-friendly
+ * execution key (repoFullName, and prNumber where per-PR) onto those services.
+ * Resolving per-repo (not a fixed org) is what lets a multi-org user's token work
+ * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
+ * presence + masked length only.
+ *
+ * Tools keyed by `snapshotId` (tests / reviews / runs) are intentionally absent:
+ * they are blocked on the diffs-vs-investigation reconciliation.
+ */
+export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
+    const logger = rootLogger.child({ name: "debugMcpServer" });
+    const { services, resolveOrg, listRepos } = deps;
+
+    const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
+
+    server.registerTool(
+        "list_apps",
+        {
+            title: "List your debuggable apps",
+            description:
+                "List the repos ('owner/repo') you can debug - every repo with an Autonoma preview environment in " +
+                "an organization you belong to. Call this when you don't already know the repoFullName (e.g. it " +
+                "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments.",
+            inputSchema: {},
+        },
+        async () => {
+            logger.info("list_apps");
+            try {
+                const result = await listRepos();
+                return jsonResult(result);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "get_deploy_status",
+        {
+            title: "Get preview deploy status",
+            description:
+                "Per-service deploy status for a PR's preview environment: overall health, each service's " +
+                "status/endpoint/build outcome, and the latest build. Start here when a preview is broken.",
+            inputSchema: repoPrInput,
+        },
+        async ({ repoFullName, prNumber }) => {
+            logger.info("get_deploy_status", { extra: { repoFullName, prNumber } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const summary = await services.deployments.previewSummaryByPr(app.id, prNumber, organizationId);
+                return jsonResult(summary);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "get_endpoints",
+        {
+            title: "Get preview endpoints",
+            description:
+                "The reachable URLs for a PR's preview: the primary preview URL, a suggested SDK base URL, and one " +
+                "entry per service. A service with `url: null` has no public HTTP endpoint (it's an internal " +
+                "service like a database or cache, reachable only by other services inside the preview, or it isn't " +
+                "exposed) - the entry carries a `reason`, so a service count higher than the number of URLs is " +
+                "expected, not a bug. Use the URLs to hit the deployed app directly.",
+            inputSchema: repoPrInput,
+        },
+        async ({ repoFullName, prNumber }) => {
+            logger.info("get_endpoints", { extra: { repoFullName, prNumber } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const summary = await services.deployments.previewSummaryByPr(app.id, prNumber, organizationId);
+                const endpoints = summary.services.map((service) => {
+                    const hasUrl = service.endpoint != null && service.endpoint !== "";
+                    if (hasUrl) return { name: service.name, url: service.endpoint };
+                    return {
+                        name: service.name,
+                        url: null,
+                        reason:
+                            "No public HTTP endpoint - this is an internal service (e.g. a database or cache) " +
+                            "reachable only by other services inside the preview, or it is not exposed.",
+                    };
+                });
+                return jsonResult({
+                    primaryUrl: summary.primaryUrl,
+                    sdkUrl: derivePreviewSdkUrl(summary.primaryUrl, undefined),
+                    endpoints,
+                });
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "get_build_logs",
+        {
+            title: "Get preview build logs",
+            description:
+                "Build-log lines for a PR's preview. Previews are multi-service; omit `app` to get all services " +
+                "(the result's `services` field lists which produced output), or pass one service name to narrow. " +
+                "`from` picks the window: 'tail' (newest, default) for where a build failed, or 'head' for the start " +
+                "of the build. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
+                "`available: true` means the window genuinely had no output. Logs are retained ~30 days.",
+            inputSchema: {
+                ...repoPrInput,
+                app: appNameSchema(),
+                limit: logLimitSchema(),
+                filter: logFilterSchema(),
+                from: logFromSchema(),
+            },
+        },
+        async ({ repoFullName, prNumber, app, limit, filter, from }) =>
+            tailLogs("build", { repoFullName, prNumber, app, limit, filter, from }),
+    );
+
+    server.registerTool(
+        "get_app_logs",
+        {
+            title: "Get preview app logs",
+            description:
+                "Runtime (stdout/stderr) log lines for a PR's preview. Previews are multi-service (e.g. 'web' + " +
+                "'db'); omit `app` to get all services (the result's `services` field lists which produced output), " +
+                "or pass one service name to narrow. `from` picks the window: 'tail' (newest, default) for a crash, " +
+                "or 'head' for startup. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
+                "`available: true` means the window genuinely had no output. Use when a service built but errors at runtime.",
+            inputSchema: {
+                ...repoPrInput,
+                app: appNameSchema(),
+                limit: logLimitSchema(),
+                filter: logFilterSchema(),
+                from: logFromSchema(),
+            },
+        },
+        async ({ repoFullName, prNumber, app, limit, filter, from }) =>
+            tailLogs("app", { repoFullName, prNumber, app, limit, filter, from }),
+    );
+
+    server.registerTool(
+        "diagnose_deploy",
+        {
+            title: "Diagnose a failed preview deploy",
+            description:
+                "The raw diagnostic signals for a PR's preview deploy, for you to reason over: overall status, each " +
+                "service's and addon's state, the latest build outcome, a rule-based failure classification, the " +
+                "config's env-key surface (never secret values), and error-shaped log lines. Also includes " +
+                "deterministic `findings` (categorized missing_env_var / user_setup / autonoma_error) you can trust " +
+                'as a starting point. `status: "ok"` means no failure was detected. Use when get_deploy_status shows ' +
+                "a failure and you want the full evidence in one call.",
+            inputSchema: repoPrInput,
+        },
+        async ({ repoFullName, prNumber }) => {
+            logger.info("diagnose_deploy", { extra: { repoFullName, prNumber } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const result = await services.previewkitDiagnosis.signals(organizationId, {
+                    applicationId: app.id,
+                    prNumber,
+                });
+                return jsonResult(result);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "get_secret_status",
+        {
+            title: "Get env-var and secret status",
+            description:
+                "The full env-var surface per app, so you can see every variable you may need to change: " +
+                "`connections` are topology-wired vars with their (non-secret) template values shown as-is; " +
+                "`secrets` are secret-backed vars (declared build secrets plus any registered runtime secrets) with " +
+                "presence, masked length, and a non-reversible `fingerprint` (first 12 hex of SHA-256 of the value) - " +
+                "never the value itself; hash a value you hold as sha256(value).hex.slice(0,12) and compare to check a " +
+                "match. `missingBuildSecrets` are declared build secrets with no value set (a concrete misconfig to " +
+                "fix). Takes the repo ('owner/repo').",
+            inputSchema: { repoFullName: repoPrInput.repoFullName },
+        },
+        async ({ repoFullName }) => {
+            logger.info("get_secret_status", { extra: { repoFullName } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const status = await services.previewkitSecretStatus.status(app.id, organizationId);
+                return jsonResult(status);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "set_secret",
+        {
+            title: "Set or remove a secret env var",
+            description:
+                "Set (or, by omitting `value`, remove) the VALUE of a secret env var for one service of a PR's " +
+                "preview - an API key, token, password, or any variable whose value should not live in the repo. The " +
+                "value is stored encrypted and never returned. This is the fix for a missing env var. You do NOT say " +
+                "whether it's a build-time or runtime var: the tool reads your config and applies the minimal action " +
+                "itself - it rebuilds the service if the key is a declared build secret (the value is baked into the " +
+                "image at build), otherwise it restarts the service (a runtime secret). It never edits your config " +
+                "structure. To declare which keys are injected at build, add a connection, or change the " +
+                "Dockerfile/path/port, use edit_previewkit_config. Rule of thumb: a secret VALUE goes here; how the " +
+                "app is built or wired goes to edit_previewkit_config. The response returns a non-reversible " +
+                "`fingerprint` of the value you set (first 12 hex of SHA-256) so you can confirm it. The " +
+                "rebuild/restart is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block " +
+                "until it settles.",
+            inputSchema: {
+                ...repoPrInput,
+                app: requiredAppNameSchema(),
+                key: z.string().min(1).max(255),
+                value: z.string().min(1).max(65536).optional(),
+            },
+        },
+        async ({ repoFullName, prNumber, app, key, value }) => {
+            logger.info("set_secret", { extra: { repoFullName, prNumber, app, key, removing: value == null } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const result = await services.previewkitWrite.setSecret({
+                    applicationId: application.id,
+                    repoFullName,
+                    prNumber,
+                    appName: app,
+                    key,
+                    value,
+                    organizationId,
+                });
+                return jsonResult(result);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "edit_previewkit_config",
+        {
+            title: "Edit the preview config",
+            description:
+                "Change the STRUCTURAL preview config for one service of a PR's preview: its build `path`, " +
+                "`dockerfile`, `port`, `healthCheck`, the env-var keys injected at build time (`buildSecrets`), or its " +
+                "topology `connections` (non-secret env wired to other services - values are templates like " +
+                '"{{db.url}}"). Only the fields you pass are changed; the rest are kept. Saves a new config revision ' +
+                "and, unless `apply` is false, rebuilds the service against it (pass apply:false to stage several " +
+                "edits, then apply the last). It never sets a secret VALUE - use set_secret for an API key, token, or " +
+                "password. Rule of thumb: a secret value -> set_secret; how the app is built or wired -> here. The " +
+                "rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
+            inputSchema: {
+                ...repoPrInput,
+                app: requiredAppNameSchema(),
+                path: z.string().min(1).max(1024).optional(),
+                dockerfile: z.string().min(1).max(1024).optional(),
+                port: z.number().int().positive().max(65535).optional(),
+                healthCheck: z.string().min(1).max(1024).optional(),
+                buildSecrets: z.array(z.string().min(1).max(255)).max(100).optional(),
+                connections: z
+                    .array(
+                        z.object({
+                            key: z.string().min(1).max(255),
+                            value: z.string().min(1).max(4096),
+                            buildTime: z.boolean().optional(),
+                        }),
+                    )
+                    .max(100)
+                    .optional(),
+                apply: z.boolean().optional(),
+            },
+        },
+        async ({
+            repoFullName,
+            prNumber,
+            app,
+            path,
+            dockerfile,
+            port,
+            healthCheck,
+            buildSecrets,
+            connections,
+            apply,
+        }) => {
+            logger.info("edit_previewkit_config", { extra: { repoFullName, prNumber, app, apply } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                const result = await services.previewkitWrite.editConfig({
+                    applicationId: application.id,
+                    repoFullName,
+                    prNumber,
+                    appName: app,
+                    patch: { path, dockerfile, port, healthCheck, buildSecrets, connections },
+                    apply: apply ?? true,
+                    organizationId,
+                });
+                return jsonResult(result);
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    server.registerTool(
+        "wait_for_deploy",
+        {
+            title: "Wait for a preview deploy to settle",
+            description:
+                "Block until a PR's preview deploy reaches a terminal state (ready or failed), then return the " +
+                "outcome - so after set_secret or edit_previewkit_config trigger a rebuild, you can wait here and " +
+                "then keep debugging. Pass the `app` you just changed to watch that service's rebuild (recommended); " +
+                "omit it to watch the whole environment (e.g. after a fresh deploy). It waits server-side up to ~45s " +
+                "per call; if it returns `settled: false` the deploy is still in progress - call it again to keep " +
+                "waiting. When `settled: true`, check `appStatus`/`status` (a *_failed status) and, if it failed, use " +
+                "get_build_logs / get_app_logs / diagnose_deploy to find out why. Each response also carries the " +
+                "last few log lines (`recentLogs`) from the phase-relevant stream, so you can see it is progressing " +
+                "(and, on failure, often the cause) without a separate log call.",
+            inputSchema: {
+                ...repoPrInput,
+                app: appNameSchema(),
+                timeoutSeconds: z.number().int().min(5).max(55).optional(),
+            },
+        },
+        async ({ repoFullName, prNumber, app, timeoutSeconds }) => {
+            logger.info("wait_for_deploy", { extra: { repoFullName, prNumber, app } });
+            try {
+                const organizationId = await resolveOrg(repoFullName);
+                const result = await services.previewkitEnvironments.waitForDeploy({
+                    repoFullName,
+                    prNumber,
+                    appName: app,
+                    callerOrgId: organizationId,
+                    timeoutMs: timeoutSeconds != null ? timeoutSeconds * 1000 : undefined,
+                });
+                if (result == null) {
+                    return unavailableResult(`No preview environment found for ${repoFullName} PR ${prNumber}`);
+                }
+                const recentLogs = await tailRecentLogs(result.appStatus ?? result.status, {
+                    repoFullName,
+                    prNumber,
+                    app,
+                    organizationId,
+                });
+                return jsonResult({ ...result, recentLogs });
+            } catch (err) {
+                return toToolResult(err);
+            }
+        },
+    );
+
+    // ─── Prompts: guided flows the user can invoke ────────────────────
+    server.registerPrompt(
+        "debug_broken_preview",
+        {
+            title: "Debug a broken preview",
+            description: "Guided flow to find and fix why a pull request's Autonoma preview deploy failed.",
+            argsSchema: { repoFullName: z.string(), prNumber: z.string() },
+        },
+        ({ repoFullName, prNumber }) => ({
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text:
+                            `Autonoma flagged a problem on the preview for ${repoFullName} PR ${prNumber}. ` +
+                            `Find the root cause and fix it in this repo.\n\n${DEBUG_INSTRUCTIONS}`,
+                    },
+                },
+            ],
+        }),
+    );
+
+    server.registerPrompt(
+        "setup_autonoma",
+        {
+            title: "Add Autonoma to this repo's agent instructions",
+            description:
+                "Add a short Autonoma section to AGENTS.md / CLAUDE.md so your agent checks previews automatically.",
+        },
+        () => ({
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text:
+                            `Add the following section to this repo's AGENTS.md (or CLAUDE.md if that is what this ` +
+                            `project uses). If the file already has an Autonoma section, update it to match. Create ` +
+                            `the file if it does not exist. Do not change anything else.\n\n${AGENTS_MD_SNIPPET}`,
+                    },
+                },
+            ],
+        }),
+    );
+
+    // ─── Resource: the debugging guide, readable on demand ────────────
+    server.registerResource(
+        "debugging-guide",
+        "autonoma://debugging-guide",
+        {
+            title: "Autonoma preview debugging guide",
+            description: "What Autonoma is and how to debug a broken preview with these tools.",
+            mimeType: "text/markdown",
+        },
+        (uri) => ({
+            contents: [{ uri: uri.href, text: DEBUG_INSTRUCTIONS, mimeType: "text/markdown" }],
+        }),
+    );
+
+    return server;
+
+    async function tailLogs(
+        source: "build" | "app",
+        input: {
+            repoFullName: string;
+            prNumber: number;
+            app?: string;
+            limit?: number;
+            filter?: string;
+            from?: "head" | "tail";
+        },
+    ) {
+        logger.info(`get_${source}_logs`, { extra: { repoFullName: input.repoFullName, prNumber: input.prNumber } });
+        try {
+            const organizationId = await resolveOrg(input.repoFullName);
+            const result = await services.previewkitLogs.tail({
+                repoFullName: input.repoFullName,
+                prNumber: input.prNumber,
+                source,
+                callerOrgId: organizationId,
+                app: input.app,
+                limit: input.limit ?? DEFAULT_LOG_LINES,
+                filter: input.filter,
+                from: input.from,
+            });
+            if (result == null) {
+                return unavailableResult(`No preview environment found for ${input.repoFullName} PR ${input.prNumber}`);
+            }
+            return jsonResult(result);
+        } catch (err) {
+            return toToolResult(err);
+        }
+    }
+
+    /**
+     * A short tail of the phase-relevant log stream for a wait_for_deploy response:
+     * build logs while the app is building/failed-to-build, otherwise runtime logs.
+     * Best-effort - a log-tail failure (Loki unset or down) never fails the wait.
+     */
+    async function tailRecentLogs(
+        watchedStatus: string,
+        input: { repoFullName: string; prNumber: number; app?: string; organizationId: string },
+    ): Promise<{ source: "build" | "app"; lines: PreviewLogLine[] } | undefined> {
+        const source = BUILD_PHASE_STATUSES.has(watchedStatus) ? "build" : "app";
+        try {
+            const logs = await services.previewkitLogs.tail({
+                repoFullName: input.repoFullName,
+                prNumber: input.prNumber,
+                source,
+                callerOrgId: input.organizationId,
+                app: input.app,
+                limit: WAIT_RECENT_LOG_LINES,
+                from: "tail",
+            });
+            if (logs == null || !logs.available) return undefined;
+            return { source, lines: logs.lines };
+        } catch (err) {
+            logger.warn("wait_for_deploy recent-log tail failed", { extra: { source }, err });
+            return undefined;
+        }
+    }
+}
+
+function appNameSchema() {
+    return requiredAppNameSchema().optional();
+}
+
+function requiredAppNameSchema() {
+    return z.string().regex(/^[a-zA-Z0-9._-]{1,63}$/, "invalid app name");
+}
+
+function logLimitSchema() {
+    return z.number().int().min(1).max(MAX_LOG_LINES).optional();
+}
+
+function logFilterSchema() {
+    return z.string().min(1).max(200).optional();
+}
+
+function logFromSchema() {
+    return z.enum(["head", "tail"]).optional();
+}
+
+/**
+ * Human-readable message for a tool failure, without leaking internals. A ZodError
+ * (bad tool input, or a config document that fails validation) is flattened to a
+ * per-field "path: message" list so the agent can see exactly what to fix and retry,
+ * instead of a raw serialized error.
+ */
+function describeError(err: unknown): string {
+    if (err instanceof z.ZodError) return `Invalid input:\n${z.prettifyError(err)}`;
+    if (err instanceof Error) return err.message;
+    return "Unexpected error";
+}
