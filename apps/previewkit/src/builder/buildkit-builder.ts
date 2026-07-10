@@ -420,11 +420,20 @@ export class BuildKitBuilder implements Builder {
                 args.push("--opt", `target=${request.target}`);
             }
 
+            // Every build arg is passed both as `--opt build-arg` (for Dockerfiles
+            // that declare `ARG <key>` and read it as an env var) AND as a BuildKit
+            // secret (for Dockerfiles that consume it via `RUN --mount=type=secret,
+            // id=<key>`, reading /run/secrets/<key>). Without the secret, mount-based
+            // Dockerfiles get an empty file and fail. buildctl reads the secret value
+            // from our env. Mirrors the railpack/generated-Dockerfile paths.
+            const buildSecretEnv: Record<string, string> = {};
             for (const [key, value] of Object.entries(request.buildArgs)) {
                 args.push("--opt", `build-arg:${key}=${value}`);
+                args.push("--secret", `id=${key},env=${key}`);
+                buildSecretEnv[key] = value;
             }
 
-            const extraEnv: Record<string, string> = {};
+            const extraEnv: Record<string, string> = { ...buildSecretEnv };
             if (dockerConfigDir != null) {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
