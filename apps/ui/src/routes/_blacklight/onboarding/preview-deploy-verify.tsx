@@ -1,12 +1,10 @@
 import { Badge, BrailleSpinner, Button, Skeleton, cn } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
-import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import * as Sentry from "@sentry/react";
 import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
@@ -82,22 +80,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const appBuilding = data.diagnostics.status === "building" || data.diagnostics.status === "idle";
   const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
   const logSource: PreviewLogSource = logSourceOverride ?? (appBuilding ? "build" : "app");
-
-  function copyForAgent() {
-    const firstFailure = failures[0];
-    copyPayloadToClipboard(
-      {
-        previewUrl: data.previewUrl,
-        diagnostics: data.diagnostics,
-        services: data.services,
-        configHint:
-          firstFailure != null
-            ? { step: "previewkit-config", appName: firstFailure.appName, fieldPath: firstFailure.fieldPath }
-            : undefined,
-      },
-      "Preview details copied",
-    );
-  }
 
   function completeOnboarding() {
     if (application == null) {
@@ -223,12 +205,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
                 Edit secrets
               </Button>
             ) : undefined}
-            {data.diagnostics.actions.includes("copy_for_agent") ? (
-              <Button variant="outline" className="gap-2" onClick={copyForAgent}>
-                <CopyIcon size={14} />
-                Copy for agent
-              </Button>
-            ) : undefined}
           </div>
         </section>
 
@@ -308,16 +284,6 @@ function DeployLogsSection({
         />
       </div>
     </section>
-  );
-}
-
-function copyPayloadToClipboard(payload: unknown, successTitle: string): void {
-  void navigator.clipboard.writeText(JSON.stringify(payload, undefined, 2)).then(
-    () => toastManager.add({ type: "success", title: successTitle }),
-    (err: unknown) => {
-      Sentry.captureException(err);
-      toastManager.add({ type: "critical", title: "Couldn't copy - select the text and copy manually." });
-    },
   );
 }
 
