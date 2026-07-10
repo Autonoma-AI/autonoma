@@ -101,6 +101,12 @@ export default defineConfig({
                 target: `http://localhost:${readApiPort()}`,
                 changeOrigin: true,
             },
+            // MCP OAuth discovery: Better Auth advertises these at the app origin,
+            // but the API serves them (mirrors the nginx.conf.template rule).
+            "/.well-known/oauth-": {
+                target: `http://localhost:${readApiPort()}`,
+                changeOrigin: true,
+            },
         },
     },
 });
