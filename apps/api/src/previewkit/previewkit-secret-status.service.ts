@@ -100,20 +100,17 @@ export class PreviewkitSecretStatusService {
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { activeConfigRevisionId: true },
+            select: { previewkitConfig: { select: { document: true } } },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        if (application.activeConfigRevisionId == null) {
+        const stored = application.previewkitConfig;
+        if (stored == null) {
             return { applicationId, configured: false, apps: [] };
         }
 
-        const revision = await this.db.previewkitConfigRevision.findFirst({
-            where: { id: application.activeConfigRevisionId, applicationId },
-            select: { document: true },
-        });
-        const parsed = revision != null ? trustedPreviewConfigSchema.safeParse(revision.document) : undefined;
-        if (parsed == null || !parsed.success) {
+        const parsed = trustedPreviewConfigSchema.safeParse(stored.document);
+        if (!parsed.success) {
             return { applicationId, configured: false, apps: [] };
         }
 
