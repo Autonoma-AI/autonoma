@@ -19,6 +19,11 @@ import {
     toAppBuildOutcomeMap,
 } from "./preview-summary";
 
+// Defensive cap on the per-app active-environments list. One env per open PR, so
+// a repo realistically stays well under this; the cap only guards a pathological
+// backlog of non-torn-down rows.
+const ACTIVE_ENVIRONMENTS_LIMIT = 100;
+
 export class DeploymentsService extends Service {
     constructor(
         private readonly db: PrismaClient,
@@ -76,6 +81,82 @@ export class DeploymentsService extends Service {
                 phase: environment.phase,
                 health: deriveEnvironmentHealth(environment.status, apps, environment.addons),
                 organization: environment.organization,
+                deployedAt: environment.deployedAt,
+                updatedAt: environment.updatedAt,
+                apps,
+            };
+        });
+    }
+
+    /**
+     * Lists the active (not torn-down) Previewkit environments for a single
+     * application, scoped to the caller's organization. The end-user counterpart
+     * to `listActiveEnvironments` (which is cross-org and admin-only): it filters
+     * to the application's linked GitHub repository so an org only ever sees its
+     * own app's previews. Returns `[]` when the app is not linked to a repository
+     * (previews are keyed by `githubRepositoryId`). Same per-env shape as the
+     * admin view - reconciled `health` rolled up from the app instances so the
+     * headline never contradicts the app rows.
+     */
+    async listActiveEnvironmentsForApp(applicationId: string, organizationId: string) {
+        this.logger.info("Listing active previewkit environments for app", { applicationId, organizationId });
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        if (application == null) throw new NotFoundError();
+
+        if (application.githubRepositoryId == null) {
+            this.logger.info("Application is not linked to a GitHub repository; no preview environments", {
+                applicationId,
+            });
+            return [];
+        }
+
+        const environments = await this.db.previewkitEnvironment.findMany({
+            where: {
+                organizationId,
+                githubRepositoryId: application.githubRepositoryId,
+                status: { not: "torn_down" },
+            },
+            orderBy: { updatedAt: "desc" },
+            // Bounded by open PRs on the repo (one env per PR), but capped
+            // defensively against a repo accumulating many non-torn-down rows.
+            take: ACTIVE_ENVIRONMENTS_LIMIT,
+            select: {
+                id: true,
+                repoFullName: true,
+                prNumber: true,
+                headRef: true,
+                status: true,
+                phase: true,
+                urls: true,
+                deployedAt: true,
+                updatedAt: true,
+                appInstances: {
+                    select: { appName: true, status: true, url: true, error: true },
+                    orderBy: { appName: "asc" },
+                },
+                addons: { select: { status: true } },
+            },
+        });
+
+        this.logger.info("Listed active previewkit environments for app", {
+            applicationId,
+            count: environments.length,
+        });
+
+        return environments.map((environment) => {
+            const apps = buildPreviewAppSummaries(environment.appInstances, parseStringRecord(environment.urls));
+            return {
+                id: environment.id,
+                repoFullName: environment.repoFullName,
+                prNumber: environment.prNumber,
+                headRef: environment.headRef,
+                status: environment.status,
+                phase: environment.phase,
+                health: deriveEnvironmentHealth(environment.status, apps, environment.addons),
                 deployedAt: environment.deployedAt,
                 updatedAt: environment.updatedAt,
                 apps,

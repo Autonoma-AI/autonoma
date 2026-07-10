@@ -1,4 +1,5 @@
 import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
+import { BrowsersIcon } from "@phosphor-icons/react/Browsers";
 import { BugIcon } from "@phosphor-icons/react/Bug";
 import { CaretLineLeftIcon } from "@phosphor-icons/react/CaretLineLeft";
 import { CaretLineRightIcon } from "@phosphor-icons/react/CaretLineRight";
@@ -67,6 +68,7 @@ function useAppNav() {
   const items: NavItem[] = [
     { icon: HouseIcon, label: "Home", href: base, exact: true },
     { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
+    { icon: BrowsersIcon, label: "Preview Environments", href: `${base}/preview-environments` },
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
   ];
 

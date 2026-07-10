@@ -7,6 +7,21 @@ export function useDeploymentsByPr(applicationId: string, prNumber: number) {
 }
 
 const PREVIEW_POLL_MS = 5_000;
+// Previewkit environment health values that are still settling; while any listed env is in one of
+// these, the list is polled so freshly-triggered deploys converge without a manual refresh.
+const ACTIVE_ENV_HEALTH: ReadonlySet<string> = new Set(["building"]);
+
+export function useActivePreviewEnvironments(applicationId: string) {
+    return useSuspenseQuery({
+        ...trpc.deployments.listActiveForApp.queryOptions({ applicationId }),
+        refetchInterval: (query) => {
+            const environments = query.state.data ?? [];
+            const anyBuilding = environments.some((environment) => ACTIVE_ENV_HEALTH.has(environment.health));
+            return anyBuilding ? PREVIEW_POLL_MS : false;
+        },
+    });
+}
+
 // Frontend preview statuses that are still in flight (a redeploy is building or pending). Terminal
 // statuses (ready/degraded/failed/stopped/missing/unknown) stop the poll.
 const ACTIVE_PREVIEW_STATUSES: ReadonlySet<string> = new Set(["building", "stale"]);
@@ -26,6 +41,10 @@ export function usePreviewEnvironmentSummary(
             return options?.refetchWhileActive === true && previewIsActive ? PREVIEW_POLL_MS : false;
         },
     });
+}
+
+export async function ensureActivePreviewEnvironmentsData(queryClient: QueryClient, applicationId: string) {
+    await ensureAPIQueryData(queryClient, trpc.deployments.listActiveForApp.queryOptions({ applicationId }));
 }
 
 export async function ensureDeploymentsByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
