@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.8.31](https://github.com/Autonoma-AI/agent/compare/v1.8.30...v1.8.31) (2026-07-10)
+
+
+### Features
+
+* **onboarding:** add apps from a dependency repo in-place (drop the "Dependency repos" band) ([#1416](https://github.com/Autonoma-AI/agent/issues/1416)) ([aea40a9](https://github.com/Autonoma-AI/agent/commit/aea40a9812942688d4ac7cea842c6cd7a9f45731))
+
+
+### Bug Fixes
+
+* **api:** teach the debug MCP that logs survive preview teardown ([#1419](https://github.com/Autonoma-AI/agent/issues/1419)) ([cfb2b6e](https://github.com/Autonoma-AI/agent/commit/cfb2b6e5bfae353e852344beee3a16f2504f1656))
+* **previewkit:** read secret status from latest config (unblock beta deploy) ([#1420](https://github.com/Autonoma-AI/agent/issues/1420)) ([41a240c](https://github.com/Autonoma-AI/agent/commit/41a240c1957b8982ac58422540275561e8864807))
+* **ui:** route MCP OAuth discovery (.well-known/oauth-*) to the API ([#1415](https://github.com/Autonoma-AI/agent/issues/1415)) ([0159486](https://github.com/Autonoma-AI/agent/commit/0159486fea9b471f5e36cc2fec3dfb0d0de433ee))
+
 ## [1.8.30](https://github.com/Autonoma-AI/agent/compare/v1.8.29...v1.8.30) (2026-07-10)
 
 
