@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.32](https://github.com/Autonoma-AI/agent/compare/v1.8.31...v1.8.32) (2026-07-10)
+
+
+### Bug Fixes
+
+* **previewkit:** normalize k8s lease timestamps read as strings in build queue ([#1422](https://github.com/Autonoma-AI/agent/issues/1422)) ([dc54591](https://github.com/Autonoma-AI/agent/commit/dc545910ef4a32e6306d7cc42f725c7a466a0e6a))
+
 ## [1.8.31](https://github.com/Autonoma-AI/agent/compare/v1.8.30...v1.8.31) (2026-07-10)
 
 
