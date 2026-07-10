@@ -191,8 +191,8 @@ The MCP never returns a secret's value - not through `get_secret_status`, not th
 
 **The tools do not show up.** Confirm the client connected (e.g. `claude mcp list`) and that you completed the browser sign-in. A client that only supports STDIO needs the `mcp-remote` bridge shown under **Other clients**.
 
-**A tool says no preview environment was found.** The tools work against a PR that has a preview environment in your connected repo. Open the PR and let its preview deploy first.
+**A tool says no live preview environment was found.** Autonoma tears the preview down after testing, so the live-surface tools (`get_deploy_status`, `get_endpoints`, `wait_for_deploy`) return `unavailable` once it is gone. This does **not** mean there is nothing to inspect: `get_build_logs` and `get_app_logs` still work for a post-mortem (see below). Open the PR and let a new preview deploy if you need the live surface again.
 
-**Logs come back empty or a tool 404s on an old PR.** Preview logs are retained for about 30 days, and previews are torn down after testing. Re-run the preview to get fresh logs.
+**Logs from a torn-down or old preview.** Build and app logs are retained for about 30 days and stay readable **after** the preview is torn down - so you can debug why a past deploy failed without redeploying. If the logs come back empty, the preview may never have deployed, or its logs have aged out; re-run the preview to get fresh ones.
 
 **Which pull requests can I use?** Any PR in a repo you have connected to Autonoma, in an organization you belong to.

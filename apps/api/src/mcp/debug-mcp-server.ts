@@ -39,6 +39,8 @@ Recommended flow when Autonoma flags a problem on a pull request:
    For anything in your source (code, a committed Dockerfile), edit this repo and push - Autonoma re-runs on the new commit.
 7. set_secret and edit_previewkit_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. If it returns settled:false, the deploy is still running - call it again.
 
+Live vs. forensic surface: get_deploy_status, get_endpoints, and wait_for_deploy read the LIVE environment, which Autonoma tears down after testing - once it is gone they return status: "unavailable". The LOGS (get_build_logs, get_app_logs) are different: they persist ~30 days independent of the live environment. So an "unavailable" deploy status does NOT mean the logs are gone. For a post-mortem of a past deploy ("why did this PR's last preview fail?"), call the log tools directly even when status is unavailable.
+
 Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take prNumber. The organization is inferred from the repo (which you must be a member of), so everything is automatically scoped to it.`;
 
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
@@ -82,6 +84,22 @@ function errorResult(message: string) {
  */
 function unavailableResult(reason: string) {
     return jsonResult({ status: "unavailable", reason });
+}
+
+/**
+ * The `unavailable` result for a PR whose LIVE preview environment is gone
+ * (never deployed, or - far more often - torn down after Autonoma finished
+ * testing). It steers the agent to the forensic surface: build/app logs outlive
+ * the environment by ~30 days, so a torn-down env is not a dead end for a
+ * post-mortem. Without this nudge an agent reads "not found" as "nothing here"
+ * and gives up (or needlessly redeploys) instead of pulling the logs.
+ */
+function noLiveEnvResult(repoFullName: string, prNumber: number) {
+    return unavailableResult(
+        `No live preview environment for ${repoFullName} PR ${prNumber} - it was never deployed, or (more often) ` +
+            `it was torn down after Autonoma finished testing. The live surface (deploy status, endpoints) is gone, ` +
+            `but build and app logs persist ~30 days: call get_build_logs / get_app_logs to inspect the last deploy.`,
+    );
 }
 
 /**
@@ -148,7 +166,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             try {
                 const organizationId = await resolveOrg(repoFullName);
                 const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const summary = await services.deployments.previewSummaryByPr(app.id, prNumber, organizationId);
+                const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
                 return jsonResult(summary);
             } catch (err) {
                 return toToolResult(err);
@@ -173,7 +192,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             try {
                 const organizationId = await resolveOrg(repoFullName);
                 const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const summary = await services.deployments.previewSummaryByPr(app.id, prNumber, organizationId);
+                const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
                 const endpoints = summary.services.map((service) => {
                     const hasUrl = service.endpoint != null && service.endpoint !== "";
                     if (hasUrl) return { name: service.name, url: service.endpoint };
@@ -205,7 +225,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "(the result's `services` field lists which produced output), or pass one service name to narrow. " +
                 "`from` picks the window: 'tail' (newest, default) for where a build failed, or 'head' for the start " +
                 "of the build. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
-                "`available: true` means the window genuinely had no output. Logs are retained ~30 days.",
+                "`available: true` means the window genuinely had no output. Logs persist ~30 days and remain " +
+                "readable after the preview is torn down - you can pull a past deploy's build logs even when " +
+                "get_deploy_status reports the environment is gone.",
             inputSchema: {
                 ...repoPrInput,
                 app: appNameSchema(),
@@ -227,7 +249,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "'db'); omit `app` to get all services (the result's `services` field lists which produced output), " +
                 "or pass one service name to narrow. `from` picks the window: 'tail' (newest, default) for a crash, " +
                 "or 'head' for startup. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
-                "`available: true` means the window genuinely had no output. Use when a service built but errors at runtime.",
+                "`available: true` means the window genuinely had no output. Use when a service built but errors at " +
+                "runtime. Like build logs, these persist ~30 days and remain readable after the preview is torn down, " +
+                "so they work for a post-mortem even when get_deploy_status reports no environment.",
             inputSchema: {
                 ...repoPrInput,
                 app: appNameSchema(),
@@ -439,7 +463,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     timeoutMs: timeoutSeconds != null ? timeoutSeconds * 1000 : undefined,
                 });
                 if (result == null) {
-                    return unavailableResult(`No preview environment found for ${repoFullName} PR ${prNumber}`);
+                    return noLiveEnvResult(repoFullName, prNumber);
                 }
                 const recentLogs = await tailRecentLogs(result.appStatus ?? result.status, {
                     repoFullName,
@@ -516,6 +540,22 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
 
     return server;
 
+    /**
+     * The PR's preview summary, or undefined when its live environment is gone
+     * (torn down after testing, or never deployed). Lets the live-surface tools
+     * return {@link noLiveEnvResult} - which points at the still-available logs -
+     * instead of a bare "not found". Non-NotFound errors (a repo/membership
+     * failure surfaced upstream, a real backend fault) still propagate.
+     */
+    async function tryPreviewSummary(applicationId: string, prNumber: number, organizationId: string) {
+        try {
+            return await services.deployments.previewSummaryByPr(applicationId, prNumber, organizationId);
+        } catch (err) {
+            if (err instanceof NotFoundError) return undefined;
+            throw err;
+        }
+    }
+
     async function tailLogs(
         source: "build" | "app",
         input: {
@@ -541,7 +581,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 from: input.from,
             });
             if (result == null) {
-                return unavailableResult(`No preview environment found for ${input.repoFullName} PR ${input.prNumber}`);
+                return unavailableResult(
+                    `No ${source} logs found for ${input.repoFullName} PR ${input.prNumber} - the preview may never ` +
+                        `have deployed, or its logs have aged out (retained ~30 days).`,
+                );
             }
             return jsonResult(result);
         } catch (err) {
