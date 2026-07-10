@@ -43,9 +43,10 @@ export const env = createEnv({
         // BuildKit: every build dials the long-lived warm buildkitd pool
         // (deployment/buildkit/buildkitd-warm.yaml) at this endpoint. The pool
         // runs in the control cluster (the same one the runner Job runs in) and
-        // is reached by in-cluster DNS; its node-local layer cache stays hot
-        // across builds, so the slow S3 cache import/export stays off the hot
-        // path.
+        // is reached by in-cluster DNS; its node-local layer cache (on the
+        // pool pod's NVMe) stays hot across builds and is the only build
+        // cache - there is no S3 import/export, so a build landing on a cold
+        // node just rebuilds from scratch and warms that node's disk.
         BUILDKIT_WARM_HOST: z.string().default("tcp://buildkit.buildkit.svc.cluster.local:1234"),
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes

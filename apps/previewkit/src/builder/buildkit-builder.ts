@@ -79,16 +79,6 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /failed to list workers/,
 ];
 
-/**
- * The slice of `S3Storage` the builder needs: the bucket coordinates baked
- * into buildctl's S3 cache import/export args. `S3Storage` satisfies it
- * structurally; tests pass a plain literal without touching storage env.
- */
-interface CacheBucket {
-    region: string;
-    bucket: string;
-}
-
 interface BuildKitBuilderOptions {
     /** The warm buildkitd pool's Service endpoint (tcp://host:1234). With no
      *  queue wired this is what every build dials as buildctl's `--addr`; with
@@ -96,7 +86,6 @@ interface BuildKitBuilderOptions {
      *  granting pod directly (deployment/buildkit/buildkitd-warm.yaml). */
     warmHost: string;
     buildTimeoutMs: number;
-    storage: CacheBucket;
     /** When set, every build-output chunk is mirrored to this sink (keyed by
      *  `request.namespace`) for live streaming + durable history, in addition
      *  to the disk + S3 log. Optional so builds work unchanged when no sink is
@@ -163,7 +152,6 @@ export class BuildKitBuilder implements Builder {
     private readonly warmHost: string;
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
-    private readonly storage: CacheBucket;
     private readonly logSink?: BuildLogSink;
     private readonly queue?: BuildQueue;
 
@@ -171,26 +159,8 @@ export class BuildKitBuilder implements Builder {
         this.warmHost = options.warmHost;
         this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
-        this.storage = options.storage;
         this.logSink = options.logSink;
         this.queue = options.queue;
-    }
-
-    /**
-     * Returns the `--import-cache` + `--export-cache` argv pairs for this
-     * request, or an empty array when no cacheKey was supplied. Bucket +
-     * region are read off the shared S3Storage; `mode=max` exports all
-     * intermediate layers (not just the final image's), which is what we want
-     * for fast subsequent builds of the same app.
-     */
-    private buildCacheArgs(cacheKey: string): string[] {
-        const common = `type=s3,region=${this.storage.region},bucket=${this.storage.bucket},name=${cacheKey},blobs_prefix=buildctl/blobs/,manifests_prefix=buildctl/manifests/`;
-        // `mode=min` exports only the final image's layers, not the whole
-        // intermediate graph. The warm pool's node-local cache is the hot
-        // path, so S3 is just a cold-start fallback (import) plus a light
-        // final-layer export - which avoids the full-graph upload that made the
-        // `exporting layers` step run for minutes under `mode=max`.
-        return ["--import-cache", common, "--export-cache", `${common},mode=min`];
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
@@ -410,7 +380,6 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
-                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             // Select a stage in a multi-stage Dockerfile. Without it buildkit
@@ -491,7 +460,6 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
-                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             const extraEnv: Record<string, string> = {};
@@ -561,7 +529,6 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
-                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             const buildSecretEnv: Record<string, string> = {};
@@ -665,7 +632,6 @@ export class BuildKitBuilder implements Builder {
                 "platform=linux/amd64",
                 "--output",
                 `type=image,name=${request.imageTag},push=true`,
-                ...this.buildCacheArgs(request.cacheKey),
             ];
 
             const buildSecretEnv: Record<string, string> = {};

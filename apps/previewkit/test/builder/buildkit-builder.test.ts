@@ -79,9 +79,6 @@ describe("BuildKitBuilder", () => {
         const builder = new BuildKitBuilder({
             warmHost: "tcp://buildkit.buildkit.svc.cluster.local:1234",
             buildTimeoutMs: 5_000,
-            // The saturation path never touches storage (cache args are only
-            // built once a slot is granted), so bucket coordinates suffice.
-            storage: { bucket: "test", region: "us-east-1" },
             logSink: sink,
             queue,
         });

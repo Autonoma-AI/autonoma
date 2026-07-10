@@ -81,16 +81,16 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     const previewkitDefaults = createPreviewkitDefaults(env);
 
     // Builder. Every build dials the warm buildkitd pool in the control
-    // cluster via in-cluster DNS. The BuildKit layer cache shares the storage
-    // bucket with build logs; each writes under a distinct top-level key
-    // prefix so they can coexist. When the admission queue is on, each build
-    // first claims a per-pod slot and dials that pod directly; the Service
-    // host remains the fail-open fallback.
+    // cluster via in-cluster DNS; its node-local NVMe cache is the only build
+    // cache (no S3 import/export) - a build that lands on a cold node just
+    // rebuilds from scratch and warms that node's disk for next time. When
+    // the admission queue is on, each build first claims a per-pod slot and
+    // dials that pod directly; the Service host remains the fail-open
+    // fallback.
     const buildQueue = createBuildQueue();
     const builder = new BuildKitBuilder({
         warmHost: env.BUILDKIT_WARM_HOST,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
-        storage,
         ...(logSink != null ? { logSink } : {}),
         ...(buildQueue != null ? { queue: buildQueue } : {}),
     });
