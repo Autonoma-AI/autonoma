@@ -24,7 +24,7 @@ export function PreviewEnvironmentHeaderButton({
       variant="outline"
       size="sm"
       className="shrink-0 gap-2"
-      render={<AppLink to="/app/$appSlug/pull-requests/$prNumber/preview" params={{ prNumber }} />}
+      render={<AppLink to="/app/$appSlug/preview/$environmentId" params={{ environmentId: summary.environmentId }} />}
     >
       <StatusDot status={statusMeta.dot} className="rounded-full" />
       <span className="font-mono text-2xs font-bold uppercase tracking-wider text-primary-ink">

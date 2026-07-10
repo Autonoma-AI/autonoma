@@ -148,9 +148,7 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
         <Button
           variant="outline"
           size="xs"
-          render={
-            <AppLink to="/app/$appSlug/pull-requests/$prNumber/preview" params={{ prNumber: environment.prNumber }} />
-          }
+          render={<AppLink to="/app/$appSlug/preview/$environmentId" params={{ environmentId: environment.id }} />}
         >
           View
           <ArrowRightIcon size={12} />

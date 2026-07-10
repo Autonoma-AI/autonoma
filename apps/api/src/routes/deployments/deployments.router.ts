@@ -17,4 +17,9 @@ export const deploymentsRouter = router({
         .query(({ ctx: { services, organizationId }, input }) =>
             services.deployments.previewSummaryByPr(input.applicationId, input.prNumber, organizationId),
         ),
+    previewSummaryById: protectedProcedure
+        .input(z.object({ applicationId: z.string(), environmentId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.deployments.previewSummaryById(input.applicationId, input.environmentId, organizationId),
+        ),
 });

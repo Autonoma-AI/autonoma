@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type Prisma, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { PreviewRedeployAppMode } from "@autonoma/types";
 import { env } from "../../env";
@@ -23,6 +23,79 @@ import {
 // a repo realistically stays well under this; the cap only guards a pathological
 // backlog of non-torn-down rows.
 const ACTIVE_ENVIRONMENTS_LIMIT = 100;
+
+// Everything the rich preview-environment summary is assembled from. Shared by
+// the PR-keyed and environment-id-keyed lookups so both produce an identical
+// summary shape. `repoFullName`/`prNumber` are carried through so the client can
+// address the per-environment log stream (keyed by owner/repo/pr) without a
+// second round-trip.
+const PREVIEWKIT_SUMMARY_ENV_SELECT = {
+    id: true,
+    repoFullName: true,
+    prNumber: true,
+    headRef: true,
+    githubRepositoryId: true,
+    status: true,
+    phase: true,
+    error: true,
+    urls: true,
+    resolvedConfig: true,
+    headSha: true,
+    deployedAt: true,
+    tornDownAt: true,
+    updatedAt: true,
+    appInstances: {
+        select: {
+            appName: true,
+            status: true,
+            imageTag: true,
+            error: true,
+            url: true,
+            port: true,
+            updatedAt: true,
+        },
+        orderBy: { appName: "asc" },
+    },
+    addons: {
+        select: {
+            name: true,
+            provider: true,
+            status: true,
+            error: true,
+            outputs: true,
+            provisionedAt: true,
+            updatedAt: true,
+        },
+        orderBy: { name: "asc" },
+    },
+    builds: {
+        select: {
+            headSha: true,
+            status: true,
+            error: true,
+            startedAt: true,
+            finishedAt: true,
+            durationMs: true,
+            appBuilds: {
+                select: {
+                    appName: true,
+                    status: true,
+                    imageTag: true,
+                    durationMs: true,
+                    logUrl: true,
+                    error: true,
+                    runtime: true,
+                },
+            },
+        },
+        orderBy: { startedAt: "desc" },
+        take: 1,
+    },
+} satisfies Prisma.PreviewkitEnvironmentSelect;
+
+type PreviewkitSummaryEnvironment = Prisma.PreviewkitEnvironmentGetPayload<{
+    select: typeof PREVIEWKIT_SUMMARY_ENV_SELECT;
+}>;
 
 export class DeploymentsService extends Service {
     constructor(
@@ -338,65 +411,7 @@ export class DeploymentsService extends Service {
                 githubRepositoryId,
                 prNumber,
             },
-            select: {
-                id: true,
-                status: true,
-                phase: true,
-                error: true,
-                urls: true,
-                resolvedConfig: true,
-                headSha: true,
-                deployedAt: true,
-                tornDownAt: true,
-                updatedAt: true,
-                appInstances: {
-                    select: {
-                        appName: true,
-                        status: true,
-                        imageTag: true,
-                        error: true,
-                        url: true,
-                        port: true,
-                        updatedAt: true,
-                    },
-                    orderBy: { appName: "asc" },
-                },
-                addons: {
-                    select: {
-                        name: true,
-                        provider: true,
-                        status: true,
-                        error: true,
-                        outputs: true,
-                        provisionedAt: true,
-                        updatedAt: true,
-                    },
-                    orderBy: { name: "asc" },
-                },
-                builds: {
-                    select: {
-                        headSha: true,
-                        status: true,
-                        error: true,
-                        startedAt: true,
-                        finishedAt: true,
-                        durationMs: true,
-                        appBuilds: {
-                            select: {
-                                appName: true,
-                                status: true,
-                                imageTag: true,
-                                durationMs: true,
-                                logUrl: true,
-                                error: true,
-                                runtime: true,
-                            },
-                        },
-                    },
-                    orderBy: { startedAt: "desc" },
-                    take: 1,
-                },
-            },
+            select: PREVIEWKIT_SUMMARY_ENV_SELECT,
         });
 
         if (environment == null) {
@@ -430,6 +445,57 @@ export class DeploymentsService extends Service {
             return missingPreviewSummary(currentHeadSha, "Preview environment is not configured for this PR.");
         }
 
+        return this.buildPreviewkitSummary(environment, currentHeadSha, branch.name);
+    }
+
+    /**
+     * Loads a preview environment summary by its own id, scoped to the given
+     * application (whose slug is in the URL) within the caller's organization.
+     * The environment must belong to that application's linked repository, which
+     * both ties the URL's `appSlug` to the environment and keeps the branch
+     * lookup app-scoped. Unlike `previewSummaryByPr` this never depends on a PR
+     * branch existing, so it also serves the main-branch environment (PR #0) that
+     * has no pull request. `currentHeadSha` (used only for stale detection) is
+     * resolved best-effort from the matching branch and falls back to the
+     * environment's deployed SHA - i.e. "not stale" - when no branch is found.
+     */
+    async previewSummaryById(applicationId: string, environmentId: string, organizationId: string) {
+        this.logger.info("Loading preview environment summary by id", { applicationId, environmentId, organizationId });
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        if (application == null || application.githubRepositoryId == null) throw new NotFoundError();
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: { id: environmentId, organizationId, githubRepositoryId: application.githubRepositoryId },
+            select: PREVIEWKIT_SUMMARY_ENV_SELECT,
+        });
+        if (environment == null) throw new NotFoundError();
+
+        const branch = await this.db.branch.findFirst({
+            where: { applicationId, organizationId, prInfo: { prNumber: environment.prNumber } },
+            // Deterministic when a PR number has been reused (deleted then recreated branch).
+            orderBy: { updatedAt: "desc" },
+            select: { activeSnapshot: { select: { headSha: true } } },
+        });
+        const currentHeadSha = branch?.activeSnapshot?.headSha ?? environment.headSha;
+
+        return this.buildPreviewkitSummary(environment, currentHeadSha, environment.headRef);
+    }
+
+    /**
+     * Assembles the rich preview-environment summary from an already-loaded
+     * environment row: reconciled service list, headline status (with stale
+     * detection against `currentHeadSha`), and the latest build. Shared by the
+     * PR-keyed and environment-id-keyed lookups so both return the same shape.
+     */
+    private buildPreviewkitSummary(
+        environment: PreviewkitSummaryEnvironment,
+        currentHeadSha: string | null,
+        branchName: string,
+    ) {
         const latestBuild = environment.builds[0] ?? null;
         const buildingOverPriorAttempt = isBuildingOverPriorAttempt(environment.status, latestBuild);
         const effectiveLatestBuild = buildingOverPriorAttempt ? null : latestBuild;
@@ -438,7 +504,7 @@ export class DeploymentsService extends Service {
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
         const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
         const derivedServices = buildServiceSummaries({
-            branchName: branch.name,
+            branchName,
             environment,
             manifest,
             latestBuild: effectiveLatestBuild,
@@ -466,6 +532,10 @@ export class DeploymentsService extends Service {
 
         return {
             source: "previewkit" as const,
+            environmentId: environment.id,
+            repoFullName: environment.repoFullName,
+            prNumber: environment.prNumber,
+            branch: branchName,
             status,
             primaryUrl,
             phase: environment.phase,

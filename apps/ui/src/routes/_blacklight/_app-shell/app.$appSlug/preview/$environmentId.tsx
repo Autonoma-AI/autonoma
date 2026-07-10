@@ -1,4 +1,4 @@
-import { Badge, Button, Skeleton, StatusDot, cn } from "@autonoma/blacklight";
+import { Badge, Skeleton, StatusDot, cn } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
@@ -7,26 +7,29 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { formatRelativeTime } from "lib/format";
-import { ensurePreviewEnvironmentSummaryData, usePreviewEnvironmentSummary } from "lib/query/deployments.queries";
-import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
+import { ensurePreviewSummaryByIdData, usePreviewSummaryById } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { type ReactNode, Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { PREVIEW_STATUS_META, SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from "../-components/preview-status-meta";
+import {
+  PREVIEW_STATUS_META,
+  SERVICE_ICON_BY_KEY,
+  SERVICE_STATUS_META,
+} from "../pull-requests/-components/preview-status-meta";
 
-type PreviewSummary = RouterOutputs["deployments"]["previewSummaryByPr"];
+type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 type PreviewService = PreviewSummary["services"][number];
 
 // Persisted in the URL so a refresh keeps the selected service and the chosen
 // log focus (build vs app). `service` is the selected service's key.
 type PreviewSearch = { service?: string; logs?: PreviewLogSource };
 
-export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/preview")({
-  loader: async ({ context, params: { appSlug, prNumber } }) => {
+export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/preview/$environmentId")({
+  loader: async ({ context, params: { appSlug, environmentId } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    await ensurePreviewEnvironmentSummaryData(context.queryClient, app.id, prNumber);
+    await ensurePreviewSummaryByIdData(context.queryClient, app.id, environmentId);
   },
   validateSearch: (search: Record<string, unknown>): PreviewSearch => ({
     service: typeof search.service === "string" ? search.service : undefined,
@@ -36,71 +39,59 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
 });
 
 function PreviewEnvironmentPage() {
-  const { prNumber } = Route.useParams();
-
   return (
     <div className="flex h-full flex-col gap-6">
       <Suspense fallback={<PreviewEnvironmentPageSkeleton />}>
-        <PreviewEnvironmentContent prNumber={prNumber} />
+        <PreviewEnvironmentContent />
       </Suspense>
     </div>
   );
 }
 
-function PreviewEnvironmentContent({ prNumber }: { prNumber: number }) {
+function PreviewEnvironmentContent() {
+  const { environmentId } = Route.useParams();
   const app = useCurrentApplication();
-  const { data: summary } = usePreviewEnvironmentSummary(app.id, prNumber, { refetchWhileActive: true });
+  const { data: summary } = usePreviewSummaryById(app.id, environmentId, { refetchWhileActive: true });
   const statusMeta = PREVIEW_STATUS_META[summary.status] ?? PREVIEW_STATUS_META.unknown;
-  const previewHref = summary.actions.openPreview.enabled ? (summary.actions.openPreview.href ?? undefined) : undefined;
 
   return (
     <>
-      <PreviewHeader prNumber={prNumber} summary={summary} statusMeta={statusMeta} />
-
-      {summary.source !== "previewkit" ? (
-        <PreviewUnavailable summary={summary} previewHref={previewHref} />
-      ) : (
-        <PreviewServicesExplorer summary={summary} applicationId={app.id} prNumber={prNumber} />
-      )}
+      <PreviewHeader summary={summary} statusMeta={statusMeta} />
+      <PreviewServicesExplorer summary={summary} />
     </>
   );
 }
 
 function PreviewHeader({
-  prNumber,
   summary,
   statusMeta,
 }: {
-  prNumber: number;
   summary: PreviewSummary;
   statusMeta: (typeof PREVIEW_STATUS_META)[keyof typeof PREVIEW_STATUS_META];
 }) {
-  // Every app shares the PR branch, so show it once for the whole environment.
-  const branch = summary.services.find((service) => service.branch != null)?.branch;
+  // Main-branch environments (PR #0) have no pull request, so identify them by branch instead.
+  const identifier = summary.prNumber > 0 ? `#${summary.prNumber}` : summary.branch;
 
   return (
     <header className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2 text-text-secondary">
           <AppLink
-            to="/app/$appSlug/pull-requests/$prNumber"
-            params={{ prNumber }}
-            aria-label="Back to pull request"
+            to="/app/$appSlug/preview-environments"
+            aria-label="Back to preview environments"
             className="inline-flex size-5 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
           >
             <ArrowLeftIcon size={12} />
           </AppLink>
           <GlobeIcon size={14} />
           <span className="font-mono text-2xs uppercase tracking-widest">Preview environment</span>
-          <span className="font-mono text-2xs">#{prNumber}</span>
+          <span className="font-mono text-2xs">{identifier}</span>
         </div>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">Preview environment</h1>
-        {branch != null && (
-          <div className="flex items-center gap-1.5 font-mono text-2xs text-text-secondary">
-            <GitBranchIcon size={12} className="shrink-0" />
-            <span className="truncate">{branch}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 font-mono text-2xs text-text-secondary">
+          <GitBranchIcon size={12} className="shrink-0" />
+          <span className="truncate">{summary.branch}</span>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -120,41 +111,9 @@ function PreviewHeader({
   );
 }
 
-function PreviewUnavailable({ summary, previewHref }: { summary: PreviewSummary; previewHref: string | undefined }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 border border-dashed border-border-mid bg-surface-base px-6 py-20 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full border border-border-mid bg-surface-raised text-text-secondary">
-        <GlobeIcon size={22} />
-      </div>
-      <div className="flex max-w-md flex-col gap-1.5">
-        <h2 className="text-lg font-semibold text-text-primary">No preview environment</h2>
-        <p className="text-sm text-text-secondary">
-          {summary.error ?? "This pull request does not have a preview environment."}
-        </p>
-      </div>
-      {previewHref != null && (
-        <a href={previewHref} target="_blank" rel="noreferrer">
-          <Button variant="outline" size="sm">
-            <ArrowSquareOutIcon size={12} />
-            Open deployment
-          </Button>
-        </a>
-      )}
-    </div>
-  );
-}
-
 // Master-detail: the environment's services on the left, the selected service's details plus the
 // environment build/app logs on the right.
-function PreviewServicesExplorer({
-  summary,
-  applicationId,
-  prNumber,
-}: {
-  summary: PreviewSummary;
-  applicationId: string;
-  prNumber: number;
-}) {
+function PreviewServicesExplorer({ summary }: { summary: PreviewSummary }) {
   const services = summary.services;
   const apps = services.filter(isAppService);
   const dependencies = services.filter((service) => !isAppService(service));
@@ -195,7 +154,7 @@ function PreviewServicesExplorer({
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         {selectedService != null && <PreviewAppDetail service={selectedService} />}
-        <PreviewLogsSection service={selectedService} applicationId={applicationId} prNumber={prNumber} />
+        <PreviewLogsSection service={selectedService} repoFullName={summary.repoFullName} prNumber={summary.prNumber} />
       </div>
     </div>
   );
@@ -318,32 +277,30 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 
 function PreviewLogsSection({
   service,
-  applicationId,
+  repoFullName,
   prNumber,
 }: {
   service: PreviewService | undefined;
-  applicationId: string;
+  repoFullName: string;
   prNumber: number;
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <h2 className="text-sm font-semibold text-text-primary">Logs</h2>
-      <PreviewLogsBody service={service} applicationId={applicationId} prNumber={prNumber} />
+      <PreviewLogsBody service={service} repoFullName={repoFullName} prNumber={prNumber} />
     </section>
   );
 }
 
 function PreviewLogsBody({
   service,
-  applicationId,
+  repoFullName,
   prNumber,
 }: {
   service: PreviewService | undefined;
-  applicationId: string;
+  repoFullName: string;
   prNumber: number;
 }) {
-  const repository = useApplicationRepositoryFromGitHub(applicationId);
-  const fullName = repository.data?.fullName;
   const navigate = Route.useNavigate();
   const { logs } = Route.useSearch();
 
@@ -357,16 +314,7 @@ function PreviewLogsBody({
     );
   }
 
-  if (fullName == null) {
-    if (repository.isPending) return <Skeleton className="min-h-0 w-full flex-1" />;
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center border border-border-dim bg-surface-base px-4 py-5 text-center text-sm text-text-secondary">
-        Logs are unavailable - this application is not linked to a GitHub repository.
-      </div>
-    );
-  }
-
-  const [owner = "", repo = ""] = fullName.split("/");
+  const [owner = "", repo = ""] = repoFullName.split("/");
   return (
     <PreviewLogsTabs
       owner={owner}

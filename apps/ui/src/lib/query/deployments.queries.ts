@@ -43,8 +43,35 @@ export function usePreviewEnvironmentSummary(
     });
 }
 
+export function usePreviewSummaryById(
+    applicationId: string,
+    environmentId: string,
+    options?: { refetchWhileActive?: boolean },
+) {
+    return useSuspenseQuery({
+        ...trpc.deployments.previewSummaryById.queryOptions({ applicationId, environmentId }),
+        refetchInterval: (query) => {
+            const status = query.state.data?.status ?? "";
+            const phase = query.state.data?.phase ?? "";
+            const previewIsActive = ACTIVE_PREVIEW_STATUSES.has(status) || ACTIVE_PREVIEW_PHASES.has(phase);
+            return options?.refetchWhileActive === true && previewIsActive ? PREVIEW_POLL_MS : false;
+        },
+    });
+}
+
 export async function ensureActivePreviewEnvironmentsData(queryClient: QueryClient, applicationId: string) {
     await ensureAPIQueryData(queryClient, trpc.deployments.listActiveForApp.queryOptions({ applicationId }));
+}
+
+export async function ensurePreviewSummaryByIdData(
+    queryClient: QueryClient,
+    applicationId: string,
+    environmentId: string,
+) {
+    await ensureAPIQueryData(
+        queryClient,
+        trpc.deployments.previewSummaryById.queryOptions({ applicationId, environmentId }),
+    );
 }
 
 export async function ensureDeploymentsByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
