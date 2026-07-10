@@ -15,6 +15,7 @@ import {
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
@@ -26,6 +27,8 @@ import { nextDraftId, repoAliasFrom, type RepoDraft } from "./topology-draft";
 const INSTALL_POLL_INTERVAL_MS = 800;
 const INSTALL_POLL_MAX_TICKS = 375;
 const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
+// Below this many total repos a search box is more clutter than help.
+const SEARCH_THRESHOLD = 6;
 
 interface AddAppDialogProps {
   open: boolean;
@@ -63,11 +66,17 @@ export function AddAppDialog({
   const [selection, setSelection] = useState<string | undefined>(undefined);
   const [alias, setAlias] = useState("");
   const [fallbackBranch, setFallbackBranch] = useState("");
+  const [query, setQuery] = useState("");
 
   const usedFullNames = new Set([primaryRepoFullName, ...repos.map((repo) => repo.repo)]);
   const availableRepos = installationRepos.filter((repo) => !usedFullNames.has(repo.fullName));
   const installUrl = githubConfig.installUrl;
   const existingAliases = repos.map((repo) => repo.name);
+
+  const showSearch = repos.length + availableRepos.length > SEARCH_THRESHOLD;
+  const filteredDeps = filterRepos(repos, query, (repo) => `${repo.repo} ${repo.name}`);
+  const filteredAvailable = filterRepos(availableRepos, query, (repo) => repo.fullName);
+  const noMatches = query.trim() !== "" && filteredDeps.length === 0 && filteredAvailable.length === 0;
 
   const selectedNewRepo =
     selection?.startsWith("new:") === true
@@ -78,6 +87,7 @@ export function AddAppDialog({
     setSelection(undefined);
     setAlias("");
     setFallbackBranch("");
+    setQuery("");
   }
 
   function handleOpenChange(next: boolean) {
@@ -148,24 +158,46 @@ export function AddAppDialog({
               </p>
             ) : (
               <div className="space-y-2">
-                {repos.map((repo) => (
-                  <RepoOption
-                    key={`dep:${repo.name}`}
-                    selected={selection === `dep:${repo.name}`}
-                    title={repo.repo}
-                    subtitle={`Already added · alias ${repo.name}`}
-                    onSelect={() => setSelection(`dep:${repo.name}`)}
-                  />
-                ))}
-                {availableRepos.map((repo) => (
-                  <RepoOption
-                    key={`new:${repo.fullName}`}
-                    selected={selection === `new:${repo.fullName}`}
-                    title={repo.fullName}
-                    subtitle="Connect to this preview"
-                    onSelect={() => selectNewRepo(repo.fullName, repo.name, repo.defaultBranch)}
-                  />
-                ))}
+                {showSearch ? (
+                  <div className="relative">
+                    <MagnifyingGlassIcon
+                      size={14}
+                      className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 text-text-secondary"
+                    />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search repos"
+                      className="pl-9"
+                      autoFocus
+                    />
+                  </div>
+                ) : undefined}
+                <div className="max-h-80 space-y-2 overflow-y-auto">
+                  {filteredDeps.map((repo) => (
+                    <RepoOption
+                      key={`dep:${repo.name}`}
+                      selected={selection === `dep:${repo.name}`}
+                      title={repo.repo}
+                      subtitle={`Already added · alias ${repo.name}`}
+                      onSelect={() => setSelection(`dep:${repo.name}`)}
+                    />
+                  ))}
+                  {filteredAvailable.map((repo) => (
+                    <RepoOption
+                      key={`new:${repo.fullName}`}
+                      selected={selection === `new:${repo.fullName}`}
+                      title={repo.fullName}
+                      subtitle="Connect to this preview"
+                      onSelect={() => selectNewRepo(repo.fullName, repo.name, repo.defaultBranch)}
+                    />
+                  ))}
+                  {noMatches ? (
+                    <p className="px-1 py-6 text-center text-2xs text-text-secondary">
+                      No repos match &ldquo;{query.trim()}&rdquo;.
+                    </p>
+                  ) : undefined}
+                </div>
               </div>
             )}
 
@@ -265,4 +297,41 @@ function RepoOption({
       {selected ? <CheckCircleIcon size={18} weight="fill" className="shrink-0 text-primary-ink" /> : undefined}
     </button>
   );
+}
+
+/** Base offset so any subsequence-only match sorts after every contiguous-substring match. */
+const SUBSEQUENCE_PENALTY = 1000;
+
+/**
+ * Frontend-only fuzzy match: case-insensitive, returns a rank (lower is better) or
+ * `undefined` when the query's characters don't appear in order. A contiguous
+ * substring ranks by its position; a gapped subsequence ranks strictly worse.
+ */
+function fuzzyScore(query: string, text: string): number | undefined {
+  const q = query.trim().toLowerCase();
+  if (q === "") return 0;
+  const t = text.toLowerCase();
+  const direct = t.indexOf(q);
+  if (direct !== -1) return direct;
+
+  let cursor = 0;
+  let gaps = 0;
+  let firstIndex = -1;
+  for (const char of q) {
+    const found = t.indexOf(char, cursor);
+    if (found === -1) return undefined;
+    if (firstIndex === -1) firstIndex = found;
+    if (found > cursor) gaps += found - cursor;
+    cursor = found + 1;
+  }
+  return SUBSEQUENCE_PENALTY + firstIndex + gaps;
+}
+
+/** Keeps only items whose text fuzzy-matches the query, best matches first. */
+function filterRepos<T>(items: T[], query: string, textOf: (item: T) => string): T[] {
+  return items
+    .map((item) => ({ item, score: fuzzyScore(query, textOf(item)) }))
+    .filter((entry) => entry.score != null)
+    .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+    .map((entry) => entry.item);
 }
