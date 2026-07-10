@@ -8,6 +8,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
 const SIDEBAR_ORDER: string[] = [
     "index",
     "previewkit/index",
+    "previewkit/multirepo",
     "mcp/index",
     "test-planner/index",
     "environment-factory/index",

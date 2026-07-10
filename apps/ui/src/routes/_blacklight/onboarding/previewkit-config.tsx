@@ -25,9 +25,10 @@ import { trpc } from "lib/trpc";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
+import { AddAppDialog } from "./-components/previewkit/add-app-dialog";
 import { AppCard } from "./-components/previewkit/app-card";
+import { BranchMatchingField } from "./-components/previewkit/branch-matching-field";
 import { HooksSection } from "./-components/previewkit/hooks-section";
-import { MultirepoSection } from "./-components/previewkit/multirepo-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import {
   PRIMARY_REPO_KEY,
@@ -129,6 +130,7 @@ function PreviewkitConfigContent({
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "variables" : "apps"));
+  const [addAppDialogOpen, setAddAppDialogOpen] = useState(false);
   // The hooks step is optional: it only reads as complete once the user has
   // advanced past it (clicked next/save from the hooks step), even when nothing
   // is configured - never before. A previously saved config counts as advanced.
@@ -284,13 +286,31 @@ function PreviewkitConfigContent({
     setDraft((current) => addApps(current, [prefilled ?? emptyAppDraft(repoKey)]));
   }
 
+  // Registering a dependency repo and seeding its first app is one action: the repo
+  // exists only to host apps, so it never appears in the config without one.
+  function addAppFromNewRepo(repo: RepoDraft) {
+    setDraft((current) => addApps({ ...current, repos: [...current.repos, repo] }, [emptyAppDraft(repo.name)]));
+  }
+
+  function updateRepo(id: number, patch: Partial<RepoDraft>) {
+    handleReposChange(draft.repos.map((repo) => (repo.id === id ? { ...repo, ...patch } : repo)));
+  }
+
   function removeApp(id: number) {
     setDraft((current) => {
+      const removed = current.apps.find((app) => app.id === id);
       const apps = current.apps.filter((app) => app.id !== id);
       // With a single app left, the frontend toggle is hidden - so guarantee that
       // lone app is the frontend, otherwise the topology would have no primary.
       const normalized = apps.length === 1 ? apps.map((app) => ({ ...app, primary: true })) : apps;
-      return pruneDanglingDependsOn({ ...current, apps: normalized });
+      // A dependency repo exists only to host apps; when its last app is removed,
+      // drop the repo (and its group/settings) so repos stay in sync with apps.
+      const repoEmptied =
+        removed != null &&
+        removed.repoKey !== PRIMARY_REPO_KEY &&
+        !normalized.some((app) => app.repoKey === removed.repoKey);
+      const repos = repoEmptied ? current.repos.filter((repo) => repo.name !== removed.repoKey) : current.repos;
+      return pruneDanglingDependsOn({ ...current, apps: normalized, repos });
     });
   }
 
@@ -497,27 +517,38 @@ function PreviewkitConfigContent({
         <div className="space-y-6">
           {activeStep === "apps" ? (
             <div className="space-y-6">
-              <MultirepoSection
-                repos={draft.repos}
-                branchConvention={draft.branchConvention}
-                primaryRepoFullName={repositoryQuery.data?.fullName}
-                appCountByRepoKey={appCountByRepoKey}
-                onReposChange={handleReposChange}
-                onBranchConventionChange={(branchConvention) =>
-                  setDraft((current) => ({ ...current, branchConvention }))
-                }
-              />
               <AppsStep
                 draftApps={draft.apps}
                 repoGroups={repoGroups}
+                repos={draft.repos}
                 hasDependencyRepos={draft.repos.length > 0}
+                appCountByRepoKey={appCountByRepoKey}
                 issues={issues}
                 allNames={allNames}
                 groupSaved={groupSaved}
                 onAddApp={addApp}
                 onUpdateApp={updateApp}
+                onUpdateRepo={updateRepo}
                 onSetPrimaryApp={setPrimaryApp}
                 onRemoveApp={removeApp}
+              />
+              <Button variant="outline" size="sm" className="w-fit gap-2" onClick={() => setAddAppDialogOpen(true)}>
+                <PlusIcon size={14} weight="bold" />
+                Add an app from another repo
+              </Button>
+              {draft.repos.length > 0 ? (
+                <BranchMatchingField
+                  convention={draft.branchConvention}
+                  onChange={(branchConvention) => setDraft((current) => ({ ...current, branchConvention }))}
+                />
+              ) : undefined}
+              <AddAppDialog
+                open={addAppDialogOpen}
+                onOpenChange={setAddAppDialogOpen}
+                primaryRepoFullName={repositoryQuery.data?.fullName}
+                repos={draft.repos}
+                onAddToExistingRepo={addApp}
+                onAddToNewRepo={addAppFromNewRepo}
               />
             </div>
           ) : undefined}
@@ -679,23 +710,29 @@ function ConfigStepper({
 function AppsStep({
   draftApps,
   repoGroups,
+  repos,
   hasDependencyRepos,
+  appCountByRepoKey,
   issues,
   allNames,
   groupSaved,
   onAddApp,
   onUpdateApp,
+  onUpdateRepo,
   onSetPrimaryApp,
   onRemoveApp,
 }: {
   draftApps: AppDraft[];
   repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }>;
+  repos: RepoDraft[];
   hasDependencyRepos: boolean;
+  appCountByRepoKey: Map<string, number>;
   issues: DraftIssues;
   allNames: string[];
   groupSaved: (repoKey: string) => boolean;
   onAddApp: (repoKey: string, prefilled?: AppDraft) => void;
   onUpdateApp: (id: number, patch: Partial<AppDraft>) => void;
+  onUpdateRepo: (id: number, patch: Partial<RepoDraft>) => void;
   onSetPrimaryApp: (id: number) => void;
   onRemoveApp: (id: number) => void;
 }) {
@@ -704,6 +741,8 @@ function AppsStep({
       {repoGroups.map((group) => {
         const groupApps = draftApps.filter((app) => app.repoKey === group.key);
         const dependencyOptions = allNames.filter((name) => name.trim() !== "");
+        const groupRepo = repos.find((repo) => repo.name === group.key);
+        const groupRepoAppCount = appCountByRepoKey.get(group.key) ?? 0;
         return (
           <div key={group.key} className="space-y-4">
             <section className="border border-border-dim bg-surface-base">
@@ -737,7 +776,10 @@ function AppsStep({
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
                       showDependsOn={hasDependencyRepos}
                       showFrontendToggle={draftApps.length > 1}
+                      repo={groupRepo}
+                      repoAppCount={groupRepoAppCount}
                       onChange={onUpdateApp}
+                      onRepoChange={onUpdateRepo}
                       onSetPrimary={onSetPrimaryApp}
                       onRemove={onRemoveApp}
                     />

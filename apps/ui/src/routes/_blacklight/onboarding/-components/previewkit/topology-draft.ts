@@ -262,6 +262,23 @@ export function nextDraftId(): number {
     return draftIdCounter;
 }
 
+/**
+ * Sanitizes a repo name into a Kubernetes-safe alias (`config.multirepo.repos[].name`),
+ * suffixing `-2`, `-3`, ... until it is unique among the aliases already in use.
+ */
+export function repoAliasFrom(name: string, existingAliases: readonly string[]): string {
+    const base = name
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    const sanitized = base === "" ? "repo" : base;
+    const taken = new Set(existingAliases);
+    if (!taken.has(sanitized)) return sanitized;
+    let suffix = 2;
+    while (taken.has(`${sanitized}-${suffix}`)) suffix += 1;
+    return `${sanitized}-${suffix}`;
+}
+
 export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"): AppDraft {
     // A fresh app defaults to Manual mode (auto-detect is no longer a choice),
     // seeded with the default runtime's build script + entrypoint so it is valid

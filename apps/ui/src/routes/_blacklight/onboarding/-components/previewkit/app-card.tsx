@@ -21,7 +21,9 @@ import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useState } from "react";
 import { BuildModeSection } from "./build-mode-section";
 import { FieldMessages } from "./field-messages";
-import { fieldIssueKey, type AppDraft, type AppDraftField, type DraftIssues } from "./topology-draft";
+import { fieldIssueKey, type AppDraft, type AppDraftField, type DraftIssues, type RepoDraft } from "./topology-draft";
+
+const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
 
 interface AppCardProps {
   app: AppDraft;
@@ -37,7 +39,13 @@ interface AppCardProps {
   /** Start expanded. Cards default to open so the fields are visible and never
    * auto-collapse while editing. */
   defaultExpanded?: boolean;
+  /** The dependency repo this app belongs to. Absent for primary-repo apps, whose
+   * branch is always the PR's own and which carry no per-repo settings. */
+  repo?: RepoDraft;
+  /** How many apps map to {@link repo}, so a shared-settings note appears when >1. */
+  repoAppCount?: number;
   onChange: (id: number, patch: Partial<AppDraft>) => void;
+  onRepoChange?: (id: number, patch: Partial<RepoDraft>) => void;
   onSetPrimary: (id: number) => void;
   onRemove: (id: number) => void;
 }
@@ -50,7 +58,10 @@ export function AppCard({
   showDependsOn,
   showFrontendToggle,
   defaultExpanded = true,
+  repo,
+  repoAppCount = 0,
   onChange,
+  onRepoChange,
   onSetPrimary,
   onRemove,
 }: AppCardProps) {
@@ -147,6 +158,10 @@ export function AppCard({
 
       {open ? (
         <>
+          {repo != null && onRepoChange != null ? (
+            <RepoSettings repo={repo} repoAppCount={repoAppCount} onRepoChange={onRepoChange} />
+          ) : undefined}
+
           <BuildModeSection app={app} issues={issues} onChange={onChange} />
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -258,6 +273,74 @@ export function AppCard({
             </div>
           ) : undefined}
         </>
+      ) : undefined}
+    </div>
+  );
+}
+
+/**
+ * Per-repo settings (alias, fallback branch) for a dependency-repo app, shown at
+ * the top of the card. These belong to the repo, not the app, so editing them here
+ * updates every app from the same repo; a note flags that when more than one app
+ * shares it.
+ */
+function RepoSettings({
+  repo,
+  repoAppCount,
+  onRepoChange,
+}: {
+  repo: RepoDraft;
+  repoAppCount: number;
+  onRepoChange: (id: number, patch: Partial<RepoDraft>) => void;
+}) {
+  return (
+    <div className="mb-6 border border-border-dim bg-surface-raised p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Repo settings</p>
+        <span className="truncate font-mono text-2xs text-text-secondary" title={repo.repo}>
+          {repo.repo}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`pk-repo-${repo.id}-alias`}>Alias</Label>
+          <Input
+            id={`pk-repo-${repo.id}-alias`}
+            value={repo.name}
+            onChange={(event) => onRepoChange(repo.id, { name: event.target.value })}
+            placeholder="api"
+            className="font-mono"
+          />
+          <p className="mt-1 text-2xs text-text-secondary">
+            Short name for this repo in resource names. Must be unique.
+          </p>
+        </div>
+        <div>
+          <Label htmlFor={`pk-repo-${repo.id}-fallback`}>Fallback branch</Label>
+          <Input
+            id={`pk-repo-${repo.id}-fallback`}
+            value={repo.fallbackBranch}
+            onChange={(event) => onRepoChange(repo.id, { fallbackBranch: event.target.value })}
+            placeholder="main"
+            className="font-mono"
+          />
+          <p className="mt-1 text-2xs text-text-secondary">
+            Deployed when branch matching finds no matching branch.{" "}
+            <a
+              href={MULTIREPO_DOCS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary-ink underline underline-offset-2"
+            >
+              Learn more
+            </a>
+          </p>
+        </div>
+      </div>
+      {repoAppCount > 1 ? (
+        <p className="mt-3 text-2xs text-text-secondary">
+          Shared across {repoAppCount} apps from this repo - changing it here updates them all.
+        </p>
       ) : undefined}
     </div>
   );
