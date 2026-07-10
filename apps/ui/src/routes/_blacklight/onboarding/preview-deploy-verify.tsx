@@ -9,7 +9,7 @@ import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import * as Sentry from "@sentry/react";
 import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "components/build-logs/build-log-stream-viewer";
+import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
   useCompletePreviewOnboarding,
   useDiagnosePreviewkitDeploy,
@@ -19,7 +19,7 @@ import {
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { setLastApp } from "../_app-shell/-last-app";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AiDiagnosisPanel } from "./-components/previewkit/ai-diagnosis-panel";
@@ -77,6 +77,15 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const isFailed = data.diagnostics.status === "failed";
   const isDeployRequested = isPreviewDeployRequestPhase(data.diagnostics.phase) && data.previewUrl == null;
   const failures = data.diagnostics.failures ?? [];
+
+  // While the image is still building there are no runtime logs yet; once the
+  // container has run (ready, or failed - a crash still emits app logs) they are
+  // available. Until the user picks a tab, follow the deploy: watch the build,
+  // then auto-advance to app logs the moment the container starts. An explicit
+  // pick sticks, so switching back to Build logs is respected.
+  const appBuilding = data.diagnostics.status === "building" || data.diagnostics.status === "idle";
+  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
+  const logSource: PreviewLogSource = logSourceOverride ?? (appBuilding ? "build" : "app");
 
   const deployFingerprint = buildDeployFingerprint(data);
   const { data: diagnosis, isPending: diagnosisPending } = useDiagnosePreviewkitDeploy(
@@ -275,14 +284,13 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
       </div>
 
       {data.diagnostics.logs.available ? (
-        <section className="mt-6 border border-border-dim bg-surface-base">
-          <div className="border-b border-border-dim bg-surface-raised px-5 py-4">
-            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Build logs</h2>
-          </div>
-          <div className="p-5">
-            <BuildLogStreamViewer url={logStreamUrl(data.diagnostics.logs)} />
-          </div>
-        </section>
+        <DeployLogsSection
+          repoFullName={data.diagnostics.logs.repoFullName}
+          prNumber={data.diagnostics.logs.prNumber}
+          appBuilding={appBuilding}
+          source={logSource}
+          onSourceChange={setLogSourceOverride}
+        />
       ) : undefined}
 
       {isReady ? (
@@ -313,9 +321,42 @@ function buildDeployFingerprint(data: PreviewReadinessData): string {
   });
 }
 
-function logStreamUrl(logs: { repoFullName: string; prNumber: number }): string {
-  const [owner = "", repo = ""] = logs.repoFullName.split("/");
-  return buildPreviewLogStreamUrl(owner, repo, logs.prNumber);
+/**
+ * The deploy's logs as App/Build tabs. App (runtime) logs are where a crash-at-
+ * start surfaces, so they are the focus once the container is running; the build
+ * output stays one tab over. The active tab is driven by the caller.
+ */
+function DeployLogsSection({
+  repoFullName,
+  prNumber,
+  appBuilding,
+  source,
+  onSourceChange,
+}: {
+  repoFullName: string;
+  prNumber: number;
+  appBuilding: boolean;
+  source: PreviewLogSource;
+  onSourceChange: (source: PreviewLogSource) => void;
+}) {
+  const [owner = "", repo = ""] = repoFullName.split("/");
+  return (
+    <section className="mt-6 border border-border-dim bg-surface-base">
+      <div className="border-b border-border-dim bg-surface-raised px-5 py-4">
+        <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Logs</h2>
+      </div>
+      <div className="p-5">
+        <PreviewLogsTabs
+          owner={owner}
+          repo={repo}
+          pr={prNumber}
+          appBuilding={appBuilding}
+          source={source}
+          onSourceChange={onSourceChange}
+        />
+      </div>
+    </section>
+  );
 }
 
 function copyPayloadToClipboard(payload: unknown, successTitle: string): void {
