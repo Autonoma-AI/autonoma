@@ -1,10 +1,4 @@
-const DIM = "\x1b[2m";
-const RESET = "\x1b[0m";
-const CYAN = "\x1b[36m";
-const GREEN = "\x1b[32m";
-const RED = "\x1b[31m";
-const YELLOW = "\x1b[33m";
-const BOLD = "\x1b[1m";
+import { BOLD, DIM, ERROR, PRIMARY, RESET, SUCCESS, WARNING } from "./colors";
 
 function formatArgs(input: Record<string, unknown>, keys: string[]): string {
     const parts: string[] = [];
@@ -131,24 +125,24 @@ export function createStepLogger(agentId: string, _maxSteps: number) {
                 case "write_file": {
                     stats.filesWritten++;
                     const path = String(tc.input.path ?? tc.input.file_path ?? "");
-                    writePermanent(`  ${GREEN}✎ write ${path}${RESET}`);
+                    writePermanent(`  ${SUCCESS}✎ write ${path}${RESET}`);
                     break;
                 }
 
                 case "write_test":
                     stats.filesWritten++;
-                    writePermanent(`  ${GREEN}✎ test ${summary}${RESET}`);
+                    writePermanent(`  ${SUCCESS}✎ test ${summary}${RESET}`);
                     break;
 
                 case "finish":
                     // Label which agent/area finished - otherwise a BFS run ends in a
                     // wall of identical "✓ finish" lines with no context.
-                    writePermanent(`  ${GREEN}${BOLD}✓ done:${RESET} ${GREEN}${agentId}${RESET}`);
+                    writePermanent(`  ${SUCCESS}${BOLD}✓ done:${RESET} ${SUCCESS}${agentId}${RESET}`);
                     break;
 
                 case "subagent":
                 case "spawn_researcher":
-                    writePermanent(`  ${CYAN}⊕ subagent: ${summary}${RESET}`);
+                    writePermanent(`  ${PRIMARY}⊕ subagent: ${summary}${RESET}`);
                     break;
 
                 default:
@@ -157,16 +151,16 @@ export function createStepLogger(agentId: string, _maxSteps: number) {
         }
 
         for (const te of info.toolErrors) {
-            writePermanent(`  ${RED}✗ ${te.name}: ${te.error}${RESET}`);
+            writePermanent(`  ${ERROR}✗ ${te.name}: ${te.error}${RESET}`);
         }
 
         for (const f of info.writtenFiles) {
-            writePermanent(`  ${GREEN}📄 wrote: ${f}${RESET}`);
+            writePermanent(`  ${SUCCESS}📄 wrote: ${f}${RESET}`);
         }
     }
 
     function checkpoint(message: string) {
-        writePermanent(`  ${YELLOW}▸ ${message}${RESET}`);
+        writePermanent(`  ${WARNING}▸ ${message}${RESET}`);
     }
 
     function summary() {
