@@ -134,6 +134,27 @@ describe("TRANSIENT_NETWORK_PATTERNS", () => {
         }
     });
 
+    it("classifies pre-build worker-listing failures against a saturated pool pod as transient", () => {
+        // The daemon accepts the TCP connection then drops it before the gRPC
+        // handshake (memory-ceilinged pod), so buildctl never lists its workers.
+        // A retry re-queues onto a pod with headroom.
+        const workerListingTails = [
+            'error: listing workers for Build: failed to list workers: Unavailable: connection error: desc = "error reading server preface: read tcp 10.70.72.95:47158->10.70.73.221:1234: use of closed network connection"',
+            "failed to list workers: Unavailable: connection error",
+        ];
+        for (const tail of workerListingTails) {
+            expect(isTransient(tail), tail).toBe(true);
+        }
+    });
+
+    it("does not treat a bare connection string in user build output as transient", () => {
+        // The worker-listing signal is anchored on buildctl's own framing, not
+        // the bare Go/gRPC connection strings, so a user's RUN step printing
+        // "use of closed network connection" is never mislabeled a platform outage.
+        expect(isTransient("RUN app log: write tcp: use of closed network connection")).toBe(false);
+        expect(isTransient("error reading server preface (from the user's own grpc client)")).toBe(false);
+    });
+
     it("does not classify a bare in-build deadline as transient", () => {
         // Without session/dial wording, "context deadline exceeded" can come from
         // a deterministic in-build timeout that a retry would only replay.

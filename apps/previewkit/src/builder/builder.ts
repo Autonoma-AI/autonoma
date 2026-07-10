@@ -62,11 +62,20 @@ export interface BuildResult {
  */
 export class BuildError extends Error {
     readonly isTransient: boolean;
+    /**
+     * A safe, human-facing failure reason to record/show the user, when the raw
+     * `message` (kept technical for Sentry/structured logs) would be opaque or
+     * misleading - e.g. a platform outage that is not the user's fault. Only the
+     * surfacing boundary (recorded reason, build-log echo) substitutes this;
+     * internal logging always uses `message`.
+     */
+    readonly userFacingMessage?: string;
 
-    constructor(message: string, options?: { cause?: unknown; isTransient?: boolean }) {
+    constructor(message: string, options?: { cause?: unknown; isTransient?: boolean; userFacingMessage?: string }) {
         super(message, options?.cause != null ? { cause: options.cause } : undefined);
         this.name = "BuildError";
         this.isTransient = options?.isTransient ?? false;
+        if (options?.userFacingMessage != null) this.userFacingMessage = options.userFacingMessage;
     }
 }
 

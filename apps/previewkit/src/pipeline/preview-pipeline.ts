@@ -17,7 +17,7 @@ import type {
     PreviewServiceResult,
 } from "@autonoma/types";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
-import { BuildAbortedError, type Builder } from "../builder/builder";
+import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
 import { loadConfig } from "../config/load-config";
@@ -1578,9 +1578,14 @@ export class PreviewPipeline {
             if (err instanceof BuildAbortedError) {
                 throw err;
             }
+            // Log the technical error (Sentry/structured logs), but record the
+            // safe user-facing reason when the builder supplied one (a platform
+            // outage is not the user's fault); fall back to the raw message.
             const message = err instanceof Error ? err.message : String(err);
             logger.error("App build failed", err, { app: app.name });
-            return { status: "failed", durationMs: Date.now() - start, error: message };
+            const recordedError =
+                err instanceof BuildError && err.userFacingMessage != null ? err.userFacingMessage : message;
+            return { status: "failed", durationMs: Date.now() - start, error: recordedError };
         }
     }
 

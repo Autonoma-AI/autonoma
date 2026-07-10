@@ -23,6 +23,17 @@ const BUILDKIT_RETRY_DELAY_MS = 5000;
 // Keep only the tail of each stream for transient error detection.
 // 8 KB is enough for any error string without buffering the full build log.
 const TAIL_SIZE = 8192;
+// Prebaked, user-facing message for a build that failed because the buildkit
+// pool was unreachable/overloaded rather than because of the app's code or
+// config. It replaces the raw `buildctl exited with code N` (and the cryptic
+// gRPC dump) as the recorded failure reason and is echoed into the build log,
+// so the user is not left thinking a transient platform outage was their fault.
+// Kept static on purpose - no AI diagnosis - so it works even when the model
+// pipeline is unavailable.
+const BUILD_INFRA_UNAVAILABLE_MESSAGE =
+    "The build service was temporarily unavailable and could not start your build. " +
+    "This is a platform issue on our side, not a problem with your app or its configuration. " +
+    "Please retry the deploy; if it keeps happening, contact support.";
 
 /**
  * Substrings that, when found in buildctl's stdout/stderr tail, indicate the
@@ -57,6 +68,15 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /no active session for/,
     /session healthcheck failed/,
     /failed to get session/,
+    // Pre-build worker enumeration against an overloaded/unhealthy pool pod: the
+    // TCP connection is accepted then dropped before the gRPC handshake (the
+    // saturated pod, at its memory ceiling, closes the connection), so buildctl
+    // never even lists the daemon's workers - it fails with `failed to list
+    // workers: Unavailable: ... use of closed network connection`. Anchored on
+    // buildctl's own `failed to list workers` framing (never emitted by a user's
+    // RUN step) rather than the bare Go/gRPC connection strings, which could
+    // appear in user build output and mislabel a real app failure as ours.
+    /failed to list workers/,
 ];
 
 /**
@@ -243,6 +263,12 @@ export class BuildKitBuilder implements Builder {
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
                     await this.onTransientError(err, attempt, request.appName, logStream);
                     continue;
+                }
+                // Retries exhausted on a platform outage: close the log with the
+                // prebaked explanation so the user reading the build log sees the
+                // failure was our infrastructure, not their build.
+                if (err instanceof BuildError && err.userFacingMessage != null) {
+                    logStream.write(`\n[previewkit] ${err.userFacingMessage}\n`);
                 }
                 throw err;
             } finally {
@@ -713,7 +739,16 @@ export class BuildKitBuilder implements Builder {
                 } else {
                     const combined = stdoutTail + stderrTail;
                     const isTransient = TRANSIENT_NETWORK_PATTERNS.some((p) => p.test(combined));
-                    reject(new BuildError(`${command} exited with code ${code}`, { isTransient }));
+                    // Keep `message` technical for Sentry/structured logs; a
+                    // transient failure is a platform outage, so attach the
+                    // prebaked user-facing reason separately for the surfacing
+                    // boundary to prefer over the opaque `exited with code N`.
+                    reject(
+                        new BuildError(`${command} exited with code ${code}`, {
+                            isTransient,
+                            ...(isTransient ? { userFacingMessage: BUILD_INFRA_UNAVAILABLE_MESSAGE } : {}),
+                        }),
+                    );
                 }
             });
         });
