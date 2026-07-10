@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.30](https://github.com/Autonoma-AI/agent/compare/v1.8.29...v1.8.30) (2026-07-10)
+
+
+### Features
+
+* **api:** client-debug MCP server + previewkit tools (Workstream B) ([#1384](https://github.com/Autonoma-AI/agent/issues/1384)) ([c0239ab](https://github.com/Autonoma-AI/agent/commit/c0239abb9a4d81ca9c504ba2103191971a82df0e))
+* **onboarding:** clarify Dockerfile build fields (root directory + hints) ([#1413](https://github.com/Autonoma-AI/agent/issues/1413)) ([0afe6a8](https://github.com/Autonoma-AI/agent/commit/0afe6a8191793cdb14001fa23b1458da32427e9d))
+* **onboarding:** show app (runtime) logs on the deploy page, auto-advance from build ([#1412](https://github.com/Autonoma-AI/agent/issues/1412)) ([e691d77](https://github.com/Autonoma-AI/agent/commit/e691d775454e41cfe38916a9bcf2f28a462b9e2b))
+* **previewkit:** raw runtime build type + config UI (part 1) ([#1372](https://github.com/Autonoma-AI/agent/issues/1372)) ([31bee96](https://github.com/Autonoma-AI/agent/commit/31bee969aa24fa11f9630417bfbc57fcd658ad7e))
+* **ui:** add Preview Environments to the app sidebar ([#1407](https://github.com/Autonoma-AI/agent/issues/1407)) ([b537be5](https://github.com/Autonoma-AI/agent/commit/b537be50c2c99da1ee49c7b5a5e8f96b5c397c32))
+
+
+### Bug Fixes
+
+* **previewkit:** pass build args as BuildKit secrets for Dockerfile … ([#1411](https://github.com/Autonoma-AI/agent/issues/1411)) ([3e219f8](https://github.com/Autonoma-AI/agent/commit/3e219f8868cb9ab16a4e352999314ed0cbf50e3d))
+* **previewkit:** retry + explain buildkit-pool outages instead of leaking gRPC errors ([#1410](https://github.com/Autonoma-AI/agent/issues/1410)) ([d78d251](https://github.com/Autonoma-AI/agent/commit/d78d251ad77d5922864adf84f4b80d474eff3dee))
+
 ## [1.8.29](https://github.com/Autonoma-AI/agent/compare/v1.8.28...v1.8.29) (2026-07-09)
 
 
