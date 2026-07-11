@@ -3,6 +3,21 @@
 ## [1.8.32](https://github.com/Autonoma-AI/agent/compare/v1.8.31...v1.8.32) (2026-07-10)
 
 
+### Features
+
+* **cli:** use blacklight primary color as the CLI brand accent ([#1431](https://github.com/Autonoma-AI/agent/issues/1431)) ([c1c20e1](https://github.com/Autonoma-AI/agent/commit/c1c20e1dcd091709acc0eeb532c591fa7fdb7d66))
+* per-app deploy logs on previewkit onboarding ([#1395](https://github.com/Autonoma-AI/agent/issues/1395)) ([90f5125](https://github.com/Autonoma-AI/agent/commit/90f5125ed8cf9ead36333ce76e9bf61d28b2be00))
+* **previewkit:** scrollable repo list + fuzzy search in the add-app modal ([#1435](https://github.com/Autonoma-AI/agent/issues/1435)) ([894d8bd](https://github.com/Autonoma-AI/agent/commit/894d8bd4a450fd1bc725de8c80f41c41d69acf7a))
+
+
+### Bug Fixes
+
+* **previewkit:** drop S3 buildkit cache, rely on warm pool's local NVMe ([#1428](https://github.com/Autonoma-AI/agent/issues/1428)) ([ac64cb5](https://github.com/Autonoma-AI/agent/commit/ac64cb53578bea8362fa6ed4c0ebe4316398b555))
+* **previewkit:** normalize k8s lease timestamps read as strings in build queue ([#1422](https://github.com/Autonoma-AI/agent/issues/1422)) ([dc54591](https://github.com/Autonoma-AI/agent/commit/dc545910ef4a32e6306d7cc42f725c7a466a0e6a))
+
+## [1.8.32](https://github.com/Autonoma-AI/agent/compare/v1.8.31...v1.8.32) (2026-07-10)
+
+
 ### Bug Fixes
 
 * **previewkit:** normalize k8s lease timestamps read as strings in build queue ([#1422](https://github.com/Autonoma-AI/agent/issues/1422)) ([dc54591](https://github.com/Autonoma-AI/agent/commit/dc545910ef4a32e6306d7cc42f725c7a466a0e6a))
