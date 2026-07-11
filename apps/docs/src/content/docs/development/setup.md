@@ -64,7 +64,8 @@ cp .env.example .env
 | `DATABASE_URL` | PostgreSQL connection string | Use `postgresql://postgres:postgres@localhost:5432/autonoma` for the Docker Compose setup |
 | `REDIS_URL` | Redis connection string | Use `redis://localhost:6379` for the Docker Compose setup |
 | `BETTER_AUTH_SECRET` | Session signing secret | Generate any random string: `openssl rand -hex 32` |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID | Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Set the authorized redirect URI to `http://localhost:4000/api/auth/callback/google` |
+| `BETTER_AUTH_URL` | The API's own address - where `/v1/auth/*` is reachable | `http://localhost:4000` for local dev. Better-auth uses this (not `APP_URL`) as `baseURL`, so it's what OAuth providers redirect back to. |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Set the authorized redirect URI to `http://localhost:4000/v1/auth/callback/google` |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Same Google Cloud Console OAuth credentials page |
 | `GEMINI_API_KEY` | Google Gemini API key | Get one from [Google AI Studio](https://aistudio.google.com/apikey) |
 
@@ -163,7 +164,15 @@ kill <PID>
 
 ### Google OAuth redirect error
 
-Make sure your Google Cloud OAuth credentials have `http://localhost:4000/api/auth/callback/google` as an authorized redirect URI.
+Make sure your Google Cloud OAuth credentials have `http://localhost:4000/v1/auth/callback/google` as an authorized redirect URI - better-auth uses `BETTER_AUTH_URL` (the API's own address) as `baseURL`, so that's what it sends Google as the `redirect_uri`, not the UI's origin.
+
+### `Failed to decrypt private key` error from Better Auth
+
+The API's JWKS keypair (`jwks` table) is encrypted with `BETTER_AUTH_SECRET`. If that row was created under a different secret than the one currently in your `.env` - for example after regenerating `BETTER_AUTH_SECRET`, since Docker Compose keeps Postgres data in a persistent volume across restarts - decryption fails once, then self-heals (Better Auth regenerates the keypair under the current secret on the next request). If you'd rather not wait for that, clear the stale row yourself:
+
+```bash
+psql $DATABASE_URL -c "TRUNCATE TABLE jwks;"
+```
 
 ### "Missing environment variable" error on startup
 

@@ -1,0 +1,11 @@
+{
+    "version": "0.0.1",
+    "configurations": [
+        {
+            "name": "ui",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": ["--filter", "@autonoma/ui", "dev"],
+            "port": 3000
+        }
+    ]
+}
