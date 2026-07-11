@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.18...cli-v0.1.19) (2026-07-10)
+
+
+### Features
+
+* **cli:** use blacklight primary color as the CLI brand accent ([#1431](https://github.com/Autonoma-AI/agent/issues/1431)) ([c1c20e1](https://github.com/Autonoma-AI/agent/commit/c1c20e1dcd091709acc0eeb532c591fa7fdb7d66))
+
 ## [0.1.18](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.17...cli-v0.1.18) (2026-07-09)
 
 
