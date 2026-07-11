@@ -9,9 +9,12 @@ import {
   SelectValue,
   Textarea,
 } from "@autonoma/blacklight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
+
+const HOOKS_DOCS_URL = "https://docs.autonoma.app/previewkit/hooks/";
 
 interface HooksSectionProps {
   hooks: HooksDraft;
@@ -56,7 +59,16 @@ export function HooksSection({ hooks, appNames, errors, onChange }: HooksSection
           </Badge>
         </div>
         <span className="font-mono text-2xs text-text-secondary">
-          skip this, or run commands in the preview around each deploy
+          skip this, or run commands in the preview around each deploy{" "}
+          <a
+            href={HOOKS_DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-primary-ink underline underline-offset-2"
+          >
+            Learn more
+            <ArrowSquareOutIcon size={11} />
+          </a>
         </span>
       </div>
       <div className="space-y-6 p-5">

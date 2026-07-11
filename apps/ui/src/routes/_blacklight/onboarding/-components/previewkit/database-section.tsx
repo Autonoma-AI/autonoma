@@ -9,6 +9,7 @@ import {
   Textarea,
   cn,
 } from "@autonoma/blacklight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { DatabaseIcon } from "@phosphor-icons/react/Database";
@@ -29,6 +30,8 @@ import {
 } from "./topology-draft";
 
 const DATABASE_OPTIONS = SERVICE_OPTIONS.filter((option) => serviceRecipeIsDatabase(option.recipe));
+
+const DATABASES_DOCS_URL = "https://docs.autonoma.app/previewkit/databases/";
 
 // A `separate_job` task with a blank repo runs in the primary repo. The Select
 // needs a concrete value per item, so the primary-repo choice carries this
@@ -89,7 +92,18 @@ export function DatabaseSection({ databases, existingNames, appNames, repos, onC
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Databases</span>
-        <span className="text-sm text-text-secondary">Add as many as your app needs. Each gets its own setup.</span>
+        <span className="text-sm text-text-secondary">
+          Add as many as your app needs. Each gets its own setup.{" "}
+          <a
+            href={DATABASES_DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-primary-ink underline underline-offset-2"
+          >
+            Learn more
+            <ArrowSquareOutIcon size={11} />
+          </a>
+        </span>
       </div>
 
       {databases.length === 0 ? (

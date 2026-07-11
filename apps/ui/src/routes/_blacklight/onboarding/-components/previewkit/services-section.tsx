@@ -1,7 +1,10 @@
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CubeIcon } from "@phosphor-icons/react/Cube";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { ServiceCard } from "./service-card";
 import { serviceDraftForRecipe, type ServiceDraft } from "./topology-draft";
+
+const SERVICES_DOCS_URL = "https://docs.autonoma.app/previewkit/services/";
 
 interface ServicesSectionProps {
   services: ServiceDraft[];
@@ -39,7 +42,16 @@ export function ServicesSection({ services, existingNames, onChange }: ServicesS
           </span>
         </span>
         <span className="text-sm text-text-secondary">
-          Extra Docker images that aren't databases - Sentry, OTel, nginx, a mail catcher.
+          Extra Docker images that aren't databases - Sentry, OTel, nginx, a mail catcher.{" "}
+          <a
+            href={SERVICES_DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-primary-ink underline underline-offset-2"
+          >
+            Learn more
+            <ArrowSquareOutIcon size={11} />
+          </a>
         </span>
       </div>
 
