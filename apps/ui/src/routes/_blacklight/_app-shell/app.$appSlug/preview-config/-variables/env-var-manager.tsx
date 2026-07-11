@@ -1,4 +1,5 @@
 import { Button, Input } from "@autonoma/blacklight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { useState } from "react";
@@ -23,6 +24,8 @@ import {
   variableViews,
   type VariableForm,
 } from "./variable-model";
+
+const SECRETS_DOCS_URL = "https://docs.autonoma.app/previewkit/secrets/";
 
 interface EnvVarManagerProps {
   app: AppDraft;
@@ -107,6 +110,15 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
         <span className="border border-border-mid px-1.5 py-0.5 font-mono text-3xs text-text-secondary">
           {variables.length}
         </span>
+        <a
+          href={SECRETS_DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 font-mono text-3xs text-primary-ink underline underline-offset-2"
+        >
+          Learn more
+          <ArrowSquareOutIcon size={11} />
+        </a>
         <div className="ml-auto flex items-center gap-2">
           <div className="relative">
             <MagnifyingGlassIcon
