@@ -171,12 +171,9 @@ function DatabaseCard({
     onUpdate({ setupTasks: [...others, ...tasks] });
   }
 
+  const version = database.version.trim();
   const port = option?.defaultPort != null ? String(option.defaultPort) : "";
-  const metaLine = [
-    database.name.trim() === "" ? (option?.defaultName ?? database.recipe) : database.name,
-    database.version,
-    port,
-  ]
+  const metaLine = [database.name.trim() === "" ? (option?.defaultName ?? database.recipe) : database.name, port]
     .filter((part) => part !== "")
     .join(" · ");
 
@@ -190,7 +187,10 @@ function DatabaseCard({
           aria-expanded={expanded}
         >
           <DatabaseIcon size={16} className={expanded ? "text-primary-ink" : "text-text-secondary"} />
-          <span className="font-mono text-sm font-bold text-text-primary">{label}</span>
+          <span className="font-mono text-sm font-bold text-text-primary">
+            {label}
+            {version !== "" ? <span className="font-normal text-text-secondary">@{version}</span> : undefined}
+          </span>
           <span className="truncate font-mono text-2xs text-text-secondary">{metaLine}</span>
         </button>
         <span className="flex shrink-0 items-center gap-3">
