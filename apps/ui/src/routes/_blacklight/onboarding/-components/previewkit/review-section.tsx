@@ -211,7 +211,7 @@ function LifecycleStage({
 
 function StageArrow() {
   return (
-    <div className="flex items-center justify-center text-border-mid lg:px-0">
+    <div className="flex items-center justify-center text-text-primary lg:px-0">
       <ArrowRightIcon size={16} weight="bold" className="rotate-90 lg:rotate-0" />
     </div>
   );

@@ -1,13 +1,13 @@
 import {
   Badge,
   Button,
-  Input,
   Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Textarea,
 } from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
@@ -15,7 +15,7 @@ import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./
 
 interface HooksSectionProps {
   hooks: HooksDraft;
-  /** Declared app names, offered as a non-blocking autocomplete for the free-text `app` field. */
+  /** Declared app names, offered in the `app` picker on each hook row. */
   appNames: string[];
   /** Per-row validation messages keyed `${hookId}:${"app" | "command"}` (see `hookFieldErrors`). */
   errors: Map<string, string[]>;
@@ -23,14 +23,22 @@ interface HooksSectionProps {
 }
 
 const HOOK_GROUPS: Array<{ key: HookGroup; label: string; description: string }> = [
-  { key: "pre_deploy", label: "Pre-deploy", description: "Run before apps start - e.g. database migrations" },
-  { key: "post_deploy", label: "Post-deploy", description: "Run after apps are ready - e.g. seed data" },
+  {
+    key: "pre_deploy",
+    label: "Pre-deploy",
+    description: "Runs before your apps start, as a one-off job from the app's image - e.g. database migrations",
+  },
+  {
+    key: "post_deploy",
+    label: "Post-deploy",
+    description: "Runs after your apps are ready, as a one-off job from the app's image - e.g. seed data",
+  },
 ];
 
 /**
  * Authors the config document's lifecycle hooks. Each row maps an `app` to a
- * `command`; every hook runs as a one-off Kubernetes Job built from the target
- * app's image. The `app` field is free-text; invalid hooks (missing/unknown app,
+ * `command`; every hook runs as a one-off Job built from the target app's image.
+ * The `app` is picked from the declared apps; invalid hooks (missing/unknown app,
  * missing command) are flagged inline from `errors` and block saving.
  */
 export function HooksSection({ hooks, appNames, errors, onChange }: HooksSectionProps) {
@@ -42,13 +50,13 @@ export function HooksSection({ hooks, appNames, errors, onChange }: HooksSection
     <section className="border border-border-dim bg-surface-base">
       <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
         <div className="flex items-center gap-2">
-          <h3 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Deploy hooks</h3>
+          <h3 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Lifecycle hooks</h3>
           <Badge variant="outline" className="text-3xs uppercase tracking-widest">
             Optional
           </Badge>
         </div>
         <span className="font-mono text-2xs text-text-secondary">
-          skip this step or add commands to run around each deploy
+          skip this, or run commands in the preview around each deploy
         </span>
       </div>
       <div className="space-y-6 p-5">
@@ -141,13 +149,14 @@ function HookGroupEditor({
                 </div>
                 <div>
                   <Label htmlFor={`pk-hook-${step.id}-command`}>Command</Label>
-                  <Input
+                  <Textarea
                     id={`pk-hook-${step.id}-command`}
                     value={step.command}
                     onChange={(event) => updateStep(step.id, { command: event.target.value })}
                     placeholder="npx prisma migrate deploy"
                     aria-invalid={commandError != null}
-                    className="mt-1 font-mono"
+                    rows={2}
+                    className="mt-1 resize-y font-mono text-2xs"
                   />
                   {commandError != null ? (
                     <p className="mt-1 text-2xs text-status-critical">{commandError}</p>
