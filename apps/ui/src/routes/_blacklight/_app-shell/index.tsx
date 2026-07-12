@@ -1,25 +1,53 @@
-import { Button, Panel, PanelBody, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
+import { Button, Card, Progress, buttonVariants, cn } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { QuestionIcon } from "@phosphor-icons/react/Question";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { Link, createFileRoute, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
-import { TalkToSupport } from "components/talk-to-support";
-import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
+import { Link, createFileRoute, redirect, useRouteContext } from "@tanstack/react-router";
+import { SUPPORT_URL } from "components/talk-to-support";
+import { buildResumeSearch } from "lib/onboarding/navigate-to-onboarding";
+import { getOnboardingProgress } from "lib/onboarding/onboarding-progress";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { getLastApp } from "./-last-app";
+
+const APP_TYPE_LABELS: Record<string, string> = {
+  WEB: "Web application",
+  IOS: "iOS application",
+  ANDROID: "Android application",
+};
+
+interface AppCardData {
+  id: string;
+  name: string;
+  slug: string;
+  architecture: string;
+  githubRepositoryId?: number | null;
+  onboardingState?: { step: string } | null;
+}
 
 function isOnboardingComplete(app: { onboardingState?: { step: string } | null }): boolean {
   return app.onboardingState == null || app.onboardingState.step === "completed";
 }
 
+function appTypeLabel(architecture: string): string {
+  return APP_TYPE_LABELS[architecture] ?? "Application";
+}
+
 export const Route = createFileRoute("/_blacklight/_app-shell/")({
   beforeLoad: ({ context }) => {
-    const onboardedApps = context.applications.filter(isOnboardingComplete);
+    const incompleteApps = context.applications.filter((app) => !isOnboardingComplete(app));
 
-    // Prefer the last viewed app if it is still onboarded, otherwise fall back to the first one.
+    // Something is still mid-setup: show the hub so the user can resume it (and open any finished apps).
+    if (incompleteApps.length > 0) return;
+
+    // Everything is set up - deep-link straight into an app rather than showing a one-item hub.
+    // Prefer the last viewed app, otherwise the first one.
+    const onboardedApps = context.applications.filter(isOnboardingComplete);
     const lastAppSlug = getLastApp();
     const targetApp = onboardedApps.find((a) => a.slug === lastAppSlug) ?? onboardedApps[0];
 
-    // Nothing to land on yet (no apps, or none finished onboarding) - show the chooser.
+    // No apps at all is handled one level up (the app-shell route redirects to onboarding).
     if (targetApp == null) return;
 
     throw redirect({
@@ -33,106 +61,150 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
 
 function AppSelector() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
-  const navigate = useNavigate();
-
   const incompleteApps = applications.filter((app) => !isOnboardingComplete(app));
   const completedApps = applications.filter(isOnboardingComplete);
+  const hasCompleted = completedApps.length > 0;
 
   return (
-    <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center px-4">
-      <header className="mb-8 text-center">
-        <h1 className="text-xl font-medium tracking-tight text-text-primary">Select an application</h1>
-        <p className="mt-2 font-mono text-xs text-text-secondary">Choose an application to get started.</p>
-      </header>
-
-      <Panel>
-        <PanelBody className="p-0">
-          {applications.length > 0 ? (
-            <div className="max-h-[60vh] divide-y divide-border-dim overflow-y-auto">
-              {incompleteApps.length > 0 && (
-                <>
-                  <div className="px-5 py-2.5">
-                    <span className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">
-                      Continue setup
-                    </span>
-                  </div>
-                  {incompleteApps.map((app) => (
-                    <button
-                      key={app.id}
-                      type="button"
-                      onClick={() => navigateToOnboarding(app.id, app.onboardingState?.step, navigate)}
-                      className="group flex w-full items-center justify-between gap-3 px-5 py-3.5 text-sm text-text-tertiary opacity-60 transition-all hover:bg-surface-raised hover:opacity-100"
-                    >
-                      <span className="font-medium">{app.name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-3xs uppercase">resume</span>
-                        <ArrowRightIcon size={14} className="opacity-0 transition-opacity group-hover:opacity-100" />
-                      </div>
-                    </button>
-                  ))}
-                </>
-              )}
-
-              {completedApps.map((app) => {
-                const hasNoRepo = app.githubRepositoryId == null;
-                return (
-                  <Link
-                    key={app.id}
-                    to={hasNoRepo ? "/app/$appSlug/github" : "/app/$appSlug"}
-                    params={{ appSlug: app.slug }}
-                    className="group flex items-center justify-between gap-3 px-5 py-3.5 text-sm text-text-primary transition-colors hover:bg-surface-raised"
-                  >
-                    <span className="flex items-center gap-2 font-medium">
-                      {app.name}
-                      {hasNoRepo && (
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <WarningCircleIcon size={14} weight="fill" className="text-status-critical" />
-                          </TooltipTrigger>
-                          <TooltipContent>No repository linked</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-2xs uppercase text-text-tertiary">{app.architecture}</span>
-                      <ArrowRightIcon
-                        size={14}
-                        className="text-text-tertiary opacity-0 transition-opacity group-hover:opacity-100"
-                      />
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="px-5 py-12 text-center text-sm text-text-tertiary">No applications yet.</div>
-          )}
-        </PanelBody>
-      </Panel>
-
-      <div className="mt-6 flex justify-center">
-        <Link
-          to="/onboarding"
-          search={{
-            step: "add-app",
-            appId: undefined,
-            error: undefined,
-            apiKey: undefined,
-            setupId: undefined,
-            focusApp: undefined,
-            focusField: undefined,
-            focusSection: undefined,
-            configStep: undefined,
-          }}
-        >
-          <Button variant="outline" className="gap-2" aria-label="open-create-application-dialog">
+    <div className="mx-auto flex h-full w-full max-w-2xl flex-col justify-center px-4 py-10">
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-medium tracking-tight text-text-primary">Your applications</h1>
+          <p className="mt-1.5 text-sm text-text-secondary">
+            {hasCompleted
+              ? "Open an existing application or continue a setup in progress."
+              : "Choose an application to continue setup."}
+          </p>
+        </div>
+        <Link to="/onboarding" search={buildOnboardingSearch("add-app")}>
+          <Button variant="outline" className="gap-2">
             <PlusIcon size={14} />
-            New application
+            Set up another application
           </Button>
         </Link>
+      </header>
+
+      <div className="flex flex-col gap-8">
+        {hasCompleted && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-medium text-text-primary">Ready to use</h2>
+            {completedApps.map((app) => (
+              <CompletedAppCard key={app.id} app={app} />
+            ))}
+          </section>
+        )}
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-text-primary">Setup in progress</h2>
+          {incompleteApps.map((app) => (
+            <InProgressAppCard key={app.id} app={app} />
+          ))}
+        </section>
       </div>
 
-      <TalkToSupport className="mt-10 w-full max-w-sm" />
+      <div className="mt-10 flex items-center justify-center gap-1.5 text-xs text-text-secondary">
+        <QuestionIcon size={14} />
+        <span>Need help?</span>
+        <a
+          href={SUPPORT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-text-primary hover:underline"
+        >
+          Talk to support
+        </a>
+      </div>
     </div>
+  );
+}
+
+function AppGlyph({ name }: { name: string }) {
+  return (
+    <div className="grid size-10 shrink-0 place-items-center border border-border-mid bg-surface-raised font-mono text-sm font-medium text-text-primary">
+      {name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function CompletedAppCard({ app }: { app: AppCardData }) {
+  const hasNoRepo = app.githubRepositoryId == null;
+
+  return (
+    <Link
+      to={hasNoRepo ? "/app/$appSlug/github" : "/app/$appSlug"}
+      params={{ appSlug: app.slug }}
+      aria-label={`Open ${app.name}`}
+      className="group block"
+    >
+      <Card className="gap-4 p-4 transition-colors group-hover:border-primary group-focus-visible:border-primary">
+        <div className="flex items-center gap-3">
+          <AppGlyph name={app.name} />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-base font-semibold text-text-primary">{app.name}</span>
+            <span className="text-xs text-text-secondary">{appTypeLabel(app.architecture)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+            {hasNoRepo ? (
+              <>
+                <WarningCircleIcon size={14} weight="fill" className="text-status-critical" />
+                No repository linked
+              </>
+            ) : (
+              <>
+                <CheckCircleIcon size={14} weight="fill" className="text-status-success" />
+                Setup complete
+              </>
+            )}
+          </span>
+          <span className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}>
+            Open application
+            <ArrowRightIcon size={14} className="transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </div>
+      </Card>
+    </Link>
+  );
+}
+
+function InProgressAppCard({ app }: { app: AppCardData }) {
+  const progress = getOnboardingProgress(app.onboardingState?.step);
+
+  return (
+    <Link
+      to="/onboarding"
+      search={buildResumeSearch(app.onboardingState?.step, app.id)}
+      aria-label={`Continue setting up ${app.name}`}
+      className="group block"
+    >
+      <Card className="gap-4 p-4 transition-colors group-hover:border-primary group-focus-visible:border-primary">
+        <div className="flex items-center gap-3">
+          <AppGlyph name={app.name} />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-base font-semibold text-text-primary">{app.name}</span>
+            <span className="text-xs text-text-secondary">{appTypeLabel(app.architecture)}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-text-secondary tabular-nums">
+            {progress.completed} of {progress.total} steps complete
+          </span>
+          <Progress value={progress.percent} />
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-text-secondary">
+            Next: <span className="font-medium text-text-primary">{progress.nextStep}</span>
+          </p>
+          <span className={cn(buttonVariants({ variant: "default" }), "gap-2")}>
+            Continue setup
+            <ArrowRightIcon size={14} className="transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </div>
+      </Card>
+    </Link>
   );
 }

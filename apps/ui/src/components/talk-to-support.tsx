@@ -1,7 +1,7 @@
 import { Button } from "@autonoma/blacklight";
 import { HeadsetIcon } from "@phosphor-icons/react/Headset";
 
-const SUPPORT_URL = "https://cal.com/nicolas-marcantonio/30min";
+export const SUPPORT_URL = "https://cal.com/nicolas-marcantonio/30min";
 
 interface TalkToSupportProps {
   className?: string;

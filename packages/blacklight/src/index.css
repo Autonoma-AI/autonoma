@@ -25,16 +25,16 @@
   --muted-foreground: #A7A7A7;
   --accent: #CCFF00;
   --accent-foreground: #050505;
-  --destructive: #FF3333;
-  --border: #222222;
+  --destructive: #f73942;
+  --border: #1C2231;
   --input: #333333;
   --ring: #CCFF00;
 
   /* Chart tokens */
   --chart-1: #CCFF00;
-  --chart-2: #00CC66;
+  --chart-2: #1aaf6d;
   --chart-3: #FF8800;
-  --chart-4: #FF3333;
+  --chart-4: #f73942;
   --chart-5: #FFCC00;
 
   --radius: 0rem;
@@ -65,16 +65,16 @@
      for subtitles, labels, descriptions, and metadata. `tertiary` is kept as an
      alias of `secondary` so existing usages stay readable - there is no longer a
      dimmer third tier. */
-  --text-primary: #EDEDED;
-  --text-secondary: #A7A7A7;
-  --text-tertiary: #A7A7A7;
+  --text-primary: #F2F4F7;
+  --text-secondary: #BCCBE0;
+  --text-tertiary: #BCCBE0;
 
   /* ── Status colors ── */
-  --status-critical: #FF3333;
-  --status-high: #FF8800;
+  --status-critical: #f73942;
+  --status-high: #FDB022;
   --status-warn: #FFCC00;
-  --status-success: #00CC66;
-  --status-pending: #38BDF8;
+  --status-success: #1aaf6d;
+  --status-pending: #6CD4FF;
 
   /* ── Accent glow ── */
   --accent-glow: rgba(194, 232, 18, 0.4);

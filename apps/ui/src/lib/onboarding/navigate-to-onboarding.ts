@@ -24,7 +24,16 @@ const STEP_ROUTES: Record<string, OnboardingStep> = {
     url: "add-app",
 };
 
+/** Maps a backend onboarding step to the UI step it resumes at, defaulting to the first step. */
+export function resolveStep(step: string | undefined): OnboardingStep {
+    return step != null ? (STEP_ROUTES[step] ?? "add-app") : "add-app";
+}
+
+/** Search object that resumes an application's onboarding at the step it left off. */
+export function buildResumeSearch(step: string | undefined, applicationId: string) {
+    return buildOnboardingSearch(resolveStep(step), applicationId);
+}
+
 export function navigateToOnboarding(applicationId: string, step: string | undefined, navigate: NavigateFn) {
-    const resolvedStep: OnboardingStep = step != null ? (STEP_ROUTES[step] ?? "add-app") : "add-app";
-    void navigate({ to: "/onboarding", search: buildOnboardingSearch(resolvedStep, applicationId) });
+    void navigate({ to: "/onboarding", search: buildResumeSearch(step, applicationId) });
 }

@@ -5,27 +5,12 @@ import { DatabaseIcon } from "@phosphor-icons/react/Database";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { Link } from "@tanstack/react-router";
 import { CONFIG_SUB_STEPS, type ConfigStepId } from "lib/onboarding/config-steps";
+import { ONBOARDING_PHASES } from "lib/onboarding/onboarding-phases";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import type { OnboardingStep } from "lib/onboarding/onboarding-steps";
 import type { ComponentType } from "react";
 
-interface StepDef {
-  id: string;
-  label: string;
-  activeSteps: OnboardingStep[];
-}
-
-const STEPS: StepDef[] = [
-  { id: "create-app", label: "Create app", activeSteps: ["add-app"] },
-  {
-    id: "preview",
-    label: "Config previews",
-    activeSteps: ["preview-environment", "previewkit-config", "existing-deploys", "deploy-verify"],
-  },
-  { id: "finish", label: "Finish", activeSteps: ["diff-trigger", "complete"] },
-];
-
-const ALL_STEP_IDS = STEPS.flatMap((step) => step.activeSteps);
+const ALL_STEP_IDS = ONBOARDING_PHASES.flatMap((step) => step.activeSteps);
 
 interface StepProgressProps {
   currentStepId: string;
@@ -41,11 +26,11 @@ export function StepProgress({ currentStepId, configStep, appId }: StepProgressP
 
   return (
     <div className="flex flex-col">
-      {STEPS.map((step, stepIndex) => {
+      {ONBOARDING_PHASES.map((step, stepIndex) => {
         const globalIndex = Math.min(...step.activeSteps.map((activeStep) => ALL_STEP_IDS.indexOf(activeStep)));
         const isActive = step.activeSteps.includes(resolvedCurrentStep);
         const isCompleted = globalIndex < currentIndex;
-        const isLast = stepIndex === STEPS.length - 1;
+        const isLast = stepIndex === ONBOARDING_PHASES.length - 1;
         const showSubNav = step.id === "preview" && onConfigStep;
 
         return (
