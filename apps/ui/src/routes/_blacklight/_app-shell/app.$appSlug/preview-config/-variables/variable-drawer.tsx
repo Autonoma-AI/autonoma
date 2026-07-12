@@ -43,6 +43,37 @@ function connectionReferences(targets: BindTarget[]): ConnectionReference[] {
   );
 }
 
+interface ReferenceStatus {
+  token: string;
+  /** False when the target isn't a real app/service, or the property it exposes. */
+  valid: boolean;
+  /** What the token becomes at deploy, or why it's wrong. */
+  meaning: string;
+}
+
+/** Validate one `{{name.property}}` token and describe what it resolves to (or why it can't). */
+function describeReference(target: string, property: string, targets: BindTarget[]): ReferenceStatus {
+  const token = `{{${target}.${property}}}`;
+  const match = targets.find((candidate) => candidate.name === target);
+  if (match == null) return { token, valid: false, meaning: "not an app or service in this preview" };
+  if (!match.properties.includes(property)) {
+    return { token, valid: false, meaning: `${target} has no "${property}" (exposes: ${match.properties.join(", ")})` };
+  }
+  const readable =
+    match.kind === "app" && property === "url" ? "public URL" : (PROPERTY_MEANINGS[property] ?? property);
+  return { token, valid: true, meaning: `${target}'s ${readable}` };
+}
+
+/** Every distinct token in a connection value, validated and described, in first-seen order. */
+function referencedTokens(value: string, targets: BindTarget[]): ReferenceStatus[] {
+  const seen = new Map<string, ReferenceStatus>();
+  for (const token of connectionTokens(value)) {
+    const status = describeReference(token.target, token.property, targets);
+    if (!seen.has(status.token)) seen.set(status.token, status);
+  }
+  return [...seen.values()];
+}
+
 interface VariableDrawerProps {
   app: AppDraft;
   /** The variable being edited (a real draft row - a freshly added one starts blank). */
@@ -73,10 +104,7 @@ export function VariableDrawer({ app, view, targets, secretsSupported, onChange,
   const error = validateForm(form, app, view, targets, secretsSupported);
   const pristine = form.key === "" && form.value === "";
   const references = connectionReferences(targets);
-  const referencedTargets = [...new Set(connectionTokens(form.value).map((token) => token.target))].map((name) => ({
-    name,
-    known: targets.some((candidate) => candidate.name === name),
-  }));
+  const resolved = referencedTokens(form.value, targets);
 
   function update(next: Partial<VariableForm>) {
     onChange({ ...form, ...next });
@@ -171,23 +199,27 @@ export function VariableDrawer({ app, view, targets, secretsSupported, onChange,
             Reference a service or app with a <code className="text-text-primary">{"{{name.property}}"}</code> token.
             Combine tokens with literal text (schemes, ports, paths); resolved at deploy time.
           </p>
-          {referencedTargets.length > 0 ? (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="font-mono text-4xs uppercase tracking-widest text-text-secondary">Resolves</span>
-              {referencedTargets.map((target) => (
-                <span
-                  key={target.name}
-                  title={target.known ? "Resolved at deploy time" : "Not a service or app in this preview"}
-                  className={cn(
-                    "border px-1.5 py-0.5 font-mono text-4xs",
-                    target.known
-                      ? "border-status-pending/30 bg-status-pending/10 text-status-pending"
-                      : "border-status-critical/40 bg-status-critical/10 text-status-critical",
-                  )}
-                >
-                  {target.name}
-                  {target.known ? "" : " · unknown"}
-                </span>
+          {resolved.length > 0 ? (
+            <div className="mt-2 flex flex-col gap-1">
+              <span className="font-mono text-4xs uppercase tracking-widest text-text-secondary">
+                Fills in at deploy
+              </span>
+              {resolved.map((reference) => (
+                <div key={reference.token} className="flex flex-wrap items-center gap-1.5 font-mono text-4xs">
+                  <span
+                    className={cn(
+                      "border px-1.5 py-0.5",
+                      reference.valid
+                        ? "border-border-mid text-text-primary"
+                        : "border-status-critical/50 bg-status-critical/10 text-status-critical",
+                    )}
+                  >
+                    {reference.token}
+                  </span>
+                  <span className={reference.valid ? "text-text-secondary" : "text-status-critical"}>
+                    {reference.valid ? "becomes" : "won't resolve:"} {reference.meaning}
+                  </span>
+                </div>
               ))}
             </div>
           ) : undefined}
