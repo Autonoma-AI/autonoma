@@ -8,6 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   cn,
 } from "@autonoma/blacklight";
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
@@ -810,11 +814,14 @@ function DryRunList({ applicationId }: { applicationId: string }) {
 
 // ─── Step 1: CLI artifacts (command always shown) ─────────────────────────────
 
-const ARTIFACT_LABELS: Record<string, string> = {
-  recipe: "recipe.json",
-  tests: "qa-tests/",
-  kb: "AUTONOMA.md",
-  scenarios: "scenarios.md",
+const ARTIFACT_DETAILS: Record<string, { label: string; description: string }> = {
+  recipe: {
+    label: "recipe.json",
+    description: "Environment-factory recipes - how to seed and tear down test data for each scenario.",
+  },
+  tests: { label: "qa-tests/", description: "The generated end-to-end test cases, as markdown." },
+  kb: { label: "AUTONOMA.md", description: "A knowledge base of your app's pages and flows." },
+  scenarios: { label: "scenarios.md", description: "Named test-data scenarios derived from the knowledge base." },
 };
 
 interface ArtifactStatus {
@@ -826,45 +833,53 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const { user, isAdmin } = useAuth();
   const { data: sharedSecretData } = useApplicationSharedSecret(applicationId);
   const setup = useCliSetup(applicationId);
-  const [copied, setCopied] = useState(false);
 
   const sharedSecret = sharedSecretData?.sharedSecret;
-  const sharedSecretEnv = sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${sharedSecret} ` : "";
-  const distinctIdEnv = user != null ? `AUTONOMA_DISTINCT_ID=${user.id} ` : "";
   // AUTONOMA_API_TOKEN authenticates the CLI against our managed LLM proxy, so it
   // is now required for the planner to run (not just to upload artifacts). Only
-  // surface a runnable command once that token has been provisioned.
-  const command =
+  // surface a runnable command once that token has been provisioned. The same env
+  // pairs render as `KEY=value` for npx and as `-e KEY=value` for the docker run.
+  const envPairs =
     setup.status === "ready"
-      ? `${sharedSecretEnv}${distinctIdEnv}AUTONOMA_API_TOKEN=${setup.apiKey} AUTONOMA_GENERATION_ID=${setup.setupId} npx @autonoma-ai/planner@latest`
+      ? [
+          sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${sharedSecret}` : undefined,
+          user != null ? `AUTONOMA_DISTINCT_ID=${user.id}` : undefined,
+          `AUTONOMA_API_TOKEN=${setup.apiKey}`,
+          `AUTONOMA_GENERATION_ID=${setup.setupId}`,
+        ].filter((pair): pair is string => pair != null)
       : undefined;
 
-  function handleCopy() {
-    if (command == null) return;
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      toastManager.add({ type: "success", title: "Command copied" });
-    });
-  }
+  const npxCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest` : undefined;
+  const dockerCommand =
+    envPairs != null
+      ? `docker run --rm -it -v "$PWD:/repo" -w /repo ${envPairs
+          .map((pair) => `-e ${pair}`)
+          .join(" ")} node:20 npx @autonoma-ai/planner@latest`
+      : undefined;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="relative border border-border-dim bg-surface-raised p-3 pr-12">
-        <code className="block whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
-          {command ?? "Preparing your CLI command..."}
-        </code>
-        {command != null && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="absolute right-2 top-2 text-text-secondary hover:text-primary-ink"
-            title={copied ? "Copied" : "Copy command"}
-            onClick={handleCopy}
-          >
-            <CopyIcon size={14} />
-          </Button>
-        )}
-      </div>
+      <Tabs defaultValue="npx">
+        <TabsList>
+          <TabsTrigger value="npx">npx</TabsTrigger>
+          <TabsTrigger value="docker">Docker (sandbox)</TabsTrigger>
+        </TabsList>
+        <TabsContent value="npx" className="flex flex-col gap-2">
+          <CommandBlock command={npxCommand} />
+          <p className="text-2xs leading-relaxed text-text-secondary">
+            Runs the planner in your repo with Node. It analyzes the code and writes the generated files to{" "}
+            <Code>~/.autonoma/&lt;your-app&gt;/</Code> before uploading them - nothing is committed to your repo.
+          </p>
+        </TabsContent>
+        <TabsContent value="docker" className="flex flex-col gap-2">
+          <CommandBlock command={dockerCommand} />
+          <p className="text-2xs leading-relaxed text-text-secondary">
+            Runs the same planner in a throwaway container - your repo is mounted, and <Code>~/.autonoma</Code> stays
+            inside the container (gone when it exits). Needs Docker running.
+          </p>
+        </TabsContent>
+      </Tabs>
+
       {setup.status === "loading" && (
         <p className="font-mono text-3xs text-text-secondary">
           Preparing your access token so the CLI can run on your Autonoma credits...
@@ -876,23 +891,60 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
         </p>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        {Object.entries(ARTIFACT_LABELS).map(([key, label]) => {
+      <div className="flex flex-col gap-2">
+        <p className="font-mono text-3xs uppercase tracking-widest text-text-secondary">What it generates + uploads</p>
+        {Object.entries(ARTIFACT_DETAILS).map(([key, detail]) => {
           const received = artifacts.artifacts.find((a) => a.key === key)?.received === true;
           return (
-            <div key={key} className="flex items-center gap-2.5 font-mono text-2xs">
+            <div key={key} className="flex items-start gap-2.5">
               {received ? (
-                <CheckCircleIcon size={14} weight="fill" className="shrink-0 text-status-success" />
+                <CheckCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-success" />
               ) : (
-                <span className="size-3.5 shrink-0 rounded-full border border-border-dim" />
+                <span className="mt-0.5 size-3.5 shrink-0 rounded-full border border-border-dim" />
               )}
-              <span className={cn(received ? "text-text-primary" : "text-text-secondary")}>{label}</span>
+              <div className="flex min-w-0 flex-col">
+                <span className={cn("font-mono text-2xs", received ? "text-text-primary" : "text-text-secondary")}>
+                  {detail.label}
+                </span>
+                <span className="text-2xs text-text-secondary">{detail.description}</span>
+              </div>
             </div>
           );
         })}
       </div>
 
       {isAdmin && <AdminManualUpload applicationId={applicationId} setupId={setup.setupId} />}
+    </div>
+  );
+}
+
+function CommandBlock({ command }: { command?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (command == null) return;
+    void navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      toastManager.add({ type: "success", title: "Command copied" });
+    });
+  }
+
+  return (
+    <div className="relative border border-border-dim bg-surface-raised p-3 pr-12">
+      <code className="block whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
+        {command ?? "Preparing your CLI command..."}
+      </code>
+      {command != null && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="absolute right-2 top-2 text-text-secondary hover:text-primary-ink"
+          title={copied ? "Copied" : "Copy command"}
+          onClick={handleCopy}
+        >
+          <CopyIcon size={14} />
+        </Button>
+      )}
     </div>
   );
 }
