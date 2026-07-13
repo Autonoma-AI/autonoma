@@ -374,10 +374,9 @@ testUpdateSuite({
             const tc = findTestCase(info, "checkout-test");
             expect(tc.name).toBe("Checkout test");
             expect(tc.plan?.prompt).toBe("Add item to cart and checkout");
-            expect(tc.steps).toBeNull();
         });
 
-        test("updatePlan: creates new plan and clears steps", async ({
+        test("updatePlan: creates a new plan", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
@@ -401,7 +400,6 @@ testUpdateSuite({
             const tc = findTestCase(info, "update-plan-test");
             expect(tc.plan?.prompt).toBe("Updated plan");
             expect(tc.plan?.id).toBe(newPlanId);
-            expect(tc.steps).toBeNull();
         });
 
         test("removeTestCase: deletes the assignment", async ({
@@ -481,9 +479,18 @@ testUpdateSuite({
                 { testCaseId: tcB.id, stepsId: stepsB.id },
             ]);
 
-            const updated = await draft.currentTestSuiteInfo();
-            expect(findTestCase(updated, "batch-a").steps?.id).toBe(stepsA.id);
-            expect(findTestCase(updated, "batch-b").steps?.id).toBe(stepsB.id);
+            const [assignmentA, assignmentB] = await Promise.all([
+                harness.db.testCaseAssignment.findUniqueOrThrow({
+                    where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: tcA.id } },
+                    select: { stepsId: true },
+                }),
+                harness.db.testCaseAssignment.findUniqueOrThrow({
+                    where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: tcB.id } },
+                    select: { stepsId: true },
+                }),
+            ]);
+            expect(assignmentA.stepsId).toBe(stepsA.id);
+            expect(assignmentB.stepsId).toBe(stepsB.id);
         });
 
         // -- cancel() --

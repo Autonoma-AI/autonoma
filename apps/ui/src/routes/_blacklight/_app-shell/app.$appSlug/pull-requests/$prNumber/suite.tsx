@@ -133,7 +133,6 @@ interface ResolvedSelection {
   testCase: {
     name: string;
     plan: { prompt: string } | null;
-    steps: { list: unknown } | null;
   };
 }
 
@@ -150,7 +149,6 @@ function resolveSelectedTest(
       testCase: {
         name: active.name,
         plan: active.plan != null ? { prompt: active.plan.prompt } : null,
-        steps: active.steps,
       },
     };
   }
@@ -161,7 +159,6 @@ function resolveSelectedTest(
       testCase: {
         name: removedEntry.testCaseName,
         plan: { prompt: removedEntry.previousPlan },
-        steps: null,
       },
     };
   }

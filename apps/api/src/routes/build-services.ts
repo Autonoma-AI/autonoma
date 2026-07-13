@@ -179,7 +179,7 @@ export function buildServices({
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
-        tests: new TestsService(conn, storageProvider),
+        tests: new TestsService(conn),
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
         secrets: previewkitSecretsService,
@@ -191,7 +191,7 @@ export function buildServices({
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
         issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
-        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService, storageProvider),
+        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),
         diffsTrigger: new DiffsTriggerService(

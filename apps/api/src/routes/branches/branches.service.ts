@@ -34,7 +34,6 @@ import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
-import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadRefinementLoop } from "./refinement-loop";
@@ -525,12 +524,6 @@ export class BranchesService extends Service {
                             include: {
                                 testCase: { select: { id: true, name: true, slug: true, folderId: true } },
                                 plan: { select: { id: true, prompt: true } },
-                                steps: {
-                                    select: {
-                                        id: true,
-                                        _count: { select: { list: true } },
-                                    },
-                                },
                             },
                         },
                     },
@@ -882,8 +875,7 @@ export class BranchesService extends Service {
             comparisonSnapshotId = branch.activeSnapshot?.prevSnapshotId ?? null;
         }
 
-        const rawTestSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
-        const testSuite = await signTestSuiteScreenshots(rawTestSuite, this.storageProvider);
+        const testSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
         const changes = await getChangesForSnapshot(
             this.db,
             branch.activeSnapshotId,

@@ -1,13 +1,9 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { StorageProvider } from "@autonoma/storage";
 import { Service } from "../service";
 
 export class TestsService extends Service {
-    constructor(
-        private readonly db: PrismaClient,
-        private readonly storageProvider: StorageProvider,
-    ) {
+    constructor(private readonly db: PrismaClient) {
         super();
     }
 
@@ -79,15 +75,8 @@ export class TestsService extends Service {
                         },
                     },
                 },
-                steps: {
-                    include: {
-                        list: { orderBy: { order: "asc" } },
-                    },
-                },
             },
         });
-
-        const steps = assignment?.steps?.list ?? [];
 
         return {
             id: testCase.id,
@@ -99,18 +88,6 @@ export class TestsService extends Service {
             tags: testCase.tags.map((tt) => tt.tag.name),
             prompt: assignment?.plan?.prompt ?? undefined,
             generationId: assignment?.plan?.generations[0]?.id ?? undefined,
-            steps: await Promise.all(
-                steps.map(async (step) => ({
-                    id: step.id,
-                    order: step.order,
-                    interaction: step.interaction,
-                    params: step.params,
-                    screenshotBefore: await (step.screenshotBefore &&
-                        this.storageProvider.getSignedUrl(step.screenshotBefore, 3600)),
-                    screenshotAfter: await (step.screenshotAfter &&
-                        this.storageProvider.getSignedUrl(step.screenshotAfter, 3600)),
-                })),
-            ),
             createdAt: testCase.createdAt,
             updatedAt: testCase.updatedAt,
         };

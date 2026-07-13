@@ -1,6 +1,5 @@
 import { Skeleton } from "@autonoma/blacklight";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
-import { ListNumbersIcon } from "@phosphor-icons/react/ListNumbers";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
@@ -75,10 +74,6 @@ function TestDetailPanel({ slug }: { slug: string }) {
         )}
 
         <div className="mt-5 flex flex-wrap items-center gap-4 font-mono text-xs text-text-secondary">
-          <span className="flex items-center gap-1.5">
-            <ListNumbersIcon size={13} />
-            {test.steps.length} {test.steps.length === 1 ? "step" : "steps"}
-          </span>
           <span className="flex items-center gap-1.5">
             <ClockCounterClockwiseIcon size={13} />
             Created {formatDate(test.createdAt)}

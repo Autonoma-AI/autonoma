@@ -21,18 +21,16 @@ export async function fetchTestSuiteInfo(db: PrismaClient, snapshotId: string) {
                     scenario: { select: { id: true, name: true } },
                 },
             },
-            steps: { select: { id: true, list: true } },
         },
     });
 
     return {
-        testCases: testCaseAssignments.map(({ testCase, plan, steps }) => ({
+        testCases: testCaseAssignments.map(({ testCase, plan }) => ({
             id: testCase.id,
             slug: testCase.slug,
             name: testCase.name,
             folderId: testCase.folderId,
             plan,
-            steps,
         })),
     };
 }

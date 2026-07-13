@@ -100,7 +100,7 @@ await updater.cancel();
 
 ```ts
 const info = await updater.currentTestSuiteInfo();
-// info.testCases - array of { id, slug, name, plan, steps }
+// info.testCases - array of { id, slug, name, plan }
 
 const changes = await updater.getChanges();
 // Array of { type: "added" | "removed" | "updated", testCaseId, testCaseName, ... }
