@@ -75,9 +75,10 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 
 ### 9. **PR Approval Slack Notification** (`pr-approval-slack-notify.yml`)
 - Triggers on `pull_request_review` `submitted` events and only runs for human `approved` reviews on non-draft, non-bot PRs
-- Finds the newest trusted `pr-slack-thread-<PR number>` artifact created by a successful `pr-review-notify.yml` run, reads its Slack channel ID and parent `thread_ts`, then posts an approval reply with `thread_ts`
+- Finds the newest trusted `pr-slack-thread-<PR number>` artifact created by a successful `pr-review-notify.yml` run, reads its Slack channel ID and parent `thread_ts`, then replies `Approved` and reacts to the parent message with `:aprobaditto:`
 - Uses a per-PR, per-reviewer concurrency group and marker artifact to skip duplicate approval replies from the same reviewer
-- Uses `SLACK_USER_TOKENS` when available to post as the reviewer, falling back to `SLACK_BOT_TOKEN`
+- Uses `SLACK_USER_TOKENS` independently for the reply and reaction, falling back to `SLACK_BOT_TOKEN` for only the operation that fails. A missing reaction scope does not force the reply to use the bot
+- Requires `chat:write` on the reply credential and `reactions:write` on the reaction credential. Existing user tokens must be reauthorized to react as the reviewer; otherwise the bot can add the reaction when it has the `reactions:write` bot scope
 - Skips gracefully if the parent Slack thread artifact or Slack secrets are unavailable
 
 ### 10. **OpenCode PR Review** (`opencode-review.yml`)
