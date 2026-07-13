@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.19...cli-v0.1.20) (2026-07-13)
+
+
+### Features
+
+* **cli:** monorepo-aware planner (project mapper + FE/BE scoping) ([#1472](https://github.com/Autonoma-AI/agent/issues/1472)) ([d58fd8e](https://github.com/Autonoma-AI/agent/commit/d58fd8ee48ec5e6dc44fa56e65ae144f0d67ceb0))
+
 ## [0.1.19](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.18...cli-v0.1.19) (2026-07-10)
 
 
