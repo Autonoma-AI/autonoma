@@ -64,7 +64,11 @@ function BugDetail() {
 
       {/* Report-driven section slots, filled by later slices of the redesign (#1269). */}
       <BugHeroMedia hero={bug.hero} />
-      <BugWhySection report={bug.report} />
+      <BugWhySection
+        report={bug.report}
+        description={bug.description}
+        whatHappened={bug.latestOccurrence?.whatHappened}
+      />
       <BugSuspectedCause report={bug.report} />
 
       <BugReproduction latest={bug.latestOccurrence} />
