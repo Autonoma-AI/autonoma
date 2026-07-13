@@ -1,3 +1,4 @@
+import { RedeployPreviewkitAppInputSchema } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
 
@@ -26,5 +27,16 @@ export const deploymentsRouter = router({
         .input(z.object({ applicationId: z.string(), environmentId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
             services.deployments.deploymentHistory(input.applicationId, input.environmentId, organizationId),
+        ),
+    redeployApp: protectedProcedure
+        .input(RedeployPreviewkitAppInputSchema)
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.deployments.redeployAppForApplication(
+                input.applicationId,
+                input.environmentId,
+                input.app,
+                input.mode,
+                organizationId,
+            ),
         ),
 });

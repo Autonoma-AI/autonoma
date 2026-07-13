@@ -1,5 +1,5 @@
-import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { ensureAPIQueryData } from "lib/query/api-queries";
+import { type QueryClient, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { ensureAPIQueryData, useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
 export function useDeploymentsByPr(applicationId: string, prNumber: number) {
@@ -90,6 +90,24 @@ export function useDeploymentHistory(
             const anyBuilding = deployments.some((deployment) => deployment.status === "building");
             return anyBuilding || options?.pollWhileActive === true ? PREVIEW_POLL_MS : false;
         },
+    });
+}
+
+export function useRedeployPreviewApp(applicationId: string, environmentId: string) {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.deployments.redeployApp.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.deployments.previewSummaryById.queryKey({ applicationId, environmentId }),
+                });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.deployments.listActiveForApp.queryKey({ applicationId }),
+                });
+            },
+        }),
+        successToast: { title: "App redeploy triggered" },
+        errorToast: { title: "Failed to trigger app redeploy" },
     });
 }
 

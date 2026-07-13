@@ -291,6 +291,60 @@ export class DeploymentsService extends Service {
     }
 
     /**
+     * Triggers a redeploy of one app after verifying that the preview environment
+     * belongs to the requested application and the caller's organization.
+     */
+    async redeployAppForApplication(
+        applicationId: string,
+        environmentId: string,
+        app: string,
+        mode: PreviewRedeployAppMode,
+        organizationId: string,
+    ): Promise<void> {
+        this.logger.info("Redeploying application preview app", {
+            application: { applicationId },
+            organization: { organizationId },
+            extra: { environmentId, app, mode },
+        });
+
+        const environment = await this.db.$transaction(async (tx) => {
+            const application = await tx.application.findFirst({
+                where: { id: applicationId, organizationId },
+                select: { githubRepositoryId: true },
+            });
+            if (application == null || application.githubRepositoryId == null) throw new NotFoundError();
+
+            return await tx.previewkitEnvironment.findFirst({
+                where: {
+                    id: environmentId,
+                    organizationId,
+                    githubRepositoryId: application.githubRepositoryId,
+                },
+                select: { repoFullName: true, prNumber: true },
+            });
+        });
+        if (environment == null) throw new NotFoundError("Preview environment not found");
+
+        if (env.PREVIEWKIT_ENABLED === false) {
+            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
+        }
+
+        await this.previewkitTrigger.redeployApp(
+            environment.repoFullName,
+            environment.prNumber,
+            app,
+            mode,
+            organizationId,
+        );
+
+        this.logger.info("Application preview app redeploy triggered", {
+            application: { applicationId },
+            organization: { organizationId },
+            extra: { environmentId, app, mode },
+        });
+    }
+
+    /**
      * Applications eligible for a main-branch preview deploy: linked to a GitHub
      * repository and owned by an organization with an active GitHub installation,
      * excluding disabled apps. Admin-only picker source for the "deploy main

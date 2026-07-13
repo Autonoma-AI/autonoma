@@ -1,4 +1,21 @@
-import { Badge, Button, Skeleton, StatusDot, cn } from "@autonoma/blacklight";
+import {
+  Badge,
+  BrailleSpinner,
+  Button,
+  Dialog,
+  DialogBackdrop,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Skeleton,
+  StatusDot,
+  cn,
+} from "@autonoma/blacklight";
+import type { PreviewRedeployAppMode } from "@autonoma/types";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
@@ -7,6 +24,7 @@ import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
+import { HammerIcon } from "@phosphor-icons/react/Hammer";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
@@ -18,9 +36,10 @@ import {
   ensurePreviewSummaryByIdData,
   useDeploymentHistory,
   usePreviewSummaryById,
+  useRedeployPreviewApp,
 } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { Component, type ReactNode, Suspense } from "react";
+import { Component, type ReactNode, Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import {
@@ -306,6 +325,11 @@ function PreviewAppDetail({ service, latestBuild }: { service: PreviewService; l
         <DetailRow label="Build time" icon={TimerIcon}>
           {latestBuild?.durationMs != null ? formatDuration(latestBuild.durationMs) : "-"}
         </DetailRow>
+        {isAppService(service) && (
+          <DetailRow label="Controls" icon={GearSixIcon}>
+            <PreviewAppRedeployControl appName={service.name} disabled={service.status === "building"} />
+          </DetailRow>
+        )}
       </dl>
 
       {service.statusReason != null && (
@@ -313,6 +337,97 @@ function PreviewAppDetail({ service, latestBuild }: { service: PreviewService; l
       )}
     </div>
   );
+}
+
+function PreviewAppRedeployControl({ appName, disabled }: { appName: string; disabled: boolean }) {
+  const app = useCurrentApplication();
+  const { environmentId } = Route.useParams();
+  const redeploy = useRedeployPreviewApp(app.id, environmentId);
+  const [selectedMode, setSelectedMode] = useState<PreviewRedeployAppMode>("rebuild");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const controlsDisabled = disabled || redeploy.isPending;
+  const action = previewRedeployActionMeta(selectedMode, appName);
+
+  function handleDialogOpenChange(open: boolean) {
+    if (redeploy.isPending) return;
+    setDialogOpen(open);
+  }
+
+  function openConfirmation(mode: PreviewRedeployAppMode) {
+    setSelectedMode(mode);
+    setDialogOpen(true);
+  }
+
+  function confirmRedeploy() {
+    redeploy.mutate(
+      { applicationId: app.id, environmentId, app: appName, mode: selectedMode },
+      { onSuccess: () => setDialogOpen(false) },
+    );
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="xs"
+          className="gap-1.5"
+          disabled={controlsDisabled}
+          onClick={() => openConfirmation("rebuild")}
+        >
+          <HammerIcon size={12} />
+          Rebuild
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          className="gap-1.5"
+          disabled={controlsDisabled}
+          onClick={() => openConfirmation("restart")}
+        >
+          <ArrowClockwiseIcon size={12} />
+          Restart
+        </Button>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
+        <DialogBackdrop />
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{action.title}</DialogTitle>
+            <DialogDescription>{action.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={redeploy.isPending} />}>Cancel</DialogClose>
+            <Button onClick={confirmRedeploy} disabled={redeploy.isPending} className="gap-1.5">
+              {redeploy.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <action.Icon size={14} />}
+              {redeploy.isPending ? action.pendingLabel : action.confirmLabel}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function previewRedeployActionMeta(mode: PreviewRedeployAppMode, appName: string) {
+  if (mode === "rebuild") {
+    return {
+      title: `Rebuild ${appName}?`,
+      description: `Builds a new image for ${appName} from this environment's current commit, then redeploys only this app. Other apps keep running.`,
+      confirmLabel: "Confirm rebuild",
+      pendingLabel: "Rebuilding...",
+      Icon: HammerIcon,
+    };
+  }
+
+  return {
+    title: `Restart ${appName}?`,
+    description: `Restarts ${appName} with its existing image. Use this after changing runtime secrets or environment variables. No source build runs, and other apps keep running.`,
+    confirmLabel: "Confirm restart",
+    pendingLabel: "Restarting...",
+    Icon: ArrowClockwiseIcon,
+  };
 }
 
 function DetailRow({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {

@@ -20,6 +20,7 @@ export * from "./org-secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
 export * from "./previewkit-runtimes";
+export * from "./previewkit-redeploy-app";
 export * from "./previewkit-service-suggestion";
 export * from "./previewkit-env-suggestion";
 export * from "./previewkit-diagnosis";

@@ -46,6 +46,10 @@ Webhook response schemas for the Environment Factory protocol:
 - `OnboardingStateSchema` - Tracks onboarding wizard progress
 - `AgentLogEntrySchema` - Agent log entry schema for onboarding logs
 
+### Preview Environments
+
+- `RedeployPreviewkitAppInputSchema` - Validates an application-scoped request to rebuild or restart one preview app
+
 ### Review Verdict
 
 - `reviewVerdictSchema` / `ReviewVerdict` - AI reviewer output classifying test failures as `"agent_error"` or `"application_bug"` with severity, evidence, and reasoning
