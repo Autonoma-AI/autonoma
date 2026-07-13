@@ -22,6 +22,10 @@ const APP_TYPE_LABELS: Record<string, string> = {
   ANDROID: "Android application",
 };
 
+// Only collapse a section once it grows past this many apps; smaller sections
+// stay fully expanded so a short list is never hidden behind a chevron.
+const COLLAPSE_THRESHOLD = 5;
+
 interface AppCardData {
   id: string;
   name: string;
@@ -75,6 +79,9 @@ function AppSelector() {
   const completedApps = applications.filter(isOnboardingComplete);
   const hasCompleted = completedApps.length > 0;
   const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
+  // Drive each section's collapsed CTA (open/continue the top app of that section).
+  const firstReady = completedApps[0];
+  const firstInProgress = incompleteApps[0];
 
   return (
     // min-h-full + my-auto centers the content when it fits, but top-aligns and stays
@@ -109,20 +116,50 @@ function AppSelector() {
         </header>
 
         <div className="flex flex-col gap-6">
-          {hasCompleted && (
-            <CollapsibleSection title="Ready to use" count={completedApps.length}>
+          {firstReady != null && (
+            <AppSection
+              title="Ready to use"
+              count={completedApps.length}
+              collapsedCta={
+                <Link
+                  to={firstReady.githubRepositoryId == null ? "/app/$appSlug/github" : "/app/$appSlug"}
+                  params={{ appSlug: firstReady.slug }}
+                  aria-label={`Open ${firstReady.name}`}
+                >
+                  <Button variant="secondary" className="gap-2">
+                    Open application
+                    <ArrowRightIcon size={14} />
+                  </Button>
+                </Link>
+              }
+            >
               {completedApps.map((app) => (
                 <CompletedAppCard key={app.id} app={app} />
               ))}
-            </CollapsibleSection>
+            </AppSection>
           )}
 
-          {incompleteApps.length > 0 && (
-            <CollapsibleSection title="Setup in progress" count={incompleteApps.length}>
+          {firstInProgress != null && (
+            <AppSection
+              title="Setup in progress"
+              count={incompleteApps.length}
+              collapsedCta={
+                <Link
+                  to="/onboarding"
+                  search={buildResumeSearch(firstInProgress.onboardingState?.step, firstInProgress.id)}
+                  aria-label={`Continue setting up ${firstInProgress.name}`}
+                >
+                  <Button className="gap-2">
+                    Continue setup
+                    <ArrowRightIcon size={14} />
+                  </Button>
+                </Link>
+              }
+            >
               {incompleteApps.map((app) => (
                 <InProgressAppCard key={app.id} app={app} />
               ))}
-            </CollapsibleSection>
+            </AppSection>
           )}
         </div>
 
@@ -143,25 +180,56 @@ function AppSelector() {
   );
 }
 
-function CollapsibleSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+function SectionHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <span className="flex items-center gap-2 text-sm font-medium text-text-primary">
+      {title}
+      <span className="grid min-w-5 place-items-center rounded-full bg-surface-raised px-1.5 py-0.5 text-2xs font-medium text-text-secondary tabular-nums">
+        {count}
+      </span>
+    </span>
+  );
+}
+
+function AppSection({
+  title,
+  count,
+  collapsedCta,
+  children,
+}: {
+  title: string;
+  count: number;
+  collapsedCta: ReactNode;
+  children: ReactNode;
+}) {
+  const collapsible = count > COLLAPSE_THRESHOLD;
+  const [open, setOpen] = useState(!collapsible);
+
+  // Short lists render flat - no toggle, everything visible.
+  if (!collapsible) {
+    return (
+      <section className="flex flex-col gap-3">
+        <SectionHeading title={title} count={count} />
+        <div className="flex flex-col gap-3">{children}</div>
+      </section>
+    );
+  }
 
   return (
     <section className="flex flex-col gap-3">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        className="flex items-center justify-between gap-2 text-left"
-      >
-        <span className="flex items-center gap-2 text-sm font-medium text-text-primary">
-          {title}
-          <span className="grid min-w-5 place-items-center rounded-full bg-surface-raised px-1.5 py-0.5 text-2xs font-medium text-text-secondary tabular-nums">
-            {count}
-          </span>
-        </span>
-        <CaretDownIcon size={16} className={cn("text-text-secondary transition-transform", open && "rotate-180")} />
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+          className="flex items-center gap-2 text-left"
+        >
+          <SectionHeading title={title} count={count} />
+          <CaretDownIcon size={16} className={cn("text-text-secondary transition-transform", open && "rotate-180")} />
+        </button>
+        {/* Collapsed: give a clear primary action instead of just a chevron. Expand to see them all. */}
+        {!open && collapsedCta}
+      </div>
       {open && <div className="flex flex-col gap-3">{children}</div>}
     </section>
   );
