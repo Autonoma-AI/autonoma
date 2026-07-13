@@ -17,7 +17,7 @@
         "lint-files": "oxlint",
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {

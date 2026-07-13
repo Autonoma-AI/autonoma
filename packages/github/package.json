@@ -9,7 +9,7 @@
         "./schemas": "./src/schemas.ts"
     },
     "scripts": {
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix .",
         "test": "vitest run --passWithNoTests"

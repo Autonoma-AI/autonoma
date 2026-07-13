@@ -19,7 +19,7 @@
         "lint-files": "oxlint --fix",
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit",
         "detect-object": "tsx --env-file=.env scripts/detect-object.ts"
     },

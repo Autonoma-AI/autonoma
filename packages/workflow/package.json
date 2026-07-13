@@ -10,7 +10,7 @@
         "./worker": "./src/worker/index.ts"
     },
     "scripts": {
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",

@@ -7,7 +7,7 @@
         ".": "./src/index.ts"
     },
     "scripts": {
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "dev": "tsc --watch",
         "clean": "rm -rf dist",
         "typecheck": "tsc --noEmit",

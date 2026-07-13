@@ -114,6 +114,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Per-job key (jobs run in parallel and must not clobber each other's
+      # cache entry); the sha suffix makes each commit save a fresh immutable
+      # entry, and the prefix restore-keys pulls the newest prior one so a PR's
+      # later commits only recompute the packages that actually changed.
+      - name: Turbo cache
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.job }}-
+
       - name: Lint
         run: pnpm turbo run lint --continue
 
@@ -141,6 +153,14 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm --filter @autonoma/engine-web exec playwright install --with-deps chromium
+
+      - name: Turbo cache
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.job }}-
 
       - name: Test
         # No API keys here on purpose: `pnpm test` runs only deterministic, key-free unit tests. The
@@ -173,6 +193,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Turbo cache
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.job }}-
+
       - name: Build
         run: pnpm turbo run build --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
 
@@ -195,6 +223,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          key: turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.job }}-
 
       - name: Typecheck
         run: pnpm turbo run typecheck --continue

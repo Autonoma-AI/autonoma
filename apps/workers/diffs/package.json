@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "tsc",
+        "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.eval.json",
         "lint": "oxlint --fix src/ evals/ test/",
         "fmt": "oxfmt --write src/ evals/ test/",
