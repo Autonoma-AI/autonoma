@@ -185,6 +185,20 @@ export class GenerationManager {
         this.logger.info("Generation discarded", { generationId });
     }
 
+    /**
+     * Deletes every pending generation for this snapshot. Used when a snapshot is
+     * finalized without running its generations - the pending jobs would
+     * otherwise block finalization via {@link hasIncompleteGenerations}.
+     */
+    async discardPendingGenerations(): Promise<number> {
+        const { count } = await this.db.testGeneration.deleteMany({
+            where: { snapshotId: this.snapshotId, status: "pending" },
+        });
+
+        this.logger.info("Discarded pending generations", { count });
+        return count;
+    }
+
     /** Returns true if there are any incomplete (pending, queued, or running) generations for this snapshot. */
     async hasIncompleteGenerations() {
         const generations = await this.fetchGenerations();

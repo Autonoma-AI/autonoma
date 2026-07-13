@@ -203,6 +203,38 @@ testUpdateSuite({
             await expect(updater.finalize()).rejects.toThrow("Cannot finalize snapshot");
         });
 
+        test("finalize: discardPendingGenerations clears pending jobs and activates", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const jobProvider = new FakeGenerationProvider();
+            const updater = await harness.startUpdater(organizationId, applicationId, {
+                jobProvider,
+            });
+            const snapshotId = updater.snapshotId;
+
+            // A leftover pending generation (as on snapshots from before onboarding
+            // stopped scheduling them) would otherwise block finalize.
+            await updater.apply(
+                new AddTest({
+                    folderId,
+                    name: "Pending leftover",
+                    description: "Tests discard-and-finalize",
+                    plan: "Some plan",
+                }),
+            );
+            expect(await harness.db.testGeneration.count({ where: { snapshotId, status: "pending" } })).toBe(1);
+
+            await updater.finalize({ discardPendingGenerations: true });
+
+            expect(await harness.db.testGeneration.count({ where: { snapshotId } })).toBe(0);
+            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: snapshotId },
+                select: { status: true },
+            });
+            expect(snapshot.status).toBe("active");
+        });
+
         // -- queuePendingGenerations() --
 
         test("queuePendingGenerations: fires jobs and marks generations as queued", async ({

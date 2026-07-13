@@ -2,7 +2,6 @@ import { createHmac } from "node:crypto";
 import { NotFoundError } from "@autonoma/errors";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
-import { triggerRefinementLoop } from "@autonoma/workflow";
 import { expect, vi } from "vitest";
 import { DryRunSubject } from "../../src/routes/onboarding/dry-run-subject";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
@@ -899,11 +898,10 @@ integrationTestSuite({
             expect(state.step).toBe("existing_deploys_configuring");
         });
 
-        test("goLive enqueues generations and completes from diff_trigger", async ({
+        test("goLive activates the pending snapshot and completes from diff_trigger", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
-            vi.mocked(triggerRefinementLoop).mockClear();
             const appId = await createApp();
             const branch = await harness.db.branch.findFirstOrThrow({
                 where: { applicationId: appId, name: "main" },
@@ -937,18 +935,30 @@ integrationTestSuite({
                 },
             });
 
-            // Verifying the preview moves to diff_trigger without seeding generations.
+            // Verifying the preview moves to diff_trigger without activating the snapshot.
             const verified = await manager.completePreviewOnboarding(appId, orgId);
             expect(verified.step).toBe("diff_trigger");
-            expect(triggerRefinementLoop).not.toHaveBeenCalled();
+            const stillPending = await harness.db.branch.findFirstOrThrow({
+                where: { id: branch.id },
+                select: { pendingSnapshotId: true, activeSnapshotId: true },
+            });
+            expect(stillPending.pendingSnapshotId).toBe(pendingSnapshot.id);
+            expect(stillPending.activeSnapshotId).toBeNull();
 
-            // Going live completes onboarding and seeds the first generation on main.
+            // Going live completes onboarding and activates the pending snapshot on main.
             const live = await manager.goLive(appId, orgId);
             expect(live.step).toBe("completed");
-            expect(triggerRefinementLoop).toHaveBeenCalledWith({
-                snapshotId: pendingSnapshot.id,
-                triggeredBy: "onboarding",
+            const activated = await harness.db.branch.findFirstOrThrow({
+                where: { id: branch.id },
+                select: { pendingSnapshotId: true, activeSnapshotId: true },
             });
+            expect(activated.activeSnapshotId).toBe(pendingSnapshot.id);
+            expect(activated.pendingSnapshotId).toBeNull();
+            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: pendingSnapshot.id },
+                select: { status: true },
+            });
+            expect(snapshot.status).toBe("active");
         });
 
         test("configureAndDiscoverScenarios throws OnboardingApplicationNotFoundError for wrong org", async ({

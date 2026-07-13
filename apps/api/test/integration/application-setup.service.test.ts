@@ -103,11 +103,11 @@ apiTestSuite({
             expect(onboarding.step).toBe("github");
         });
 
-        test("PATCH completion enqueues generations once the app is live", async ({ harness }) => {
+        test("PATCH completion activates the pending snapshot once the app is live", async ({ harness }) => {
             // The admin manual upload (and any CLI that finalizes over PATCH) marks
             // the setup completed via updateSetup. Finish setup runs after go-live,
-            // so the artifacts it just uploaded leave pending generations that only
-            // get drained if completion here triggers the refinement loop.
+            // so the artifacts it just uploaded leave a pending snapshot that only
+            // gets activated if completion here activates it.
             const { app, setupId, service, onboardingManager } = await createSetupFixture(
                 harness,
                 "Application Setup PATCH Live",
@@ -118,22 +118,22 @@ apiTestSuite({
                 update: { step: "completed" },
             });
 
-            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+            const activateSpy = vi.spyOn(onboardingManager, "activatePendingSnapshot").mockResolvedValue(undefined);
 
             await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
 
-            expect(enqueueSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
-            enqueueSpy.mockRestore();
+            expect(activateSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
+            activateSpy.mockRestore();
         });
 
-        test("PATCH completion goes live and enqueues when preview is verified but not yet live", async ({
+        test("PATCH completion goes live and activates when preview is verified but not yet live", async ({
             harness,
         }) => {
             // Finish setup and "Go live" are independent signals: a user can finish
-            // setup (creating pending generations) while onboarding is parked at
+            // setup (creating a pending snapshot) while onboarding is parked at
             // diff_trigger, never having clicked Go live. Reaching diff_trigger means
             // the preview was verified, so completion here should go live itself and
-            // drain the pending generations rather than defer forever.
+            // activate the pending snapshot rather than defer forever.
             const { app, setupId, service, onboardingManager } = await createSetupFixture(
                 harness,
                 "Application Setup PATCH Diff Trigger",
@@ -144,20 +144,20 @@ apiTestSuite({
                 update: { step: "diff_trigger" },
             });
 
-            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+            const activateSpy = vi.spyOn(onboardingManager, "activatePendingSnapshot").mockResolvedValue(undefined);
 
             await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
 
-            expect(enqueueSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
+            expect(activateSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
             const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
                 where: { applicationId: app.id },
                 select: { step: true },
             });
             expect(onboarding.step).toBe("completed");
-            enqueueSpy.mockRestore();
+            activateSpy.mockRestore();
         });
 
-        test("PATCH completion defers generation enqueue while onboarding is unfinished", async ({ harness }) => {
+        test("PATCH completion defers snapshot activation while onboarding is unfinished", async ({ harness }) => {
             const { app, setupId, service, onboardingManager } = await createSetupFixture(
                 harness,
                 "Application Setup PATCH Not Live",
@@ -168,12 +168,12 @@ apiTestSuite({
                 update: { step: "github" },
             });
 
-            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+            const activateSpy = vi.spyOn(onboardingManager, "activatePendingSnapshot").mockResolvedValue(undefined);
 
             await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
 
-            expect(enqueueSpy).not.toHaveBeenCalled();
-            enqueueSpy.mockRestore();
+            expect(activateSpy).not.toHaveBeenCalled();
+            activateSpy.mockRestore();
         });
 
         test("partial_failure update marks setup without completion timestamp", async ({ harness }) => {

@@ -299,10 +299,20 @@ export class TestSuiteUpdater {
      * Validates that there are no incomplete (pending, queued, or running)
      * generations before activation.
      *
-     * @throws {IncompleteGenerationsError} If there are still incomplete generations on this snapshot.
+     * @param discardPendingGenerations - When true, delete any `pending`
+     *   generation jobs first so they don't block activation. Used to activate a
+     *   snapshot without running its generations (onboarding), which also clears
+     *   pending jobs left on snapshots created before onboarding stopped
+     *   scheduling them. `queued`/`running` generations still block - those
+     *   represent work in flight, not deferred jobs.
+     * @throws {IncompleteGenerationsError} If incomplete generations remain after the optional discard.
      */
-    public async finalize() {
-        this.logger.info("Finalizing snapshot");
+    public async finalize({ discardPendingGenerations = false }: { discardPendingGenerations?: boolean } = {}) {
+        this.logger.info("Finalizing snapshot", { discardPendingGenerations });
+
+        if (discardPendingGenerations) {
+            await this.generationManager.discardPendingGenerations();
+        }
 
         const hasIncomplete = await this.generationManager.hasIncompleteGenerations();
         if (hasIncomplete) {

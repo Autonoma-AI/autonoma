@@ -141,7 +141,7 @@ export class ApplicationSetupService {
         });
 
         if (setupCompleted && applicationId != null) {
-            await this.enqueueGenerationsAfterSetupCompletion(setupId, applicationId, organizationId);
+            await this.activateSnapshotAfterSetupCompletion(setupId, applicationId, organizationId);
         }
 
         log.info("Added setup event", { setupId, type: event.type });
@@ -181,29 +181,28 @@ export class ApplicationSetupService {
         });
 
         if (setupCompleted && applicationId != null) {
-            await this.enqueueGenerationsAfterSetupCompletion(setupId, applicationId, organizationId);
+            await this.activateSnapshotAfterSetupCompletion(setupId, applicationId, organizationId);
         }
 
         log.info("Updated application setup", { setupId, ...body });
     }
 
     /**
-     * Drain the pending generations a setup just produced. Finish setup (SDK +
+     * Activate the pending snapshot a setup just produced. Finish setup (SDK +
      * CLI artifact upload) creates the snapshot the artifact upload produces, so
-     * the refinement loop must be (re)triggered now. Both completion paths reach
-     * this: the planner's final `step.completed` event and the admin manual
-     * upload's `PATCH {status:"completed"}`.
+     * it must be activated now. Both completion paths reach this: the planner's
+     * final `step.completed` event and the admin manual upload's
+     * `PATCH {status:"completed"}`.
      *
      * Finish setup and onboarding's "Go live" are independent signals and nothing
      * enforces their order, so we can land here before `goLive` was ever clicked.
      * Reaching `diff_trigger` means the preview was verified, which is the only
-     * precondition for refining safely - so from there we go live ourselves
+     * precondition for activating safely - so from there we go live ourselves
      * rather than depend on a manual click the user may never make. Before that
      * the preview is genuinely unverified, so we defer (and warn, so a stuck app
-     * is visible). `triggerRefinementLoop` is idempotent, so a double signal is
-     * harmless.
+     * is visible). Activation is idempotent, so a double signal is harmless.
      */
-    private async enqueueGenerationsAfterSetupCompletion(
+    private async activateSnapshotAfterSetupCompletion(
         setupId: string,
         applicationId: string,
         organizationId: string,
@@ -211,14 +210,14 @@ export class ApplicationSetupService {
         const onboardingState = await this.onboardingManager.getState(applicationId);
 
         if (onboardingState.step === "completed") {
-            await this.onboardingManager.enqueueGenerations(applicationId, organizationId);
-            log.info("Queued pending generations after setup completion", { setupId, applicationId });
+            await this.onboardingManager.activatePendingSnapshot(applicationId, organizationId);
+            log.info("Activated pending snapshot after setup completion", { setupId, applicationId });
             return;
         }
 
         const readyToGoLive = this.onboardingManager.isStepAtOrPast(onboardingState.step, "diff_trigger");
         if (readyToGoLive) {
-            log.info("Setup completed and preview verified - going live to enqueue generations", {
+            log.info("Setup completed and preview verified - going live to activate snapshot", {
                 setupId,
                 applicationId,
                 step: onboardingState.step,
@@ -227,7 +226,7 @@ export class ApplicationSetupService {
             return;
         }
 
-        log.warn("Setup completed but preview not verified yet - deferring generation enqueue to go-live", {
+        log.warn("Setup completed but preview not verified yet - deferring snapshot activation to go-live", {
             setupId,
             applicationId,
             step: onboardingState.step,

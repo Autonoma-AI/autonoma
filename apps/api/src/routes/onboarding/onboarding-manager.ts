@@ -2,6 +2,7 @@ import { type OnboardingPreviewEnvironmentMode, type PrismaClient } from "@auton
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import { SnapshotNotPendingError, TestSuiteUpdater } from "@autonoma/test-updates";
 import {
     previewConfigSchema,
     validatePreviewConfigSemantics,
@@ -9,7 +10,6 @@ import {
     type PreviewkitConfigSecrets,
     type SecretItem,
 } from "@autonoma/types";
-import { triggerRefinementLoop } from "@autonoma/workflow";
 import { z } from "zod";
 import { computeArtifactStatus } from "../app-generations/artifact-status";
 import {
@@ -445,15 +445,15 @@ export class OnboardingManager {
     }
 
     /**
-     * Go live: advance `diff_trigger` -> `completed` and seed the first
-     * generation on main. For BYO this is optimistic - the first real PR
+     * Go live: advance `diff_trigger` -> `completed` and activate the main-branch
+     * pending snapshot. For BYO this is optimistic - the first real PR
      * `deployment_status` self-confirms via `diffTriggerConfirmedAt`.
      */
     async goLive(applicationId: string, organizationId: string) {
         this.logger.info("Going live", { applicationId, organizationId });
         const state = await this.loadStateOrEarlier(applicationId, "diff_trigger");
         await state.goLive();
-        await this.enqueueGenerations(applicationId, organizationId);
+        await this.activatePendingSnapshot(applicationId, organizationId);
         return this.getState(applicationId);
     }
 
@@ -835,10 +835,13 @@ export class OnboardingManager {
     }
 
     /**
-     * Trigger the refinement loop on the application's main branch after onboarding completes.
-     * The loop fires pending generations, validates them, and finalizes the snapshot.
+     * Activate the application's main-branch pending snapshot after onboarding
+     * completes. Onboarding no longer pre-computes generations, so the uploaded
+     * tests' generation jobs are never run - they generate later when a PR
+     * triggers them. `discardPendingGenerations` drops those still-`pending` jobs
+     * so finalization isn't blocked by `IncompleteGenerationsError`.
      */
-    async enqueueGenerations(applicationId: string, organizationId: string) {
+    async activatePendingSnapshot(applicationId: string, organizationId: string) {
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: { mainBranch: { select: { id: true, pendingSnapshotId: true } } },
@@ -847,7 +850,7 @@ export class OnboardingManager {
         const pendingSnapshotId = app?.mainBranch?.pendingSnapshotId;
 
         if (branchId == null || pendingSnapshotId == null) {
-            this.logger.info("No pending snapshot to refine after onboarding", {
+            this.logger.info("No pending snapshot to activate after onboarding", {
                 applicationId,
                 branchId,
             });
@@ -855,19 +858,33 @@ export class OnboardingManager {
         }
 
         try {
-            this.logger.info("Triggering refinement loop after onboarding", {
+            this.logger.info("Activating pending snapshot after onboarding", {
                 applicationId,
                 branchId,
                 snapshotId: pendingSnapshotId,
             });
-            await triggerRefinementLoop({
+            const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
+                db: this.db,
                 snapshotId: pendingSnapshotId,
-                triggeredBy: "onboarding",
+                organizationId,
             });
-            this.logger.info("Refinement loop triggered", { applicationId, branchId });
+            await updater.finalize({ discardPendingGenerations: true });
+            this.logger.info("Pending snapshot activated", { applicationId, branchId });
         } catch (err) {
-            // Log but don't block onboarding completion - the refinement can be retried later.
-            this.logger.error("Failed to trigger refinement loop after onboarding", {
+            if (err instanceof SnapshotNotPendingError) {
+                // Benign: a concurrent/duplicate signal already activated this
+                // snapshot (go-live + a later setup-completion both target it).
+                this.logger.info("Pending snapshot already activated - skipping", {
+                    applicationId,
+                    branchId,
+                    snapshotId: pendingSnapshotId,
+                });
+                return;
+            }
+            // Log but don't block onboarding completion. The snapshot stays
+            // pending; a later setup-completion signal re-attempts activation via
+            // activateSnapshotAfterSetupCompletion.
+            this.logger.error("Failed to activate pending snapshot after onboarding", {
                 applicationId,
                 branchId,
                 error: err instanceof Error ? err.message : String(err),

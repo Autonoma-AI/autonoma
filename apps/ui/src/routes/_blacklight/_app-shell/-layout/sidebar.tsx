@@ -22,7 +22,6 @@ import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
 import { useEffect, useState } from "react";
 import { SidebarAppSelector } from "./app-selector";
-import { SidebarAgentStatus } from "./sidebar-agent-status";
 import { SidebarMilestones } from "./sidebar-milestones";
 
 const SIDEBAR_STORAGE_KEY = "autonoma:sidebar-collapsed";
@@ -324,7 +323,6 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-border-dim">
-        <SidebarAgentStatus collapsed={collapsed} />
         <SidebarUpgradeButton collapsed={collapsed} />
 
         {isAdmin && !isAdminPage && (

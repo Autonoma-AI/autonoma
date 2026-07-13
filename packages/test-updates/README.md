@@ -26,7 +26,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 
 | Change class | Description |
 |-------------|-------------|
-| `AddTest` | Adds a test case with a plan and queues generation |
+| `AddTest` | Adds a test case with a plan and schedules generation |
 | `UpdateTest` | Updates the plan for an existing test case and queues regeneration |
 | `RemoveTest` | Removes a test case from the snapshot |
 | `RegenerateSteps` | Clears steps and queues a new generation for an existing plan |
@@ -90,6 +90,11 @@ const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId
 ```ts
 // Activate the snapshot (fails if incomplete generations remain)
 await updater.finalize();
+
+// Activate without running generations: discard any pending jobs first so they
+// don't block activation. Onboarding uses this - it commits the uploaded tests
+// without running them; they generate later when a PR triggers them.
+await updater.finalize({ discardPendingGenerations: true });
 
 // Or cancel the draft - marks the snapshot "cancelled" and clears the branch
 // pointer, preserving its generations, assignments, and runs for observability
