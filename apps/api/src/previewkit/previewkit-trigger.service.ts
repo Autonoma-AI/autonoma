@@ -8,6 +8,7 @@ import type {
 } from "@autonoma/types";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../github/github-installation.service";
+import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
 
 export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
@@ -24,6 +25,8 @@ export interface PreviewkitDeployRequest {
     baseSha?: string | undefined;
     baseRef?: string | undefined;
     cloneUrl: string;
+    /** The autonoma Branch this environment deploys (PR feature branch, or main branch for env 0); forwarded to the runner to link the env row. */
+    branchId?: string | undefined;
 }
 
 export interface PreviewkitTeardownRequest {
@@ -127,6 +130,7 @@ export class PreviewkitTriggerService extends Service {
                 baseSha: request.baseSha ?? "",
                 baseRef: request.baseRef ?? "",
                 cloneUrl: request.cloneUrl,
+                branchId: request.branchId,
             },
         });
     }
@@ -182,6 +186,8 @@ export class PreviewkitTriggerService extends Service {
             return;
         }
 
+        const branchId = await this.resolveBranchIdForPr(organizationId, repo.id, pr.number, pr.head.ref);
+
         await this.deploy(
             {
                 repoFullName: repo.full_name,
@@ -193,9 +199,52 @@ export class PreviewkitTriggerService extends Service {
                 baseSha: pr.base.sha,
                 baseRef: pr.base.ref,
                 cloneUrl: repo.clone_url,
+                branchId,
             },
             action,
         );
+    }
+
+    /**
+     * Eagerly find-or-create the autonoma Branch a PR maps to, so a preview environment is linked to its branch
+     * before any diff runs. Best-effort: a repo with no onboarded Application (or any transient failure) yields
+     * `undefined` and the deploy proceeds unlinked - branch creation then falls back to the lazy diff-trigger
+     * path. Never throws, so it cannot block a preview deploy.
+     */
+    private async resolveBranchIdForPr(
+        organizationId: string,
+        githubRepositoryId: number,
+        prNumber: number,
+        headRef: string,
+    ): Promise<string | undefined> {
+        try {
+            const application = await this.db.application.findUnique({
+                where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+                select: { id: true },
+            });
+            if (application == null) {
+                this.logger.info("Repo not linked to an Application; skipping eager branch creation", {
+                    organizationId,
+                    extra: { githubRepositoryId, prNumber },
+                });
+                return undefined;
+            }
+
+            const branch = await upsertPrBranch({
+                db: this.db,
+                applicationId: application.id,
+                organizationId,
+                prNumber,
+                name: headRef,
+            });
+            return branch.id;
+        } catch (error) {
+            this.logger.warn("Failed to eagerly create branch for preview deploy; proceeding unlinked", {
+                organizationId,
+                extra: { githubRepositoryId, prNumber, error: String(error) },
+            });
+            return undefined;
+        }
     }
 
     /**
@@ -251,6 +300,7 @@ export class PreviewkitTriggerService extends Service {
                 disabled: true,
                 organizationId: true,
                 githubRepositoryId: true,
+                mainBranchId: true,
                 mainBranch: { select: { name: true } },
                 mainBranchInfo: { select: { githubRef: true } },
             },
@@ -300,6 +350,7 @@ export class PreviewkitTriggerService extends Service {
                 baseSha: headSha,
                 baseRef: branchName,
                 cloneUrl: `https://github.com/${repo.fullName}.git`,
+                branchId: application.mainBranchId ?? undefined,
             },
             "synchronize",
         );
@@ -341,6 +392,8 @@ export class PreviewkitTriggerService extends Service {
             sha: target.headSha,
         });
 
+        const branchId = await this.resolveMainBranchId(organizationId, target.githubRepositoryId);
+
         await this.deploy(
             {
                 repoFullName: target.repoFullName,
@@ -352,9 +405,38 @@ export class PreviewkitTriggerService extends Service {
                 baseSha: target.headSha,
                 baseRef: target.branch,
                 cloneUrl: target.cloneUrl,
+                branchId,
             },
             "synchronize",
         );
+    }
+
+    /**
+     * Resolve the Application's main Branch id so a main-branch preview environment (PR 0) is linked to it, the
+     * counterpart of `resolveBranchIdForPr` for the non-PR environment. Best-effort: an un-onboarded repo (or a
+     * transient failure) yields `undefined` and the deploy proceeds unlinked. Never throws.
+     */
+    private async resolveMainBranchId(organizationId: string, githubRepositoryId: number): Promise<string | undefined> {
+        try {
+            const application = await this.db.application.findUnique({
+                where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+                select: { mainBranchId: true },
+            });
+            if (application?.mainBranchId == null) {
+                this.logger.info("No main branch for repo; deploying main-branch env unlinked", {
+                    organizationId,
+                    extra: { githubRepositoryId },
+                });
+                return undefined;
+            }
+            return application.mainBranchId;
+        } catch (error) {
+            this.logger.warn("Failed to resolve main branch for preview deploy; proceeding unlinked", {
+                organizationId,
+                extra: { githubRepositoryId, error: String(error) },
+            });
+            return undefined;
+        }
     }
 
     /**

@@ -97,13 +97,22 @@ apiTestSuite({
         return { app, service };
     },
     cases: (test) => {
-        test("deployFromWebhook starts a deploy workflow with the PR event", async ({
+        test("deployFromWebhook eagerly creates the PR branch and threads its id into the deploy event", async ({
             harness,
-            seedResult: { service },
+            seedResult: { app, service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
             await service.deployFromWebhook("synchronize", harness.organizationId, pullRequestPayload(7));
+
+            // A snapshot-less branch is created before any diff runs.
+            const branch = await harness.db.branch.findFirst({
+                where: { applicationId: app.id, prInfo: { prNumber: 7 } },
+                select: { id: true, name: true, snapshots: { select: { id: true } } },
+            });
+            expect(branch).not.toBeNull();
+            expect(branch!.name).toBe("feature/pr-7");
+            expect(branch!.snapshots).toHaveLength(0);
 
             expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
@@ -118,7 +127,56 @@ apiTestSuite({
                     baseSha: "main-sha-2",
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
+                    branchId: branch!.id,
                 },
+            });
+        });
+
+        test("deployFromWebhook reuses the same branch across pushes to the same PR", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(8));
+            await service.deployFromWebhook("synchronize", harness.organizationId, pullRequestPayload(8));
+
+            const branches = await harness.db.branch.findMany({
+                where: { applicationId: app.id, prInfo: { prNumber: 8 } },
+                select: { id: true },
+            });
+            expect(branches).toHaveLength(1);
+        });
+
+        test("deployFromWebhook deploys an un-onboarded repo with no branch link", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            const unlinkedRepoPayload: Record<string, unknown> = {
+                pull_request: {
+                    number: 30,
+                    draft: false,
+                    head: { sha: "head-30", ref: "feature/pr-30" },
+                    base: { sha: "main-sha-2", ref: "main" },
+                },
+                repository: {
+                    id: 9999,
+                    full_name: "acme/unlinked",
+                    clone_url: "https://github.com/acme/unlinked.git",
+                },
+            };
+
+            await service.deployFromWebhook("opened", harness.organizationId, unlinkedRepoPayload);
+
+            // No Application for this repo -> no branch created, deploy still fires unlinked. Scope to this
+            // suite's org: the integration DB is shared across suites, so an unscoped count is not isolated.
+            const branchCount = await harness.db.branch.count({
+                where: { organizationId: harness.organizationId, prInfo: { prNumber: 30 } },
+            });
+            expect(branchCount).toBe(0);
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                event: expect.objectContaining({ prNumber: 30, branchId: undefined }),
             });
         });
 
@@ -220,6 +278,13 @@ apiTestSuite({
                 headSha: "main-sha-2",
                 prNumber: 0,
             });
+
+            // The main-branch env (PR 0) is linked to the application's main Branch.
+            const appRow = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranchId: true },
+            });
+            expect(appRow.mainBranchId).not.toBeNull();
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
                 event: {
                     action: "synchronize",
@@ -232,6 +297,7 @@ apiTestSuite({
                     baseSha: "main-sha-2",
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
+                    branchId: appRow.mainBranchId,
                 },
             });
         });
@@ -350,6 +416,10 @@ apiTestSuite({
 
             await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-1"));
 
+            const appRow = await harness.db.application.findFirstOrThrow({
+                where: { organizationId: harness.organizationId, githubRepositoryId: REPO_ID },
+                select: { mainBranchId: true },
+            });
             expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
                 event: {
@@ -363,6 +433,7 @@ apiTestSuite({
                     baseSha: "push-sha-1",
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
+                    branchId: appRow.mainBranchId,
                 },
             });
         });

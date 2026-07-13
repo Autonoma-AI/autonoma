@@ -598,6 +598,8 @@ model Branch {
   prInfo   FeatureBranchInfo?
   mainInfo MainBranchInfo?
 
+  previewkitEnvironment PreviewkitEnvironment?
+
   @@map("branch")
 }
 
@@ -1892,6 +1894,12 @@ model PreviewkitEnvironment {
 
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // The autonoma Branch this environment's PR maps to. Made explicit here rather than reconstructed at runtime
+  // from (githubRepositoryId, prNumber). Nullable: environments for repos with no onboarded Application (and
+  // the main-branch env 0) have no branch. SetNull so deleting a branch unlinks the env instead of deleting it.
+  branchId String? @unique @map("branch_id")
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   builds       PreviewkitBuild[]
   appInstances PreviewkitAppInstance[]

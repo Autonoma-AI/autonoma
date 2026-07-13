@@ -204,6 +204,105 @@ testUpdateSuite({
             expect(info.testCases).toHaveLength(0);
         });
 
+        test("start: pins baseSnapshotId to the main branch active snapshot on the first PR snapshot", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const mainBranchId = await harness.createBranch(organizationId, applicationId);
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { mainBranchId },
+            });
+
+            const mainDraft = await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+            await mainDraft.activate();
+
+            const mainBranch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: mainBranchId },
+                select: { activeSnapshotId: true },
+            });
+
+            // A PR branch created eagerly (e.g. at previewkit-deploy time) starts with no base pinned.
+            const prBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 101 });
+            const before = await harness.db.branch.findUniqueOrThrow({
+                where: { id: prBranchId },
+                select: { baseSnapshotId: true },
+            });
+            expect(before.baseSnapshotId).toBeNull();
+
+            await SnapshotDraft.start({ db: harness.db, branchId: prBranchId });
+
+            const after = await harness.db.branch.findUniqueOrThrow({
+                where: { id: prBranchId },
+                select: { baseSnapshotId: true },
+            });
+            expect(after.baseSnapshotId).toBe(mainBranch.activeSnapshotId);
+        });
+
+        test("start: does not re-pin baseSnapshotId once it is set", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const mainBranchId = await harness.createBranch(organizationId, applicationId);
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { mainBranchId },
+            });
+
+            const mainDraftOne = await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+            await mainDraftOne.activate();
+            const firstMainActive = await harness.db.branch.findUniqueOrThrow({
+                where: { id: mainBranchId },
+                select: { activeSnapshotId: true },
+            });
+
+            const prBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 202 });
+            const prDraftOne = await SnapshotDraft.start({ db: harness.db, branchId: prBranchId });
+            await prDraftOne.activate();
+
+            // Main advances to a new active snapshot after the PR branch already pinned its base.
+            const mainDraftTwo = await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+            await mainDraftTwo.activate();
+            const secondMainActive = await harness.db.branch.findUniqueOrThrow({
+                where: { id: mainBranchId },
+                select: { activeSnapshotId: true },
+            });
+            expect(secondMainActive.activeSnapshotId).not.toBe(firstMainActive.activeSnapshotId);
+
+            await SnapshotDraft.start({ db: harness.db, branchId: prBranchId });
+
+            const after = await harness.db.branch.findUniqueOrThrow({
+                where: { id: prBranchId },
+                select: { baseSnapshotId: true },
+            });
+            // Base stays pinned to the fork point, not re-pinned to main's newer active snapshot.
+            expect(after.baseSnapshotId).toBe(firstMainActive.activeSnapshotId);
+        });
+
+        test("start: never pins baseSnapshotId for the main branch itself", async ({
+            harness,
+            seedResult: { organizationId, applicationId },
+        }) => {
+            const mainBranchId = await harness.createBranch(organizationId, applicationId);
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { mainBranchId },
+            });
+
+            const first = await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+            await first.activate();
+
+            // A second snapshot on main would have a non-null main active snapshot to pin from, but the main
+            // branch must never get a base (it has nothing to diff against).
+            await SnapshotDraft.start({ db: harness.db, branchId: mainBranchId });
+
+            const mainBranch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: mainBranchId },
+                select: { baseSnapshotId: true },
+            });
+            expect(mainBranch.baseSnapshotId).toBeNull();
+        });
+
         test("start: throws BranchAlreadyHasPendingSnapshotError when branch has pending snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },

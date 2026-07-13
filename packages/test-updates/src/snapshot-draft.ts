@@ -220,6 +220,7 @@ export class SnapshotDraft {
                 select: {
                     pendingSnapshotId: true,
                     activeSnapshotId: true,
+                    baseSnapshotId: true,
                     organizationId: true,
                     applicationId: true,
                     application: {
@@ -253,10 +254,28 @@ export class SnapshotDraft {
                 logger,
             });
 
+            // Pin the base snapshot the first time a feature branch gets a snapshot: it is the main branch's
+            // active snapshot at this moment (the point the PR forks from), which the diff machinery compares
+            // against. Guarded by `baseSnapshotId == null` so it is set once and never re-pinned, and skipped for
+            // the main branch (which has no base to diff against). A feature branch created eagerly at
+            // previewkit-deploy time has no base until its first diff lands here.
+            const isMainBranch = branch.application.mainBranchId === branchId;
+            const mainActiveSnapshotId = branch.application.mainBranch?.activeSnapshotId ?? undefined;
+            const shouldPinBase = !isMainBranch && branch.baseSnapshotId == null && mainActiveSnapshotId != null;
+            if (shouldPinBase) {
+                logger.info("Pinning base snapshot on first snapshot", {
+                    branchId,
+                    baseSnapshotId: mainActiveSnapshotId,
+                });
+            }
+
             logger.info("Setting as pending snapshot", { branchId, pendingSnapshotId: createdId });
             await tx.branch.update({
                 where: { id: branchId },
-                data: { pendingSnapshotId: createdId },
+                data: {
+                    pendingSnapshotId: createdId,
+                    baseSnapshotId: shouldPinBase ? mainActiveSnapshotId : undefined,
+                },
             });
 
             const { organizationId, applicationId } = branch;

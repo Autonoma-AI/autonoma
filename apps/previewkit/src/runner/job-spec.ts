@@ -24,6 +24,7 @@ const previewDeployEventSchema = z.object({
     baseSha: z.string(),
     baseRef: z.string(),
     cloneUrl: z.string(),
+    branchId: z.string().optional(),
 }) satisfies z.ZodType<PreviewDeployEvent>;
 
 const previewJobSpecSchema = z.discriminatedUnion("mode", [

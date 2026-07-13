@@ -211,8 +211,13 @@ app lines in a recent window.
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
   pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
   map), `resolvedConfig` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
-  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`. Note:
-  `superseded` is only ever written to `PreviewkitBuild`, never the env row (the successor run owns it).
+  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`, and `branch`
+  (nullable `@unique` FK to the autonoma `Branch` the environment deploys; `onDelete: SetNull`). PR
+  environments link to the feature branch, which the API creates eagerly when a `pull_request` webhook reaches
+  previewkit; the main-branch env (PR 0) links to the application's main branch. Either way the API threads a
+  `branchId` on the deploy event and the runner writes it in `recordEnvironmentCreated`. Null only for repos
+  with no onboarded Application. Note: `superseded` is only ever written to `PreviewkitBuild`, never the env
+  row (the successor run owns it).
 - `PreviewkitAppInstance` - the per-app lifecycle record (one row per `(environment, app)`), source of
   truth for an app's status. Seeded `pending` at moment 0 (`recordAppsPending`, once the merged config names
   the apps) and transitioned through the `PreviewkitAppStatus` enum (`pending` -> `building` -> `built` ->

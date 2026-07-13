@@ -273,6 +273,7 @@ export class PreviewPipeline {
                 organizationId,
                 githubRepositoryId,
                 commentId,
+                branchId: event.branchId,
             }),
         );
         logger.info("Prepare step 6/6 recorded environment-created event", {

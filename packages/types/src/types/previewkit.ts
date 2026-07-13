@@ -20,6 +20,13 @@ export interface PreviewDeployEvent {
     baseSha: string;
     baseRef: string;
     cloneUrl: string;
+    /**
+     * The autonoma `Branch` this environment deploys (the PR's feature branch, or the main branch for env 0),
+     * resolved by the API when a matching `Application` exists. Carried opaquely so the runner can link the
+     * `PreviewkitEnvironment` to the branch without knowing the branch model. Undefined for repos with no
+     * onboarded Application.
+     */
+    branchId?: string;
 }
 
 /** Serializable mirror of apps/previewkit's per-app `AppBuildOutcome`. */

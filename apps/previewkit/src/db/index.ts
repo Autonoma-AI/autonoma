@@ -44,6 +44,8 @@ export interface EnvironmentCreatedInput {
     organizationId: string;
     githubRepositoryId?: number;
     commentId?: string;
+    /** The autonoma Branch to link this environment to, resolved by the API. Undefined for un-onboarded repos. */
+    branchId?: string;
 }
 
 export interface PhaseChangedInput {
@@ -84,8 +86,17 @@ export interface EnvironmentReadyInput {
 
 export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordEnvironmentCreated" });
-    const { repoFullName, prNumber, headSha, headRef, namespace, organizationId, githubRepositoryId, commentId } =
-        input;
+    const {
+        repoFullName,
+        prNumber,
+        headSha,
+        headRef,
+        namespace,
+        organizationId,
+        githubRepositoryId,
+        commentId,
+        branchId,
+    } = input;
     logger.info("Recording environment created", { namespace, repoFullName, prNumber, organizationId });
 
     // On update, only overwrite `commentId` when the caller actually provides
@@ -123,6 +134,21 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             // overwrites it once this attempt resolves.
         },
     });
+
+    if (branchId == null) return;
+
+    // Link the environment to its branch as a separate, guarded write - not part of the upsert above - so a
+    // rare `@unique(branch_id)` conflict (e.g. a repo rename produced a second env row for the same PR) can
+    // never fail environment creation. The link is best-effort; the env row is already persisted.
+    try {
+        await db.previewkitEnvironment.update({ where: { namespace }, data: { branchId } });
+    } catch (err) {
+        logger.warn("Failed to link previewkit environment to branch; leaving unlinked", {
+            namespace,
+            branchId,
+            err,
+        });
+    }
 }
 
 export interface ResolvedConfigSnapshotInput {

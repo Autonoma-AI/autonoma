@@ -45,6 +45,112 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
         });
 
+        test("recordEnvironmentCreated links the environment to its branch when branchId is provided", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            const application = await harness.db.application.create({
+                data: {
+                    name: "Web",
+                    slug: `web-${Date.now()}`,
+                    organizationId,
+                    architecture: "WEB",
+                    githubRepositoryId: 4242,
+                },
+            });
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/login",
+                    organizationId,
+                    applicationId: application.id,
+                    prInfo: { create: { applicationId: application.id, prNumber: 7 } },
+                },
+            });
+
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "feature/login",
+                namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: 4242,
+                branchId: branch.id,
+            });
+
+            const env = await harness.db.previewkitEnvironment.findUnique({
+                where: { namespace: "preview-acme-web-pr-7" },
+                select: { branchId: true },
+            });
+            expect(env!.branchId).toBe(branch.id);
+
+            // The reverse relation resolves from the branch side too.
+            const linked = await harness.db.branch.findUnique({
+                where: { id: branch.id },
+                select: { previewkitEnvironment: { select: { namespace: true } } },
+            });
+            expect(linked!.previewkitEnvironment?.namespace).toBe("preview-acme-web-pr-7");
+        });
+
+        test("recordEnvironmentCreated leaves the row unlinked (without throwing) when the branch is already linked to another environment", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            const application = await harness.db.application.create({
+                data: {
+                    name: "Web",
+                    slug: `web-${Date.now()}`,
+                    organizationId,
+                    architecture: "WEB",
+                    githubRepositoryId: 4242,
+                },
+            });
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/login",
+                    organizationId,
+                    applicationId: application.id,
+                    prInfo: { create: { applicationId: application.id, prNumber: 7 } },
+                },
+            });
+
+            // A prior environment already holds the branch link (simulates a repo rename producing a second row).
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-7",
+                    repoFullName: "acme/web",
+                    prNumber: 7,
+                    headSha: "abc1234",
+                    headRef: "feature/login",
+                    githubRepositoryId: 4242,
+                    organizationId,
+                    branchId: branch.id,
+                },
+            });
+
+            // Creating a second environment row targeting the same branch must not throw; the unique constraint
+            // rejects the duplicate link and the row is created but left unlinked.
+            await expect(
+                recordEnvironmentCreated({
+                    repoFullName: "acme-renamed/web",
+                    organizationId,
+                    prNumber: 7,
+                    headSha: "abc1234",
+                    headRef: "feature/login",
+                    namespace: "preview-acme-renamed-web-pr-7",
+                    githubRepositoryId: 4242,
+                    branchId: branch.id,
+                }),
+            ).resolves.toBeUndefined();
+
+            const secondEnv = await harness.db.previewkitEnvironment.findUnique({
+                where: { namespace: "preview-acme-renamed-web-pr-7" },
+                select: { branchId: true },
+            });
+            expect(secondEnv).not.toBeNull();
+            expect(secondEnv!.branchId).toBeNull();
+        });
+
         test("recordEnvironmentCreated is idempotent on namespace (resets error + tornDownAt, preserves config snapshot)", async ({
             harness,
         }) => {

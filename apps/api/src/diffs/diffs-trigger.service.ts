@@ -5,6 +5,7 @@ import { BranchAlreadyHasPendingSnapshotError, createDetachedSnapshot, TestSuite
 import type { TriggerDiffsJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
 import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
+import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
 
 interface BaseTriggerDiffsParams {
@@ -167,7 +168,13 @@ export class DiffsTriggerService extends Service {
         const normalizedBranch = pullRequest.headRef;
         const headSha = pullRequest.headSha;
 
-        const branch = await this.upsertBranch(app.id, organizationId, normalizedBranch, prNumber);
+        const branch = await upsertPrBranch({
+            db: this.db,
+            applicationId: app.id,
+            organizationId,
+            prNumber,
+            name: normalizedBranch,
+        });
         const baseSha = branch.activeSnapshotHeadSha ?? pullRequest.baseSha;
 
         this.logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
@@ -297,61 +304,6 @@ export class DiffsTriggerService extends Service {
         });
 
         return { branchId, snapshotId, deploymentId };
-    }
-
-    private async upsertBranch(
-        applicationId: string,
-        organizationId: string,
-        normalizedBranch: string,
-        prNumber: number,
-    ) {
-        this.logger.info("Upserting branch", { applicationId, branch: normalizedBranch, prNumber });
-
-        return this.db.$transaction(async (tx) => {
-            const application = await tx.application.findUnique({
-                where: { id: applicationId },
-                select: { mainBranch: { select: { activeSnapshotId: true } } },
-            });
-            const baseSnapshotId = application?.mainBranch?.activeSnapshotId ?? undefined;
-
-            const existing = await tx.featureBranchInfo.findUnique({
-                where: { applicationId_prNumber: { applicationId, prNumber } },
-                select: {
-                    branch: {
-                        select: {
-                            id: true,
-                            activeSnapshot: { select: { headSha: true } },
-                        },
-                    },
-                },
-            });
-
-            if (existing != null) {
-                await tx.branch.update({
-                    where: { id: existing.branch.id },
-                    data: { name: normalizedBranch },
-                });
-                return {
-                    id: existing.branch.id,
-                    activeSnapshotHeadSha: existing.branch.activeSnapshot?.headSha,
-                };
-            }
-
-            const created = await tx.branch.create({
-                data: {
-                    name: normalizedBranch,
-                    applicationId,
-                    organizationId,
-                    baseSnapshotId,
-                    prInfo: { create: { applicationId, prNumber } },
-                },
-                select: {
-                    id: true,
-                    activeSnapshot: { select: { headSha: true } },
-                },
-            });
-            return { id: created.id, activeSnapshotHeadSha: created.activeSnapshot?.headSha };
-        });
     }
 
     private async createDeployment({
