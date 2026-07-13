@@ -37,6 +37,15 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
         );
         logger.info("Preview job runner finished", { extra: { mode: spec.mode, outcome } });
     } finally {
+        // Retry cleanup for any child buildkitd Job whose per-build finally
+        // block could not delete it. The Job deadline remains the last-resort
+        // backstop if the control-cluster API is unavailable during shutdown.
+        await services.buildkitJobManager?.releaseAll().catch((err: unknown) => {
+            const cleanupError = err instanceof Error ? err : new Error(String(err));
+            logger.error("Failed to release all buildkit Jobs on shutdown", cleanupError, {
+                extra: { mode: spec.mode },
+            });
+        });
         // Drain the batched build-log sink so the tail of an in-flight build is
         // not lost when runWithSentry calls process.exit. Mirrors the worker's
         // shutdown drain.

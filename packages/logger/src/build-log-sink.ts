@@ -6,34 +6,16 @@ export interface BuildFinishSummary {
     app: string;
     /**
      * Which builder served the build - a low-cardinality Loki label dashboards
-     * group by. Always "warm" now that the ephemeral per-build Jobs are gone;
-     * kept so build-speed queries stay comparable with historical labels.
+     * group by. New builds use isolated ephemeral buildkitd Jobs.
      */
-    builder: "warm";
+    builder: "ephemeral";
     /** Total build duration in milliseconds; the unwrapped metric value. */
     durationMs: number;
     /**
-     * Milliseconds the build spent queued for a warm-pool slot before any
-     * buildctl work started (0 when admitted instantly or the queue is off).
-     * Included in `durationMs`; kept separate so build-speed queries can tell
-     * pool saturation apart from genuinely slow builds.
-     */
-    queueWaitMs?: number;
-    /**
-     * The concrete buildkit endpoint that served the build - the granting
-     * pool pod's address, or the shared Service host when the admission queue
-     * is off. Kept in the line body (not a label) for detail; `builder` is
-     * the label to group by.
+     * The ephemeral buildkit pod endpoint that served the build. Kept in the
+     * line body (not a label) for detail; `builder` is the label to group by.
      */
     host?: string;
-}
-
-/** Structured pool-saturation event recorded by {@link BuildLogSink.markQueueTimeout}. */
-export interface QueueTimeoutSummary {
-    /** The app whose build gave up waiting - recorded as a low-cardinality Loki label for filtering. */
-    app: string;
-    /** Milliseconds spent queued for a warm-pool slot before giving up; the unwrapped metric value. */
-    queueWaitMs: number;
 }
 
 /**
@@ -74,16 +56,6 @@ export interface BuildLogSink {
      * durationMs`). Optional and best-effort like the rest of the sink.
      */
     markFinished?(environmentId: string, summary: BuildFinishSummary): Promise<void>;
-    /**
-     * Record a pool-saturation event - a build that gave up waiting for a
-     * warm-pool slot (queue timeout) - as a `kind="queue_timeout"` marker on
-     * the build stream. Deliberately NOT a `finish` marker: build-speed
-     * queries unwrap `durationMs` over `kind="finish"` and must not absorb
-     * the waits of builds that never ran. Saturation queries read this stream
-     * instead: `{source="build", kind="queue_timeout"} | json | unwrap
-     * queueWaitMs`. Optional and best-effort like the rest of the sink.
-     */
-    markQueueTimeout?(environmentId: string, summary: QueueTimeoutSummary): Promise<void>;
     /** Mark the environment's stream finished (e.g. flush buffered lines). */
     seal(environmentId: string): Promise<void>;
     /** Drain buffers and stop timers; called on process shutdown. */

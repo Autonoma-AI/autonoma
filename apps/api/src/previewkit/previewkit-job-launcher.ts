@@ -111,10 +111,9 @@ export interface PreviewkitJobLauncherOptions {
     sentryEnv: string;
     /**
      * Hard upper bound on a deploy Job (seconds). A generous backstop *above*
-     * the runner's own internal budgets - buildkit queue wait
-     * (BUILDKIT_QUEUE_MAX_WAIT_MS) + BUILD_TIMEOUT_MS + readiness timeouts -
-     * so a real build timeout surfaces as a recorded failure rather than an
-     * external deadline SIGTERM (which the runner would read as a supersede).
+     * the runner's own internal budgets for three buildkit provisioning,
+     * startup, and build attempts plus deployment readiness, so an internal
+     * timeout surfaces as a recorded failure rather than an external SIGTERM.
      */
     deployDeadlineSeconds?: number;
     teardownDeadlineSeconds?: number;
@@ -382,10 +381,11 @@ export class PreviewkitJobLauncher {
     }
 
     private deployDeadlineSeconds(): number {
-        // 90 min: 20 min buildkit queue wait + 30 min build timeout + deploy
-        // readiness budgets, with slack left so the runner's internal timeouts
-        // always fire before this external backstop.
-        return this.options.deployDeadlineSeconds ?? 90 * 60;
+        // Three worst-case build attempts can each spend 10 minutes provisioning
+        // a node, 3 minutes starting buildkitd, and up to 60 minutes across
+        // Railpack preparation plus buildctl. Leave additional room for
+        // deployment readiness and cleanup.
+        return this.options.deployDeadlineSeconds ?? 270 * 60;
     }
 
     private teardownDeadlineSeconds(): number {

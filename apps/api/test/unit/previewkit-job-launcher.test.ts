@@ -58,12 +58,14 @@ class FakeJobsApi implements PreviewJobsApi {
 
 /** Returns the runner-image ConfigMap; `image` undefined simulates a missing key. */
 class FakeConfigMaps implements ConfigMapReader {
+    readonly readNames: string[] = [];
     readonly readNamespaces: string[] = [];
     constructor(private readonly image: string | undefined) {}
     async readNamespacedConfigMap(params: {
         name: string;
         namespace: string;
     }): Promise<{ data?: Record<string, string> }> {
+        this.readNames.push(params.name);
         this.readNamespaces.push(params.namespace);
         return { data: this.image != null ? { image: this.image } : {} };
     }
@@ -162,6 +164,7 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
 
         // Per-env image pin is read from the API's own namespace...
         expect(cms.readNamespaces).toEqual([IMAGE_NAMESPACE]);
+        expect(cms.readNames).toEqual(["previewkit-runner-image"]);
         // ...while the Job runs in the shared previewkit namespace.
         expect(api.createNamespaces).toEqual([JOB_NAMESPACE]);
         expect(container(api.createdJobs[0] ?? ({} as V1Job)).image).toBe(RUNNER_IMAGE);

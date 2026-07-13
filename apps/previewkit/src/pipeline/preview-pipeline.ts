@@ -9,7 +9,6 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import type { StorageProvider } from "@autonoma/storage";
 import type {
     BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
@@ -101,7 +100,6 @@ interface PreviewPipelineOptions {
     /** ECR pull-through cache prefix for Docker Hub; threaded into generated
      *  Dockerfile base images. "" disables mirroring (see mirrorDockerHubImage). */
     dockerHubMirror: string;
-    storage: StorageProvider;
     /** Build-log sink. When set, the pipeline mirrors phase transitions +
      *  terminal status into it (the builder mirrors raw output), keyed by
      *  namespace. Optional - absent disables mirroring entirely. */
@@ -124,7 +122,6 @@ export class PreviewPipeline {
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly dockerHubMirror: string;
-    private readonly storage: StorageProvider;
     private readonly logSink?: BuildLogSink;
     private readonly statusWriter: StatusWriter;
 
@@ -136,7 +133,6 @@ export class PreviewPipeline {
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.dockerHubMirror = options.dockerHubMirror;
-        this.storage = options.storage;
         this.logSink = options.logSink;
         this.statusWriter = new StatusWriter(this.deployer, this.logSink);
     }
@@ -1415,14 +1411,14 @@ export class PreviewPipeline {
         // Each app is built independently - a failure in one app is captured
         // into its own outcome and does not abort the other builds. `buildOneApp`
         // only throws for a supersede abort (BuildAbortedError), in which case we
-        // want the whole build to reject and bail (Promise.all surfaces the
-        // first rejection); every other error becomes a failed app outcome.
-        // All builds run fully in parallel - the warm buildkit pool serves
-        // concurrent builds, spread across its pods by kube-proxy.
+        // want the whole build to reject and bail; every other error becomes a
+        // failed app outcome. Builds run in parallel with one buildkitd Job per
+        // app. On abort, wait for every sibling to settle so each Job's cleanup
+        // finishes before the runner exits.
         // `onlyAppName` (per-app redeploy) narrows which apps build, while the
         // full `config` is kept so build-arg templates can still reference siblings.
         const appsToBuild = onlyAppName != null ? config.apps.filter((a) => a.name === onlyAppName) : config.apps;
-        const entries = await Promise.all(
+        const results = await Promise.allSettled(
             appsToBuild.map(async (app) => {
                 const outcome = await this.buildOneApp(app, {
                     config,
@@ -1444,6 +1440,11 @@ export class PreviewPipeline {
                 return [app.name, outcome] as const;
             }),
         );
+        const rejection = results.find((result) => result.status === "rejected");
+        if (rejection != null && rejection.status === "rejected") {
+            throw rejection.reason;
+        }
+        const entries = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 
         return Object.fromEntries(entries);
     }
@@ -1528,8 +1529,6 @@ export class PreviewPipeline {
             });
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
-            const cacheKey = `${ctx.org}/${ctx.repo}/${app.name}`;
-
             const appArn = ctx.arnByApp.get(app.name);
             const secretBuildArgs =
                 app.build_secrets.length > 0 && appArn != null
@@ -1568,7 +1567,6 @@ export class PreviewPipeline {
                 contextPath: buildInputs.contextPath,
                 buildArgs: resolvedBuildArgs,
                 imageTag,
-                cacheKey,
                 namespace: ctx.namespace,
                 buildContext: buildInputs.buildContext,
                 dockerfile: buildInputs.dockerfile,

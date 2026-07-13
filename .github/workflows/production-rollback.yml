@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to rollback to (e.g., v1.2.3). Leave empty for previous release.'
+        description: "Version to rollback to (e.g., v1.2.3). Leave empty for previous release."
         required: false
         type: string
 
@@ -107,10 +107,14 @@ jobs:
           # Extract images from manifest
           API_IMAGE=$(jq -r '.deployments.api' /tmp/deployment-manifest.json)
           UI_IMAGE=$(jq -r '.deployments.ui' /tmp/deployment-manifest.json)
+          PREVIEWKIT_RUNNER_IMAGE=$(jq -r '.deployments.previewkitRunner // ""' /tmp/deployment-manifest.json)
 
           echo "Target images:"
           echo "  API: $API_IMAGE"
           echo "  UI: $UI_IMAGE"
+          if [ -n "$PREVIEWKIT_RUNNER_IMAGE" ]; then
+            echo "  PreviewKit runner: $PREVIEWKIT_RUNNER_IMAGE"
+          fi
 
           # Extract job images
           jq -r '.jobs | to_entries[] | "\(.key): \(.value)"' /tmp/deployment-manifest.json
@@ -139,7 +143,32 @@ jobs:
             exit 1
           fi
 
+          if [ -n "$PREVIEWKIT_RUNNER_IMAGE" ]; then
+            PREVIEWKIT_RUNNER_REPO=$(echo "$PREVIEWKIT_RUNNER_IMAGE" | cut -d'/' -f2- | cut -d':' -f1)
+            PREVIEWKIT_RUNNER_TAG=$(echo "$PREVIEWKIT_RUNNER_IMAGE" | cut -d':' -f2)
+            if ! aws ecr describe-images \
+              --repository-name "$PREVIEWKIT_RUNNER_REPO" \
+              --image-ids imageTag="$PREVIEWKIT_RUNNER_TAG" \
+              --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+              echo "::error::PreviewKit runner image not found: $PREVIEWKIT_RUNNER_IMAGE"
+              exit 1
+            fi
+          fi
+
           echo "Deployment images verified in ECR"
+
+      - name: Rollback PreviewKit runner
+        run: |
+          PREVIEWKIT_RUNNER_IMAGE=$(jq -r '.deployments.previewkitRunner // ""' /tmp/deployment-manifest.json)
+          if [ -z "$PREVIEWKIT_RUNNER_IMAGE" ]; then
+            echo "Target release does not record a PreviewKit runner image; retaining the current runner configuration"
+            exit 0
+          fi
+
+          export NAMESPACE=production
+          export IMAGE="$PREVIEWKIT_RUNNER_IMAGE"
+          envsubst '$NAMESPACE $IMAGE' < deployment/apps/previewkit-runner-image.yaml | kubectl apply -f -
+          echo "Rolled back PreviewKit runner to $IMAGE"
 
       - name: Rollback API
         id: rollback

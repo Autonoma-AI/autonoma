@@ -1,13 +1,12 @@
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
 import { LokiBuildLogSink } from "@autonoma/logger/loki-build-log-sink";
-import { S3Storage } from "@autonoma/storage";
 import * as k8s from "@kubernetes/client-node";
 import { AddonManager } from "./addons/addon-manager";
 import { OrgSecretResolver } from "./addons/org-secret-resolver";
 import { NeonProvider } from "./addons/providers/neon";
 import { AddonProviderRegistry } from "./addons/registry";
-import { BuildQueue } from "./builder/build-queue";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
+import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
@@ -18,6 +17,9 @@ import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
+
+const BUILDKIT_DIAL_BUDGET_MS = 30_000;
+const BUILDKIT_LIFECYCLE_MARGIN_MS = 60_000;
 
 /**
  * Everything a preview run needs (pipelines + GitHub provider + heavy
@@ -31,15 +33,14 @@ export interface PreviewkitServices {
     githubProvider: GitHubProvider;
     /** Build-log sink; exposed so the runner can drain it before it exits. */
     buildLogSink?: BuildLogSink;
+    /** Exposed so runner shutdown can retry cleanup for every active build Job. */
+    buildkitJobManager?: BuildKitJobManager;
 }
 
 export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // Kubernetes client for the preview (target) cluster.
     let kc: k8s.KubeConfig;
     if (env.EKS_CLUSTER_NAME != null) {
-        if (env.AWS_REGION == null) {
-            throw new Error("AWS_REGION is required when EKS_CLUSTER_NAME is set");
-        }
         const staticClusterInfo =
             env.EKS_CLUSTER_ENDPOINT != null && env.EKS_CLUSTER_CA != null
                 ? { endpoint: env.EKS_CLUSTER_ENDPOINT, caData: env.EKS_CLUSTER_CA }
@@ -53,11 +54,23 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         }, 45_000);
     } else {
         kc = new k8s.KubeConfig();
-        if (env.KUBECONFIG) {
+        if (env.KUBECONFIG != null) {
             kc.loadFromFile(env.KUBECONFIG);
         } else {
             kc.loadFromDefault();
         }
+    }
+
+    // The deployer uses the preview cluster client above. Buildkitd Jobs run in
+    // the control cluster beside the runner, so cross-cluster production runs
+    // need a separate in-cluster client for their lifecycle.
+    const controlKc = new k8s.KubeConfig();
+    if (env.EKS_CLUSTER_NAME != null) {
+        controlKc.loadFromCluster();
+    } else if (env.KUBECONFIG != null) {
+        controlKc.loadFromFile(env.KUBECONFIG);
+    } else {
+        controlKc.loadFromDefault();
     }
 
     // Git provider
@@ -65,9 +78,6 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         appId: env.GITHUB_APP_ID,
         privateKey: env.GITHUB_PRIVATE_KEY,
     });
-
-    // Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
-    const storage = S3Storage.createFromEnv();
 
     // Build-log sink. When LOKI_URL is set, the builder mirrors each output
     // chunk and the pipeline mirrors phase/status transitions into Grafana
@@ -80,26 +90,36 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // timeout, standard resources). Single source of truth read below.
     const previewkitDefaults = createPreviewkitDefaults(env);
 
-    // Builder. Every build dials the warm buildkitd pool in the control
-    // cluster via in-cluster DNS; its node-local NVMe cache is the only build
-    // cache (no S3 import/export) - a build that lands on a cold node just
-    // rebuilds from scratch and warms that node's disk for next time. When
-    // the admission queue is on, each build first claims a per-pod slot and
-    // dials that pod directly; the Service host remains the fail-open
-    // fallback.
-    const buildQueue = createBuildQueue();
+    // Local build preparation completes before each app-build attempt requests
+    // its privileged rootful buildkitd Job. The Job deadline therefore covers
+    // node provisioning, daemon startup, TCP dialing, buildctl, and a lifecycle
+    // margin without coupling two independent command timeouts.
+    const buildkitJobDeadlineMs =
+        env.BUILD_READINESS_TIMEOUT_MS +
+        env.BUILD_STARTUP_TIMEOUT_MS +
+        previewkitDefaults.defaults.buildTimeoutMs +
+        BUILDKIT_DIAL_BUDGET_MS +
+        BUILDKIT_LIFECYCLE_MARGIN_MS;
+    const buildkitJobManager = new BuildKitJobManager({
+        batchApi: controlKc.makeApiClient(k8s.BatchV1Api),
+        podsApi: controlKc.makeApiClient(k8s.CoreV1Api),
+        namespace: env.BUILDKIT_BUILD_NAMESPACE,
+        image: env.BUILDKIT_IMAGE,
+        activeDeadlineSeconds: Math.ceil(buildkitJobDeadlineMs / 1000),
+        provisionTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
+        startupTimeoutMs: env.BUILD_STARTUP_TIMEOUT_MS,
+    });
     const builder = new BuildKitBuilder({
-        warmHost: env.BUILDKIT_WARM_HOST,
+        jobManager: buildkitJobManager,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         ...(logSink != null ? { logSink } : {}),
-        ...(buildQueue != null ? { queue: buildQueue } : {}),
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.
     const awsExternalSecretManager = new AwsExternalSecretManager(kc, env.CLUSTER_SECRET_STORE_NAME);
 
     // AWS Secrets Manager direct fetcher for build-time secrets.
-    const awsSecretsFetcher = new AwsSecretsFetcher(env.S3_REGION);
+    const awsSecretsFetcher = new AwsSecretsFetcher(env.AWS_REGION);
 
     // Deployer
     const deployer = new Deployer(
@@ -128,7 +148,6 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         dockerHubMirror: env.DOCKER_HUB_MIRROR,
-        storage,
         ...(logSink != null ? { logSink } : {}),
     });
 
@@ -142,6 +161,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         previewPipeline,
         teardownPipeline,
         githubProvider,
+        buildkitJobManager,
         ...(logSink != null ? { buildLogSink: logSink } : {}),
     };
 }
@@ -158,34 +178,4 @@ function createBuildLogSink(): BuildLogSink | undefined {
         return undefined;
     }
     return new LokiBuildLogSink(env.LOKI_URL);
-}
-
-/**
- * Builds the optional warm-pool admission queue. The queue talks to the
- * CONTROL cluster (the one the runner Job itself executes in, where the
- * buildkit pool lives), so it always uses the pod's own in-cluster
- * credentials - never the deployer's preview-cluster (EKS) client. Returns
- * undefined - disabling admission control - when the queue is switched off or
- * no local kube context can be loaded (local dev outside a cluster).
- */
-function createBuildQueue(): BuildQueue | undefined {
-    if (!env.BUILDKIT_QUEUE_ENABLED) {
-        logger.warn("BUILDKIT_QUEUE_ENABLED=false - builds dial the warm pool without admission control");
-        return undefined;
-    }
-    try {
-        const controlKc = new k8s.KubeConfig();
-        controlKc.loadFromDefault();
-        return new BuildQueue({
-            leaseApi: controlKc.makeApiClient(k8s.CoordinationV1Api),
-            podsApi: controlKc.makeApiClient(k8s.CoreV1Api),
-            fallbackAddr: env.BUILDKIT_WARM_HOST,
-            slotsPerPod: env.BUILDKIT_QUEUE_SLOTS_PER_POD,
-            maxWaitMs: env.BUILDKIT_QUEUE_MAX_WAIT_MS,
-            pollIntervalMs: env.BUILDKIT_QUEUE_POLL_MS,
-        });
-    } catch (err) {
-        logger.warn("Failed to load control-cluster kube config - build queue disabled", { err });
-        return undefined;
-    }
 }

@@ -4,21 +4,21 @@ Structured logging package for all Autonoma backend services. Wraps Sentry for p
 
 ## Exports
 
-| Export | Description |
-|--------|-------------|
-| `logger` | Root logger singleton (`rootLogger`) - the primary entry point for logging |
-| `Logger` | Type alias for `SentryLogger` - use in function signatures accepting a logger |
-| `createSentryConfig` | Builds a `@sentry/node` `NodeOptions` config from a scope config |
-| `runWithSentry` | Initializes Sentry + runs an async job with proper flush and exit handling |
-| `RunWithSentryOptions` | Options type for `runWithSentry` |
-| `ObservabilityContext` | Typed interface listing every canonical log/observability field name |
-| `ObservabilityContextSchema` | Zod schema that backs `ObservabilityContext` - source of truth for what's canonical |
-| `withObservabilityContext` | Bind a set of canonical IDs to the current async scope (AsyncLocalStorage) |
-| `getObservabilityContext` | Read the currently-bound canonical IDs |
-| `extendObservabilityContext` | Merge additional fields into the current scope (no-op outside one) |
-| `pickObservabilityContext` | Zod-validate and pick canonical fields off an unknown shape |
-| `OBSERVABILITY_CONTEXT_KEYS` | Tuple of every canonical field name |
-| `LogExtra` | Payload type for `logger.{info,warn,error,debug}` calls (canonical fields + `extra`) |
+| Export                       | Description                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `logger`                     | Root logger singleton (`rootLogger`) - the primary entry point for logging           |
+| `Logger`                     | Type alias for `SentryLogger` - use in function signatures accepting a logger        |
+| `createSentryConfig`         | Builds a `@sentry/node` `NodeOptions` config from a scope config                     |
+| `runWithSentry`              | Initializes Sentry + runs an async job with proper flush and exit handling           |
+| `RunWithSentryOptions`       | Options type for `runWithSentry`                                                     |
+| `ObservabilityContext`       | Typed interface listing every canonical log/observability field name                 |
+| `ObservabilityContextSchema` | Zod schema that backs `ObservabilityContext` - source of truth for what's canonical  |
+| `withObservabilityContext`   | Bind a set of canonical IDs to the current async scope (AsyncLocalStorage)           |
+| `getObservabilityContext`    | Read the currently-bound canonical IDs                                               |
+| `extendObservabilityContext` | Merge additional fields into the current scope (no-op outside one)                   |
+| `pickObservabilityContext`   | Zod-validate and pick canonical fields off an unknown shape                          |
+| `OBSERVABILITY_CONTEXT_KEYS` | Tuple of every canonical field name                                                  |
+| `LogExtra`                   | Payload type for `logger.{info,warn,error,debug}` calls (canonical fields + `extra`) |
 
 Secondary export paths:
 
@@ -85,7 +85,7 @@ In both cases `LokiLogStore` falls back to the per-source window default when no
 
 `readBatch` also accepts an optional `filter` - a case-insensitive substring search applied as a Loki line filter (`|~`), so the viewer searches the whole retained stream server-side rather than only the lines already buffered in the browser. The API surfaces it as `?filter=` on the SSE route and the app/build log tabs render a search box for it. The term is untrusted, so it is escaped (regex metacharacters are made literal) and embedded in Loki's double-quoted string form, which cannot be broken out of. The filter is applied only to the line query, never to the `kind="start"` marker lookup, so the replay floor is always resolved even when the search matches nothing.
 
-The sink also emits a non-display `kind="finish"` telemetry marker via `LokiBuildLogSink.markFinished` at the end of each successful build. It is labeled `{namespace, source="build", kind="finish", app, builder}` (`builder` is always `warm`; the label is kept so queries stay comparable with historical `ephemeral` data) with `{ durationMs, host }` in the line body, and is excluded from the viewer (like `start`). Build-speed dashboards aggregate it with `{source="build", kind="finish", app=~"$app", builder=~"$builder"} | json | unwrap durationMs`, grouping/filtering by the `app`, `builder`, and `namespace` labels.
+The sink also emits a non-display `kind="finish"` telemetry marker via `LokiBuildLogSink.markFinished` at the end of each successful build. It is labeled `{namespace, source="build", kind="finish", app, builder}` (`builder` is `ephemeral` for the isolated per-build buildkitd Job path) with `{ durationMs, host }` in the line body, and is excluded from the viewer (like `start`). Build-speed dashboards aggregate it with `{source="build", kind="finish", app=~"$app", builder=~"$builder"} | json | unwrap durationMs`, grouping/filtering by the `app`, `builder`, and `namespace` labels.
 
 This path is intentionally separate from telemetry logging: customer build output may echo secrets, so it must not flow into Sentry. The sink only uses the root logger to observe delivery failures.
 
@@ -110,11 +110,13 @@ For services (API server, engines), initialize Sentry manually with `createSentr
 import * as Sentry from "@sentry/node";
 import { createSentryConfig } from "@autonoma/logger";
 
-Sentry.init(createSentryConfig({
-    contextType: "api-server",
-    contextName: "api",
-    tags: { service: "api" },
-}));
+Sentry.init(
+    createSentryConfig({
+        contextType: "api-server",
+        contextName: "api",
+        tags: { service: "api" },
+    }),
+);
 ```
 
 Pass an optional `beforeSend` to drop service-specific noise. It runs only after the
@@ -123,11 +125,13 @@ through; return the event to keep it or `null` to drop it. The API uses this to 
 expected client-error tRPC responses (4xx) so they don't page on-call:
 
 ```ts
-Sentry.init(createSentryConfig({
-    contextType: "service",
-    contextName: "api",
-    beforeSend: dropExpectedClientErrors,
-}));
+Sentry.init(
+    createSentryConfig({
+        contextType: "service",
+        contextName: "api",
+        beforeSend: dropExpectedClientErrors,
+    }),
+);
 ```
 
 ## Canonical observability context
@@ -166,17 +170,14 @@ across `await` boundaries, and from `child()` loggers.
 ```ts
 import { logger, withObservabilityContext, extendObservabilityContext } from "@autonoma/logger";
 
-await withObservabilityContext(
-    { snapshot: { snapshotId }, job: { jobName: "diffs" } },
-    async () => {
-        logger.info("Starting diffs analysis"); // emits snapshotId + jobName
+await withObservabilityContext({ snapshot: { snapshotId }, job: { jobName: "diffs" } }, async () => {
+    logger.info("Starting diffs analysis"); // emits snapshotId + jobName
 
-        const branchId = await loadBranchId(snapshotId);
-        extendObservabilityContext({ branch: { branchId } }); // adds branchId
+    const branchId = await loadBranchId(snapshotId);
+    extendObservabilityContext({ branch: { branchId } }); // adds branchId
 
-        logger.info("Branch loaded"); // emits snapshotId + jobName + branchId
-    },
-);
+    logger.info("Branch loaded"); // emits snapshotId + jobName + branchId
+});
 ```
 
 ### Temporal integration
@@ -233,14 +234,14 @@ logger.info("Generation queue prepared", { extra: { count: prepared.length } });
 
 ## Log levels
 
-| Method | When to use |
-|--------|-------------|
-| `debug` | Verbose details - only printed when `DEBUG=true` or outside production |
-| `info` | Normal operational events |
-| `warn` | Unexpected but recoverable situations |
-| `error` | Failures with optional `Error` object as second argument |
-| `fatal` | Unrecoverable errors - also captured as Sentry exceptions |
-| `captureError` | Directly capture an error to Sentry with optional severity |
+| Method         | When to use                                                            |
+| -------------- | ---------------------------------------------------------------------- |
+| `debug`        | Verbose details - only printed when `DEBUG=true` or outside production |
+| `info`         | Normal operational events                                              |
+| `warn`         | Unexpected but recoverable situations                                  |
+| `error`        | Failures with optional `Error` object as second argument               |
+| `fatal`        | Unrecoverable errors - also captured as Sentry exceptions              |
+| `captureError` | Directly capture an error to Sentry with optional severity             |
 
 ## Architecture
 
@@ -263,10 +264,10 @@ logger.info("Generation queue prepared", { extra: { count: prepared.length } });
 
 Validated with `@t3-oss/env-core` + Zod in `env.ts`:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | Controls Sentry activation and log formatting |
-| `SENTRY_DSN` | - | Sentry project DSN (required in production) |
-| `SENTRY_ENV` | `production` | Sentry environment tag |
-| `SENTRY_RELEASE` | `unknown` | Release version for Sentry |
-| `DEBUG` | - | Set to `"true"` to enable debug logs in production |
+| Variable         | Default       | Description                                        |
+| ---------------- | ------------- | -------------------------------------------------- |
+| `NODE_ENV`       | `development` | Controls Sentry activation and log formatting      |
+| `SENTRY_DSN`     | -             | Sentry project DSN (required in production)        |
+| `SENTRY_ENV`     | `production`  | Sentry environment tag                             |
+| `SENTRY_RELEASE` | `unknown`     | Release version for Sentry                         |
+| `DEBUG`          | -             | Set to `"true"` to enable debug logs in production |

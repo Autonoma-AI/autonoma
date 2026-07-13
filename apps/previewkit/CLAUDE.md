@@ -7,6 +7,7 @@ preview URL back to the PR.
 
 This file is loaded automatically when a session works under `apps/previewkit/`.
 It complements:
+
 - the repo-root `CLAUDE.md` (monorepo-wide conventions - ESM, strict TS, no `as`,
   `undefined` over `null`, Sentry logging, Zod-at-boundaries, no em dashes);
 - `apps/previewkit/README.md` (the user-facing preview config reference);
@@ -29,6 +30,7 @@ GitHub pull_request webhook
        -> deploy app Deployments + Services
        -> run pre/post-deploy hooks -> post/update the PR comment, then exit
 ```
+
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
 `TeardownPipeline` (addon deprovision + namespace delete + PR comment). Teardown updates both PR
 comments: the previewkit `"preview"` comment is replaced with a "Torn down" message, and the
@@ -47,7 +49,8 @@ each Job (`PreviewkitJobLauncher`, apps/api). Launching a deploy or per-app rede
 any in-flight "deploy-family" Job for that env (`previewkit.dev/type in (deploy,redeploy-app)`,
 Background propagation), then creates the new one - async newest-wins. The deleted pod gets SIGTERM,
 which `src/runner/index.ts` turns into an `AbortController` abort: the build's
-`signal.throwIfAborted()` / aborted `buildctl` spawn kills the build in seconds, and the
+`signal.throwIfAborted()` / aborted `buildctl` spawn kills the build and releases its ephemeral
+buildkitd Job in seconds, and the
 deploy branch writes ONLY the superseded build row (`PreviewkitBuild.status = superseded`), never the
 env row - the successor owns it. Teardown ignores SIGTERM and runs its (idempotent) namespace delete
 to completion, and the deploy-family supersede never targets a running teardown, so a
@@ -56,7 +59,7 @@ close-then-reopen can't leave a half-deleted namespace.
 **Abort != failure.** A deploy/redeploy Job pod gets SIGTERM only on a deliberate supersede (a newer
 push deleting the in-flight Job), so the runner treats SIGTERM as a supersede - it writes the
 superseded build row and exits 0, never stamping a (possibly previously-ready) environment `failed`.
-Every *handled* outcome (ready / build_failed / deploy_failed / superseded / skipped) exits 0; only
+Every _handled_ outcome (ready / build_failed / deploy_failed / superseded / skipped) exits 0; only
 an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just genuine pod death
 (OOM / eviction) and the idempotent DB upserts make that re-run safe. Internal timeouts
 (`BUILD_TIMEOUT_MS`, the readiness budgets) record clean failures before the Job's
@@ -74,12 +77,13 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   mode is `rebuild` (build+deploy one app) or `restart` (re-roll its pods). `job-spec.ts` Zod-validates
   the payload; `deps.ts` wires the DB-backed side effects.
 - `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
-- `env.ts` - all env vars (`createEnv`); extends `@autonoma/storage/env` + `@autonoma/logger/env`.
+- `env.ts` - all env vars (`createEnv`); extends `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /
   `deployEnvironment` / `finalize` / `fail` / `restartApp`), per-app build loop (`buildOneApp`),
   final-outcome computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
-  `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts` (legacy monorepo path).
+  `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `buildkit-job-manager.ts` (one
+  privileged rootful buildkitd Job per app-build attempt), `turbo-monorepo.ts` (legacy monorepo path).
 - `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
   framework preset (`node`/`next`/`vite`/`bun`) when an app uses the new `build` config block.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
@@ -124,6 +128,7 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
   remains in the API env - it authenticates the native routes and `/v1/diffs/internal/trigger`.
 
 The admin "active environments" page reads the DB directly:
+
 - API: `deployments.service.ts` (`listActiveEnvironments`) wired through
   `apps/api/src/routes/admin/admin.router.ts` (`admin.listPreviewkitEnvironments`,
   `admin.redeployPreviewkitEnvironment`).
@@ -146,54 +151,53 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
 
 1. **`build` block (preferred)** - the app's `build` is a discriminated union on `framework` (the
    `previewConfigSchema` in `packages/types`):
-   - `framework: dockerfile` - use the user's Dockerfile at `build.dockerfile`. Optional `target`
-     selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`, like `docker build --target`);
-     without it buildkit builds the LAST stage, which silently builds the wrong service when a Dockerfile
-     ends with a worker/sidecar stage after the deployable one.
-   - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
-     single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
-     sets the context (`root` enables a turbo `--filter` for monorepos).
-   - `framework: runtime` - the manual escape hatch. The user picks a language runtime or the bare Debian
-     base image (the `previewkit-runtimes.ts` catalog in `packages/types`) + writes a bash `build_script` +
-     `entrypoint`; the generator `FROM`s the runtime image at the chosen `version`, installs the common apt
-     toolbelt, runs any per-runtime setup, switches the shell to bash, then `RUN`s the build script (heredoc)
-     and `CMD`s the entrypoint. Clones to `/workspace/<app>`. No autodetection - the user owns the result.
-     Every runtime is Debian-family (apt); the strategy tables keep the door open for another base OS.
-   `dockerfile-builder/` is split by concern: `raw-spec.ts` (the `RawSpec` primitive + the one
-   `renderDockerfile`), `framework-lowering.ts` + `runtime-lowering.ts` (both lower a `build` into a
-   `RawSpec`), and the `os-toolbelt.ts` (apt) + `node-package-manager.ts` (npm/pnpm/yarn/bun)
-   strategy tables. Adding a runtime is a catalog entry; adding a package manager or base OS is one
-   strategy entry - never a new branch in the generator.
+    - `framework: dockerfile` - use the user's Dockerfile at `build.dockerfile`. Optional `target`
+      selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`, like `docker build --target`);
+      without it buildkit builds the LAST stage, which silently builds the wrong service when a Dockerfile
+      ends with a worker/sidecar stage after the deployable one.
+    - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
+      single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
+      sets the context (`root` enables a turbo `--filter` for monorepos).
+    - `framework: runtime` - the manual escape hatch. The user picks a language runtime or the bare Debian
+      base image (the `previewkit-runtimes.ts` catalog in `packages/types`) + writes a bash `build_script` +
+      `entrypoint`; the generator `FROM`s the runtime image at the chosen `version`, installs the common apt
+      toolbelt, runs any per-runtime setup, switches the shell to bash, then `RUN`s the build script (heredoc)
+      and `CMD`s the entrypoint. Clones to `/workspace/<app>`. No autodetection - the user owns the result.
+      Every runtime is Debian-family (apt); the strategy tables keep the door open for another base OS.
+      `dockerfile-builder/` is split by concern: `raw-spec.ts` (the `RawSpec` primitive + the one
+      `renderDockerfile`), `framework-lowering.ts` + `runtime-lowering.ts` (both lower a `build` into a
+      `RawSpec`), and the `os-toolbelt.ts` (apt) + `node-package-manager.ts` (npm/pnpm/yarn/bun)
+      strategy tables. Adding a runtime is a catalog entry; adding a package manager or base OS is one
+      strategy entry - never a new branch in the generator.
 2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 
-All paths run `buildctl` against the long-lived warm buildkitd pool
-(`deployment/buildkit/buildkitd-warm.yaml`) and push to `REGISTRY_URL` (ECR). Admission is
-queued (`builder/build-queue.ts`): before each attempt, the builder claims a per-pod slot
-Lease in the control cluster's `buildkit` namespace (`BUILDKIT_QUEUE_SLOTS_PER_POD` per ready
-pod, FIFO tickets, global across prod/beta/alpha runners - the k8s API is the one medium every
-runner shares, since their DATABASE_URLs differ) and dials the granting pod's IP directly,
-with rendezvous-hash cache affinity per app. A burst of pushes therefore waits in the queue
-(surfaced in the build-log viewer as "Waiting for a free buildkit build slot" lines) instead
-of oversubscribing the daemons; excess wait past `BUILDKIT_QUEUE_MAX_WAIT_MS` fails the build
-with a clear saturation error, and queue-infrastructure failures fail OPEN to the shared
-`BUILDKIT_WARM_HOST` Service (the pre-queue behavior) after a short error streak. The RBAC
-grant lives in `deployment/apps/previewkit.yaml` (`previewkit-build-queue`). Pool load is
-observable as `previewkit_app_builds_in_flight`, exported per env by the autonoma API's
-metrics endpoint (`apps/api/src/metrics/`) from the DB's fresh `building` app rows and
-summed pool-wide by the `previewkit:app_builds_in_flight:sum` recording rule
-(`deployment/prometheus/alert-rules.yaml`) - buildkitd itself has no in-flight metric. An app
-row stays `building` while queued, so the series measures demand (queued + running). KEDA
-autoscales the pool on that series (`deployment/buildkit/buildkit-scaledobject.yaml`, min 3 /
-max 8 pods at ~2 builds per pod; one pod per Karpenter node), and new pods' slots drain the
-queue as soon as they are Ready. Each daemon additionally caps concurrent build steps at
-`max-parallelism=4` (`deployment/buildkit/buildkitd-config.yaml`); slots-per-pod, the KEDA
-threshold, and max-parallelism are tuned together around ~2 builds per pod. Build logs
-stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
-attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
-calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the
-API-side `LokiLogStore` replays a fresh build-log viewer only from the latest marker, so a rerun's output
-overwrites prior attempts in the viewer instead of concatenating (Loki itself stays append-only).
+Build paths complete local validation and preparation before requesting infrastructure. In particular,
+Railpack and Turbo finish `railpack prepare` before `BuildKitJobManager` provisions a privileged
+rootful buildkitd Kubernetes Job. The manager waits for its pod to be Scheduled and Ready, verifies
+TCP reachability on its pod IP, and then `buildctl` runs against that isolated endpoint. The Job runs
+in the control cluster's `buildkit` namespace, one per app-build attempt, and is deleted in the
+builder's `finally` block. An active deadline and TTL clean it up if the runner crashes, while
+`releaseAll()` retries any cleanup that failed during runner shutdown. A transient retry provisions a
+fresh Job instead of reconnecting to a failed daemon. Parallel app builds each receive their own Job,
+and the all-settled barrier waits for every sibling cleanup before an abort can finish the runner.
+Required hostname anti-affinity gives every ephemeral Job a unique node. Jobs require four-vCPU
+instances and prefer the compute-optimized `c` category, while any compatible four-vCPU instance is a
+capacity fallback. The container declares no CPU, memory, or ephemeral-storage request or limit, so it
+can use the node's allocatable CPU and memory. Its emptyDir has no sizeLimit and uses the buildkit
+EC2NodeClass's 50Gi io2 root disk, while each daemon's reclaimable cache target is 35GB to leave node
+headroom.
+`deployment/buildkit/buildkitd-ephemeral-config.yaml` caps each daemon at `max-parallelism=4`.
+The BestEffort Job can exhaust its dedicated node, but required anti-affinity isolates sibling
+builds from that failure. The ingress NetworkPolicy restricts other pods, but the
+unauthenticated BuildKit endpoint still assumes trusted build inputs because an executor in the same
+pod can reach it. No remote layer cache is currently configured, so every fresh Job starts cold.
+Build logs stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log
+upload. Every attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so
+`PreviewPipeline.build` calls `logSink.markStart(namespace)` at the top of each attempt to push a
+`kind="start"` boundary; the API-side `LokiLogStore` replays a fresh build-log viewer only from the
+latest marker, so a rerun's output overwrites prior attempts in the viewer instead of concatenating
+(Loki itself stays append-only).
 
 The app-log stream gets the same treatment for deployments: `PreviewPipeline.deployEnvironment` calls
 `logSink.markDeploymentStart(namespace)` (pushed with `source="app"`) as the new app pods roll out, so a
@@ -234,6 +238,7 @@ preview: a 3-replica, leader-elected Deployment in `system`
 (`deployment/previewkit/cluster/gatekeeper/`), fronted there by one wildcard Ingress for
 `*.preview.autonoma.app`. Previewkit no longer stamps any proxy resources or per-app Ingresses into
 preview namespaces - the contract per namespace (deployer `deployInfra` step 7) is:
+
 - a namespaced Role + RoleBinding (`central-gatekeeper`, `buildCentralGatekeeperRole*`) granting the
   central ServiceAccount workload access in THIS namespace only - the ClusterRole deliberately has
   no workload verbs (RBAC can't scope to label selectors, and the proxy handles untrusted HTTP), so
@@ -274,19 +279,17 @@ reason=InvalidRoutes`).
 image resolving to Docker Hub - the recipe services - is
 rewritten through it via `deployer/image-mirror.ts`; the Gatekeeper proxy (public.ecr.aws) and client
 app images are never touched;
-empty string disables), `BUILDKIT_WARM_HOST` (Service endpoint of the warm buildkitd pool;
-the admission queue's fail-open fallback - admitted builds dial their granted pod directly),
-`BUILDKIT_QUEUE_ENABLED` / `BUILDKIT_QUEUE_SLOTS_PER_POD` / `BUILDKIT_QUEUE_MAX_WAIT_MS` /
-`BUILDKIT_QUEUE_POLL_MS` (warm-pool admission queue), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
+empty string disables), `BUILDKIT_BUILD_NAMESPACE`, `BUILDKIT_IMAGE`, `BUILD_READINESS_TIMEOUT_MS`
+(node provisioning), `BUILD_STARTUP_TIMEOUT_MS` (daemon startup), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_NAMESPACE` (the shared edge namespace:
 Gateway + ingress-nginx + the central Gatekeeper), `GATEKEEPER_IDLE_TIMEOUT` (written per
 namespace as the gatekeeper.dev/idle-timeout annotation; the Gatekeeper image itself is
 pinned in `deployment/previewkit/cluster/gatekeeper/`, there is no image env var anymore),
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
-`BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
+`BYPASS_TOKEN_KEY`, and `EKS_*`/`AWS_REGION`.
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
-*launching API's own* DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
+_launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
 carried by the shared `previewkit-env-file` secret, so a runner writes its environment/build rows to
 the DB of the env that launched it (prod -> prod, beta -> beta, alpha -> that alpha env's DB).
 `LOKI_URL` (optional) - the build-log tier. When set, the builder tees each output chunk and the
@@ -304,9 +307,9 @@ The runner drains the sink's buffer before it exits.
   Dockerfile's builder stage runs). `dist/index.js` boots under plain `node` - no tsx at runtime.
 - `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
-  - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
-    storage/logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
-    and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
+    - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
+      logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
+      and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
 - DB schema changes: edit `packages/db/prisma/schema.prisma` -> `pnpm db:migrate` -> `pnpm db:generate`.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
 - `scripts/apply-standard-resources.sh [--apply] [--namespace NS]` - retrofit running preview namespaces to the

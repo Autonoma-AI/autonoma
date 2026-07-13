@@ -28,11 +28,10 @@ export interface BuildRequest {
     generatedDockerfile?: string;
     buildArgs: Record<string, string>;
     imageTag: string;
-    cacheKey: string;
     // Preview namespace this build belongs to (e.g. `preview-acme-bank-pr-42`).
     // Used as the key under which the builder streams live log output to the
     // build-log sink. Optional: when absent (or no sink is wired) the build runs
-    // exactly as before, logging only to disk + S3.
+    // with only its pod-local temporary log file.
     namespace?: string;
     // Names the workspace build tool. Dispatched by the builder to select a
     // tool-specific build path (turbo+pnpm, nx, bazel, sbt, ... all need
@@ -82,8 +81,7 @@ export class BuildError extends Error {
 /**
  * A build whose `AbortSignal` fired - the build was cancelled, NOT a build
  * failure. The signal fires for two reasons: a supersede (a newer commit
- * cancelled this run) or a worker shutdown (the autoscaler scaling the pool down
- * mid-build). Neither is a deploy failure.
+ * cancelled this run) or a runner shutdown. Neither is a deploy failure.
  *
  * It extends `BuildError` so the builder's existing `instanceof BuildError`
  * handling still applies (never retried - `isTransient` stays false). But it is

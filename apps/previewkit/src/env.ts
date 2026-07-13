@@ -1,6 +1,5 @@
 import { base64PrivateKey } from "@autonoma/github/schemas";
 import { env as loggerEnv } from "@autonoma/logger/env";
-import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
@@ -11,7 +10,7 @@ const timeoutEnv = (defaultValue: number) =>
     );
 
 export const env = createEnv({
-    extends: [storageEnv, loggerEnv],
+    extends: [loggerEnv],
     server: {
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
@@ -40,37 +39,20 @@ export const env = createEnv({
         // rewritten. Set to an empty string to disable mirroring.
         DOCKER_HUB_MIRROR: z.string().default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub"),
 
-        // BuildKit: every build dials the long-lived warm buildkitd pool
-        // (deployment/buildkit/buildkitd-warm.yaml) at this endpoint. The pool
-        // runs in the control cluster (the same one the runner Job runs in) and
-        // is reached by in-cluster DNS; its node-local layer cache (on the
-        // pool pod's NVMe) stays hot across builds and is the only build
-        // cache - there is no S3 import/export, so a build landing on a cold
-        // node just rebuilds from scratch and warms that node's disk.
-        BUILDKIT_WARM_HOST: z.string().default("tcp://buildkit.buildkit.svc.cluster.local:1234"),
+        // BuildKit: each app-build attempt creates an isolated buildkitd Job in
+        // the control cluster. The runner waits for its pod, dials the pod IP,
+        // and deletes the Job when the attempt settles. No remote layer cache
+        // is configured; each Job starts with empty local state.
+        BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
+        BUILDKIT_IMAGE: z
+            .string()
+            .default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub/moby/buildkit:v0.31.1"),
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
-
-        // Warm-pool admission queue (builder/build-queue.ts). Every build first
-        // claims a per-pod slot Lease in the control cluster's `buildkit`
-        // namespace, bounding concurrent builds per buildkitd pod instead of
-        // letting a burst of runner Jobs scatter unbounded sessions across the
-        // pool (CPU thrash + daemon OOM). Fails open when the queue
-        // infrastructure is unreachable, so it can never block all builds.
-        BUILDKIT_QUEUE_ENABLED: z
-            .enum(["true", "false"])
-            .default("true")
-            .transform((value) => value === "true"),
-        // Concurrent builds admitted per ready pool pod. Tune together with the
-        // daemon's max-parallelism (deployment/buildkit/buildkitd-config.yaml)
-        // and the KEDA threshold (deployment/buildkit/buildkit-scaledobject.yaml);
-        // all three assume ~2 builds per pod.
-        BUILDKIT_QUEUE_SLOTS_PER_POD: z.coerce.number().int().positive().default(2),
-        // Give up queueing after this long and fail the build with a clear
-        // pool-saturation error. Sized so KEDA + Karpenter (2-4 min per node,
-        // up to 4 nodes/min) can absorb a burst well within the wait.
-        BUILDKIT_QUEUE_MAX_WAIT_MS: timeoutEnv(1_200_000), // 20 minutes
-        BUILDKIT_QUEUE_POLL_MS: timeoutEnv(5_000),
+        // Karpenter provisioning and buildkitd startup have separate budgets so
+        // a cold node launch is not mistaken for a broken daemon.
+        BUILD_READINESS_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
+        BUILD_STARTUP_TIMEOUT_MS: timeoutEnv(180_000), // 3 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
         // ACM wildcard certs only match a single leftmost label; hostnames are
@@ -98,7 +80,7 @@ export const env = createEnv({
         // EKS_CLUSTER_ENDPOINT and EKS_CLUSTER_CA skip the eks:DescribeCluster API call,
         // which is required when the cluster lives in a different AWS account.
         EKS_CLUSTER_NAME: z.string().optional(),
-        AWS_REGION: z.string().optional(),
+        AWS_REGION: z.string().min(1).default("us-east-1"),
         EKS_CLUSTER_ENDPOINT: z.string().url().optional(),
         EKS_CLUSTER_CA: z.string().optional(),
 

@@ -4,9 +4,9 @@ import { createWriteStream, existsSync, type WriteStream } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import { logger } from "../logger";
-import { type BuildQueue, BuildQueueTimeoutError, type BuildSlot } from "./build-queue";
+import { logger as rootLogger, type Logger } from "../logger";
 import {
     BuildAbortedError,
     BuildError,
@@ -16,6 +16,7 @@ import {
     type BuildRuntime,
 } from "./builder";
 import { EcrRegistryClient } from "./ecr-client";
+import { BUILD_MESSAGES } from "./messages";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
 
 const BUILD_MAX_RETRIES = 3;
@@ -23,27 +24,13 @@ const BUILDKIT_RETRY_DELAY_MS = 5000;
 // Keep only the tail of each stream for transient error detection.
 // 8 KB is enough for any error string without buffering the full build log.
 const TAIL_SIZE = 8192;
-// Prebaked, user-facing message for a build that failed because the buildkit
-// pool was unreachable/overloaded rather than because of the app's code or
-// config. It replaces the raw `buildctl exited with code N` (and the cryptic
-// gRPC dump) as the recorded failure reason and is echoed into the build log,
-// so the user is not left thinking a transient platform outage was their fault.
-// Kept static on purpose - no AI diagnosis - so it works even when the model
-// pipeline is unavailable.
-const BUILD_INFRA_UNAVAILABLE_MESSAGE =
-    "The build service was temporarily unavailable and could not start your build. " +
-    "This is a platform issue on our side, not a problem with your app or its configuration. " +
-    "Please retry the deploy; if it keeps happening, contact support.";
-
 /**
  * Substrings that, when found in buildctl's stdout/stderr tail, indicate the
  * remote buildkitd disappeared mid-build rather than the build itself
- * failing. Most of these surface when the warm buildkitd pod serving the
- * build is evicted by kubelet (node pressure), OOMKilled, or rolled by a
- * deploy - all cases where retrying is the right move: the retry re-acquires
- * an admission-queue slot and dials a healthy pool pod (or, on the unqueued
- * fallback path, kube-proxy re-routes the Service connection). False
- * positives here just burn one retry attempt, so we lean inclusive.
+ * failing. Most of these surface when the ephemeral buildkitd pod is evicted
+ * by kubelet, OOMKilled, or otherwise terminated. Retrying provisions a fresh
+ * Job, so these failures are safe to retry. False positives here just burn one
+ * retry attempt, so we lean inclusive.
  *
  * Exported for tests only.
  */
@@ -57,7 +44,8 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /transport.*error while dialing/,
     /transport is closing/,
     /no such host/,
-    // Session loss: a CPU-starved pool pod drops the buildctl<->buildkitd gRPC
+    // Session loss: a terminated or resource-starved build pod drops the
+    // buildctl<->buildkitd gRPC
     // session (or its healthcheck times out) mid-build. Bare "context deadline
     // exceeded" is deliberately NOT listed - it also surfaces for genuine
     // in-build timeouts (slow registry pulls, user RUN steps printing their own
@@ -68,9 +56,9 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /no active session for/,
     /session healthcheck failed/,
     /failed to get session/,
-    // Pre-build worker enumeration against an overloaded/unhealthy pool pod: the
+    // Pre-build worker enumeration against an unhealthy buildkitd pod: the
     // TCP connection is accepted then dropped before the gRPC handshake (the
-    // saturated pod, at its memory ceiling, closes the connection), so buildctl
+    // pod closes the connection), so buildctl
     // never even lists the daemon's workers - it fails with `failed to list
     // workers: Unavailable: ... use of closed network connection`. Anchored on
     // buildctl's own `failed to list workers` framing (never emitted by a user's
@@ -79,23 +67,32 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
     /failed to list workers/,
 ];
 
+interface BuildKitJobLifecycle {
+    provision(signal?: AbortSignal): Promise<BuildKitInstance>;
+    release(instance: { name: string }): Promise<void>;
+}
+
+interface BuildKitInstance {
+    name: string;
+    host: string;
+}
+
+interface BuildKitAttempt {
+    instance?: BuildKitInstance;
+}
+
+type GetBuildKitHost = () => Promise<string>;
+
 interface BuildKitBuilderOptions {
-    /** The warm buildkitd pool's Service endpoint (tcp://host:1234). With no
-     *  queue wired this is what every build dials as buildctl's `--addr`; with
-     *  a queue it is the fail-open fallback, since admitted builds dial the
-     *  granting pod directly (deployment/buildkit/buildkitd-warm.yaml). */
-    warmHost: string;
+    jobManager: BuildKitJobLifecycle;
     buildTimeoutMs: number;
+    /** Delay between fresh-Job retries. Defaults to five seconds; injectable so
+     * retry lifecycle tests do not sleep. */
+    retryDelayMs?: number;
     /** When set, every build-output chunk is mirrored to this sink (keyed by
-     *  `request.namespace`) for live streaming + durable history, in addition
-     *  to the disk + S3 log. Optional so builds work unchanged when no sink is
-     *  configured. */
+     *  `request.namespace`) for live streaming and durable history, in
+     *  addition to the temporary local log. */
     logSink?: BuildLogSink;
-    /** Admission queue for the warm pool. Each attempt acquires a slot on a
-     *  specific pool pod before spawning buildctl (bounding concurrent builds
-     *  per pod) and releases it after. Optional: absent means every build
-     *  dials `warmHost` immediately, exactly as before the queue existed. */
-    queue?: BuildQueue;
 }
 
 interface BuildDispatchResult {
@@ -149,27 +146,39 @@ class TeeBuildLog implements BuildLogWriter {
  * wired - that sink is where viewers read build logs from.
  */
 export class BuildKitBuilder implements Builder {
-    private readonly warmHost: string;
+    private readonly jobManager: BuildKitJobLifecycle;
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
+    private readonly retryDelayMs: number;
     private readonly logSink?: BuildLogSink;
-    private readonly queue?: BuildQueue;
+    private readonly logger: Logger;
 
     constructor(options: BuildKitBuilderOptions) {
-        this.warmHost = options.warmHost;
+        this.jobManager = options.jobManager;
         this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
+        this.retryDelayMs = options.retryDelayMs ?? BUILDKIT_RETRY_DELAY_MS;
         this.logSink = options.logSink;
-        this.queue = options.queue;
+        this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
     async build(request: BuildRequest): Promise<BuildResult> {
         const start = Date.now();
-        await this.ecr.ensureRepo(request.imageTag);
-        let queueWaitMs = 0;
+        this.logger.info("Starting build", {
+            extra: { app: request.appName, imageTag: request.imageTag },
+        });
+        try {
+            await this.ecr.ensureRepo(request.imageTag);
+        } catch (err) {
+            const repositoryError = err instanceof Error ? err : new Error(String(err));
+            this.logger.error("Failed to prepare build image repository", repositoryError, {
+                extra: { app: request.appName },
+            });
+            throw err;
+        }
 
         for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
-            // A cancellation between attempts must not start another attempt.
+            // A cancellation between attempts must not create another Job.
             if (request.signal?.aborted === true) {
                 throw new BuildAbortedError("build aborted between attempts (cancelled)");
             }
@@ -183,21 +192,30 @@ export class BuildKitBuilder implements Builder {
                     ? new TeeBuildLog(fileStream, this.logSink, request.namespace, request.appName)
                     : fileStream;
 
-            // Acquired fresh per attempt: a retry after a pool pod died must
-            // re-queue and land on a LIVE pod, not redial the corpse.
-            let slot: BuildSlot | undefined;
+            const buildkitAttempt: BuildKitAttempt = {};
+            const getBuildkitHost = async (): Promise<string> => {
+                const existingInstance = buildkitAttempt.instance;
+                if (existingInstance != null) return existingInstance.host;
+
+                const instance = await this.jobManager.provision(request.signal);
+                buildkitAttempt.instance = instance;
+                return instance.host;
+            };
             try {
-                slot = await this.acquireSlot(request, logStream);
-                queueWaitMs += slot.waitMs;
-                const build = await this.dispatchBuild(request, slot.addr, logStream);
+                const build = await this.dispatchBuild(request, getBuildkitHost, logStream);
+                const instance = buildkitAttempt.instance;
+                if (instance == null) {
+                    throw new BuildError("build completed without provisioning buildkit infrastructure");
+                }
                 const durationMs = Date.now() - start;
-                logger.info("Build complete", {
-                    app: request.appName,
-                    imageTag: build.imageTag,
-                    runtime: build.runtime,
-                    durationMs,
-                    queueWaitMs,
-                    pod: slot.pod,
+                this.logger.info("Build complete", {
+                    extra: {
+                        app: request.appName,
+                        imageTag: build.imageTag,
+                        runtime: build.runtime,
+                        durationMs,
+                        builderJob: instance.name,
+                    },
                 });
                 // Structured build-speed marker (best-effort telemetry). Lets
                 // LogQL chart per-build duration over the same Loki stream the
@@ -205,10 +223,9 @@ export class BuildKitBuilder implements Builder {
                 if (request.namespace != null) {
                     void this.logSink?.markFinished?.(request.namespace, {
                         app: request.appName,
-                        builder: "warm",
+                        builder: "ephemeral",
                         durationMs,
-                        queueWaitMs,
-                        host: slot.addr,
+                        host: instance.host,
                     });
                 }
                 return { imageTag: build.imageTag, durationMs, runtime: build.runtime };
@@ -217,21 +234,16 @@ export class BuildKitBuilder implements Builder {
                 // it is neither retried nor wrapped by `annotateWithLogs` (which
                 // would erase the type), and `buildOneApp` can recognize it.
                 if (err instanceof BuildAbortedError) {
+                    this.logger.info("Build aborted", { extra: { app: request.appName } });
                     throw err;
                 }
-                // A saturation timeout never ran buildctl, so the success-path
-                // finish marker can't cover it - emit the dedicated saturation
-                // marker so the clearest queue-overload signal is visible in
-                // build telemetry (best-effort, like the other markers). The
-                // failed acquire returned no slot, so its wait rides the error.
-                if (err instanceof BuildQueueTimeoutError && request.namespace != null) {
-                    void this.logSink?.markQueueTimeout?.(request.namespace, {
-                        app: request.appName,
-                        queueWaitMs: queueWaitMs + err.waitedMs,
-                    });
-                }
                 if (err instanceof BuildError && err.isTransient && !isLastAttempt) {
-                    await this.onTransientError(err, attempt, request.appName, logStream);
+                    const instance = buildkitAttempt.instance;
+                    if (instance != null) {
+                        const released = await this.releaseInstance(instance, request.appName);
+                        if (released) buildkitAttempt.instance = undefined;
+                    }
+                    await this.onTransientError(err, attempt, request.appName, logStream, request.signal);
                     continue;
                 }
                 // Retries exhausted on a platform outage: close the log with the
@@ -240,17 +252,23 @@ export class BuildKitBuilder implements Builder {
                 if (err instanceof BuildError && err.userFacingMessage != null) {
                     logStream.write(`\n[previewkit] ${err.userFacingMessage}\n`);
                 }
+                const buildError = err instanceof Error ? err : new Error(String(err));
+                this.logger.error("Build failed", buildError, { extra: { app: request.appName } });
                 throw err;
             } finally {
-                // Free the pool slot before the (possibly retried) next attempt
-                // queues again, then close the per-attempt log stream (flushes
-                // the temp file and ends the sink tee) before removing the file.
-                await slot?.release();
                 await this.closeLog(logStream).catch((closeErr) => {
-                    logger.warn("Failed to close build log stream", { app: request.appName, closeErr });
+                    this.logger.warn("Failed to close build log stream", {
+                        extra: { app: request.appName, closeErr },
+                    });
                 });
+                const instance = buildkitAttempt.instance;
+                if (instance != null) {
+                    await this.releaseInstance(instance, request.appName);
+                }
                 await rm(logPath, { force: true }).catch((rmErr) => {
-                    logger.warn("Failed to remove build log temp file", { app: request.appName, logPath, rmErr });
+                    this.logger.warn("Failed to remove build log temp file", {
+                        extra: { app: request.appName, logPath, rmErr },
+                    });
                 });
             }
         }
@@ -258,46 +276,27 @@ export class BuildKitBuilder implements Builder {
         throw new BuildError("buildkit build loop exited without returning");
     }
 
-    /**
-     * Admission control: waits for a free slot on a specific pool pod when the
-     * queue is wired, streaming wait/grant progress into the build log. With
-     * no queue, resolves immediately to the shared Service endpoint.
-     */
-    private async acquireSlot(request: BuildRequest, logStream: BuildLogWriter): Promise<BuildSlot> {
-        if (this.queue == null) {
-            return { addr: this.warmHost, waitMs: 0, release: async () => {} };
-        }
-        return await this.queue.acquire({
-            appName: request.appName,
-            cacheKey: request.cacheKey,
-            signal: request.signal,
-            onWait: (message) => {
-                logStream.write(`\n[previewkit] ${message}\n`);
-            },
-        });
-    }
-
     private dispatchBuild(
         request: BuildRequest,
-        buildkitHost: string,
+        getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         if (request.generatedDockerfile != null) {
-            return this.buildWithGeneratedDockerfile(request, request.generatedDockerfile, buildkitHost, logStream);
+            return this.buildWithGeneratedDockerfile(request, request.generatedDockerfile, getBuildkitHost, logStream);
         }
         const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
         if (dockerfilePath != null) {
-            return this.buildWithBuildctl(request, dockerfilePath, buildkitHost, logStream);
+            return this.buildWithBuildctl(request, dockerfilePath, getBuildkitHost, logStream);
         }
         if (request.monorepoTool != null && request.buildContext != null) {
             switch (request.monorepoTool) {
                 case "turbo":
-                    return this.buildWithTurboMonorepo(request, request.buildContext, buildkitHost, logStream);
+                    return this.buildWithTurboMonorepo(request, request.buildContext, getBuildkitHost, logStream);
                 default:
                     throw new Error(`There's no monorepoTool called ${request.monorepoTool}`);
             }
         }
-        return this.buildWithRailpack(request, buildkitHost, logStream);
+        return this.buildWithRailpack(request, getBuildkitHost, logStream);
     }
 
     private async onTransientError(
@@ -305,19 +304,44 @@ export class BuildKitBuilder implements Builder {
         attempt: number,
         appName: string,
         logStream: BuildLogWriter,
+        signal?: AbortSignal,
     ): Promise<void> {
-        logger.warn("BuildKit transient error, retrying", {
-            app: appName,
-            attempt,
-            maxRetries: BUILD_MAX_RETRIES,
-            message: err.message,
+        this.logger.warn("BuildKit transient error, retrying", {
+            extra: {
+                app: appName,
+                attempt,
+                maxRetries: BUILD_MAX_RETRIES,
+                message: err.message,
+            },
         });
         logStream.write(
             `\n[previewkit] BuildKit transient error - retrying (attempt ${attempt}/${BUILD_MAX_RETRIES})...\n`,
         );
-        // Brief delay so a crashed/evicted BuildKit pod has time to restart
-        // before the next attempt connects.
-        await new Promise<void>((res) => setTimeout(res, BUILDKIT_RETRY_DELAY_MS));
+        // Brief delay before the next isolated build attempt.
+        try {
+            await delay(this.retryDelayMs, undefined, { signal });
+        } catch (err) {
+            if (signal?.aborted === true) {
+                this.logger.info("Build retry delay aborted", { extra: { app: appName } });
+                throw new BuildAbortedError("build aborted between attempts (cancelled)", { cause: err });
+            }
+            const delayError = err instanceof Error ? err : new Error(String(err));
+            this.logger.error("Build retry delay failed", delayError, { extra: { app: appName } });
+            throw err;
+        }
+    }
+
+    private async releaseInstance(instance: { name: string }, appName: string): Promise<boolean> {
+        try {
+            await this.jobManager.release(instance);
+            return true;
+        } catch (err) {
+            const releaseError = err instanceof Error ? err : new Error(String(err));
+            this.logger.error("Failed to release buildkit Job", releaseError, {
+                extra: { app: appName, builderJob: instance.name },
+            });
+            return false;
+        }
     }
 
     /**
@@ -343,25 +367,26 @@ export class BuildKitBuilder implements Builder {
     private async buildWithBuildctl(
         request: BuildRequest,
         dockerfilePath: string,
-        buildkitHost: string,
+        getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         const dockerfileDir = dirname(dockerfilePath);
         const dockerfileName = basename(dockerfilePath);
-
-        logger.info("Building with BuildKit (Dockerfile)", {
-            app: request.appName,
-            dockerfile: dockerfilePath,
-            target: request.target,
-            imageTag: request.imageTag,
-            buildkitHost,
-        });
-
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
         const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
         const buildContext = request.buildContext ?? request.contextPath;
 
         try {
+            const buildkitHost = await getBuildkitHost();
+            this.logger.info("Building with BuildKit (Dockerfile)", {
+                extra: {
+                    app: request.appName,
+                    dockerfile: dockerfilePath,
+                    target: request.target,
+                    imageTag: request.imageTag,
+                    buildkitHost,
+                },
+            });
             const args = [
                 "--addr",
                 buildkitHost,
@@ -411,7 +436,11 @@ export class BuildKitBuilder implements Builder {
             return { imageTag: request.imageTag, runtime: "docker-image" };
         } finally {
             if (dockerConfigDir != null) {
-                await rm(dockerConfigDir, { recursive: true }).catch(() => {});
+                await rm(dockerConfigDir, { recursive: true }).catch((err: unknown) => {
+                    this.logger.warn("Failed to clean up docker config dir", {
+                        extra: { dockerConfigDir, err },
+                    });
+                });
             }
         }
     }
@@ -421,21 +450,14 @@ export class BuildKitBuilder implements Builder {
      * builds). The content is written to a tmp dir that becomes buildctl's
      * `dockerfile` local; the app/repo dir is the `context` local. Build args are
      * pre-baked as `ENV` lines by the generator, so they are NOT passed as
-     * `--opt build-arg`. Image push + cache plumbing match `buildWithBuildctl`.
+     * `--opt build-arg`. Image push behavior matches `buildWithBuildctl`.
      */
     private async buildWithGeneratedDockerfile(
         request: BuildRequest,
         dockerfileContent: string,
-        buildkitHost: string,
+        getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
-        logger.info("Building with generated Dockerfile", {
-            app: request.appName,
-            imageTag: request.imageTag,
-            buildkitHost,
-            dockerfileBytes: dockerfileContent.length,
-        });
-
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
         const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
         const dockerfileDir = join(tmpdir(), `previewkit-generated-dockerfile-${randomUUID()}`);
@@ -443,6 +465,15 @@ export class BuildKitBuilder implements Builder {
 
         try {
             await writeFile(join(dockerfileDir, "Dockerfile"), dockerfileContent);
+            const buildkitHost = await getBuildkitHost();
+            this.logger.info("Building with generated Dockerfile", {
+                extra: {
+                    app: request.appName,
+                    imageTag: request.imageTag,
+                    buildkitHost,
+                    dockerfileBytes: dockerfileContent.length,
+                },
+            });
 
             const args = [
                 "--addr",
@@ -471,11 +502,15 @@ export class BuildKitBuilder implements Builder {
             return { imageTag: request.imageTag, runtime: "docker-image" };
         } finally {
             await rm(dockerfileDir, { recursive: true }).catch((err) =>
-                logger.warn("Failed to clean up generated dockerfile dir", { dockerfileDir, err }),
+                this.logger.warn("Failed to clean up generated dockerfile dir", {
+                    extra: { dockerfileDir, err },
+                }),
             );
             if (dockerConfigDir != null) {
                 await rm(dockerConfigDir, { recursive: true }).catch((err) =>
-                    logger.warn("Failed to clean up docker config dir", { dockerConfigDir, err }),
+                    this.logger.warn("Failed to clean up docker config dir", {
+                        extra: { dockerConfigDir, err },
+                    }),
                 );
             }
         }
@@ -483,14 +518,15 @@ export class BuildKitBuilder implements Builder {
 
     private async buildWithRailpack(
         request: BuildRequest,
-        buildkitHost: string,
+        getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
-        logger.info("Building with railpack (auto-detect)", {
-            app: request.appName,
-            contextPath: request.contextPath,
-            imageTag: request.imageTag,
-            buildkitHost,
+        this.logger.info("Preparing build with railpack (auto-detect)", {
+            extra: {
+                app: request.appName,
+                contextPath: request.contextPath,
+                imageTag: request.imageTag,
+            },
         });
 
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
@@ -509,6 +545,15 @@ export class BuildKitBuilder implements Builder {
                 request.signal,
             );
             const runtime = await detectRailpackRuntime(planPath);
+            const buildkitHost = await getBuildkitHost();
+            this.logger.info("Building prepared railpack plan with BuildKit", {
+                extra: {
+                    app: request.appName,
+                    imageTag: request.imageTag,
+                    runtime,
+                    buildkitHost,
+                },
+            });
 
             const buildContext = request.buildContext ?? request.contextPath;
             const args = [
@@ -545,9 +590,15 @@ export class BuildKitBuilder implements Builder {
             await this.exec("buildctl", args, extraEnv, logStream, request.signal);
             return { imageTag: request.imageTag, runtime };
         } finally {
-            await rm(planDir, { recursive: true }).catch(() => {});
+            await rm(planDir, { recursive: true }).catch((err: unknown) => {
+                this.logger.warn("Failed to clean up railpack plan dir", { extra: { planDir, err } });
+            });
             if (dockerConfigDir != null) {
-                await rm(dockerConfigDir, { recursive: true }).catch(() => {});
+                await rm(dockerConfigDir, { recursive: true }).catch((err: unknown) => {
+                    this.logger.warn("Failed to clean up docker config dir", {
+                        extra: { dockerConfigDir, err },
+                    });
+                });
             }
         }
     }
@@ -562,7 +613,7 @@ export class BuildKitBuilder implements Builder {
     private async buildWithTurboMonorepo(
         request: BuildRequest,
         buildContext: string,
-        buildkitHost: string,
+        getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         const plan = planTurboMonorepoBuild({
@@ -571,22 +622,25 @@ export class BuildKitBuilder implements Builder {
             buildArgs: request.buildArgs,
         });
 
-        logger.info("Building turbo monorepo app with railpack", {
-            app: request.appName,
-            buildContext,
-            relAppDir: plan.relAppDir,
-            packageManager: plan.pm,
-            filterArg: plan.filterArg,
-            imageTag: request.imageTag,
-            buildkitHost,
+        this.logger.info("Preparing turbo monorepo app with railpack", {
+            extra: {
+                app: request.appName,
+                buildContext,
+                relAppDir: plan.relAppDir,
+                packageManager: plan.pm,
+                filterArg: plan.filterArg,
+                imageTag: request.imageTag,
+            },
         });
 
         const nonNodeManifests = detectNonNodeRootManifests(buildContext);
         if (nonNodeManifests.length > 0) {
-            logger.info("Non-Node manifests detected at monorepo root - forcing railpack provider=node", {
-                app: request.appName,
-                buildContext,
-                manifests: nonNodeManifests,
+            this.logger.info("Non-Node manifests detected at monorepo root - forcing railpack provider=node", {
+                extra: {
+                    app: request.appName,
+                    buildContext,
+                    manifests: nonNodeManifests,
+                },
             });
         }
 
@@ -613,6 +667,14 @@ export class BuildKitBuilder implements Builder {
                 logStream,
                 request.signal,
             );
+            const buildkitHost = await getBuildkitHost();
+            this.logger.info("Building prepared turbo monorepo plan with BuildKit", {
+                extra: {
+                    app: request.appName,
+                    imageTag: request.imageTag,
+                    buildkitHost,
+                },
+            });
 
             const args = [
                 "--addr",
@@ -649,12 +711,14 @@ export class BuildKitBuilder implements Builder {
             return { imageTag: request.imageTag, runtime: "node" };
         } finally {
             await rm(planDir, { recursive: true }).catch((err) => {
-                logger.warn("Failed to clean up railpack plan dir", { planDir, err });
+                this.logger.warn("Failed to clean up railpack plan dir", { extra: { planDir, err } });
             });
             await cleanupRailpackConfig();
             if (dockerConfigDir != null) {
                 await rm(dockerConfigDir, { recursive: true }).catch((err) => {
-                    logger.warn("Failed to clean up docker config dir", { dockerConfigDir, err });
+                    this.logger.warn("Failed to clean up docker config dir", {
+                        extra: { dockerConfigDir, err },
+                    });
                 });
             }
         }
@@ -721,7 +785,7 @@ export class BuildKitBuilder implements Builder {
                     reject(
                         new BuildError(`${command} exited with code ${code}`, {
                             isTransient,
-                            ...(isTransient ? { userFacingMessage: BUILD_INFRA_UNAVAILABLE_MESSAGE } : {}),
+                            ...(isTransient ? { userFacingMessage: BUILD_MESSAGES.infrastructureUnavailable } : {}),
                         }),
                     );
                 }
@@ -747,7 +811,7 @@ async function detectRailpackRuntime(planPath: string): Promise<BuildRuntime> {
         if (containsNodeRuntimeSignal(plan)) return "node";
         return "unknown";
     } catch (err) {
-        logger.warn("Failed to detect Railpack runtime", { planPath, err });
+        rootLogger.warn("Failed to detect Railpack runtime", { extra: { planPath, err } });
         return "unknown";
     }
 }

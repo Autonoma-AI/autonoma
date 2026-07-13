@@ -1,7 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
-import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { serve } from "@hono/node-server";
 import * as Sentry from "@sentry/node";
@@ -10,7 +9,6 @@ import { createApiApp, shutdownApi } from "./app";
 import { bootstrapApiRuntime } from "./bootstrap";
 import { env } from "./env";
 import { MetricsServer } from "./metrics/metrics-server";
-import { PreviewkitBuildMetrics } from "./metrics/previewkit-build-metrics";
 
 bootstrapApiRuntime();
 
@@ -54,12 +52,10 @@ async function start() {
 
     const server = serve({ fetch: app.fetch, port });
 
-    // Prometheus endpoint on its own port: Node.js process metrics plus the
-    // previewkit build-load gauge, scraped via the pod annotations in
+    // Prometheus endpoint on its own port, scraped via the pod annotations in
     // deployment/apps/api.yaml.
     const metricsRegistry = new Registry();
     collectDefaultMetrics({ register: metricsRegistry });
-    new PreviewkitBuildMetrics(db, metricsRegistry);
     const metricsServer = new MetricsServer(metricsRegistry, env.METRICS_PORT);
     metricsServer.start();
 
