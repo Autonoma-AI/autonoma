@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { type AgentResult, buildDefaultStepLogger, formatRetryGuidance, runAgent } from "../../core/agent";
@@ -26,13 +26,24 @@ class PageTracker {
     registered = new Set<string>();
     read = new Set<string>();
 
+    // Registered pages (from pages.json) are absolute paths, but the agent reads them
+    // with paths relative to the working directory. Canonicalize both to an absolute
+    // path against projectRoot so coverage matches regardless of how each side spelled
+    // it - otherwise the finish gate never clears and the agent nudges out re-reading.
+    constructor(private readonly projectRoot: string) {}
+
+    private normalize(filePath: string): string {
+        return resolve(this.projectRoot, filePath);
+    }
+
     register(pages: string[]) {
-        for (const p of pages) this.registered.add(p);
+        for (const p of pages) this.registered.add(this.normalize(p));
     }
 
     markRead(filePath: string) {
-        if (this.registered.has(filePath)) {
-            this.read.add(filePath);
+        const normalized = this.normalize(filePath);
+        if (this.registered.has(normalized)) {
+            this.read.add(normalized);
         }
     }
 
@@ -76,20 +87,40 @@ function buildPageCoverageTool(tracker: PageTracker) {
     });
 }
 
+// "Small" vs "large" app is decided purely by how many routes were registered - the one
+// number that drives the coverage problem. At or below this many routes the agent can
+// (and must) read every one, so the finish gate demands 100%. Above it, a single pass
+// samples the app rather than reading all routes, and an unreachable 100% gate makes the
+// agent nudge-thrash; there we let it finish once it has covered a solid floor instead.
+const FULL_COVERAGE_MAX_ROUTES = 40;
+const LARGE_APP_COVERAGE_FLOOR = 0.5;
+
+/** How many registered routes must be read before finish is allowed, given the total. */
+function requiredReads(total: number): number {
+    if (total <= FULL_COVERAGE_MAX_ROUTES) return total;
+    return Math.ceil(total * LARGE_APP_COVERAGE_FLOOR);
+}
+
 function buildFinishTool(tracker: PageTracker, onFinish: (result: AgentResult) => void) {
     return tool({
         description:
             "Call when you have finished generating the knowledge base. " +
-            "BLOCKED if there are unread pages - call page_coverage first to check.",
+            "BLOCKED until you have read enough of the registered routes (every route on a small app; a strong " +
+            "majority on a large one) - call page_coverage first to check how many remain.",
         inputSchema: z.object({
             summary: z.string().describe("Summary of what was generated"),
             artifacts: z.array(z.string()).describe("List of files written"),
         }),
         execute: async (input) => {
             const cov = tracker.coverage();
-            if (cov.unread.length > 0) {
+            const required = requiredReads(cov.total);
+            if (cov.read < required) {
+                const preview = cov.unread.slice(0, 40).join("\n");
+                const more = cov.unread.length > 40 ? `\n...and ${cov.unread.length - 40} more` : "";
                 return {
-                    error: `Cannot finish: ${cov.unread.length}/${cov.total} pages not yet read. Read these files first:\n${cov.unread.join("\n")}`,
+                    error:
+                        `Cannot finish: only ${cov.read}/${cov.total} routes read - read at least ${required - cov.read} ` +
+                        `more (target ${required} of ${cov.total}). Start with:\n${preview}${more}`,
                 };
             }
             onFinish({
@@ -114,11 +145,45 @@ function buildTrackedReadTool(tracker: PageTracker, baseTool: ReturnType<typeof 
     });
 }
 
+/**
+ * The KB agent config, parameterized by the page tracker so the main generation pass and
+ * the finalization passes each get their own coverage gate. Keeping this in one place
+ * means the tuned SYSTEM_PROMPT and tool wiring stay identical across every pass.
+ */
+function buildKbAgentConfig(
+    tracker: PageTracker,
+    model: ReturnType<typeof getModel>,
+    input: KBGeneratorInput,
+    onStepFinish: ReturnType<typeof buildDefaultStepLogger>["onStepFinish"],
+    setResult: (r: AgentResult) => void,
+) {
+    return {
+        id: "kb-generator",
+        systemPrompt: SYSTEM_PROMPT,
+        model,
+        maxSteps: 150,
+        tools: async (heartbeat: () => void) => {
+            const onFileRead = (path: string) => tracker.markRead(path);
+            const tools = await buildCodebaseTools(model, input.projectRoot, input.outputDir, heartbeat, onFileRead);
+            return {
+                ...tools,
+                read_file: buildTrackedReadTool(tracker, tools.read_file),
+                register_pages: buildRegisterPagesTool(tracker),
+                page_coverage: buildPageCoverageTool(tracker),
+                finish: buildFinishTool(tracker, setResult),
+            };
+        },
+        onStepFinish,
+    };
+}
+
 export async function runKBGenerator(input: KBGeneratorInput): Promise<AgentResult> {
     const model = getModel(input.modelId);
 
     let result: AgentResult | undefined;
-    const tracker = new PageTracker();
+    const setResult = (r: AgentResult) => {
+        result = r;
+    };
 
     const { logger, onStepFinish } = buildDefaultStepLogger("kb", 150);
 
@@ -127,6 +192,8 @@ export async function runKBGenerator(input: KBGeneratorInput): Promise<AgentResu
         formatRetryGuidance(input.retryGuidance);
 
     const pages = input.projectContext?.pages;
+
+    const tracker = new PageTracker(input.projectRoot);
     if (pages?.length) {
         tracker.register(pages.map((p) => p.path));
     }
@@ -140,7 +207,7 @@ Pages have already been discovered (${pages.length} routes pre-registered). You 
 2. Read EVERY registered page file with read_file - the system tracks this
 3. Write AUTONOMA.md progressively as you go (update it after each major area)
 4. Call page_coverage to verify you've read all pages
-5. Call finish - it will REJECT if pages are unread
+5. Call finish - it will REJECT if you have not read enough of the registered routes
 
 Output files:
 1. AUTONOMA.md - with YAML frontmatter (app_name, app_description, core_flows, feature_count)`
@@ -153,32 +220,12 @@ MANDATORY PROCESS:
 4. Read EVERY registered page file with read_file - the system tracks this
 5. Write AUTONOMA.md progressively as you go (update it after each major area)
 6. Call page_coverage to verify you've read all pages
-7. Call finish - it will REJECT if pages are unread
+7. Call finish - it will REJECT if you have not read enough of the registered routes
 
 Output files:
 1. AUTONOMA.md - with YAML frontmatter (app_name, app_description, core_flows, feature_count)`;
 
-    const agentConfig = {
-        id: "kb-generator",
-        systemPrompt: SYSTEM_PROMPT,
-        model,
-        maxSteps: 150,
-        tools: async (heartbeat: () => void) => {
-            const onFileRead = (path: string) => tracker.markRead(path);
-            const tools = await buildCodebaseTools(model, input.projectRoot, input.outputDir, heartbeat, onFileRead);
-            return {
-                ...tools,
-                read_file: buildTrackedReadTool(tracker, tools.read_file),
-                register_pages: buildRegisterPagesTool(tracker),
-                page_coverage: buildPageCoverageTool(tracker),
-                finish: buildFinishTool(tracker, (r) => {
-                    result = r;
-                }),
-            };
-        },
-        onStepFinish,
-    };
-
+    const agentConfig = buildKbAgentConfig(tracker, model, input, onStepFinish, setResult);
     await runAgent(agentConfig, prompt, () => result);
     logger.summary();
 
@@ -202,6 +249,17 @@ Output files:
         };
     }
 
+    // Config for the finalization passes (self-review + user review). AUTONOMA.md is
+    // already written by now, so register every route as read - the coverage gate must
+    // not block these passes from re-calling finish after edits.
+    const finalTracker = new PageTracker(input.projectRoot);
+    if (pages?.length) {
+        const paths = pages.map((p) => p.path);
+        finalTracker.register(paths);
+        for (const path of paths) finalTracker.markRead(path);
+    }
+    const finalConfig = buildKbAgentConfig(finalTracker, model, input, onStepFinish, setResult);
+
     // Self-review pass: before involving the user, make the agent verify that the
     // flows the user explicitly declared critical actually landed in core_flows as
     // core: true - and fix the file if not. Targets "a starting input was ignored".
@@ -221,7 +279,7 @@ Read your AUTONOMA.md output. For EACH critical flow the user named:
 If any declared critical flow is missing, mismatched, or left core: false, FIX AUTONOMA.md now - add the feature if it is genuinely absent, or flip core to true with a coreReason. Do not downgrade or drop anything the user declared critical.
 
 When AUTONOMA.md correctly reflects every declared critical flow, call finish.`;
-        await runAgent(agentConfig, selfReviewPrompt, () => result);
+        await runAgent(finalConfig, selfReviewPrompt, () => result);
         // If the agent didn't re-call finish (e.g. no changes needed), keep the prior result.
         if (!result) result = beforeSelfReview;
     }
@@ -250,7 +308,7 @@ Read your previous output file (AUTONOMA.md) from the output directory to see wh
 Adjust based on the feedback. You can read source files again if needed.
 Call page_coverage to see current state. When done with changes, call finish again.`;
 
-            await runAgent(agentConfig, feedbackPrompt, () => result);
+            await runAgent(finalConfig, feedbackPrompt, () => result);
             return result;
         },
     });

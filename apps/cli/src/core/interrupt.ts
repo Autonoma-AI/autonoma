@@ -17,7 +17,7 @@ const FORCE_EXIT_MS = 2500;
 let installed = false;
 let armed = false;
 let armTimer: ReturnType<typeof setTimeout> | undefined;
-let onExit: (() => void) | undefined;
+let onExit: ((exitCode?: number) => void) | undefined;
 let quitting = false;
 
 function disarm(): void {
@@ -71,7 +71,7 @@ function handleInterrupt(): void {
  * Works both while a clack prompt owns stdin (via a SIGINT listener injected
  * onto each readline interface) and between prompts (via process SIGINT).
  */
-export function installInterruptHandler(opts: { onExit: () => void }): void {
+export function installInterruptHandler(opts: { onExit: (exitCode?: number) => void }): void {
     onExit = opts.onExit;
     if (installed) return;
     installed = true;
@@ -96,6 +96,71 @@ export function installInterruptHandler(opts: { onExit: () => void }): void {
         iface.on("SIGINT", handleInterrupt);
         return iface;
     }) as typeof readline.createInterface;
+}
+
+/**
+ * Surface *why* the process ends when it isn't a clean Ctrl+C: an external
+ * SIGTERM/SIGHUP (a task reaper, a parent shell going away, an OOM-adjacent kill),
+ * or a crash from an unhandled exception/rejection that would otherwise die with no
+ * breadcrumb. Each writes one greppable `[diagnostics]` line - including memory stats,
+ * which hint at pressure-related kills - before letting the process go. SIGKILL cannot
+ * be caught and leaves no trace by design; if a run vanishes with none of these lines,
+ * it was SIGKILL (or the host pulled the whole environment).
+ */
+export function installTerminationDiagnostics(): void {
+    const memSnapshot = (): string => {
+        const m = process.memoryUsage();
+        const mb = (n: number): number => Math.round(n / 1024 / 1024);
+        return `rss=${mb(m.rss)}MB heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB`;
+    };
+
+    for (const signal of ["SIGTERM", "SIGHUP"] as const) {
+        // 128 + signal number (SIGTERM=15, SIGHUP=1), the conventional exit codes.
+        const forcedCode = signal === "SIGTERM" ? 143 : 129;
+        process.on(signal, () => {
+            process.stderr.write(`\n[diagnostics] received ${signal} - external termination (${memSnapshot()})\n`);
+            terminateGracefully(forcedCode);
+        });
+    }
+
+    process.on("uncaughtException", (err) => {
+        const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+        process.stderr.write(`\n[diagnostics] uncaughtException (${memSnapshot()}): ${detail}\n`);
+        restoreTerminal();
+        process.exit(1);
+    });
+
+    // An unhandled rejection is an un-awaited promise that failed - a real bug. Node's default
+    // is to terminate the process; a listener that only logged would silently override that and
+    // let the pipeline continue in a corrupted state (emitting a bad plan/factory from a
+    // half-finished step). Surface the breadcrumb, then honor the crash instead of swallowing it.
+    process.on("unhandledRejection", (reason) => {
+        const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+        process.stderr.write(`\n[diagnostics] unhandledRejection (${memSnapshot()}): ${detail}\n`);
+        restoreTerminal();
+        process.exit(1);
+    });
+}
+
+/**
+ * Terminate in response to an external signal, but let the graceful shutdown hook run first so
+ * buffered analytics are flushed and the resume hint is printed. The hook is handed `forcedCode`
+ * so its own exit carries the conventional signal code (143/129) instead of a clean 0 - otherwise
+ * a reaper/CI reading the exit code couldn't tell an external kill from normal completion. A
+ * FORCE_EXIT_MS failsafe guarantees the process still closes with that code if the async flush
+ * ever stalls; with no hook wired (or a graceful exit already in flight) we exit immediately.
+ */
+function terminateGracefully(forcedCode: number): void {
+    if (quitting || onExit == null) {
+        restoreTerminal();
+        process.exit(forcedCode);
+    }
+    quitting = true;
+    setTimeout(() => {
+        restoreTerminal();
+        process.exit(forcedCode);
+    }, FORCE_EXIT_MS).unref?.();
+    onExit(forcedCode);
 }
 
 /** Best-effort terminal restore before an abrupt exit. */

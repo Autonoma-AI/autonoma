@@ -7,6 +7,11 @@ export interface AppConfig {
     projectRoot: string;
     projectSlug: string;
     modelId?: string;
+    // Pre-supplied project-map selection (skips the interactive frontend/backend
+    // picker): the single frontend to test and the backends it needs. Used by CI,
+    // the eval harness, and any caller that already knows the target surface.
+    frontend?: string;
+    backends?: string[];
     databaseUrl?: string;
     sdkEndpointUrl?: string;
     sharedSecret?: string;
@@ -42,7 +47,13 @@ function loadProjectEnv(projectRoot: string): void {
     }
 }
 
-export function loadConfig(args: { project?: string; model?: string; slug?: string }): AppConfig {
+export function loadConfig(args: {
+    project?: string;
+    model?: string;
+    slug?: string;
+    frontend?: string;
+    backends?: string[];
+}): AppConfig {
     const projectRoot = resolve(args.project ?? process.cwd());
 
     // Precedence: real shell env > project .env > global ~/.autonoma/.env.
@@ -69,6 +80,8 @@ export function loadConfig(args: { project?: string; model?: string; slug?: stri
         projectRoot,
         projectSlug,
         modelId: args.model ?? env.OPENROUTER_MODEL,
+        frontend: args.frontend,
+        backends: args.backends,
         databaseUrl: env.DATABASE_URL,
         sdkEndpointUrl: env.SDK_ENDPOINT_URL,
         sharedSecret: env.AUTONOMA_SHARED_SECRET,

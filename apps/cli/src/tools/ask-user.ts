@@ -19,6 +19,14 @@ export function buildAskUserTool() {
                 ),
         }),
         execute: async (input) => {
+            // In non-interactive / no-TTY runs there is no human to answer, and
+            // clack's prompt would block forever waiting on a TTY. Auto-skip so the
+            // agent falls back to inferring the answer from the codebase.
+            if (!process.stdin.isTTY) {
+                return {
+                    answer: "No interactive user is available (non-interactive run). Do not ask again - infer the answer by reading the relevant model/schema/service files in the codebase and proceed with your best judgment.",
+                };
+            }
             const answer = await p.text({ message: input.question });
             if (p.isCancel(answer)) return { answer: "User skipped this question" };
             return { answer };

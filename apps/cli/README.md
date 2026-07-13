@@ -15,12 +15,26 @@ npx @autonoma-ai/planner@latest
 Commands:
 
 ```bash
-autonoma-planner [run] [--project <path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]
+autonoma-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] \
+                 [--model <id>] [--step <name>] [--resume] [--non-interactive]
 autonoma-planner status [--project <path>]
 ```
 
 `run` is the default and may be omitted. A run can take an hour or more; progress is saved, so you
 can stop and `--resume` later.
+
+### Monorepos
+
+The run starts by mapping your repository - discovering which folder(s) are frontends, which are
+backends/data layers, and which are unrelated - so every later step scans only the relevant code
+instead of the whole tree. In an interactive run you pick the frontend to test (and its backends)
+from a menu. To scope non-interactively, pass:
+
+- `--frontend <path>` - the one frontend directory to plan tests for.
+- `--backends <path,path>` - comma-separated backend/data-layer directories it depends on. Omit to
+  default to the dependencies the mapper inferred for that frontend.
+
+For a single-app repo the mapper resolves the scope on its own and no flags are needed.
 
 ## Output
 
@@ -28,6 +42,7 @@ Artifacts are written to `~/.autonoma/<project-slug>/`:
 
 ```
 ~/.autonoma/<app>/
+├── project-map.json  # discovered frontends/backends + the scope chosen for this run
 ├── AUTONOMA.md       # knowledge base
 ├── scenarios.md      # test-data scenario descriptions
 ├── entity-audit.md   # database model audit

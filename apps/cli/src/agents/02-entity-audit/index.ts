@@ -14,6 +14,11 @@ import { buildAskUserTool } from "../../tools/ask-user";
 import { parseAuditedModels, renderEntityAuditTable } from "./audit-table";
 import { SYSTEM_PROMPT } from "./prompt";
 
+// Each model costs the agent ~2 steps (grep for its creation path, mark it audited), so a
+// large shared schema needs headroom well above a typical app's. At 200 the agent step-outs
+// mid-audit; 400 covers ~200 models with the safety net still catching anything larger.
+const MAX_STEPS = 400;
+
 export interface EntityAuditInput {
     projectRoot: string;
     outputDir: string;
@@ -21,6 +26,12 @@ export interface EntityAuditInput {
     projectContext?: ProjectContext;
     nonInteractive?: boolean;
     retryGuidance?: string;
+    /**
+     * Optional scope hint from the project map: which backend(s)/data-layer(s) own the
+     * models to audit, so a monorepo run stays on the selected schema instead of the
+     * whole tree. Appended to the task prompt; never edits the tuned system prompt.
+     */
+    scopeHint?: string;
 }
 
 interface CreatedByEntry {
@@ -347,10 +358,12 @@ export async function runEntityAudit(input: EntityAuditInput): Promise<AgentResu
         preRegisteredCount = detection.models.length;
     }
 
-    const { logger, onStepFinish } = buildDefaultStepLogger("entity-audit", 200);
+    const { logger, onStepFinish } = buildDefaultStepLogger("entity-audit", MAX_STEPS);
 
+    const scopeBlock = input.scopeHint != null ? `\n${input.scopeHint}\n` : "";
     const contextBlock =
         (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
+        scopeBlock +
         formatRetryGuidance(input.retryGuidance);
 
     const preRegBlock =
@@ -391,7 +404,7 @@ write_file already targets the output directory - use just the filename.`;
         id: "entity-audit",
         systemPrompt: SYSTEM_PROMPT,
         model,
-        maxSteps: 200,
+        maxSteps: MAX_STEPS,
         tools: async (heartbeat: () => void) => {
             const tools = await buildCodebaseTools(model, input.projectRoot, input.outputDir, heartbeat);
             return {

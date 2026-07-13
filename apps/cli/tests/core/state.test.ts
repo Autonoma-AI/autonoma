@@ -49,6 +49,9 @@ describe("state", () => {
 
     test("nextPendingStep returns first pending step", () => {
         const state = initialState();
+        expect(nextPendingStep(state)).toBe("projectMapper");
+
+        state.steps.projectMapper = "done";
         expect(nextPendingStep(state)).toBe("pagesFinder");
 
         state.steps.pagesFinder = "done";
@@ -65,6 +68,7 @@ describe("state", () => {
 
     test("nextPendingStep returns null when all done", () => {
         const state = initialState();
+        state.steps.projectMapper = "done";
         state.steps.pagesFinder = "done";
         state.steps.kb = "done";
         state.steps.entityAudit = "done";

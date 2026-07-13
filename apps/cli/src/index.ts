@@ -9,7 +9,7 @@ import { track, trackError, flushAnalytics } from "./core/analytics";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
 import { type ProjectContext, saveContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
-import { installInterruptHandler, restoreTerminal } from "./core/interrupt";
+import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { DEFAULT_MODEL } from "./core/model";
 import { ensureOutputDir } from "./core/output";
 import { readEnv } from "./env";
@@ -19,6 +19,19 @@ import { readEnv } from "./env";
 process.setSourceMapsEnabled(true);
 import { loadGitInfo, readGitInfo, saveGitInfo } from "./core/git";
 import { notify } from "./core/notify";
+import {
+    applySelection,
+    defaultBackendsFor,
+    formatBackendScope,
+    formatFrontendScope,
+    loadProjectMap,
+    type ProjectMap,
+    pickDefaultSelection,
+    renderProjectMap,
+    resolveSelection,
+    saveProjectMap,
+    type ScopeSelection,
+} from "./core/project-map";
 import { loadState, markStep, nextPendingStep, type StepName, type PipelineState } from "./core/state";
 import { uploadArtifacts } from "./core/upload";
 
@@ -71,6 +84,7 @@ function strArg(args: Record<string, string | boolean>, key: string): string | u
 }
 
 const STEP_LABELS: Record<StepName, string> = {
+    projectMapper: "Map your project structure",
     pagesFinder: "Find your pages",
     kb: "Build a knowledge base",
     entityAudit: "Map your data models",
@@ -86,6 +100,7 @@ function isStepName(value: string): value is StepName {
 // One-line plain-language summary per step, used in the upfront overview and the
 // "continue?" prompts so it's always clear what's coming before it runs.
 const STEP_SUMMARIES: Record<StepName, string> = {
+    projectMapper: "Identify your frontend(s), backend(s), and which folders to ignore.",
     pagesFinder: "Map every page and route in your app.",
     kb: "Learn your app's features, flows, and UI patterns.",
     entityAudit: "Find what your app stores (users, orgs, ...) and how each one is created.",
@@ -95,6 +110,8 @@ const STEP_SUMMARIES: Record<StepName, string> = {
 };
 
 const STEP_INTROS: Record<StepName, string> = {
+    projectMapper:
+        "Looking at how your codebase is laid out - which folder(s) are the frontend, which are the backend/data layer, and which are unrelated - so every later step scans only what matters instead of the whole repo.",
     pagesFinder:
         "Scanning your codebase to find every page and route, so we know the full surface area that needs test coverage.",
     kb: "Reading those pages to learn your app's features, flows, and UI patterns - the context everything after this builds on.",
@@ -107,6 +124,60 @@ const STEP_INTROS: Record<StepName, string> = {
     testGenerator:
         "Writing the actual end-to-end tests, covering every page and feature with depth proportional to its complexity.",
 };
+
+/**
+ * Turn the mapper's candidate map into a single testable surface. Precedence:
+ * (1) an explicit selection supplied by the caller (flags / harness) always wins;
+ * (2) interactively, ask via a radio (frontend) + checkbox (backends) picker;
+ * (3) non-interactively with no explicit choice, only proceed if unambiguous
+ *     (exactly one frontend), otherwise return undefined so the caller pauses.
+ */
+async function resolveScopeSelection(
+    map: ProjectMap,
+    config: ReturnType<typeof loadConfig>,
+    nonInteractive?: boolean,
+): Promise<ScopeSelection | undefined> {
+    if (config.frontend != null) {
+        // Resolve tolerantly first: a fullstack app's own backend may be named at the
+        // app root or a nested api dir depending on the run, so match the requested
+        // path against what this map actually produced before defaulting the backends.
+        const requestedFrontend = resolveSelection(map, { frontend: config.frontend, backends: [] }).frontend;
+        // An explicit --backends is validated loudly by applySelection; a defaulted set
+        // comes from the LLM's dependsOn, so drop entries that map to no real backend
+        // instead of letting them reach applySelection and hard-fail the whole run.
+        const backends = config.backends ?? defaultBackendsFor(map, requestedFrontend);
+        return resolveSelection(map, { frontend: config.frontend, backends });
+    }
+
+    if (!nonInteractive) return promptScopeSelection(map);
+
+    return pickDefaultSelection(map);
+}
+
+/** Interactive radio (frontend) + checkbox (backends, pre-checked to the frontend's dependencies). */
+async function promptScopeSelection(map: ProjectMap): Promise<ScopeSelection> {
+    const frontend = await p.select({
+        message: "Which frontend do you want to plan tests for?",
+        options: map.frontends.map((f) => ({ value: f.path, label: `${f.path}  [${f.framework}]`, hint: f.why })),
+    });
+    if (p.isCancel(frontend)) throw new Error("Cancelled");
+
+    if (map.backends.length === 0) return { frontend, backends: [] };
+
+    // Resolve dependsOn through the same tolerant matcher the non-interactive path uses, so a
+    // dependency named by its data-layer schema path still pre-checks its owning backend option
+    // (whose value is the backend's own path) instead of silently going un-checked.
+    const needed = defaultBackendsFor(map, frontend);
+    const backends = await p.multiselect({
+        message: "Which backends does it need? (pre-checked: the ones it depends on)",
+        options: map.backends.map((b) => ({ value: b.path, label: `${b.path}  [${b.framework}]`, hint: b.why })),
+        initialValues: needed,
+        required: false,
+    });
+    if (p.isCancel(backends)) throw new Error("Cancelled");
+
+    return { frontend, backends };
+}
 
 async function runStep(
     step: StepName,
@@ -136,13 +207,60 @@ async function runStep(
         let result: AgentResult | undefined;
 
         switch (step) {
+            case "projectMapper": {
+                const { runProjectMapper } = await import("./agents/00-project-mapper/index");
+                const map = await runProjectMapper({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    nonInteractive,
+                });
+                if (map == null) {
+                    result = { success: false, artifacts: [], summary: "Project mapper did not produce a map." };
+                    break;
+                }
+                if (map.frontends.length === 0) {
+                    result = {
+                        success: false,
+                        artifacts: [],
+                        summary: "Project mapper found no frontend to test. Point --project at a codebase with a UI.",
+                    };
+                    break;
+                }
+
+                // The mapper only DISCOVERS candidates. Narrow to the one frontend we test
+                // (radio) plus the backends it needs (checkbox). When non-interactive and
+                // ambiguous, persist the candidates and pause so the caller (Claude / CI)
+                // can resume with --frontend/--backends.
+                const selection = await resolveScopeSelection(map, config, nonInteractive);
+                if (selection == null) {
+                    await saveProjectMap(outputDir, map);
+                    p.note(renderProjectMap(map), "Project map - candidates (pick one frontend + its backends)");
+                    result = {
+                        success: false,
+                        paused: true,
+                        artifacts: [],
+                        summary:
+                            `Found ${map.frontends.length} candidate frontends. Choose one and its backends, then ` +
+                            "resume with --frontend <path> --backends <path,path>.",
+                    };
+                    break;
+                }
+
+                const scoped = applySelection(map, selection);
+                await saveProjectMap(outputDir, scoped);
+                p.note(renderProjectMap(scoped), "Project map");
+                break;
+            }
             case "pagesFinder": {
                 const { runPageFinder } = await import("./agents/00-pages-finder/index");
+                const projectMap = await loadProjectMap(outputDir);
                 const pages = await runPageFinder({
                     projectRoot: config.projectRoot,
                     outputDir,
                     modelId: config.modelId,
                     nonInteractive,
+                    extraMessage: projectMap != null ? formatFrontendScope(projectMap) : undefined,
                 });
                 await savePages(outputDir, pages);
                 break;
@@ -161,6 +279,7 @@ async function runStep(
             }
             case "entityAudit": {
                 const { runEntityAudit } = await import("./agents/02-entity-audit/index");
+                const auditMap = await loadProjectMap(outputDir);
                 result = await runEntityAudit({
                     projectRoot: config.projectRoot,
                     outputDir,
@@ -168,11 +287,13 @@ async function runStep(
                     projectContext,
                     nonInteractive,
                     retryGuidance,
+                    scopeHint: auditMap != null ? formatBackendScope(auditMap) : undefined,
                 });
                 break;
             }
             case "scenarioRecipe": {
                 const { runScenarioRecipe } = await import("./agents/03-scenario-recipe/index");
+                const recipeMap = await loadProjectMap(outputDir);
                 result = await runScenarioRecipe({
                     projectRoot: config.projectRoot,
                     outputDir,
@@ -181,6 +302,7 @@ async function runStep(
                     projectContext,
                     nonInteractive,
                     retryGuidance,
+                    scopeHint: recipeMap != null ? formatBackendScope(recipeMap) : undefined,
                 });
                 break;
             }
@@ -389,6 +511,10 @@ async function gatherProjectContext(): Promise<ProjectContext | undefined> {
 }
 
 async function main() {
+    // Before anything else, arm diagnostics so a SIGTERM/SIGHUP or a swallowed async
+    // error leaves a greppable breadcrumb instead of the run just vanishing.
+    installTerminationDiagnostics();
+
     const args = parseArgs(process.argv.slice(2));
     const command = process.argv[2];
 
@@ -408,7 +534,7 @@ async function main() {
     if (command === "help" || args.help) {
         console.log("Usage:");
         console.log(
-            "  test-planner [run] [--project <path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]",
+            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]",
         );
         console.log("  test-planner status [--project <path>]");
         console.log("");
@@ -422,19 +548,31 @@ async function main() {
     // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
     const resumeCommand = `autonoma-planner --resume` + (args.project ? ` --project ${args.project}` : "");
     installInterruptHandler({
-        onExit: () => {
+        // exitCode defaults to 0 for a user-initiated Ctrl+C (progress saved, a clean stop);
+        // an external SIGTERM/SIGHUP passes the conventional 143/129 so the flushed exit still
+        // carries the signal code a reaper/CI reads, not a 0 that looks like normal completion.
+        onExit: (exitCode = 0) => {
             track("cli_run_exited");
             restoreTerminal();
             console.log("");
             p.log.warn(`Your progress is saved. To resume, run:\n  ${resumeCommand}`);
-            void flushAnalytics().finally(() => process.exit(0));
+            void flushAnalytics().finally(() => process.exit(exitCode));
         },
     });
 
+    const backendsArg = strArg(args, "backends");
     const config = loadConfig({
         project: strArg(args, "project"),
         model: strArg(args, "model"),
         slug: strArg(args, "slug"),
+        frontend: strArg(args, "frontend"),
+        backends:
+            backendsArg != null
+                ? backendsArg
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0)
+                : undefined,
     });
 
     if (!ensureAutonomaAuth()) {
@@ -549,13 +687,21 @@ async function main() {
         return;
     }
 
-    const startStep = isResuming ? nextPendingStep(state) : "pagesFinder";
+    const startStep = isResuming ? nextPendingStep(state) : "projectMapper";
     if (!startStep) {
         p.log.success("All steps complete.");
         return;
     }
 
-    const steps: StepName[] = ["pagesFinder", "kb", "entityAudit", "scenarioRecipe", "recipeBuilder", "testGenerator"];
+    const steps: StepName[] = [
+        "projectMapper",
+        "pagesFinder",
+        "kb",
+        "entityAudit",
+        "scenarioRecipe",
+        "recipeBuilder",
+        "testGenerator",
+    ];
     const startIdx = steps.indexOf(startStep);
 
     // Up-front overview so it's clear what each step does before any of them run.

@@ -22,6 +22,8 @@ export interface ScenarioRecipeInput {
     projectContext?: ProjectContext;
     nonInteractive?: boolean;
     retryGuidance?: string;
+    /** Optional backend/data-layer scope hint from the project map (appended to the prompt). */
+    scopeHint?: string;
 }
 
 export function buildFinishTool(
@@ -87,8 +89,10 @@ export async function runScenarioRecipe(input: ScenarioRecipeInput): Promise<Age
 
     const { logger, onStepFinish } = buildDefaultStepLogger("scenario", 40);
 
+    const scopeBlock = input.scopeHint != null ? `\n${input.scopeHint}\n` : "";
     const contextBlock =
         (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
+        scopeBlock +
         formatRetryGuidance(input.retryGuidance);
 
     const requiredEntities = await parseEntityNames(input.outputDir);
