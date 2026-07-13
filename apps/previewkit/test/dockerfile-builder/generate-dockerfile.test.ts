@@ -58,8 +58,8 @@ describe("generateDockerfile", () => {
             { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "root" },
             ctx,
         );
-        expect(df).toContain("RUN pnpm turbo run build --filter=web");
-        expect(df).toContain("CMD pnpm turbo run start --filter=web");
+        expect(df).toContain("RUN pnpm exec turbo run build --filter=web");
+        expect(df).toContain("CMD pnpm exec turbo run start --filter=web");
     });
 
     it("rewrites the base image through the registry mirror when set", () => {

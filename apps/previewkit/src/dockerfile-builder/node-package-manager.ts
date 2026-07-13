@@ -19,6 +19,14 @@ interface NodeToolStrategy {
     bootstrap?: string;
     /** Default install command. */
     install: string;
+    /**
+     * Prefix that invokes the local `turbo` binary for this package manager. Not
+     * uniform: `${cli} turbo` runs the binary for pnpm/yarn but is invalid for npm
+     * (`npm turbo` is not a command) and wrong for bun (`bun turbo` runs a script).
+     * The turbo args (`run build --filter=...`) are appended to this prefix; npm's
+     * trailing `--` forwards them past `npm exec`.
+     */
+    turbo: string;
 }
 
 /**
@@ -27,10 +35,15 @@ interface NodeToolStrategy {
  * Adding a manager is one entry here, not a branch in the generator.
  */
 const NODE_TOOLS = {
-    npm: { cli: "npm", install: "npm ci" },
-    pnpm: { cli: "pnpm", bootstrap: "corepack enable", install: "pnpm install --frozen-lockfile" },
-    yarn: { cli: "yarn", bootstrap: "corepack enable", install: "yarn install --frozen-lockfile" },
-    bun: { cli: "bun", install: "bun install" },
+    npm: { cli: "npm", install: "npm ci", turbo: "npm exec turbo --" },
+    pnpm: {
+        cli: "pnpm",
+        bootstrap: "corepack enable",
+        install: "pnpm install --frozen-lockfile",
+        turbo: "pnpm exec turbo",
+    },
+    yarn: { cli: "yarn", bootstrap: "corepack enable", install: "yarn install --frozen-lockfile", turbo: "yarn turbo" },
+    bun: { cli: "bun", install: "bun install", turbo: "bunx turbo" },
 } satisfies Record<string, NodeToolStrategy>;
 
 /**
@@ -46,22 +59,22 @@ export function nodeBuildCommands(build: NodeFrameworkBuild, appName: string): N
     return {
         bootstrap: tool.bootstrap,
         install: build.install_command ?? tool.install,
-        build: build.build_command ?? defaultBuildCommand(tool.cli, appName, root),
-        run: build.run_command ?? defaultRunCommand(tool.cli, appName, root, build.framework),
+        build: build.build_command ?? defaultBuildCommand(tool, appName, root),
+        run: build.run_command ?? defaultRunCommand(tool, appName, root, build.framework),
     };
 }
 
-function defaultBuildCommand(cli: string, appName: string, root: boolean): string {
-    return root ? `${cli} turbo run build --filter=${appName}` : `${cli} run build`;
+function defaultBuildCommand(tool: NodeToolStrategy, appName: string, root: boolean): string {
+    return root ? `${tool.turbo} run build --filter=${appName}` : `${tool.cli} run build`;
 }
 
 function defaultRunCommand(
-    cli: string,
+    tool: NodeToolStrategy,
     appName: string,
     root: boolean,
     framework: NodeFrameworkBuild["framework"],
 ): string {
-    if (root) return `${cli} turbo run start --filter=${appName}`;
-    if (framework === "vite") return `${cli} run preview`;
-    return `${cli} start`;
+    if (root) return `${tool.turbo} run start --filter=${appName}`;
+    if (framework === "vite") return `${tool.cli} run preview`;
+    return `${tool.cli} start`;
 }
