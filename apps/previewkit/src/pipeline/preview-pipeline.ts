@@ -44,6 +44,7 @@ import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../depl
 import { runHookJob } from "../deployer/hook-job-runner";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
+import { resolveBuildTurboFilter } from "../dockerfile-builder/resolve-build-turbo-filter";
 import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -1480,6 +1481,7 @@ export class PreviewPipeline {
                 buildArgs: resolvedBuildArgs,
                 port: app.port,
                 appName: app.name,
+                turboFilter: resolveBuildTurboFilter(build, repoDir, app.path),
             });
             return { contextPath, generatedDockerfile };
         }

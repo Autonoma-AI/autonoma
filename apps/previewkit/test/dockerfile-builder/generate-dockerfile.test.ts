@@ -53,13 +53,23 @@ describe("generateDockerfile", () => {
         expect(df).toContain("CMD pnpm run preview");
     });
 
-    it("uses turbo-filtered build and run commands for a root build context", () => {
+    it("uses the resolved turbo filter (real workspace package name) for a root build context", () => {
         const df = generateDockerfile(
             { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "root" },
-            ctx,
+            { ...ctx, turboFilter: "--filter=@acme/storefront" },
         );
-        expect(df).toContain("RUN pnpm exec turbo run build --filter=web");
-        expect(df).toContain("CMD pnpm exec turbo run start --filter=web");
+        expect(df).toContain("RUN pnpm exec turbo run build --filter=@acme/storefront");
+        expect(df).toContain("CMD pnpm exec turbo run start --filter=@acme/storefront");
+        expect(df).not.toContain("--filter=web");
+    });
+
+    it("throws for a root build context with no resolved turbo filter (broken caller invariant)", () => {
+        expect(() =>
+            generateDockerfile(
+                { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "root" },
+                ctx,
+            ),
+        ).toThrow(/root build_context requires a resolved turbo --filter/);
     });
 
     it("rewrites the base image through the registry mirror when set", () => {

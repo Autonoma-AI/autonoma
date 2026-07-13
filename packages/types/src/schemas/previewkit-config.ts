@@ -202,7 +202,12 @@ const databaseSetupTaskSchema = z.object({
 // When `build` is omitted the pipeline falls back to Railpack autodetection
 // (an on-disk Dockerfile still wins). `build_context: root` builds from the
 // repository root so workspace dependencies resolve - this, plus a
-// turbo-filtered build/run command, replaces the former `monorepo: turbo`.
+// turbo-filtered build/run command (filtered by the app's real workspace
+// package name), replaces the former `monorepo: turbo`.
+// Next.js `output: 'standalone'` is supported by setting an explicit
+// `run_command` (e.g. `node apps/web/.next/standalone/server.js`); there is no
+// autodetection of the next.config - the run command is the single source of
+// truth for how the container starts.
 const nodeVersionRegex = /^\d+(\.\d+)?(\.\d+)?$/;
 const buildContextSchema = z.enum(["app", "root"]).default("app");
 

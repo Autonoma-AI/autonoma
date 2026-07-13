@@ -129,7 +129,9 @@ hooks:
 
 An app may carry an optional `build` block that selects a build strategy explicitly instead of relying on Dockerfile/Turbo/Railpack autodetection (see [Building Images](#building-images)). It is a discriminated union on `framework`:
 
-- **Framework presets** (`node`, `next`, `vite`) - generate a single-stage Dockerfile from a node base image. Fields: `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`), and optional `install_command` / `build_command` / `run_command` overrides. `bun` is the same with a bun base image and no `package_manager` / `node_version`.
+- **Framework presets** (`node`, `next`, `vite`) - generate a single-stage Dockerfile from a node base image. Fields: `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`), `build_context` (`app` | `root`, default `app`), and optional `install_command` / `build_command` / `run_command` overrides. `bun` is the same with a bun base image and no `package_manager` / `node_version`. With `build_context: root` the build runs from the repo root and defaults the build/run commands to `turbo run build`/`turbo run start` filtered by the app's **real workspace `package.json` name** (falling back to a path filter), so a turbo monorepo needs no command overrides.
+
+  **Next.js `output: 'standalone'`:** set an explicit `run_command`, e.g. `run_command: node apps/web/.next/standalone/server.js`. There is no autodetection of `next.config` - the `run_command` is the single source of truth for how the container starts.
 - **`dockerfile`** - build a user-authored Dockerfile. Fields: `dockerfile` (required, path relative to repo root) and optional `target` (multi-stage stage to build).
 - **`runtime`** - the **raw escape hatch**. You pick a language runtime or bare base image and write the build yourself; the generator emits a trivial `FROM <image>` / toolbelt / `RUN <build_script>` / `CMD <entrypoint>` Dockerfile with no autodetection. Fields:
 

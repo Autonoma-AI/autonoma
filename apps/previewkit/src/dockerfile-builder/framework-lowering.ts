@@ -18,7 +18,7 @@ const BUN_IMAGE = "oven/bun:1";
  * behavior change.
  */
 export function lowerFrameworkBuild(build: FrameworkBuild, ctx: GenerateDockerfileContext): RawSpec {
-    const commands = nodeBuildCommands(build, ctx.appName);
+    const commands = nodeBuildCommands(build, ctx.turboFilter);
     return {
         baseImage: mirrorDockerHubImage(frameworkImage(build), ctx.registryMirror),
         workdir: "/app",

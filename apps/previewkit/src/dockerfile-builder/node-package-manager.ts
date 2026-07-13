@@ -49,32 +49,48 @@ const NODE_TOOLS = {
 /**
  * Resolves the install / build / run / bootstrap commands for a node-family build
  * from its package manager, framework, and build context - each defaulted here
- * and overridable via the build's explicit `*_command` fields. `build_context:
- * root` builds/starts through a turbo `--filter` for monorepos; vite serves its
- * static preview.
+ * and overridable via the build's explicit `*_command` fields. A `root` build
+ * context builds/starts through the turbo `--filter` for monorepos; vite serves
+ * its static preview.
+ *
+ * `turboFilter` is the resolved `--filter=<spec>` argument (by workspace package
+ * name, path fallback). It is required for a root context and unused otherwise -
+ * the caller resolves it only for root builds, so a missing filter on a root
+ * build is a programming error, not a user misconfiguration.
  */
-export function nodeBuildCommands(build: NodeFrameworkBuild, appName: string): NodeBuildCommands {
+export function nodeBuildCommands(build: NodeFrameworkBuild, turboFilter?: string): NodeBuildCommands {
     const tool: NodeToolStrategy = build.framework === "bun" ? NODE_TOOLS.bun : NODE_TOOLS[build.package_manager];
     const root = build.build_context === "root";
     return {
         bootstrap: tool.bootstrap,
         install: build.install_command ?? tool.install,
-        build: build.build_command ?? defaultBuildCommand(tool, appName, root),
-        run: build.run_command ?? defaultRunCommand(tool, appName, root, build.framework),
+        build: build.build_command ?? defaultBuildCommand(tool, root, turboFilter),
+        run: build.run_command ?? defaultRunCommand(tool, root, build.framework, turboFilter),
     };
 }
 
-function defaultBuildCommand(tool: NodeToolStrategy, appName: string, root: boolean): string {
-    return root ? `${tool.turbo} run build --filter=${appName}` : `${tool.cli} run build`;
+function defaultBuildCommand(tool: NodeToolStrategy, root: boolean, turboFilter?: string): string {
+    if (!root) return `${tool.cli} run build`;
+    return `${tool.turbo} run build ${requireTurboFilter(turboFilter)}`;
 }
 
 function defaultRunCommand(
     tool: NodeToolStrategy,
-    appName: string,
     root: boolean,
     framework: NodeFrameworkBuild["framework"],
+    turboFilter?: string,
 ): string {
-    if (root) return `${tool.turbo} run start --filter=${appName}`;
+    if (root) return `${tool.turbo} run start ${requireTurboFilter(turboFilter)}`;
     if (framework === "vite") return `${tool.cli} run preview`;
     return `${tool.cli} start`;
+}
+
+/**
+ * Asserts a root-context build was given a resolved turbo filter.
+ */
+function requireTurboFilter(turboFilter?: string): string {
+    if (turboFilter == null) {
+        throw new Error("A root build_context requires a resolved turbo --filter, but none was provided");
+    }
+    return turboFilter;
 }

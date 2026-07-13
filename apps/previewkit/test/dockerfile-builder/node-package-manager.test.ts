@@ -5,7 +5,7 @@ describe("nodeBuildCommands (root/turbo)", () => {
     it("invokes the turbo binary via pnpm exec", () => {
         const c = nodeBuildCommands(
             { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "root" },
-            "web",
+            "--filter=web",
         );
         expect(c.build).toBe("pnpm exec turbo run build --filter=web");
         expect(c.run).toBe("pnpm exec turbo run start --filter=web");
@@ -15,7 +15,7 @@ describe("nodeBuildCommands (root/turbo)", () => {
     it("invokes the turbo binary via yarn", () => {
         const c = nodeBuildCommands(
             { framework: "next", package_manager: "yarn", node_version: "22", build_context: "root" },
-            "web",
+            "--filter=web",
         );
         expect(c.build).toBe("yarn turbo run build --filter=web");
         expect(c.run).toBe("yarn turbo run start --filter=web");
@@ -25,7 +25,7 @@ describe("nodeBuildCommands (root/turbo)", () => {
     it("invokes the turbo binary via npm exec with arg forwarding", () => {
         const c = nodeBuildCommands(
             { framework: "next", package_manager: "npm", node_version: "22", build_context: "root" },
-            "web",
+            "--filter=web",
         );
         expect(c.build).toBe("npm exec turbo -- run build --filter=web");
         expect(c.run).toBe("npm exec turbo -- run start --filter=web");
@@ -34,11 +34,20 @@ describe("nodeBuildCommands (root/turbo)", () => {
     });
 
     it("invokes the turbo binary via bunx", () => {
-        const c = nodeBuildCommands({ framework: "bun", build_context: "root" }, "web");
+        const c = nodeBuildCommands({ framework: "bun", build_context: "root" }, "--filter=web");
         expect(c.build).toBe("bunx turbo run build --filter=web");
         expect(c.run).toBe("bunx turbo run start --filter=web");
         expect(c.build).not.toContain("bun turbo");
         expect(c.build).not.toContain("run turbo");
+    });
+
+    it("uses the resolved filter verbatim (workspace package name may differ from the k8s app name)", () => {
+        const c = nodeBuildCommands(
+            { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "root" },
+            "--filter=@acme/storefront",
+        );
+        expect(c.build).toBe("pnpm exec turbo run build --filter=@acme/storefront");
+        expect(c.run).toBe("pnpm exec turbo run start --filter=@acme/storefront");
     });
 
     it("lets explicit build_command / run_command overrides win", () => {
@@ -51,19 +60,44 @@ describe("nodeBuildCommands (root/turbo)", () => {
                 build_command: "make build",
                 run_command: "make serve",
             },
-            "web",
+            "--filter=web",
         );
         expect(c.build).toBe("make build");
         expect(c.run).toBe("make serve");
     });
+
+    it("throws when a root build context is given no turbo filter (broken caller invariant)", () => {
+        expect(() =>
+            nodeBuildCommands({
+                framework: "next",
+                package_manager: "pnpm",
+                node_version: "22",
+                build_context: "root",
+            }),
+        ).toThrow(/root build_context requires a resolved turbo --filter/);
+    });
+
+    it("still throws for the run command when only build_command is overridden and no filter is given", () => {
+        expect(() =>
+            nodeBuildCommands({
+                framework: "next",
+                package_manager: "pnpm",
+                node_version: "22",
+                build_context: "root",
+                build_command: "make build",
+            }),
+        ).toThrow(/root build_context requires a resolved turbo --filter/);
+    });
 });
 
 describe("nodeBuildCommands (app/non-root)", () => {
-    it("uses plain package-manager scripts for pnpm, no turbo", () => {
-        const c = nodeBuildCommands(
-            { framework: "next", package_manager: "pnpm", node_version: "22", build_context: "app" },
-            "web",
-        );
+    it("uses plain package-manager scripts for pnpm, no turbo, and needs no filter", () => {
+        const c = nodeBuildCommands({
+            framework: "next",
+            package_manager: "pnpm",
+            node_version: "22",
+            build_context: "app",
+        });
         expect(c.build).toBe("pnpm run build");
         expect(c.run).toBe("pnpm start");
         expect(c.build).not.toContain("turbo");
@@ -71,10 +105,12 @@ describe("nodeBuildCommands (app/non-root)", () => {
     });
 
     it("serves vite's static preview", () => {
-        const c = nodeBuildCommands(
-            { framework: "vite", package_manager: "pnpm", node_version: "22", build_context: "app" },
-            "web",
-        );
+        const c = nodeBuildCommands({
+            framework: "vite",
+            package_manager: "pnpm",
+            node_version: "22",
+            build_context: "app",
+        });
         expect(c.build).toBe("pnpm run build");
         expect(c.run).toBe("pnpm run preview");
     });

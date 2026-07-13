@@ -32,8 +32,14 @@ export interface GenerateDockerfileContext {
     buildArgs: Record<string, string>;
     /** Container port the app listens on; emitted as `ENV PORT` + `EXPOSE`. */
     port: number;
-    /** App package name; used in the turbo `--filter` of root-context defaults and the raw WORKDIR. */
+    /** App name (Kubernetes name); used as the raw runtime WORKDIR. */
     appName: string;
+    /**
+     * Resolved turbo `--filter=<spec>` argument (by workspace package name, with a
+     * path-based fallback) for root-context node-family builds. Undefined for
+     * app-context and runtime builds, which never filter.
+     */
+    turboFilter?: string;
 }
 
 /** Renders a {@link RawSpec} into a single-stage Dockerfile string. */
