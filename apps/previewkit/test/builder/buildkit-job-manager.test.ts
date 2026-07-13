@@ -92,20 +92,42 @@ describe("BuildKitJobManager", () => {
                 ?.matchExpressions,
         ).toEqual([
             {
-                key: "karpenter.k8s.aws/instance-cpu",
+                key: "karpenter.k8s.aws/instance-category",
                 operator: "In",
-                values: ["4"],
+                values: ["m"],
+            },
+            {
+                key: "karpenter.k8s.aws/instance-generation",
+                operator: "In",
+                values: ["6", "7", "8"],
+            },
+            {
+                key: "karpenter.k8s.aws/instance-size",
+                operator: "In",
+                values: ["xlarge"],
             },
         ]);
         expect(podSpec?.affinity?.nodeAffinity?.preferredDuringSchedulingIgnoredDuringExecution).toEqual([
+            {
+                weight: 50,
+                preference: {
+                    matchExpressions: [
+                        {
+                            key: "karpenter.k8s.aws/instance-generation",
+                            operator: "In",
+                            values: ["8"],
+                        },
+                    ],
+                },
+            },
             {
                 weight: 100,
                 preference: {
                     matchExpressions: [
                         {
-                            key: "karpenter.k8s.aws/instance-category",
+                            key: "karpenter.k8s.aws/instance-generation",
                             operator: "In",
-                            values: ["c"],
+                            values: ["7", "8"],
                         },
                     ],
                 },

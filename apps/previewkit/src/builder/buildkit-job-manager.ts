@@ -285,23 +285,50 @@ export class BuildKitJobManager {
                                         {
                                             matchExpressions: [
                                                 {
-                                                    key: "karpenter.k8s.aws/instance-cpu",
+                                                    key: "karpenter.k8s.aws/instance-category",
                                                     operator: "In",
-                                                    values: ["4"],
+                                                    values: ["m"],
+                                                },
+                                                {
+                                                    key: "karpenter.k8s.aws/instance-generation",
+                                                    operator: "In",
+                                                    values: ["6", "7", "8"],
+                                                },
+                                                {
+                                                    key: "karpenter.k8s.aws/instance-size",
+                                                    operator: "In",
+                                                    values: ["xlarge"],
                                                 },
                                             ],
                                         },
                                     ],
                                 },
                                 preferredDuringSchedulingIgnoredDuringExecution: [
+                                    // Karpenter relaxes preferences from the lowest
+                                    // weight. An m8 node satisfies both terms. If m8
+                                    // capacity is unavailable, the m8-only term is
+                                    // relaxed while the m7-or-m8 term keeps m7 ahead
+                                    // of the required m6 fallback.
+                                    {
+                                        weight: 50,
+                                        preference: {
+                                            matchExpressions: [
+                                                {
+                                                    key: "karpenter.k8s.aws/instance-generation",
+                                                    operator: "In",
+                                                    values: ["8"],
+                                                },
+                                            ],
+                                        },
+                                    },
                                     {
                                         weight: 100,
                                         preference: {
                                             matchExpressions: [
                                                 {
-                                                    key: "karpenter.k8s.aws/instance-category",
+                                                    key: "karpenter.k8s.aws/instance-generation",
                                                     operator: "In",
-                                                    values: ["c"],
+                                                    values: ["7", "8"],
                                                 },
                                             ],
                                         },

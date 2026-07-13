@@ -181,10 +181,11 @@ builder's `finally` block. An active deadline and TTL clean it up if the runner 
 `releaseAll()` retries any cleanup that failed during runner shutdown. A transient retry provisions a
 fresh Job instead of reconnecting to a failed daemon. Parallel app builds each receive their own Job,
 and the all-settled barrier waits for every sibling cleanup before an abort can finish the runner.
-Required hostname anti-affinity gives every ephemeral Job a unique node. Jobs require four-vCPU
-instances and prefer the compute-optimized `c` category, while any compatible four-vCPU instance is a
-capacity fallback. The container declares no CPU, memory, or ephemeral-storage request or limit, so it
-can use the node's allocatable CPU and memory. Its emptyDir has no sizeLimit and uses the buildkit
+Required hostname anti-affinity gives every ephemeral Job a unique node. Jobs require x86 M-family
+xlarge instances from generations 6 through 8. Tiered affinity prioritizes m8, then m7, then m6 when
+newer capacity is unavailable, while the category, generation, size, and architecture selectors admit
+every matching variant. The container declares no CPU, memory, or ephemeral-storage request or limit,
+so it can use the node's allocatable CPU and memory. Its emptyDir has no sizeLimit and uses the buildkit
 EC2NodeClass's 50Gi io2 root disk, while each daemon's reclaimable cache target is 35GB to leave node
 headroom.
 `deployment/buildkit/buildkitd-ephemeral-config.yaml` caps each daemon at `max-parallelism=4`.
