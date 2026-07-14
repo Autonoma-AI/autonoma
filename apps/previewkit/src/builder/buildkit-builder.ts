@@ -15,6 +15,7 @@ import {
     type BuildResult,
     type BuildRuntime,
 } from "./builder";
+import type { BuildJobIdentity } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
 import { BUILD_MESSAGES } from "./messages";
 import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
@@ -68,7 +69,7 @@ export const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
 ];
 
 interface BuildKitJobLifecycle {
-    provision(signal?: AbortSignal): Promise<BuildKitInstance>;
+    provision(signal?: AbortSignal, identity?: BuildJobIdentity): Promise<BuildKitInstance>;
     release(instance: { name: string }): Promise<void>;
 }
 
@@ -197,7 +198,12 @@ export class BuildKitBuilder implements Builder {
                 const existingInstance = buildkitAttempt.instance;
                 if (existingInstance != null) return existingInstance.host;
 
-                const instance = await this.jobManager.provision(request.signal);
+                const instance = await this.jobManager.provision(request.signal, {
+                    appName: request.appName,
+                    namespace: request.namespace,
+                    repo: request.repo,
+                    pr: request.pr,
+                });
                 buildkitAttempt.instance = instance;
                 return instance.host;
             };

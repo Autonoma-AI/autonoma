@@ -1569,6 +1569,8 @@ export class PreviewPipeline {
                 buildArgs: resolvedBuildArgs,
                 imageTag,
                 namespace: ctx.namespace,
+                repo: `${ctx.org}/${ctx.repo}`,
+                pr: ctx.prNumber,
                 buildContext: buildInputs.buildContext,
                 dockerfile: buildInputs.dockerfile,
                 target: buildInputs.target,

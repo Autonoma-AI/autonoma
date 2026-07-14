@@ -177,7 +177,11 @@ Railpack and Turbo finish `railpack prepare` before `BuildKitJobManager` provisi
 rootful buildkitd Kubernetes Job. The manager waits for its pod to be Scheduled and Ready, verifies
 TCP reachability on its pod IP, and then `buildctl` runs against that isolated endpoint. The Job runs
 in the control cluster's `buildkit` namespace, one per app-build attempt, and is deleted in the
-builder's `finally` block. An active deadline and TTL clean it up if the runner crashes, while
+builder's `finally` block. Each Job/pod is labelled with the deploy identity
+(`previewkit.dev/repo`, `previewkit.dev/pr`, `previewkit.dev/app`, `previewkit.dev/namespace`,
+plus the random `previewkit.dev/build-id`), so a stuck build pod is findable while it is alive with
+e.g. `kubectl -n buildkit get pods -l previewkit.dev/pr=42` - the pod otherwise carries no deploy
+context. An active deadline and TTL clean it up if the runner crashes, while
 `releaseAll()` retries any cleanup that failed during runner shutdown. A transient retry provisions a
 fresh Job instead of reconnecting to a failed daemon. Parallel app builds each receive their own Job,
 and the all-settled barrier waits for every sibling cleanup before an abort can finish the runner.

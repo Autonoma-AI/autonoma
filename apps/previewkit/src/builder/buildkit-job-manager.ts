@@ -12,6 +12,11 @@ const NAME_PREFIX = "buildkit";
 const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
 const LABEL_TYPE = "previewkit.dev/type";
 const LABEL_BUILD_ID = "previewkit.dev/build-id";
+const LABEL_REPO = "previewkit.dev/repo";
+const LABEL_PR = "previewkit.dev/pr";
+const LABEL_APP = "previewkit.dev/app";
+const LABEL_NAMESPACE = "previewkit.dev/namespace";
+const LABEL_VALUE_MAX = 63;
 const BUILDKIT_PORT = 1234;
 const BUILD_ID_BYTES = 8;
 const BUILD_NODE_POOL = "buildkit";
@@ -39,6 +44,22 @@ interface BuildJobsApi {
 interface BuildPodsApi {
     listNamespacedPod(params: { namespace: string; labelSelector?: string }): Promise<{ items: k8s.V1Pod[] }>;
     listNamespacedEvent(params: { namespace: string; fieldSelector?: string }): Promise<{ items: k8s.CoreV1Event[] }>;
+}
+
+/**
+ * Deploy identity stamped onto the ephemeral buildkit Job/pod as labels. Every
+ * field is optional and best-effort: a missing or unlabelable value is simply
+ * dropped, never a reason to fail the build. The point is `kubectl -n buildkit
+ * get pods -l previewkit.dev/pr=42` returning the build pod for a given PR -
+ * the pod otherwise carries only a random build-id with no deploy context.
+ */
+export interface BuildJobIdentity {
+    appName?: string;
+    /** Preview namespace, e.g. `preview-acme-bank-pr-42`. */
+    namespace?: string;
+    /** `owner/repo` full name, e.g. `acme/bank`. */
+    repo?: string;
+    pr?: number;
 }
 
 interface BuildKitJobManagerOptions {
@@ -73,19 +94,21 @@ export class BuildKitJobManager {
         this.dial = options.dial ?? tryConnect;
     }
 
-    async provision(signal?: AbortSignal): Promise<BuildKitInstance> {
+    async provision(signal?: AbortSignal, identity: BuildJobIdentity = {}): Promise<BuildKitInstance> {
         const startedAt = Date.now();
         const buildId = randomBytes(BUILD_ID_BYTES).toString("hex");
         const name = `${NAME_PREFIX}-${buildId}`;
         const namespace = this.options.namespace;
-        this.logger.info("Provisioning buildkit Job", { extra: { name, namespace } });
+        this.logger.info("Provisioning buildkit Job", {
+            extra: { name, namespace, app: identity.appName, previewNamespace: identity.namespace },
+        });
         this.activeJobNames.add(name);
 
         try {
             throwIfAborted(signal);
             await this.options.batchApi.createNamespacedJob({
                 namespace,
-                body: this.jobSpec(name, buildId),
+                body: this.jobSpec(name, buildId, identity),
             });
             const pod = await this.waitForReady(buildId, signal);
             const host = await this.waitForTcpReachable(pod, signal);
@@ -321,11 +344,12 @@ export class BuildKitJobManager {
         );
     }
 
-    private jobSpec(name: string, buildId: string): k8s.V1Job {
+    private jobSpec(name: string, buildId: string, identity: BuildJobIdentity): k8s.V1Job {
         const labels = {
             [LABEL_MANAGED_BY]: "previewkit",
             [LABEL_TYPE]: "build",
             [LABEL_BUILD_ID]: buildId,
+            ...identityLabels(identity),
         };
         return {
             apiVersion: "batch/v1",
@@ -457,6 +481,34 @@ export class BuildKitJobManager {
             },
         };
     }
+}
+
+function identityLabels(identity: BuildJobIdentity): Record<string, string> {
+    const labels: Record<string, string> = {};
+    const app = sanitizeLabelValue(identity.appName);
+    if (app != null) labels[LABEL_APP] = app;
+    const namespace = sanitizeLabelValue(identity.namespace);
+    if (namespace != null) labels[LABEL_NAMESPACE] = namespace;
+    const repo = sanitizeLabelValue(identity.repo);
+    if (repo != null) labels[LABEL_REPO] = repo;
+    if (identity.pr != null) labels[LABEL_PR] = String(identity.pr);
+    return labels;
+}
+
+/**
+ * Coerces an arbitrary string into a valid Kubernetes label value (interior
+ * `-_.`, alphanumeric ends, <=63 chars) or `undefined` if nothing usable
+ * remains. `acme/bank` -> `acme-bank`; an unlabelable value is dropped rather
+ * than failing Job creation.
+ */
+function sanitizeLabelValue(value?: string): string | undefined {
+    if (value == null || value === "") return undefined;
+    const cleaned = value
+        .replace(/[^A-Za-z0-9_.-]/g, "-")
+        .replace(/^[^A-Za-z0-9]+/, "")
+        .slice(0, LABEL_VALUE_MAX)
+        .replace(/[^A-Za-z0-9]+$/, "");
+    return cleaned === "" ? undefined : cleaned;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

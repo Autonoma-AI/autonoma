@@ -345,6 +345,29 @@ describe("BuildKitJobManager", () => {
         expect(error.message).toContain("exit 143");
         expect(batchApi.deletedJobs).toHaveLength(1);
     });
+
+    it("stamps deploy identity labels onto the Job and pod for kubectl lookups", async () => {
+        const batchApi = new FakeBuildJobsApi();
+        const podsApi = new FakeBuildPodsApi([[readyPod("10.40.0.20")]]);
+        const manager = createManager(batchApi, podsApi);
+
+        await manager.provision(undefined, {
+            appName: "api-gateway",
+            namespace: "preview-acme-bank-pr-42",
+            repo: "acme/bank",
+            pr: 42,
+        });
+
+        const job = batchApi.createdJobs[0]?.body;
+        if (job == null) throw new Error("Expected a created buildkit Job");
+        expect(job.metadata?.labels?.["previewkit.dev/app"]).toBe("api-gateway");
+        expect(job.metadata?.labels?.["previewkit.dev/namespace"]).toBe("preview-acme-bank-pr-42");
+        // `/` is not a valid label-value char, so it is sanitized to `-`.
+        expect(job.metadata?.labels?.["previewkit.dev/repo"]).toBe("acme-bank");
+        expect(job.metadata?.labels?.["previewkit.dev/pr"]).toBe("42");
+        // The pod template carries the same labels so a `kubectl -l` selector finds the pod.
+        expect(job.spec?.template.metadata?.labels?.["previewkit.dev/pr"]).toBe("42");
+    });
 });
 
 function createManager(

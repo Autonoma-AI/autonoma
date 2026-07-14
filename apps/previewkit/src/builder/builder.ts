@@ -33,6 +33,11 @@ export interface BuildRequest {
     // build-log sink. Optional: when absent (or no sink is wired) the build runs
     // with only its pod-local temporary log file.
     namespace?: string;
+    // Deploy identity, stamped onto the ephemeral buildkit Job/pod as labels so
+    // an operator can find the build pod for a given repo/PR/app with a
+    // `kubectl -l` selector.
+    repo?: string;
+    pr?: number;
     // Names the workspace build tool. Dispatched by the builder to select a
     // tool-specific build path (turbo+pnpm, nx, bazel, sbt, ... all need
     // different build invocations - a single boolean can't carry that
