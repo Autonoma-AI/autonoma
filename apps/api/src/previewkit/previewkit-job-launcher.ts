@@ -30,24 +30,12 @@ const LABEL_ENV = "previewkit.dev/env";
 const LABEL_PR = "previewkit.dev/pr";
 const ANNOTATION_REPO = "previewkit.dev/repo";
 const ANNOTATION_HEAD_SHA = "previewkit.dev/head-sha";
+const ANNOTATION_DO_NOT_DISRUPT = "karpenter.sh/do-not-disrupt";
 
-// Reused from the previewkit shared resources (deployment/apps/previewkit.yaml): the
-// runner Job runs as the same ServiceAccount, on the same node pool, and pulls the
-// secret bundle. Non-secret config (SENTRY_ENV) is injected as explicit env below,
-// not mounted from a ConfigMap.
 const RUNNER_SERVICE_ACCOUNT = "previewkit";
 const RUNNER_ENV_SECRET = "previewkit-env-file";
-const RUNNER_NODE_POOL = "temporal";
-// The runner image bundles src/runner into a single /app/dist/index.js (rolldown,
-// multi-stage build) and ships no node_modules/tsx - this must stay in lockstep
-// with apps/previewkit/Dockerfile. K8s uses the Job's command over the image CMD,
-// so we pin the same entrypoint here with an absolute path (independent of WORKDIR).
+const RUNNER_NODE_POOL = "previewkit";
 const RUNNER_COMMAND = ["node", "--enable-source-maps", "/app/dist/index.js"];
-
-// The previewkit deploy (deploy-previewkit) writes the exact SHA-pinned
-// image it deployed into this ConfigMap's `image` key; the launcher reads it so
-// runner Jobs are pinned to the currently-deployed previewkit image, decoupled
-// from the API's own image/SHA.
 const RUNNER_IMAGE_CONFIGMAP = "previewkit-runner-image";
 const RUNNER_IMAGE_KEY = "image";
 
@@ -337,7 +325,15 @@ export class PreviewkitJobLauncher {
                 activeDeadlineSeconds: deadlineSeconds,
                 ttlSecondsAfterFinished: TTL_AFTER_FINISHED_SECONDS,
                 template: {
-                    metadata: { labels },
+                    metadata: {
+                        labels,
+                        // A runner holds an ephemeral buildkitd Job open for the
+                        // whole deploy, so a mid-run node drain (consolidation or
+                        // AMI drift) aborts the build and orphans that Job. Opt the
+                        // pod out of voluntary disruption; the pool's
+                        // terminationGracePeriod still bounds a genuine termination.
+                        annotations: { [ANNOTATION_DO_NOT_DISRUPT]: "true" },
+                    },
                     spec: {
                         restartPolicy: "Never",
                         serviceAccountName: RUNNER_SERVICE_ACCOUNT,
