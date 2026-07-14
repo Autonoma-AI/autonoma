@@ -8,8 +8,11 @@ import type { ReactNode } from "react";
 import { PRIMARY_REPO_KEY, SERVICE_OPTIONS } from "../../../onboarding/-components/previewkit/topology-draft";
 import { usePreviewDraft } from "./-draft-context";
 
-/** What the preview-config rail points at: one app, one service, or a config section. */
-export type RailSelection = { kind: "app"; id: number } | { kind: "service"; id: number } | { kind: "repos" };
+/** What the preview-config rail points at: one app, one service, or one dependency repo. */
+export type RailSelection =
+  | { kind: "app"; id: number }
+  | { kind: "service"; id: number }
+  | { kind: "repo"; id: number };
 
 interface PreviewRailProps {
   selection?: RailSelection;
@@ -20,10 +23,10 @@ interface PreviewRailProps {
 
 /**
  * App-centric left rail for the Preview Environments settings (design "5a"):
- * apps are primary destinations, managed services sit beside them, and the
- * cross-cutting topology config (dependency repos, deploy hooks) gets its own
- * quiet group. There is no Secrets destination - a secret is just a masked
- * variable inside an app.
+ * apps are primary destinations, managed services sit beside them, and each
+ * dependency repo the preview pulls apps from is its own destination too (only
+ * shown once one exists). There is no Secrets destination - a secret is just a
+ * masked variable inside an app.
  */
 export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: PreviewRailProps) {
   const { draft, addApp, addService, primaryRepoFullName } = usePreviewDraft();
@@ -97,11 +100,24 @@ export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: Previ
         </DropdownMenu>
       </RailGroup>
 
-      <RailGroup label="Config">
-        <RailItem icon={GitBranchIcon} active={selection?.kind === "repos"} onClick={() => onSelect({ kind: "repos" })}>
-          Repos
-        </RailItem>
-      </RailGroup>
+      {/* Dependency repos each get their own destination, like apps and services.
+          The primary repo isn't listed (the app implies it); this group only holds
+          repos other apps are pulled from - so it's absent for a single-repo app and
+          appears the moment one is added via "New app -> Another repo". */}
+      {draft.repos.length > 0 ? (
+        <RailGroup label="Repositories">
+          {draft.repos.map((repo) => (
+            <RailItem
+              key={repo.id}
+              icon={GitBranchIcon}
+              active={selection?.kind === "repo" && selection.id === repo.id}
+              onClick={() => onSelect({ kind: "repo", id: repo.id })}
+            >
+              {repo.name.trim() === "" ? <span className="italic">new repo</span> : repo.name}
+            </RailItem>
+          ))}
+        </RailGroup>
+      ) : undefined}
     </nav>
   );
 }

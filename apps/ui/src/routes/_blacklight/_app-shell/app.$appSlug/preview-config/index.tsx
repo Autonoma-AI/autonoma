@@ -5,11 +5,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ConnectAgentDialog } from "components/connect-agent-dialog";
 import { Suspense, useState } from "react";
 import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
-import { MultirepoSection } from "../../../onboarding/-components/previewkit/multirepo-section";
 import { PRIMARY_REPO_KEY, type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
 import { AppView } from "./-app-view";
 import { usePreviewDraft } from "./-draft-context";
 import { PreviewRail, type RailSelection } from "./-rail";
+import { RepoView } from "./-repo-view";
 import { ServiceView } from "./-service-view";
 
 /** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
@@ -112,7 +112,9 @@ function ConfigureWithAgentPanel() {
  * then first service), mirroring the design's "an app is always in focus".
  */
 function resolveSelection(selection: RailSelection | undefined, draft: TopologyDraft): RailSelection | undefined {
-  if (selection?.kind === "repos") return selection;
+  // A repo entry only exists while its dependency repo does; if it's removed from
+  // inside the pane, fall back to an app instead of stranding an orphaned pane.
+  if (selection?.kind === "repo" && draft.repos.some((repo) => repo.id === selection.id)) return selection;
   if (selection?.kind === "app" && draft.apps.some((app) => app.id === selection.id)) return selection;
   if (selection?.kind === "service" && draft.services.some((service) => service.id === selection.id)) {
     return selection;
@@ -155,12 +157,10 @@ function SelectionPane({
     );
   }
 
-  if (selection.kind === "repos") {
-    return (
-      <div className="lg:pl-6">
-        <ReposPane />
-      </div>
-    );
+  if (selection.kind === "repo") {
+    const repo = draft.repos.find((candidate) => candidate.id === selection.id);
+    if (repo == null) return undefined;
+    return <RepoView key={repo.id} repo={repo} />;
   }
 
   if (selection.kind === "service") {
@@ -180,20 +180,5 @@ function SelectionPaneSkeleton() {
       <Skeleton className="h-8 w-64" />
       <Skeleton className="h-72 w-full" />
     </div>
-  );
-}
-
-/** Dependency-repo topology and branch conventions, unchanged from onboarding. */
-function ReposPane() {
-  const { draft, primaryRepoFullName, appCountByRepoKey, setRepos, setBranchConvention } = usePreviewDraft();
-  return (
-    <MultirepoSection
-      repos={draft.repos}
-      branchConvention={draft.branchConvention}
-      primaryRepoFullName={primaryRepoFullName}
-      appCountByRepoKey={appCountByRepoKey}
-      onReposChange={setRepos}
-      onBranchConventionChange={setBranchConvention}
-    />
   );
 }
