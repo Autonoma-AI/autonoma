@@ -27,8 +27,11 @@ function isAppTab(value: unknown): value is AppTab {
  * app's slice of the deploy hooks (Hooks).
  */
 export function AppView({ app }: { app: AppDraft }) {
-  const { draft, deployableApps, issues, repoGroups, allNames, updateApp, setPrimaryApp, removeApp } =
+  const { appId, draft, deployableApps, issues, repoGroups, allNames, updateApp, setPrimaryApp, removeApp } =
     usePreviewDraft();
+  // A dependency-repo app scopes the file tree to that repo; a primary-repo app
+  // has no RepoDraft, so the tree resolves to the Application's primary repo.
+  const githubRepositoryId = draft.repos.find((repo) => repo.name === app.repoKey)?.githubRepositoryId;
   // Variables is the hero tab of the redesign; the wiring lives one tab over.
   const [tab, setTab] = useState<AppTab>("variables");
 
@@ -83,6 +86,8 @@ export function AppView({ app }: { app: AppDraft }) {
         ) : undefined}
         <AppCard
           app={app}
+          applicationId={appId}
+          githubRepositoryId={githubRepositoryId}
           issues={issues}
           dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
           showDependsOn={repoGroups.length > 1}

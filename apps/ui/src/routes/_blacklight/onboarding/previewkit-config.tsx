@@ -613,6 +613,7 @@ function PreviewkitConfigContent({
                 onAddFromAnotherRepo={() => setAddAppDialogOpen(true)}
               />
               <AppsStep
+                applicationId={appId}
                 draftApps={draft.apps}
                 repoGroups={repoGroups}
                 repos={draft.repos}
@@ -959,6 +960,7 @@ function AddAppMenu({
 }
 
 function AppsStep({
+  applicationId,
   draftApps,
   repoGroups,
   repos,
@@ -972,6 +974,7 @@ function AppsStep({
   onSetPrimaryApp,
   onRemoveApp,
 }: {
+  applicationId: string;
   draftApps: AppDraft[];
   repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }>;
   repos: RepoDraft[];
@@ -1017,6 +1020,8 @@ function AppsStep({
                     <AppCard
                       key={app.id}
                       app={app}
+                      applicationId={applicationId}
+                      githubRepositoryId={group.githubRepositoryId}
                       issues={issues}
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
                       showDependsOn={hasDependencyRepos}

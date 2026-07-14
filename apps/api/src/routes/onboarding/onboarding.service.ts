@@ -62,6 +62,10 @@ export class OnboardingService extends Service {
         return this.manager.validatePreviewkitConfig(applicationId, organizationId, document, githubRepositoryId);
     }
 
+    async listDockerfiles(applicationId: string, organizationId: string, githubRepositoryId?: number) {
+        return this.manager.listDockerfiles(applicationId, organizationId, githubRepositoryId);
+    }
+
     async listPreviewkitSecrets(applicationId: string, organizationId: string, appName: string) {
         return this.manager.listPreviewkitSecrets(applicationId, organizationId, appName);
     }

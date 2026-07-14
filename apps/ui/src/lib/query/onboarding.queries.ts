@@ -214,6 +214,23 @@ export function useValidatePreviewkitConfig() {
     });
 }
 
+/**
+ * The target repo's Dockerfiles (filtered server-side from the file tree), for
+ * the config editor's Dockerfile picker. A best-effort enhancement (not initial
+ * page data), so it uses a plain `useQuery` gated on `enabled` - only fetched
+ * while the Dockerfile build mode is active. Resolves to `undefined` when GitHub
+ * introspection is unavailable, in which case the picker falls back to a
+ * free-text path.
+ */
+export function useDockerfiles(applicationId: string, githubRepositoryId: number | undefined, enabled: boolean) {
+    return useQuery(
+        trpc.onboarding.listDockerfiles.queryOptions(
+            { applicationId, githubRepositoryId },
+            { enabled: enabled && applicationId.length > 0, staleTime: 5 * 60 * 1000 },
+        ),
+    );
+}
+
 export function usePreviewkitSecrets(applicationId: string, appName: string) {
     return useSuspenseQuery(trpc.onboarding.listPreviewkitSecrets.queryOptions({ applicationId, appName }));
 }

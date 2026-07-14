@@ -148,6 +148,12 @@ export const onboardingRouter = router({
             ),
         ),
 
+    listDockerfiles: protectedProcedure
+        .input(z.object({ applicationId: z.string(), githubRepositoryId: z.number().int().positive().optional() }))
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.listDockerfiles(input.applicationId, ctx.organizationId, input.githubRepositoryId),
+        ),
+
     listPreviewkitSecrets: protectedProcedure
         .input(ListSecretsInputSchema)
         .query(({ ctx, input }) =>

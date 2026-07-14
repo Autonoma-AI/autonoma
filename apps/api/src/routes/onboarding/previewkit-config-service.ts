@@ -13,6 +13,7 @@ import type { OnboardingGithubRepository, OnboardingManagerOptions } from "./onb
 import {
     collectTopologyNames,
     defaultPreviewkitConfig,
+    filterDockerfilePaths,
     mergeConfigsForValidation,
     normalizeRepoPath,
     parseConfigShapeOrThrow,
@@ -65,6 +66,31 @@ export class PreviewkitConfigService {
         private readonly options: OnboardingManagerOptions,
     ) {
         this.logger = logger.child({ name: this.constructor.name });
+    }
+
+    /**
+     * The target repo's Dockerfiles at its default-branch head, for the config
+     * editor's Dockerfile picker. Filters the file tree server-side so only the
+     * pickable paths cross the wire. `truncated` is passed through: when the tree
+     * was too large to list in full the Dockerfile set may be incomplete, so the
+     * client falls back to a free-text path. Degrades to `undefined` when GitHub
+     * introspection is unavailable (unconfigured, or a live GitHub failure).
+     */
+    async listDockerfiles(
+        applicationId: string,
+        organizationId: string,
+        githubRepositoryId?: number,
+    ): Promise<{ paths: string[]; truncated: boolean } | undefined> {
+        this.logger.info("Listing repo Dockerfiles for PreviewKit config editor", {
+            applicationId,
+            organizationId,
+            githubRepositoryId,
+        });
+        const introspection = this.options.repoIntrospection;
+        if (introspection == null) return undefined;
+        const tree = await introspection.getRepoTree(organizationId, applicationId, githubRepositoryId);
+        if (tree == null) return undefined;
+        return { paths: filterDockerfilePaths(tree.paths), truncated: tree.truncated };
     }
 
     async getConfig(applicationId: string, organizationId: string): Promise<OnboardingPreviewkitConfig> {

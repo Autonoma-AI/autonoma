@@ -27,6 +27,10 @@ const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
 
 interface AppCardProps {
   app: AppDraft;
+  /** The Application, so the build section can query its repo file tree. */
+  applicationId: string;
+  /** The app's repo (undefined = the Application's primary repo). Scopes the file tree query. */
+  githubRepositoryId?: number;
   issues: DraftIssues;
   /** Names this app may depend on (other apps in its repo group + managed services). */
   dependencyOptions: string[];
@@ -53,6 +57,8 @@ interface AppCardProps {
 /** One deployable app's source mapping and entrypoint configuration. */
 export function AppCard({
   app,
+  applicationId,
+  githubRepositoryId,
   issues,
   dependencyOptions,
   showDependsOn,
@@ -162,7 +168,13 @@ export function AppCard({
             <RepoSettings repo={repo} repoAppCount={repoAppCount} onRepoChange={onRepoChange} />
           ) : undefined}
 
-          <BuildModeSection app={app} issues={issues} onChange={onChange} />
+          <BuildModeSection
+            app={app}
+            applicationId={applicationId}
+            githubRepositoryId={githubRepositoryId}
+            issues={issues}
+            onChange={onChange}
+          />
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <AppField

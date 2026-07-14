@@ -5,6 +5,20 @@ import { z } from "zod";
 
 const FALLBACK_APP_NAME = "web";
 const MAX_K8S_NAME_LENGTH = 63;
+// A path is a Dockerfile when its basename carries `Dockerfile` as its name or
+// as a name/extension affix (`Dockerfile`, `web.Dockerfile`, `Dockerfile.prod`).
+const DOCKERFILE_BASENAME = /dockerfile/i;
+
+/**
+ * Narrows a repo file tree to just its Dockerfiles, sorted alphabetically. Used
+ * by the config editor's Dockerfile picker so the whole tree never crosses the
+ * wire - only the handful of paths the picker can actually offer.
+ */
+export function filterDockerfilePaths(paths: readonly string[]): string[] {
+    return paths
+        .filter((path) => DOCKERFILE_BASENAME.test(path.split("/").pop() ?? path))
+        .sort((a, b) => a.localeCompare(b));
+}
 // The starter app opens in Manual mode on the Node runtime - the most common
 // stack - so the seeded config is complete and immediately deployable. The
 // runtime catalog is the single source for these defaults (UI tiles + generator).

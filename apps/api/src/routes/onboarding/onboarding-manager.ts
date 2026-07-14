@@ -336,6 +336,16 @@ export class OnboardingManager {
         return this.previewkitConfig.validate(applicationId, organizationId, document, githubRepositoryId);
     }
 
+    async listDockerfiles(applicationId: string, organizationId: string, githubRepositoryId?: number) {
+        this.logger.info("Listing repo Dockerfiles for PreviewKit config editor", {
+            applicationId,
+            organizationId,
+            githubRepositoryId,
+        });
+        await this.ensureApplicationHasRepository(applicationId, organizationId);
+        return this.previewkitConfig.listDockerfiles(applicationId, organizationId, githubRepositoryId);
+    }
+
     async listPreviewkitSecrets(applicationId: string, organizationId: string, appName: string) {
         this.logger.info("Listing onboarding PreviewKit secrets", { applicationId, organizationId, appName });
         await this.ensureApplicationOwnsPreviewkitApp(applicationId, organizationId, appName);

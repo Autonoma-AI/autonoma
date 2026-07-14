@@ -1,4 +1,19 @@
-import { Badge, Input, Label, Textarea, cn } from "@autonoma/blacklight";
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogBackdrop,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Textarea,
+  cn,
+} from "@autonoma/blacklight";
 import {
   PREVIEWKIT_RUNTIME_CATALOG,
   PREVIEWKIT_RUNTIMES,
@@ -8,6 +23,13 @@ import {
   type PreviewkitRuntimeSpec,
 } from "@autonoma/types";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { FileIcon } from "@phosphor-icons/react/File";
+import { FolderIcon } from "@phosphor-icons/react/Folder";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { useDockerfiles } from "lib/query/onboarding.queries";
 import { useState } from "react";
 import { FieldMessages } from "./field-messages";
 import {
@@ -29,8 +51,17 @@ const MODE_OPTIONS: Array<{ id: AppBuildMode; label: string; hint: string }> = [
   { id: "dockerfile", label: "Dockerfile", hint: "We build an existing Dockerfile from your repo." },
 ];
 
+// Nested-tree indentation per depth level (px), applied inline so an arbitrary
+// depth stays expressible. The base pad keeps level 0 off the edge.
+const TREE_INDENT_PX = 16;
+const TREE_BASE_PAD_PX = 8;
+
 interface BuildModeSectionProps {
   app: AppDraft;
+  /** The Application, so the Dockerfile picker can query its repo file tree. */
+  applicationId: string;
+  /** The app's repo (undefined = the Application's primary repo). Scopes the file tree query. */
+  githubRepositoryId?: number;
   issues: DraftIssues;
   onChange: (id: number, patch: Partial<AppDraft>) => void;
 }
@@ -43,7 +74,7 @@ interface BuildModeSectionProps {
  * picker side by side with a live build spec. Compiles via `topology-draft`'s
  * `compileApp`.
  */
-export function BuildModeSection({ app, issues, onChange }: BuildModeSectionProps) {
+export function BuildModeSection({ app, applicationId, githubRepositoryId, issues, onChange }: BuildModeSectionProps) {
   const activeHint = MODE_OPTIONS.find((mode) => mode.id === app.buildMode)?.hint ?? "";
 
   function selectMode(mode: AppBuildMode) {
@@ -101,19 +132,13 @@ export function BuildModeSection({ app, issues, onChange }: BuildModeSectionProp
       ) : undefined}
 
       {app.buildMode === "dockerfile" ? (
-        <div className="mt-4 max-w-md">
-          <Label htmlFor={`pk-app-${app.id}-dockerfile`}>Dockerfile path</Label>
-          <Input
-            id={`pk-app-${app.id}-dockerfile`}
-            value={app.dockerfile}
-            onChange={(event) => onChange(app.id, { dockerfile: event.target.value })}
-            placeholder="path/to/Dockerfile"
-            aria-invalid={hasFieldError(issues, app.id, "dockerfile")}
-            className={cn("mt-2 font-mono", invalidClass(issues, app.id, "dockerfile"))}
-          />
-          <p className="mt-1 text-2xs text-text-secondary">Path to your Dockerfile, relative to the build context.</p>
-          <FieldMessages issues={issues} draftId={app.id} field="dockerfile" />
-        </div>
+        <DockerfilePicker
+          app={app}
+          applicationId={applicationId}
+          githubRepositoryId={githubRepositoryId}
+          issues={issues}
+          onChange={onChange}
+        />
       ) : undefined}
 
       {app.buildMode === "runtime" ? <ManualEditor app={app} issues={issues} onChange={onChange} /> : undefined}
@@ -121,7 +146,361 @@ export function BuildModeSection({ app, issues, onChange }: BuildModeSectionProp
   );
 }
 
-function ManualEditor({ app, issues, onChange }: BuildModeSectionProps) {
+interface FileTreeNode {
+  name: string;
+  /** Full repo-relative path (e.g. `apps/web/Dockerfile`). */
+  path: string;
+  isFile: boolean;
+  children: FileTreeNode[];
+}
+
+/** Builds a nested folder/file tree from a flat list of blob paths, dirs before files, alpha within. */
+function buildFileTree(paths: readonly string[]): FileTreeNode[] {
+  const root: FileTreeNode = { name: "", path: "", isFile: false, children: [] };
+  const dirs = new Map<string, FileTreeNode>([["", root]]);
+  for (const path of paths) {
+    const segments = path.split("/");
+    let parent = root;
+    let prefix = "";
+    for (const [index, segment] of segments.entries()) {
+      const nodePath = prefix === "" ? segment : `${prefix}/${segment}`;
+      const isFile = index === segments.length - 1;
+      if (isFile) {
+        parent.children.push({ name: segment, path: nodePath, isFile: true, children: [] });
+      } else {
+        let dir = dirs.get(nodePath);
+        if (dir == null) {
+          dir = { name: segment, path: nodePath, isFile: false, children: [] };
+          parent.children.push(dir);
+          dirs.set(nodePath, dir);
+        }
+        parent = dir;
+      }
+      prefix = nodePath;
+    }
+  }
+  sortTreeNodes(root);
+  return root.children;
+}
+
+function sortTreeNodes(node: FileTreeNode): void {
+  node.children.sort((a, b) => {
+    if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+  for (const child of node.children) {
+    if (!child.isFile) sortTreeNodes(child);
+  }
+}
+
+/**
+ * Every folder that contains a Dockerfile, so the browser opens fully expanded.
+ * `paths` is already narrowed to Dockerfiles server-side, so this is every
+ * ancestor directory of every path.
+ */
+function defaultExpandedDirs(paths: readonly string[]): Set<string> {
+  const dirs = new Set<string>();
+  for (const path of paths) {
+    const segments = path.split("/");
+    for (let depth = 1; depth < segments.length; depth += 1) {
+      dirs.add(segments.slice(0, depth).join("/"));
+    }
+  }
+  return dirs;
+}
+
+/**
+ * Dockerfile path field for the `dockerfile` build mode. Renders a select-style
+ * trigger that opens a modal browser over the repo's Dockerfiles; picking one
+ * fills the path. Falls back to a plain text input whenever the tree can't back
+ * a browser - GitHub unavailable, no Dockerfile in the repo, or a tree too large
+ * to list - or when the user opts into a custom path.
+ */
+function DockerfilePicker({ app, applicationId, githubRepositoryId, issues, onChange }: BuildModeSectionProps) {
+  const dockerfilesQuery = useDockerfiles(applicationId, githubRepositoryId, true);
+  const [customPath, setCustomPath] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+
+  const data = dockerfilesQuery.data;
+  // The endpoint returns only Dockerfiles; a truncated tree means the set may be
+  // incomplete, so fall back to free-text rather than offer a partial list.
+  const dockerfiles = data != null && !data.truncated ? data.paths : [];
+  const hasDockerfiles = dockerfiles.length > 0;
+  const current = app.dockerfile.trim();
+  const invalid = hasFieldError(issues, app.id, "dockerfile");
+  const controlId = `pk-app-${app.id}-dockerfile`;
+
+  function pickFile(path: string) {
+    onChange(app.id, { dockerfile: path });
+    setBrowsing(false);
+  }
+
+  return (
+    <div className="mt-4 max-w-md">
+      <Label htmlFor={controlId}>Dockerfile path</Label>
+      {dockerfilesQuery.isLoading ? (
+        <Input disabled placeholder="Loading repo files..." className="mt-2 font-mono" />
+      ) : !hasDockerfiles || customPath ? (
+        <div className="mt-2">
+          <Input
+            id={controlId}
+            value={app.dockerfile}
+            onChange={(event) => onChange(app.id, { dockerfile: event.target.value })}
+            placeholder="path/to/Dockerfile"
+            aria-invalid={invalid}
+            className={cn("font-mono", invalidClass(issues, app.id, "dockerfile"))}
+          />
+          {hasDockerfiles ? (
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              className="mt-1 h-auto p-0 text-2xs"
+              onClick={() => setCustomPath(false)}
+            >
+              Browse Dockerfiles instead
+            </Button>
+          ) : undefined}
+        </div>
+      ) : (
+        <div className="mt-2">
+          <button
+            type="button"
+            id={controlId}
+            onClick={() => setBrowsing(true)}
+            className={cn(
+              "flex h-9 w-full items-center justify-between gap-2 border bg-surface-void px-3 font-mono text-sm transition-colors hover:border-border-mid focus:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+              invalid ? "border-status-critical" : "border-border-dim",
+            )}
+          >
+            <span className={cn("truncate", current === "" && "text-text-secondary")}>
+              {current === "" ? "Select a Dockerfile..." : current}
+            </span>
+            <FolderIcon size={16} className="shrink-0 text-text-secondary" />
+          </button>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="mt-1 h-auto p-0 text-2xs"
+            onClick={() => setCustomPath(true)}
+          >
+            Enter a custom path instead
+          </Button>
+          <FileBrowserDialog
+            open={browsing}
+            onOpenChange={setBrowsing}
+            paths={dockerfiles}
+            current={current}
+            onSelect={pickFile}
+          />
+        </div>
+      )}
+      <p className="mt-1 text-2xs text-text-secondary">Path to your Dockerfile, relative to the build context.</p>
+      <FieldMessages issues={issues} draftId={app.id} field="dockerfile" />
+    </div>
+  );
+}
+
+/**
+ * Modal Dockerfile browser. `paths` is already narrowed to the repo's
+ * Dockerfiles. With no filter it shows them in an expandable folder tree; typing
+ * a filter flattens the view to matching paths. Selecting one resolves the pick.
+ */
+function FileBrowserDialog({
+  open,
+  onOpenChange,
+  paths,
+  current,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  paths: readonly string[];
+  current: string;
+  onSelect: (path: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  // Every folder that holds a Dockerfile is expanded by default, so likely
+  // candidates are visible the moment the browser opens (the browser only mounts
+  // once the tree has loaded, so `paths` is already populated here).
+  const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpandedDirs(paths));
+
+  function handleOpenChange(next: boolean) {
+    // Reset the filter and the expansion back to the Dockerfile folders on close,
+    // so a later re-open starts fresh rather than from wherever the user left it.
+    if (!next) {
+      setQuery("");
+      setExpanded(defaultExpandedDirs(paths));
+    }
+    onOpenChange(next);
+  }
+
+  function toggleDir(path: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  const trimmed = query.trim().toLowerCase();
+  const tree = trimmed === "" ? buildFileTree(paths) : [];
+  const matches = trimmed === "" ? [] : paths.filter((path) => path.toLowerCase().includes(trimmed));
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogBackdrop />
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Select a Dockerfile</DialogTitle>
+          <DialogDescription>Pick the Dockerfile to build this app from, anywhere in the repo.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 px-6 pb-2">
+          <div className="relative">
+            <MagnifyingGlassIcon
+              size={14}
+              className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 text-text-secondary"
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter Dockerfiles"
+              className="pl-9 font-mono"
+            />
+          </div>
+          <div className="max-h-96 overflow-y-auto border border-border-dim">
+            {trimmed === "" ? (
+              <FileTree
+                nodes={tree}
+                depth={0}
+                expanded={expanded}
+                current={current}
+                onToggleDir={toggleDir}
+                onSelect={onSelect}
+              />
+            ) : matches.length > 0 ? (
+              matches.map((path) => (
+                <FileRow
+                  key={path}
+                  label={path}
+                  depth={0}
+                  selected={path === current}
+                  onSelect={() => onSelect(path)}
+                />
+              ))
+            ) : (
+              <p className="px-3 py-6 text-center text-2xs text-text-secondary">
+                No Dockerfiles match &ldquo;{query.trim()}&rdquo;.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" type="button" />}>Cancel</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FileTree({
+  nodes,
+  depth,
+  expanded,
+  current,
+  onToggleDir,
+  onSelect,
+}: {
+  nodes: FileTreeNode[];
+  depth: number;
+  expanded: Set<string>;
+  current: string;
+  onToggleDir: (path: string) => void;
+  onSelect: (path: string) => void;
+}) {
+  return (
+    <>
+      {nodes.map((node) =>
+        node.isFile ? (
+          <FileRow
+            key={node.path}
+            label={node.name}
+            depth={depth}
+            selected={node.path === current}
+            onSelect={() => onSelect(node.path)}
+          />
+        ) : (
+          <div key={node.path}>
+            <button
+              type="button"
+              onClick={() => onToggleDir(node.path)}
+              aria-expanded={expanded.has(node.path)}
+              className="flex w-full items-center gap-1.5 py-1 pr-2 text-left text-sm hover:bg-surface-raised"
+              style={{ paddingInlineStart: depth * TREE_INDENT_PX + TREE_BASE_PAD_PX }}
+            >
+              {expanded.has(node.path) ? (
+                <CaretDownIcon size={12} className="shrink-0 text-text-secondary" />
+              ) : (
+                <CaretRightIcon size={12} className="shrink-0 text-text-secondary" />
+              )}
+              <FolderIcon
+                size={14}
+                weight={expanded.has(node.path) ? "fill" : "regular"}
+                className="shrink-0 text-text-secondary"
+              />
+              <span className="truncate font-mono text-text-primary">{node.name}</span>
+            </button>
+            {expanded.has(node.path) ? (
+              <FileTree
+                nodes={node.children}
+                depth={depth + 1}
+                expanded={expanded}
+                current={current}
+                onToggleDir={onToggleDir}
+                onSelect={onSelect}
+              />
+            ) : undefined}
+          </div>
+        ),
+      )}
+    </>
+  );
+}
+
+function FileRow({
+  label,
+  depth,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  depth: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={cn(
+        "flex w-full items-center gap-1.5 py-1 pr-2 text-left text-sm hover:bg-surface-raised",
+        selected && "bg-accent-dim",
+      )}
+      style={{ paddingInlineStart: depth * TREE_INDENT_PX + TREE_BASE_PAD_PX }}
+    >
+      <FileIcon size={14} className="shrink-0 text-primary-ink" />
+      <span className="truncate font-mono text-text-primary">{label}</span>
+      {selected ? <CheckIcon size={13} weight="bold" className="ml-auto shrink-0 text-primary-ink" /> : undefined}
+    </button>
+  );
+}
+
+function ManualEditor({ app, issues, onChange }: Pick<BuildModeSectionProps, "app" | "issues" | "onChange">) {
   const spec = PREVIEWKIT_RUNTIME_CATALOG[app.runtime];
 
   function selectRuntime(id: PreviewkitRuntime) {
