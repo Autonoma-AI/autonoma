@@ -252,14 +252,27 @@ export class BuildKitBuilder implements Builder {
                     await this.onTransientError(err, attempt, request.appName, logStream, request.signal);
                     continue;
                 }
-                // Retries exhausted on a platform outage: close the log with the
-                // prebaked explanation so the user reading the build log sees the
-                // failure was our infrastructure, not their build.
+                const buildError = err instanceof Error ? err : new Error(String(err));
+                // `userFacingMessage` is set only when the failure is our
+                // infrastructure (retries exhausted on a transient outage, or a
+                // permanent infra fault) - never for a client's own broken build
+                // (a non-zero buildctl exit). So it cleanly separates "the
+                // buildkit job died on our side" from "the client's build
+                // failed": the former pages us, the latter is just a log.
                 if (err instanceof BuildError && err.userFacingMessage != null) {
                     logStream.write(`\n[previewkit] ${err.userFacingMessage}\n`);
+                    this.logger.captureError(buildError, {
+                        app: request.appName,
+                        repo: request.repo,
+                        pr: request.pr,
+                        namespace: request.namespace,
+                        imageTag: request.imageTag,
+                        attempts: BUILD_MAX_RETRIES,
+                        fault_type: "buildkit_infrastructure",
+                    });
+                } else {
+                    this.logger.error("Build failed", buildError, { extra: { app: request.appName } });
                 }
-                const buildError = err instanceof Error ? err : new Error(String(err));
-                this.logger.error("Build failed", buildError, { extra: { app: request.appName } });
                 throw err;
             } finally {
                 await this.closeLog(logStream).catch((closeErr) => {
