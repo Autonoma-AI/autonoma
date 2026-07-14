@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.8.34](https://github.com/Autonoma-AI/agent/compare/v1.8.33...v1.8.34) (2026-07-14)
+
+
+### Features
+
+* **admin:** improve organization list controls ([#1465](https://github.com/Autonoma-AI/agent/issues/1465)) ([6f9eedb](https://github.com/Autonoma-AI/agent/commit/6f9eedb6527db215b6530e0681713fab3d6e8c82))
+* **ci:** add production hotfix workflow ([#1490](https://github.com/Autonoma-AI/agent/issues/1490)) ([2dcb4d0](https://github.com/Autonoma-AI/agent/commit/2dcb4d0cb352213fdb78b294ed6c05eb121537a3))
+* **cli:** monorepo-aware planner (project mapper + FE/BE scoping) ([#1472](https://github.com/Autonoma-AI/agent/issues/1472)) ([d58fd8e](https://github.com/Autonoma-AI/agent/commit/d58fd8ee48ec5e6dc44fa56e65ae144f0d67ceb0))
+* explicit previewkit environment to branch relation ([#1475](https://github.com/Autonoma-AI/agent/issues/1475)) ([9292859](https://github.com/Autonoma-AI/agent/commit/9292859245d519b21b0ce72c89ddc077fab22b2f))
+* **mcp:** add PostHog usage analytics per tool and customer ([#1474](https://github.com/Autonoma-AI/agent/issues/1474)) ([994ed44](https://github.com/Autonoma-AI/agent/commit/994ed4444389af4fafb2bd9a35ae46566f53c4f1))
+* **onboarding:** collapse the agent screen once the preview is live + calmer phase spinner ([#1525](https://github.com/Autonoma-AI/agent/issues/1525)) ([d73abff](https://github.com/Autonoma-AI/agent/commit/d73abffb3c1ea49a0ff0eac50f6cd7563e861b77))
+* **previewkit:** agentic onboarding MCP config-session foundation ([#1485](https://github.com/Autonoma-AI/agent/issues/1485)) ([6832f90](https://github.com/Autonoma-AI/agent/commit/6832f905f1e2d7db775213af86401f759efac292))
+* **previewkit:** browse repo file tree to select a Dockerfile ([#1484](https://github.com/Autonoma-AI/agent/issues/1484)) ([6553bc9](https://github.com/Autonoma-AI/agent/commit/6553bc9daea8b605b60ee9464c9f9ea07ca68202))
+* **previewkit:** embed pod state + events in buildkit provisioning timeouts ([#1496](https://github.com/Autonoma-AI/agent/issues/1496)) ([6c2dc57](https://github.com/Autonoma-AI/agent/commit/6c2dc57fb3739b8a73432d14cfffaabb1ef41676))
+* **previewkit:** isolate runner jobs on a dedicated node pool ([#1501](https://github.com/Autonoma-AI/agent/issues/1501)) ([d66eda7](https://github.com/Autonoma-AI/agent/commit/d66eda7df649813d4b39a1be87cff4d75b9f489c))
+* **previewkit:** label ephemeral buildkit Jobs with deploy identity ([#1502](https://github.com/Autonoma-AI/agent/issues/1502)) ([efe709e](https://github.com/Autonoma-AI/agent/commit/efe709e06a110fc4a10506336341afd093413517))
+* **previewkit:** page on buildkit job death via Sentry issue ([#1524](https://github.com/Autonoma-AI/agent/issues/1524)) ([35d7c16](https://github.com/Autonoma-AI/agent/commit/35d7c168251e7467f4ed4baa1509566393002dcf))
+* **skill:** add watch-opencode PR-review watcher ([#1491](https://github.com/Autonoma-AI/agent/issues/1491)) ([cc82bdb](https://github.com/Autonoma-AI/agent/commit/cc82bdb0d6aae41edf03d0e96601b7fd3ed357e7))
+* **skill:** add weekly Feature MVP leaderboard ([#1487](https://github.com/Autonoma-AI/agent/issues/1487)) ([51b16f4](https://github.com/Autonoma-AI/agent/commit/51b16f48ba21c00bf35628332a9cb23ca0d28175))
+* **ui:** add per-app preview redeploy controls ([#1479](https://github.com/Autonoma-AI/agent/issues/1479)) ([33d397b](https://github.com/Autonoma-AI/agent/commit/33d397b899cd745a91acfd0b1a8b64e4103ad792))
+* **ui:** add PostHog experiment (A/B test) hook ([#1467](https://github.com/Autonoma-AI/agent/issues/1467)) ([92028b1](https://github.com/Autonoma-AI/agent/commit/92028b14e3d98eb74b123d29631f14b192018dfb))
+
+
+### Bug Fixes
+
+* **deploy:** stop alpha postgres orphaning EBS VolumeAttachments ([#1499](https://github.com/Autonoma-AI/agent/issues/1499)) ([2505860](https://github.com/Autonoma-AI/agent/commit/25058600a0dce4bab6c801f60a14da27bc06112d))
+* **finish-setup:** planner sandbox image node:22 + link the planner docs ([#1527](https://github.com/Autonoma-AI/agent/issues/1527)) ([6cb4cc8](https://github.com/Autonoma-AI/agent/commit/6cb4cc866e6b7eeee1fa5902db281936d044d98a))
+* **onboarding:** clearer deploy status in the agent configuring view ([#1503](https://github.com/Autonoma-AI/agent/issues/1503)) ([3c7afe4](https://github.com/Autonoma-AI/agent/commit/3c7afe4ba7de540104d0cd0848138a315a93d868))
+* **onboarding:** edit config from a ready preview + agent banner placement ([#1498](https://github.com/Autonoma-AI/agent/issues/1498)) ([faf966f](https://github.com/Autonoma-AI/agent/commit/faf966f3228fd078cff091deaaa69e2f0b2942e1))
+* **onboarding:** stop pre-computing generations at go-live; remove sidebar agent-status loader ([#1478](https://github.com/Autonoma-AI/agent/issues/1478)) ([4354210](https://github.com/Autonoma-AI/agent/commit/4354210f4c74da0187c211a904b2008326df3a53))
+* **onboarding:** use `import type` for phosphor Icon so the UI build resolves ([#1523](https://github.com/Autonoma-AI/agent/issues/1523)) ([a7ecc96](https://github.com/Autonoma-AI/agent/commit/a7ecc963111c06d4adf1fc207c7b224389651868))
+* **previewkit:** onboarding live status + prominent agent entry ([#1492](https://github.com/Autonoma-AI/agent/issues/1492)) ([a198531](https://github.com/Autonoma-AI/agent/commit/a198531113f1fca15c60dacaf46d7dd74ececbf5))
+* **previewkit:** unblock redeploys wedged by orphaned ExternalSecrets + onboarding UX ([#1505](https://github.com/Autonoma-AI/agent/issues/1505)) ([4558ff8](https://github.com/Autonoma-AI/agent/commit/4558ff8a9ce5e028dea0c159a417ffe696c1dd96))
+* **previewkit:** use m-family xlarge build nodes ([#1488](https://github.com/Autonoma-AI/agent/issues/1488)) ([6809d0d](https://github.com/Autonoma-AI/agent/commit/6809d0dce87a3b7d5bbc71e19ae1b37969075ba5))
+* **ui:** collapse app-picker sections only past 5, add primary CTA when collapsed ([#1486](https://github.com/Autonoma-AI/agent/issues/1486)) ([7bc6390](https://github.com/Autonoma-AI/agent/commit/7bc63908898cff55755247720017347e1f3af66f))
+* **ui:** only show the app picker when no app is ready, and fix its layout ([#1477](https://github.com/Autonoma-AI/agent/issues/1477)) ([40368b1](https://github.com/Autonoma-AI/agent/commit/40368b110588d9267f8ff2557ef6ddd7b3daefe0))
+
+
+### Performance Improvements
+
+* **ci:** persist turbo cache and make library builds emit-only ([#1480](https://github.com/Autonoma-AI/agent/issues/1480)) ([e7a5942](https://github.com/Autonoma-AI/agent/commit/e7a59421f5a12255dde0ae240a8b736415171fea))
+
 ## [1.8.33](https://github.com/Autonoma-AI/agent/compare/v1.8.32...v1.8.33) (2026-07-13)
 
 
