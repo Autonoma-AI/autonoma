@@ -1,4 +1,4 @@
-import type { V1Job, V1Pod } from "@kubernetes/client-node";
+import type { CoreV1Event, V1Job, V1Pod } from "@kubernetes/client-node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BuildAbortedError, BuildError } from "../../src/builder/builder";
 import { BuildKitJobManager } from "../../src/builder/buildkit-job-manager";
@@ -39,6 +39,9 @@ class FakeBuildJobsApi {
 
 class FakeBuildPodsApi {
     readCount = 0;
+    readonly eventQueries: string[] = [];
+    events: CoreV1Event[] = [];
+    eventsError?: Error;
 
     constructor(private readonly responses: V1Pod[][]) {}
 
@@ -46,6 +49,15 @@ class FakeBuildPodsApi {
         const responseIndex = Math.min(this.readCount, Math.max(0, this.responses.length - 1));
         this.readCount += 1;
         return { items: this.responses[responseIndex] ?? [] };
+    }
+
+    async listNamespacedEvent(params: {
+        namespace: string;
+        fieldSelector?: string;
+    }): Promise<{ items: CoreV1Event[] }> {
+        this.eventQueries.push(params.fieldSelector ?? "");
+        if (this.eventsError != null) throw this.eventsError;
+        return { items: this.events };
     }
 }
 
@@ -205,7 +217,54 @@ describe("BuildKitJobManager", () => {
         if (!(error instanceof BuildError)) throw new Error("Expected BuildError");
         expect(error.isTransient).toBe(true);
         expect(error.message).toContain("scheduled onto a node");
+        expect(error.message).toContain("no pod exists for the build Job");
         expect(error.userFacingMessage).toBe(BUILD_MESSAGES.capacityUnavailable);
+        expect(podsApi.eventQueries[0]).toMatch(/^involvedObject\.name=buildkit-[a-f0-9]{16}$/);
+        expect(batchApi.deletedJobs).toHaveLength(1);
+    });
+
+    it("embeds the pod state and recent events when daemon startup times out", async () => {
+        const batchApi = new FakeBuildJobsApi();
+        const podsApi = new FakeBuildPodsApi([[scheduledNotReadyPod()]]);
+        podsApi.events = [
+            podEvent("Pulling", 'Pulling image "moby/buildkit:v0.31.1"', 1),
+            podEvent("Unhealthy", "Readiness probe failed: dial tcp 10.40.0.12:1234: connect: connection refused", 12),
+        ];
+        const manager = createManager(batchApi, podsApi);
+
+        const provisionResult = manager.provision().catch((err: unknown) => err);
+        await vi.advanceTimersByTimeAsync(4_000);
+        const error = await provisionResult;
+
+        expect(error).toBeInstanceOf(BuildError);
+        if (!(error instanceof BuildError)) throw new Error("Expected BuildError");
+        expect(error.isTransient).toBe(true);
+        expect(error.message).toContain("become Ready");
+        expect(error.message).toContain("pod=pk-builder-pod");
+        expect(error.message).toContain("node=ip-10-40-0-99");
+        expect(error.message).toContain(
+            "Ready=False (ContainersNotReady: containers with unready status: [buildkitd])",
+        );
+        expect(error.message).toContain('Pulling: Pulling image "moby/buildkit:v0.31.1"');
+        expect(error.message).toContain("Unhealthy x12: Readiness probe failed");
+        expect(podsApi.eventQueries).toEqual(["involvedObject.name=pk-builder-pod"]);
+        expect(batchApi.deletedJobs).toHaveLength(1);
+    });
+
+    it("still reports the timeout when the events read fails", async () => {
+        const batchApi = new FakeBuildJobsApi();
+        const podsApi = new FakeBuildPodsApi([[scheduledNotReadyPod()]]);
+        podsApi.eventsError = new Error("events is forbidden");
+        const manager = createManager(batchApi, podsApi);
+
+        const provisionResult = manager.provision().catch((err: unknown) => err);
+        await vi.advanceTimersByTimeAsync(4_000);
+        const error = await provisionResult;
+
+        expect(error).toBeInstanceOf(BuildError);
+        if (!(error instanceof BuildError)) throw new Error("Expected BuildError");
+        expect(error.message).toContain("pod=pk-builder-pod");
+        expect(error.message).toContain("No events found");
         expect(batchApi.deletedJobs).toHaveLength(1);
     });
 
@@ -315,6 +374,45 @@ function readyPod(podIP: string): V1Pod {
                 { type: "Ready", status: "True" },
             ],
         },
+    };
+}
+
+function scheduledNotReadyPod(): V1Pod {
+    return {
+        metadata: { name: "pk-builder-pod" },
+        spec: { nodeName: "ip-10-40-0-99", containers: [] },
+        status: {
+            phase: "Running",
+            conditions: [
+                { type: "PodScheduled", status: "True" },
+                {
+                    type: "Ready",
+                    status: "False",
+                    reason: "ContainersNotReady",
+                    message: "containers with unready status: [buildkitd]",
+                },
+            ],
+            containerStatuses: [
+                {
+                    name: "buildkitd",
+                    image: "moby/buildkit:v0.31.1",
+                    imageID: "",
+                    ready: false,
+                    restartCount: 0,
+                    state: { running: {} },
+                },
+            ],
+        },
+    };
+}
+
+function podEvent(reason: string, message: string, count: number): CoreV1Event {
+    return {
+        metadata: { name: `pk-builder-pod.${reason.toLowerCase()}` },
+        involvedObject: { name: "pk-builder-pod" },
+        reason,
+        message,
+        count,
     };
 }
 

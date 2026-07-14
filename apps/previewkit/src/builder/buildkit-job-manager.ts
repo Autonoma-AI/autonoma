@@ -28,6 +28,8 @@ const DIAL_TIMEOUT_MS = 2_000;
 const DIAL_RETRY_BUDGET_MS = 30_000;
 const DIAL_RETRY_INTERVAL_MS = 500;
 const TTL_SECONDS_AFTER_FINISHED = 600;
+const MAX_DIAGNOSTIC_EVENTS = 5;
+const EVENT_MESSAGE_MAX_CHARS = 300;
 
 interface BuildJobsApi {
     createNamespacedJob(params: { namespace: string; body: k8s.V1Job }): Promise<k8s.V1Job>;
@@ -36,6 +38,7 @@ interface BuildJobsApi {
 
 interface BuildPodsApi {
     listNamespacedPod(params: { namespace: string; labelSelector?: string }): Promise<{ items: k8s.V1Pod[] }>;
+    listNamespacedEvent(params: { namespace: string; fieldSelector?: string }): Promise<{ items: k8s.CoreV1Event[] }>;
 }
 
 interface BuildKitJobManagerOptions {
@@ -71,6 +74,7 @@ export class BuildKitJobManager {
     }
 
     async provision(signal?: AbortSignal): Promise<BuildKitInstance> {
+        const startedAt = Date.now();
         const buildId = randomBytes(BUILD_ID_BYTES).toString("hex");
         const name = `${NAME_PREFIX}-${buildId}`;
         const namespace = this.options.namespace;
@@ -85,7 +89,7 @@ export class BuildKitJobManager {
             });
             const pod = await this.waitForReady(buildId, signal);
             const host = await this.waitForTcpReachable(pod, signal);
-            this.logger.info("Buildkit Job ready", { extra: { name, host } });
+            this.logger.info("Buildkit Job ready", { extra: { name, host, elapsedMs: Date.now() - startedAt } });
             return { name, host };
         } catch (err) {
             await this.release({ name }).catch((cleanupErr: unknown) => {
@@ -155,15 +159,19 @@ export class BuildKitJobManager {
     private async waitForScheduled(buildId: string, signal?: AbortSignal): Promise<void> {
         const start = Date.now();
         const provisionTimeoutMs = this.options.provisionTimeoutMs ?? DEFAULT_PROVISION_TIMEOUT_MS;
+        let lastPod: k8s.V1Pod | undefined;
+        let lastState: string | undefined;
 
         while (Date.now() - start < provisionTimeoutMs) {
             throwIfAborted(signal);
             const pod = await this.readBuildPod(buildId);
             if (pod != null) {
+                lastPod = pod;
+                lastState = this.logPodStateChange({ buildId, phase: "provisioning", pod, lastState, start });
                 throwForPodFailure(pod);
                 if (isScheduled(pod)) {
                     this.logger.info("Buildkit Job scheduled onto a node", {
-                        extra: { buildId, provisioningMs: Date.now() - start },
+                        extra: { buildId, node: pod.spec?.nodeName, provisioningMs: Date.now() - start },
                     });
                     return;
                 }
@@ -172,11 +180,12 @@ export class BuildKitJobManager {
         }
 
         const elapsedMs = Date.now() - start;
+        const diagnostics = await this.collectTimeoutDiagnostics(buildId, lastPod);
         this.logger.warn("Buildkit Job provisioning timed out", {
-            extra: { buildId, phase: "provisioning", elapsedMs },
+            extra: { buildId, phase: "provisioning", elapsedMs, diagnostics },
         });
         throw createBuildInfrastructureError(
-            `Timed out after ${provisionTimeoutMs}ms waiting for buildkit Job (build-id=${buildId}) to be scheduled onto a node`,
+            `Timed out after ${provisionTimeoutMs}ms waiting for buildkit Job (build-id=${buildId}) to be scheduled onto a node. ${diagnostics}`,
             { isTransient: true, userFacingMessage: BUILD_MESSAGES.capacityUnavailable },
         );
     }
@@ -184,13 +193,20 @@ export class BuildKitJobManager {
     private async waitForStarted(buildId: string, signal?: AbortSignal): Promise<k8s.V1Pod> {
         const start = Date.now();
         const startupTimeoutMs = this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+        let lastPod: k8s.V1Pod | undefined;
+        let lastState: string | undefined;
 
         while (Date.now() - start < startupTimeoutMs) {
             throwIfAborted(signal);
             const pod = await this.readBuildPod(buildId);
             if (pod != null) {
+                lastPod = pod;
+                lastState = this.logPodStateChange({ buildId, phase: "startup", pod, lastState, start });
                 throwForPodFailure(pod);
                 if (isReady(pod) && pod.status?.podIP != null) {
+                    this.logger.info("Buildkit pod became Ready", {
+                        extra: { buildId, node: pod.spec?.nodeName, startupMs: Date.now() - start },
+                    });
                     return pod;
                 }
             }
@@ -198,11 +214,12 @@ export class BuildKitJobManager {
         }
 
         const elapsedMs = Date.now() - start;
+        const diagnostics = await this.collectTimeoutDiagnostics(buildId, lastPod);
         this.logger.warn("Buildkit Job startup timed out", {
-            extra: { buildId, phase: "startup", elapsedMs },
+            extra: { buildId, phase: "startup", elapsedMs, diagnostics },
         });
         throw createBuildInfrastructureError(
-            `Timed out after ${startupTimeoutMs}ms waiting for scheduled buildkit Job (build-id=${buildId}) to become Ready`,
+            `Timed out after ${startupTimeoutMs}ms waiting for scheduled buildkit Job (build-id=${buildId}) to become Ready. ${diagnostics}`,
             { isTransient: true },
         );
     }
@@ -213,6 +230,57 @@ export class BuildKitJobManager {
             labelSelector: `${LABEL_BUILD_ID}=${buildId}`,
         });
         return pods.items[0];
+    }
+
+    private logPodStateChange(params: {
+        buildId: string;
+        phase: "provisioning" | "startup";
+        pod: k8s.V1Pod;
+        lastState: string | undefined;
+        start: number;
+    }): string {
+        const state = describePodState(params.pod);
+        if (state !== params.lastState) {
+            this.logger.info("Buildkit pod state changed", {
+                extra: {
+                    buildId: params.buildId,
+                    phase: params.phase,
+                    state,
+                    elapsedMs: Date.now() - params.start,
+                },
+            });
+        }
+        return state;
+    }
+
+    /**
+     * provision()'s catch block deletes the Job before rethrowing, so the pod
+     * state and its Events must be captured here - after release the evidence
+     * is gone and `kubectl describe` has nothing to show.
+     */
+    private async collectTimeoutDiagnostics(buildId: string, lastPod: k8s.V1Pod | undefined): Promise<string> {
+        const podState = describePodState(lastPod);
+        const objectName = lastPod?.metadata?.name ?? `${NAME_PREFIX}-${buildId}`;
+        const events = await this.readRecentEvents(objectName);
+        if (events.length === 0) return `Last observed state: ${podState}. No events found.`;
+        return `Last observed state: ${podState}. Recent events: ${events.join("; ")}`;
+    }
+
+    private async readRecentEvents(objectName: string): Promise<string[]> {
+        try {
+            const events = await this.options.podsApi.listNamespacedEvent({
+                namespace: this.options.namespace,
+                fieldSelector: `involvedObject.name=${objectName}`,
+            });
+            const sorted = [...events.items].sort((a, b) => eventTimeMs(a) - eventTimeMs(b));
+            return sorted.slice(-MAX_DIAGNOSTIC_EVENTS).map(formatEvent);
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.logger.warn("Failed to read events for buildkit timeout diagnostics", {
+                extra: { objectName, error: error.message },
+            });
+            return [];
+        }
     }
 
     private async waitForTcpReachable(pod: k8s.V1Pod, signal?: AbortSignal): Promise<string> {
@@ -473,6 +541,57 @@ function isReady(pod: k8s.V1Pod): boolean {
     return (
         pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True") ?? false
     );
+}
+
+function describePodState(pod: k8s.V1Pod | undefined): string {
+    if (pod == null) return "no pod exists for the build Job";
+    const parts = [
+        `pod=${pod.metadata?.name ?? "unknown"}`,
+        `node=${pod.spec?.nodeName ?? "unscheduled"}`,
+        `phase=${pod.status?.phase ?? "Unknown"}`,
+    ];
+    for (const condition of pod.status?.conditions ?? []) {
+        if (condition.status === "True") continue;
+        if (condition.type !== "PodScheduled" && condition.type !== "Ready") continue;
+        const detail = [condition.reason, condition.message].filter((part) => part != null).join(": ");
+        parts.push(`${condition.type}=${condition.status}${detail === "" ? "" : ` (${detail})`}`);
+    }
+    for (const status of pod.status?.containerStatuses ?? []) {
+        parts.push(`container=${status.name} ${describeContainerState(status)}`);
+        if (status.restartCount > 0) parts.push(`restarts=${status.restartCount}`);
+    }
+    return parts.join(" ");
+}
+
+function describeContainerState(status: k8s.V1ContainerStatus): string {
+    const waiting = status.state?.waiting;
+    if (waiting != null) {
+        return `waiting (${waiting.reason ?? "unknown"}${waiting.message != null ? `: ${waiting.message}` : ""})`;
+    }
+    const terminated = status.state?.terminated;
+    if (terminated != null) {
+        return `terminated (${terminated.reason ?? "unknown"}, exit ${terminated.exitCode ?? "unknown"})`;
+    }
+    if (status.state?.running != null) {
+        return status.ready ? "running (ready)" : "running (not ready)";
+    }
+    return "state unknown";
+}
+
+function formatEvent(event: k8s.CoreV1Event): string {
+    const count = event.count != null && event.count > 1 ? ` x${event.count}` : "";
+    const message = truncateEventMessage(event.message?.trim() ?? "");
+    return `${event.reason ?? "Unknown"}${count}: ${message}`;
+}
+
+function truncateEventMessage(message: string): string {
+    if (message.length <= EVENT_MESSAGE_MAX_CHARS) return message;
+    return `${message.slice(0, EVENT_MESSAGE_MAX_CHARS)}...`;
+}
+
+function eventTimeMs(event: k8s.CoreV1Event): number {
+    const timestamp = event.lastTimestamp ?? event.eventTime ?? event.metadata?.creationTimestamp;
+    return timestamp != null ? new Date(timestamp).getTime() : 0;
 }
 
 interface PodFailure {
