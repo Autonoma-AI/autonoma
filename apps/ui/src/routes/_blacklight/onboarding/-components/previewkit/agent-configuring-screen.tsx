@@ -1,23 +1,45 @@
-import { Badge, Button, Progress, ScrollArea, Separator, Skeleton, Textarea } from "@autonoma/blacklight";
-import { type AgentLogEntry, isPreviewkitDatabaseEngine } from "@autonoma/types";
+import {
+  Badge,
+  Button,
+  Progress,
+  ScrollArea,
+  Separator,
+  Skeleton,
+  Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@autonoma/blacklight";
+import { type AgentLogEntry } from "@autonoma/types";
+import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
+import { InfoIcon } from "@phosphor-icons/react/Info";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
 import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
   useAgentSession,
-  usePreviewkitConfig,
+  useCompletePreviewOnboarding,
   usePreviewReadiness,
   useStopAgent,
   useSubmitAgentEnv,
 } from "lib/onboarding/onboarding-api";
+import { useApplications } from "lib/query/applications.queries";
+import { toastManager } from "lib/toast-manager";
 import { Suspense, useState, type ReactNode } from "react";
+import { setLastApp } from "../../../_app-shell/-last-app";
+import { PreviewTakingShape } from "./preview-taking-shape";
 import { parseDotenv } from "./topology-draft";
+
+// Deploy phases in which the app pods are rolling out (and emitting runtime logs),
+// as opposed to the earlier clone/build phases. Used to auto-focus the App logs tab.
+const APP_ROLLOUT_PHASES = new Set(["deploying-services"]);
 
 /**
  * The read-only "Claude is configuring your preview" screen shown while a coding
@@ -28,7 +50,11 @@ import { parseDotenv } from "./topology-draft";
  */
 export function AgentConfiguringScreen({ applicationId }: { applicationId: string }) {
   const { data: session } = useAgentSession(applicationId);
+  const { data: applications } = useApplications();
   const stopAgent = useStopAgent();
+  const complete = useCompletePreviewOnboarding();
+  const navigate = useNavigate();
+  const router = useRouter();
 
   if (session == null) return undefined;
 
@@ -38,6 +64,28 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   const running = [...logs].reverse().find((entry) => entry.status === "running");
   const ready = session.previewVerificationStatus === "ready";
   const pendingEnv = session.pendingRequest?.kind === "env" ? session.pendingRequest : undefined;
+
+  // A ready agent-driven preview is the end of preview onboarding, but nothing
+  // advances the flow on its own - the agent holds the config and the user is
+  // read-only. Mirror the manual deploy-verify screen: hand the user the forward
+  // action (complete onboarding -> land on the app) once the preview is live.
+  function continueOnboarding() {
+    const application = applications.find((app) => app.id === applicationId);
+    if (application == null) {
+      toastManager.add({ type: "critical", title: "Application not found" });
+      return;
+    }
+    complete.mutate(
+      { applicationId },
+      {
+        onSuccess: async () => {
+          setLastApp(application.slug);
+          await router.invalidate();
+          void navigate({ to: "/app/$appSlug", params: { appSlug: application.slug }, replace: true });
+        },
+      },
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 border border-border-dim bg-surface-base p-6">
@@ -89,27 +137,45 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 
       <Separator />
 
-      <ScrollArea className="max-h-80">
-        <div className="flex flex-col gap-1.5">
-          {logs.length === 0 ? (
-            <p className="font-mono text-2xs text-text-secondary">Waiting for the agent to start…</p>
-          ) : (
-            logs.map((entry) => <ToolCallRow key={entry.id} entry={entry} />)
-          )}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <SectionTitle>Tool calls</SectionTitle>
+          <ScrollArea className="max-h-96">
+            <div className="flex flex-col gap-1.5">
+              {logs.length === 0 ? (
+                <p className="font-mono text-2xs text-text-secondary">Waiting for the agent to start…</p>
+              ) : (
+                logs.map((entry) => <ToolCallRow key={entry.id} entry={entry} />)
+              )}
+            </div>
+          </ScrollArea>
         </div>
-      </ScrollArea>
 
-      <Separator />
-
-      <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-        <ConfigSummary applicationId={applicationId} />
-      </Suspense>
+        <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+          <PreviewTakingShape applicationId={applicationId} />
+        </Suspense>
+      </div>
 
       <Separator />
 
       <Suspense fallback={<Skeleton className="h-48 w-full" />}>
         <DeploySection applicationId={applicationId} />
       </Suspense>
+
+      {ready ? (
+        <>
+          <Separator />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="font-mono text-2xs text-text-secondary">
+              Preview verified. Continue to start generating tests against it - or Take over to tweak the config first.
+            </p>
+            <Button variant="accent" className="gap-2" onClick={continueOnboarding} disabled={complete.isPending}>
+              {complete.isPending ? "Continuing…" : "Continue"}
+              <ArrowRightIcon weight="bold" />
+            </Button>
+          </div>
+        </>
+      ) : undefined}
     </div>
   );
 }
@@ -117,63 +183,6 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 /** Section heading used inside the read-only configuring screen. */
 function SectionTitle({ children }: { children: ReactNode }) {
   return <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">{children}</p>;
-}
-
-/**
- * A read-only summary of the config the agent has written so far, so the user can
- * see what it set up (apps + framework + port + secret keys, services, addons)
- * without an editable panel they are told not to touch.
- */
-function ConfigSummary({ applicationId }: { applicationId: string }) {
-  const { data } = usePreviewkitConfig(applicationId);
-  const document = data.document;
-  const apps = document?.apps ?? [];
-
-  if (apps.length === 0) {
-    return (
-      <div className="flex flex-col gap-2">
-        <SectionTitle>Configuration</SectionTitle>
-        <p className="font-mono text-2xs text-text-secondary">The agent hasn't written a configuration yet…</p>
-      </div>
-    );
-  }
-
-  const services = document?.services ?? [];
-  const addons = document?.addons ?? [];
-
-  return (
-    <div className="flex flex-col gap-3">
-      <SectionTitle>Configuration</SectionTitle>
-      <div className="flex flex-col gap-2">
-        {apps.map((app) => (
-          <div key={app.name} className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-2xs">
-            <span className="text-text-primary">{app.name}</span>
-            {app.build != null ? <Badge variant="outline">{app.build.framework}</Badge> : undefined}
-            <span className="text-text-secondary">port {app.port}</span>
-            {app.build_secrets.length > 0 ? (
-              <span className="text-text-secondary">· secrets: {app.build_secrets.join(", ")}</span>
-            ) : undefined}
-          </div>
-        ))}
-        {services.map((service) => (
-          <div key={service.name} className="flex items-center gap-2 font-mono text-2xs">
-            {/* A database recipe (postgres/redis/valkey/mysql/mongodb) is a "database" to
-                the user even though it is stored as a service - label it as such. */}
-            <Badge variant="secondary">{isPreviewkitDatabaseEngine(service.recipe) ? "database" : "service"}</Badge>
-            <span className="text-text-primary">{service.name}</span>
-            <span className="text-text-secondary">{service.recipe}</span>
-          </div>
-        ))}
-        {addons.map((addon) => (
-          <div key={addon.name} className="flex items-center gap-2 font-mono text-2xs">
-            <Badge variant="secondary">addon</Badge>
-            <span className="text-text-primary">{addon.name}</span>
-            <span className="text-text-secondary">{addon.provider}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -186,14 +195,18 @@ function DeploySection({ applicationId }: { applicationId: string }) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
   const isReady = diagnostics.status === "ready";
-  const appBuilding = diagnostics.status === "building" || diagnostics.status === "idle";
-  // Follow the deploy: watch the build until the container is up, then switch to app
-  // logs. Only "ready" flips to app - a "failed" deploy keeps the build tab, because
-  // the terminal failure marker is pushed to the build stream (the app stream is empty
-  // on a build or platform failure). An explicit tab pick sticks.
-  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
-  const logSource: PreviewLogSource = logSourceOverride ?? (isReady ? "app" : "build");
   const isFailed = diagnostics.status === "failed";
+  // The app pods roll out (and start emitting runtime logs) once the deploy reaches
+  // the service-rollout phase - before that we are still cloning/building the image.
+  const appRollingOut = diagnostics.phase != null && APP_ROLLOUT_PHASES.has(diagnostics.phase);
+  const imageBuilding = (diagnostics.status === "building" || diagnostics.status === "idle") && !appRollingOut;
+  // Follow the deploy: watch the build while the image builds, then auto-switch to app
+  // logs the moment the app starts rolling out, so the user sees runtime output without
+  // switching tabs themselves. A "failed" deploy keeps the build tab (the terminal
+  // failure marker is on the build stream; the app stream is empty on a build/platform
+  // failure). An explicit tab pick always wins.
+  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
+  const logSource: PreviewLogSource = logSourceOverride ?? (isReady || appRollingOut ? "app" : "build");
 
   return (
     <div className="flex flex-col gap-3">
@@ -230,15 +243,18 @@ function DeploySection({ applicationId }: { applicationId: string }) {
       {services.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {services.map((service) => (
-            <Badge
-              key={service.name}
-              variant="outline"
-              className="gap-1.5 font-mono"
-              title={serviceStatusHint(service.status)}
-            >
-              {service.name}
-              <span className="text-text-secondary">{service.status}</span>
-            </Badge>
+            <Tooltip key={service.name}>
+              <TooltipTrigger
+                render={
+                  <Badge variant="outline" className="cursor-help gap-1.5 font-mono">
+                    {service.name}
+                    <span className="text-text-secondary">{service.status}</span>
+                    <InfoIcon size={11} className="text-text-secondary" />
+                  </Badge>
+                }
+              />
+              <TooltipContent className="max-w-xs">{serviceStatusHint(service.status)}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       ) : undefined}
@@ -248,7 +264,7 @@ function DeploySection({ applicationId }: { applicationId: string }) {
           owner={repoOwner(diagnostics.logs.repoFullName)}
           repo={repoName(diagnostics.logs.repoFullName)}
           pr={diagnostics.logs.prNumber}
-          appBuilding={appBuilding}
+          appBuilding={imageBuilding}
           source={logSource}
           onSourceChange={setLogSourceOverride}
         />

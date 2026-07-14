@@ -1,4 +1,4 @@
-import { Badge, Card, cn } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Card, cn } from "@autonoma/blacklight";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { useEffect, useRef } from "react";
@@ -40,6 +40,12 @@ export function BuildLogStreamViewer({
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
+  // While the deploy is still running, mark the latest phase (e.g. "deploying-services")
+  // as active so it renders a live spinner instead of a static marker that reads as stuck.
+  const deployInFlight =
+    error == null && buildStatus !== "ready" && buildStatus !== "failed" && connection !== "closed";
+  const lastPhaseId = [...entries].reverse().find((entry) => entry.kind === "phase")?.id;
+
   const handleScroll = () => {
     const node = bodyRef.current;
     if (node == null) return;
@@ -74,16 +80,23 @@ export function BuildLogStreamViewer({
         {entries.length === 0 ? (
           <EmptyState connection={connection} error={error} waitingText={waitingText} />
         ) : (
-          entries.map((entry) => <LogRow key={entry.id} entry={entry} />)
+          entries.map((entry) => (
+            <LogRow key={entry.id} entry={entry} active={entry.id === lastPhaseId && deployInFlight} />
+          ))
         )}
       </div>
     </Card>
   );
 }
 
-function LogRow({ entry }: { entry: BuildLogEntry }) {
+function LogRow({ entry, active }: { entry: BuildLogEntry; active?: boolean }) {
   if (entry.kind === "phase") {
-    return <div className="mt-2 mb-1 text-primary">▸ {entry.message}</div>;
+    return (
+      <div className="mt-2 mb-1 flex items-center gap-1.5 text-primary">
+        {active === true ? <BrailleSpinner animation="scan" size="sm" /> : <span aria-hidden>▸</span>}
+        {entry.message}
+      </div>
+    );
   }
   if (entry.kind === "status") {
     const succeeded = entry.message === "ready";

@@ -391,17 +391,30 @@ export class ApplicationsService extends Service {
         if (app == null) throw new NotFoundError();
 
         const suffix = `deleted-${crypto.randomUUID().slice(0, 8)}`;
-        await this.db.application.update({
-            where: { id },
-            data: {
-                disabled: true,
-                slug: `${suffix}-${app.slug}`,
-                name: `${suffix}-${app.name}`,
-                // Free the repo so the same GitHub repository can be linked to a
-                // new application - the unique [organizationId, githubRepositoryId]
-                // constraint would otherwise reject re-linking after a delete.
-                githubRepositoryId: null,
-            },
+        await this.db.$transaction(async (tx) => {
+            await tx.application.update({
+                where: { id },
+                data: {
+                    disabled: true,
+                    slug: `${suffix}-${app.slug}`,
+                    name: `${suffix}-${app.name}`,
+                    // Free the repo so the same GitHub repository can be linked to a
+                    // new application - the unique [organizationId, githubRepositoryId]
+                    // constraint would otherwise reject re-linking after a delete.
+                    githubRepositoryId: null,
+                },
+            });
+
+            // Drop the preview secret rows so a re-created app for the same repo
+            // does not inherit stale registrations that collide with its own in the
+            // reused -pr-0 namespace. The AWS Secrets Manager secret is intentionally
+            // left intact - re-creating the app adopts it by name, avoiding the
+            // pending-deletion window entirely.
+            const removed = await tx.previewkitSecret.deleteMany({ where: { applicationId: id } });
+            this.logger.info("Removed preview secret registrations for deleted application", {
+                applicationId: id,
+                extra: { removed: removed.count },
+            });
         });
 
         this.logger.info("Application disabled", { applicationId: id });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { isConflict, isNotFound } from "../deployer/k8s-errors";
 import { PreviewPlatformError } from "../errors";
 import { type Logger, logger as rootLogger } from "../logger";
+import { dedupeSecretRecordsByTarget } from "./dedupe-secret-targets";
 
 const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
 const LABEL_TYPE = "previewkit.dev/type";
@@ -48,6 +49,20 @@ const ExternalSecretStatusSchema = z.object({
         })
         .nullish(),
 });
+
+const ExternalSecretListSchema = z.object({
+    items: z.array(
+        z.object({
+            metadata: z.object({ name: z.string().nullish() }).nullish(),
+            spec: z.object({ target: z.object({ name: z.string().nullish() }).nullish() }).nullish(),
+        }),
+    ),
+});
+
+/** The ExternalSecret CR name for a PreviewkitSecret row - stable across redeploys. */
+function externalSecretName(recordId: string): string {
+    return `previewkit-aws-${recordId}`;
+}
 
 interface ExternalSecret {
     apiVersion: "external-secrets.io/v1";
@@ -138,23 +153,49 @@ export class AwsExternalSecretManager {
             return result;
         }
 
+        // Collapse rows that fold to one K8s Secret target (a same-app duplicate).
+        // ESO allows only one Owner per target, so keep one and log the rest.
+        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, (name) => this.toK8sName(name));
+        for (const collision of collisions) {
+            this.logger.fatal(
+                "Multiple PreviewkitSecret rows resolve to one K8s Secret target; keeping one to avoid an ExternalSecret ownership collision",
+                {
+                    namespace,
+                    extra: {
+                        target: collision.secretName,
+                        keptSecretId: collision.kept.id,
+                        droppedSecretIds: collision.dropped.map((r) => r.id),
+                        awsSecretArns: [...new Set([collision.kept, ...collision.dropped].map((r) => r.awsSecretArn))],
+                    },
+                },
+            );
+        }
+
+        // Reconcile the namespace to exactly these ExternalSecrets before rolling
+        // out. A soft-deleted app generation leaves its Owner ExternalSecret behind
+        // in the reused -pr-0 namespace (soft delete never cleans up secrets, and
+        // the ns-cleaner CronJob skips -pr-0); that leftover keeps owning the target
+        // K8s Secret, so the new generation's ExternalSecret can never sync and the
+        // deploy times out. Prune any stale ExternalSecret that targets an app we
+        // are deploying now, so the current one can own the Secret cleanly.
+        const desiredEsNames = new Set(chosen.map(({ record }) => externalSecretName(record.id)));
+        const desiredTargets = new Set(chosen.map(({ secretName }) => secretName));
+        await this.pruneCollidingExternalSecrets(namespace, desiredEsNames, desiredTargets);
+
         // Stamp one force-sync token for the batch and remember when we asked,
         // so the readiness wait can require a reconcile that happened after it.
         const syncRequestedAtMs = Date.now();
         const forceSyncToken = new Date(syncRequestedAtMs).toISOString();
         const pending: Array<{ appName: string; esName: string; secretName: string }> = [];
 
-        for (const record of records) {
-            // K8s Secret name is derived from appName locally — see toK8sName().
-            // The previewkit_secret row no longer persists it.
-            const k8sSecretName = this.toK8sName(record.appName);
-            const resource = this.buildExternalSecret(record, k8sSecretName, namespace, organizationId, forceSyncToken);
+        for (const { record, secretName } of chosen) {
+            const resource = this.buildExternalSecret(record, secretName, namespace, organizationId, forceSyncToken);
             await this.applyExternalSecret(namespace, resource);
-            pending.push({ appName: record.appName, esName: resource.metadata.name, secretName: k8sSecretName });
+            pending.push({ appName: record.appName, esName: resource.metadata.name, secretName });
 
             this.logger.info("Applied AWS ExternalSecret", {
                 appName: record.appName,
-                k8sSecretName,
+                k8sSecretName: secretName,
                 awsSecretArn: record.awsSecretArn,
                 namespace,
                 extra: { esName: resource.metadata.name },
@@ -188,6 +229,81 @@ export class AwsExternalSecretManager {
         });
 
         return result;
+    }
+
+    /**
+     * Delete any previewkit-managed ExternalSecret in the namespace that targets
+     * an app we are deploying now (`desiredTargets`) but is not the current row's
+     * ExternalSecret (`desiredEsNames`). That is a stale Owner left behind by a
+     * prior generation of the same app - it still owns the target K8s Secret, so
+     * the current ExternalSecret can never sync until it is removed.
+     *
+     * Scoped to `desiredTargets` so a per-app redeploy never touches another app's
+     * secret, and so an orphan for a fully-removed app is left alone (it blocks
+     * nothing). The target Secret is Retained on delete, so the current
+     * ExternalSecret adopts it on the next apply. This should not happen, so it is
+     * logged fatal for us to clean up the leftover row - but recovered gracefully.
+     */
+    private async pruneCollidingExternalSecrets(
+        namespace: string,
+        desiredEsNames: Set<string>,
+        desiredTargets: Set<string>,
+    ): Promise<void> {
+        const existing = await this.listManagedExternalSecrets(namespace);
+        for (const es of existing) {
+            if (desiredEsNames.has(es.name)) continue;
+            if (!desiredTargets.has(es.target)) continue;
+
+            this.logger.fatal(
+                "Pruning an orphaned ExternalSecret that still owns a target the current app needs - a leftover from a deleted app generation in this reused namespace",
+                { namespace, extra: { esName: es.name, target: es.target } },
+            );
+            await this.deleteExternalSecretBestEffort(namespace, es.name);
+        }
+    }
+
+    private async listManagedExternalSecrets(namespace: string): Promise<Array<{ name: string; target: string }>> {
+        const list = await this.customApi.listNamespacedCustomObject({
+            group: ESO_GROUP,
+            version: ESO_VERSION,
+            namespace,
+            plural: ESO_PLURAL,
+            labelSelector: `${LABEL_MANAGED_BY}=previewkit,${LABEL_TYPE}=aws-external-secret`,
+        });
+        const parsed = ExternalSecretListSchema.safeParse(list);
+        if (!parsed.success) {
+            this.logger.warn("Could not parse ExternalSecret list; skipping prune", {
+                namespace,
+                extra: { err: parsed.error.message },
+            });
+            return [];
+        }
+        const managed: Array<{ name: string; target: string }> = [];
+        for (const item of parsed.data.items) {
+            const name = item.metadata?.name;
+            const target = item.spec?.target?.name;
+            if (name != null && target != null) managed.push({ name, target });
+        }
+        return managed;
+    }
+
+    private async deleteExternalSecretBestEffort(namespace: string, esName: string): Promise<void> {
+        try {
+            await this.customApi.deleteNamespacedCustomObject({
+                group: ESO_GROUP,
+                version: ESO_VERSION,
+                namespace,
+                plural: ESO_PLURAL,
+                name: esName,
+            });
+            this.logger.info("Pruned orphaned ExternalSecret", { namespace, extra: { esName } });
+        } catch (err) {
+            if (isNotFound(err)) return;
+            this.logger.warn("Failed to prune orphaned ExternalSecret; continuing with deploy", {
+                namespace,
+                extra: { esName, err },
+            });
+        }
     }
 
     /**
@@ -290,7 +406,7 @@ export class AwsExternalSecretManager {
             apiVersion: "external-secrets.io/v1",
             kind: "ExternalSecret",
             metadata: {
-                name: `previewkit-aws-${record.id}`,
+                name: externalSecretName(record.id),
                 namespace,
                 labels: {
                     [LABEL_MANAGED_BY]: "previewkit",
