@@ -2,6 +2,7 @@ import {
     DeleteSecretInputSchema,
     ListSecretsInputSchema,
     PreviewkitConfigSecretsSchema,
+    SecretItemSchema,
     UpsertSecretsInputSchema,
     previewConfigSchema,
 } from "@autonoma/types";
@@ -203,4 +204,57 @@ export const onboardingRouter = router({
     goLive: protectedProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) => ctx.services.onboarding.goLive(input.applicationId, ctx.organizationId)),
+
+    // --- Agentic onboarding (coding agent drives previewkit config over MCP) ---
+
+    // Poll target for the "Claude is configuring" UI: holder/effectiveHolder,
+    // pending request, agent activity stream, and step/verification status.
+    getAgentSession: protectedProcedure
+        .input(applicationIdInput)
+        .query(({ ctx, input }) => ctx.services.onboardingAgentSession.getForUi(input.applicationId)),
+
+    // Mint the pairing code the user hands to their coding agent.
+    createAgentPairing: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboardingAgentSession.createPairing(input.applicationId, ctx.organizationId),
+        ),
+
+    // Stop button: the human takes over; the agent stands down on its next call.
+    stopAgent: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboardingAgentSession.stopForHuman(input.applicationId, ctx.organizationId),
+        ),
+
+    // Resume with Claude: hand control back to the agent.
+    resumeAgent: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboardingAgentSession.resumeForAgent(input.applicationId, ctx.organizationId),
+        ),
+
+    // Answer an agent env request: set the secret values the user entered (they
+    // never reach the agent) and clear the pending request so the agent continues.
+    submitAgentEnv: protectedProcedure
+        .input(
+            z.object({
+                applicationId: z.string(),
+                appName: z.string(),
+                items: z.array(SecretItemSchema).min(1).max(200),
+            }),
+        )
+        .mutation(async ({ ctx, input }) => {
+            // Order is deliberate and can't be a DB $transaction: upsert writes to the
+            // external secret store (not Postgres), so it can't roll back. Set the
+            // secrets first, then clear the pending request - if the upsert throws, the
+            // request stays pending and the user retries; we never clear it prematurely.
+            await ctx.services.onboarding.upsertPreviewkitSecrets(
+                input.applicationId,
+                ctx.organizationId,
+                input.appName,
+                input.items,
+            );
+            await ctx.services.onboardingAgentSession.resolvePendingRequest(input.applicationId, ctx.organizationId);
+        }),
 });

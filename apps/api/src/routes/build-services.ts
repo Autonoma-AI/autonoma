@@ -28,6 +28,7 @@ import { PreviewkitSecretStatusService } from "../previewkit/previewkit-secret-s
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { PreviewkitWriteService } from "../previewkit/previewkit-write.service";
+import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
@@ -39,6 +40,7 @@ import { DeploymentsService } from "./deployments/deployments.service";
 import { PreviewkitEnvFactoryService } from "./deployments/previewkit-env-factory.service";
 import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
+import { OnboardingAgentSessionService } from "./onboarding/onboarding-agent-session.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { PreviewkitConfigService } from "./onboarding/previewkit-config-service";
@@ -77,6 +79,8 @@ export interface Services {
     previewkitTrigger: PreviewkitTriggerService;
     previewkitWrite: PreviewkitWriteService;
     previewkitEnvironments: PreviewkitEnvironmentsService;
+    rateLimiter: RateLimiterService;
+    onboardingAgentSession: OnboardingAgentSessionService;
 }
 
 export interface ServicesParams {
@@ -155,6 +159,8 @@ export function buildServices({
     };
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, onboardingOptions);
     const previewkitConfigService = new PreviewkitConfigService(conn, onboardingOptions);
+    const rateLimiter = new RateLimiterService(conn);
+    const onboardingAgentSession = new OnboardingAgentSessionService(conn, rateLimiter);
     const previewkitWrite = new PreviewkitWriteService(
         previewkitConfigService,
         previewkitSecretsService,
@@ -191,6 +197,8 @@ export function buildServices({
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
         issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
+        rateLimiter,
+        onboardingAgentSession,
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),

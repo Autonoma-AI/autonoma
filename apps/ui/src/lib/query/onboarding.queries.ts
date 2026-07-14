@@ -28,6 +28,65 @@ export function useOnboardingStateOptional(applicationId: string) {
     return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
 }
 
+/** Fast poll while the agent actively holds the config (the activity stream needs to feel live). */
+const AGENT_SESSION_ACTIVE_POLL_MS = 2000;
+/** Slow poll while the human holds it: still fast enough to notice the agent taking over, without steady 2s traffic. */
+const AGENT_SESSION_IDLE_POLL_MS = 8000;
+
+/** Polls the agentic-onboarding session (control state, pending request, activity stream). */
+export function useAgentSession(applicationId: string) {
+    return useQuery(
+        trpc.onboarding.getAgentSession.queryOptions(
+            { applicationId },
+            {
+                enabled: applicationId.length > 0,
+                refetchInterval: (query) =>
+                    query.state.data?.effectiveHolder === "agent"
+                        ? AGENT_SESSION_ACTIVE_POLL_MS
+                        : AGENT_SESSION_IDLE_POLL_MS,
+            },
+        ),
+    );
+}
+
+function invalidateAgentSession(queryClient: ReturnType<typeof useQueryClient>) {
+    void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getAgentSession.queryKey() });
+}
+
+/** Mint the pairing code shown to the user for their coding agent. */
+export function useCreateAgentPairing() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.createAgentPairing.mutationOptions({
+            onSettled: () => invalidateAgentSession(queryClient),
+        }),
+    });
+}
+
+/** Stop button: the human takes over the config. */
+export function useStopAgent() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.stopAgent.mutationOptions({ onSettled: () => invalidateAgentSession(queryClient) }),
+    });
+}
+
+/** Hand control back to the agent. */
+export function useResumeAgent() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.resumeAgent.mutationOptions({ onSettled: () => invalidateAgentSession(queryClient) }),
+    });
+}
+
+/** Answer an agent env request: set the entered secret values and clear the request. */
+export function useSubmitAgentEnv() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.submitAgentEnv.mutationOptions({ onSettled: () => invalidateAgentSession(queryClient) }),
+    });
+}
+
 export function useConfigureAndDiscoverScenarios() {
     const queryClient = useQueryClient();
     const onStepMismatch = useStepMismatchHandler();

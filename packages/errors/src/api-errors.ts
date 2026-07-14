@@ -37,6 +37,16 @@ export class InternalError extends APIError {
 }
 
 /**
+ * Thrown when a caller exceeds a rate limit (maps to HTTP 429 / tRPC
+ * TOO_MANY_REQUESTS). The message is safe to surface to the caller.
+ */
+export class TooManyRequestsError extends APIError {
+    constructor(message = "Too many requests") {
+        super(message);
+    }
+}
+
+/**
  * Thrown when an organization has insufficient credits to perform an action.
  */
 export class InsufficientCreditsError extends APIError {

@@ -110,6 +110,45 @@ function applyTags(ctx: ObservabilityContext): void { ... }   // typed parameter
 const user = UserSchema.parse(response.data);                  // zod-validated at the boundary
 ```
 
+### No `unknown` as an Escape Hatch - Reach for Generics
+
+**Never type a value, parameter, or callback result as `unknown` to sidestep a type you didn't want to thread through.** `unknown` erases the type and pushes the problem onto every caller. When a helper wraps some `work` whose result varies by call site, make the helper generic so the real type flows through; pass identifying inputs as a named interface, not a pile of positional args.
+
+```ts
+// BAD - the result type is thrown away; callers get `unknown`, and the params are positional soup
+async function guarded(id: string, label: string, work: () => Promise<unknown>) {
+  const result = await work();
+  return wrap(result);
+}
+
+// GOOD - generic result + a descriptive params object
+interface GuardedWork { id: string; label: string; }
+async function guarded<T>({ id, label }: GuardedWork, work: () => Promise<T>): Promise<Wrapped<T>> {
+  const result = await work();
+  return wrap(result);
+}
+```
+
+The legitimate uses of `unknown` are narrow: the input side of a runtime boundary you immediately validate (`function parse(input: unknown)` before a Zod `.parse`), or `catch (err: unknown)`. Everywhere else, if you're reaching for `unknown`, reshape the signature (a generic, an interface, or a typed parameter) instead.
+
+### Parallelize Independent Awaits
+
+**When two or more awaited operations don't depend on each other, run them together with `Promise.all` instead of awaiting them one after another.** Sequential awaits of independent work waste wall-clock for no reason.
+
+```ts
+// BAD - two independent reads run back to back
+const view = await session.getForUi(applicationId);
+const readiness = await previews.getReadiness(applicationId, orgId);
+
+// GOOD - they run concurrently
+const [view, readiness] = await Promise.all([
+  session.getForUi(applicationId),
+  previews.getReadiness(applicationId, orgId),
+]);
+```
+
+Only parallelize genuinely independent steps. Keep a sequence when a later step needs an earlier result, or when ordering is load-bearing - authorize before you mutate, write before you read it back. When awaits stay sequential, it should be because of such a dependency, not by habit.
+
 ### Classes vs Functions
 
 - **Needs state or dependencies?** Class with constructor injection.

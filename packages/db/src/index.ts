@@ -2,10 +2,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import type {
+    AgentLogEntrySchema,
     investigationDeployedComparisonSchema,
     investigationEvidenceSchema,
     investigationRunStepSchema,
     issueReportSchema,
+    OnboardingAgentPendingRequestSchema,
     ScenarioRecipeSchema,
     ScenarioStructureJsonSchema,
 } from "@autonoma/types";
@@ -193,7 +195,10 @@ declare global {
          */
         export type RunFailure = SystemFailure | { kind: "replay_failed" };
 
-        export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
+        /** The agent activity stream on `OnboardingState.agentLogs` (plain lines + tool calls). */
+        export type AgentLogs = z.infer<typeof AgentLogEntrySchema>[];
+        /** The blocking question on `OnboardingState.agentPendingRequest` (env keys or a choice). */
+        export type OnboardingAgentPendingRequest = z.infer<typeof OnboardingAgentPendingRequestSchema>;
         export type PreviewkitManifest = {
             apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
             services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;

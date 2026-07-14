@@ -7,4 +7,5 @@ export {
     InternalError,
     InsufficientCreditsError,
     SubscriptionGracePeriodExpiredError,
+    TooManyRequestsError,
 } from "./api-errors";

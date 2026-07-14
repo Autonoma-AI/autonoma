@@ -28,6 +28,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type ConfigStepId } from "lib/onboarding/config-steps";
 import {
+  useAgentSession,
   usePreviewkitConfig,
   useSavePreviewkitConfig,
   useTriggerPreviewkitMainDeploy,
@@ -40,8 +41,10 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AddAppDialog } from "./-components/previewkit/add-app-dialog";
+import { AgentConfiguringScreen } from "./-components/previewkit/agent-configuring-screen";
 import { AppCard } from "./-components/previewkit/app-card";
 import { BranchMatchingField } from "./-components/previewkit/branch-matching-field";
+import { ConfigureWithAgentModal } from "./-components/previewkit/configure-with-agent-modal";
 import { DatabaseSection } from "./-components/previewkit/database-section";
 import { HooksSection } from "./-components/previewkit/hooks-section";
 import { ReviewSection } from "./-components/previewkit/review-section";
@@ -124,7 +127,7 @@ export function PreviewkitConfigPage({
 
   return (
     <Suspense fallback={<PreviewkitConfigSkeleton />}>
-      <PreviewkitConfigContent
+      <AgentGate
         appId={appId}
         focusApp={focusApp}
         focusField={focusField}
@@ -132,6 +135,33 @@ export function PreviewkitConfigPage({
         configStep={configStep}
       />
     </Suspense>
+  );
+}
+
+/**
+ * While a coding agent holds the config (agentic onboarding), the form is
+ * replaced by the read-only "Claude is configuring" screen; otherwise the normal
+ * editable config renders with an entry point to hand off to an agent. Idle
+ * release (30 min) or the user's Take over flips `effectiveHolder` back to human.
+ */
+function AgentGate({ appId, ...rest }: { appId: string } & Omit<PreviewkitConfigPageProps, "appId">) {
+  const { data: agentSession, isLoading } = useAgentSession(appId);
+
+  // Reserve the space until the first poll settles: otherwise the editable form
+  // flashes for an agent-held app before the read-only screen swaps in.
+  if (isLoading) return <PreviewkitConfigSkeleton />;
+
+  if (agentSession?.effectiveHolder === "agent") {
+    return <AgentConfiguringScreen applicationId={appId} />;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <ConfigureWithAgentModal applicationId={appId} />
+      </div>
+      <PreviewkitConfigContent appId={appId} {...rest} />
+    </div>
   );
 }
 

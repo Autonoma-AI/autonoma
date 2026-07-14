@@ -14,6 +14,7 @@ const SIDEBAR_ORDER: string[] = [
     "previewkit/hooks",
     "previewkit/multirepo",
     "mcp/index",
+    "mcp/configure-preview",
     "test-planner/index",
     "environment-factory/index",
     "environment-factory/setup",

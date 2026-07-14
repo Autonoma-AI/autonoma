@@ -1,0 +1,150 @@
+---
+title: Configure your preview with a coding agent (MCP)
+description: Connect your coding agent to Autonoma's onboarding MCP server so it can configure and deploy your PreviewKit preview for you - reading the config, setting it up, asking you for secrets, deploying off main, and iterating until it comes up - while you watch read-only in Autonoma.
+---
+
+import Tabs from "../../../components/Tabs.astro"
+import TabItem from "../../../components/TabItem.astro"
+
+<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it configures your PreviewKit preview for you - reads the config, sets up apps, databases and services, asks you for any secrets it needs, deploys off your main branch, and iterates until the preview is up - while you watch, read-only, in the Autonoma UI.</p>
+
+![A coding agent plugs into Autonoma and lights up a live preview environment](/img/mcp/configure-preview-hero.jpg)
+
+This is the agent-driven alternative to filling in the PreviewKit config form by hand. Your agent already knows your repo - its build, its services, its env - so it can do the setup faster than you can describe it. You stay in control: the UI shows every step live and hands control back the moment you take over.
+
+:::note
+This is a different server from the [debugging MCP](/mcp). That one helps your agent fix a broken preview on an existing pull request; this one helps your agent do the initial PreviewKit setup during onboarding.
+:::
+
+## Start from the Autonoma UI
+
+You connect this server from inside onboarding, because it pins itself to the app you are setting up:
+
+1. In Autonoma, start onboarding your app and open the PreviewKit config step.
+2. Click **Configure with coding agent**. A modal shows the install snippet for your client and a short **pairing code**.
+3. Install the server in your agent (below), then tell your agent to configure your preview and give it the pairing code.
+
+The pairing code is how the agent knows *which* app to configure - you never hand it a repo name, and it can only ever touch an app in an organization you belong to.
+
+## Connection details
+
+| Setting | Value |
+| --- | --- |
+| **URL** | `https://api.autonoma.app/v1/mcp/onboarding` |
+| **Transport** | Streamable HTTP |
+| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
+
+## Connect your coding agent
+
+<Tabs group="mcp-client">
+
+<TabItem label="Claude Code">
+
+```bash
+claude mcp add --transport http autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding
+```
+
+The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize.
+
+</TabItem>
+
+<TabItem label="Cursor">
+
+Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your project:
+
+```json
+// .cursor/mcp.json
+{
+  "mcpServers": {
+    "autonoma-onboarding": {
+      "url": "https://api.autonoma.app/v1/mcp/onboarding"
+    }
+  }
+}
+```
+
+Reload Cursor, then complete the browser sign-in when prompted from **Settings → MCP**.
+
+</TabItem>
+
+<TabItem label="Windsurf">
+
+Add the server to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+// ~/.codeium/windsurf/mcp_config.json
+{
+  "mcpServers": {
+    "autonoma-onboarding": {
+      "serverUrl": "https://api.autonoma.app/v1/mcp/onboarding"
+    }
+  }
+}
+```
+
+Refresh MCP servers from Cascade's settings, then complete the browser sign-in.
+
+</TabItem>
+
+<TabItem label="Other clients">
+
+Any MCP client that speaks Streamable HTTP can connect with the [connection details](#connection-details) above. For a client that only supports STDIO, bridge to the remote server with [`mcp-remote`](https://github.com/geelen/mcp-remote):
+
+```json
+{
+  "mcpServers": {
+    "autonoma-onboarding": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/onboarding"]
+    }
+  }
+}
+```
+
+</TabItem>
+
+</Tabs>
+
+:::caution
+Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
+:::
+
+## How the agent configures your preview
+
+![Pair, then loop: edit config, deploy, poll status, and retry until the preview is live - while you watch read-only](/img/mcp/configure-preview-flow.jpg)
+
+Once paired, the agent works a loop, and the Autonoma UI streams every step:
+
+1. **Pair** - `pair(code)` claims your app's config for the agent and returns the current config.
+2. **Read and edit** - `get_config` / `apply_config` read and save the full PreviewKit config document. A save is validated; an invalid document returns the errors to fix.
+3. **Deploy** - `trigger_deploy` deploys your main branch as the preview.
+4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, and diagnostics. The agent polls it, reads the diagnostics if the preview fails, fixes the config, and deploys again - until it comes up.
+
+While the agent holds the config, the Autonoma UI is read-only and shows what it is doing in real time. You can press **Take over** at any point to reclaim the config and continue by hand; the agent stands down immediately. If the agent goes idle, control returns to you automatically.
+
+## Secrets stay yours
+
+![The agent sends only key names; you enter the values in the UI and they reach Autonoma encrypted - the agent never sees them](/img/mcp/secrets-flow.jpg)
+
+When your app needs a secret value the agent does not have - an API key, a database URL, a token - it calls `request_env` with only the **key names**. That surfaces a prompt in the Autonoma UI where **you** enter the values. The values go straight from your browser to Autonoma, encrypted; the agent never sees them and there is no tool that accepts a secret value.
+
+The agent should always ask you first whether to set env from your `.env` (you paste it into the UI) or to configure it yourself - so you decide, every time, what Autonoma stores.
+
+## What your agent can do
+
+| Tool | Input | Does |
+| --- | --- | --- |
+| `pair` | code | Claims the app's config using the pairing code from the UI; returns its `applicationId` and current config |
+| `get_config` | applicationId | Reads the current PreviewKit config document |
+| `apply_config` | applicationId, document | Saves the full config document (validated; errors returned to fix). Never carries secret values |
+| `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
+| `trigger_deploy` | applicationId | Deploys the main branch as the preview |
+| `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, and diagnostics |
+
+## Troubleshooting
+
+**The tools do not show up.** Confirm the client connected (e.g. `claude mcp list`) and that you completed the browser sign-in.
+
+**The pairing code does not work.** Codes are single-use and short-lived. Reopen **Configure with coding agent** in the UI to mint a fresh one.
+
+**The UI went read-only and I want to edit by hand.** Press **Take over** - the agent stands down and the form becomes editable again.

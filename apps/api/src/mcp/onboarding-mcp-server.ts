@@ -1,0 +1,312 @@
+import { NotFoundError } from "@autonoma/errors";
+import { logger as rootLogger } from "@autonoma/logger";
+import { type AgentLogEntry, previewConfigSchema } from "@autonoma/types";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import type { Services } from "../routes/build-services";
+import type { McpAnalytics } from "./mcp-analytics";
+
+/**
+ * Server-level guidance the onboarding MCP client reads on connect. Portable and
+ * client-agnostic so a Claude / Cursor / Codex agent configures a preview the
+ * same way. The app is pinned by a pairing code the user copies from the UI - the
+ * agent never needs a repo name.
+ */
+const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent configure that preview during onboarding: set up the build, databases, services and env, deploy off the main branch, and iterate until it comes up - while the user watches read-only in the Autonoma UI.
+
+Start every session by pairing:
+1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
+2. Call pair(code) with it. That claims the app's config for you and returns its applicationId and current config. Use that applicationId for every other tool.
+
+Then loop until the preview is up:
+3. get_config(applicationId) - read the current preview config.
+4. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
+5. If the app needs secret env values (API keys, DB URLs, tokens) you do NOT have: call request_env(applicationId, keys). NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection.
+6. trigger_deploy(applicationId) - deploy the main branch (environment 0).
+7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state.
+8. When status shows the preview is up, verify it yourself: curl the preview URL, or write a small Playwright script if the user has Playwright, and check you get what you expect. If it is broken, read the diagnostics, fix the config, and loop.
+
+Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
+
+/** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
+export interface OnboardingMcpDeps {
+    services: Services;
+    /** The OAuth-authenticated user driving the agent (from the verified MCP token). */
+    userId: string;
+    /** Records a `mcp.tool_called` PostHog event per tool invocation, attributed to the resolved org. */
+    analytics: McpAnalytics;
+}
+
+/** Identifies a single guarded write for the mutex claim and the activity stream. */
+interface GuardedWriteParams {
+    applicationId: string;
+    /** The MCP tool name, used as the log-entry label and in failure logs. */
+    tool: string;
+    /** Human-readable description shown on the "running" activity row in the UI. */
+    message: string;
+    /** Rendered as dim JSON on the activity row; never carries secret values. */
+    toolArguments?: AgentLogEntry["toolArguments"];
+}
+
+/** A tool result carrying a JSON payload as text. */
+function jsonResult(payload: unknown): CallToolResult {
+    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+}
+
+/** An error result the agent can read, instead of a transport-level 500. */
+function errorResult(message: string): CallToolResult {
+    return { content: [{ type: "text", text: message }], isError: true };
+}
+
+/** The result a write tool returns when the human has taken over - the agent must stand down. */
+function pausedResult(): CallToolResult {
+    return jsonResult({
+        status: "paused",
+        standDown: true,
+        message:
+            "The user took over configuration in the Autonoma UI. Stop configuring and let them continue. " +
+            "They can hand control back with 'Resume with Claude', after which your next call re-claims it.",
+    });
+}
+
+function describeError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return typeof err === "string" ? err : "Unknown error";
+}
+
+/** Map a thrown error to a tool result. NotFound is an expected "unavailable" state. */
+function toToolResult(err: unknown): CallToolResult {
+    if (err instanceof NotFoundError) return jsonResult({ status: "unavailable", reason: err.message });
+    return errorResult(describeError(err));
+}
+
+/**
+ * Builds the "onboarding" MCP server: the client-facing toolset a coding agent
+ * uses to configure a PreviewKit preview during onboarding. The app is pinned by
+ * a pairing code (not a repo name); every tool resolves the org from the
+ * per-call `applicationId` and verifies the authenticated user's membership.
+ * Writes go through the {@link OnboardingAgentSessionService} soft mutex so the
+ * UI can watch read-only and take over. Secret VALUES never pass through any tool.
+ */
+export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
+    const logger = rootLogger.child({ name: "onboardingMcpServer" });
+    const { services, userId, analytics } = deps;
+    const session = services.onboardingAgentSession;
+
+    const server = new McpServer(
+        { name: "autonoma-onboarding", version: "0.1.0" },
+        { instructions: ONBOARDING_INSTRUCTIONS },
+    );
+
+    /**
+     * Resolve the org from a tool's `applicationId` (verifying the user's
+     * membership) and bind it to the analytics scope, so each tool's
+     * `mcp.tool_called` event is attributed to the customer org. Use this in every
+     * tool instead of calling the service directly.
+     */
+    const resolveOrg = analytics.observeOrgResolution((applicationId) =>
+        session.resolveOrgForMember(applicationId, userId),
+    );
+
+    /**
+     * Runs one agent write under the config mutex, streaming it as an activity
+     * entry and recording an `mcp.tool_called` event. The steps are a deliberate
+     * gated sequence, not parallelizable: authorize membership first (so a
+     * non-member never mutates), then claim the mutex (standing down if the human
+     * took over), then log-run-finish the work. Generic over the work's result so
+     * the tool's payload stays fully typed.
+     */
+    async function guardedWrite<T>(
+        { applicationId, tool, message, toolArguments }: GuardedWriteParams,
+        work: (organizationId: string) => Promise<T>,
+    ): Promise<CallToolResult> {
+        return analytics.track(tool, async () => {
+            try {
+                const organizationId = await resolveOrg(applicationId);
+                const claim = await session.claimForAgent(applicationId);
+                if (!claim.claimed) return pausedResult();
+
+                const eventId = await session.startLogEntry(applicationId, tool, message, toolArguments);
+                try {
+                    const result = await work(organizationId);
+                    await session.finishLogEntry(applicationId, eventId, "done");
+                    return jsonResult(result);
+                } catch (err) {
+                    await session.finishLogEntry(applicationId, eventId, "error", describeError(err));
+                    throw err;
+                }
+            } catch (err) {
+                logger.warn(`${tool} failed`, { applicationId, err });
+                return toToolResult(err);
+            }
+        });
+    }
+
+    server.registerTool(
+        "pair",
+        {
+            title: "Pair with an app",
+            description:
+                "Claim an app's preview config using the pairing code the user copied from the Autonoma UI. " +
+                "Returns the applicationId (use it for every other tool) and the current config.",
+            inputSchema: { code: z.string().min(1) },
+        },
+        async ({ code }) =>
+            analytics.track("pair", async () => {
+                try {
+                    logger.info("Pairing agent with code");
+                    const view = await session.pairAgent(code, userId);
+                    const organizationId = await resolveOrg(view.applicationId);
+                    const config = await services.onboarding.getPreviewkitConfig(view.applicationId, organizationId);
+                    return jsonResult({
+                        paired: true,
+                        applicationId: view.applicationId,
+                        currentConfig: config.document,
+                        configExists: config.saved,
+                    });
+                } catch (err) {
+                    logger.warn("pair failed", { err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_config",
+        {
+            title: "Read the preview config",
+            description: "Read the current PreviewKit config document for an app.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_config", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const config = await services.onboarding.getPreviewkitConfig(applicationId, organizationId);
+                    return jsonResult({ document: config.document, configExists: config.saved });
+                } catch (err) {
+                    logger.warn("get_config failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "apply_config",
+        {
+            title: "Save the preview config",
+            description:
+                "Save the FULL PreviewKit config document (read it with get_config first, edit it, send the whole " +
+                "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
+                "secret values - declare secret keys as build_secrets and set their values via request_env.",
+            inputSchema: { applicationId: z.string(), document: previewConfigSchema },
+        },
+        async ({ applicationId, document }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "apply_config",
+                    message: "Saving preview config",
+                    toolArguments: { apps: document.apps.length },
+                },
+                (org) => services.onboarding.savePreviewkitConfig(applicationId, org, document),
+            ),
+    );
+
+    server.registerTool(
+        "request_env",
+        {
+            title: "Ask the user for env values",
+            description:
+                "Ask the user to enter secret env VALUES in the Autonoma UI (you never see them). Pass only the KEYS " +
+                "you need and the appName they belong to (secret stores are per-app; read it from get_config). ALWAYS " +
+                "ask the user first whether to fill from their .env (default) or set them manually. Then poll " +
+                "get_session_status; when the pending request clears, the values are set.",
+            inputSchema: {
+                applicationId: z.string(),
+                keys: z.array(z.string().min(1)).min(1),
+                appName: z.string().min(1),
+                note: z.string().optional(),
+            },
+        },
+        async ({ applicationId, keys, appName, note }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "request_env",
+                    message: `Requesting ${keys.length} env value(s) from the user`,
+                    toolArguments: { keys, appName },
+                },
+                async () => {
+                    await session.raisePendingRequest(applicationId, { kind: "env", keys, appName, note });
+                    return {
+                        status: "input_requested",
+                        message:
+                            "Asked the user to provide these values in the Autonoma UI. Poll get_session_status; " +
+                            "when pendingRequest is cleared they are set. Do NOT ask for or send the values yourself.",
+                    };
+                },
+            ),
+    );
+
+    server.registerTool(
+        "trigger_deploy",
+        {
+            title: "Deploy the preview",
+            description:
+                "Deploy the app's main branch as the preview (environment 0), applying the saved config. Then poll " +
+                "get_session_status until it is up, and verify the preview URL yourself.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "trigger_deploy",
+                    message: "Deploying preview (main branch)",
+                    toolArguments: {},
+                },
+                (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org),
+            ),
+    );
+
+    server.registerTool(
+        "get_session_status",
+        {
+            title: "Poll status",
+            description:
+                "The single polling tool: returns your control state, any pending user request, the deploy status, " +
+                "the preview URL, and diagnostics. Poll this to wait for a build to finish AND to wait for the user " +
+                "to answer a request. If it reports standDown, the user took over - stop configuring.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_session_status", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    // Beat the heartbeat first so the freshly-read view reflects it, then
+                    // fetch the view and the deploy readiness together - independent reads.
+                    await session.heartbeatIfAgentHeld(applicationId);
+                    const [view, readiness] = await Promise.all([
+                        session.getForUi(applicationId),
+                        services.onboarding.getPreviewReadiness(applicationId, organizationId),
+                    ]);
+                    return jsonResult({
+                        standDown: view?.holder === "human",
+                        holder: view?.holder,
+                        pendingRequest: view?.pendingRequest,
+                        previewVerificationStatus: view?.previewVerificationStatus,
+                        step: view?.step,
+                        previewUrl: readiness.previewUrl,
+                        diagnostics: readiness.diagnostics,
+                    });
+                } catch (err) {
+                    logger.warn("get_session_status failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    return server;
+}

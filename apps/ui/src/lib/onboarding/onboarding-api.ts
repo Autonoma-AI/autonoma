@@ -22,4 +22,9 @@ export {
     usePreviewReadiness,
     useCompletePreviewOnboarding,
     useGoLive,
+    useAgentSession,
+    useCreateAgentPairing,
+    useStopAgent,
+    useResumeAgent,
+    useSubmitAgentEnv,
 } from "lib/query/onboarding.queries";

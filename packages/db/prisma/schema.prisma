@@ -192,7 +192,7 @@ model OnboardingState {
   applicationId             String                              @unique @map("application_id")
   step                      OnboardingStep                      @default(github) @map("step")
   agentConnectedAt          DateTime?                           @map("agent_connected_at")
-  /// [AgentLogEntry]
+  /// [AgentLogs]
   agentLogs                 Json                                @default("[]") @map("agent_logs")
   productionUrl             String?                             @map("production_url")
   previewEnvironmentMode    OnboardingPreviewEnvironmentMode?   @map("preview_environment_mode")
@@ -209,12 +209,41 @@ model OnboardingState {
   // First real per-PR `deployment_status` observed. Backs the optimistic BYO
   // diff-trigger self-confirmation (Live is marked before this is set).
   diffTriggerConfirmedAt    DateTime?                           @map("diff_trigger_confirmed_at")
+
+  // --- Agentic onboarding: a coding agent drives the previewkit config over MCP ---
+  // Who currently drives the config. Default `human` (the user starts in the UI);
+  // the agent's first claim is a deliberate human -> agent handoff, and Stop /
+  // Take over flips it back. Agent-held => the UI is read-only. Distinct from
+  // `agentConnectedAt` (mere presence): this is the soft mutex for who may write.
+  agentHolder               OnboardingAgentHolder               @default(human) @map("agent_holder")
+  // Heartbeat: refreshed on every agent tool call. The UI derives an idle release
+  // (control handed back to the human) from `now - agentLastActivityAt` at read
+  // time - no Redis, no background reaper.
+  agentLastActivityAt       DateTime?                           @map("agent_last_activity_at")
+  // A question only the human can answer, raised by the agent and rendered inline
+  // in the locked UI (env values to enter, or a choice). Null when the agent is
+  // not blocked. Secret VALUES never appear here - only the KEYS asked for.
+  /// [OnboardingAgentPendingRequest]
+  agentPendingRequest       Json?                               @map("agent_pending_request")
+  // Short-lived, single-use pairing code shown in the UI so the user can hand the
+  // agent this app without a mutable repo name: the agent presents it and we map
+  // it to this app + org (already fixed here from the UI's authenticated context).
+  agentPairingCode          String?                             @unique @map("agent_pairing_code")
+  agentPairingExpiresAt     DateTime?                           @map("agent_pairing_expires_at")
+
   createdAt                 DateTime                            @default(now()) @map("created_at")
   updatedAt                 DateTime                            @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("onboarding_state")
+}
+
+enum OnboardingAgentHolder {
+  human
+  agent
+
+  @@map("onboarding_agent_holder")
 }
 
 // ─── Application Setup ──────────────────────────────────────────────
@@ -2334,5 +2363,22 @@ model AffectedTest {
 
   @@id([snapshotId, testCaseId])
   @@map("affected_test")
+}
+
+// Generic durable fixed-window rate-limit counter. One row per limiter key (e.g.
+// "onboarding-pair:<userId>"); `count` accumulates within the window that began
+// at `windowStartedAt` and resets when the window elapses. Durable (in Postgres,
+// not per-pod memory) so the limit holds across the API's replicas and pod
+// restarts. Backs RateLimiterService. No TTL: rows persist after their window
+// elapses, bounded by the number of distinct keys (user/app counts). If keys ever
+// become high-cardinality, add a periodic prune of rows whose windowStartedAt is
+// older than the max policy window.
+model RateLimitCounter {
+  key             String   @id
+  windowStartedAt DateTime @map("window_started_at")
+  count           Int      @default(0)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("rate_limit_counter")
 }
 
