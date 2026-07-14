@@ -25,7 +25,6 @@ export default defineConfig({
         // through pnpm's virtual store during bundling
         "@autonoma/ai",
         "@autonoma/errors",
-        "@autonoma/image",
     ],
     platform: "node",
     banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },

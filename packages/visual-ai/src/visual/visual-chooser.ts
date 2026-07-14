@@ -1,7 +1,6 @@
+import { ObjectGenerator, type LanguageModel } from "@autonoma/ai";
 import type { BoundingBox, Screenshot } from "@autonoma/image";
 import z from "zod";
-import { ObjectGenerator } from "../object/object-generator";
-import type { LanguageModel } from "../registry/model-registry";
 
 interface VisualChoosingOption {
     boundingBox: BoundingBox;

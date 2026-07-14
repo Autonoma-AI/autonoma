@@ -1,11 +1,4 @@
-import {
-    AssertChecker,
-    AssertionSplitter,
-    GeminiObjectDetector,
-    ObjectPointDetector,
-    TextExtractor,
-    VisualConditionChecker,
-} from "@autonoma/ai";
+import { AssertionSplitter } from "@autonoma/ai";
 import {
     AssertCommand,
     DragCommand,
@@ -33,6 +26,13 @@ import {
     ScrollTool,
     TypeTool,
 } from "@autonoma/engine";
+import {
+    AssertChecker,
+    GeminiObjectDetector,
+    ObjectPointDetector,
+    TextExtractor,
+    VisualConditionChecker,
+} from "@autonoma/visual-ai";
 import type { WebCommandSpec } from ".";
 import type { WebContext } from "../../platform";
 

@@ -1,11 +1,8 @@
+import { AI_REQUEST_TIMEOUT_MS, ObjectGenerationFailedError, buildMessages, type LanguageModel } from "@autonoma/ai";
 import { external } from "@autonoma/errors";
 import { type ScreenResolution, Screenshot } from "@autonoma/image";
 import { Output, generateText } from "ai";
 import z from "zod";
-import { AI_REQUEST_TIMEOUT_MS } from "../../constants";
-import { buildMessages } from "../../object/build-messages";
-import { ObjectGenerationFailedError } from "../../object/object-generator";
-import type { LanguageModel } from "../../registry/model-registry";
 import { type DetectedObject, ObjectDetector } from "./object-detector";
 
 const geminiDetectedObjectSchema = z.object({

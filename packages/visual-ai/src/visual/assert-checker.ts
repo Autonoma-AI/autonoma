@@ -1,4 +1,4 @@
-import type { LanguageModel } from "../registry/model-registry";
+import type { LanguageModel } from "@autonoma/ai";
 import { VisualConditionChecker } from "./visual-condition-checker";
 
 export const ASSERT_SYSTEM_PROMPT =

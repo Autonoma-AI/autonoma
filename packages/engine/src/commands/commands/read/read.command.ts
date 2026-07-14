@@ -1,4 +1,4 @@
-import type { TextExtractor } from "@autonoma/ai";
+import type { TextExtractor } from "@autonoma/visual-ai";
 import type { BaseCommandContext } from "../../../platform";
 import { Command } from "../../command";
 import type { CommandParams } from "../../command-spec";

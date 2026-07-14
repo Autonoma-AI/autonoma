@@ -1,19 +1,28 @@
-import type { Screenshot } from "@autonoma/image";
 import type { GenerateTextResult, ModelMessage, ToolSet } from "ai";
 import type { UploadedVideo } from "./video/video-processor";
 
 type NonEmptyArray<T> = [T, ...T[]];
 
+/**
+ * An image the model can consume, reduced to the only field message-building needs: its
+ * base64-encoded bytes. `@autonoma/image`'s `Screenshot` satisfies this structurally, so callers
+ * pass `Screenshot` instances directly - keeping `@autonoma/ai` free of any `@autonoma/image`
+ * (and therefore `sharp`) dependency.
+ */
+export interface Base64Image {
+    base64: string;
+}
+
 type RequiredObjectGenerationParams =
     | {
           userPrompt: string;
-          images?: NonEmptyArray<Screenshot>;
+          images?: NonEmptyArray<Base64Image>;
           /** Raw messages to be used as user messages. These will be prepended to the user prompt and images. */
           rawMessages?: NonEmptyArray<ModelMessage>;
       }
     | {
           userPrompt?: never;
-          images: NonEmptyArray<Screenshot>;
+          images: NonEmptyArray<Base64Image>;
           /** Raw messages to be used as user messages. These will be prepended to the user prompt and images. */
           rawMessages?: NonEmptyArray<ModelMessage>;
       }

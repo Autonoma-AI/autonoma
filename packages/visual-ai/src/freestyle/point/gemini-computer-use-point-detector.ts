@@ -1,9 +1,9 @@
+import { AI_REQUEST_TIMEOUT_MS } from "@autonoma/ai";
+import { env } from "@autonoma/ai/env";
 import { external } from "@autonoma/errors";
 import type { ScreenResolution, Screenshot } from "@autonoma/image";
 import { Environment, type FunctionCall, GoogleGenAI } from "@google/genai";
 import z from "zod";
-import { AI_REQUEST_TIMEOUT_MS } from "../../constants";
-import { env } from "../../env";
 import { GeminiModelRequestFailedError } from "../object/gemini-object-detector";
 import { PointDetector } from "./point-detector";
 

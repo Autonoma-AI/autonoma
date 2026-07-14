@@ -512,6 +512,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@autonoma/visual-ai':
+        specifier: workspace:*
+        version: link:../../packages/visual-ai
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -585,6 +588,9 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@autonoma/visual-ai':
+        specifier: workspace:*
+        version: link:../../packages/visual-ai
       '@ffmpeg-installer/ffmpeg':
         specifier: ^1.1.0
         version: 1.1.0
@@ -1233,9 +1239,6 @@ importers:
       '@autonoma/errors':
         specifier: workspace:*
         version: link:../errors
-      '@autonoma/image':
-        specifier: workspace:*
-        version: link:../image
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
@@ -1657,6 +1660,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../storage
+      '@autonoma/visual-ai':
+        specifier: workspace:*
+        version: link:../visual-ai
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
@@ -2053,6 +2059,40 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.2.3
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(msw@2.12.10(@types/node@25.2.3)(typescript@7.0.2))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/visual-ai:
+    dependencies:
+      '@autonoma/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@autonoma/errors':
+        specifier: workspace:*
+        version: link:../errors
+      '@autonoma/image':
+        specifier: workspace:*
+        version: link:../image
+      '@google/genai':
+        specifier: ^1.42.0
+        version: 1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
+    devDependencies:
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
       dotenv:
         specifier: 'catalog:'
         version: 17.3.1

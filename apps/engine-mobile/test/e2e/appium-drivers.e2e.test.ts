@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { AssertChecker, GeminiObjectDetector, ObjectPointDetector } from "@autonoma/ai";
+import { AssertChecker, GeminiObjectDetector, ObjectPointDetector } from "@autonoma/visual-ai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Browser, remote } from "webdriverio";
 import { AppiumKeyboardDriver } from "../../src/platform/drivers/appium-keyboard.driver";

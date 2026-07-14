@@ -1,15 +1,16 @@
 # @autonoma/ai
 
-AI primitives for the Autonoma test execution platform. Provides model management, structured output generation, visual analysis, and element detection - all used by the execution agent to interact with application UIs.
+Core AI primitives for the Autonoma test execution platform: model management, structured output generation, the reusable agent abstraction, and text utilities. **Sharp-free** - it has no dependency on `@autonoma/image`, so it is safe to load in hosts without the `sharp` native binary (e.g. the API).
+
+Screenshot-driven primitives (visual checkers, point/object detection) live in [`@autonoma/visual-ai`](../visual-ai), which depends on this package and on `@autonoma/image`.
 
 ## Package Exports
 
 | Export Path | Description |
 |-------------|-------------|
-| `@autonoma/ai` | All core primitives (registry, generators, visual, detection). Transitively loads `@autonoma/image` -> `sharp`. |
-| `@autonoma/ai/llm` | Sharp-free subset: `ModelRegistry`, `MODEL_ENTRIES`, `ObjectGenerator`. For hosts (e.g. the API) that need text / structured generation but never run vision code and have no sharp native binary. |
+| `@autonoma/ai` | Core primitives: registry, `ObjectGenerator`, agent, compaction, video, text utilities. No `sharp`. |
 | `@autonoma/ai/env` | Validated environment config (`GROQ_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`) |
-| `@autonoma/ai/evaluation` | AI evaluation framework for benchmarking accuracy |
+| `@autonoma/ai/evaluation` | Generic AI evaluation framework for benchmarking accuracy |
 
 ## Directory Structure
 
@@ -17,11 +18,9 @@ AI primitives for the Autonoma test execution platform. Provides model managemen
 src/
 ├── registry/       # Model registry, entries, providers, cost tracking
 ├── object/         # Structured JSON output generation (+ video support)
-├── visual/         # Visual condition checking, assertions, text extraction, element choosing
-├── text/           # Text utilities (assertion splitting)
-└── freestyle/      # Point detection and object detection
-    ├── point/      # Locate a pixel coordinate from a description
-    └── object/     # Detect bounding boxes from a description
+├── agent/          # Reusable tool-loop agent abstraction
+├── compaction/     # Conversation compaction strategies
+└── text/           # Text utilities (assertion splitting)
 ```
 
 ## Model Registry
@@ -110,38 +109,9 @@ const result = await generator.generate({ userPrompt: "I love this product!" });
 // { sentiment: "positive" }
 ```
 
-## Visual Primitives
+Image input is typed as `Base64Image` (`{ base64: string }`) rather than a concrete `Screenshot`, which is what keeps this package free of `@autonoma/image`. `@autonoma/image`'s `Screenshot` satisfies the shape structurally, so callers pass `Screenshot` instances directly.
 
-### VisualConditionChecker
-
-Checks whether a visual condition is met on a screenshot. Returns `{ metCondition: boolean, reason: string }`.
-
-```ts
-import { VisualConditionChecker } from "@autonoma/ai";
-
-const checker = new VisualConditionChecker({ model });
-const result = await checker.checkCondition("The login button is visible", screenshot);
-```
-
-### AssertChecker
-
-Extends `VisualConditionChecker` with an assertion-specific system prompt. Used by the `assert` command.
-
-### TextExtractor
-
-Extracts exact text values from screenshots. Used by the `read` command.
-
-```ts
-import { TextExtractor } from "@autonoma/ai";
-
-const extractor = new TextExtractor(model);
-const result = await extractor.extractText("the order ID in the confirmation banner", screenshot);
-// { value: "ORD-12345" }
-```
-
-### VisualChooser
-
-Given multiple UI elements (with bounding boxes) and an instruction, picks which element the user wants.
+## Text Primitives
 
 ### AssertionSplitter
 
@@ -156,25 +126,6 @@ const result = await splitter.splitAssertions(
 );
 // { assertions: ["validate that the title is visible", ...] }
 ```
-
-## Element Detection
-
-### PointDetector (abstract)
-
-Locates a single pixel coordinate on a screenshot from a natural language description.
-
-| Implementation | Strategy |
-|----------------|----------|
-| `GeminiComputerUsePointDetector` | Gemini computer-use API with `click_at` tool (0-1000 coordinate space) |
-| `ObjectPointDetector` | Adapter - detects a bounding box via `ObjectDetector`, returns the center point |
-
-### ObjectDetector (abstract)
-
-Detects bounding boxes with optional labels from a natural language prompt.
-
-| Implementation | Strategy |
-|----------------|----------|
-| `GeminiObjectDetector` | Gemini structured output returning normalized 0-1000 bounding boxes |
 
 ## Video Support
 
@@ -208,8 +159,7 @@ Defined in `src/env.ts` using `@t3-oss/env-core`:
 
 ## Architecture Notes
 
-- All primitives build on `ObjectGenerator` - visual checkers, assertion splitters, and text extractors are specialized subclasses with configured schemas and system prompts.
-- `PointDetector` and `ObjectDetector` are abstract base classes. Resolution normalization is handled by the base class via `resolveResolution`.
+- Most primitives build on `ObjectGenerator` - the assertion splitter and the visual primitives in `@autonoma/visual-ai` are specialized subclasses with configured schemas and system prompts.
 - The `ModelRegistry` wraps AI SDK models with middleware for cost calculation, logging, and monitoring. It is a stateless, construct-once singleton.
 - Cost and usage are tracked via `CostCollector`: pass one to `ModelRegistry.getModel(options, costCollector)` to capture per-call records (tokens, cost, tag), then aggregate `getRecords()` for totals.
 - Video input is only supported on models that pass the `modelSupportsVideo` check (currently Google models).

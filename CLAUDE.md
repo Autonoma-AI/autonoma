@@ -24,7 +24,8 @@ root/
 │       ├── reviewer/     # Post-test AI validation using video recordings
 │       └── notifier/     # SNS/SQS → Slack/email notifications
 ├── packages/
-│   ├── ai/               # AI primitives: model registry, visual AI, point/object detection
+│   ├── ai/               # Sharp-free AI core: model registry, structured generation, agent abstraction
+│   ├── visual-ai/        # Screenshot-driven AI: visual checkers, point/object detection (depends on ai + sharp)
 │   ├── db/               # Prisma schema + generated client (PostgreSQL)
 │   ├── types/            # Shared Zod schemas, TypeScript types, constants
 │   ├── engine/           # Shared engine: execution agent, commands, driver interfaces
@@ -551,9 +552,9 @@ The execution agent and command system live in the `@autonoma/engine` package an
 
 ---
 
-## AI Package - See the `ai-utils` skill
+## AI Packages - See the `ai-utils` skill
 
-The `@autonoma/ai` package provides the AI primitives used across the platform: the reusable agent abstraction, model registry, structured output generation, visual checkers, and point/object detection. These are documented in the `ai-utils` skill, which is auto-loaded when editing files under `packages/ai/`. For the live model list and usage examples, see `packages/ai/README.md`.
+The `@autonoma/ai` package provides the **sharp-free** AI core used across the platform: the reusable agent abstraction, model registry, structured output generation, and text utilities. The screenshot-driven primitives - visual checkers and point/object detection - live in `@autonoma/visual-ai`, which depends on `@autonoma/ai` and on `@autonoma/image` (`sharp`). Hosts that cannot load `sharp` (e.g. the API) use `@autonoma/ai` directly. Both are documented in the `ai-utils` skill, which is auto-loaded when editing files under `packages/ai/`. For the live model list and usage examples, see `packages/ai/README.md` and `packages/visual-ai/README.md`.
 
 ---
 
@@ -597,7 +598,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 15. **Use `@autonoma/blacklight` for all frontend components.** Radix + Tailwind + CVA. See design skills for guidelines.
 16. **Routers are thin, controllers hold logic.** Each tRPC router delegates to controller files in `controllers/<routerName>/`. One file per procedure.
 17. **Platform-agnostic agent core.** All execution logic lives in the `@autonoma/engine` package (`packages/engine`); platform apps only implement driver interfaces. See the `execution-agent` skill.
-18. **AI primitives in `packages/ai`.** Agent abstraction, model registry, visual checkers, point/object detection, structured generation. Never duplicate AI logic in platform apps. See the `ai-utils` skill.
+18. **AI primitives in `packages/ai` (sharp-free core) and `packages/visual-ai` (screenshot-driven).** Agent abstraction, model registry, and structured generation live in `@autonoma/ai`; visual checkers and point/object detection live in `@autonoma/visual-ai` (depends on `@autonoma/image` -> `sharp`). Never duplicate AI logic in platform apps. See the `ai-utils` skill.
 19. **Frontend conventions in the `ui-conventions` skill.** React patterns, data fetching, mutations, route loaders, and analytics are documented there.
 20. **Proactively update documentation.** When changing public-facing APIs, environment factory, or user-facing behavior, update the corresponding docs in `apps/docs/`.
 21. **Never use em dashes.** Use regular dashes (-) instead of em dashes in all code, documentation, comments, and generated content. This applies everywhere: markdown files, code comments, strings, commit messages.

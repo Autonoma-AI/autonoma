@@ -1,5 +1,5 @@
-import type { PointDetector } from "@autonoma/ai";
 import type { Screenshot } from "@autonoma/image";
+import type { PointDetector } from "@autonoma/visual-ai";
 import type { BaseCommandContext, MouseDriver } from "../../../platform";
 import { Command } from "../../command";
 import type { CommandParams } from "../../command-spec";

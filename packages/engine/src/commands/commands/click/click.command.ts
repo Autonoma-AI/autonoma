@@ -1,4 +1,4 @@
-import type { PointDetector } from "@autonoma/ai";
+import type { PointDetector } from "@autonoma/visual-ai";
 import type z from "zod";
 import type { BaseCommandContext, MouseDriver } from "../../../platform";
 import { Command } from "../../command";

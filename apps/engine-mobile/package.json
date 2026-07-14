@@ -26,6 +26,7 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/types": "workspace:*",
+        "@autonoma/visual-ai": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "dotenv": "catalog:",

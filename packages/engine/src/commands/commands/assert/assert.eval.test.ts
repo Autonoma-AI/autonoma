@@ -1,4 +1,5 @@
-import { AssertChecker, AssertionSplitter } from "@autonoma/ai";
+import { AssertionSplitter } from "@autonoma/ai";
+import { AssertChecker } from "@autonoma/visual-ai";
 import { describe, expect } from "vitest";
 import { baseFakeContext, commandTestFunction } from "../../test-utils/command-test";
 import { getTestImage } from "../../test-utils/test-images";

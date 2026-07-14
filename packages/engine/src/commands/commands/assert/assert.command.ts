@@ -1,5 +1,6 @@
-import type { AssertChecker, AssertionSplitter } from "@autonoma/ai";
+import type { AssertionSplitter } from "@autonoma/ai";
 import type { Screenshot } from "@autonoma/image";
+import type { AssertChecker } from "@autonoma/visual-ai";
 import type { BaseCommandContext } from "../../../platform";
 import { Command } from "../../command";
 import type { CommandParams } from "../../command-spec";

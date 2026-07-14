@@ -1,4 +1,4 @@
-import { GeminiObjectDetector, ObjectPointDetector, VisualConditionChecker } from "@autonoma/ai";
+import { GeminiObjectDetector, ObjectPointDetector, VisualConditionChecker } from "@autonoma/visual-ai";
 import { describe, expect } from "vitest";
 import { baseFakeContext, commandTestFunction } from "../../test-utils/command-test";
 import { FakeMouseDriver } from "../../test-utils/fake-mouse.driver";

@@ -1,7 +1,6 @@
+import { ObjectGenerator, type LanguageModel } from "@autonoma/ai";
 import type { Screenshot } from "@autonoma/image";
 import z from "zod";
-import { ObjectGenerator } from "../object/object-generator";
-import type { LanguageModel } from "../registry/model-registry";
 
 const TEXT_EXTRACTION_SYSTEM_PROMPT =
     "You are a UI text extraction expert. You will receive a screenshot of an application and a description " +

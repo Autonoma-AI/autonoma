@@ -1,10 +1,4 @@
-import {
-    AssertChecker,
-    AssertionSplitter,
-    GeminiObjectDetector,
-    ObjectPointDetector,
-    VisualConditionChecker,
-} from "@autonoma/ai";
+import { AssertionSplitter } from "@autonoma/ai";
 import { AssertCommand, DragCommand, MobileClickCommand, ScrollCommand, TypeCommand } from "@autonoma/engine";
 import {
     AssertTool,
@@ -16,6 +10,7 @@ import {
     ScrollTool,
     TypeTool,
 } from "@autonoma/engine";
+import { AssertChecker, GeminiObjectDetector, ObjectPointDetector, VisualConditionChecker } from "@autonoma/visual-ai";
 import type { MobileContext } from "../../platform";
 import type { MobileCommandSpec } from "./mobile-agent-types";
 

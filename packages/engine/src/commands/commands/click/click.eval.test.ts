@@ -1,5 +1,5 @@
-import { GeminiObjectDetector, ObjectPointDetector } from "@autonoma/ai";
 import { type BoundingBox, boundingBoxContainsPoint } from "@autonoma/image";
+import { GeminiObjectDetector, ObjectPointDetector } from "@autonoma/visual-ai";
 import { describe, expect } from "vitest";
 import type { WebClickOptions } from "../../../platform";
 import { baseFakeContext, commandTestFunction } from "../../test-utils/command-test";

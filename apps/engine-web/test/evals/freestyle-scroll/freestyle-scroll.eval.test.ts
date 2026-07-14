@@ -1,7 +1,7 @@
 import path from "node:path";
-import type { PointDetector, VisualConditionChecker } from "@autonoma/ai";
 import { ScrollCommand, ScrollConditionNotMetError } from "@autonoma/engine";
 import type { ScreenResolution, Screenshot } from "@autonoma/image";
+import type { PointDetector, VisualConditionChecker } from "@autonoma/visual-ai";
 import { type Browser, type BrowserContext, type Page, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActivePageManager } from "../../../src/platform/active-page-manager";

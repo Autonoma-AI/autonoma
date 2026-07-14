@@ -1,16 +1,14 @@
 {
-    "name": "@autonoma/ai",
+    "name": "@autonoma/visual-ai",
     "version": "1.0.0",
-    "description": "",
+    "description": "Screenshot-driven AI primitives: visual checkers and point/object detection. Depends on sharp via @autonoma/image.",
     "keywords": [],
     "license": "ISC",
     "author": "",
     "type": "module",
     "types": "./src/index.ts",
     "exports": {
-        ".": "./src/index.ts",
-        "./env": "./src/env.ts",
-        "./evaluation": "./evals/index.ts"
+        ".": "./src/index.ts"
     },
     "scripts": {
         "test": "vitest",
@@ -19,20 +17,19 @@
         "lint": "pnpm lint-files .",
         "fmt": "oxfmt --write src/",
         "build": "tsc --noCheck",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "detect-object": "tsx --env-file=.env scripts/detect-object.ts"
     },
     "dependencies": {
-        "@ai-sdk/google": "catalog:",
-        "@ai-sdk/groq": "catalog:",
+        "@autonoma/ai": "workspace:*",
         "@autonoma/errors": "workspace:*",
-        "@autonoma/logger": "workspace:*",
+        "@autonoma/image": "workspace:*",
         "@google/genai": "^1.42.0",
-        "@openrouter/ai-sdk-provider": "^2.10.0",
-        "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/logger": "workspace:*",
         "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

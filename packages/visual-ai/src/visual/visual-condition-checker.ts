@@ -1,6 +1,6 @@
+import { ObjectGenerator, type ObjectGeneratorConfig } from "@autonoma/ai";
 import type { Screenshot } from "@autonoma/image";
 import z from "zod";
-import { ObjectGenerator, type ObjectGeneratorConfig } from "../object/object-generator";
 
 const DEFAULT_VISUAL_CHECK_PROMPT =
     "You are a UI analysis expert. You will receive an image and a condition. The image is a screenshot of an application, and your task is to decide whether the condition is met or not.";

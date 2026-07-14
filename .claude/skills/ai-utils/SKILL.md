@@ -1,13 +1,16 @@
 ---
 name: ai-utils
-description: "Always read this skill before editing any file under packages/ai/. Covers AI primitives: the agent abstraction, model registry, structured output generation, visual checkers, and element detection used across the platform."
+description: "Always read this skill before editing any file under packages/ai/ or packages/visual-ai/. Covers AI primitives: the agent abstraction, model registry, structured output generation, visual checkers, and element detection used across the platform."
 ---
 
-# AI Utils (`@autonoma/ai`)
+# AI Utils (`@autonoma/ai` + `@autonoma/visual-ai`)
 
-`@autonoma/ai` provides the AI primitives used across the platform: the reusable agent abstraction, model management, structured output generation, visual analysis, and element detection.
+The AI primitives are split across two packages:
 
-This skill is the conceptual map. The live model list, package exports, and detailed usage examples are maintained in `packages/ai/README.md` - treat that README (and `registry/model-entries.ts` for the models) as the source of truth and update it when behavior changes.
+- **`@autonoma/ai`** - the **sharp-free** core: the reusable agent abstraction, model management, structured output generation, and text utilities. Has no dependency on `@autonoma/image`, so it is safe to load in hosts without the `sharp` native binary (e.g. the API).
+- **`@autonoma/visual-ai`** - the screenshot-driven primitives: visual checkers and point/object detection. Depends on `@autonoma/ai` **and** on `@autonoma/image` (`sharp`). Import visual/detection symbols from here, everything else from `@autonoma/ai`.
+
+This skill is the conceptual map. The live model list, package exports, and detailed usage examples are maintained in `packages/ai/README.md` and `packages/visual-ai/README.md` - treat those READMEs (and `packages/ai/src/registry/model-entries.ts` for the models) as the source of truth and update them when behavior changes.
 
 ## Agent Abstraction (`agent/`)
 
@@ -52,7 +55,15 @@ The core structured-output engine that most other primitives build on. Takes a Z
 - Strips null bytes from responses (PostgreSQL compatibility).
 - Tool support for agentic generation workflows.
 
-## Visual Primitives (`visual/`, `text/`)
+## Text Primitives (`@autonoma/ai`, `text/`)
+
+| Class | Purpose |
+|-------|---------|
+| `AssertionSplitter` | Split a compound assertion into atomic assertions (`text/assertion-splitter.ts`) |
+
+## Visual Primitives (`@autonoma/visual-ai`, `visual/`)
+
+These live in `@autonoma/visual-ai` (they operate on `Screenshot` and pull in `sharp`). Import them from `@autonoma/visual-ai`, not `@autonoma/ai`.
 
 | Class | Purpose |
 |-------|---------|
@@ -60,20 +71,19 @@ The core structured-output engine that most other primitives build on. Takes a Z
 | `AssertChecker` | `VisualConditionChecker` with an assertion-specific prompt. Used by the `assert` command |
 | `TextExtractor` | Extract exact text values from a screenshot. Used by the `read` command |
 | `VisualChooser` | Given UI elements (with bounding boxes) + an instruction, pick the matching element |
-| `AssertionSplitter` | Split a compound assertion into atomic assertions (`text/assertion-splitter.ts`) |
 
-## Element Detection (`freestyle/`)
+## Element Detection (`@autonoma/visual-ai`, `freestyle/`)
 
-`PointDetector` (abstract) locates a single pixel coordinate from a description; `ObjectDetector` (abstract) detects bounding boxes. They are used by the engine's `click` and `type` commands. Concrete implementations (e.g. `GeminiComputerUsePointDetector`, `ObjectPointDetector`, `GeminiObjectDetector`) live under `freestyle/`; resolution normalization is handled in the base classes. See the README if you need a specific detector.
+Also in `@autonoma/visual-ai`. `PointDetector` (abstract) locates a single pixel coordinate from a description; `ObjectDetector` (abstract) detects bounding boxes. They are used by the engine's `click` and `type` commands. Concrete implementations (e.g. `GeminiComputerUsePointDetector`, `ObjectPointDetector`, `GeminiObjectDetector`) live under `freestyle/`; resolution normalization is handled in the base classes. See the README if you need a specific detector.
 
 ## Other Subsystems
 
-- **`compaction/`** - message-compaction strategies consumed by the agent loop's `compactor`.
+- **`compaction/`** (`@autonoma/ai`) - message-compaction strategies consumed by the agent loop's `compactor`.
 
-## Evaluation Framework (`@autonoma/ai/evaluation`)
+## Evaluation Framework
 
-`Evaluation<TTestCase>` integrates with Vitest to benchmark AI accuracy. `ModelEvaluation` tracks token usage and cost per model. Three eval types: assertion accuracy, click (point) detection accuracy, and wait condition accuracy.
+The generic harness - `Evaluation<TTestCase>` (Vitest integration) and `ModelEvaluation` (per-model token/cost tracking) - is exported from `@autonoma/ai/evaluation`. The concrete visual eval suites (assertion accuracy, click/point detection accuracy, wait-condition accuracy) and the `ScreenshotTestCaseLoader` live in `@autonoma/visual-ai`'s `evals/`, since they exercise the visual primitives.
 
 ---
 
-For package exports, the live model list, and detailed usage examples, see `packages/ai/README.md`.
+For package exports, the live model list, and detailed usage examples, see `packages/ai/README.md` and `packages/visual-ai/README.md`.

@@ -1,4 +1,4 @@
-import { TextExtractor } from "@autonoma/ai";
+import { TextExtractor } from "@autonoma/visual-ai";
 import { describe, expect, it } from "vitest";
 import { baseFakeContext, commandTestFunction } from "../../test-utils/command-test";
 import { getTestImage } from "../../test-utils/test-images";

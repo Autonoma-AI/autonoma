@@ -12,8 +12,8 @@ export type { ModelUsage } from "./registry/usage";
 export { CostCollector, type CostRecord } from "./registry/cost-collector";
 
 export { AI_REQUEST_TIMEOUT_MS } from "./constants";
-export { ObjectGenerator, ObjectGenerationFailedError } from "./object/object-generator";
-export { extractMessages, buildMessages } from "./object/build-messages";
+export { ObjectGenerator, ObjectGenerationFailedError, type ObjectGeneratorConfig } from "./object/object-generator";
+export { extractMessages, buildMessages, type ObjectGenerationParams, type Base64Image } from "./object/build-messages";
 export {
     type UploadedVideo,
     type VideoUploader,
@@ -23,18 +23,7 @@ export {
 } from "./object/video/video-processor";
 export { type VideoInput, InvalidVideoInputError } from "./object/video/video-input";
 export { InlineMp4VideoUploader } from "./object/video/inline-mp4-video-uploader";
-export { VisualConditionChecker, type VisualConditionCheckerConfig } from "./visual/visual-condition-checker";
-export { AssertChecker } from "./visual/assert-checker";
-export { TextExtractor } from "./visual/text-extractor";
-export {
-    VisualChooser,
-    type VisualChooserConfig,
-    DEFAULT_VISUAL_CHOOSING_SYSTEM_PROMPT,
-} from "./visual/visual-chooser";
 export { AssertionSplitter } from "./text/assertion-splitter";
-
-export * from "./freestyle/object";
-export * from "./freestyle/point";
 
 export type { ModelEntry } from "./registry/model-entries";
 

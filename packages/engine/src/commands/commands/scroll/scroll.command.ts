@@ -1,4 +1,4 @@
-import type { PointDetector, VisualConditionChecker } from "@autonoma/ai";
+import type { PointDetector, VisualConditionChecker } from "@autonoma/visual-ai";
 import type { BaseCommandContext, MouseDriver } from "../../../platform";
 import { Command } from "../../command";
 import type { CommandParams } from "../../command-spec";

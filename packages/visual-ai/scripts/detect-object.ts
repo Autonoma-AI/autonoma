@@ -3,7 +3,7 @@
  * then saves the results to a gitignored `bounding-boxes/` directory.
  *
  * Usage:
- *   pnpm --filter @autonoma/ai detect-object <image-path> "<prompt>"
+ *   pnpm --filter @autonoma/visual-ai detect-object <image-path> "<prompt>"
  *
  * Output:
  *   bounding-boxes/{ISO-timestamp}-{image-basename}/result.json
@@ -13,9 +13,10 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { type BoundingBox, Screenshot, boundingBoxCenter } from "@autonoma/image";
 import { logger } from "@autonoma/logger";
-import { GeminiObjectDetector, MODEL_ENTRIES, ModelRegistry } from "../src/index.ts";
+import { GeminiObjectDetector } from "../src/index";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
