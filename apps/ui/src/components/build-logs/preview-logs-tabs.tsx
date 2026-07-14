@@ -39,7 +39,8 @@ interface PreviewLogsTabsProps {
  * Radix only mounts the active tab's content, so each SSE stream opens on
  * demand and closes when the user switches away.
  *
- * App logs are the default focus - the build output is the secondary tab.
+ * Build logs lead (left) since they come first chronologically; callers that
+ * control `source` follow the deploy - build while building, then app when ready.
  */
 export function PreviewLogsTabs({
   owner,
@@ -81,8 +82,8 @@ export function PreviewLogsTabs({
     >
       <div className="flex items-center gap-3">
         <TabsList>
-          <TabsTrigger value="app">App logs</TabsTrigger>
           {runtimeOnly !== true && <TabsTrigger value="build">Build logs</TabsTrigger>}
+          <TabsTrigger value="app">App logs</TabsTrigger>
         </TabsList>
         <div className="relative ml-auto w-full max-w-xs">
           {isSearchPending ? (

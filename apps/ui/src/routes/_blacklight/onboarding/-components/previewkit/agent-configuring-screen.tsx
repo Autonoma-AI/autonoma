@@ -1,5 +1,5 @@
 import { Badge, Button, Progress, ScrollArea, Separator, Skeleton, Textarea } from "@autonoma/blacklight";
-import type { AgentLogEntry } from "@autonoma/types";
+import { type AgentLogEntry, isPreviewkitDatabaseEngine } from "@autonoma/types";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
@@ -8,7 +8,7 @@ import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
   useAgentSession,
   usePreviewkitConfig,
@@ -157,7 +157,9 @@ function ConfigSummary({ applicationId }: { applicationId: string }) {
         ))}
         {services.map((service) => (
           <div key={service.name} className="flex items-center gap-2 font-mono text-2xs">
-            <Badge variant="secondary">service</Badge>
+            {/* A database recipe (postgres/redis/valkey/mysql/mongodb) is a "database" to
+                the user even though it is stored as a service - label it as such. */}
+            <Badge variant="secondary">{isPreviewkitDatabaseEngine(service.recipe) ? "database" : "service"}</Badge>
             <span className="text-text-primary">{service.name}</span>
             <span className="text-text-secondary">{service.recipe}</span>
           </div>
@@ -183,7 +185,15 @@ function ConfigSummary({ applicationId }: { applicationId: string }) {
 function DeploySection({ applicationId }: { applicationId: string }) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
+  const isReady = diagnostics.status === "ready";
   const appBuilding = diagnostics.status === "building" || diagnostics.status === "idle";
+  // Follow the deploy: watch the build until the container is up, then switch to app
+  // logs. Only "ready" flips to app - a "failed" deploy keeps the build tab, because
+  // the terminal failure marker is pushed to the build stream (the app stream is empty
+  // on a build or platform failure). An explicit tab pick sticks.
+  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
+  const logSource: PreviewLogSource = logSourceOverride ?? (isReady ? "app" : "build");
+  const isFailed = diagnostics.status === "failed";
 
   return (
     <div className="flex flex-col gap-3">
@@ -205,16 +215,27 @@ function DeploySection({ applicationId }: { applicationId: string }) {
       ) : undefined}
 
       {diagnostics.error != null ? (
-        <div className="flex items-start gap-2 border-l-2 border-status-critical bg-status-critical/10 px-3 py-2">
-          <WarningCircleIcon size={14} className="mt-0.5 shrink-0 text-status-critical" />
+        isFailed ? (
+          <div className="flex items-start gap-2 border-l-2 border-status-critical bg-status-critical/10 px-3 py-2">
+            <WarningCircleIcon size={14} className="mt-0.5 shrink-0 text-status-critical" />
+            <p className="font-mono text-2xs text-text-secondary">{diagnostics.error}</p>
+          </div>
+        ) : (
+          // A "not deployed yet" / still-building note is informational, not an
+          // error - keep it neutral. Red is reserved for an actual failure.
           <p className="font-mono text-2xs text-text-secondary">{diagnostics.error}</p>
-        </div>
+        )
       ) : undefined}
 
       {services.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {services.map((service) => (
-            <Badge key={service.name} variant="outline" className="gap-1.5 font-mono">
+            <Badge
+              key={service.name}
+              variant="outline"
+              className="gap-1.5 font-mono"
+              title={serviceStatusHint(service.status)}
+            >
               {service.name}
               <span className="text-text-secondary">{service.status}</span>
             </Badge>
@@ -228,12 +249,22 @@ function DeploySection({ applicationId }: { applicationId: string }) {
           repo={repoName(diagnostics.logs.repoFullName)}
           pr={diagnostics.logs.prNumber}
           appBuilding={appBuilding}
+          source={logSource}
+          onSourceChange={setLogSourceOverride}
         />
       ) : (
         <p className="font-mono text-2xs text-text-secondary">Logs appear once a deploy starts.</p>
       )}
     </div>
   );
+}
+
+/** Human explanation of a preview service's status, shown on hover - the raw word alone (e.g. "unknown") is opaque. */
+function serviceStatusHint(status: "ready" | "building" | "failed" | "unknown"): string {
+  if (status === "ready") return "This service is up and accepting connections.";
+  if (status === "building") return "This service is still starting up.";
+  if (status === "failed") return "This service failed to start.";
+  return "PreviewKit hasn't reported this service's status yet - it may still be starting.";
 }
 
 function DeployStatusBadge({ status }: { status: "idle" | "building" | "ready" | "failed" }) {
@@ -269,13 +300,20 @@ function agentDisplayName(client?: string): string {
 }
 
 function ToolCallRow({ entry }: { entry: AgentLogEntry }) {
+  // Lead with the agent's human-readable summary; the raw tool name rides along as
+  // a dim mono tag for the curious. Fall back to the tool name + args only when no
+  // summary was given (older entries / tools without one).
+  const summary = entry.message ?? entry.tool;
+  const showToolTag = entry.message != null && entry.tool != null;
   return (
-    <div className="flex items-start gap-2 font-mono text-2xs">
+    <div className="flex items-start gap-2 text-2xs">
       <StatusGlyph status={entry.status} />
-      <span className="text-text-primary">{entry.tool ?? entry.message}</span>
-      {entry.toolArguments != null && (
-        <span className="truncate text-text-secondary">{JSON.stringify(entry.toolArguments)}</span>
-      )}
+      <span className="text-text-primary">{summary}</span>
+      {showToolTag ? (
+        <span className="font-mono text-text-secondary">{entry.tool}</span>
+      ) : entry.toolArguments != null ? (
+        <span className="truncate font-mono text-text-secondary">{JSON.stringify(entry.toolArguments)}</span>
+      ) : undefined}
       {entry.status === "error" && entry.error != null && <span className="text-status-critical">{entry.error}</span>}
     </div>
   );

@@ -5,10 +5,16 @@ import type {
     PreviewDeployEvent,
 } from "@autonoma/types";
 import * as Sentry from "@sentry/node";
+import { PreviewPlatformError } from "../errors";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import { logger as rootLogger, type Logger } from "../logger";
 import type { PreparePreviewResult } from "../pipeline/preview-pipeline";
 import type { PreviewJobSpec } from "./job-spec";
+
+// Shown to the user in place of a raw infra error (which they can't act on).
+// The real detail is logged fatal for us - see the PreviewPlatformError branch below.
+const PLATFORM_ERROR_USER_MESSAGE =
+    "Something went wrong on Autonoma's side while deploying your preview. Our team has been notified and is looking into it - please try again shortly.";
 
 /**
  * The slice of `PreviewPipeline` the runner drives. `PreviewPipeline` satisfies
@@ -163,13 +169,28 @@ async function runDeploy(
         // A genuine failure. The workflow re-threw to surface the run as failed;
         // here the Job exits 0 after recording a terminal state, so capture
         // explicitly for alerting instead of relying on an uncaught throw.
-        Sentry.captureException(err);
+        const isPlatformError = err instanceof PreviewPlatformError;
+        Sentry.captureException(err, isPlatformError ? { level: "fatal" } : undefined);
         const message = errorMessage(err);
 
         // Once deployEnvironment returns, the environment row is persisted
         // `ready`; a later finalize failure is best-effort GitHub feedback, not
         // an environment failure, so we must not stamp it `failed`.
         if (deployed == null) {
+            if (isPlatformError) {
+                // An Autonoma infra/control-plane failure the user can't act on.
+                // Log it fatal with the raw detail for us; record a generic message
+                // so the customer-facing status never carries raw cluster internals.
+                logger.fatal("Preview deploy hit a platform error", { extra: { ...ids.extra, message } });
+                await previewPipeline.fail(
+                    event,
+                    prep.namespace,
+                    prep.commentId,
+                    prep.feedbackEnabled,
+                    PLATFORM_ERROR_USER_MESSAGE,
+                );
+                return "deploy_failed";
+            }
             logger.error("Preview deploy failed; running failure finalizer", { extra: { ...ids.extra, message } });
             await previewPipeline.fail(event, prep.namespace, prep.commentId, prep.feedbackEnabled, message);
             return "deploy_failed";

@@ -87,9 +87,12 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
   }
   if (entry.kind === "status") {
     const succeeded = entry.message === "ready";
+    // This terminal marker is the whole deploy pipeline's outcome (it fires after
+    // the image build, during rollout), so label it "deployment" - a runtime/rollout
+    // failure here is NOT a build failure even though it rides the build-log stream.
     return (
       <div className={cn("mt-2", succeeded ? "text-status-success" : "text-status-critical")}>
-        {succeeded ? "✓" : "✗"} build {entry.message}
+        {succeeded ? "✓" : "✗"} deployment {entry.message}
       </div>
     );
   }

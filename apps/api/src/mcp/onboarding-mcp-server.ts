@@ -13,6 +13,18 @@ import type { McpAnalytics } from "./mcp-analytics";
  * the failing step (e.g. a `pnpm install` error) without flooding a polled tool.
  */
 const RECENT_LOG_TAIL_LINES = 30;
+const ACTIVITY_DESCRIPTION_MAX_LENGTH = 120;
+
+/**
+ * An optional short, human-readable summary an agent attaches to a write. The user
+ * watches these on the read-only activity feed, so a legible line ("Set up boss-roast
+ * on Node with a Redis cache") reads far better there than the raw tool name + args.
+ */
+const activityDescription = z
+    .string()
+    .max(ACTIVITY_DESCRIPTION_MAX_LENGTH)
+    .optional()
+    .describe("A short human-readable summary of this action, shown to the user on the activity feed.");
 
 /** A short tail of one log stream, attached to get_session_status so a polling agent sees why a deploy failed. */
 interface RecentLogTail {
@@ -269,15 +281,20 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             description:
                 "Save the FULL PreviewKit config document (read it with get_config first, edit it, send the whole " +
                 "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
-                "secret values - declare secret keys as build_secrets and set their values via request_env.",
-            inputSchema: { applicationId: z.string(), document: previewConfigSchema },
+                "secret values - declare secret keys as build_secrets and set their values via request_env. " +
+                "Pass a short `description` of what this save does - the user watches it on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                document: previewConfigSchema,
+                description: activityDescription,
+            },
         },
-        async ({ applicationId, document }) =>
+        async ({ applicationId, document, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "apply_config",
-                    message: "Saving preview config",
+                    message: description ?? "Saving preview config",
                     toolArguments: { apps: document.apps.length },
                 },
                 (org) => services.onboarding.savePreviewkitConfig(applicationId, org, document),
@@ -292,20 +309,22 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Ask the user to enter secret env VALUES in the Autonoma UI (you never see them). Pass only the KEYS " +
                 "you need and the appName they belong to (secret stores are per-app; read it from get_config). ALWAYS " +
                 "ask the user first whether to fill from their .env (default) or set them manually. Then poll " +
-                "get_session_status; when the pending request clears, the values are set.",
+                "get_session_status; when the pending request clears, the values are set. Pass a short " +
+                "`description` of what you're requesting and why - the user watches it on the activity feed.",
             inputSchema: {
                 applicationId: z.string(),
                 keys: z.array(z.string().min(1)).min(1),
                 appName: z.string().min(1),
                 note: z.string().optional(),
+                description: activityDescription,
             },
         },
-        async ({ applicationId, keys, appName, note }) =>
+        async ({ applicationId, keys, appName, note, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "request_env",
-                    message: `Requesting ${keys.length} env value(s) from the user`,
+                    message: description ?? `Requesting ${keys.length} env value(s) from the user`,
                     toolArguments: { keys, appName },
                 },
                 async () => {
@@ -326,15 +345,16 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             title: "Deploy the preview",
             description:
                 "Deploy the app's main branch as the preview (environment 0), applying the saved config. Then poll " +
-                "get_session_status until it is up, and verify the preview URL yourself.",
-            inputSchema: { applicationId: z.string() },
+                "get_session_status until it is up, and verify the preview URL yourself. " +
+                "Pass a short `description` of what you are deploying - the user watches it on the activity feed.",
+            inputSchema: { applicationId: z.string(), description: activityDescription },
         },
-        async ({ applicationId }) =>
+        async ({ applicationId, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "trigger_deploy",
-                    message: "Deploying preview (main branch)",
+                    message: description ?? "Deploying preview (main branch)",
                     toolArguments: {},
                 },
                 (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org),

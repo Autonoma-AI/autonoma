@@ -2,6 +2,7 @@ import { db, type PrismaClient } from "@autonoma/db";
 import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import { isConflict, isNotFound } from "../deployer/k8s-errors";
+import { PreviewPlatformError } from "../errors";
 import { type Logger, logger as rootLogger } from "../logger";
 
 const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
@@ -222,7 +223,10 @@ export class AwsExternalSecretManager {
             }
             await delay(SECRET_SYNC_POLL_INTERVAL_MS);
         }
-        throw new Error(
+        // Infra failure (ESO / ClusterSecretStore / AWS), not the customer's code -
+        // surface it as a platform error so the runner logs it fatal and shows a
+        // generic message instead of leaking the raw ExternalSecret detail.
+        throw new PreviewPlatformError(
             `ExternalSecret "${esName}" did not sync before the deploy deadline (${lastReason}); aborting before app rollout`,
         );
     }
