@@ -75,10 +75,11 @@ function ConfigureWithAgentPanel() {
   return (
     <div className="flex flex-col gap-4 border border-primary/40 bg-primary/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-1">
-        <span className="font-sans text-base text-text-primary">Configure this preview with a coding agent</span>
+        <span className="font-sans text-base text-text-primary">Configure previews with a coding agent</span>
         <span className="max-w-xl text-2xs text-text-secondary">
-          Point Claude Code, Cursor, or any MCP agent at Autonoma. From inside your repo it reads a pull request's
-          preview - deploy status, logs, missing secrets - and edits the build, services, and environment for you.
+          Point Claude Code, Cursor, or any MCP agent at Autonoma. From inside your repo it reads a pull request's live
+          preview - deploy status, logs, missing secrets - and edits the build, services, and environment. These
+          settings apply to every preview of this app, not a single PR.
         </span>
       </div>
       <Button variant="accent" size="lg" className="shrink-0" onClick={() => setOpen(true)}>

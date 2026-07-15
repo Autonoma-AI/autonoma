@@ -138,8 +138,9 @@ export class PreviewkitWriteService {
     }
 
     /**
-     * Applies a structural patch to one app of the active preview config, saves a
-     * new revision, and (unless `apply` is false) rebuilds that app against it.
+     * Applies a structural patch to one app of the active preview config, saves it
+     * (latest-only, overwriting the app's single config row in place), and (unless
+     * `apply` is false) rebuilds that app against it.
      * `apply: false` lets an agent stage several edits and roll them out with a
      * final applying call. Never touches secret values.
      */

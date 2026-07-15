@@ -393,9 +393,9 @@ export const previewConfigSchema = buildPreviewConfigSchema(false);
 
 /**
  * Variant that honors per-app/service `resources` overrides. Use ONLY for
- * trusted, platform-authored config: DB config revisions and the deploy-time
- * re-parse of an already-resolved merged config. NEVER parse untrusted client
- * input with this - that path must use {@link previewConfigSchema}.
+ * trusted, platform-authored config: the stored DB config document and the
+ * deploy-time re-parse of an already-resolved merged config. NEVER parse
+ * untrusted client input with this - that path must use {@link previewConfigSchema}.
  */
 export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
 
