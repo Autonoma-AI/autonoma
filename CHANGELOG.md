@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.35](https://github.com/Autonoma-AI/agent/compare/v1.8.34...v1.8.35) (2026-07-15)
+
+
+### Features
+
+* **debug-mcp:** add get_config/apply_config + share MCP tool-result helpers ([#1539](https://github.com/Autonoma-AI/agent/issues/1539)) ([2ded15d](https://github.com/Autonoma-AI/agent/commit/2ded15da9d86e46005180db293e887d2394a9fef))
+* generate test user from preview ui ([#1522](https://github.com/Autonoma-AI/agent/issues/1522)) ([5ac750d](https://github.com/Autonoma-AI/agent/commit/5ac750da58638b9f82a8b6e2a5709dcf281c2407))
+* **preview-config:** list dependency repos in the settings rail ([#1532](https://github.com/Autonoma-AI/agent/issues/1532)) ([1e7c184](https://github.com/Autonoma-AI/agent/commit/1e7c1845ec8ae674239932923407153382041d62))
+* **preview:** connect-agent box on preview settings + detail link, unify UI naming ([#1528](https://github.com/Autonoma-AI/agent/issues/1528)) ([3994018](https://github.com/Autonoma-AI/agent/commit/3994018d575d04afd4bd7b361b81c056104618df))
+* vercel integration v2 ([#1243](https://github.com/Autonoma-AI/agent/issues/1243)) ([1d0e5c6](https://github.com/Autonoma-AI/agent/commit/1d0e5c61a8c976109a678ec74832d9fc97b2720c))
+
+
+### Bug Fixes
+
+* **github:** accept setup_action=update on the install callback ([#1537](https://github.com/Autonoma-AI/agent/issues/1537)) ([407f86a](https://github.com/Autonoma-AI/agent/commit/407f86a2351887654a5846de627ec83eaf33e170))
+* properly resolve sdk url for provisioning test user ([#1538](https://github.com/Autonoma-AI/agent/issues/1538)) ([d861bd2](https://github.com/Autonoma-AI/agent/commit/d861bd2859f8938c64a02908af42b0d620ddb1e2))
+
 ## [1.8.34](https://github.com/Autonoma-AI/agent/compare/v1.8.33...v1.8.34) (2026-07-14)
 
 
