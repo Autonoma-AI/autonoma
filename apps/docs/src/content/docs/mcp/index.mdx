@@ -16,7 +16,7 @@ Everything below is the same server, just configured per client. When a client a
 
 | Setting | Value |
 | --- | --- |
-| **URL** | `https://autonoma.app/v1/mcp/debug` |
+| **URL** | `https://api.autonoma.app/v1/mcp/debug` |
 | **Transport** | Streamable HTTP |
 | **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
 
@@ -33,7 +33,7 @@ You need an Autonoma account with your app connected, and a pull request that ha
 Add the server with the Claude Code CLI:
 
 ```bash
-claude mcp add --transport http autonoma https://autonoma.app/v1/mcp/debug
+claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug
 ```
 
 The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize. Run `claude mcp list` to confirm it connected.
@@ -49,7 +49,7 @@ Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your pr
 {
   "mcpServers": {
     "autonoma": {
-      "url": "https://autonoma.app/v1/mcp/debug"
+      "url": "https://api.autonoma.app/v1/mcp/debug"
     }
   }
 }
@@ -69,7 +69,7 @@ For GitHub Copilot's agent mode, add the server to `.vscode/mcp.json`:
   "servers": {
     "autonoma": {
       "type": "http",
-      "url": "https://autonoma.app/v1/mcp/debug"
+      "url": "https://api.autonoma.app/v1/mcp/debug"
     }
   }
 }
@@ -88,7 +88,7 @@ Add the server to `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "autonoma": {
-      "serverUrl": "https://autonoma.app/v1/mcp/debug"
+      "serverUrl": "https://api.autonoma.app/v1/mcp/debug"
     }
   }
 }
@@ -106,7 +106,7 @@ Codex reaches remote servers through the `mcp-remote` bridge, which also handles
 # ~/.codex/config.toml
 [mcp_servers.autonoma]
 command = "npx"
-args = ["-y", "mcp-remote", "https://autonoma.app/v1/mcp/debug"]
+args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
 ```
 
 </TabItem>
@@ -120,7 +120,7 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
   "mcpServers": {
     "autonoma": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://autonoma.app/v1/mcp/debug"]
+      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
     }
   }
 }

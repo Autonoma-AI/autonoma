@@ -51,23 +51,23 @@ Every call needs an `Authorization: Bearer <api-key>` header. Create an API key 
 export AUTONOMA_API_KEY="ak_live_..."
 
 # Batch upsert
-curl -X PUT "https://autonoma.app/v1/previewkit/secrets/app_abc123/web" \
+curl -X PUT "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web" \
   -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"items":[{"key":"STRIPE_API_KEY","value":"sk_live_..."},{"key":"SENTRY_DSN","value":"https://..."}]}'
 
 # Single key upsert
-curl -X PUT "https://autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
+curl -X PUT "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
   -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"value":"sk_live_..."}'
 
 # List keys (names only, never values)
-curl "https://autonoma.app/v1/previewkit/secrets/app_abc123/web" \
+curl "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web" \
   -H "Authorization: Bearer $AUTONOMA_API_KEY"
 
 # Delete
-curl -X DELETE "https://autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
+curl -X DELETE "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
   -H "Authorization: Bearer $AUTONOMA_API_KEY"
 ```
 

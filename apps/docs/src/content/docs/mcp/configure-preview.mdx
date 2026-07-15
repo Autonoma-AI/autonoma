@@ -30,7 +30,7 @@ The pairing code is how the agent knows *which* app to configure - you never han
 
 | Setting | Value |
 | --- | --- |
-| **URL** | `https://autonoma.app/v1/mcp/onboarding` |
+| **URL** | `https://api.autonoma.app/v1/mcp/onboarding` |
 | **Transport** | Streamable HTTP |
 | **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
 
@@ -41,7 +41,7 @@ The pairing code is how the agent knows *which* app to configure - you never han
 <TabItem label="Claude Code">
 
 ```bash
-claude mcp add --transport http autonoma-onboarding https://autonoma.app/v1/mcp/onboarding
+claude mcp add --transport http autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding
 ```
 
 The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize.
@@ -57,7 +57,7 @@ Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your pr
 {
   "mcpServers": {
     "autonoma-onboarding": {
-      "url": "https://autonoma.app/v1/mcp/onboarding"
+      "url": "https://api.autonoma.app/v1/mcp/onboarding"
     }
   }
 }
@@ -76,7 +76,7 @@ Add the server to `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "autonoma-onboarding": {
-      "serverUrl": "https://autonoma.app/v1/mcp/onboarding"
+      "serverUrl": "https://api.autonoma.app/v1/mcp/onboarding"
     }
   }
 }
@@ -95,7 +95,7 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
   "mcpServers": {
     "autonoma-onboarding": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://autonoma.app/v1/mcp/onboarding"]
+      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/onboarding"]
     }
   }
 }

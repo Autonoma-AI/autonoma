@@ -22,17 +22,20 @@ import { useState, type ReactNode } from "react";
 export type McpEndpoint = "onboarding" | "debug";
 
 /**
- * Resolve the Autonoma MCP endpoint the user's coding agent connects to. The API
- * is same-origin with the UI in deployed envs (ingress routes `/v1` to it), so we
- * derive it from the current origin - a literal host would be wrong on beta
- * (beta.autonoma.app) vs prod (autonoma.app). Localhost and per-PR previews reach
- * the API cross-origin, so there we fall back to the configured VITE_API_URL, the
- * same rule the tRPC client uses.
+ * Resolve the Autonoma MCP endpoint the user's coding agent connects to. We point
+ * at the dedicated API host (`api.<app-host>`), NOT the app origin: the app host
+ * (autonoma.app) sits behind CloudFront, whose WAF/buffering can 403 or mangle
+ * large request bodies (the whole `apply_config` document, a `set_secret` value)
+ * and interfere with the MCP's streaming HTTP; the `api.` host is direct to the
+ * ALB, off CloudFront. The OAuth handshake is unaffected - the 401 challenge and
+ * discovery are anchored at APP_URL (the app origin) and the bearer token is
+ * verified host-agnostically, so only the data plane moves off CloudFront.
+ * Localhost and per-PR previews reach the API cross-origin at VITE_API_URL.
  */
 export function mcpEndpointUrl(path: McpEndpoint): string {
   const isPreview = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
   const isLocalhost = window.location.hostname === "localhost";
-  const base = isPreview || isLocalhost ? env.VITE_API_URL : window.location.origin;
+  const base = isPreview || isLocalhost ? env.VITE_API_URL : `https://api.${window.location.hostname}`;
   return `${base}/v1/mcp/${path}`;
 }
 
