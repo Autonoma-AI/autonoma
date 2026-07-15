@@ -1,3 +1,4 @@
+import type { EncryptionHelper } from "@autonoma/scenario";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 
 export interface PreviewkitSecretsUpsertResult {
@@ -81,4 +82,6 @@ export interface OnboardingManagerOptions {
     github?: OnboardingGithubService;
     applications?: OnboardingApplicationsService;
     diffsTrigger?: OnboardingDiffsTrigger;
+    /** Lazily constructed - VERCEL_ENCRYPTION_KEY is optional, unlike the primary scenario encryption key. */
+    getVercelEncryptionHelper?: () => EncryptionHelper;
 }

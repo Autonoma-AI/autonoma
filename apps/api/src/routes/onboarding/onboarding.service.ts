@@ -111,6 +111,18 @@ export class OnboardingService extends Service {
         );
     }
 
+    async listAvailableVercelProjects(applicationId: string, organizationId: string) {
+        return this.manager.listAvailableVercelProjects(applicationId, organizationId);
+    }
+
+    async linkVercelProject(applicationId: string, organizationId: string, vercelProjectId: string) {
+        return this.manager.linkVercelProject(applicationId, organizationId, vercelProjectId);
+    }
+
+    async unlinkVercelProject(applicationId: string, organizationId: string) {
+        return this.manager.unlinkVercelProject(applicationId, organizationId);
+    }
+
     async prepareSdkTarget(applicationId: string, organizationId: string, targetId: string) {
         return this.manager.prepareSdkTarget(applicationId, organizationId, targetId);
     }

@@ -81,6 +81,8 @@ export type BillingStatusResult = {
 
 export interface BillingService {
     getOrCreateCustomer(organizationId: string, orgName: string): Promise<BillingCustomer>;
+    grantSubscriptionCredits(organizationId: string, invoiceId: string, customerEmail?: string): Promise<void>;
+    startGracePeriodByOrganizationId(organizationId: string, gracePeriodDays: number): Promise<void>;
     createCheckoutSession(
         organizationId: string,
         type: BillingCheckoutType,

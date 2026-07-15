@@ -17,13 +17,17 @@ import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
 import { onboardingHttpRouter } from "./routes/onboarding/onboarding-http.router";
 import { appRouter } from "./routes/router";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
+import { vercelInstallationsRouter, vercelProductsRouter } from "./vercel-marketplace/vercel-installations.router";
+import { vercelMarketplaceRouter } from "./vercel-marketplace/vercel-marketplace.router";
+import { vercelWebhooksRouter } from "./vercel-marketplace/vercel-webhooks.router";
 
 const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS;
-const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook"]);
+const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook", "/v1/vercel/webhooks"]);
 // Prefixes whose request bodies must never be logged. Unlike the exact-match set
 // above, these cover routes with dynamic path segments - secret values flow
-// through PUT /v1/previewkit/secrets/:applicationId/:app[/:key].
-const BODY_LOG_BLOCKLIST_PREFIXES = ["/v1/previewkit/secrets"];
+// through PUT /v1/previewkit/secrets/:applicationId/:app[/:key], and through
+// PUT /v1/installations/:installationId (Vercel's `credentials.access_token`).
+const BODY_LOG_BLOCKLIST_PREFIXES = ["/v1/previewkit/secrets", "/v1/installations"];
 
 const INTERNAL_DOMAIN_ESCAPED = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
 const PREVIEW_ORIGIN_PATTERN = new RegExp(`^https://[a-f0-9]+\\.preview\\.${INTERNAL_DOMAIN_ESCAPED}$`);
@@ -154,6 +158,30 @@ export function createApiApp() {
         app.route("/v1/stripe", stripeHttpRouter);
     } else {
         logger.info("Stripe routes disabled (STRIPE_ENABLED=false)");
+    }
+
+    // ─── Vercel Marketplace ─────────────────────────────────────────────
+    // Gated on VERCEL_CLIENT_ID (all Vercel env vars are optional together -
+    // see env.ts): an unconfigured deployment simply never mounts these
+    // routes rather than mounting them to fail at request time.
+
+    if (env.VERCEL_CLIENT_ID != null) {
+        app.use("/v1/vercel/*", cors(corsOptions));
+        app.route("/v1/vercel", vercelMarketplaceRouter);
+
+        // Server-to-server from Vercel's backend - no CORS, and mounted before
+        // the marketplace CORS middleware above only matches "/v1/vercel/*" as a
+        // prefix, which this path falls under; Vercel never sends an Origin
+        // header on webhook deliveries so the CORS middleware is a no-op here.
+        app.route("/v1/vercel/webhooks", vercelWebhooksRouter);
+
+        app.use("/v1/installations/*", cors(corsOptions));
+        app.route("/v1/installations", vercelInstallationsRouter);
+
+        app.use("/v1/products/*", cors(corsOptions));
+        app.route("/v1/products", vercelProductsRouter);
+    } else {
+        logger.info("Vercel Marketplace routes disabled (VERCEL_CLIENT_ID not set)");
     }
 
     // ─── Upload ───────────────────────────────────────────────────────

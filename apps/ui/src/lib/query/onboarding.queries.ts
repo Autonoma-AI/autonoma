@@ -104,6 +104,35 @@ export function useConfigureAndDiscoverScenarios() {
     });
 }
 
+/** Vercel projects the org can link to this app - excludes projects already linked elsewhere. */
+export function useAvailableVercelProjects(applicationId: string) {
+    return useQuery(
+        trpc.onboarding.listAvailableVercelProjects.queryOptions(
+            { applicationId },
+            { enabled: applicationId.length > 0 },
+        ),
+    );
+}
+
+export function useLinkVercelProject() {
+    const queryClient = useQueryClient();
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.linkVercelProject.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.onboarding.listAvailableVercelProjects.queryKey(),
+                });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getDeploymentSignalStatus.queryKey() });
+            },
+            onError: (error) => onStepMismatch(error),
+        }),
+        successToast: { title: "Vercel project linked" },
+        errorToast: { title: "Failed to link Vercel project" },
+    });
+}
+
 /**
  * Provision the managed target's secrets (auto-run when the SDK step loads). It
  * may kick off a one-time PreviewKit redeploy; the UI tracks readiness off the

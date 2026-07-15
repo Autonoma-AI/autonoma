@@ -38,6 +38,7 @@ model User {
   apiKeys           ApiKey[]
   applicationSetups ApplicationSetup[]
   signupHookStates  SignupHookState[]
+  vercelInstallations VercelInstallation[]
   oauthApplications OauthApplication[]
   oauthAccessTokens OauthAccessToken[]
   oauthConsents     OauthConsent[]
@@ -145,6 +146,7 @@ model Organization {
   investigationReports   InvestigationReport[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
+  vercelInstallations    VercelInstallation[]
 
   @@map("organization")
 }
@@ -357,35 +359,36 @@ enum ApplicationArchitecture {
 }
 
 model Application {
-  id                      String                  @id @default(cuid())
-  name                    String
-  slug                    String                  @map("slug")
-  architecture            ApplicationArchitecture
-  customInstructions      String?                 @map("custom_instructions")
-  testScopeGuidelines     String?                 @map("test_scope_guidelines")
-  disabled                Boolean                 @default(false)
-  githubRepositoryId      Int?                    @map("github_repository_id")
+  id                  String                  @id @default(cuid())
+  name                String
+  slug                String                  @map("slug")
+  architecture        ApplicationArchitecture
+  customInstructions  String?                 @map("custom_instructions")
+  testScopeGuidelines String?                 @map("test_scope_guidelines")
+  disabled            Boolean                 @default(false)
+  githubRepositoryId  Int?                    @map("github_repository_id")
 
   mainBranchId String? @unique @map("main_branch_id")
   mainBranch   Branch? @relation("MainBranch", fields: [mainBranchId], references: [id])
 
   signingSecretEnc String? @map("signing_secret_enc")
 
-  folders                 Folder[]
-  testCases               TestCase[]
-  tags                    Tag[]
-  scenarios               Scenario[]
-  scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
-  scenarioRecipeVersions  ScenarioRecipeVersion[]
-  scenarioInstances       ScenarioInstance[]
-  webhookCalls            WebhookCall[]
-  branches                Branch[]
-  featureBranchInfos      FeatureBranchInfo[]
-  mainBranchInfo          MainBranchInfo?
-  onboardingState         OnboardingState?
-  applicationSetups       ApplicationSetup[]
+  folders                   Folder[]
+  testCases                 TestCase[]
+  tags                      Tag[]
+  scenarios                 Scenario[]
+  scenarioSchemaSnapshots   ScenarioSchemaSnapshot[]
+  scenarioRecipeVersions    ScenarioRecipeVersion[]
+  scenarioInstances         ScenarioInstance[]
+  webhookCalls              WebhookCall[]
+  branches                  Branch[]
+  featureBranchInfos        FeatureBranchInfo[]
+  mainBranchInfo            MainBranchInfo?
+  onboardingState           OnboardingState?
+  applicationSetups         ApplicationSetup[]
   bugs                      Bug[]
   previewkitSecrets         PreviewkitSecret[]
+  vercelProjectConnections  VercelProjectConnection[]
 
   // The Application's preview config (latest-only; saving overwrites it in
   // place). No row means the Application has no preview config and its
@@ -752,6 +755,7 @@ model BranchSnapshot {
   investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
   issues               Issue[]
   refinementLoop       RefinementLoop?
+  vercelDeployments   VercelDeployment[]
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -1722,6 +1726,7 @@ model BillingCustomer {
   id               String  @id @default(cuid())
   organizationId   String  @unique @map("organization_id")
   stripeCustomerId String? @unique @map("stripe_customer_id")
+  provider         String  @default("stripe")
 
   subscriptionId     String?             @map("subscription_id")
   subscriptionStatus SubscriptionStatus? @map("subscription_status")
@@ -2017,7 +2022,7 @@ model PreviewkitAppBuild {
   // Build strategy that produced the image: "node" | "docker-image" | "unknown".
   // Stored as text (not an enum) because the value has a hyphen and the reader
   // treats it loosely when picking a service icon.
-  runtime String?
+  runtime    String?
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -2101,8 +2106,8 @@ model PreviewkitOrgSecret {
 // the compatibility layer (it strips retired fields and defaults their
 // replacements), so every stored document parses without a version-upgrade step.
 model PreviewkitConfig {
-  id            String @id @default(cuid())
-  applicationId String @unique @map("application_id")
+  id            String      @id @default(cuid())
+  applicationId String      @unique @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   // Opaque config document; validated by previewConfigSchema on read.
@@ -2116,7 +2121,7 @@ model PreviewkitConfig {
   // the deploy reads each dependency's config from here (cloning the repo for
   // source only). Null/absent means a single-repo project.
   /// ![object]
-  dependencyDocuments Json?  @map("dependency_documents")
+  dependencyDocuments Json? @map("dependency_documents")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2393,3 +2398,181 @@ model RateLimitCounter {
   @@map("rate_limit_counter")
 }
 
+// ─── Vercel Marketplace ──────────────────────────────────────────────
+
+enum VercelInstallationStatus {
+  active
+  deleted
+
+  @@map("vercel_installation_status")
+}
+
+enum VercelBillingPeriodStatus {
+  pending
+  active
+  completed
+  cancelled
+  expired
+
+  @@map("vercel_billing_period_status")
+}
+
+model VercelBillingPlan {
+  id                     String   @id @default(cuid())
+  name                   String   @unique
+  type                   String   @default("subscription")
+  description            String
+  scope                  String   @default("installation")
+  cost                   String
+  initialCharge          String   @default("0") @map("initial_charge")
+  preauthorizationAmount Decimal? @map("preauthorization_amount") @db.Decimal(10, 2)
+  amountOfRuns           Int      @default(0) @map("amount_of_runs")
+  creditsPerCycle        Int      @default(0) @map("credits_per_cycle")
+  paymentMethodRequired  Boolean  @default(true) @map("payment_method_required")
+  details                Json
+  isDefault              Boolean  @default(false) @map("is_default")
+  level                  Int?
+  billingCycleDays       Int      @default(30) @map("billing_cycle_days")
+
+  installations  VercelInstallation[]
+  resources      VercelResource[]
+  billingPeriods VercelBillingPeriod[]
+
+  @@map("vercel_billing_plan")
+}
+
+model VercelInstallation {
+  id                   String                   @id @default(cuid())
+  vercelInstallationId String                   @unique @map("vercel_installation_id")
+  vercelAccountId      String                   @map("vercel_account_id")
+  vercelUserId         String                   @map("vercel_user_id")
+  organizationId       String                   @map("organization_id")
+  userId               String                   @map("user_id")
+  status               VercelInstallationStatus @default(active)
+  accessTokenEnc       String?                  @map("access_token_enc")
+  billingPlanId        String?                  @map("billing_plan_id")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingPlan    VercelBillingPlan?    @relation(fields: [billingPlanId], references: [id])
+  resources      VercelResource[]
+  billingPeriods VercelBillingPeriod[]
+  invoices       VercelInvoice[]
+  projects       VercelProject[]
+
+  @@map("vercel_installation")
+}
+
+model VercelResource {
+  id                   String   @id @default(cuid())
+  resourceId           String   @unique @map("resource_id")
+  vercelInstallationId String   @map("vercel_installation_id")
+  productId            String   @map("product_id")
+  name                 String
+  status               String   @default("ready")
+  billingPlanId        String?  @map("billing_plan_id")
+  metadata             Json?
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  installation   VercelInstallation    @relation(fields: [vercelInstallationId], references: [id], onDelete: Cascade)
+  billingPlan    VercelBillingPlan?    @relation(fields: [billingPlanId], references: [id])
+  billingPeriods VercelBillingPeriod[]
+
+  @@index([vercelInstallationId])
+  @@map("vercel_resource")
+}
+
+model VercelBillingPeriod {
+  id             String                    @id @default(cuid())
+  installationId String?                   @map("installation_id")
+  resourceId     String?                   @map("resource_id")
+  planId         String                    @map("plan_id")
+  cycleNumber    Int                       @default(1) @map("cycle_number")
+  startDate      DateTime                  @default(now()) @map("start_date")
+  endDate        DateTime                  @map("end_date")
+  status         VercelBillingPeriodStatus @default(pending)
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  installation VercelInstallation? @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  resource     VercelResource?     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  plan         VercelBillingPlan   @relation(fields: [planId], references: [id])
+  invoices     VercelInvoice[]
+
+  @@index([installationId, status])
+  @@index([resourceId, status])
+  @@index([endDate])
+  @@map("vercel_billing_period")
+}
+
+model VercelInvoice {
+  id              String    @id @default(cuid())
+  vercelInvoiceId String    @unique @map("vercel_invoice_id")
+  billingPeriodId String    @map("billing_period_id")
+  installationId  String    @map("installation_id")
+  amount          String
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  paidAt          DateTime? @map("paid_at")
+
+  billingPeriod VercelBillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  installation  VercelInstallation  @relation(fields: [installationId], references: [id], onDelete: Cascade)
+
+  @@index([billingPeriodId])
+  @@index([installationId])
+  @@index([vercelInvoiceId])
+  @@index([status])
+  @@map("vercel_invoice")
+}
+
+model VercelProject {
+  id                        String   @id @default(cuid())
+  vercelProjectId           String   @map("vercel_project_id")
+  vercelInstallationId      String   @map("vercel_installation_id")
+  name                      String
+  productionUrl             String?  @map("production_url")
+  githubRepositoryId        Int?     @map("github_repository_id")
+  protectionBypassSecretEnc String?  @map("protection_bypass_secret_enc")
+  vercelCheckId             String?  @map("vercel_check_id")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  installation VercelInstallation       @relation(fields: [vercelInstallationId], references: [id], onDelete: Cascade)
+  connection   VercelProjectConnection?
+
+  @@unique([vercelProjectId, vercelInstallationId])
+  @@map("vercel_project")
+}
+
+model VercelProjectConnection {
+  id            String   @id @default(cuid())
+  projectId     String   @unique @map("project_id")
+  applicationId String   @map("application_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project           VercelProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  application       Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  vercelDeployments VercelDeployment[]
+
+  @@index([applicationId])
+  @@map("vercel_project_connection")
+}
+
+model VercelDeployment {
+  id                  String   @id @default(cuid())
+  vercelDeploymentId  String   @unique @map("vercel_deployment_id")
+  vercelCheckRunId    String   @map("vercel_check_run_id")
+  projectConnectionId String   @map("project_connection_id")
+  branchSnapshotId    String?  @map("branch_snapshot_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  projectConnection VercelProjectConnection @relation(fields: [projectConnectionId], references: [id], onDelete: Cascade)
+  branchSnapshot    BranchSnapshot?         @relation(fields: [branchSnapshotId], references: [id], onDelete: SetNull)
+
+  @@index([projectConnectionId])
+  @@map("vercel_deployment")
+}

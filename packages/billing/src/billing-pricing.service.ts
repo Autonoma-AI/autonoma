@@ -43,4 +43,13 @@ export class BillingPricingService extends Service {
             },
         });
     }
+
+    async updateCreditsPerSubscription(organizationId: string, creditsPerSubscription: number): Promise<void> {
+        await this.db.billingPricing.upsert({
+            where: { organizationId },
+            create: { organizationId, creditsPerSubscription },
+            update: { creditsPerSubscription },
+        });
+        this.logger.info("Updated creditsPerSubscription for organization", { organizationId, creditsPerSubscription });
+    }
 }

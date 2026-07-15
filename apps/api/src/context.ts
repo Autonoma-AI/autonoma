@@ -23,6 +23,21 @@ export const auth = buildAuth({ redisClient, conn: db });
 export const encryptionHelper = new EncryptionHelper(env.SCENARIO_ENCRYPTION_KEY);
 export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
+// VERCEL_ENCRYPTION_KEY is optional (Vercel Marketplace is an opt-in
+// integration), so this is built lazily and only throws when a Vercel route
+// actually needs it - never at API startup - unlike `encryptionHelper` above,
+// which backs the always-on scenario SDK and is required.
+let vercelEncryptionHelperInstance: EncryptionHelper | undefined;
+
+export function getVercelEncryptionHelper(): EncryptionHelper {
+    if (vercelEncryptionHelperInstance != null) return vercelEncryptionHelperInstance;
+    if (env.VERCEL_ENCRYPTION_KEY == null) {
+        throw new Error("VERCEL_ENCRYPTION_KEY is not configured - the Vercel Marketplace integration is disabled");
+    }
+    vercelEncryptionHelperInstance = new EncryptionHelper(env.VERCEL_ENCRYPTION_KEY);
+    return vercelEncryptionHelperInstance;
+}
+
 export const generationProvider = new TemporalGenerationProvider();
 
 // Billing service for the managed LLM proxy (planner CLI) credit gate +
@@ -64,6 +79,7 @@ export async function createContext(c: HonoContext) {
             storageProvider,
             scenarioManager,
             encryptionHelper,
+            getVercelEncryptionHelper,
             generationProvider,
             githubApp,
             triggerDiffsJob,

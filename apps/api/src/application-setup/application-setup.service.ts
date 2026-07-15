@@ -246,6 +246,15 @@ export class ApplicationSetupService {
             await this.recordCommit(branchId, body.commitSha);
         }
 
+        // applyTests only creates the pending TestGeneration rows, it never runs
+        // them - firing through the same gated path `addEvent`/`updateSetup` use
+        // (rather than calling `queueGenerations` directly) so artifact upload
+        // respects the same "preview must be verified first" precondition. CLI
+        // artifact upload can land before the deployment's SDK endpoint is even
+        // configured, and firing unconditionally sent every generation straight
+        // to a guaranteed "does not have an SDK URL configured" failure.
+        await this.activateSnapshotAfterSetupCompletion(setupId, setup.applicationId, organizationId);
+
         log.info("Uploaded artifacts", {
             setupId,
             testCases: body.testCases?.length ?? 0,

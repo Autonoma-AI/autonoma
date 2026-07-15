@@ -27,4 +27,6 @@ export {
     useStopAgent,
     useResumeAgent,
     useSubmitAgentEnv,
+    useAvailableVercelProjects,
+    useLinkVercelProject,
 } from "lib/query/onboarding.queries";

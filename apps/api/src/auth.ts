@@ -7,10 +7,12 @@ import { redisStorage } from "@better-auth/redis-storage";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { betterAuth } from "better-auth/minimal";
 import { jwt, mcp, organization } from "better-auth/plugins";
+import type { CookieOptions } from "hono/utils/cookie";
 import type Redis from "ioredis";
 import { env } from "./env";
 import { PlatformEventEmitter } from "./posthog/emit-platform-events";
 import { SignupHooks } from "./signup-hooks/signup-hooks";
+import { vercelPreferredOrgKey } from "./vercel-marketplace/vercel-helpers";
 
 const GOOGLE_PROVIDER = "google";
 
@@ -93,7 +95,17 @@ export interface Auth {
         };
         internalAdapter: {
             listSessions(userId: string): Promise<AuthSession[]>;
+            createSession(userId: string): Promise<AuthSession>;
         };
+        // Cookie metadata (name + serialization attributes) for the session-token
+        // cookie, as configured by the `secondaryStorage`/cookie-cache options
+        // passed to `betterAuth()`. Used to set a session cookie for a session
+        // created directly via `internalAdapter.createSession` (bypassing the
+        // normal sign-in endpoints, e.g. after verifying a Vercel SSO token).
+        authCookies: {
+            sessionToken: { name: string; attributes: CookieOptions };
+        };
+        secret: string;
     }>;
 }
 
@@ -196,6 +208,35 @@ async function ensureOrgMembership(
     await ensureBillingProvisioning(conn, orgId);
 
     return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
+}
+
+/**
+ * Resolves which org a new session should land in. When a Vercel SSO login
+ * stashed a preferred org id in Redis (see `vercelPreferredOrgKey`), and that
+ * org still exists, the session uses it directly - this is what lets a
+ * multi-org Vercel user land in the org tied to the Vercel team/installation
+ * they're authenticating from, rather than the first org `ensureOrgMembership`
+ * would otherwise pick. Falls back to `ensureOrgMembership` in every other case.
+ */
+async function resolveSessionOrg(
+    conn: PrismaClient,
+    userId: string,
+    email: string,
+    name: string | undefined,
+    preferredOrgId: string | null,
+): Promise<OrgMembershipResult> {
+    if (preferredOrgId != null) {
+        const org = await conn.organization.findUnique({
+            where: { id: preferredOrgId },
+            select: { name: true, slug: true },
+        });
+        if (org != null) {
+            await ensureBillingProvisioning(conn, preferredOrgId);
+            logger.info("Using Vercel preferred org for session", { userId, organizationId: preferredOrgId });
+            return { organizationId: preferredOrgId, orgName: org.name, orgSlug: org.slug, isNewUser: false };
+        }
+    }
+    return ensureOrgMembership(conn, userId, email, name);
 }
 
 export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformEvents }: BuildAuthParams): Auth {
@@ -329,7 +370,17 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
 
                         if (user == null) throw new Error("User not found");
 
-                        const result = await ensureOrgMembership(conn, session.userId, user.email, user.name);
+                        // Check if Vercel SSO has set a preferred org (for multi-org users)
+                        const preferredOrgKey = vercelPreferredOrgKey(session.userId);
+                        const preferredOrgId = await redisClient.get(preferredOrgKey);
+
+                        const result = await resolveSessionOrg(
+                            conn,
+                            session.userId,
+                            user.email,
+                            user.name,
+                            preferredOrgId,
+                        );
 
                         try {
                             await platformEvents.onSessionCreated({

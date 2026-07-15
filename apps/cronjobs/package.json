@@ -1,0 +1,22 @@
+{
+    "name": "@autonoma/cronjobs",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "billing-invoicer": "tsx --env-file=../../.env scripts/vercel-billing-invoicer/index.ts",
+        "usage-reporter": "tsx --env-file=../../.env scripts/vercel-usage-reporter/index.ts",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --fix scripts/"
+    },
+    "dependencies": {
+        "@autonoma/db": "workspace:*",
+        "@autonoma/logger": "workspace:*",
+        "@autonoma/utils": "workspace:*",
+        "@sentry/node": "catalog:",
+        "@t3-oss/env-core": "catalog:",
+        "tsx": "catalog:",
+        "typescript": "catalog:",
+        "zod": "catalog:"
+    }
+}

@@ -40,6 +40,24 @@ export const onboardingRouter = router({
             ),
         ),
 
+    listAvailableVercelProjects: protectedProcedure
+        .input(applicationIdInput)
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.listAvailableVercelProjects(input.applicationId, ctx.organizationId),
+        ),
+
+    linkVercelProject: protectedProcedure
+        .input(z.object({ applicationId: z.string(), vercelProjectId: z.string() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.linkVercelProject(input.applicationId, ctx.organizationId, input.vercelProjectId),
+        ),
+
+    unlinkVercelProject: protectedProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.unlinkVercelProject(input.applicationId, ctx.organizationId),
+        ),
+
     prepareSdkTarget: protectedProcedure
         .input(z.object({ applicationId: z.string(), targetId: z.string() }))
         .mutation(({ ctx, input }) =>

@@ -590,9 +590,9 @@ export class CreditsService extends Service {
         });
     }
 
-    async grantSubscriptionCredits(organizationId: string, stripeInvoiceId: string, customerEmail?: string) {
+    async grantSubscriptionCredits(organizationId: string, invoiceId: string, customerEmail?: string) {
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
-        const amount = pricing.creditsPerSubscription;
+        const creditAmount = pricing.creditsPerSubscription;
 
         await this.db
             .$transaction(async (tx) => {
@@ -610,13 +610,13 @@ export class CreditsService extends Service {
                 }
 
                 const topupBalance = Math.max(0, customer.credit_balance - customer.subscription_credit_balance);
-                const newBalance = topupBalance + amount;
+                const newBalance = topupBalance + creditAmount;
 
                 await rawTx.$executeRaw`
                     UPDATE billing_customer
                     SET
                         credit_balance = ${newBalance},
-                        subscription_credit_balance = ${amount}
+                        subscription_credit_balance = ${creditAmount}
                     WHERE organization_id = ${organizationId}
                 `;
 
@@ -629,7 +629,7 @@ export class CreditsService extends Service {
                             amount,
                             balance_after
                         ) VALUES (
-                            ${`ctr_sub_reset_${stripeInvoiceId}`},
+                            ${`ctr_sub_reset_${invoiceId}`},
                             ${organizationId},
                             'SUBSCRIPTION_RESET'::credit_transaction_type,
                             ${-customer.subscription_credit_balance},
@@ -642,16 +642,16 @@ export class CreditsService extends Service {
                     data: {
                         organizationId,
                         type: CreditTransactionType.SUBSCRIPTION_GRANT,
-                        amount,
+                        amount: creditAmount,
                         balanceAfter: newBalance,
-                        stripeInvoiceId,
+                        stripeInvoiceId: invoiceId,
                     },
                 });
 
                 this.logger.info("Subscription credits granted", {
                     organizationId,
-                    stripeInvoiceId,
-                    amount,
+                    invoiceId,
+                    creditAmount,
                     newBalance,
                     replacedSubscriptionBalance: customer.subscription_credit_balance,
                     topupBalance,
@@ -659,16 +659,16 @@ export class CreditsService extends Service {
 
                 this.logger.info("Capturing PostHog billing.subscription_purchased event", {
                     organizationId,
-                    stripeInvoiceId,
-                    creditsGranted: amount,
+                    invoiceId,
+                    creditsGranted: creditAmount,
                     newBalance,
                     replacedSubscriptionBalance: customer.subscription_credit_balance,
                     customerEmail,
                 });
                 analytics.capture(organizationId, "billing.subscription_purchased", {
                     organizationId,
-                    stripeInvoiceId,
-                    creditsGranted: amount,
+                    invoiceId,
+                    creditsGranted: creditAmount,
                     newBalance,
                     replacedSubscriptionBalance: customer.subscription_credit_balance,
                     customerEmail,
@@ -676,7 +676,7 @@ export class CreditsService extends Service {
             })
             .catch((error: unknown) => {
                 if (isUniqueConstraintError(error)) {
-                    this.logger.info("Subscription credits already granted, skipping", { stripeInvoiceId });
+                    this.logger.info("Subscription credits already granted, skipping", { invoiceId });
                     return;
                 }
                 throw error;

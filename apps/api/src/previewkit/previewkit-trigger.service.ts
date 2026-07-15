@@ -176,6 +176,20 @@ export class PreviewkitTriggerService extends Service {
 
         const { pull_request: pr, repository: repo } = parsed.data;
 
+        const app = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repo.id } },
+            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
+        });
+        if (app?.onboardingState?.previewEnvironmentMode === "existing_deploys") {
+            this.logger.info("Skipping PreviewKit deploy: application uses existing_deploys (e.g. Vercel)", {
+                action,
+                organizationId,
+                repo: repo.full_name,
+                pr: pr.number,
+            });
+            return;
+        }
+
         if (pr.draft === true && !(await this.isDraftBuildEnabled(organizationId))) {
             this.logger.info("Skipping preview deploy for draft PR: previewkitBuildDraft disabled", {
                 action,
@@ -272,6 +286,20 @@ export class PreviewkitTriggerService extends Service {
         }
 
         const { pull_request: pr, repository: repo } = parsed.data;
+
+        const app = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repo.id } },
+            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
+        });
+        if (app?.onboardingState?.previewEnvironmentMode === "existing_deploys") {
+            this.logger.info("Skipping PreviewKit teardown: application uses existing_deploys (e.g. Vercel)", {
+                organizationId,
+                repo: repo.full_name,
+                pr: pr.number,
+            });
+            return;
+        }
+
         await this.teardown({
             repoFullName: repo.full_name,
             prNumber: pr.number,

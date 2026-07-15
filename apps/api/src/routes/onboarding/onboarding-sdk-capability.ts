@@ -111,7 +111,10 @@ export class OnboardingSdkCapabilityService {
 
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { id: true, mainBranch: { select: { deployment: { select: { id: true } } } } },
+            select: {
+                id: true,
+                mainBranch: { select: { deployment: { select: { id: true, webhookHeaders: true } } } },
+            },
         });
         if (app == null) throw new OnboardingApplicationNotFoundError(applicationId);
 
@@ -119,6 +122,20 @@ export class OnboardingSdkCapabilityService {
         if (deploymentId == null) {
             throw new Error(`Application ${applicationId} does not have a main branch deployment`);
         }
+
+        // Merge in whatever is already stored on the deployment (e.g. the Vercel
+        // protection-bypass secret written automatically when a project is
+        // linked) so this validation call doesn't 401 against a protected
+        // preview just because the user never manually typed a header for
+        // something we already know. User-provided headers win on overlap, and
+        // the merge (not the manual input alone) is what gets persisted back -
+        // otherwise a blank manual submission would silently wipe out the
+        // stored bypass header on the next line.
+        const existingHeaders = isStringRecord(app.mainBranch?.deployment?.webhookHeaders)
+            ? app.mainBranch.deployment.webhookHeaders
+            : {};
+        const mergedHeaders = { ...existingHeaders, ...webhookHeaders };
+        const hasHeaders = Object.keys(mergedHeaders).length > 0;
 
         await this.db.onboardingState.update({
             where: { applicationId },
@@ -130,7 +147,7 @@ export class OnboardingSdkCapabilityService {
                 applicationId,
                 sdkUrl: webhookUrl,
                 signingSecret,
-                customHeaders: webhookHeaders,
+                customHeaders: hasHeaders ? mergedHeaders : undefined,
             });
             const response = await sdkClient.discover(DRY_RUN_SDK_OPTIONS);
 
@@ -139,7 +156,7 @@ export class OnboardingSdkCapabilityService {
                 this.db.application.update({ where: { id: applicationId }, data: { signingSecretEnc } }),
                 this.db.branchDeployment.update({
                     where: { id: deploymentId },
-                    data: { webhookUrl, webhookHeaders: webhookHeaders ?? undefined },
+                    data: { webhookUrl, webhookHeaders: hasHeaders ? mergedHeaders : undefined },
                 }),
                 this.db.onboardingState.update({
                     where: { applicationId },
@@ -745,6 +762,11 @@ export class OnboardingSdkCapabilityService {
             extra: { environmentId, repoFullName, prNumber },
         });
     }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+    if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.values(value).every((v) => typeof v === "string");
 }
 
 function resolveSdkAppName(config: PreviewConfig): string | undefined {

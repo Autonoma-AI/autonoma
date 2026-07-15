@@ -6,3 +6,9 @@ export { getStripe } from "./stripe-client";
 export { syncStripeDataToDb } from "./stripe-sync";
 export { processWebhookEvent } from "./webhook-handlers";
 export { ensureBillingProvisioning } from "./billing-provisioning";
+export {
+    processVercelInvoicePaid,
+    processVercelInvoiceNotPaid,
+    processVercelInvoiceRefunded,
+    syncVercelPlanPricing,
+} from "./vercel-webhook-handlers";

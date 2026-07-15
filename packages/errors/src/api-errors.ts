@@ -63,3 +63,21 @@ export class SubscriptionGracePeriodExpiredError extends APIError {
         super(message);
     }
 }
+
+/**
+ * Thrown when a call to a third-party API (e.g. Vercel, Stripe, GitHub) fails,
+ * either due to a network error or a non-2xx response. Carries the provider
+ * name so callers/observability can attribute the failure, and preserves the
+ * original error via `cause`.
+ */
+export class ThirdPartyError extends APIError {
+    constructor(
+        public readonly provider: string,
+        cause: unknown,
+        message?: string,
+    ) {
+        const causeMessage = cause instanceof Error ? cause.message : String(cause);
+        super(message ?? `${provider} request failed: ${causeMessage}`);
+        this.cause = cause;
+    }
+}

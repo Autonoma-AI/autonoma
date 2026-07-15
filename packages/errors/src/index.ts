@@ -8,4 +8,5 @@ export {
     InsufficientCreditsError,
     SubscriptionGracePeriodExpiredError,
     TooManyRequestsError,
+    ThirdPartyError,
 } from "./api-errors";

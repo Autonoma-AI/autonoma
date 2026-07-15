@@ -415,6 +415,12 @@ export class ApplicationsService extends Service {
                 applicationId: id,
                 extra: { removed: removed.count },
             });
+
+            // Free the Vercel project too, same reasoning as the GitHub repo above -
+            // otherwise it stays "linked" to this now-disabled application forever,
+            // invisible both as linked (app is disabled) and as available to link
+            // (VercelProject.connection is still set).
+            await tx.vercelProjectConnection.deleteMany({ where: { applicationId: id } });
         });
 
         this.logger.info("Application disabled", { applicationId: id });

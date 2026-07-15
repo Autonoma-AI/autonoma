@@ -22,6 +22,14 @@ export class DisabledBillingService implements BillingService {
         return customer;
     }
 
+    grantSubscriptionCredits(_organizationId: string, _invoiceId: string, _customerEmail?: string) {
+        return Promise.resolve();
+    }
+
+    startGracePeriodByOrganizationId(_organizationId: string, _gracePeriodDays: number) {
+        return Promise.resolve();
+    }
+
     createCheckoutSession(organizationId: string, type: BillingCheckoutType, returnPath?: string) {
         return this.billingCustomerService.createCheckoutSession(organizationId, type, returnPath);
     }

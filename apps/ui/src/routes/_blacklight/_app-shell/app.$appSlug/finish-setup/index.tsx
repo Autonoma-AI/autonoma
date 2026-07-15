@@ -26,7 +26,9 @@ import { FolderOpenIcon } from "@phosphor-icons/react/FolderOpen";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlayIcon } from "@phosphor-icons/react/Play";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
@@ -425,6 +427,8 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
     targets.autoDetectedTargetId ?? targets.targets[0]?.id,
   );
   const [signingSecret, setSigningSecret] = useState("");
+  const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
   // Set to a target id while a managed discover that 401'd is self-healing via
   // redeploy; the effect below retries discover exactly once when that target
@@ -478,8 +482,14 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   function handleDiscover() {
     if (selectedTarget == null) return;
     if (selectedTarget.requiresSharedSecretInput) {
+      const headersRecord: Record<string, string> = {};
+      for (const h of customHeaders) {
+        if (h.key.length > 0) headersRecord[h.key] = h.value;
+      }
+      const webhookHeaders = Object.keys(headersRecord).length > 0 ? headersRecord : undefined;
+
       discover.mutate(
-        { applicationId, webhookUrl: selectedTarget.sdkUrl, signingSecret },
+        { applicationId, webhookUrl: selectedTarget.sdkUrl, signingSecret, webhookHeaders },
         { onSuccess: () => toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" }) },
       );
       return;
@@ -557,6 +567,70 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
           <p className="font-mono text-2xs text-text-secondary">
             Must match <Code>AUTONOMA_SHARED_SECRET</Code> on your deployment.
           </p>
+        </div>
+      )}
+
+      {requiresSharedSecretInput && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((prev) => !prev)}
+            className="flex items-center gap-1.5 font-mono text-2xs text-text-secondary transition-colors hover:text-text-primary"
+          >
+            <CaretDownIcon size={12} className={cn("transition-transform", showAdvanced ? "rotate-0" : "-rotate-90")} />
+            Advanced
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-3 space-y-3">
+              <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Custom Headers</p>
+              <p className="text-2xs text-text-secondary">
+                Sent with every discover/up/down request - useful for deployment-protection bypass tokens (e.g. Vercel,
+                or a custom gateway) that would otherwise block us from reaching your endpoint.
+              </p>
+              {customHeaders.map((header, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    type="text"
+                    value={header.key}
+                    onChange={(e) => {
+                      const next = [...customHeaders];
+                      next[index] = { ...header, key: e.target.value };
+                      setCustomHeaders(next);
+                    }}
+                    placeholder="Header name"
+                    className="flex-1"
+                  />
+                  <Input
+                    type="text"
+                    value={header.value}
+                    onChange={(e) => {
+                      const next = [...customHeaders];
+                      next[index] = { ...header, value: e.target.value };
+                      setCustomHeaders(next);
+                    }}
+                    placeholder="Value"
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCustomHeaders(customHeaders.filter((_, i) => i !== index))}
+                    className="flex size-9 shrink-0 items-center justify-center text-text-secondary transition-colors hover:text-status-critical"
+                  >
+                    <TrashIcon size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCustomHeaders([...customHeaders, { key: "", value: "" }])}
+                className="flex items-center gap-1.5 font-mono text-2xs text-text-secondary transition-colors hover:text-primary-ink"
+              >
+                <PlusIcon size={12} />
+                Add header
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -14,12 +14,25 @@ export async function ensureBillingProvisioning(db: PrismaClient, organizationId
         select: { creditsFreeStart: true },
     });
 
+    // An org created via the Vercel Marketplace install flow (see
+    // vercel-installations.router.ts) must be provisioned with provider "vercel"
+    // from the start - this can run before that flow provisions its own resource
+    // (e.g. a Vercel SSO login right after install, before a project is
+    // connected), so relying on that flow's own guard alone leaves the row
+    // permanently mislabeled "stripe" whenever this runs first.
+    const vercelInstallation = await db.vercelInstallation.findFirst({
+        where: { organizationId },
+        select: { id: true },
+    });
+    const provider = vercelInstallation != null ? "vercel" : undefined;
+
     try {
         return await db.$transaction(async (tx) => {
             const created = await tx.billingCustomer.create({
                 data: {
                     organizationId,
                     creditBalance: pricing.creditsFreeStart,
+                    provider,
                 },
             });
 

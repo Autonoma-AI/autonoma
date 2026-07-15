@@ -102,6 +102,9 @@ catalogs:
     hono:
       specifier: ^4.12.25
       version: 4.12.25
+    jose:
+      specifier: ^6.1.0
+      version: 6.2.3
     playwright:
       specifier: 1.56.1
       version: 1.56.1
@@ -287,6 +290,9 @@ importers:
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.3
       js-yaml:
         specifier: ^4.1.2
         version: 4.2.0
@@ -409,6 +415,33 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(msw@2.12.10(@types/node@25.2.3)(typescript@7.0.2))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  apps/cronjobs:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      '@sentry/node':
+        specifier: 'catalog:'
+        version: 10.39.0
+      '@t3-oss/env-core':
+        specifier: 'catalog:'
+        version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
 
   apps/docs:
     dependencies:

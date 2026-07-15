@@ -3,12 +3,13 @@ import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors"
 import { logger as rootLogger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { encryptionHelper, scenarioManager } from "../../context";
+import { encryptionHelper, getVercelEncryptionHelper, scenarioManager } from "../../context";
 import { diffsTriggerService } from "../../diffs/diffs-service";
 import { OnboardingManager } from "./onboarding-manager";
 
 const manager = new OnboardingManager(db, scenarioManager, encryptionHelper, {
     diffsTrigger: diffsTriggerService,
+    getVercelEncryptionHelper,
 });
 
 export const onboardingHttpRouter = new Hono()

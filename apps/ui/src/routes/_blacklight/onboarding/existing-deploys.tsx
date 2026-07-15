@@ -1,16 +1,26 @@
-import { Badge, Button } from "@autonoma/blacklight";
+import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { LinkIcon } from "@phosphor-icons/react/Link";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useConfirmExistingDeploysSetup, useDeploymentSignalStatus } from "lib/onboarding/onboarding-api";
+import {
+  useAvailableVercelProjects,
+  useConfirmExistingDeploysSetup,
+  useDeploymentSignalStatus,
+  useLinkVercelProject,
+} from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
+
+type SignalProvider = "vercel" | "custom";
 
 export const Route = createFileRoute("/_blacklight/onboarding/existing-deploys")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("existing-deploys")} />,
@@ -20,7 +30,15 @@ export function ExistingDeploysPage({ appId }: { appId?: string }) {
   const navigate = useNavigate();
   const sharedSecretQuery = useApplicationSharedSecret(appId ?? "");
   const signalStatusQuery = useDeploymentSignalStatus(appId ?? "");
+  const vercelProjectsQuery = useAvailableVercelProjects(appId ?? "");
   const confirmSetup = useConfirmExistingDeploysSetup();
+  const [selectedProvider, setSelectedProvider] = useState<SignalProvider>("vercel");
+
+  // On the Vercel path, a linked project is required before continuing - without
+  // it there's no protection-bypass header, so generated tests can never reach
+  // the preview.
+  const vercelProjectLinked = vercelProjectsQuery.data?.linkedProject != null;
+  const canContinue = selectedProvider !== "vercel" || vercelProjectLinked;
 
   function goToVerify() {
     void navigate({ to: "/onboarding", search: buildOnboardingSearch("deploy-verify", appId) });
@@ -80,11 +98,25 @@ export function ExistingDeploysPage({ appId }: { appId?: string }) {
       </Button>
 
       <div className="grid gap-5 lg:grid-cols-4">
-        <ProviderCard active icon={<VercelIcon />} title="Vercel" meta="GitHub Action" />
-        <ProviderCard icon={<SlidersHorizontalIcon size={22} />} title="Custom" meta="Webhook" />
+        <ProviderCard
+          active={selectedProvider === "vercel"}
+          icon={<VercelIcon />}
+          title="Vercel"
+          meta="Connect project"
+          onClick={() => setSelectedProvider("vercel")}
+        />
+        <ProviderCard
+          active={selectedProvider === "custom"}
+          icon={<SlidersHorizontalIcon size={22} />}
+          title="Custom"
+          meta="Webhook"
+          onClick={() => setSelectedProvider("custom")}
+        />
         <ProviderCard icon={<PlugsIcon size={22} />} title="Netlify" meta="Soon" disabled />
         <ProviderCard icon={<PlugsIcon size={22} />} title="Render" meta="Soon" disabled />
       </div>
+
+      {selectedProvider === "vercel" ? <VercelConnectSection appId={appId} /> : undefined}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1fr)]">
         <section className="border border-border-dim bg-surface-base">
@@ -181,12 +213,14 @@ export function ExistingDeploysPage({ appId }: { appId?: string }) {
 
       <div className="mt-8 flex justify-between border-t border-border-dim pt-6">
         <p className="max-w-xl text-sm text-text-secondary">
-          After CI sends the signal, the next screen will show whether Autonoma has a usable preview URL.
+          {!canContinue
+            ? "Link a Vercel project above before continuing."
+            : "After CI sends the signal, the next screen will show whether Autonoma has a usable preview URL."}
         </p>
         <Button
           variant="accent"
           className="gap-2 px-6 py-3"
-          disabled={confirmSetup.isPending}
+          disabled={confirmSetup.isPending || !canContinue}
           onClick={continueToVerify}
         >
           Continue to verify
@@ -197,35 +231,133 @@ export function ExistingDeploysPage({ appId }: { appId?: string }) {
   );
 }
 
+function VercelConnectSection({ appId }: { appId: string }) {
+  const { data, isLoading } = useAvailableVercelProjects(appId);
+  const linkProject = useLinkVercelProject();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(undefined);
+
+  function handleLink() {
+    if (selectedProjectId == null) return;
+    linkProject.mutate({ applicationId: appId, vercelProjectId: selectedProjectId });
+  }
+
+  return (
+    <section className="mt-8 border border-border-dim bg-surface-base p-6">
+      <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
+        Connect a Vercel project
+      </h2>
+      <p className="mt-2 max-w-2xl text-sm text-text-secondary">
+        Link a Vercel project you&apos;ve already authorized to this app. Autonoma manages the deployment-protection
+        bypass secret automatically, so tests can reach the preview without a manual header.
+      </p>
+
+      {isLoading ? (
+        <p className="mt-4 text-sm text-text-secondary">Loading Vercel projects...</p>
+      ) : data?.linkedProject != null ? (
+        <div className="mt-4 flex items-center gap-2 border-l-2 border-status-success bg-status-success/10 px-4 py-3">
+          <CheckCircleIcon size={16} weight="fill" className="text-status-success" />
+          <p className="text-sm text-text-secondary">
+            Linked to <span className="font-mono text-text-primary">{data.linkedProject.name}</span>
+          </p>
+        </div>
+      ) : data?.connected === false ? (
+        <div className="mt-4 flex flex-col gap-3 border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
+          <p className="text-sm text-text-secondary">No Vercel account is connected to this organization yet.</p>
+          {data.connectUrl != null && (
+            <a
+              href={data.connectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-2 border border-primary-ink px-4 py-2 font-mono text-2xs font-bold uppercase tracking-widest text-primary-ink transition-colors hover:bg-primary-ink/10"
+            >
+              Connect Vercel
+              <ArrowSquareOutIcon size={13} weight="bold" />
+            </a>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="min-w-64">
+            <Select value={selectedProjectId ?? ""} onValueChange={(value) => setSelectedProjectId(value ?? undefined)}>
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={data != null && data.projects.length === 0 ? "No unlinked projects" : "Select a project"}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {data?.projects.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="accent"
+            className="gap-2"
+            disabled={selectedProjectId == null || linkProject.isPending}
+            onClick={handleLink}
+          >
+            <LinkIcon size={14} weight="bold" />
+            {linkProject.isPending ? "Linking..." : "Link project"}
+          </Button>
+          {data?.connectUrl != null && (
+            <a
+              href={data.connectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 font-mono text-2xs text-text-secondary underline-offset-2 transition-colors hover:text-primary-ink hover:underline"
+            >
+              Connect a new Vercel project
+              <ArrowSquareOutIcon size={12} />
+            </a>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProviderCard({
   active,
   disabled,
   icon,
   title,
   meta,
+  onClick,
 }: {
   active?: boolean;
   disabled?: boolean;
   icon: ReactNode;
   title: string;
   meta: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div
-      className={
-        active
-          ? "border border-primary-ink bg-surface-base p-5"
-          : disabled
-            ? "border border-border-dim bg-surface-base p-5 opacity-50"
-            : "border border-border-dim bg-surface-base p-5"
-      }
-    >
+  const className = active
+    ? "border border-primary-ink bg-surface-base p-5 text-left"
+    : disabled
+      ? "border border-border-dim bg-surface-base p-5 text-left opacity-50"
+      : "border border-border-dim bg-surface-base p-5 text-left transition-colors hover:border-border-highlight";
+
+  const content = (
+    <>
       <div className="text-text-secondary">{icon}</div>
       <h3 className="mt-5 text-lg font-medium text-text-primary">{title}</h3>
       <p className="mt-2 font-mono text-2xs uppercase tracking-widest text-text-secondary">
         {disabled ? "Soon" : meta}
       </p>
-    </div>
+    </>
+  );
+
+  if (onClick == null || disabled) {
+    return <div className={className}>{content}</div>;
+  }
+
+  return (
+    <button type="button" className={className} onClick={onClick}>
+      {content}
+    </button>
   );
 }
 

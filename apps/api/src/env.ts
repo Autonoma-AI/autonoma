@@ -28,6 +28,19 @@ export const env = createEnv({
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
         GOOGLE_CLIENT_ID: z.string().min(1),
         GOOGLE_CLIENT_SECRET: z.string().min(1),
+
+        // Vercel marketplace integration credentials.
+        // Optional in test/dev environments; required in production for the
+        // integration to function. The Vercel routes are mounted regardless,
+        // but return 503 / throw clear errors when these are unset.
+        VERCEL_CLIENT_ID: z.string().min(1).optional(),
+        VERCEL_CLIENT_SECRET: z.string().min(1).optional(),
+        VERCEL_REDIRECT_URI: z.string().url().optional(),
+        VERCEL_ENCRYPTION_KEY: z.string().length(64).optional(),
+        // The integration's URL slug (Vercel Integrations Console -> "URL Slug"),
+        // used to build the "Connect a new Vercel project" redirect:
+        // https://vercel.com/integrations/{slug}/new
+        VERCEL_INTEGRATION_SLUG: z.string().min(1).optional(),
         AGENT_VERSION: z.string().optional().default("latest"),
         POSTHOG_KEY: z.string().optional(),
         POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),

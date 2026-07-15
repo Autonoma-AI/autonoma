@@ -25,6 +25,10 @@ import {
     type PrepareSdkTargetResult,
 } from "./onboarding-sdk-capability";
 import {
+    type ListAvailableVercelProjectsResult,
+    OnboardingVercelCapabilityService,
+} from "./onboarding-vercel-capability";
+import {
     buildExistingDeploysReadiness,
     buildPreviewkitReadiness,
     idleReadiness,
@@ -94,6 +98,7 @@ export class OnboardingManager {
     private readonly logger: Logger;
     private readonly previewkitConfig: PreviewkitConfigService;
     private readonly sdkCapability: OnboardingSdkCapabilityService;
+    private readonly vercelCapability: OnboardingVercelCapabilityService;
 
     private static readonly states: Partial<
         Record<
@@ -121,6 +126,7 @@ export class OnboardingManager {
         this.logger = logger.child({ name: "OnboardingManager" });
         this.previewkitConfig = new PreviewkitConfigService(db, options);
         this.sdkCapability = new OnboardingSdkCapabilityService(db, scenarioManager, encryption, options);
+        this.vercelCapability = new OnboardingVercelCapabilityService(db, options);
     }
 
     async getState(applicationId: string) {
@@ -649,6 +655,29 @@ export class OnboardingManager {
             signingSecret,
             webhookHeaders,
         );
+        return this.getState(applicationId);
+    }
+
+    async listAvailableVercelProjects(
+        applicationId: string,
+        organizationId: string,
+    ): Promise<ListAvailableVercelProjectsResult> {
+        return this.vercelCapability.listAvailableVercelProjects(applicationId, organizationId);
+    }
+
+    async linkVercelProject(
+        applicationId: string,
+        organizationId: string,
+        vercelProjectId: string,
+    ): Promise<OnboardingStateView> {
+        this.logger.info("Linking Vercel project", { applicationId, vercelProjectId });
+        await this.vercelCapability.linkVercelProject(applicationId, organizationId, vercelProjectId);
+        return this.getState(applicationId);
+    }
+
+    async unlinkVercelProject(applicationId: string, organizationId: string): Promise<OnboardingStateView> {
+        this.logger.info("Unlinking Vercel project", { applicationId });
+        await this.vercelCapability.unlinkVercelProject(applicationId, organizationId);
         return this.getState(applicationId);
     }
 

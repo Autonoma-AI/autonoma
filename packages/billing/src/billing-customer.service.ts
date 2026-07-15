@@ -236,6 +236,19 @@ export class BillingCustomerService extends Service {
         });
     }
 
+    async startGracePeriodByOrganizationId(organizationId: string, gracePeriodDays: number) {
+        const graceEndsAt = new Date(Date.now() + gracePeriodDays * 24 * 60 * 60 * 1000);
+        await this.db.billingCustomer.updateMany({
+            where: { organizationId },
+            data: { gracePeriodEndsAt: graceEndsAt },
+        });
+        this.logger.info("Updated billing grace period by organization", {
+            organizationId,
+            gracePeriodDays,
+            graceEndsAt,
+        });
+    }
+
     async clearGracePeriodByStripeCustomerId(stripeCustomerId: string) {
         const result = await this.db.billingCustomer.updateMany({
             where: { stripeCustomerId },

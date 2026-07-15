@@ -81,6 +81,7 @@ export interface Services {
     previewkitEnvironments: PreviewkitEnvironmentsService;
     rateLimiter: RateLimiterService;
     onboardingAgentSession: OnboardingAgentSessionService;
+    getVercelEncryptionHelper: () => EncryptionHelper;
 }
 
 export interface ServicesParams {
@@ -89,6 +90,7 @@ export interface ServicesParams {
     storageProvider: StorageProvider;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
+    getVercelEncryptionHelper: () => EncryptionHelper;
     generationProvider: GenerationProvider;
     githubApp: GitHubApp;
     triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
@@ -109,6 +111,7 @@ export function buildServices({
     storageProvider,
     scenarioManager,
     encryptionHelper,
+    getVercelEncryptionHelper,
     generationProvider,
     githubApp,
     triggerDiffsJob,
@@ -156,6 +159,7 @@ export function buildServices({
         repoIntrospection: repoIntrospectionService,
         github: githubService,
         applications: applicationsService,
+        getVercelEncryptionHelper,
     };
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, onboardingOptions);
     const previewkitConfigService = new PreviewkitConfigService(conn, onboardingOptions);
@@ -213,5 +217,6 @@ export function buildServices({
         previewkitTrigger,
         previewkitWrite,
         previewkitEnvironments: previewkitEnvironmentsService,
+        getVercelEncryptionHelper,
     };
 }
