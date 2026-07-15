@@ -36,7 +36,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | Variable                                    | Required | Default                    | Description                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `API_PORT`                                  | Yes      | -                          | Port the server listens on (typically `4000`)                                                                                                                                                                                                                                                          |
-| `METRICS_PORT`                              | No       | `9464`                     | Dedicated port for the Prometheus `/metrics` endpoint (kept off `API_PORT` so the ingress never exposes it)                                                                                                                                                                                            |
 | `GOOGLE_CLIENT_ID`                          | Yes      | -                          | Google OAuth client ID                                                                                                                                                                                                                                                                                 |
 | `GOOGLE_CLIENT_SECRET`                      | Yes      | -                          | Google OAuth client secret                                                                                                                                                                                                                                                                             |
 | `REDIS_URL`                                 | Yes      | -                          | Redis connection URL (sessions, caching)                                                                                                                                                                                                                                                               |
@@ -57,12 +56,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `TESTING`                                   | No       | `false`                    | Test environment flag - prevents loading production modules                                                                                                                                                                                                                                            |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
-
-## Prometheus Metrics
-
-The API serves a Prometheus endpoint on `METRICS_PORT` (`src/metrics/metrics-server.ts`), scraped pod-direct via the `prometheus.io/*` annotations in `deployment/apps/api.yaml` - it is never routed through the Service or ingress. It exposes:
-
-- Node.js process metrics (prom-client `collectDefaultMetrics`).
 
 ## Architecture
 

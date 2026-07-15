@@ -56,7 +56,6 @@
         "ioredis": "^5.9.3",
         "jose": "catalog:",
         "js-yaml": "^4.1.2",
-        "prom-client": "catalog:",
         "resend": "^6.10.0",
         "superjson": "^2.2.6",
         "zod": "catalog:",

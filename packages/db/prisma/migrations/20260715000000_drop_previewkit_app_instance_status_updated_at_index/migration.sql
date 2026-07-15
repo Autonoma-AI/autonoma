@@ -1,0 +1,1 @@
+DROP INDEX "previewkit_app_instance_status_updated_at_idx";

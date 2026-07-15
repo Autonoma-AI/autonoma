@@ -2054,10 +2054,6 @@ model PreviewkitAppInstance {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([environmentId, appName])
-  // Serves the Prometheus build-load gauge (apps/api/src/metrics), which
-  // counts fresh `building` rows on every scrape - without it each scrape
-  // seq-scans a table that only ever grows.
-  @@index([status, updatedAt])
   @@map("previewkit_app_instance")
 }
 

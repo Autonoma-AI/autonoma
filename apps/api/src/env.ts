@@ -10,11 +10,6 @@ export const env = createEnv({
     extends: [loggerEnv, dbEnv, storageEnv, billingEnv],
     server: {
         API_PORT: z.string(),
-        // Dedicated port for the Prometheus /metrics endpoint (MetricsServer).
-        // Separate from API_PORT so the ingress never exposes metrics; Prometheus
-        // scrapes the pod directly via the prometheus.io annotations in
-        // deployment/apps/api.yaml.
-        METRICS_PORT: z.coerce.number().int().positive().default(9464),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
         COOKIE_DOMAIN: z.string().optional(),
         PREVIEWKIT_ENV: z.stringbool().default(false),
