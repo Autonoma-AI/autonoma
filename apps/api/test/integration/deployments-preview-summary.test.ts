@@ -90,7 +90,7 @@ apiTestSuite({
                     backend: {
                         status: "success",
                         imageTag: "backend:sha-icons",
-                        durationMs: 1000,
+                        durationMs: 2400,
                         logUrl: "https://logs/backend",
                         runtime: "node",
                     },
@@ -155,6 +155,9 @@ apiTestSuite({
                 "unknown-thing": "service",
                 "neon-db": "postgres",
             });
+            expect(summary.services.find((service) => service.name === "api")?.buildDurationMs).toBe(1000);
+            expect(summary.services.find((service) => service.name === "backend")?.buildDurationMs).toBe(2400);
+            expect(summary.services.find((service) => service.name === "postgres")?.buildDurationMs).toBeNull();
         });
 
         test("returns missing when no preview environment exists", async ({ harness }) => {

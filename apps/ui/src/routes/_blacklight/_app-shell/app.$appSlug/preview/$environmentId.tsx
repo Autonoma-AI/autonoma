@@ -299,8 +299,8 @@ function PreviewServiceListItem({
 function PreviewAppDetail({ service, latestBuild }: { service: PreviewService; latestBuild: PreviewLatestBuild }) {
   const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
   const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
-  // "Date" is when the latest build finished (fall back to its start); "Build time" is how long it
-  // took. Both come from the environment's latest build, which is null while a fresh deploy builds.
+  // "Date" is when the latest environment build finished (fall back to its start). The duration
+  // comes from the selected app's build outcome, since apps build independently.
   const buildDate = latestBuild?.finishedAt ?? latestBuild?.startedAt;
 
   return (
@@ -340,7 +340,7 @@ function PreviewAppDetail({ service, latestBuild }: { service: PreviewService; l
           {buildDate != null ? formatDate(buildDate) : "-"}
         </DetailRow>
         <DetailRow label="Build time" icon={TimerIcon}>
-          {latestBuild?.durationMs != null ? formatDuration(latestBuild.durationMs) : "-"}
+          {service.buildDurationMs != null ? formatDuration(service.buildDurationMs) : "-"}
         </DetailRow>
         {isAppService(service) && (
           <DetailRow label="Controls" icon={GearSixIcon}>

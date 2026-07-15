@@ -60,6 +60,7 @@ type PreviewServiceSummary = {
     port: number | null;
     imageTag: string | null;
     buildLogUrl: string | null;
+    buildDurationMs: number | null;
     statusReason: string | null;
     lastBuiltAt: Date | null;
     lastDeployedAt: Date | null;
@@ -195,6 +196,7 @@ export function buildServiceSummaries({
             port: instance?.port ?? manifestApp?.port ?? null,
             imageTag: instance?.imageTag ?? (build?.status === "success" ? build.imageTag : null),
             buildLogUrl: build?.logUrl ?? null,
+            buildDurationMs: build?.durationMs ?? null,
             statusReason: build?.status === "failed" ? build.error : (instance?.error ?? null),
             lastBuiltAt: latestBuild?.finishedAt ?? null,
             lastDeployedAt: instance?.updatedAt ?? environment.deployedAt,
@@ -224,6 +226,7 @@ export function buildServiceSummaries({
             port: null,
             imageTag: null,
             buildLogUrl: null,
+            buildDurationMs: null,
             statusReason: addon?.error ?? null,
             lastBuiltAt: null,
             lastDeployedAt: addon?.provisionedAt ?? addon?.updatedAt ?? null,
@@ -249,6 +252,7 @@ export function buildServiceSummaries({
             port: null,
             imageTag: null,
             buildLogUrl: null,
+            buildDurationMs: null,
             statusReason: null,
             lastBuiltAt: null,
             lastDeployedAt: environment.deployedAt,
