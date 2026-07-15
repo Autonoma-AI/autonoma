@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { integrationTestSuite } from "@autonoma/integration-test";
-import type { PreviewRedeployAppMode, SecretItem } from "@autonoma/types";
+import type { PreviewConfig, PreviewRedeployAppMode, SecretItem } from "@autonoma/types";
 import { expect } from "vitest";
 import { PreviewkitWriteService } from "../../src/previewkit/previewkit-write.service";
 import type { PreviewkitSecretsUpsertResult } from "../../src/routes/onboarding/onboarding-dependencies";
@@ -47,11 +47,13 @@ function fakeSecretWriter() {
     };
 }
 
-/** Records per-app redeploys so a test can assert the mode. */
+/** Records per-app redeploys (with mode) and whole-environment redeploys separately. */
 function fakeRedeployer() {
     const calls: { repoFullName: string; prNumber: number; appName: string; mode: PreviewRedeployAppMode }[] = [];
+    const envCalls: { repoFullName: string; prNumber: number }[] = [];
     return {
         calls,
+        envCalls,
         redeployApp: async (
             repoFullName: string,
             prNumber: number,
@@ -60,6 +62,9 @@ function fakeRedeployer() {
             _callerOrgId?: string,
         ): Promise<void> => {
             calls.push({ repoFullName, prNumber, appName, mode });
+        },
+        redeploy: async (repoFullName: string, prNumber: number, _callerOrgId?: string): Promise<void> => {
+            envCalls.push({ repoFullName, prNumber });
         },
     };
 }
@@ -239,6 +244,85 @@ integrationTestSuite({
                     organizationId: orgId,
                 }),
             ).rejects.toThrow(/not in the preview config/);
+        });
+
+        test("apply_config adds a service and redeploys the whole environment", async ({
+            harness,
+            seedResult: { orgId, config },
+        }) => {
+            const appId = await harness.createApp(orgId);
+            await config.save(appId, orgId, seedDocument(), []);
+            const trigger = fakeRedeployer();
+            const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
+
+            const { document } = await service.getConfig(appId, orgId);
+            const [firstApp] = document.apps;
+            if (firstApp == null) throw new Error("seed document must have an app");
+            // A structural change a single-app edit can't express: a new redis service.
+            const newService: PreviewConfig["services"][number] = {
+                name: "to-delete-cache",
+                recipe: "redis",
+                options: {},
+                setup_tasks: [],
+                resources: firstApp.resources,
+            };
+            const nextDocument: PreviewConfig = { ...document, services: [...document.services, newService] };
+
+            const result = await service.applyConfig({
+                applicationId: appId,
+                repoFullName: REPO_FULL_NAME,
+                prNumber: PR_NUMBER,
+                document: nextDocument,
+                apply: true,
+                organizationId: orgId,
+            });
+
+            expect(result.applied).toBe(true);
+            expect(result.services).toContain("to-delete-cache");
+            // A topology change rebuilds the whole environment, not one app.
+            expect(trigger.envCalls).toEqual([{ repoFullName: REPO_FULL_NAME, prNumber: PR_NUMBER }]);
+            expect(trigger.calls).toEqual([]);
+            // The service is persisted in the saved config.
+            const loaded = await config.getConfig(appId, orgId);
+            expect(loaded.document.services.map((s) => s.name)).toContain("to-delete-cache");
+        });
+
+        test("apply_config with apply:false saves but does not deploy", async ({
+            harness,
+            seedResult: { orgId, config },
+        }) => {
+            const appId = await harness.createApp(orgId);
+            await config.save(appId, orgId, seedDocument(), []);
+            const trigger = fakeRedeployer();
+            const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
+
+            const { document } = await service.getConfig(appId, orgId);
+            const [firstApp] = document.apps;
+            if (firstApp == null) throw new Error("seed document must have an app");
+            const newService: PreviewConfig["services"][number] = {
+                name: "staged-cache",
+                recipe: "redis",
+                options: {},
+                setup_tasks: [],
+                resources: firstApp.resources,
+            };
+            const nextDocument: PreviewConfig = { ...document, services: [...document.services, newService] };
+
+            const result = await service.applyConfig({
+                applicationId: appId,
+                repoFullName: REPO_FULL_NAME,
+                prNumber: PR_NUMBER,
+                document: nextDocument,
+                apply: false,
+                organizationId: orgId,
+            });
+
+            expect(result.applied).toBe(false);
+            expect(result.note).toContain("NOT deployed");
+            expect(trigger.envCalls).toEqual([]);
+            // The revision is still saved and active even though nothing redeployed.
+            const loaded = await config.getConfig(appId, orgId);
+            expect(loaded.document.services.map((s) => s.name)).toContain("staged-cache");
         });
     },
 });

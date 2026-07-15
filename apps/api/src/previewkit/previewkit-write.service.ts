@@ -10,8 +10,8 @@ import { secretFingerprint } from "./secret-fingerprint";
 type ConfigStore = Pick<PreviewkitConfigService, "getConfig" | "save">;
 /** The secret write capability this service needs; narrowed so tests can inject a fake. */
 type SecretWriter = Pick<PreviewkitSecretsService, "upsert" | "delete">;
-/** The per-app redeploy capability this service needs; narrowed so tests can inject a fake. */
-type Redeployer = Pick<PreviewkitTriggerService, "redeployApp">;
+/** The redeploy capability this service needs; narrowed so tests can inject a fake. */
+type Redeployer = Pick<PreviewkitTriggerService, "redeployApp" | "redeploy">;
 
 /** A structural change to one app of a preview config. Only provided fields are applied. */
 export interface AppConfigPatch {
@@ -47,6 +47,24 @@ export interface EditConfigResult {
     action: PreviewRedeployAppMode;
     /** The app's resulting config (no secret values - `connections` hold templates, `build_secrets` hold keys). */
     app: PreviewConfig["apps"][number];
+    note?: string;
+}
+
+export interface ReadConfigResult {
+    /** The full active preview config document (no secret values). */
+    document: PreviewConfig;
+    /** False when the app has no saved config yet - `document` is then a starter. */
+    configExists: boolean;
+}
+
+export interface ApplyConfigResult {
+    saved: true;
+    /** False when apply:false - saved but not redeployed. */
+    applied: boolean;
+    /** App names in the saved document, to confirm the resulting shape. */
+    apps: string[];
+    /** Service names (databases, caches, side-containers) in the saved document. */
+    services: string[];
     note?: string;
 }
 
@@ -166,6 +184,61 @@ export class PreviewkitWriteService {
         await this.trigger.redeployApp(repoFullName, prNumber, appName, "rebuild", organizationId);
         this.logger.info("Preview config edit applied", { applicationId, extra: { appName } });
         return { saved: true, applied: true, action: "rebuild", app: patchedApp };
+    }
+
+    /** Reads the full active preview config document (no secret values) for read-edit-write of the whole shape. */
+    async getConfig(applicationId: string, organizationId: string): Promise<ReadConfigResult> {
+        this.logger.info("Reading preview config", { applicationId });
+        const current = await this.config.getConfig(applicationId, organizationId);
+        return { document: current.document, configExists: current.saved };
+    }
+
+    /**
+     * Saves a FULL preview config document - the path for structural changes a
+     * single-app patch can't express: adding or removing an app, a service (a
+     * database, cache, or side-container), or an addon. Dependency (multirepo)
+     * documents are preserved. Unless `apply` is false, redeploys the whole
+     * environment against the new document, since a topology change touches more
+     * than one service (so it rebuilds the environment, not a single app).
+     */
+    async applyConfig(params: {
+        applicationId: string;
+        repoFullName: string;
+        prNumber: number;
+        document: PreviewConfig;
+        apply: boolean;
+        organizationId: string;
+    }): Promise<ApplyConfigResult> {
+        const { applicationId, repoFullName, prNumber, document, apply, organizationId } = params;
+        this.logger.info("Applying preview config document", {
+            applicationId,
+            extra: { apps: document.apps.length, services: document.services.length, apply },
+        });
+
+        const current = await this.config.getConfig(applicationId, organizationId);
+        const dependencyDocuments = current.dependencyConfigs
+            .filter((dependency) => dependency.document != null)
+            .map((dependency) => ({ repo: dependency.repo, document: dependency.document }));
+
+        await this.config.save(applicationId, organizationId, document, dependencyDocuments);
+
+        const apps = document.apps.map((app) => app.name);
+        const services = document.services.map((service) => service.name);
+
+        if (!apply) {
+            this.logger.info("Preview config document saved without applying", { applicationId });
+            return {
+                saved: true,
+                applied: false,
+                apps,
+                services,
+                note: "Saved but NOT deployed. Call apply_config again with apply:true to roll it out.",
+            };
+        }
+
+        await this.trigger.redeploy(repoFullName, prNumber, organizationId);
+        this.logger.info("Preview config document applied", { applicationId });
+        return { saved: true, applied: true, apps, services };
     }
 
     /** Whether `key` is declared in the app's `build_secrets` of the active config (decides rebuild vs restart). */

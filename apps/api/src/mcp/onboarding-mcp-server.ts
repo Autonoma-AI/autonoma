@@ -1,4 +1,3 @@
-import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type AgentLogEntry, previewConfigSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,6 +6,7 @@ import { z } from "zod";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { McpAnalytics } from "./mcp-analytics";
+import { describeError, jsonResult, toToolResult } from "./tool-result";
 
 /**
  * How many recent log lines get_session_status returns per source. Enough to carry
@@ -74,16 +74,6 @@ interface GuardedWriteParams {
     toolArguments?: AgentLogEntry["toolArguments"];
 }
 
-/** A tool result carrying a JSON payload as text. */
-function jsonResult(payload: unknown): CallToolResult {
-    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
-}
-
-/** An error result the agent can read, instead of a transport-level 500. */
-function errorResult(message: string): CallToolResult {
-    return { content: [{ type: "text", text: message }], isError: true };
-}
-
 /** The result a write tool returns when the human has taken over - the agent must stand down. */
 function pausedResult(): CallToolResult {
     return jsonResult({
@@ -93,17 +83,6 @@ function pausedResult(): CallToolResult {
             "The user took over configuration in the Autonoma UI. Stop configuring and let them continue. " +
             "They can hand control back with 'Resume with Claude', after which your next call re-claims it.",
     });
-}
-
-function describeError(err: unknown): string {
-    if (err instanceof Error) return err.message;
-    return typeof err === "string" ? err : "Unknown error";
-}
-
-/** Map a thrown error to a tool result. NotFound is an expected "unavailable" state. */
-function toToolResult(err: unknown): CallToolResult {
-    if (err instanceof NotFoundError) return jsonResult({ status: "unavailable", reason: err.message });
-    return errorResult(describeError(err));
 }
 
 /**

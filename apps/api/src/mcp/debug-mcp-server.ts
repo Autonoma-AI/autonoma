@@ -1,11 +1,13 @@
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
+import { previewConfigSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import type { McpAnalytics } from "./mcp-analytics";
+import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
 const MAX_LOG_LINES = 1000;
@@ -34,11 +36,12 @@ Recommended flow when Autonoma flags a problem on a pull request:
 3. If a service BUILT but crashes or errors at RUNTIME: call get_app_logs (from="tail" for the crash, from="head" for startup).
 4. Call diagnose_deploy(repoFullName, prNumber) to get all the raw evidence in one call - status, each service/addon state, the latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, a setup problem, or a platform error. Reason over the signals yourself; a "platform error" (autonoma_error) is on Autonoma, so contact support rather than editing your repo.
 5. Call get_secret_status(repoFullName) to see the full env-var surface per app: topology connections (with their template values) and secret-backed vars (declared build secrets + registered runtime secrets), including which declared build secrets are missing. Secret VALUES are never returned - only presence and masked length.
-6. Apply the fix. Two kinds:
+6. Apply the fix. Three kinds:
    - A missing secret VALUE (an API key, token, password): call set_secret(repoFullName, prNumber, app, key, value). It stores the value and rebuilds or restarts the service automatically.
-   - How the app is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves a new config revision and rebuilds the service.
+   - How ONE existing service is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves a new config revision and rebuilds the service.
+   - The SHAPE of the preview (add or remove an app, add or remove a service like a database or a redis cache): call get_config(repoFullName) to read the full document, edit it, and send it back with apply_config(repoFullName, prNumber, document). It redeploys the whole environment.
    For anything in your source (code, a committed Dockerfile), edit this repo and push - Autonoma re-runs on the new commit.
-7. set_secret and edit_previewkit_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. If it returns settled:false, the deploy is still running - call it again.
+7. set_secret, edit_previewkit_config, and apply_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. If it returns settled:false, the deploy is still running - call it again.
 
 Live vs. forensic surface: get_deploy_status, get_endpoints, and wait_for_deploy read the LIVE environment, which Autonoma tears down after testing - once it is gone they return status: "unavailable". The LOGS (get_build_logs, get_app_logs) are different: they persist ~30 days independent of the live environment. So an "unavailable" deploy status does NOT mean the logs are gone. For a post-mortem of a past deploy ("why did this PR's last preview fail?"), call the log tools directly even when status is unavailable.
 
@@ -70,25 +73,6 @@ const repoPrInput = {
     prNumber: z.number().int().min(0),
 };
 
-/** A tool result carrying a JSON payload as text (MCP's lowest-common-denominator content). */
-function jsonResult(payload: unknown) {
-    return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
-}
-
-/** An error result the client's agent can read, instead of a transport-level 500. */
-function errorResult(message: string) {
-    return { content: [{ type: "text" as const, text: message }], isError: true };
-}
-
-/**
- * A structured "nothing to act on yet" result (NOT an error). Every PR-scoped tool
- * returns this same shape when the repo/PR has no preview environment, so the agent
- * can branch on `status: "unavailable"` instead of string-matching error text.
- */
-function unavailableResult(reason: string) {
-    return jsonResult({ status: "unavailable", reason });
-}
-
 /**
  * The `unavailable` result for a PR whose LIVE preview environment is gone
  * (never deployed, or - far more often - torn down after Autonoma finished
@@ -103,16 +87,6 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
             `it was torn down after Autonoma finished testing. The live surface (deploy status, endpoints) is gone, ` +
             `but build and app logs persist ~30 days: call get_build_logs / get_app_logs to inspect the last deploy.`,
     );
-}
-
-/**
- * Map a thrown error to a tool result. A NotFoundError (no preview env for this
- * repo/PR, or the user isn't a member) is an expected "unavailable" state, not a
- * failure - return it structured. Anything else is a real error the agent should see.
- */
-function toToolResult(err: unknown) {
-    if (err instanceof NotFoundError) return unavailableResult(err.message);
-    return errorResult(describeError(err));
 }
 
 /**
@@ -389,8 +363,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 '"{{db.url}}"). Only the fields you pass are changed; the rest are kept. Saves a new config revision ' +
                 "and, unless `apply` is false, rebuilds the service against it (pass apply:false to stage several " +
                 "edits, then apply the last). It never sets a secret VALUE - use set_secret for an API key, token, or " +
-                "password. Rule of thumb: a secret value -> set_secret; how the app is built or wired -> here. The " +
-                "rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
+                "password. This edits ONE existing service in place - to ADD or REMOVE a service (a database, a redis " +
+                "cache, a side-container) or an app, use get_config + apply_config instead. Rule of thumb: a secret " +
+                "value -> set_secret; how one service is built or wired -> here; reshape the preview -> apply_config. " +
+                "The rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
             inputSchema: {
                 ...repoPrInput,
                 app: requiredAppNameSchema(),
@@ -435,6 +411,81 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         prNumber,
                         appName: app,
                         patch: { path, dockerfile, port, healthCheck, buildSecrets, connections },
+                        apply: apply ?? true,
+                        organizationId,
+                    });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_config",
+        {
+            title: "Read the full preview config",
+            description:
+                "Read the FULL preview config document: every app, service (databases, caches, side-containers), " +
+                "addon, and hook - no secret values. Read this first when you need to change the SHAPE of the preview " +
+                "(add or remove an app or a service), then edit the document and send it back with apply_config. For " +
+                "a build/wiring tweak to ONE existing service, edit_previewkit_config is simpler and doesn't need the " +
+                "whole document. The config is per-app, so this takes only repoFullName.",
+            inputSchema: { repoFullName: repoPrInput.repoFullName },
+        },
+        async ({ repoFullName }) =>
+            analytics.track("get_config", async () => {
+                logger.info("get_config", { extra: { repoFullName } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const result = await services.previewkitWrite.getConfig(application.id, organizationId);
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "apply_config",
+        {
+            title: "Save the full preview config",
+            description:
+                "Save the FULL preview config document (read it with get_config first, edit it, send the whole " +
+                "document back). This is how you change the SHAPE of the preview that a single-service edit can't: add " +
+                "or remove an app, or add or remove a service (a database, a cache like redis, or a side-container). " +
+                "Validated on save; an invalid document returns the errors to fix. Never include secret VALUES - " +
+                "declare secret keys in an app's build_secrets and set values with set_secret. Unless `apply` is " +
+                "false, redeploys the WHOLE environment against the new document (a topology change touches more than " +
+                "one service). Rule of thumb: reshape the preview -> here; tweak one existing service's build/wiring " +
+                "-> edit_previewkit_config; a secret value -> set_secret. The redeploy is async - call " +
+                "wait_for_deploy(repoFullName, prNumber) afterward to block until it settles.",
+            inputSchema: {
+                ...repoPrInput,
+                document: previewConfigSchema,
+                apply: z.boolean().optional(),
+            },
+        },
+        async ({ repoFullName, prNumber, document, apply }) =>
+            analytics.track("apply_config", async () => {
+                logger.info("apply_config", {
+                    extra: {
+                        repoFullName,
+                        prNumber,
+                        apps: document.apps.length,
+                        services: document.services.length,
+                        apply,
+                    },
+                });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const result = await services.previewkitWrite.applyConfig({
+                        applicationId: application.id,
+                        repoFullName,
+                        prNumber,
+                        document,
                         apply: apply ?? true,
                         organizationId,
                     });
@@ -654,16 +705,4 @@ function logFilterSchema() {
 
 function logFromSchema() {
     return z.enum(["head", "tail"]).optional();
-}
-
-/**
- * Human-readable message for a tool failure, without leaking internals. A ZodError
- * (bad tool input, or a config document that fails validation) is flattened to a
- * per-field "path: message" list so the agent can see exactly what to fix and retry,
- * instead of a raw serialized error.
- */
-function describeError(err: unknown): string {
-    if (err instanceof z.ZodError) return `Invalid input:\n${z.prettifyError(err)}`;
-    if (err instanceof Error) return err.message;
-    return "Unexpected error";
 }

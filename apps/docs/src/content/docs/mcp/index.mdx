@@ -167,6 +167,7 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `get_app_logs` | repo, PR | Runtime (stdout/stderr) log lines, from the `tail` (a crash) or `head` (startup) |
 | `get_endpoints` | repo, PR | The preview URL, a suggested SDK URL, and one entry per service (internal services like a database report `url: null` with a reason) |
 | `get_secret_status` | repo | The full env-var surface per app: topology connections (with template values) and secret-backed vars (declared build secrets + runtime secrets), with masked length and a fingerprint only, plus which declared build secrets are missing |
+| `get_config` | repo | The full active preview config document (apps, services, addons - no secret values), for read-edit-write of the whole shape via `apply_config` |
 
 ### Fix and confirm
 
@@ -174,14 +175,16 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | --- | --- | --- |
 | `set_secret` | repo, PR, app, key, value? | Sets (or, without a value, removes) a secret env var's value and applies it - rebuilds if it's a build secret, restarts otherwise. Values are stored encrypted and never returned |
 | `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
-| `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret` or `edit_previewkit_config` rebuild |
+| `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app, a service (a database, cache, side-container), or an addon - things a single-service edit can't express |
+| `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild |
 
-The two write tools split cleanly by what they change, so your agent never has to guess which to use:
+The write tools split cleanly by what they change, so your agent never has to guess which to use:
 
 - A **secret value** (an API key, token, or password) - `set_secret`. It stores the value and applies the minimal action itself: a rebuild if the key is a declared build secret (baked into the image at build), a restart otherwise. You do not tell it which; it reads your config.
-- **How the app is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds the service.
+- **How one service is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds that one service.
+- **The shape of the preview** (add or remove an app, a service like a database or cache, or an addon) - `get_config` then `apply_config`. It saves the full document and redeploys the whole environment, since a topology change touches more than one service.
 
-Both apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
+They all apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config` / `apply_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
 
 :::caution[Secrets are never exposed]
 The MCP never returns a secret's value - not through `get_secret_status`, not through `set_secret`, not anywhere. To let your agent check whether a set value matches one it already holds, both return a non-reversible **fingerprint** (the first 12 hex chars of SHA-256 of the value) instead: your agent computes `sha256(value).hex.slice(0, 12)` on its candidate and compares. The value never leaves Autonoma; only whether it matches can be inferred.
