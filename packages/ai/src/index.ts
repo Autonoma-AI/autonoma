@@ -7,7 +7,7 @@ export { ModelRegistry, type LanguageModel, type VideoModel, NotAVideoModelError
 export type { ModelOptions, ModelReasoningEffort } from "./registry/options";
 export { MODEL_ENTRIES, OPENROUTER_MODEL_ENTRIES } from "./registry/model-entries";
 export { openRouterProvider } from "./registry/providers";
-export { simpleCostFunction, inputCacheCostFunction } from "./registry/costs";
+export { simpleCostFunction, inputCacheCostFunction, type CostFunction } from "./registry/costs";
 export type { ModelUsage } from "./registry/usage";
 export { CostCollector, type CostRecord } from "./registry/cost-collector";
 

@@ -1,12 +1,13 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
+    type CostFunction,
     CostCollector,
+    inputCacheCostFunction,
     type LanguageModel,
     type ModelEntry,
     type ModelOptions,
     ModelRegistry,
     OPENROUTER_MODEL_ENTRIES,
-    simpleCostFunction,
 } from "@autonoma/ai";
 
 /**
@@ -29,32 +30,39 @@ export interface ModelSession {
     readonly costCollector: CostCollector;
 }
 
+type OpenAIProvider = ReturnType<typeof createOpenAI>;
+
+/**
+ * One native-OpenAI classifier model, bundling the two things that vary per model: how to instantiate it
+ * (Responses API vs Chat Completions) and its published pricing - the same way @autonoma/ai's {@link ModelEntry}
+ * keeps createModel and pricing together so they can never drift apart.
+ */
+interface ClassifierModel {
+    createModel: (openai: OpenAIProvider) => LanguageModel;
+    pricing: CostFunction;
+}
+
 const DEFAULT_CLASSIFIER_MODEL = "gpt-5.6-luna";
 
-// gpt-5.6+ reject `tools + reasoning_effort` on /v1/chat/completions and require the Responses API; gpt-5.5
-// and earlier stay on Chat Completions (their long-standing path). Compare the parsed numeric version rather
-// than a single-digit class so gpt-5.10+ (and gpt-6+) still route to the Responses API.
-function classifierUsesResponsesApi(modelId: string): boolean {
-    const match = /^gpt-(\d+)(?:\.(\d+))?/.exec(modelId);
-    if (match?.[1] == null) return false;
-    const major = Number(match[1]);
-    const minor = match[2] != null ? Number(match[2]) : 0;
-    return major > 5 || (major === 5 && minor >= 6);
-}
-
-// Published per-model classifier rates (USD per 1M tokens, input/output) for in-run cost metering. Keyed by
-// model id so cost stays accurate across a swap or rollback; update when the published rate changes. An
-// unlisted id falls back to Luna's rate (the current default).
-const LUNA_RATE = { inputCostPerM: 1, outputCostPerM: 6 };
-const CLASSIFIER_RATES: Record<string, { inputCostPerM: number; outputCostPerM: number }> = {
-    "gpt-5.5": { inputCostPerM: 5, outputCostPerM: 30 },
-    "gpt-5.6-luna": LUNA_RATE,
-    "gpt-5.6-terra": { inputCostPerM: 2.5, outputCostPerM: 15 },
+/**
+ * Native-OpenAI classifier models, keyed by id. Each entry declares its API surface and pricing together; add
+ * an entry (or update its rate) when a model is swapped in or its published price changes. Prices are USD per
+ * 1M tokens.
+ */
+const CLASSIFIER_MODELS: Record<string, ClassifierModel> = {
+    "gpt-5.5": {
+        createModel: (openai) => openai.chat("gpt-5.5"),
+        pricing: inputCacheCostFunction({ inputCostPerM: 5, cachedInputCostPerM: 0.5, outputCostPerM: 30 }),
+    },
+    "gpt-5.6-luna": {
+        createModel: (openai) => openai.responses("gpt-5.6-luna"),
+        pricing: inputCacheCostFunction({ inputCostPerM: 1, cachedInputCostPerM: 0.1, outputCostPerM: 6 }),
+    },
+    "gpt-5.6-terra": {
+        createModel: (openai) => openai.responses("gpt-5.6-terra"),
+        pricing: inputCacheCostFunction({ inputCostPerM: 2.5, cachedInputCostPerM: 0.25, outputCostPerM: 15 }),
+    },
 };
-
-function classifierPricing(modelId: string) {
-    return simpleCostFunction(CLASSIFIER_RATES[modelId] ?? LUNA_RATE);
-}
 
 /**
  * Open a metered model session. Reuses @autonoma/ai's ModelRegistry (providers, middleware, monitoring,
@@ -65,12 +73,17 @@ function classifierPricing(modelId: string) {
 export function openModelSession(config: InvestigationModelConfig): ModelSession {
     const openai = createOpenAI({ apiKey: config.openaiApiKey });
     const classifierModelId = config.classifierModelId ?? DEFAULT_CLASSIFIER_MODEL;
+    const classifier = CLASSIFIER_MODELS[classifierModelId];
+
+    if (!classifier) {
+        throw new Error(
+            `Unknown classifier model id "${classifierModelId}". Valid ids: ${Object.keys(CLASSIFIER_MODELS).join(", ")}`,
+        );
+    }
+
     const classifierEntry: ModelEntry = {
-        createModel: () =>
-            classifierUsesResponsesApi(classifierModelId)
-                ? openai.responses(classifierModelId)
-                : openai.chat(classifierModelId),
-        pricing: classifierPricing(classifierModelId),
+        createModel: () => classifier.createModel(openai),
+        pricing: classifier.pricing,
     };
 
     const registry = new ModelRegistry<InvestigationModelName>({
