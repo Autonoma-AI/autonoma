@@ -4,8 +4,8 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "billing-invoicer": "tsx --env-file=../../.env scripts/vercel-billing-invoicer/index.ts",
-        "usage-reporter": "tsx --env-file=../../.env scripts/vercel-usage-reporter/index.ts",
+        "billing-invoicer": "dotenv -e ../../.env -- tsx scripts/vercel-billing-invoicer/index.ts",
+        "usage-reporter": "dotenv -e ../../.env -- tsx scripts/vercel-usage-reporter/index.ts",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix scripts/"
     },
@@ -15,6 +15,7 @@
         "@autonoma/utils": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
+        "dotenv-cli": "^11.0.0",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "zod": "catalog:"

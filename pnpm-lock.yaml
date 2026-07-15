@@ -427,6 +427,9 @@ importers:
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
+      dotenv-cli:
+        specifier: ^11.0.0
+        version: 11.0.0
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
