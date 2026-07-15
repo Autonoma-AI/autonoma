@@ -6,6 +6,7 @@ export type Platform = z.infer<typeof PlatformSchema>;
 export const TestStatusSchema = z.enum(["pending", "running", "passed", "failed", "cancelled"]);
 export type TestStatus = z.infer<typeof TestStatusSchema>;
 
+export * from "./analysis";
 export * from "./scenarios";
 export * from "./onboarding";
 export * from "./suspected-cause";

@@ -12,7 +12,11 @@ import type {
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
-import type { TriggerDiffsJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
+import type {
+    TriggerAnalysisJobParams,
+    TriggerDiffsJobParams,
+    TriggerInvestigationJobParams,
+} from "@autonoma/workflow";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
@@ -97,6 +101,8 @@ export interface ServicesParams {
     cancelDiffsJob: (snapshotId: string) => Promise<void>;
     triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>;
     cancelInvestigationJob: (snapshotId: string) => Promise<void>;
+    triggerAnalysisJob: (params: TriggerAnalysisJobParams) => Promise<void>;
+    cancelAnalysisJob: (snapshotId: string) => Promise<void>;
     triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
@@ -118,6 +124,8 @@ export function buildServices({
     cancelDiffsJob,
     triggerInvestigationJob,
     cancelInvestigationJob,
+    triggerAnalysisJob,
+    cancelAnalysisJob,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
@@ -213,6 +221,8 @@ export function buildServices({
             cancelDiffsJob,
             triggerInvestigationJob,
             cancelInvestigationJob,
+            triggerAnalysisJob,
+            cancelAnalysisJob,
         ),
         previewkitTrigger,
         previewkitWrite,

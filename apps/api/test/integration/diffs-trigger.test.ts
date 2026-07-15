@@ -626,6 +626,46 @@ apiTestSuite({
             expect(report?.clientBugCount).toBe(1);
         });
 
+        test("triggers the shadow analysis pipeline on the detached twin in shadow mode", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            await harness.services.github.handleInstallation(
+                33333,
+                harness.organizationId,
+                "test-org",
+                999,
+                "Organization",
+            );
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 100,
+                title: "Test PR #100",
+                headRef: "feature/branch-100",
+                baseSha: "initial-sha",
+                commits: ["head-sha-100"],
+            });
+            await setupBranchWithBaseline(harness.db, harness.organizationId, app.id, 100, "feature/branch-100");
+
+            const result = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 100,
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            const twinId = (
+                await harness.db.branchSnapshot.findUniqueOrThrow({
+                    where: { id: result.snapshotId },
+                    select: { investigationSnapshotId: true },
+                })
+            ).investigationSnapshotId;
+            expect(twinId).not.toBeNull();
+
+            // The analysis pipeline runs in parallel with the diffs job, on the SAME detached twin, in shadow mode.
+            expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: twinId, mode: "shadow" });
+        });
+
         test("supersession cancels the in-flight investigation twin and its workflow", async ({
             harness,
             seedResult: { app, service },

@@ -101,6 +101,19 @@ merge activity runs under the `investigationMergeWorkflow`, triggered by the API
 The parallel launch is in `apps/api` (`DiffsTriggerService`), fire-and-forget behind the
 `INVESTIGATION_SHADOW_ENABLED` flag - it never blocks or fails the diffs trigger.
 
+## Merged analysis pipeline (shadow skeleton)
+
+This worker also hosts the skeleton of the **merged analysis pipeline** (`analysisWorkflow` in
+`@autonoma/workflow`) - the eventual replacement for BOTH `diffs` and `investigation`. It is launched by the same
+`DiffsTriggerService` slot, on the SAME detached twin, behind its own `ANALYSIS_SHADOW_ENABLED` flag, and takes a
+`mode` param (`shadow` | `authoritative`). In `shadow` mode it is inert to production: it never promotes the twin
+and files no user-facing rows - it only logs and produces a `DeployedComparison` placeholder against the diffs
+output. `authoritative` mode is dormant until the cutover.
+
+Its four stages - Impact Analysis -> Investigator fan-out (one child workflow per test) -> Reconciler -> finalize -
+are STUBS in this slice (`src/activities/analysis/`, satisfying `AnalysisActivities`): a shadow run completes
+end-to-end without doing real work. The stages are fleshed out in the follow-up `[analysis-merge]` issues.
+
 ## Scaling
 
 Fleet throughput is `maxReplicaCount x MAX_CONCURRENT_ACTIVITIES` - two knobs that MUST stay in sync, or the

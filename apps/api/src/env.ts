@@ -14,6 +14,10 @@ export const env = createEnv({
         COOKIE_DOMAIN: z.string().optional(),
         PREVIEWKIT_ENV: z.stringbool().default(false),
         INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
+        // Fires the merged analysis pipeline (shadow mode) in parallel with the diffs job, on the same detached
+        // twin as the shadow investigation. Off by default so it stays inert until deliberately enabled - a
+        // shadow run never promotes a snapshot or writes user-facing rows, so this is a safe, incremental flip.
+        ANALYSIS_SHADOW_ENABLED: z.stringbool().default(false),
         ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
         // Public origin where this API's own /v1/auth handler is reachable - NOT
         // the UI's origin (APP_URL). They coincide in prod/beta (unified behind

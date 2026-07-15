@@ -16,6 +16,7 @@ export {
     type TriggerInvestigationMergeJobParams,
     triggerInvestigationMergeJob,
 } from "./triggers/investigation";
+export { cancelAnalysisJob, type TriggerAnalysisJobParams, triggerAnalysisJob } from "./triggers/analysis";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";
 export { getTemporalClient, resetTemporalClient } from "./client";

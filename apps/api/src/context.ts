@@ -4,7 +4,14 @@ import { db } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
-import { cancelDiffsJob, cancelInvestigationJob, triggerDiffsJob, triggerInvestigationJob } from "@autonoma/workflow";
+import {
+    cancelAnalysisJob,
+    cancelDiffsJob,
+    cancelInvestigationJob,
+    triggerAnalysisJob,
+    triggerDiffsJob,
+    triggerInvestigationJob,
+} from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
@@ -86,6 +93,8 @@ export async function createContext(c: HonoContext) {
             cancelDiffsJob,
             triggerInvestigationJob,
             cancelInvestigationJob,
+            triggerAnalysisJob,
+            cancelAnalysisJob,
             triggerPreviewDeploy: previewkitTriggers.deploy,
             triggerPreviewTeardown: previewkitTriggers.teardown,
             triggerPreviewRedeployApp: previewkitTriggers.redeployApp,

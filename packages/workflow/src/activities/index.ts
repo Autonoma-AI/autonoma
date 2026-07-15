@@ -89,4 +89,16 @@ export type {
     InvestigationMergeDecision,
     InvestigationRecipeMergeDecision,
 } from "./investigation-activities";
+export type {
+    AnalysisActivities,
+    AnalysisInvestigationTarget,
+    AnalysisCandidateFinding,
+    AnalysisDeployedComparison,
+    RunImpactAnalysisInput,
+    RunImpactAnalysisOutput,
+    ReconcileAnalysisInput,
+    ReconcileAnalysisOutput,
+    FinalizeAnalysisInput,
+    FinalizeAnalysisOutput,
+} from "./analysis-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

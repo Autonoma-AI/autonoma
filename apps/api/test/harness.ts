@@ -14,6 +14,9 @@ import { t } from "../src/trpc";
 
 export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
+    // Dedicated mock for the analysis pipeline trigger so tests can assert on its args (snapshotId + mode)
+    // without them being conflated with the shared triggerWorkflow spy used by every other trigger.
+    public triggerAnalysis = vi.fn().mockResolvedValue(undefined);
     public readonly generationProvider: FakeGenerationProvider;
     public readonly services: Services;
     public readonly githubApp: FakeGitHubApp;
@@ -59,6 +62,7 @@ export class APITestHarness implements IntegrationHarness {
         const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
         const triggerWorkflow = vi.fn().mockResolvedValue(undefined);
+        const triggerAnalysis = vi.fn().mockResolvedValue(undefined);
         const generationProvider = new FakeGenerationProvider();
 
         const storageDir = process.env.TEST_STORAGE_DIR;
@@ -87,6 +91,8 @@ export class APITestHarness implements IntegrationHarness {
             cancelDiffsJob: triggerWorkflow,
             triggerInvestigationJob: triggerWorkflow,
             cancelInvestigationJob: triggerWorkflow,
+            triggerAnalysisJob: triggerAnalysis,
+            cancelAnalysisJob: triggerWorkflow,
             triggerPreviewDeploy: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,
@@ -94,6 +100,7 @@ export class APITestHarness implements IntegrationHarness {
 
         const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
+        harness.triggerAnalysis = triggerAnalysis;
         return harness;
     }
 
