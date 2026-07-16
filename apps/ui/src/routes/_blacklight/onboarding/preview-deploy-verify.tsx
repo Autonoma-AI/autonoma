@@ -1,4 +1,4 @@
-import { Badge, BrailleSpinner, Button, Skeleton, cn } from "@autonoma/blacklight";
+import { Badge, Button, Skeleton, cn } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
@@ -18,6 +18,7 @@ import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useState } from "react";
 import { setLastApp } from "../_app-shell/-last-app";
+import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "./-components/deploy-request-indicator";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
 export const Route = createFileRoute("/_blacklight/onboarding/preview-deploy-verify")({
@@ -26,14 +27,6 @@ export const Route = createFileRoute("/_blacklight/onboarding/preview-deploy-ver
 
 type PreviewReadinessData = ReturnType<typeof usePreviewReadiness>["data"];
 type PreviewFailure = NonNullable<PreviewReadinessData["diagnostics"]["failures"]>[number];
-
-const PREVIEW_DEPLOY_REQUEST_PHASES = new Set(["deploy_requested"]);
-const PREVIEW_DEPLOY_STEPS = [
-  { label: "Request accepted", state: "complete" },
-  { label: "Waiting for worker", state: "current" },
-  { label: "Build queued", state: "pending" },
-  { label: "URL pending", state: "pending" },
-] as const;
 
 export function PreviewDeployVerifyPage({ appId }: { appId?: string }) {
   if (appId == null) {
@@ -165,7 +158,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
                   {data.previewUrl}
                 </a>
               ) : isDeployRequested ? (
-                <DeployRequestIdleIndicator />
+                <DeployRequestIdleIndicator className="mt-5" />
               ) : (
                 <p className="mt-4 text-sm text-text-secondary">No preview URL has been reported yet.</p>
               )}
@@ -298,53 +291,10 @@ function DeployLogsSection({
   );
 }
 
-function isPreviewDeployRequestPhase(phase: string | undefined): boolean {
-  return phase != null && PREVIEW_DEPLOY_REQUEST_PHASES.has(phase);
-}
-
 function previewPhaseLabel(phase: string): string {
   if (isPreviewDeployRequestPhase(phase)) return "Deploy request accepted";
   if (phase === "workflow_not_started") return "Workflow not started";
   return phase.replaceAll("_", " ");
-}
-
-function DeployRequestIdleIndicator() {
-  return (
-    <div className="mt-5 overflow-hidden border border-border-dim bg-surface-raised">
-      <div className="flex items-center gap-3 border-b border-border-dim px-4 py-3">
-        <div className="flex size-9 shrink-0 items-center justify-center border border-primary-ink/30 bg-surface-base text-primary-ink">
-          <BrailleSpinner animation="orbit" size="md" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Deploy request accepted</p>
-          <p className="mt-1 text-xs text-text-secondary">Autonoma is waiting for a deploy worker to start.</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 p-4 sm:grid-cols-4">
-        {PREVIEW_DEPLOY_STEPS.map((step) => (
-          <div key={step.label} className="min-w-0">
-            <div
-              className={cn(
-                "h-1.5 rounded-full",
-                step.state === "complete" && "bg-status-success",
-                step.state === "current" && "animate-pulse bg-primary-ink",
-                step.state === "pending" && "bg-border-mid",
-              )}
-            />
-            <p
-              className={cn(
-                "mt-2 truncate font-mono text-3xs uppercase tracking-wider",
-                step.state === "pending" ? "text-text-secondary" : "text-text-primary",
-              )}
-            >
-              {step.label}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /** Extracts the field key from an `apps.<i>.<field>` path so the config screen can focus the exact input. */

@@ -36,6 +36,7 @@ import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useState, type ReactNode } from "react";
 import { setLastApp } from "../../../_app-shell/-last-app";
+import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
 import { PreviewTakingShape } from "./preview-taking-shape";
 import { parseDotenv } from "./topology-draft";
 
@@ -253,6 +254,12 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
           <GlobeIcon size={13} />
           {previewUrl}
         </a>
+      ) : isPreviewDeployRequestPhase(diagnostics.phase) ? (
+        // The request-accepted window: the deploy was dispatched but no worker
+        // activity exists yet, so logs are empty for up to a minute. Show the
+        // queued stepper (same as the manual deploy-verify page) instead of
+        // leaving the user staring at "Logs appear once a deploy starts."
+        <DeployRequestIdleIndicator />
       ) : undefined}
 
       {diagnostics.error != null ? (
