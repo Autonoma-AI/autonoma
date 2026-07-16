@@ -158,8 +158,6 @@ export interface AppDraft {
     dependsOn: string[];
     /** Unified variable list: secrets (sensitive) and connections (bindings). */
     env: EnvRowDraft[];
-    /** Preserved but not editable in the form (set by suggestions / saved configs). */
-    monorepo?: "turbo";
     origin: AppDraftOrigin;
 }
 
@@ -539,7 +537,6 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     );
     const buildSecretRows = app.build_secrets.map((key) => envRow(key, "", true, "secret", true));
     draft.env = sortEnvRows([...connectionRows, ...buildSecretRows]);
-    if (app.monorepo != null) draft.monorepo = app.monorepo;
     return draft;
 }
 
@@ -934,7 +931,6 @@ function compileApp(app: AppDraft): Record<string, unknown> {
         // preserved from load - re-emit it verbatim rather than dropping it.
         compiled.build = app.buildPassthrough;
     }
-    if (app.monorepo != null) compiled.monorepo = app.monorepo;
 
     const port = Number(app.port);
     compiled.port = app.port.trim() !== "" && Number.isFinite(port) ? port : 0;

@@ -1,4 +1,3 @@
-import { copyFileSync, mkdirSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { defineConfig } from "rolldown";
 
@@ -20,17 +19,4 @@ export default defineConfig({
     },
     platform: "node",
     external: nodeBuiltins,
-    plugins: [
-        {
-            // detectNextStandalone() (src/builder/turbo-monorepo.ts) spawns this
-            // reader as a real .mjs file under node/bun, so it can't be bundled -
-            // copy it next to the bundle at dist/scripts/read-next-config.mjs
-            // (the path the runtime resolver expects when running from dist/).
-            name: "copy-scripts",
-            writeBundle() {
-                mkdirSync("dist/scripts", { recursive: true });
-                copyFileSync("scripts/read-next-config.mjs", "dist/scripts/read-next-config.mjs");
-            },
-        },
-    ],
 });

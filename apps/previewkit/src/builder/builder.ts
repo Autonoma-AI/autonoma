@@ -5,13 +5,9 @@ export interface BuildRequest {
     /**
      * Docker build context root. Defaults to `contextPath` when omitted.
      *
-     * Two callers set this:
-     *   1. Dockerfile/auto-detect builds whose Dockerfile needs to see files
-     *      outside the per-app dir (workspace deps visible during `bun
-     *      install` inside the container build). Override only.
-     *   2. Monorepo builds (`monorepoTool` set) - this is the monorepo root,
-     *      so `railpack prepare` finds the workspace lockfile and `<pm> run
-     *      turbo run build --filter=...` resolves the app correctly.
+     * Set for Dockerfile/auto-detect builds whose Dockerfile needs to see files
+     * outside the per-app dir (workspace deps visible during `bun install`
+     * inside the container build). Override only.
      */
     buildContext?: string;
     dockerfile?: string;
@@ -22,8 +18,8 @@ export interface BuildRequest {
     // is the wrong service when a Dockerfile ends with a worker/sidecar stage.
     target?: string;
     // Runtime-generated Dockerfile content. When set, the builder writes it to a
-    // tmp dir and builds with `dockerfile.v0`, skipping the on-disk-Dockerfile,
-    // monorepo, and Railpack paths. Build args are baked in as `ENV` lines by the
+    // tmp dir and builds with `dockerfile.v0`, skipping the on-disk-Dockerfile
+    // and Railpack paths. Build args are baked in as `ENV` lines by the
     // generator, so they are NOT also passed as `--opt build-arg`.
     generatedDockerfile?: string;
     buildArgs: Record<string, string>;
@@ -38,13 +34,6 @@ export interface BuildRequest {
     // `kubectl -l` selector.
     repo?: string;
     pr?: number;
-    // Names the workspace build tool. Dispatched by the builder to select a
-    // tool-specific build path (turbo+pnpm, nx, bazel, sbt, ... all need
-    // different build invocations - a single boolean can't carry that
-    // signal). Currently only "turbo" is implemented; adding more is a
-    // case branch in the dispatcher plus a new build method. Requires
-    // `buildContext` to be set (the monorepo root).
-    monorepoTool?: "turbo";
     // Aborts the in-flight `buildctl` when a newer commit supersedes the deploy.
     // The builder passes it to `spawn`, so abort kills the child within seconds
     // instead of letting the build run to the full build timeout.

@@ -203,7 +203,8 @@ const databaseSetupTaskSchema = z.object({
 // (an on-disk Dockerfile still wins). `build_context: root` builds from the
 // repository root so workspace dependencies resolve - this, plus a
 // turbo-filtered build/run command (filtered by the app's real workspace
-// package name), replaces the former `monorepo: turbo`.
+// package name), is how turbo monorepos build (turbo is not a bespoke
+// scenario - it is just `build_context: root` on a framework preset).
 // Next.js `output: 'standalone'` is supported by setting an explicit
 // `run_command` (e.g. `node apps/web/.next/standalone/server.js`); there is no
 // autodetection of the next.config - the run command is the single source of
@@ -334,7 +335,6 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
         build_context: z.string().optional(),
         dockerfile: z.string().optional(),
         build: buildSchema.optional(),
-        monorepo: z.enum(["turbo"]).optional(),
         // The AWS-secret keys to also inject at build time (Docker build args).
         // Runtime secret values live in AWS Secrets Manager, never in this document.
         build_secrets: z.array(z.string()).default([]),

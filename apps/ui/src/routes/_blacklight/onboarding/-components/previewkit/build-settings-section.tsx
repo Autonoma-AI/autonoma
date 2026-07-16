@@ -204,8 +204,8 @@ export function BuildSettingsSection({ appId, appName, build, onChange }: BuildS
           </Select>
           {form.buildContext === "root" ? (
             <p className="mt-1 text-2xs text-text-secondary">
-              Builds from the repository root so workspace dependencies resolve - this, plus a turbo-filtered build and
-              run command, replaces the old monorepo flag.
+              Builds from the repository root so workspace dependencies resolve - use it for turbo / workspace
+              monorepos, where the build and run commands are turbo-filtered to this app.
             </p>
           ) : undefined}
         </div>

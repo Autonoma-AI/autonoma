@@ -1455,8 +1455,8 @@ export class PreviewPipeline {
      * source of strategy: a `dockerfile` framework builds the named Dockerfile;
      * any other framework builds a generated Dockerfile (via `generateDockerfile`);
      * `build_context: root` builds from the repo root. With no `build` block, falls
-     * back to the legacy dockerfile / monorepo / Railpack path (removed once `build`
-     * is universal).
+     * back to the legacy dockerfile / Railpack path (removed once `build` is
+     * universal).
      */
     private resolveBuildInputs(
         app: PreviewConfig["apps"][number],
@@ -1468,7 +1468,6 @@ export class PreviewPipeline {
         dockerfile?: string;
         target?: string;
         generatedDockerfile?: string;
-        monorepoTool?: "turbo";
     } {
         const appDir = path.resolve(repoDir, app.path);
 
@@ -1488,17 +1487,11 @@ export class PreviewPipeline {
             return { contextPath, generatedDockerfile };
         }
 
-        const buildContext =
-            app.build_context != null
-                ? path.resolve(repoDir, app.build_context)
-                : app.monorepo != null
-                  ? repoDir
-                  : undefined;
+        const buildContext = app.build_context != null ? path.resolve(repoDir, app.build_context) : undefined;
         return {
             contextPath: appDir,
             ...(buildContext != null ? { buildContext } : {}),
             ...(app.dockerfile != null ? { dockerfile: app.dockerfile } : {}),
-            ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
         };
     }
 
@@ -1575,7 +1568,6 @@ export class PreviewPipeline {
                 dockerfile: buildInputs.dockerfile,
                 target: buildInputs.target,
                 generatedDockerfile: buildInputs.generatedDockerfile,
-                monorepoTool: buildInputs.monorepoTool,
                 signal: ctx.signal,
             });
 

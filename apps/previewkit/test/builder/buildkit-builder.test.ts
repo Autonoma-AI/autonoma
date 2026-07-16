@@ -261,17 +261,6 @@ describe("BuildKitBuilder", () => {
                     name: "Railpack",
                     request: { appName: "web", contextPath: appDir, buildArgs: {}, imageTag },
                 },
-                {
-                    name: "Turbo monorepo",
-                    request: {
-                        appName: "web",
-                        contextPath: appDir,
-                        buildContext: tempDir,
-                        monorepoTool: "turbo",
-                        buildArgs: {},
-                        imageTag,
-                    },
-                },
             ];
 
             for (const strategy of strategies) {
