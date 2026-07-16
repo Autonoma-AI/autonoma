@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.20...cli-v0.1.21) (2026-07-16)
+
+
+### Bug Fixes
+
+* **onboarding:** stop CLI-step reset on refresh, gate on recipe, harden CLI upload ([#1553](https://github.com/Autonoma-AI/agent/issues/1553)) ([c6d7923](https://github.com/Autonoma-AI/agent/commit/c6d79230fa1ae0c9507be7b6ed7f28fb3ea5627b))
+
 ## [0.1.20](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.19...cli-v0.1.20) (2026-07-13)
 
 
