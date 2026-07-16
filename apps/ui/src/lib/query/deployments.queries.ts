@@ -59,6 +59,24 @@ export function usePreviewSummaryById(
     });
 }
 
+// Resolves a branch's preview environment summary without knowing its environment id (the main branch
+// has no PR page, so its env - PR #0 - is reached via the branch). Used to decide whether the
+// main-branch page shows a preview section; the explorer then polls by environment id.
+export function usePreviewSummaryByBranchId(applicationId: string, branchId: string) {
+    return useSuspenseQuery(trpc.deployments.previewSummaryByBranchId.queryOptions({ applicationId, branchId }));
+}
+
+export async function ensurePreviewSummaryByBranchIdData(
+    queryClient: QueryClient,
+    applicationId: string,
+    branchId: string,
+) {
+    await ensureAPIQueryData(
+        queryClient,
+        trpc.deployments.previewSummaryByBranchId.queryOptions({ applicationId, branchId }),
+    );
+}
+
 export async function ensureActivePreviewEnvironmentsData(queryClient: QueryClient, applicationId: string) {
     await ensureAPIQueryData(queryClient, trpc.deployments.listActiveForApp.queryOptions({ applicationId }));
 }

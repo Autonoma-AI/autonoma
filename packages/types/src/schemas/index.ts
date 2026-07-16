@@ -29,5 +29,6 @@ export * from "./snapshot-dependency-pin";
 export * from "./healing-actions";
 export * from "./snapshot-report";
 export * from "./checkpoint-summary";
+export * from "./pr-pipeline-status";
 export * from "./bug-detail";
 export * from "./investigation-report";

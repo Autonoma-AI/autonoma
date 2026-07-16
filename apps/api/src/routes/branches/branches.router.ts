@@ -31,6 +31,12 @@ export const branchesRouter = router({
             services.branches.getBranchByPr(input.applicationId, input.prNumber, organizationId),
         ),
 
+    pipelineStatusByBranchId: protectedProcedure
+        .input(z.object({ applicationId: z.string(), branchId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.prPipelineStatusByBranchId(input.applicationId, input.branchId, organizationId),
+        ),
+
     snapshotHistory: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>

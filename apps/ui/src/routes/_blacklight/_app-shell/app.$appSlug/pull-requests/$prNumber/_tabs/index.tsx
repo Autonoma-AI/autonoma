@@ -1,6 +1,5 @@
-import { Badge, Button, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
+import { Badge, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
-import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
@@ -15,101 +14,66 @@ import {
   type TestEntry,
 } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
-import { ensureBranchByPrData, useBranchByPr, useSnapshotDetail, useSnapshotHistory } from "lib/query/branches.queries";
+import { ensureBranchByPrData, useBranchByPr, useSnapshotHistory } from "lib/query/branches.queries";
 import { useBugsListByBranch } from "lib/query/bugs.queries";
-import { ensurePreviewEnvironmentSummaryData } from "lib/query/deployments.queries";
-import {
-  useApplicationRepositoryFromGitHub,
-  useCommitFromGitHub,
-  usePullRequestFromGitHub,
-} from "lib/query/github.queries";
+import { useCommitFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useMemo } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { CheckpointSummaryBadge } from "../-components/checkpoint-summary-badge";
-import { ExecutedTestLink } from "../-components/executed-test-link";
-import { formatCheckpointMetrics } from "../-components/format-checkpoint-metrics";
-import { PRDetailHeader } from "../-components/pr-detail-header";
+import { CheckpointSummaryBadge } from "../../-components/checkpoint-summary-badge";
+import { ExecutedTestLink } from "../../-components/executed-test-link";
+import { formatCheckpointMetrics } from "../../-components/format-checkpoint-metrics";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
 type Bug = RouterOutputs["bugs"]["listByBranch"][number];
-type PullRequest = RouterOutputs["github"]["getPullRequest"];
-type Repository = RouterOutputs["github"]["getApplicationRepository"];
 type PRTestEntry = TestEntry & { snapshotId: string };
 type PRTestSection = Omit<Section, "entries"> & { entries: PRTestEntry[] };
 type ExecutedTest = SnapshotDetail["executedTests"][number];
 type PRExecutedTest = ExecutedTest & { snapshotId: string; category?: EntryCategory };
 type PRTestRunSection = { key: string; title: string; entries: PRExecutedTest[] };
 
-export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/")({
+export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/")({
   loader: async ({ context, params: { appSlug, prNumber } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
     await ensureBranchByPrData(context.queryClient, app.id, prNumber);
-    void ensurePreviewEnvironmentSummaryData(context.queryClient, app.id, prNumber);
   },
-  component: PullRequestDetailPage,
+  component: OverviewTab,
 });
 
-function PullRequestDetailPage() {
+function OverviewTab() {
   const { prNumber } = Route.useParams();
 
   return (
-    <div className="-m-6 flex min-h-full flex-col">
-      <Suspense fallback={<PageSkeleton />}>
-        <PullRequestDetailContent prNumber={prNumber} />
-      </Suspense>
-    </div>
+    <Suspense fallback={<OverviewSkeleton />}>
+      <OverviewContent prNumber={prNumber} />
+    </Suspense>
   );
 }
 
-function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
+function OverviewContent({ prNumber }: { prNumber: number }) {
   const app = useCurrentApplication();
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const pr = usePullRequestFromGitHub(app.id, prNumber);
-  const repository = useApplicationRepositoryFromGitHub(app.id);
-  const prUrl = pr.data?.url ?? buildPullRequestUrl(repository.data, prNumber);
   const orderedSnapshots = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const latestSnapshot = orderedSnapshots[0];
 
   if (latestSnapshot == null) {
     return (
-      <>
-        <PRTopBar appName={app.name} architecture={app.architecture} prNumber={prNumber} prUrl={prUrl} />
-        <PRDetailHeader
-          applicationId={app.id}
-          prNumber={prNumber}
-          branchName={branch.name}
-          cachedTitle={branch.prTitle}
-          targetBranchName={pr.data?.baseRef ?? app.mainBranch.name}
-          pr={pr.data ?? undefined}
-          prPending={pr.isPending}
-          summary={undefined}
-        />
-        <div className="p-6">
-          <NoSnapshotsPanel />
-        </div>
-      </>
+      <div className="p-6">
+        <NoSnapshotsPanel />
+      </div>
     );
   }
 
   return (
     <PullRequestDetailWithCheckpoint
-      appName={app.name}
-      appArchitecture={app.architecture}
-      appMainBranchName={app.mainBranch.name}
       applicationId={app.id}
       branchId={branch.id}
-      branchName={branch.name}
-      cachedTitle={branch.prTitle}
       prNumber={prNumber}
-      pr={pr.data ?? undefined}
-      prPending={pr.isPending}
-      prUrl={prUrl}
       snapshots={orderedSnapshots}
       latestSnapshot={latestSnapshot}
     />
@@ -117,113 +81,31 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
 }
 
 function PullRequestDetailWithCheckpoint({
-  appName,
-  appArchitecture,
-  appMainBranchName,
   applicationId,
   branchId,
-  branchName,
-  cachedTitle,
   prNumber,
-  pr,
-  prPending,
-  prUrl,
   snapshots,
   latestSnapshot,
 }: {
-  appName: string;
-  appArchitecture: string;
-  appMainBranchName: string;
   applicationId: string;
   branchId: string;
-  branchName: string;
-  cachedTitle: string | undefined;
   prNumber: number;
-  pr: PullRequest | undefined;
-  prPending: boolean;
-  prUrl: string | undefined;
   snapshots: Snapshot[];
   latestSnapshot: Snapshot;
 }) {
-  const { data: detail } = useSnapshotDetail(latestSnapshot.id);
   const { data: bugs } = useBugsListByBranch(branchId, "open");
 
   return (
-    <>
-      <PRTopBar appName={appName} architecture={appArchitecture} prNumber={prNumber} prUrl={prUrl} />
-      <PRDetailHeader
+    <div className="flex flex-col gap-5 p-6">
+      <CheckpointsSection
         applicationId={applicationId}
         prNumber={prNumber}
-        branchName={branchName}
-        cachedTitle={cachedTitle}
-        targetBranchName={pr?.baseRef ?? appMainBranchName}
-        pr={pr}
-        prPending={prPending}
-        summary={detail.summary}
+        snapshots={snapshots}
+        latestSnapshot={latestSnapshot}
+        bugs={bugs}
       />
-
-      <div className="flex flex-col gap-5 p-6">
-        <CheckpointsSection
-          applicationId={applicationId}
-          prNumber={prNumber}
-          snapshots={snapshots}
-          latestSnapshot={latestSnapshot}
-          bugs={bugs}
-        />
-      </div>
-    </>
-  );
-}
-
-function PRTopBar({
-  appName,
-  architecture,
-  prNumber,
-  prUrl,
-}: {
-  appName: string;
-  architecture: string;
-  prNumber: number;
-  prUrl: string | undefined;
-}) {
-  const appInitial = appName.trim().charAt(0).toUpperCase() || "A";
-
-  return (
-    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border-dim bg-surface-void px-5">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="inline-flex size-5 shrink-0 items-center justify-center bg-primary font-mono text-3xs font-bold text-primary-foreground">
-          {appInitial}
-        </span>
-        <span className="truncate text-xs font-medium text-text-secondary">
-          {appName} / {architecture.toLowerCase()}
-        </span>
-      </div>
-
-      <div className="flex min-w-0 items-center gap-2 font-mono text-2xs text-text-secondary">
-        <span className="text-text-tertiary">/</span>
-        <AppLink to="/app/$appSlug/pull-requests" className="transition-colors hover:text-text-primary">
-          Pull requests
-        </AppLink>
-        <span className="text-text-tertiary">/</span>
-        <span className="text-text-primary">#{prNumber}</span>
-      </div>
-
-      {prUrl != null && (
-        <a href={prUrl} target="_blank" rel="noopener noreferrer" className="ml-auto">
-          <Button variant="outline" size="sm">
-            <GitPullRequestIcon size={14} />
-            Open in GitHub
-            <ArrowSquareOutIcon size={12} />
-          </Button>
-        </a>
-      )}
     </div>
   );
-}
-
-function buildPullRequestUrl(repository: Repository | undefined, prNumber: number) {
-  if (repository == null) return undefined;
-  return `https://github.com/${repository.fullName}/pull/${prNumber}`;
 }
 
 function CheckpointsSection({
@@ -759,16 +641,12 @@ function AggregatedCheckpointCardSkeleton() {
   );
 }
 
-function PageSkeleton() {
+function OverviewSkeleton() {
   return (
-    <>
-      <Skeleton className="h-14 w-full" />
-      <Skeleton className="h-36 w-full" />
-      <div className="flex flex-col gap-5 p-6">
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-96 w-full" />
-      </div>
-    </>
+    <div className="flex flex-col gap-5 p-6">
+      <Skeleton className="h-16 w-full" />
+      <Skeleton className="h-96 w-full" />
+    </div>
   );
 }
 

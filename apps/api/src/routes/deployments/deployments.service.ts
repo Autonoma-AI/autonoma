@@ -545,6 +545,53 @@ export class DeploymentsService extends Service {
     }
 
     /**
+     * Loads a preview environment summary for a branch, so the main-branch page can show its preview
+     * without knowing the environment id up front. The main branch has no pull request, so its
+     * environment is the repository's PR #0; feature branches resolve by their own PR number. Resolved
+     * by (repository, PR number) rather than the `branch_id` FK, which is only sparsely backfilled.
+     * Returns a `missing` summary when the branch has no preview environment.
+     */
+    async previewSummaryByBranchId(applicationId: string, branchId: string, organizationId: string) {
+        this.logger.info("Loading preview environment summary for branch", { applicationId, branchId, organizationId });
+
+        const branch = await this.db.branch.findFirst({
+            where: { id: branchId, applicationId, organizationId },
+            select: {
+                name: true,
+                prInfo: { select: { prNumber: true } },
+                activeSnapshot: { select: { headSha: true } },
+                application: { select: { githubRepositoryId: true } },
+            },
+        });
+        if (branch == null) throw new NotFoundError();
+
+        const currentHeadSha = branch.activeSnapshot?.headSha ?? null;
+
+        const githubRepositoryId = branch.application.githubRepositoryId;
+        if (githubRepositoryId == null) {
+            return missingPreviewSummary(currentHeadSha, "Application is not linked to a GitHub repository.");
+        }
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: {
+                organizationId,
+                githubRepositoryId,
+                prNumber: branch.prInfo?.prNumber ?? 0,
+                status: { not: "torn_down" },
+            },
+            // Deterministic when a PR number has been reused (deleted then recreated branch).
+            orderBy: { updatedAt: "desc" },
+            select: PREVIEWKIT_SUMMARY_ENV_SELECT,
+        });
+
+        if (environment == null) {
+            return missingPreviewSummary(currentHeadSha, "Preview environment is not configured for this branch.");
+        }
+
+        return this.buildPreviewkitSummary(environment, currentHeadSha, branch.name);
+    }
+
+    /**
      * Lists the deployment history for a single preview environment: one row per
      * pushed commit (a `PreviewkitBuild`), newest first. Scoped like
      * `previewSummaryById` - the environment must belong to the org-scoped

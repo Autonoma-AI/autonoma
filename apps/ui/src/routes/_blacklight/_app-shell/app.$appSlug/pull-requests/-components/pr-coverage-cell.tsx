@@ -1,16 +1,15 @@
-import type { CheckpointPresentationSummary, CheckpointTone } from "@autonoma/types";
+import type { CheckpointPresentationSummary, CheckpointTone, PrPipelineStatus } from "@autonoma/types";
+import { pipelinePillPresentation } from "./pr-pipeline-status-presentation";
 
-interface HealthCellProps {
-  activeSnapshot: {
-    status: string;
-    _count: { testCaseAssignments: number };
-    summary?: CheckpointPresentationSummary;
-  } | null;
-}
+// The PR list's "health at a glance" cell. Renders the branch's rolled-up pipeline status as a single
+// pill: a completed analysis shows its checkpoint summary; a superseded or in-flight branch shows a
+// Building / Pending checks / Analyzing / Build failed pill; `none` shows a neutral placeholder. The
+// status is computed server-side (see `computePrPipelineStatus`) so it matches the PR/main headers.
+export function PRHealthCell({ status }: { status: PrPipelineStatus }) {
+  if (status.kind === "checkpoint") return <CheckpointPill summary={status.summary} />;
 
-export function PRHealthCell({ activeSnapshot }: HealthCellProps) {
-  const summary = activeSnapshot?.summary;
-  if (summary == null) {
+  const pill = pipelinePillPresentation(status.kind);
+  if (pill == null) {
     return (
       <span className="inline-flex items-center gap-2 whitespace-nowrap border border-border-dim bg-surface-raised px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-widest text-text-secondary">
         <span className="size-1.5 shrink-0 bg-text-tertiary" />-
@@ -18,9 +17,20 @@ export function PRHealthCell({ activeSnapshot }: HealthCellProps) {
     );
   }
 
-  // Keep the pill within its fixed-width column: the dot and label never shrink, while the
-  // optional reason truncates. Without this the `nowrap` reason overflows and forces the table
-  // to scroll horizontally. The full text stays available via the title attribute.
+  return (
+    <span
+      className={`inline-flex items-center gap-2 whitespace-nowrap border px-2 py-0.5 font-mono text-2xs font-bold uppercase tracking-widest ${toneClasses(pill.tone)}`}
+    >
+      <span className={`size-1.5 shrink-0 ${toneDotClass(pill.tone)}`} />
+      {pill.label}
+    </span>
+  );
+}
+
+// Keep the pill within its fixed-width column: the dot and label never shrink, while the optional
+// reason truncates. Without this the `nowrap` reason overflows and forces the table to scroll
+// horizontally. The full text stays available via the title attribute.
+function CheckpointPill({ summary }: { summary: CheckpointPresentationSummary }) {
   return (
     <span
       title={summary.reason != null ? `${summary.label} · ${summary.reason}` : summary.label}

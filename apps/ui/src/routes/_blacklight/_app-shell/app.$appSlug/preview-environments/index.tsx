@@ -145,14 +145,24 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
         </span>
       </DataTableCell>
       <DataTableCell align="right" className="pr-3">
-        <Button
-          variant="outline"
-          size="xs"
-          render={<AppLink to="/app/$appSlug/preview/$environmentId" params={{ environmentId: environment.id }} />}
-        >
-          View
-          <ArrowRightIcon size={12} />
-        </Button>
+        {environment.prNumber > 0 ? (
+          <Button
+            variant="outline"
+            size="xs"
+            render={
+              <AppLink to="/app/$appSlug/pull-requests/$prNumber/preview" params={{ prNumber: environment.prNumber }} />
+            }
+          >
+            View
+            <ArrowRightIcon size={12} />
+          </Button>
+        ) : (
+          // The main-branch environment (PR 0) has no pull request, so its preview lives on the main-branch page.
+          <Button variant="outline" size="xs" render={<AppLink to="/app/$appSlug/pull-requests/main" />}>
+            View
+            <ArrowRightIcon size={12} />
+          </Button>
+        )}
       </DataTableCell>
     </DataTableRow>
   );

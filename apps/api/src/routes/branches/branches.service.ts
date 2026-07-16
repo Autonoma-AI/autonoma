@@ -27,6 +27,7 @@ import type {
     InvestigationFinding,
     InvestigationReportData,
     InvestigationRunStep,
+    PrPipelineStatus,
     SnapshotReport,
 } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
@@ -36,6 +37,7 @@ import type { PullRequestCacheService } from "../../github/pull-request-cache.se
 import { Service } from "../service";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
+import { computePrPipelineStatus } from "./pr-pipeline-status";
 import { loadRefinementLoop } from "./refinement-loop";
 import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
@@ -419,9 +421,13 @@ export class BranchesService extends Service {
                     select: {
                         id: true,
                         status: true,
+                        headSha: true,
                         _count: { select: { testCaseAssignments: true } },
                     },
                 },
+                // In-flight analysis pointer: a processing pending snapshot means the current commit is
+                // being (re)analyzed, which supersedes a stale completed result in the rolled-up status.
+                pendingSnapshot: { select: { status: true } },
             },
             orderBy: { createdAt: "desc" },
         });
@@ -431,7 +437,7 @@ export class BranchesService extends Service {
             .filter((s): s is NonNullable<typeof s> => s != null)
             .map((s) => ({ id: s.id, status: s.status }));
 
-        const [healthBySnapshot, bugCountBySnapshot, previewUrlByPr] = await Promise.all([
+        const [healthBySnapshot, bugCountBySnapshot, previewUrlByPr, previewStateByPr] = await Promise.all([
             aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
             countOpenBugsBySnapshot(
                 this.db,
@@ -442,38 +448,58 @@ export class BranchesService extends Service {
                 organizationId,
                 branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
             ),
+            this.loadPreviewStateByPr(
+                applicationId,
+                organizationId,
+                branches.map((b) => b.prInfo!.prNumber),
+            ),
         ]);
 
         // Best-effort, fire-and-forget refresh of the cached PR metadata. Throttled in
         // Postgres, so this no-ops when the cache is fresh and never blocks the response.
         this.prCache.kickOff(applicationId, organizationId);
 
-        return branches.map(({ prInfo, activeSnapshot, ...branch }) => ({
-            ...branch,
-            prNumber: prInfo!.prNumber,
-            pr: {
-                title: prInfo!.prTitle ?? undefined,
-                state: prInfo!.prState ?? undefined,
-                authorLogin: prInfo!.prAuthorLogin ?? undefined,
-                updatedAt: prInfo!.prUpdatedAt ?? undefined,
-            },
-            bugCount: activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0,
-            previewUrl: previewUrlByPr.get(prInfo!.prNumber),
-            activeSnapshot:
+        return branches.map(({ prInfo, activeSnapshot, pendingSnapshot, ...branch }) => {
+            const summary =
                 activeSnapshot != null
-                    ? {
-                          id: activeSnapshot.id,
-                          status: activeSnapshot.status,
-                          _count: { testCaseAssignments: activeSnapshot._count.testCaseAssignments },
-                          health: healthBySnapshot.get(activeSnapshot.id)?.health ?? "unknown",
-                          summary: summaryFromHealth(
-                              activeSnapshot.status,
-                              healthBySnapshot.get(activeSnapshot.id),
-                              bugCountBySnapshot.get(activeSnapshot.id) ?? 0,
-                          ),
-                      }
-                    : null,
-        }));
+                    ? summaryFromHealth(
+                          activeSnapshot.status,
+                          healthBySnapshot.get(activeSnapshot.id),
+                          bugCountBySnapshot.get(activeSnapshot.id) ?? 0,
+                      )
+                    : undefined;
+
+            const prStatus = computePrPipelineStatus({
+                activeSnapshot:
+                    activeSnapshot != null ? { headSha: activeSnapshot.headSha ?? undefined, summary } : undefined,
+                hasPendingAnalysis: pendingSnapshot?.status === "processing",
+                previewEnv: previewStateByPr.get(prInfo!.prNumber),
+            });
+
+            return {
+                ...branch,
+                prNumber: prInfo!.prNumber,
+                pr: {
+                    title: prInfo!.prTitle ?? undefined,
+                    state: prInfo!.prState ?? undefined,
+                    authorLogin: prInfo!.prAuthorLogin ?? undefined,
+                    updatedAt: prInfo!.prUpdatedAt ?? undefined,
+                },
+                bugCount: activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0,
+                previewUrl: previewUrlByPr.get(prInfo!.prNumber),
+                prStatus,
+                activeSnapshot:
+                    activeSnapshot != null
+                        ? {
+                              id: activeSnapshot.id,
+                              status: activeSnapshot.status,
+                              _count: { testCaseAssignments: activeSnapshot._count.testCaseAssignments },
+                              health: healthBySnapshot.get(activeSnapshot.id)?.health ?? "unknown",
+                              summary,
+                          }
+                        : null,
+            };
+        });
     }
 
     /**
@@ -540,6 +566,101 @@ export class BranchesService extends Service {
             if (url != null) urlByPr.set(branch.prNumber, url);
         }
         return urlByPr;
+    }
+
+    /**
+     * Bulk-resolves each PR's current preview-environment state (status + deployed commit) for an
+     * application, so the PR list can roll every branch into its pipeline status without an N+1 fanout.
+     * Resolved by (repository, PR number), not the `branch_id` FK: that FK is only sparsely backfilled,
+     * so a PR-number join is what reliably reaches a branch's live environment today. Torn-down
+     * environments are excluded, and the most-recently-updated row wins when a PR number was reused
+     * (branch deleted then recreated). Returns a map of prNumber -> preview state.
+     */
+    private async loadPreviewStateByPr(
+        applicationId: string,
+        organizationId: string,
+        prNumbers: number[],
+    ): Promise<Map<number, { status: string; headSha: string }>> {
+        if (prNumbers.length === 0) return new Map();
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        const githubRepositoryId = application?.githubRepositoryId;
+        if (githubRepositoryId == null) return new Map();
+
+        const environments = await this.db.previewkitEnvironment.findMany({
+            where: {
+                organizationId,
+                githubRepositoryId,
+                prNumber: { in: prNumbers },
+                status: { not: "torn_down" },
+            },
+            select: { prNumber: true, status: true, headSha: true },
+            orderBy: { updatedAt: "desc" },
+        });
+
+        const stateByPr = new Map<number, { status: string; headSha: string }>();
+        for (const environment of environments) {
+            if (stateByPr.has(environment.prNumber)) continue;
+            stateByPr.set(environment.prNumber, { status: environment.status, headSha: environment.headSha });
+        }
+        return stateByPr;
+    }
+
+    /**
+     * Rolls a single branch into its {@link PrPipelineStatus} - the same value the PR list computes,
+     * exposed for the PR-page and main-branch headers so all three surfaces agree. The main branch has
+     * no PR, so its preview environment is resolved as PR 0. See `computePrPipelineStatus`.
+     */
+    async prPipelineStatusByBranchId(
+        applicationId: string,
+        branchId: string,
+        organizationId: string,
+    ): Promise<PrPipelineStatus> {
+        this.logger.info("Computing PR pipeline status", { applicationId, branchId });
+
+        const branch = await this.db.branch.findFirst({
+            where: { id: branchId, applicationId, application: { organizationId } },
+            select: {
+                prInfo: { select: { prNumber: true } },
+                activeSnapshot: { select: { id: true, status: true, headSha: true } },
+                pendingSnapshot: { select: { status: true } },
+            },
+        });
+        if (branch == null) throw new NotFoundError("Branch not found");
+
+        const prNumber = branch.prInfo?.prNumber ?? 0;
+        const activeSnapshots =
+            branch.activeSnapshot != null
+                ? [{ id: branch.activeSnapshot.id, status: branch.activeSnapshot.status }]
+                : [];
+
+        const [healthBySnapshot, bugCountBySnapshot, previewStateByPr] = await Promise.all([
+            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+            countOpenBugsBySnapshot(
+                this.db,
+                activeSnapshots.map((s) => s.id),
+            ),
+            this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
+        ]);
+
+        const active = branch.activeSnapshot;
+        const summary =
+            active != null
+                ? summaryFromHealth(
+                      active.status,
+                      healthBySnapshot.get(active.id),
+                      bugCountBySnapshot.get(active.id) ?? 0,
+                  )
+                : undefined;
+
+        return computePrPipelineStatus({
+            activeSnapshot: active != null ? { headSha: active.headSha ?? undefined, summary } : undefined,
+            hasPendingAnalysis: branch.pendingSnapshot?.status === "processing",
+            previewEnv: previewStateByPr.get(prNumber),
+        });
     }
 
     async getBranch(branchId: string, organizationId: string) {

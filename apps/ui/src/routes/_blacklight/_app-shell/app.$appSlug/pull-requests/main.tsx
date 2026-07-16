@@ -1,33 +1,57 @@
-import { Badge, Panel, PanelBody, PrHealthPill, Skeleton } from "@autonoma/blacklight";
+import { Badge, Panel, PanelBody, Skeleton } from "@autonoma/blacklight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import type { PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { ShaRange } from "components/snapshot/sha-range";
 import { formatRelativeTime } from "lib/format";
 import {
   ensureBranchData,
+  ensurePrPipelineStatusData,
   ensureSnapshotHistoryData,
   useBranchDetail,
+  usePrPipelineStatus,
   useSnapshotDetail,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
 import { useBugsListByBranch } from "lib/query/bugs.queries";
+import {
+  ensurePreviewSummaryByBranchIdData,
+  usePreviewSummaryByBranchId,
+  usePreviewSummaryById,
+} from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
+import { PrStatusBadge } from "./-components/pr-status-badge";
+import {
+  PreviewEnvironmentExplorer,
+  PreviewEnvironmentExplorerSkeleton,
+} from "./-components/preview/preview-environment-explorer";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type Bug = RouterOutputs["bugs"]["listByBranch"][number];
+
+// Persisted in the URL so a refresh keeps the selected preview service and log focus (build vs app).
+type MainBranchSearch = { service?: string; logs?: PreviewLogSource };
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/main")({
   loader: async ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
     const branch = await ensureBranchData(context.queryClient, app.id, app.mainBranch.name);
-    await ensureSnapshotHistoryData(context.queryClient, branch.id);
+    await Promise.all([
+      ensureSnapshotHistoryData(context.queryClient, branch.id),
+      ensurePrPipelineStatusData(context.queryClient, app.id, branch.id),
+      ensurePreviewSummaryByBranchIdData(context.queryClient, app.id, branch.id),
+    ]);
   },
+  validateSearch: (search: Record<string, unknown>): MainBranchSearch => ({
+    service: typeof search.service === "string" ? search.service : undefined,
+    logs: search.logs === "build" || search.logs === "app" ? search.logs : undefined,
+  }),
   component: MainBranchPage,
 });
 
@@ -49,6 +73,10 @@ function MainBranchPage() {
       <Suspense fallback={<MainBranchSkeleton />}>
         <MainBranchContent />
       </Suspense>
+
+      <Suspense fallback={null}>
+        <MainBranchPreviewSection />
+      </Suspense>
     </div>
   );
 }
@@ -58,6 +86,7 @@ function MainBranchContent() {
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
   const { data: bugs } = useBugsListByBranch(branch.id, "open");
+  const { data: prStatus } = usePrPipelineStatus(app.id, branch.id);
 
   const ordered = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const latest = ordered[0];
@@ -75,12 +104,10 @@ function MainBranchContent() {
     );
   }
 
-  const chipHealth = bugs.length > 0 ? "critical" : latest.health;
-
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3 border border-border-dim bg-surface-base px-5 py-3">
-        <PrHealthPill health={chipHealth} />
+        <PrStatusBadge status={prStatus} />
         <ShaRange baseSha={latest.baseSha} headSha={latest.headSha} />
         <span className="ml-auto font-mono text-2xs text-text-tertiary">
           {ordered.length} {ordered.length === 1 ? "checkpoint" : "checkpoints"} ·{" "}
@@ -96,6 +123,40 @@ function MainBranchContent() {
         <MainCheckpointRail snapshots={ordered} />
       </div>
     </div>
+  );
+}
+
+// The main branch's preview environment (the repository's PR #0), when one exists. Rendered as a
+// sibling section - not gated on checkpoints - so it shows even before main has any checkpoint. The
+// shared explorer is the same one the PR Preview tab uses.
+function MainBranchPreviewSection() {
+  const app = useCurrentApplication();
+  const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
+  const { data: summary } = usePreviewSummaryByBranchId(app.id, branch.id);
+
+  if (summary.source !== "previewkit") return undefined;
+
+  return <MainBranchPreviewExplorer applicationId={app.id} environmentId={summary.environmentId} />;
+}
+
+function MainBranchPreviewExplorer({ applicationId, environmentId }: { applicationId: string; environmentId: string }) {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const { data: summary } = usePreviewSummaryById(applicationId, environmentId, { refetchWhileActive: true });
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-text-primary">Preview environment</h2>
+      <Suspense fallback={<PreviewEnvironmentExplorerSkeleton />}>
+        <PreviewEnvironmentExplorer
+          applicationId={applicationId}
+          environmentId={environmentId}
+          summary={summary}
+          search={search}
+          onSearchChange={(partial) => void navigate({ search: (prev) => ({ ...prev, ...partial }), replace: true })}
+        />
+      </Suspense>
+    </section>
   );
 }
 

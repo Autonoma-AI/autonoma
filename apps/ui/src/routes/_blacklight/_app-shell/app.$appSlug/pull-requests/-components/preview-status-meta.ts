@@ -10,8 +10,8 @@ import { StackIcon } from "@phosphor-icons/react/Stack";
 import { TreeStructureIcon } from "@phosphor-icons/react/TreeStructure";
 import { WarningDiamondIcon } from "@phosphor-icons/react/WarningDiamond";
 
-// Shared status/icon metadata for the preview-environment UI. Used by the PR-header entry-point
-// button (PreviewEnvironmentHeaderButton) and the dedicated preview environment detail page.
+// Shared status/icon metadata for the preview-environment UI. Used by the preview explorer (the PR
+// page's Preview tab and the standalone preview environment page).
 
 export const PREVIEW_STATUS_META = {
     ready: { label: "Ready", dot: "success", badge: "success", className: "" },

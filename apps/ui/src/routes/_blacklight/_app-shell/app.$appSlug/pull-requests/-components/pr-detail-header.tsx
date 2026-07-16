@@ -1,13 +1,11 @@
 import { Skeleton } from "@autonoma/blacklight";
-import type { CheckpointPresentationSummary } from "@autonoma/types";
+import type { PrPipelineStatus } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
-import { Suspense } from "react";
 import { BranchPill } from "./branch-pill";
-import { CheckpointSummaryBadge } from "./checkpoint-summary-badge";
 import { PRAuthorStack } from "./pr-author-stack";
-import { PreviewEnvironmentHeaderButton } from "./preview-environment-section";
+import { PrStatusBadge } from "./pr-status-badge";
 
 type PullRequest = RouterOutputs["github"]["getPullRequest"];
 
@@ -19,7 +17,7 @@ export function PRDetailHeader({
   targetBranchName,
   pr,
   prPending,
-  summary,
+  status,
 }: {
   applicationId: string;
   prNumber: number;
@@ -28,7 +26,7 @@ export function PRDetailHeader({
   targetBranchName: string;
   pr: PullRequest | undefined;
   prPending: boolean;
-  summary: CheckpointPresentationSummary | undefined;
+  status: PrPipelineStatus;
 }) {
   // Prefer the live GitHub title, fall back to the cached PR title (same source as the PR list), and
   // only fall back to the branch name when neither is available.
@@ -63,10 +61,7 @@ export function PRDetailHeader({
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-3">
-        {summary != null && <CheckpointSummaryBadge summary={summary} />}
-        <Suspense fallback={null}>
-          <PreviewEnvironmentHeaderButton applicationId={applicationId} prNumber={prNumber} />
-        </Suspense>
+        <PrStatusBadge status={status} />
       </div>
     </header>
   );

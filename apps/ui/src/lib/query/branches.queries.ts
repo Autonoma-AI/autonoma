@@ -137,6 +137,19 @@ export function useBranchByPr(applicationId: string, prNumber: number) {
     return useSuspenseQuery(trpc.branches.detailByPr.queryOptions({ applicationId, prNumber }));
 }
 
+// The branch's rolled-up pipeline status (the same value the PR list shows), for the PR-page and
+// main-branch headers. Not polled yet - liveness is deferred; it refreshes on load/navigation.
+export function usePrPipelineStatus(applicationId: string, branchId: string) {
+    return useSuspenseQuery(trpc.branches.pipelineStatusByBranchId.queryOptions({ applicationId, branchId }));
+}
+
+export async function ensurePrPipelineStatusData(queryClient: QueryClient, applicationId: string, branchId: string) {
+    await ensureAPIQueryData(
+        queryClient,
+        trpc.branches.pipelineStatusByBranchId.queryOptions({ applicationId, branchId }),
+    );
+}
+
 export async function ensureBranchByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
     return await ensureAPIQueryData(queryClient, trpc.branches.detailByPr.queryOptions({ applicationId, prNumber }));
 }

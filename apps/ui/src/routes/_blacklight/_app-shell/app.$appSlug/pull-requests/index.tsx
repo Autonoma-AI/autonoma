@@ -12,7 +12,7 @@ import {
   TabsTrigger,
   cn,
 } from "@autonoma/blacklight";
-import type { CheckpointPresentationSummary } from "@autonoma/types";
+import type { PrPipelineStatus } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
@@ -77,11 +77,7 @@ type PullRequestRow = {
   prAuthorLogin?: string;
   prUpdatedAt?: Date;
   snapshotId?: string;
-  activeSnapshot: {
-    status: string;
-    _count: { testCaseAssignments: number };
-    summary?: CheckpointPresentationSummary;
-  } | null;
+  prStatus: PrPipelineStatus;
 };
 
 function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
@@ -100,7 +96,7 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
             prAuthorLogin: b.pr.authorLogin,
             prUpdatedAt: b.pr.updatedAt,
             snapshotId: b.activeSnapshot?.id,
-            activeSnapshot: b.activeSnapshot,
+            prStatus: b.prStatus,
           },
         ]
       : [],
@@ -161,7 +157,7 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
       header: "Health",
       size: 140,
       enableSorting: false,
-      cell: ({ row }) => <PRHealthCell activeSnapshot={row.original.activeSnapshot} />,
+      cell: ({ row }) => <PRHealthCell status={row.original.prStatus} />,
     },
   ];
 

@@ -18,6 +18,11 @@ export interface UpsertPrBranchParams {
  * constructed service. An existing branch has its `name` refreshed to the current head ref; a new branch is
  * created with no snapshots. The base snapshot is intentionally NOT pinned here - it is pinned when the branch's
  * first snapshot is created (see `SnapshotDraft.start`).
+ *
+ * A new branch's PR cache is seeded `open`: both callers only fire for an open PR (previewkit deploys and diff
+ * triggers), and the PR list filters on an exact `prState`, so without this seed an eagerly-created preview-only
+ * branch would be invisible in the list until the polite PR-cache revalidate classified it. The cache still
+ * corrects it to `closed`/`merged` later.
  */
 export async function upsertPrBranch({
     db,
@@ -55,7 +60,7 @@ export async function upsertPrBranch({
                 name,
                 applicationId,
                 organizationId,
-                prInfo: { create: { applicationId, prNumber } },
+                prInfo: { create: { applicationId, prNumber, prState: "open" } },
             },
             select: {
                 id: true,
