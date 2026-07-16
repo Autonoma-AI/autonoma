@@ -76,7 +76,13 @@ export function buildSubagentTool(
                         },
                     }),
                 },
-                stopWhen: [stepCountIs(15), hasToolCall("finish")],
+                // Force a structured tool call on every step. Without this the AI SDK ends the loop as
+                // soon as a step returns finishReason !== "tool-calls" - a weaker model that replies with
+                // prose, an empty turn, or a tool call typed as text then surfaces as an empty
+                // "provider error"/no-result instead of finishing. "required" keeps it emitting real tool
+                // calls until it calls `finish`.
+                toolChoice: "required",
+                stopWhen: [stepCountIs(50), hasToolCall("finish")],
                 onStepFinish: () => {
                     onHeartbeat?.();
                 },

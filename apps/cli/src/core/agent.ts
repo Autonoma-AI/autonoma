@@ -130,6 +130,12 @@ export async function runAgent<T>(
             instructions: config.systemPrompt,
             tools,
             temperature: config.temperature,
+            // Force a structured tool call on every step. Without this, the AI SDK ends the loop as
+            // soon as a step returns finishReason !== "tool-calls" - and weaker models (e.g.
+            // gemini-3-flash) intermittently end a turn with prose, an empty turn, or a tool call typed
+            // as text, which then surfaces as an empty "provider error"/no-result instead of finishing.
+            // "required" keeps the model emitting real tool calls until it calls `finish`.
+            toolChoice: "required",
             stopWhen: [stepCountIs(config.maxSteps), hasToolCall("finish")],
             onStepFinish: buildStepHandler(config),
         });
