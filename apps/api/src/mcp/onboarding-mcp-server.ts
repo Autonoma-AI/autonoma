@@ -52,6 +52,8 @@ Then loop until the preview is up:
 7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own.
 8. When status shows the preview is up, verify it yourself: curl the preview URL, or write a small Playwright script if the user has Playwright, and check you get what you expect. If it is broken, read the diagnostics, fix the config, and loop.
 
+Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
+
 Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
 
 /** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
@@ -261,6 +263,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Save the FULL PreviewKit config document (read it with get_config first, edit it, send the whole " +
                 "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
                 "secret values - declare secret keys as build_secrets and set their values via request_env. " +
+                "Services do not auto-inject env into apps: wire each app to the databases/services it uses via " +
+                "connections, e.g. { key: 'DATABASE_URL', value: '{{db.url}}' } ({{name.property}} tokens resolve " +
+                "at deploy time; {{service.url}} is the full connection string). " +
                 "Pass a short `description` of what this save does - the user watches it on the activity feed.",
             inputSchema: {
                 applicationId: z.string(),

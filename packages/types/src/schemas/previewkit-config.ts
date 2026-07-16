@@ -303,9 +303,21 @@ const connectionSchema = z.object({
                 message: `${key} is a reserved built-in variable and cannot be set.`,
             });
         }
-    }),
-    value: z.string().min(1, "value is required"),
-    build_time: z.boolean().default(false),
+    }).describe("The env var name to inject into the app at runtime (e.g. DATABASE_URL)."),
+    value: z
+        .string()
+        .min(1, "value is required")
+        .describe(
+            "Template resolved at deploy time. {{name.property}} tokens reference apps/services/addons in this " +
+                "config by name. For a service: {{db.url}} = the full canonical connection string (postgres -> " +
+                "postgresql://preview:preview@<host>:<port>/preview; redis -> redis://...; mongodb -> " +
+                "mongodb://...), {{db.host}} = in-cluster DNS name, {{db.port}}. For an app: {{api.url}} = its " +
+                "public HTTPS URL, {{api.hostname}}. For an addon: {{name.<outputKey>}} (e.g. a Neon " +
+                "connectionString). Also available: {{pr}}, {{namespace}}, {{owner}}. Tokens can mix with literal " +
+                "text ('postgresql://user:pass@{{db.host}}:5432/mydb'), or be a plain literal ('production'). " +
+                "Prefer {{db.url}} to wire a database.",
+        ),
+    build_time: z.boolean().default(false).describe("Also pass the resolved value as a Docker build arg."),
 });
 
 /**

@@ -11,6 +11,7 @@ const SIDEBAR_ORDER: string[] = [
     "preview-environments/apps",
     "preview-environments/databases",
     "preview-environments/services",
+    "preview-environments/connections",
     "preview-environments/hooks",
     "preview-environments/multirepo",
     "mcp/index",

@@ -18,13 +18,13 @@ Both routes write to the same encrypted store, so a value set in the UI is visib
 
 Not everything your app reads from `process.env` is a secret. Picking the right home is the thing people get wrong most often, so start here:
 
-![Decision flow: a sensitive value becomes a Secret, the address of another app or service becomes a Connection, a non-sensitive per-environment value goes in config env, and a value needed during the build becomes a build secret](/img/preview-environments/what-goes-where.jpg)
+![Decision flow: a sensitive value becomes a Secret, the address of another app or service (or a non-sensitive literal) becomes a Connection, and a value needed during the build becomes a build secret](/img/preview-environments/what-goes-where.jpg)
 
 | Value | Where it goes | Why |
 | --- | --- | --- |
 | Sensitive - API keys, database URLs, signed tokens | **Secret** (UI Variables step or API) | Stored encrypted, never in the repo or config. |
-| The address of another app/service in the same preview (`{{db.host}}`, `{{api.url}}`) | **Connection** - a templated value in the Variables step | The platform resolves the real in-cluster address at deploy time. Nothing to upload. |
-| Non-sensitive value that varies per environment (`PLAID_ENV=sandbox`) | **Config `env`** | Pinned alongside the rest of the config. Nothing to upload. |
+| The address of another app/service in the same preview (`{{db.host}}`, `{{api.url}}`) | **[Connection](/preview-environments/connections/)** - a templated value in the Variables step | The platform resolves the real in-cluster address at deploy time. Nothing to upload. |
+| Non-sensitive value that varies per environment (`PLAID_ENV=sandbox`) | **[Connection](/preview-environments/connections/)** with a literal value | Pinned alongside the rest of the config. Nothing to upload. |
 | A value baked into a client bundle at build time (`NEXT_PUBLIC_*`, `VITE_*`) | **Secret + `build_secrets`** | Must be present *during* the build, not just at runtime. See [Build-time secrets](#build-time-secrets-build_secrets). |
 | PR / owner / namespace metadata (`{{pr}}`, `AUTONOMA_PREVIEWKIT_PR`) | Injected automatically | Reserved built-ins. See [Built-in environment variables](#built-in-environment-variables). |
 
@@ -93,19 +93,21 @@ Server-only secrets (those your running pod reads via `process.env`) do NOT need
 
 ## Config-level overrides
 
-If you also define a key in an app's `env` map in your stack configuration, the value there wins over the uploaded one. Use this for behaviour switches you want pinned alongside the rest of the config:
+If you also define a key as an app [connection](/preview-environments/connections/) in your stack configuration, the connection's value wins over the uploaded secret. Use this for behaviour switches you want pinned alongside the rest of the config:
 
 ```yaml
 apps:
   - name: api
     port: 4000
-    env:
+    connections:
       # Pin a preview to safe defaults so it can't talk to live services.
-      PLAID_ENV: "sandbox"
-      SEND_EMAILS_LOCALLY: "false"
+      - key: PLAID_ENV
+        value: "sandbox"
+      - key: SEND_EMAILS_LOCALLY
+        value: "false"
 ```
 
-Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the same way.
+Connection values are templates - `{{api.host}}`, `{{pr}}`, and friends resolve at deploy time. See the [template reference](/preview-environments/connections/#template-reference).
 
 ## Built-in environment variables
 

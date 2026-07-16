@@ -25,7 +25,7 @@ PR opened/updated
   Deploy infrastructure services (Postgres, Redis)
       |
       v
-  Load per-app secrets, merge with config env, resolve templates
+  Load per-app secrets, merge with connections, resolve templates
       |
       v
   Deploy app containers + Services
@@ -60,8 +60,7 @@ apps:
       port: 3000
       connections:
           - key: API_URL
-            target: api
-            property: url
+            value: "{{api.url}}"
       health_check: /health
 
     - name: api
@@ -70,11 +69,9 @@ apps:
       dockerfile: ./apps/api/Dockerfile
       connections:
           - key: DATABASE_URL
-            target: db
-            property: url
+            value: "{{db.url}}"
           - key: REDIS_URL
-            target: cache
-            property: url
+            value: "{{cache.url}}"
       health_check: /health
       # API keys and other typed values live in the app's secret bundle, not here.
 
@@ -118,7 +115,7 @@ hooks:
 | `build_context` | No       |         | Build context directory. Useful for monorepos                                                                                                                                                                                                                                                                                                  |
 | `monorepo`      | No       |         | Workspace build tool. Currently only `turbo`; builds from the repo root with a filter for this app                                                                                                                                                                                                                                             |
 | `build_secrets` | No       | `[]`    | Secret keys to also expose at build time as Docker build args (e.g. `NEXT_PUBLIC_*`); each must already exist in the app's secret bundle                                                                                                                                                                                                       |
-| `connections`   | No       | `[]`    | Non-secret variables wired to another app/service and resolved at deploy time. Each is `{ key, target, property, build_time? }` (e.g. `DATABASE_URL` -> the `db` service's `url`). See [Connections](#connections)                                                                                                                             |
+| `connections`   | No       | `[]`    | Non-secret variables resolved at deploy time. Each is `{ key, value, build_time? }` where `value` is a template mixing literal text and `{{name.property}}` tokens (e.g. `DATABASE_URL` -> `{{db.url}}`). See [Connections](#connections)                                                                                                      |
 | `command`       | No       |         | Override the container command                                                                                                                                                                                                                                                                                                                 |
 | `health_check`  | No       |         | HTTP path for readiness/liveness probes                                                                                                                                                                                                                                                                                                        |
 | `primary`       | No       |         | Marks this app as the environment's primary URL                                                                                                                                                                                                                                                                                                |
@@ -168,25 +165,31 @@ Every runtime is a Debian-family (`apt`) image, so the generator installs one co
 
 ### Connections
 
-Every variable a user types is a secret (stored in AWS Secrets Manager). The one non-secret variable is a **connection**: a value wired to another app or service in the preview namespace and resolved at deploy time. It has no static value, so it is never stored as a secret.
+Every variable a user types is a secret (stored in AWS Secrets Manager). The one non-secret variable is a **connection**: an env var whose `value` is a template resolved against the preview's own topology at deploy time. It carries no static secret, so it is never stored in AWS.
 
-Each connection names an env `key`, the `target` app/service, the `property` to read, and an optional `build_time` flag:
+Each connection names an env `key` and a `value` template (plus an optional `build_time` flag). The template mixes literal text with `{{name.property}}` tokens, where `name` is an app, service, or addon declared in this config:
 
 ```yaml
 connections:
     # DATABASE_URL = the db service's full connection string
     - key: DATABASE_URL
-      target: db
-      property: url
+      value: "{{db.url}}"
+
+    # A hand-built URL combining tokens and literal text
+    - key: MONGO_URI
+      value: "mongodb://{{db.host}}:{{db.port}}/preview?replicaSet=rs0"
+
+    # A plain literal (no token at all) is fine for non-secret config
+    - key: NODE_ENV
+      value: "production"
 
     # VITE_API_URL = the api app's public URL, also baked into the image build
     - key: VITE_API_URL
-      target: api
-      property: url
+      value: "{{api.url}}"
       build_time: true
 ```
 
-Properties resolve as:
+Token properties resolve as:
 
 - `host` / `port` - the Kubernetes service DNS name and port within the namespace (e.g. `db`, `api`).
 - `url` -
@@ -195,8 +198,14 @@ Properties resolve as:
         - `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`
         - `redis` / `valkey` -> `redis://<host>:<port>`
         - `mongodb` -> `mongodb://<host>:<port>/?directConnection=true`
+- `hostname` (apps only) - the app's public hostname without the scheme.
+- any output key of an **addon** (e.g. `{{neon-db.connectionString}}`).
 
 Recipes without a single-scheme URL (e.g. `temporal`, `api-gateway`) expose only `host` / `port`.
+
+Three single-word tokens carry deploy context instead of referencing a target: `{{pr}}` (PR number), `{{namespace}}` (the preview's Kubernetes namespace), and `{{owner}}` (repo owner).
+
+Services never auto-inject env into apps - a database is reachable only by the apps that declare a connection to it.
 
 A `build_time` connection is also passed as a Docker build arg (for values baked into the image, e.g. a Vite frontend's API URL). At runtime a connection is injected as an env var and wins over a stored secret of the same key.
 
