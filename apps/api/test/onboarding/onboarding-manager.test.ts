@@ -1246,6 +1246,106 @@ integrationTestSuite({
             expect(prTarget?.isAutoDetected).toBe(true);
             expect(prTarget?.label).toBe("feat-autonoma-sdk");
             expect(result.autoDetectedTargetId).toBe("pr-9");
+            expect(prTarget?.availability).toBe("ready");
+        });
+
+        test("listSdkDryRunTargets lists building, failed, and preview-less PRs with availability states", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await manager.getState(appId);
+            const repoId = 778_900;
+            await harness.db.application.update({ where: { id: appId }, data: { githubRepositoryId: repoId } });
+
+            // PR 11: deploy in flight - urls not filled in yet.
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-building-${appId}-pr-11`,
+                    repoFullName: "acme/app",
+                    prNumber: 11,
+                    headSha: "sha-11",
+                    headRef: "feat/one",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "building",
+                    urls: {},
+                },
+            });
+            // PR 12: deploy failed.
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-failed-${appId}-pr-12`,
+                    repoFullName: "acme/app",
+                    prNumber: 12,
+                    headSha: "sha-12",
+                    headRef: "feat/two",
+                    githubRepositoryId: repoId,
+                    organizationId: orgId,
+                    status: "failed",
+                    error: "image build exited with code 1",
+                    urls: {},
+                },
+            });
+            // PR 13: open PR tracked by a branch, but no preview env and no deployment.
+            await harness.db.branch.create({
+                data: {
+                    name: "feat/three",
+                    applicationId: appId,
+                    organizationId: orgId,
+                    prInfo: {
+                        create: { applicationId: appId, prNumber: 13, prTitle: "feat: three", prState: "open" },
+                    },
+                },
+            });
+
+            const result = await manager.listSdkDryRunTargets(appId, orgId);
+
+            const building = result.targets.find((t) => t.id === "pr-11");
+            expect(building?.availability).toBe("building");
+            expect(building?.source).toBe("previewkit");
+            expect(building?.sdkUrl).toBeUndefined();
+            expect(building?.previewUrl).toBeUndefined();
+
+            const failed = result.targets.find((t) => t.id === "pr-12");
+            expect(failed?.availability).toBe("failed");
+            expect(failed?.error).toBe("image build exited with code 1");
+            expect(failed?.sdkUrl).toBeUndefined();
+
+            const noPreview = result.targets.find((t) => t.id === "pr-13");
+            expect(noPreview?.availability).toBe("no_preview");
+            expect(noPreview?.source).toBe("external");
+            expect(noPreview?.sdkUrl).toBeUndefined();
+            expect(noPreview?.requiresSharedSecretInput).toBe(false);
+        });
+
+        test("listSdkDryRunTargets sorts the auto-detected SDK PR first, then main, then PRs newest-first", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await manager.getState(appId);
+            for (const [prNumber, title] of [
+                [21, "feat: unrelated work"],
+                [22, "feat: autonoma-sdk endpoint"],
+                [23, "fix: another thing"],
+            ] as const) {
+                await harness.db.branch.create({
+                    data: {
+                        name: `branch-${prNumber}`,
+                        applicationId: appId,
+                        organizationId: orgId,
+                        prInfo: {
+                            create: { applicationId: appId, prNumber, prTitle: title, prState: "open" },
+                        },
+                    },
+                });
+            }
+
+            const result = await manager.listSdkDryRunTargets(appId, orgId);
+
+            expect(result.autoDetectedTargetId).toBe("pr-22");
+            expect(result.targets.map((t) => t.id)).toEqual(["pr-22", "main", "pr-23", "pr-21"]);
         });
 
         test("configureAndDiscoverSdkTarget validates via discover without touching secrets or redeploying", async ({

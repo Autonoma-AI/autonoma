@@ -500,6 +500,11 @@ export class OnboardingSdkCapabilityService {
         if (target == null) {
             throw new BadRequestError(`Unknown dry-run target "${targetId}"`);
         }
+        if (target.sdkUrl == null) {
+            throw new BadRequestError(
+                `Dry-run target "${targetId}" has no deployed preview yet (${target.availability})`,
+            );
+        }
 
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
@@ -566,6 +571,9 @@ export class OnboardingSdkCapabilityService {
         }
         if (target.source !== "previewkit" || target.environmentId == null || target.sdkAppName == null) {
             throw new BadRequestError(`SDK target "${targetId}" is not managed by PreviewKit`);
+        }
+        if (target.sdkUrl == null) {
+            throw new BadRequestError(`SDK target "${targetId}" has no deployed preview yet (${target.availability})`);
         }
 
         const app = await this.db.application.findFirst({

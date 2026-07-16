@@ -5,6 +5,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
   Skeleton,
@@ -48,7 +49,7 @@ import {
 } from "lib/query/app-generations.queries";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
-import { trpc } from "lib/trpc";
+import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
 
@@ -417,6 +418,108 @@ function formatTargetLabel(target: {
   return target.isAutoDetected ? `${base} (SDK PR)` : base;
 }
 
+type SdkDryRunTarget = RouterOutputs["onboarding"]["listSdkDryRunTargets"]["targets"][number];
+type TargetAvailability = SdkDryRunTarget["availability"];
+
+/** Short state note rendered next to non-ready targets in the selectors. */
+function targetAvailabilityNote(availability: TargetAvailability): string | undefined {
+  if (availability === "building") return "building...";
+  if (availability === "failed") return "deploy failed";
+  if (availability === "no_preview") return "no preview";
+  return undefined;
+}
+
+/**
+ * Dry runs can only hit deployed previews, so the default pick is the first
+ * READY target in preference order: auto-detected SDK PR, main, anything else.
+ */
+function pickInitialDryRunTargetId(targets: {
+  targets: Array<{ id: string; kind: "main" | "pr"; availability: TargetAvailability }>;
+  autoDetectedTargetId?: string;
+}): string | undefined {
+  const ready = targets.targets.filter((t) => t.availability === "ready");
+  const autoDetected = ready.find((t) => t.id === targets.autoDetectedTargetId);
+  return autoDetected?.id ?? ready.find((t) => t.kind === "main")?.id ?? ready[0]?.id;
+}
+
+/** Show the dropdown filter once the list is long enough to need one. */
+const TARGET_SEARCH_THRESHOLD = 8;
+
+interface SelectableTarget {
+  id: string;
+  kind: "main" | "pr";
+  label: string;
+  prNumber?: number;
+  isAutoDetected: boolean;
+  availability: TargetAvailability;
+}
+
+interface TargetSelectItemsProps {
+  targets: SelectableTarget[];
+  disableUnready?: boolean;
+}
+
+/** Every whitespace-separated token must appear in the label or "#<pr>". */
+function matchesTargetQuery(target: SelectableTarget, query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed === "") return true;
+  const haystack = `${formatTargetLabel(target)} #${target.prNumber ?? ""}`.toLowerCase();
+  return trimmed.split(/\s+/).every((token) => haystack.includes(token));
+}
+
+/**
+ * The shared dropdown body for both target selectors: a "previews are per-PR"
+ * hint on top (the most common confusion is a pushed branch with no PR), a
+ * title/#number filter once the PR list gets long, then every target with its
+ * state spelled out.
+ */
+function TargetSelectItems({ targets, disableUnready = false }: TargetSelectItemsProps) {
+  const [query, setQuery] = useState("");
+  const showSearch = targets.length >= TARGET_SEARCH_THRESHOLD;
+  const visibleTargets = showSearch ? targets.filter((target) => matchesTargetQuery(target, query)) : targets;
+
+  return (
+    <>
+      {showSearch && (
+        <div className="px-1 pb-1 pt-0.5">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search PRs by title or #number"
+            className="h-7 text-2xs"
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the popup just opened at the user's request; focusing its filter is the expected behavior
+            autoFocus
+            onKeyDown={(e) => {
+              // Keep printable keys local to the input - the Select's typeahead
+              // would otherwise hijack them and move the highlight. Arrows/Enter/
+              // Escape still bubble so list navigation and closing keep working.
+              const isListNavigationKey =
+                e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape";
+              if (!isListNavigationKey) e.stopPropagation();
+            }}
+          />
+        </div>
+      )}
+      <p className="max-w-sm px-2.5 py-1.5 text-2xs text-text-secondary">
+        Don't see your branch? Previews are per-PR - push your branch and open a PR.
+      </p>
+      <SelectSeparator />
+      {visibleTargets.map((target) => {
+        const note = targetAvailabilityNote(target.availability);
+        return (
+          <SelectItem key={target.id} value={target.id} disabled={disableUnready && target.availability !== "ready"}>
+            {formatTargetLabel(target)}
+            {note != null && <span className="ml-1.5 text-text-secondary">- {note}</span>}
+          </SelectItem>
+        );
+      })}
+      {visibleTargets.length === 0 && (
+        <p className="px-2.5 py-1.5 text-2xs text-text-secondary">No PRs match "{query.trim()}"</p>
+      )}
+    </>
+  );
+}
+
 function SdkStepBody({ applicationId }: { applicationId: string }) {
   const { data: state } = useOnboardingState(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
@@ -448,18 +551,31 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   const selectedTarget = targets.targets.find((t) => t.id === selectedTargetId);
   const requiresSharedSecretInput = selectedTarget?.requiresSharedSecretInput ?? true;
   const selectedTargetSource = selectedTarget?.source;
+  const selectedTargetAvailability = selectedTarget?.availability;
+  const selectedTargetHasUrl = selectedTarget?.sdkUrl != null;
 
   useEffect(() => {
     if (selectedTargetId == null || selectedTargetSource !== "previewkit") return;
+    // Preparing provisions secrets ahead of validation - the API rejects targets
+    // with no deployed URL, and a failed deploy must not be redeployed as a
+    // silent side effect of merely selecting it in the dropdown.
+    if (!selectedTargetHasUrl || selectedTargetAvailability === "failed") return;
     prepareMutate({ applicationId, targetId: selectedTargetId });
-  }, [applicationId, selectedTargetId, selectedTargetSource, prepareMutate]);
+  }, [
+    applicationId,
+    selectedTargetId,
+    selectedTargetSource,
+    selectedTargetHasUrl,
+    selectedTargetAvailability,
+    prepareMutate,
+  ]);
 
   const managedDiscoverMutate = managedDiscover.mutate;
   const managedDiscoverPending = managedDiscover.isPending;
   useEffect(() => {
     if (retryDiscoverTargetId == null) return;
     if (selectedTarget == null || selectedTarget.id !== retryDiscoverTargetId) return;
-    if (selectedTarget.source !== "previewkit" || selectedTarget.status !== "ready") return;
+    if (selectedTarget.source !== "previewkit" || selectedTarget.availability !== "ready") return;
     if (managedDiscoverPending) return;
     // Disarm before firing so this retry cannot re-trigger itself. allowSelfHeal
     // is false here, so the only success outcome is "discovered" - a surviving
@@ -474,16 +590,23 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   }, [retryDiscoverTargetId, selectedTarget, managedDiscoverPending, managedDiscoverMutate, applicationId]);
 
   const preparing =
-    prepareTarget.isPending ||
-    (selectedTarget?.source === "previewkit" && selectedTarget.status != null && selectedTarget.status !== "ready");
+    prepareTarget.isPending || (selectedTarget?.source === "previewkit" && selectedTarget.availability === "building");
   const previewLogTarget = buildPreviewLogTarget(selectedTarget);
   const pullRequestUrl = buildPullRequestUrl(selectedTarget);
   const isValidating = discover.isPending || managedDiscover.isPending || state.discoveryInProgress;
   const canDiscover =
-    selectedTarget != null && !isValidating && !preparing && (!requiresSharedSecretInput || signingSecret.length > 0);
+    selectedTarget?.availability === "ready" &&
+    !isValidating &&
+    !preparing &&
+    (!requiresSharedSecretInput || signingSecret.length > 0);
+  const showDiscoveryError = state.lastDiscoveryError != null && !discover.isPending && !managedDiscover.isPending;
+  // Logs are the debugging surface: on a discovery error, but also while a
+  // preview is building or after its deploy failed - the answer is in there.
+  const showPreviewLogs =
+    showDiscoveryError || selectedTargetAvailability === "building" || selectedTargetAvailability === "failed";
 
   function handleDiscover() {
-    if (selectedTarget == null) return;
+    if (selectedTarget == null || selectedTarget.sdkUrl == null) return;
     if (selectedTarget.requiresSharedSecretInput) {
       const headersRecord: Record<string, string> = {};
       for (const h of customHeaders) {
@@ -543,18 +666,46 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {targets.targets.map((target) => (
-              <SelectItem key={target.id} value={target.id}>
-                {formatTargetLabel(target)}
-              </SelectItem>
-            ))}
+            <TargetSelectItems targets={targets.targets} />
           </SelectContent>
         </Select>
-        {selectedTarget != null && (
+        {selectedTarget?.sdkUrl != null && (
           <p className="font-mono text-2xs text-text-secondary">SDK endpoint: {selectedTarget.sdkUrl}</p>
+        )}
+        {selectedTarget?.availability === "building" && selectedTarget.sdkUrl == null && (
+          <p className="font-mono text-2xs text-text-secondary">
+            SDK endpoint will appear once the preview finishes deploying.
+          </p>
         )}
         {selectedTarget?.isAutoDetected && <p className="text-2xs text-text-secondary">Auto-selected your SDK PR.</p>}
       </div>
+
+      {selectedTarget?.availability === "no_preview" && (
+        <div className="flex items-start gap-2 border border-status-warn/30 bg-status-warn/5 px-3 py-2.5">
+          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+          <p className="text-sm text-text-secondary">
+            Previews are built per pull request, and this PR has no preview environment. Draft PRs don't get preview
+            builds - mark the PR ready for review or push a new commit to trigger one.
+          </p>
+        </div>
+      )}
+
+      {selectedTarget?.availability === "failed" && (
+        <div className="flex flex-col gap-2 border border-status-critical/30 bg-status-critical/5 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
+            <p className="text-sm text-text-primary">This preview failed to deploy, so it can't be validated.</p>
+          </div>
+          {selectedTarget.error != null && selectedTarget.error !== "" && (
+            <p className="whitespace-pre-wrap break-words font-mono text-2xs text-status-critical/90">
+              {selectedTarget.error}
+            </p>
+          )}
+          <p className="text-2xs text-text-secondary">
+            The build logs below show what went wrong. Push a new commit to retry the deploy.
+          </p>
+        </div>
+      )}
 
       {requiresSharedSecretInput && (
         <div className="flex flex-col gap-1.5">
@@ -654,7 +805,7 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
         )}
       </div>
 
-      {state.lastDiscoveryError != null && !discover.isPending && !managedDiscover.isPending && (
+      {showDiscoveryError && (
         <div className="flex flex-col gap-3">
           <div className="flex items-start gap-2 border border-status-critical/30 bg-status-critical/5 px-3 py-2">
             <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
@@ -685,38 +836,39 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
               )}
             </div>
           </div>
-          {previewLogTarget != null && (
-            <div className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                onClick={() => setLogsExpanded((prev) => !prev)}
-                aria-expanded={logsExpanded}
-                className="flex w-fit items-center gap-1.5"
-              >
-                <CaretDownIcon
-                  size={12}
-                  className={cn("text-text-secondary transition-transform", logsExpanded ? "" : "-rotate-90")}
-                />
-                <span className="font-mono text-2xs font-medium uppercase tracking-widest text-text-secondary">
-                  Preview runtime logs
-                </span>
-              </button>
-              {logsExpanded && (
-                <>
-                  <p className="text-2xs text-text-secondary">
-                    Live output from <span className="font-medium">{selectedTarget?.label}</span>. Failed SDK requests
-                    only appear here when the preview app writes the error to stdout or stderr.
-                  </p>
-                  <PreviewLogsTabs
-                    owner={previewLogTarget.owner}
-                    repo={previewLogTarget.repo}
-                    pr={previewLogTarget.pr}
-                    app={previewLogTarget.app}
-                    appBuilding={preparing}
-                  />
-                </>
-              )}
-            </div>
+        </div>
+      )}
+
+      {previewLogTarget != null && showPreviewLogs && (
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setLogsExpanded((prev) => !prev)}
+            aria-expanded={logsExpanded}
+            className="flex w-fit items-center gap-1.5"
+          >
+            <CaretDownIcon
+              size={12}
+              className={cn("text-text-secondary transition-transform", logsExpanded ? "" : "-rotate-90")}
+            />
+            <span className="font-mono text-2xs font-medium uppercase tracking-widest text-text-secondary">
+              Preview runtime logs
+            </span>
+          </button>
+          {logsExpanded && (
+            <>
+              <p className="text-2xs text-text-secondary">
+                Live output from <span className="font-medium">{selectedTarget?.label}</span>. Failed SDK requests only
+                appear here when the preview app writes the error to stdout or stderr.
+              </p>
+              <PreviewLogsTabs
+                owner={previewLogTarget.owner}
+                repo={previewLogTarget.repo}
+                pr={previewLogTarget.pr}
+                app={previewLogTarget.app}
+                appBuilding={preparing}
+              />
+            </>
           )}
         </div>
       )}
@@ -750,9 +902,7 @@ function DryRunList({ applicationId }: { applicationId: string }) {
   const runDryRun = useRunScenarioDryRun();
   const [results, setResults] = useState<Record<string, DryRunResult>>({});
   const [isRunning, setIsRunning] = useState(false);
-  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(
-    targets.autoDetectedTargetId ?? targets.targets.find((t) => t.kind === "main")?.id ?? targets.targets[0]?.id,
-  );
+  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(pickInitialDryRunTargetId(targets));
   const [logsExpanded, setLogsExpanded] = useState(true);
 
   const list = scenarios ?? [];
@@ -801,14 +951,10 @@ function DryRunList({ applicationId }: { applicationId: string }) {
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {targets.targets.map((target) => (
-                <SelectItem key={target.id} value={target.id}>
-                  {formatTargetLabel(target)}
-                </SelectItem>
-              ))}
+              <TargetSelectItems targets={targets.targets} disableUnready />
             </SelectContent>
           </Select>
-          {selectedTarget != null && (
+          {selectedTarget?.sdkUrl != null && (
             <p className="font-mono text-2xs text-text-secondary">SDK endpoint: {selectedTarget.sdkUrl}</p>
           )}
         </div>
@@ -822,7 +968,7 @@ function DryRunList({ applicationId }: { applicationId: string }) {
           size="sm"
           className="gap-2"
           onClick={() => void runAll()}
-          disabled={isRunning || selectedTargetId == null}
+          disabled={isRunning || selectedTarget?.availability !== "ready"}
         >
           <PlayIcon size={14} weight="bold" />
           {isRunning ? "Running..." : "Run dry run"}

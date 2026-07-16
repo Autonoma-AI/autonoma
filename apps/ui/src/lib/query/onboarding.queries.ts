@@ -192,12 +192,13 @@ export function useSdkDryRunTargets(applicationId: string) {
             {
                 refetchInterval: (query) => {
                     const targets = query.state.data?.targets ?? [];
-                    if (targets.length === 0) return 5_000;
                     const hasBuildingPreviewkitTarget = targets.some(
-                        (target) =>
-                            target.source === "previewkit" && target.status != null && target.status !== "ready",
+                        (target) => target.source === "previewkit" && target.availability === "building",
                     );
-                    return hasBuildingPreviewkitTarget ? 5_000 : false;
+                    if (targets.length === 0 || hasBuildingPreviewkitTarget) return 5_000;
+                    // Slow poll even when everything is ready, so a PR the user just
+                    // opened shows up without a manual refresh.
+                    return 15_000;
                 },
             },
         ),
