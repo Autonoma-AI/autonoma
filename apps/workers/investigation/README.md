@@ -119,19 +119,24 @@ child in `@autonoma/workflow`):
    run the shadow generation on the web worker -> `classifyInvestigationRun` -> `scenario down`. It collapses the
    verdict to `passed` | `client_bug` and emits a candidate finding; it runs the test ONCE (no self-heal loop, no
    plan edits) and files nothing. A test that cannot be evaluated yields no finding.
-3. **reconcileAnalysis** - derives the shadow verdict (`client_bug` if any finding is a client bug, else `passed`),
-   builds the shadow-vs-diffs `DeployedComparison`, and upserts the `AnalysisShadowRun` store row (verdict, counts,
-   findings blob, comparison blob). Files no user-facing rows.
+3. **reconcileAnalysis** - holistically deduplicates the candidate findings (`dedupeAnalysisFindings` in
+   `@autonoma/investigation`: one structured pass over the WHOLE set, so several tests surfacing the same
+   underlying issue collapse into one finding that unions their evidence - `coveredSlugs` + `members`), derives
+   the shadow verdict from the deduped set (`client_bug` if any finding is a client bug, else `passed`), builds
+   the shadow-vs-diffs `DeployedComparison`, and upserts the `AnalysisShadowRun` store row (verdict, counts,
+   deduped findings blob, comparison blob). Single-concern: no plan edits, deletions, re-runs, or finalize, and
+   it files no user-facing rows. The dedup is best-effort - a model failure reports the candidates un-merged.
 4. **finalizeAnalysis** - workflow plumbing; never promotes in shadow mode.
 
 The remaining `[analysis-merge]` issues flesh these out (the self-heal loop + full verdict taxonomy, up-front
-new-test materialization, holistic dedup + rich evidence, and the shadow-vs-diffs comparison).
+new-test materialization, richer per-finding evidence, and the shadow-vs-diffs comparison).
 
 ### The shadow store (`AnalysisShadowRun`)
 
 An isolated, droppable island (mirrors `investigation_report`), keyed by the twin `snapshotId`: it records one
-shadow run's `verdict`, `testCount` / `clientBugCount`, the per-test `findings` (JSON blob), and the `deployed`
-diffs comparison (JSON blob). It FKs only OUTWARD (snapshot / org, cascade) and nothing in the core app FKs into
+shadow run's `verdict`, `testCount` (raw candidates) / `clientBugCount` (deduped client bugs), the deduped
+`findings` (JSON blob, each with its unioned `coveredSlugs` + `members`), and the `deployed` diffs comparison
+(JSON blob). It FKs only OUTWARD (snapshot / org, cascade) and nothing in the core app FKs into
 it, so retiring the shadow machinery at cutover is a clean `DROP TABLE`. It is NOT the user-facing Bug/Issue model
 and is distinct from `investigation_report` so the two shadows never collide on the shared twin.
 

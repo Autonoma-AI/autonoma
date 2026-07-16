@@ -57,13 +57,15 @@ export interface ReconcileAnalysisInput {
 export interface ReconcileAnalysisOutput {
     /** The shadow app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`. */
     verdict: string;
-    /** How many tests were investigated (candidate findings). */
+    /** How many tests were investigated (raw candidate findings, before dedup). */
     testCount: number;
-    /** How many of those findings were client bugs. */
+    /** How many distinct findings remained after holistic dedup (candidates sharing a cause are unioned into one). */
+    findingCount: number;
+    /** How many of the deduped findings are client bugs. */
     clientBugCount: number;
     /** The DeployedComparison produced against the authoritative diffs output. */
     comparison: AnalysisDeployedComparison;
-    /** How many candidate findings were filed as bugs - always 0 in shadow mode (nothing is filed). */
+    /** How many findings were filed as bugs - always 0 in shadow mode (nothing is filed). */
     filedCount: number;
 }
 

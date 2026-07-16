@@ -2396,9 +2396,10 @@ model AnalysisShadowRun {
   testCount      Int @default(0) @map("test_count")
   clientBugCount Int @default(0) @map("client_bug_count")
 
-  /// The per-test candidate findings the Investigators emitted. A display-only blob, not queried yet, so JSON
-  /// not a child table; the Reconciler issue normalizes it when holistic dedup + evidence land.
-  /// ![{ slug: string; category: string; headline: string }[]]
+  /// The deduped findings the Reconciler produced: several tests surfacing the same underlying issue are
+  /// unioned into one finding carrying every member (`coveredSlugs` + `members`). A display-only blob, not
+  /// queried yet, so JSON not a child table.
+  /// ![{ category: string; headline: string; coveredSlugs: string[]; members: { slug: string; category: string; headline: string }[] }[]]
   findings Json?
 
   /// The authoritative diffs job's outcome for this PR, for the shadow-vs-diffs comparison. Display-only blob.

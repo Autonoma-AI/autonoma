@@ -48,13 +48,14 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
     const candidates = await runInvestigators(snapshotId, mode, impact.targets, ids);
     log.info("Investigators complete", { ...ids, extra: { candidateCount: candidates.length } });
 
-    // Stage 3 - Reconciler: dedup + persist the shadow verdict + findings; (authoritative only) file bugs.
-    // Always produces the DeployedComparison against the diffs job.
+    // Stage 3 - Reconciler: holistic dedup + persist the shadow verdict + deduped findings; (authoritative only)
+    // file bugs. Always produces the DeployedComparison against the diffs job.
     const reconciliation = await analysis.reconcileAnalysis({ snapshotId, mode, candidates });
     log.info("Reconciler complete", {
         ...ids,
         extra: {
             verdict: reconciliation.verdict,
+            findingCount: reconciliation.findingCount,
             clientBugCount: reconciliation.clientBugCount,
             filedCount: reconciliation.filedCount,
             comparisonFound: reconciliation.comparison.found,

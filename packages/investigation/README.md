@@ -64,6 +64,11 @@ src/
     apply-reconciliation.ts     applyReconciliation - collapse each merge into ONE finding (canonical anchor +
                                 combined headline/root-cause + UNION of the members' evidence + coveredSlugs) and drop
                                 the absorbed ones; toReconcilableFindings projects report findings into the agent input
+  analysis/
+    dedup.ts                    dedupeAnalysisFindings - the merged analysis pipeline's Reconciler dedup: ONE
+                                structured pass over the WHOLE candidate set (holistic, not pairwise) that groups
+                                findings sharing a cause and unions each group's evidence (coveredSlugs + members).
+                                Contained; never throws (a model failure reports the candidates un-merged)
   merge/
     merge-inputs.ts             MergeInputsReader - derive the twin's test edits + recipe create-graph edits
                                 (each vs its fork-point baseline) + main's current suite/recipes

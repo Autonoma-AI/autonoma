@@ -96,3 +96,5 @@ export type { ReconciliationResult, FindingMerge } from "./reconcile/schema";
 export { RECONCILE_SYSTEM_PROMPT, buildReconcilePrompt } from "./reconcile/prompt";
 export { buildReconcileTools } from "./reconcile/tools";
 export type { ReconcileDeps, ReconcilableFinding, ReconcilableEvidence } from "./reconcile/dependencies";
+export { dedupeAnalysisFindings } from "./analysis/dedup";
+export type { AnalysisFinding, ReconciledAnalysisFinding, DedupAnalysisFindingsDeps } from "./analysis/dedup";
