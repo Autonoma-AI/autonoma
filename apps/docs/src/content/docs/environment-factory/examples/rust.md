@@ -48,7 +48,8 @@ let config = HandlerConfig {
     // Private to your server - signs the refs token so teardown only deletes what was created
     signing_secret,
     factories,
-    allow_production: true,
+    // Deprecated no-op, but the struct still requires the field
+    allow_production: false,
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
     auth: Box::new(|_user, _ctx| {
         Box::pin(async move {

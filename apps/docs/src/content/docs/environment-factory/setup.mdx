@@ -286,14 +286,15 @@ Then confirm three things by hand:
 
 ## 8. Go live
 
-**Enable in production.** The endpoint returns `404` in production by default. When you're ready, opt in:
+**Nothing to switch on.** The endpoint is always enabled - HMAC signing is the gate, so it serves nothing without the shared secret. On Autonoma preview environments (`AUTONOMA_PREVIEWKIT` is set in every preview) that's the whole story: previews are isolated and never production. If you deploy the factory in your own environments, add the production guard yourself - mount the route only outside production:
 
 ```typescript
-export const POST = createHandler({
-  // ...
-  allowProduction: true,
-})
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/autonoma', createHandler({ ... }))
+}
 ```
+
+See [Security & Troubleshooting](/environment-factory/security/) for the full three-layer model.
 
 **Connect to Autonoma.** Deploy your endpoint and set the same `AUTONOMA_SHARED_SECRET` in your deployment secrets. Autonoma then calls `discover` to learn your schema, generates scenario data, and sends `up` / `down` around every test run.
 

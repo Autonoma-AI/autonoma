@@ -23,11 +23,23 @@ openssl rand -hex 32   # AUTONOMA_SIGNING_SECRET (must differ)
 
 ![Three layers protect the endpoint: a production guard, request signing, and a signed teardown token](/img/environment-factory/security-layers.jpg)
 
-**Layer 1 - Production guard.** The endpoint returns `404 PRODUCTION_BLOCKED` by default and only serves requests when you set `allowProduction: true`. The SDK reads **no** environment variable to decide this - `NODE_ENV`, `MIX_ENV`, `APP_ENV`, `RAILS_ENV`, and the like are all ignored - so the gate is explicit and you own the condition. Tie the flag to your own check to keep it off in production (for example `allowProduction: process.env.NODE_ENV !== 'production'`). Even if someone finds the URL, it stays dark until you opt in.
+**Layer 1 - Production guard (yours).** Running on Autonoma preview environments (`AUTONOMA_PREVIEWKIT` is set in every preview)? Skip this layer entirely - previews are isolated, disposable, and never production. Deploying the factory in your own environments? Only mount the route outside production, with a condition you own:
 
-**Layer 2 - Request signing (HMAC-SHA256).** Every request carries an `x-signature` header: the HMAC-SHA256 of the raw body, keyed with the shared secret. The SDK verifies it automatically and rejects unsigned or tampered requests with `401`.
+```typescript
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/autonoma', createHandler({ ... }))
+}
+```
+
+The SDK itself has no switch here - the guard is plain code in your app, so you can see exactly when the endpoint exists at all.
+
+**Layer 2 - Request signing (HMAC-SHA256).** Every request carries an `x-signature` header: the HMAC-SHA256 of the raw body, keyed with the shared secret. The SDK verifies it automatically and rejects unsigned or tampered requests with `401`. Even someone who finds the URL gets nothing without the shared secret.
 
 **Layer 3 - Signed refs token.** When `up` creates data, the SDK signs the created record IDs into a `refsToken` using the signing secret. On `down`, it verifies that token before deleting anything - so `down` can only ever delete what `up` actually created. Autonoma just stores the opaque string and passes it back; it cannot forge or modify it.
+
+:::note[Upgrading from an older SDK?]
+Older SDK versions had an `allowProduction` option that blocked the endpoint with `404 PRODUCTION_BLOCKED` unless set. The option is deprecated and ignored - current SDKs always serve signed requests, and the production guard is the conditional mount above. If your deployed version still returns `PRODUCTION_BLOCKED` (Autonoma previews build with `NODE_ENV=production`, which tripped older setups), upgrade the SDK or set `allowProduction: true` until you can.
+:::
 
 | Attack | Why it fails |
 | --- | --- |
@@ -51,7 +63,7 @@ Every code the endpoint can return, with its fix:
 | `INVALID_BODY` | 400 | Body isn't valid JSON, or a required field is missing | Match each record to its own top-level model key and supply every required field |
 | `UNKNOWN_ACTION` | 400 | `action` isn't `discover`, `up`, or `down` | Check the request is one of the three actions |
 | `INVALID_REFS_TOKEN` | 403 | Refs token missing, malformed, or failed verification | Use the same `AUTONOMA_SIGNING_SECRET` between `up` and `down` |
-| `PRODUCTION_BLOCKED` | 404 | Endpoint disabled - `allowProduction` is not `true` | Set `allowProduction: true` to enable the endpoint |
+| `PRODUCTION_BLOCKED` | 404 | Older SDK versions only: the deprecated `allowProduction` option was not set | Upgrade the SDK (the endpoint is always enabled now), or set `allowProduction: true` until you can |
 | `SAME_SECRETS` | 500 | `sharedSecret` and `signingSecret` are identical | Use two different `openssl rand -hex 32` values |
 | `FACTORY_MISSING_PK` | 500 | A factory's `create` didn't return an id | Return at least `{ id: "..." }` from every `create` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Check your factory bodies and server logs |
