@@ -535,6 +535,68 @@ integrationTestSuite({
             expect(state.updatedAt.getTime()).toBe(deployRequestedAt.getTime());
         });
 
+        test("getPreviewReadiness does not roll a verified app back to previewkit_deploying on a rebuild", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            // A transient rebuild reporting "building" keeps the verification status
+            // accurate, but must never demote an app that already reached
+            // preview_verified - a previewkit app only re-advances while the
+            // onboarding page polls readiness, so a demotion strands it short of
+            // completed (and keeps nagging "Continue setup").
+            const appId = await createApp();
+            const githubRepositoryId = 91_111;
+            const deployRequestedAt = new Date(Date.now() - 10_000);
+            const buildStartedAt = new Date(deployRequestedAt.getTime() + 1_000);
+            await linkRepository(harness, appId, githubRepositoryId);
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: {
+                    applicationId: appId,
+                    step: "preview_verified",
+                    previewEnvironmentMode: "previewkit",
+                    previewVerificationStatus: "ready",
+                    updatedAt: deployRequestedAt,
+                },
+                update: {
+                    step: "preview_verified",
+                    previewEnvironmentMode: "previewkit",
+                    previewVerificationStatus: "ready",
+                    updatedAt: deployRequestedAt,
+                },
+            });
+            const environment = await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-verified-rebuild-${appId}`,
+                    repoFullName: "Autonoma-AI/verified-rebuild-preview",
+                    prNumber: 0,
+                    headSha: "rebuild-head-sha",
+                    headRef: "main",
+                    githubRepositoryId,
+                    organizationId: orgId,
+                    status: "building",
+                    phase: "building-images",
+                    urls: {},
+                    updatedAt: new Date(deployRequestedAt.getTime() - 10_000),
+                },
+            });
+            await harness.db.previewkitBuild.create({
+                data: {
+                    environmentId: environment.id,
+                    headSha: "rebuild-head-sha",
+                    status: "building",
+                    startedAt: buildStartedAt,
+                },
+            });
+
+            const readiness = await manager.getPreviewReadiness(appId, orgId);
+
+            expect(readiness.diagnostics.status).toBe("building");
+            const state = await harness.db.onboardingState.findUniqueOrThrow({ where: { applicationId: appId } });
+            expect(state.step).toBe("preview_verified");
+            expect(state.previewVerificationStatus).toBe("building");
+        });
+
         test("PreviewKit config save validates and persists the application's config", async ({
             harness,
             seedResult: { orgId, manager, createApp },

@@ -24,6 +24,7 @@ import {
     OnboardingSdkCapabilityService,
     type PrepareSdkTargetResult,
 } from "./onboarding-sdk-capability";
+import { isStepAtOrPast } from "./onboarding-step-order";
 import {
     type ListAvailableVercelProjectsResult,
     OnboardingVercelCapabilityService,
@@ -60,22 +61,6 @@ import { PreviewkitDeployingState } from "./states/previewkit-deploying-state";
  * CLI work moved out into the Finish setup tab.
  */
 const INITIAL_STEP: OnboardingState["step"] = "github";
-
-/**
- * Ordered list of onboarding steps. Used to determine whether an operation
- * from an earlier step should be allowed when the user is at a later step.
- */
-const STEP_ORDER: OnboardingState["step"][] = [
-    "github",
-    "preview_environment",
-    "previewkit_configuring",
-    "previewkit_deploying",
-    "existing_deploys_configuring",
-    "existing_deploys_waiting",
-    "preview_verified",
-    "diff_trigger",
-    "completed",
-];
 
 /**
  * Facade for the onboarding state machine.
@@ -772,12 +757,9 @@ export class OnboardingManager {
             update: {},
         });
 
-        const currentIndex = STEP_ORDER.indexOf(row.step);
-        const minimumIndex = STEP_ORDER.indexOf(minimumStep);
-
         // If we're at or past the minimum step, use the minimum step's state
         // so its operation logic runs. Otherwise, use the current state (which will reject).
-        const effectiveStep = currentIndex >= minimumIndex ? minimumStep : row.step;
+        const effectiveStep = isStepAtOrPast(row.step, minimumStep) ? minimumStep : row.step;
         this.logger.info("Loading state for backwards-compatible operation", {
             applicationId,
             currentStep: row.step,
@@ -880,9 +862,7 @@ export class OnboardingManager {
             update: {},
         });
 
-        const currentIndex = STEP_ORDER.indexOf(row.step);
-        const minimumIndex = STEP_ORDER.indexOf(minimumStep);
-        if (currentIndex < minimumIndex) {
+        if (!isStepAtOrPast(row.step, minimumStep)) {
             throw new ConflictError(`Cannot ${action} during "${row.step}" step`);
         }
     }

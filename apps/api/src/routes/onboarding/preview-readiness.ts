@@ -18,6 +18,7 @@ import {
     toAppBuildOutcomeMap,
     type PreviewFailure,
 } from "../deployments/preview-summary";
+import { isStepAtOrPast } from "./onboarding-step-order";
 
 export type PreviewDiagnosticsAction = "edit_config" | "edit_secrets" | "redeploy" | "copy_for_agent";
 export type PreviewDiagnosticsStatus = "idle" | "building" | "ready" | "failed";
@@ -461,11 +462,17 @@ export async function buildPreviewkitReadiness(
         // writePreviewUrl is itself guarded against downgrading a completed row.
         await writePreviewUrl(db, { applicationId, organizationId, previewUrl: primaryUrl });
     } else if (!isCompleted && shouldPersistPreviewVerificationStatus(step, previousStatus, diagnostics.status)) {
+        // Keep the verification status accurate, but only roll the *step* back to
+        // `previewkit_deploying` while the app is still in the deploy phase. An app
+        // that already reached `preview_verified` must not be demoted by a transient
+        // rebuild - a previewkit app only re-advances while the onboarding page is
+        // polling readiness, so a demotion strands it short of `completed`.
+        const stillInDeployPhase = !isStepAtOrPast(step, "preview_verified");
         await db.onboardingState.update({
             where: { applicationId },
             data: {
                 previewVerificationStatus: diagnostics.status,
-                ...(diagnostics.status === "building" ? { step: "previewkit_deploying" } : {}),
+                ...(diagnostics.status === "building" && stillInDeployPhase ? { step: "previewkit_deploying" } : {}),
             },
         });
     }
