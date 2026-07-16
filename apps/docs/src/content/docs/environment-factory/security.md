@@ -23,7 +23,7 @@ openssl rand -hex 32   # AUTONOMA_SIGNING_SECRET (must differ)
 
 ![Three layers protect the endpoint: a production guard, request signing, and a signed teardown token](/img/environment-factory/security-layers.jpg)
 
-**Layer 1 - Production guard.** The endpoint returns `404` whenever the app runs in production, unless you set `allowProduction: true`. Even if someone finds the URL, it stays dark in production. Each SDK reads its ecosystem's standard production signal - `NODE_ENV=production` for Node, `DJANGO_SETTINGS_MODULE` / `DEBUG=False` for Django, `MIX_ENV=prod` for Elixir, `APP_ENV`/`RAILS_ENV` for PHP and Rails, and so on.
+**Layer 1 - Production guard.** The endpoint returns `404 PRODUCTION_BLOCKED` by default and only serves requests when you set `allowProduction: true`. The SDK reads **no** environment variable to decide this - `NODE_ENV`, `MIX_ENV`, `APP_ENV`, `RAILS_ENV`, and the like are all ignored - so the gate is explicit and you own the condition. Tie the flag to your own check to keep it off in production (for example `allowProduction: process.env.NODE_ENV !== 'production'`). Even if someone finds the URL, it stays dark until you opt in.
 
 **Layer 2 - Request signing (HMAC-SHA256).** Every request carries an `x-signature` header: the HMAC-SHA256 of the raw body, keyed with the shared secret. The SDK verifies it automatically and rejects unsigned or tampered requests with `401`.
 
@@ -33,7 +33,7 @@ openssl rand -hex 32   # AUTONOMA_SIGNING_SECRET (must differ)
 | --- | --- |
 | Fake refs with made-up IDs | No valid token → rejected |
 | A real token with altered refs | Refs don't match the token → rejected |
-| A replayed token from last week | Token expired (24h) → rejected |
+| A replayed token | Confined to the exact record IDs `up` signed into it - it can never delete anything else |
 
 ## What the SDK can and cannot do
 
@@ -51,7 +51,7 @@ Every code the endpoint can return, with its fix:
 | `INVALID_BODY` | 400 | Body isn't valid JSON, or a required field is missing | Match each record to its own top-level model key and supply every required field |
 | `UNKNOWN_ACTION` | 400 | `action` isn't `discover`, `up`, or `down` | Check the request is one of the three actions |
 | `INVALID_REFS_TOKEN` | 403 | Refs token missing, malformed, or failed verification | Use the same `AUTONOMA_SIGNING_SECRET` between `up` and `down` |
-| `PRODUCTION_BLOCKED` | 404 | Endpoint disabled in production mode | Set `allowProduction: true`, or ensure the app isn't in production mode |
+| `PRODUCTION_BLOCKED` | 404 | Endpoint disabled - `allowProduction` is not `true` | Set `allowProduction: true` to enable the endpoint |
 | `SAME_SECRETS` | 500 | `sharedSecret` and `signingSecret` are identical | Use two different `openssl rand -hex 32` values |
 | `FACTORY_MISSING_PK` | 500 | A factory's `create` didn't return an id | Return at least `{ id: "..." }` from every `create` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Check your factory bodies and server logs |

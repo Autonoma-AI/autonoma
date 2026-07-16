@@ -1,6 +1,6 @@
 ---
 title: "Examples"
-description: "Working Environment Factory endpoints across 8 languages and 11 framework combinations - copy one for your stack."
+description: "Working Environment Factory endpoints across 8 languages and 12 framework combinations - copy one for your stack."
 ---
 
 Every example follows the same shape: install the SDK, configure the handler, register a factory for each model, and expose a single POST endpoint. Each factory carries an input schema (Pydantic in Python, Zod in TypeScript, and so on) so the SDK can describe the model to the dashboard and validate the create payload before invoking your code. There is no SQL introspection and no SQL fallback.

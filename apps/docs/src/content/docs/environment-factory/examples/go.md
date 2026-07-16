@@ -13,6 +13,7 @@ Uses `autonoma.GinHandler` with factories registered in an `autonoma.FactoryRegi
 // main.go
 import (
     "os"
+    "reflect"
     "github.com/autonoma-ai/sdk-go/autonoma"
     "github.com/gin-gonic/gin"
 )
@@ -38,29 +39,30 @@ config := &autonoma.HandlerConfig{
     // Every model the dashboard can create needs a factory.
     // The factory's InputStruct drives both validation and discover.
     Factories: autonoma.FactoryRegistry{
-        "Organization": autonoma.DefineFactory(autonoma.FactoryOpts{
+        "Organization": autonoma.FactoryDefinition{
             InputStruct: reflect.TypeOf(OrganizationInput{}),
-            Create: func(data any, ctx autonoma.FactoryContext) (map[string]any, error) {
-                input := data.(*OrganizationInput)
-                return createOrganization(db, input)
+            Create: func(input interface{}, ctx autonoma.FactoryContext) (map[string]any, error) {
+                in := input.(*OrganizationInput)
+                return createOrganization(db, in)
             },
-            Teardown: func(record map[string]any, ctx autonoma.FactoryContext) error {
-                return deleteOrganization(db, record["id"].(string))
+            Teardown: func(record interface{}, ctx autonoma.FactoryContext) error {
+                rec := record.(map[string]any)
+                return deleteOrganization(db, rec["id"].(string))
             },
-        }),
-        "User": autonoma.DefineFactory(autonoma.FactoryOpts{
+        },
+        "User": autonoma.FactoryDefinition{
             InputStruct: reflect.TypeOf(UserInput{}),
-            Create: func(data any, ctx autonoma.FactoryContext) (map[string]any, error) {
-                input := data.(*UserInput)
-                return createUser(db, input)
+            Create: func(input interface{}, ctx autonoma.FactoryContext) (map[string]any, error) {
+                in := input.(*UserInput)
+                return createUser(db, in)
             },
-        }),
+        },
     },
 
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
-    Auth: func(user map[string]any, ctx autonoma.AuthContext) (*autonoma.AuthResult, error) {
-        return &autonoma.AuthResult{
-            Extra: map[string]any{"headers": map[string]any{"Authorization": "Bearer test-token"}},
+    Auth: func(user map[string]any, ctx autonoma.AuthContext) (map[string]any, error) {
+        return map[string]any{
+            "headers": map[string]any{"Authorization": "Bearer test-token"},
         }, nil
     },
 }

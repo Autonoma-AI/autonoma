@@ -112,5 +112,5 @@ User: defineFactory({
 | Wrong cookie name | The browser never sends the cookie | Check your app's real cookie name in DevTools |
 
 :::note
-The one-hour expiry above is for the **login token you return here** (the session cookie or JWT). It has nothing to do with the Environment Factory's internal teardown token, which the SDK signs and manages itself and which expires after 24 hours - see [Security](/environment-factory/security/).
+The one-hour expiry above is for the **login token you return here** (the session cookie or JWT). It has nothing to do with the Environment Factory's internal teardown token, which the SDK signs and verifies itself - see [Security](/environment-factory/security/).
 :::

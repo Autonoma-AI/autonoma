@@ -56,10 +56,10 @@ pnpm add @autonoma-ai/sdk @autonoma-ai/server-node zod
 </TabItem>
 <TabItem label="Python">
 
-One package covers the core SDK and every adapter (`autonoma_fastapi`, `autonoma_flask`, `autonoma_django`):
+One distribution covers the core SDK and every adapter (`autonoma_fastapi`, `autonoma_flask`, `autonoma_django`). Install it with the extra for your framework so its dependency is pulled in:
 
 ```bash
-pip install autonoma-ai
+pip install "autonoma-ai[fastapi]"   # or [flask], [django]
 ```
 
 | Framework | Handler export |
@@ -73,11 +73,11 @@ pip install autonoma-ai
 
 | Your backend | SDK package |
 | --- | --- |
-| Go | `github.com/autonoma-ai/autonoma-sdk-go` |
-| Rust | `autonoma` crate |
+| Go | `github.com/autonoma-ai/sdk-go` |
+| Rust | `autonoma-sdk` crate |
 | Java | `ai.autonoma:autonoma-sdk` |
-| Ruby | `autonoma` gem |
-| PHP | `autonoma/sdk` |
+| Ruby | `autonoma-ai` gem |
+| PHP | `autonoma-ai/sdk` |
 | Elixir | `autonoma` hex package |
 
 See [Examples](/environment-factory/examples/) for a complete, runnable endpoint in each of these.

@@ -39,13 +39,13 @@ public class AutonomaConfig {
         // The factory's inputClass drives both validation and discover.
         config.setFactories(Map.of(
             "Organization", FactoryUtil.defineFactory(
-                OrganizationInput.class,
                 (data, ctx) -> organizationRepo.create(data),
+                OrganizationInput.class,
                 (record, ctx) -> organizationRepo.delete((String) record.get("id"))
             ),
             "User", FactoryUtil.defineFactory(
-                UserInput.class,
-                (data, ctx) -> userRepo.create(data)
+                (data, ctx) -> userRepo.create(data),
+                UserInput.class
             )
         ));
 

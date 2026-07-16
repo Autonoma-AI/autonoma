@@ -24,7 +24,7 @@ class AutonomaController < ApplicationController
   private
 
   def autonoma_config
-    @autonoma_config ||= Autonoma::Types::HandlerConfig.new(
+    @autonoma_config ||= Autonoma::HandlerConfig.new(
       # The column that scopes all models to a tenant - used to isolate test data
       scope_field: "organization_id",
       # Shared with Autonoma - verifies incoming requests via HMAC-SHA256

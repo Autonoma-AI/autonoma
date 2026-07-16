@@ -7,7 +7,7 @@ The PHP SDK is **factory-driven**: you register one factory per model and the SD
 
 ## Laravel
 
-Uses the auto-discovered service provider from `autonoma/sdk`. The entire setup is configuration-driven via `config/autonoma.php`. The factories use whatever Eloquent models, repositories, or service classes your app already has - the SDK does not need a database connection.
+Uses the auto-discovered service provider from `autonoma-ai/sdk`. The entire setup is configuration-driven via `config/autonoma.php`. The factories use whatever Eloquent models, repositories, or service classes your app already has - the SDK does not need a database connection.
 
 ```php
 <?php

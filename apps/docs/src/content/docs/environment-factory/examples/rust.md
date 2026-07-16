@@ -12,7 +12,7 @@ Uses `create_axum_handler` from `autonoma_sdk::axum`. Factories are registered i
 ```rust
 // src/main.rs
 use autonoma_sdk::axum::create_axum_handler;
-use autonoma_sdk::factory::define_factory;
+use autonoma_sdk::factory::{define_factory, define_factory_create_only};
 use autonoma_sdk::types::{FactoryContext, FactoryRegistry, FieldDef, HandlerConfig};
 use std::collections::HashMap;
 
@@ -21,22 +21,22 @@ let mut factories: FactoryRegistry = HashMap::new();
 factories.insert(
     "Organization".to_string(),
     define_factory(
-        vec![FieldDef::required("name", "string")],
+        vec![FieldDef { name: "name".into(), field_type: "string".into(), required: true }],
         |data, ctx| Box::pin(create_organization(data, ctx)),
         Some(|record, ctx| Box::pin(delete_organization(record, ctx))),
+        None,
     ),
 );
 
 factories.insert(
     "User".to_string(),
-    define_factory(
+    define_factory_create_only(
         vec![
-            FieldDef::required("email", "string"),
-            FieldDef::required("name", "string"),
-            FieldDef::required("organization_id", "string"),
+            FieldDef { name: "email".into(), field_type: "string".into(), required: true },
+            FieldDef { name: "name".into(), field_type: "string".into(), required: true },
+            FieldDef { name: "organization_id".into(), field_type: "string".into(), required: true },
         ],
         |data, ctx| Box::pin(create_user(data, ctx)),
-        None,
     ),
 );
 
@@ -47,14 +47,22 @@ let config = HandlerConfig {
     shared_secret,
     // Private to your server - signs the refs token so teardown only deletes what was created
     signing_secret,
-    factories: Some(factories),
+    factories,
+    allow_production: true,
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
-    auth: Some(Box::new(|_user, _ctx| {
-        Box::pin(async {
-            Ok(serde_json::json!({"headers": {"Authorization": "Bearer test-token"}}))
+    auth: Box::new(|_user, _ctx| {
+        Box::pin(async move {
+            let mut out: HashMap<String, serde_json::Value> = HashMap::new();
+            out.insert(
+                "headers".into(),
+                serde_json::json!({ "Authorization": "Bearer test-token" }),
+            );
+            out
         })
-    })),
-    ..Default::default()
+    }),
+    sdk: None,
+    before_down: None,
+    after_up: None,
 };
 
 let app = Router::new()
