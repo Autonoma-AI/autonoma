@@ -16,5 +16,5 @@
             "env": ["./src/env.ts"]
         }
     },
-    "include": ["src"]
+    "include": ["src", ".storybook"]
 }

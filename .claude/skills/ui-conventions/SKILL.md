@@ -258,3 +258,9 @@ Always use `@autonoma/blacklight` components. Key components and their variants:
 - **Card** - variants: `default`, `glass`, `stat`, `raised`. Sizes: `default`, `sm`, `compact`. Sub-components: `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter`, `CardLabel`, `CardValue`, `CardMeta`
 - **Badge** - variants: `default`, `secondary`, `destructive`, `outline`, `ghost`, `critical`, `high`, `warn`, `success`, `status-passed`, `status-failed`, `status-running`, `status-pending`
 - **Progress**, **Tabs**, **Separator**, **Skeleton** - see blacklight source for API
+
+## Storybook Stories & PR Screenshots
+
+`apps/ui` ships a Storybook (`pnpm --filter @autonoma/ui storybook`, port 6006) with MSW network mocking, so any component or full page renders from fixtures - no backend, database, or onboarding. Support code lives in `src/lib/storybook/`: tRPC fixtures typed against `RouterOutputs` (`trpcHandler`), better-auth mocks (`authHandlers`), the app-shell baseline (`appShellHandlers`), and `PageStory` for rendering real routes. Stories live in `src/stories/` or co-located with components - NEVER under `src/routes/` (the router plugin scans that tree). Screenshot stories headlessly with `pnpm --filter @autonoma/ui storybook:shoot -- --story <id>`.
+
+When a PR visibly changes the UI, follow the `ui-screenshots` skill to render the affected states and embed screenshots in the PR description.

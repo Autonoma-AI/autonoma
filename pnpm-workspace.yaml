@@ -77,6 +77,12 @@ minimumReleaseAgeExclude:
   - js-yaml@4.1.2
   - '@opentelemetry/core@2.8.0'
   - undici@6.27.0
+  - '@storybook/builder-vite@10.5.2'
+  - '@storybook/csf-plugin@10.5.2'
+  - '@storybook/react-dom-shim@10.5.2'
+  - '@storybook/react-vite@10.5.2'
+  - '@storybook/react@10.5.2'
+  - storybook@10.5.2
 
 onlyBuiltDependencies:
   - '@prisma/engines'

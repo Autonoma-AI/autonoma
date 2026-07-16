@@ -47,3 +47,6 @@ step2-result.json
 # AI Plan files
 plan/
 **/.claude/worktrees
+# Storybook screenshot output (uploaded to S3, never committed - PNGs are LFS-tracked)
+apps/ui/screenshots/
+storybook-static/
