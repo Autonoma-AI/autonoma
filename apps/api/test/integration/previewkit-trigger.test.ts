@@ -371,6 +371,7 @@ apiTestSuite({
                 {
                     getRepository: () => Promise.reject(notFound),
                     getBranchHead: () => Promise.reject(notFound),
+                    getPullRequest: () => Promise.reject(notFound),
                 },
                 deploySpy,
                 deploySpy,
@@ -392,6 +393,7 @@ apiTestSuite({
                             private: false,
                         }),
                     getBranchHead: () => Promise.reject(notFound),
+                    getPullRequest: () => Promise.reject(notFound),
                 },
                 deploySpy,
                 deploySpy,
@@ -536,11 +538,13 @@ apiTestSuite({
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("redeploy reconstructs the event from the environment row", async ({
+        test("redeploy falls back to the stored head when GitHub can't resolve the PR", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
+            // PR 12 is deliberately NOT registered on the fake GitHub client,
+            // so the latest-head lookup fails and the stored head is used.
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: "preview-acme-web-pr-12",
@@ -565,6 +569,76 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     headSha: "head-12",
                     headRef: "feature/pr-12",
+                    baseSha: "",
+                    baseRef: "",
+                    cloneUrl: "",
+                },
+            });
+        });
+
+        test("redeploy resolves the PR's latest head from GitHub over the stored one", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.githubApp.defaultClient.addPullRequest(REPO_FULL_NAME, {
+                number: 15,
+                title: "Feature PR",
+                headRef: "feature/pr-15",
+                baseSha: "main-sha-2",
+                commits: ["pr-15-old-head", "pr-15-new-head"],
+            });
+            // The stored head is one commit behind the PR's current head.
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-15",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 15,
+                    headSha: "pr-15-old-head",
+                    headRef: "feature/pr-15",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            await service.redeploy(REPO_FULL_NAME, 15, harness.organizationId);
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                event: {
+                    action: "synchronize",
+                    prNumber: 15,
+                    repoFullName: REPO_FULL_NAME,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: REPO_ID,
+                    headSha: "pr-15-new-head",
+                    headRef: "feature/pr-15",
+                    baseSha: "",
+                    baseRef: "",
+                    cloneUrl: "",
+                },
+            });
+        });
+
+        test("redeploy of the main-branch environment resolves the tracked branch's latest head", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            // Stored at main-sha-1 while the fake repo's main branch has advanced to main-sha-2.
+            await setMainBranchEnvironment(harness, "main", "ready");
+
+            await service.redeploy(REPO_FULL_NAME, 0, harness.organizationId);
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                event: {
+                    action: "synchronize",
+                    prNumber: 0,
+                    repoFullName: REPO_FULL_NAME,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: REPO_ID,
+                    headSha: "main-sha-2",
+                    headRef: "main",
                     baseSha: "",
                     baseRef: "",
                     cloneUrl: "",

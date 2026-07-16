@@ -56,8 +56,11 @@ interface MainBranchPushTarget {
     cloneUrl: string;
 }
 
-/** The two GitHub reads the main-branch preflight needs. */
-export type PreviewkitGitHubReader = Pick<GitHubInstallationService, "getRepository" | "getBranchHead">;
+/** The GitHub reads the main-branch preflight and redeploy head-resolution need. */
+export type PreviewkitGitHubReader = Pick<
+    GitHubInstallationService,
+    "getRepository" | "getBranchHead" | "getPullRequest"
+>;
 
 /** The pull_request webhook fields the preview lifecycle needs. */
 const pullRequestWebhookSchema = z.object({
@@ -516,7 +519,10 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Re-runs the deploy at the environment's current head SHA. Config is
+     * Re-runs the deploy at the newest head GitHub reports for the environment's
+     * PR (or tracked branch, for the main-branch environment), falling back to
+     * the stored head when GitHub can't resolve one - so a redeploy picks up
+     * commits pushed since the last webhook-driven deploy. Config is
      * latest-only, so the redeploy resolves the Application's current config
      * (not the one the environment was originally deployed with). `callerOrgId`
      * narrows to the caller's own environments; pass undefined for
@@ -548,18 +554,66 @@ export class PreviewkitTriggerService extends Service {
             throw new ConflictError("Environment predates redeploy support and cannot be redeployed");
         }
 
+        const { headSha, headRef } = await this.resolveLatestHead(
+            environment.organizationId,
+            environment.githubRepositoryId,
+            repoFullName,
+            prNumber,
+            { headSha: environment.headSha, headRef: environment.headRef },
+        );
+
         await this.deploy(
             {
                 repoFullName,
                 prNumber,
                 organizationId: environment.organizationId,
                 githubRepositoryId: environment.githubRepositoryId,
-                headSha: environment.headSha,
-                headRef: environment.headRef,
+                headSha,
+                headRef,
                 cloneUrl: "",
             },
             "synchronize",
         );
+    }
+
+    /**
+     * Resolves the newest head for a redeploy: a PR environment follows the
+     * PR's current head, the main-branch environment (PR 0) follows its tracked
+     * branch. Best-effort - any GitHub failure (deleted branch, uninstalled
+     * app, transient error) logs and falls back to the stored head so a
+     * redeploy always works.
+     */
+    private async resolveLatestHead(
+        organizationId: string,
+        githubRepositoryId: number,
+        repoFullName: string,
+        prNumber: number,
+        stored: { headSha: string; headRef: string },
+    ): Promise<{ headSha: string; headRef: string }> {
+        try {
+            if (prNumber === MAIN_BRANCH_ENVIRONMENT_NUMBER) {
+                const headSha = await this.githubInstallationService.getBranchHead(
+                    organizationId,
+                    githubRepositoryId,
+                    stored.headRef,
+                );
+                return { headSha, headRef: stored.headRef };
+            }
+
+            const pr = await this.githubInstallationService.getPullRequest(
+                organizationId,
+                githubRepositoryId,
+                prNumber,
+            );
+            return { headSha: pr.headSha, headRef: pr.headRef };
+        } catch (error) {
+            this.logger.warn("Failed to resolve latest head for redeploy; using the stored head", {
+                repo: repoFullName,
+                pr: prNumber,
+                extra: { storedHeadSha: stored.headSha, error: String(error) },
+            });
+            return stored;
+        }
     }
 
     /**
