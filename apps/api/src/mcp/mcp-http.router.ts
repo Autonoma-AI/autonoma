@@ -1,5 +1,4 @@
 import { analytics } from "@autonoma/analytics";
-import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -11,7 +10,7 @@ import { buildDebugMcpServer } from "./debug-mcp-server";
 import { listAccessibleRepos } from "./list-accessible-repos";
 import { McpAnalytics } from "./mcp-analytics";
 import { buildOnboardingMcpServer } from "./onboarding-mcp-server";
-import { resolveOrgForRepo } from "./resolve-org-for-repo";
+import { resolveRepoContext } from "./resolve-repo-context";
 
 const logger = rootLogger.child({ name: "mcpHttpRouter" });
 
@@ -57,18 +56,22 @@ mcpHttpRouter.use("*", async (c, next) => {
 mcpHttpRouter.all("/debug", (c) => {
     const { userId } = c.get("mcpSession");
     // The org is discovered deep inside a handler (from the repoFullName a tool
-    // names), so observeOrgResolution records it onto the request's observability
-    // context for the analytics event to read back.
+    // names), so observeRepoContextResolution records it onto the request's
+    // observability context for the analytics event to read back. Resolution reads
+    // the org's GitHub App installation repos, so it needs the per-request
+    // `services.github` (a diffs-only repo has no preview env to shortcut it).
     const mcpAnalytics = new McpAnalytics(analytics, "debug", userId);
-    const resolveOrg = mcpAnalytics.observeOrgResolution((repoFullName) => resolveOrgForRepo(db, userId, repoFullName));
-    return serveMcp(c, (services) =>
-        buildDebugMcpServer({
+    return serveMcp(c, (services) => {
+        const resolveRepoCtx = mcpAnalytics.observeRepoContextResolution((repoFullName) =>
+            resolveRepoContext(services.github, userId, repoFullName),
+        );
+        return buildDebugMcpServer({
             services,
-            resolveOrg,
-            listRepos: () => listAccessibleRepos(db, userId),
+            resolveRepoContext: resolveRepoCtx,
+            listRepos: () => listAccessibleRepos(services.github, userId),
             analytics: mcpAnalytics,
-        }),
-    );
+        });
+    });
 });
 
 /**

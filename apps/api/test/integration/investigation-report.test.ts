@@ -247,5 +247,82 @@ apiTestSuite({
             expect(byId.has(prC.id)).toBe(false);
             expect(byId.has(prD.id)).toBe(false);
         });
+
+        // Each case gets its OWN branch: feature_branch_info is 1:1 with a branch (branchId PK), so two PRs
+        // cannot share the seed branch. This is the resolution path the get_investigation MCP tool uses.
+        test("getInvestigationReportForPr resolves the PR's latest report from repo + PR", async ({
+            harness,
+            seedResult: { application },
+        }) => {
+            const prNumber = 4242;
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/pr-4242",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+            await harness.db.featureBranchInfo.create({
+                data: { branchId: branch.id, applicationId: application.id, prNumber },
+            });
+            const snapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "pr-4242-sha" },
+            });
+            await harness.db.investigationReport.create({
+                data: {
+                    snapshotId: snapshot.id,
+                    organizationId: harness.organizationId,
+                    appSlug: "report-app",
+                    testCount: 1,
+                    clientBugCount: 1,
+                },
+            });
+            await harness.db.investigationFinding.create({
+                data: {
+                    reportSnapshotId: snapshot.id,
+                    organizationId: harness.organizationId,
+                    findingKey: "f1",
+                    slug: "checkout",
+                    category: "client_bug",
+                    headline: "Checkout is broken",
+                    displayOrder: 0,
+                },
+            });
+
+            const report = await harness.services.branches.getInvestigationReportForPr(
+                application.id,
+                prNumber,
+                harness.organizationId,
+            );
+            expect(report).not.toBeNull();
+            expect(report?.findings.map((finding) => finding.headline)).toContain("Checkout is broken");
+        });
+
+        test("getInvestigationReportForPr returns null when the PR has no investigation report", async ({
+            harness,
+            seedResult: { application },
+        }) => {
+            const prNumber = 4243;
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: "feature/pr-4243",
+                    applicationId: application.id,
+                    organizationId: harness.organizationId,
+                },
+            });
+            await harness.db.featureBranchInfo.create({
+                data: { branchId: branch.id, applicationId: application.id, prNumber },
+            });
+            await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "GITHUB_PUSH", headSha: "pr-4243-sha" },
+            });
+
+            const report = await harness.services.branches.getInvestigationReportForPr(
+                application.id,
+                prNumber,
+                harness.organizationId,
+            );
+            expect(report).toBeNull();
+        });
     },
 });

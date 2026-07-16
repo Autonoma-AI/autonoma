@@ -1,13 +1,19 @@
 import type {
     AutonomaCommentBug,
     AutonomaCommentCta,
+    AutonomaCommentHandoff,
     AutonomaCommentPayload,
     AutonomaCommentState,
+    AutonomaCommentStats,
 } from "@autonoma/github/comment";
 import type { InvestigationTestResult } from "@autonoma/workflow/activities";
 
 /** Verdict categories that warrant action (a "warning" state) when there are no outright client bugs. */
 const ACTIONABLE_CATEGORIES = new Set(["scenario_issue", "environment_failure", "outdated_test", "bad_test"]);
+
+// The handoff prompt is capped so it can never blow GitHub's ~64KB comment limit; overflow points the reader
+// at the full in-app report instead. The same (capped) prompt feeds both the copy block and the deep-links.
+const MAX_HANDOFF_PROMPT_CHARS = 20_000;
 
 /** A `passed` result is the absence of a finding to act on, so it is the one category never shown as a card. */
 const HIDDEN_CATEGORY = "passed";
@@ -31,6 +37,12 @@ export interface InvestigationCommentContext {
     previewUrl?: string;
     /** Base URL the comment's status/CTA image assets are served from. */
     assetBaseUrl: string;
+    /** GitHub repo "owner/name" - fed to the coding-agent handoff (e.g. Claude Code's `repositories=` param). */
+    repoFullName: string;
+    /** Test stats from the primary checkpoint (dashboard parity); undefined when there is no checkpoint. */
+    stats?: AutonomaCommentStats;
+    /** Headline to use when the twin surfaced no findings - already reconciled with the primary checkpoint. */
+    checkpointHeadline: string;
 }
 
 /**
@@ -65,7 +77,8 @@ export async function buildInvestigationCommentPayload(
     return {
         state,
         prNumber: context.prNumber,
-        headline: "",
+        headline: buildHeadline(state, shown.length, context.checkpointHeadline),
+        stats: context.stats,
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
         ctas,
@@ -74,7 +87,102 @@ export async function buildInvestigationCommentPayload(
         warnings: [],
         details: [],
         bugs,
+        // Only offer the handoff when there is something to fix.
+        handoff: shown.length > 0 ? buildHandoff(shown, context) : undefined,
     };
+}
+
+/**
+ * The "hand off to a coding agent" block: a full paste-ready prompt (findings + evidence) plus "open in <agent>"
+ * deep-links that prefill a short kickoff prompt. The deep-links use only https schemes - GitHub strips custom
+ * schemes (cursor://, claude-cli://) from comment markdown - and each opens the agent prefilled for the dev to
+ * review and send; none auto-run. Full content rides the copy block, since URLs are length-capped.
+ */
+function buildHandoff(shown: InvestigationTestResult[], context: InvestigationCommentContext): AutonomaCommentHandoff {
+    // The deep-links carry the SAME full prompt as the copy block (findings + evidence), not a short kickoff -
+    // the agent should open with the whole context. Big prompts make long URLs: Claude Code accepts them
+    // (~14k chars), while Cursor/ChatGPT truncate very large ones at their URL limits, so the copy block stays
+    // the reliable full source. A signed prompt_url would carry it losslessly (follow-up).
+    const prompt = capPrompt(buildHandoffPrompt(shown, context), context.prUrl);
+    return { prompt, links: buildHandoffLinks(prompt, context) };
+}
+
+function buildHandoffPrompt(shown: InvestigationTestResult[], context: InvestigationCommentContext): string {
+    const header = [
+        `Fix the following bug(s) Autonoma found in pull request ${context.repoFullName}#${context.prNumber} (commit ${context.commitSha.slice(0, 7)}).`,
+        "Each finding gives what happened, the likely root cause, the file:line evidence, and a suggested fix. Apply the fixes, then re-run the affected flows to confirm.",
+        // The in-app report links below require an Autonoma login; the MCP is the auth-free channel for an agent.
+        `Live findings via MCP: connect the Autonoma MCP (\`claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug\`, or your client's MCP config) and call \`get_investigation(repoFullName="${context.repoFullName}", prNumber=${context.prNumber})\` for these findings + evidence live; it also exposes this PR's deploy status and build/app logs.`,
+    ].join("\n\n");
+    const findings = shown.map((result, index) => renderFindingForPrompt(result, index + 1, context));
+    return [header, ...findings, `Full report (login required): ${context.prUrl}`].join("\n\n");
+}
+
+function renderFindingForPrompt(
+    result: InvestigationTestResult,
+    index: number,
+    context: InvestigationCommentContext,
+): string {
+    const verdict = result.verdict;
+    const parts = [`## ${index}. ${verdict?.headline ?? result.slug}`];
+    if (verdict?.whatHappened != null && verdict.whatHappened !== "")
+        parts.push(`What happened: ${verdict.whatHappened}`);
+    if (verdict?.rootCause != null && verdict.rootCause !== "") parts.push(`Root cause: ${verdict.rootCause}`);
+    if (verdict?.observedAppIssues != null && verdict.observedAppIssues !== "")
+        parts.push(`Observed app issues: ${verdict.observedAppIssues}`);
+    const remediation = remediationWithRoute(result);
+    if (remediation != null && remediation !== "") parts.push(`Suggested fix: ${remediation}`);
+    const evidence = (verdict?.evidence ?? []).map(renderEvidenceForPrompt);
+    if (evidence.length > 0) parts.push(`Evidence:\n${evidence.join("\n")}`);
+    parts.push(`Details: ${context.reportBaseUrl}/${encodeURIComponent(result.slug)}`);
+    return parts.join("\n");
+}
+
+function renderEvidenceForPrompt(item: NonNullable<InvestigationTestResult["verdict"]>["evidence"][number]): string {
+    const location = item.file != null ? ` ${item.file}${item.lines != null ? `:${item.lines}` : ""}` : "";
+    const detail = item.detail != null && item.detail !== "" ? ` - ${item.detail}` : "";
+    const head = `- [${item.source}]${location}${detail}`;
+    if (item.snippet == null || item.snippet === "") return head;
+    return `${head}\n\`\`\`\n${item.snippet}\n\`\`\``;
+}
+
+function buildHandoffLinks(prompt: string, context: InvestigationCommentContext): AutonomaCommentCta[] {
+    const encoded = encodeQueryParam(prompt);
+    // Cursor's deep-link truncates the text param at the first "&" (even percent-encoded), so strip it.
+    const cursorText = encodeQueryParam(prompt.replaceAll("&", "and"));
+    return [
+        {
+            label: "Open in Claude Code",
+            href: `https://claude.ai/code?prompt=${encoded}&repositories=${encodeQueryParam(context.repoFullName)}`,
+        },
+        { label: "Open in ChatGPT", href: `https://chatgpt.com/?q=${encoded}` },
+        { label: "Open in Cursor", href: `https://cursor.com/link/prompt?text=${cursorText}` },
+    ];
+}
+
+// encodeURIComponent leaves "(" and ")" unescaped, but an unescaped ")" prematurely closes the markdown
+// link destination the deep-link is rendered into - so encode them too.
+function encodeQueryParam(value: string): string {
+    return encodeURIComponent(value).replaceAll("(", "%28").replaceAll(")", "%29");
+}
+
+function capPrompt(prompt: string, prUrl: string): string {
+    if (prompt.length <= MAX_HANDOFF_PROMPT_CHARS) return prompt;
+    return `${prompt.slice(0, MAX_HANDOFF_PROMPT_CHARS)}\n\n… (truncated) - open the full findings in Autonoma: ${prUrl}`;
+}
+
+/**
+ * Findings first, checkpoint second: when the twin surfaced client bugs (critical) or actionable findings
+ * (warning) the headline counts them; a findings-clean comment defers to the primary checkpoint's headline.
+ */
+function buildHeadline(state: AutonomaCommentState, findingCount: number, checkpointHeadline: string): string {
+    if (state === "critical") {
+        return `Autonoma found ${findingCount} ${findingCount === 1 ? "bug" : "bugs"} in this PR.`;
+    }
+    if (state === "warning") {
+        return `Autonoma raised ${findingCount} ${findingCount === 1 ? "warning" : "warnings"} in this PR.`;
+    }
+    return checkpointHeadline;
 }
 
 /**
@@ -127,10 +235,10 @@ async function toBug(
     // as an <img> in the comment, and GitHub renders animated GIFs inline.
     const mediaKey = result.clipUrl ?? result.finalScreenshotUrl;
     const screenshotUrl = mediaKey != null ? await signScreenshot(mediaKey) : undefined;
-    // A replay is only worth surfacing for a confirmed client bug (the run recording shows the failure). For
-    // warnings (scenario/env/test issues) the recording adds nothing, so the button is omitted and the
-    // screenshot links to the report instead.
-    const replayHref = verdict?.category === "client_bug" ? findingUrl : undefined;
+    // "Watch replay" is only worth surfacing for a confirmed client bug that actually has a recording clip -
+    // otherwise there is no replay to watch and the link is just a duplicate of "See full report". Warnings
+    // (scenario/env/test issues) never get it; the screenshot links to the report instead.
+    const replayHref = verdict?.category === "client_bug" && result.clipUrl != null ? findingUrl : undefined;
     return {
         title: verdict?.headline ?? result.slug,
         href: findingUrl,

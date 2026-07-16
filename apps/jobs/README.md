@@ -6,7 +6,7 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 
 | Job | Package Name | Purpose |
 |-----|-------------|---------|
-| **run-completion-notification** | `@autonoma/job-run-completion-notification` | Sends notifications when a run completes. |
+| **run-completion-notification** | `@autonoma/job-run-completion-notification` | Billing + reaper only: `generation-exit <generationId>` fires the Stripe refund on a failed generation, `mark-failed <generationId>` flips a stuck generation to `failed`. PR results comments are posted by the investigation worker, not this job. |
 | **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/diffs`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |
 

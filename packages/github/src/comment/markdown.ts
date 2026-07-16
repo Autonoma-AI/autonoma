@@ -2,10 +2,13 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type {
     AutonomaCommentBug,
     AutonomaCommentEvidence,
+    AutonomaCommentHandoff,
     AutonomaCommentPayload,
     AutonomaCommentState,
     AutonomaCommentStats,
 } from "./types";
+
+const HANDOFF_SUMMARY = "🤖 Hand off to a coding agent";
 
 const STATE_LABELS: Record<AutonomaCommentState, string> = {
     running: "RUNNING",
@@ -23,25 +26,16 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
     unknown: "⚪",
 };
 
-const STATUS_PILL_ASSETS: Record<AutonomaCommentState, string> = {
-    running: "status-running-pill.svg",
-    healthy: "status-healthy-pill.svg",
-    warning: "status-warning-pill.svg",
-    critical: "status-critical-pill.svg",
-    unknown: "status-unknown-pill.svg",
-};
-
 // The "See preview" CTA links to the live preview environment. Exported so the teardown path
 // (which removes it once the environment is gone) keys off the same label instead of a private copy.
 export const SEE_PREVIEW_CTA_LABEL = "See preview";
 
+// The comment is text-first (portable to markdown-only renderers like Linear): most CTAs are plain
+// markdown links. The two top-level CTAs keep an image (a Vercel-style primary + secondary pair) rendered
+// as a markdown image-link that still degrades to a plain link where images are stripped.
 const CTA_ASSETS: Record<string, string> = {
     "Open in Autonoma": "open-in-autonoma-button-v2.svg",
     [SEE_PREVIEW_CTA_LABEL]: "see-preview-button-v2.svg",
-    // Per-bug action buttons (secondary, dark style).
-    "Watch replay": "watch-replay-button-v2.svg",
-    "See full report": "see-full-report-button-v2.svg",
-    "Open preview": "open-preview-button-v2.svg",
 };
 
 const CTA_TEXT_PREFIXES: Record<string, string> = {
@@ -56,26 +50,21 @@ export function renderMarkdown(payload: AutonomaCommentPayload): string {
     const sections: string[] = ["<!-- autonoma:pr-comment:v2 -->"];
     const rich = payload.bugs.some(isRichBug);
 
-    const statusImage = renderStatusImage(payload);
-    if (statusImage != null) sections.push("", statusImage);
+    // Text-first: a status emoji + generated title, then the state label + headline as plain markdown - no
+    // status-pill image, so a markdown-only renderer still shows the state. The bug/warning count in the title
+    // is wrapped in a `code` span to stand out, which escaping would otherwise neutralize.
+    sections.push("", `## ${STATE_ICONS[payload.state]} ${renderTitle(payload)}`, "");
+    sections.push(`**${STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
 
-    // The title is generated (no user content), so render it as markdown - the bug/warning count is wrapped in
-    // a `code` span to stand out, which escaping would otherwise neutralize.
-    const titlePrefix = statusImage == null ? `${STATE_ICONS[payload.state]} ` : "";
-    sections.push("", `## ${titlePrefix}${renderTitle(payload)}`, "");
-
-    if (statusImage == null) {
-        sections.push(`**${STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
-    }
-
-    // The stats line + "Top issues" label only add noise to the rich investigation comment (the title already
-    // carries the count); keep them for the plain diffs comment only.
-    if (!rich) {
+    // The stats line mirrors the in-app checkpoint row; show it on every comment that carries test stats,
+    // rich or not, so the comment reads the same as the dashboard for the same snapshot.
+    if (payload.stats != null) {
         const statsLine = renderStatsLine(payload);
         if (statsLine != null) sections.push("", statsLine);
     }
 
     if (payload.bugs.length > 0) {
+        // Rich bugs each expand into their own <details>; the plain comment groups its one-liners under a label.
         sections.push("", ...(rich ? [] : ["**Top issues**"]), renderBugList(payload));
     }
 
@@ -123,14 +112,33 @@ export function renderMarkdown(payload: AutonomaCommentPayload): string {
         );
     }
 
+    if (payload.handoff != null) sections.push("", renderHandoff(payload.handoff));
+
     return sections.join("\n");
+}
+
+/**
+ * The "hand off to a coding agent" collapsible: "open in <agent>" deep-links (prefill only) plus the full
+ * paste-ready prompt in a code fence, which GitHub renders with a native copy button. The outer fence is sized
+ * longer than any backtick run in the prompt so the evidence's own code blocks survive intact.
+ */
+function renderHandoff(handoff: AutonomaCommentHandoff): string {
+    const lines: string[] = ["<details>", `<summary>${HANDOFF_SUMMARY}</summary>`, ""];
+    if (handoff.links.length > 0) {
+        lines.push("Open with your coding agent - the prompt is prefilled (review, then send):", "");
+        lines.push(handoff.links.map((link) => renderTextLink(link.label, link.href)).join(" · "));
+        lines.push("", "Or copy the full prompt below:", "");
+    }
+    const fence = "`".repeat(longestBacktickRun(handoff.prompt) + 1);
+    lines.push(fence, handoff.prompt, fence, "</details>");
+    return lines.join("\n");
 }
 
 function renderTitle(payload: AutonomaCommentPayload): string {
     const count = payload.bugs.length;
     const rich = payload.bugs.some(isRichBug);
     // The rich investigation comment highlights the count and uses friendlier warning/healthy titles; the plain
-    // diffs comment keeps its existing titles unchanged.
+    // preview comment (no findings) falls through to the generic PR title.
     if (payload.state === "critical" && count > 0) {
         const label = `${count} ${count === 1 ? "bug" : "bugs"}`;
         return `Autonoma found ${rich ? `\`${label}\`` : label} in this PR`;
@@ -142,20 +150,15 @@ function renderTitle(payload: AutonomaCommentPayload): string {
     return `Autonoma PR #${payload.prNumber}`;
 }
 
-function renderStatusImage(payload: AutonomaCommentPayload): string | undefined {
-    const assetUrl = resolveAssetUrl(payload.assetBaseUrl, STATUS_PILL_ASSETS[payload.state]);
-    if (assetUrl == null) return undefined;
-    return `<img src="${escapeHtmlAttribute(assetUrl)}" alt="${escapeHtmlAttribute(STATE_LABELS[payload.state])}" width="126" />`;
-}
-
 function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
     const stats = payload.stats;
-    if (stats == null && payload.duration == null && payload.bugs.length === 0) return undefined;
 
-    // Fields mirror the in-app checkpoint row order (failed, setup-failed,
-    // running/awaiting-review, passed, bugs) so the comment reads the same as the
-    // UI for the same snapshot.
-    const fields = [`**Tests** \`${testsCount(stats)}\``];
+    // Fields mirror the in-app checkpoint row order (tests, failed, setup-failed, running/awaiting-review,
+    // passed, bugs, pass rate, duration). Each is omitted when it has no value - never render a bare "-".
+    const fields: string[] = [];
+
+    const tests = testsCount(stats);
+    if (tests !== "-") fields.push(`**Tests** \`${tests}\``);
 
     if (stats != null) {
         if (stats.failed != null && stats.failed > 0) fields.push(`**Failed** \`${stats.failed}\``);
@@ -167,10 +170,14 @@ function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
     }
     if (payload.bugs.length > 0) fields.push(`**Bugs** \`${payload.bugs.length}\``);
 
-    fields.push(`**Pass rate** \`${passRate(stats)}\``);
-    fields.push(`**Duration** \`${inlineCodeContent(payload.duration ?? "-")}\``);
+    const rate = passRate(stats);
+    if (rate !== "-") fields.push(`**Pass rate** \`${rate}\``);
+    if (payload.duration != null && payload.duration !== "")
+        fields.push(`**Duration** \`${inlineCodeContent(payload.duration)}\``);
 
-    return fields.join(" &nbsp;&nbsp; ");
+    if (fields.length === 0) return undefined;
+    // A plain " · " (not an HTML entity) so markdown-only renderers show a real separator, not "&nbsp;".
+    return fields.join(" · ");
 }
 
 function testsCount(stats: AutonomaCommentStats | undefined): string {
@@ -226,12 +233,12 @@ function renderBugDetails(
     const body: string[] = [];
 
     if (bug.screenshotUrl != null) {
-        const img = `<img src="${escapeHtmlAttribute(bug.screenshotUrl)}" alt="Run screenshot" />`;
-        // The screenshot clicks through to the replay when one exists, else to the finding's report page.
+        // A markdown image-link: portable to markdown-only renderers (Linear shows the image, or its alt text
+        // if images are stripped), and still clickable on GitHub. The screenshot/GIF clicks through to the
+        // replay when one exists, else to the finding's report page.
+        const img = `![Run screenshot](${linkDestination(bug.screenshotUrl)})`;
         const mediaHref = bug.replayHref ?? bug.href;
-        body.push(
-            mediaHref != null ? `<a href="${escapeHtmlAttribute(mediaHref)}"${LINK_TARGET_ATTRS}>${img}</a>` : img,
-        );
+        body.push(mediaHref != null ? `[${img}](${linkDestination(mediaHref)})` : img);
     }
     if (bug.replayHref != null) body.push(renderCta(assetBaseUrl, "Watch replay", bug.replayHref));
     if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));
@@ -297,9 +304,7 @@ function renderBugLinks(bug: AutonomaCommentBug, assetBaseUrl: string | undefine
     const buttons: string[] = [];
     if (bug.href != null) buttons.push(renderCta(assetBaseUrl, "See full report", bug.href));
     if (bug.previewHref != null) buttons.push(renderCta(assetBaseUrl, "Open preview", bug.previewHref));
-    // Button images sit side by side; the " · " separator is only for the text-link fallback.
-    const hasAssets = assetBaseUrl != null && assetBaseUrl !== "";
-    return buttons.join(hasAssets ? "&nbsp;&nbsp;" : " · ");
+    return buttons.join(" · ");
 }
 
 /**
@@ -329,28 +334,38 @@ function renderBugOccurrence(bug: AutonomaCommentBug): string {
 
 function renderCtas(payload: AutonomaCommentPayload): string {
     const rendered = payload.ctas.map((cta) => renderCta(payload.assetBaseUrl, cta.label, cta.href));
-    // Button images sit fine side by side; the " | " separator only helps the text-link fallback.
-    const hasAssets = payload.assetBaseUrl != null && payload.assetBaseUrl !== "";
-    return rendered.join(hasAssets ? "&nbsp;&nbsp;" : " | ");
+    // A plain " · " (not "&nbsp;" or " | ") so markdown-only renderers show a real separator.
+    return rendered.join(" · ");
 }
 
+/**
+ * A CTA. The two top-level CTAs with image assets ("Open in Autonoma" and "See preview") render as a markdown
+ * image-link (so it degrades to a plain link where images/HTML are stripped); every other CTA renders as a
+ * plain markdown link with its emoji prefix.
+ */
 function renderCta(assetBaseUrl: string | undefined, label: string, href: string): string {
     const assetUrl = resolveAssetUrl(assetBaseUrl, CTA_ASSETS[label]);
     if (assetUrl != null) {
-        return `<a href="${escapeHtmlAttribute(href)}"${LINK_TARGET_ATTRS}><img src="${escapeHtmlAttribute(assetUrl)}" alt="${escapeHtmlAttribute(label)}" width="150" /></a>`;
+        return `[![${escapeLinkLabel(label)}](${linkDestination(assetUrl)})](${linkDestination(href)})`;
     }
     const displayLabel = `${CTA_TEXT_PREFIXES[label] ?? ""}${label}`;
     return renderTextLink(displayLabel, href);
 }
 
-// GitHub renders inline HTML in comments, so every link is an <a target="_blank"> anchor that opens in
-// a new tab instead of navigating away from the PR thread. rel guards against reverse-tabnabbing.
-const LINK_TARGET_ATTRS = ' target="_blank" rel="noopener noreferrer"';
-
-/** A text link as an inline <a target="_blank"> anchor. Label content stays markdown-escaped so an
- * LLM-authored title with `*`/`_`/backticks renders literally, not as emphasis. */
+/** A plain markdown link. Label content stays markdown-escaped so an LLM-authored title with
+ * `*`/`_`/backticks/brackets renders literally, not as emphasis or a broken link. */
 function renderTextLink(label: string, href: string): string {
-    return `<a href="${escapeHtmlAttribute(href)}"${LINK_TARGET_ATTRS}>${escapeLinkLabel(label)}</a>`;
+    return `[${escapeLinkLabel(label)}](${linkDestination(href)})`;
+}
+
+/**
+ * A markdown link/image destination wrapped in angle brackets, so a URL with a space or unbalanced
+ * parenthesis (e.g. a signed media URL) can't prematurely close the `(...)` and break the link. Angle
+ * brackets are stripped by the parser, so the emitted `href`/`src` is the URL unchanged; a literal `<`/`>`
+ * (never valid in a URL) is percent-encoded so it can't close the destination.
+ */
+function linkDestination(href: string): string {
+    return `<${href.replaceAll("<", "%3C").replaceAll(">", "%3E")}>`;
 }
 
 function resolveAssetUrl(baseUrl: string | undefined, file: string | undefined): string | undefined {
@@ -401,10 +416,6 @@ function inlineCodeContent(value: string): string {
 
 function escapeHtml(value: string): string {
     return escapeHtmlText(value).replaceAll('"', "&quot;");
-}
-
-function escapeHtmlAttribute(value: string): string {
-    return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
 function escapeHtmlText(value: string): string {

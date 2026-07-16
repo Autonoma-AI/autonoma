@@ -1,14 +1,17 @@
-// The two ways a CTA renders on its line (see `renderCta` in ./markdown), both now inline <a> anchors:
-//   - asset form:  <a href="HREF" target="_blank" ...><img src="ASSET" alt="LABEL" width="150" /></a>
-//   - text form:   <a href="HREF" target="_blank" ...>PREFIX LABEL</a>
-// and CTAs on a line are joined by `renderCtas` with either "&nbsp;&nbsp;" (assets) or " | " (text).
-// This matches whichever separator the line actually used so both styles rebuild cleanly.
-const CTA_SEPARATOR = /(?:&nbsp;){2}| \| /;
+// The ways a CTA renders on its line (see `renderCta` in ./markdown):
+//   - text form (current):  [PREFIX LABEL](<HREF>)                  - plain markdown link
+//   - image form (current): [![LABEL](<ASSET>)](<HREF>)             - markdown image-link (Open in Autonoma, See preview)
+//   - asset form (legacy):  <a href="HREF" ...><img alt="LABEL" ... /></a>
+//   - text form (legacy):   <a href="HREF" ...>PREFIX LABEL</a>
+// CTAs on a line are joined by `renderCtas` with " · " (current) or, on comments posted before the
+// text-first refactor, "&nbsp;&nbsp;" (assets) or " | " (text). The legacy patterns are retained so
+// teardown can still strip a "See preview" CTA from a comment posted before this shipped.
+const CTA_SEPARATOR = /(?:&nbsp;){2}| \| | · /;
 
 /**
  * Removes a single CTA (identified by its label, e.g. "See preview") from an already-rendered
  * comment body, preserving every other CTA and the rest of the comment. Used by the previewkit
- * teardown path to drop the now-dead preview link from the runs comment without re-rendering it.
+ * teardown path to drop the now-dead preview link from the results comment without re-rendering it.
  *
  * Operates line by line so it can drop just the matching CTA token from a multi-CTA line, and drop
  * the whole line (plus the single blank line the renderer emits before it) when it was the only CTA.
@@ -37,14 +40,21 @@ export function stripCtaFromBody(body: string, label: string): string {
 }
 
 function rebuildCtaLine(line: string, label: string): string | undefined {
-    const separator = line.includes("&nbsp;&nbsp;") ? "&nbsp;&nbsp;" : " | ";
+    const separator = detectSeparator(line);
     const kept = line.split(CTA_SEPARATOR).filter((part) => !partIsCta(part, label));
     if (kept.length === 0) return undefined;
     return kept.join(separator);
 }
 
+// Rejoin with whichever separator the line actually used, so both the current and legacy forms rebuild cleanly.
+function detectSeparator(line: string): string {
+    if (line.includes("&nbsp;&nbsp;")) return "&nbsp;&nbsp;";
+    if (line.includes(" | ")) return " | ";
+    return " · ";
+}
+
 function bodyContainsCta(body: string, label: string): boolean {
-    return assetCtaPattern(label).test(body) || textCtaPattern(label).test(body);
+    return partIsCta(body, label);
 }
 
 function lineContainsCta(line: string, label: string): boolean {
@@ -52,15 +62,25 @@ function lineContainsCta(line: string, label: string): boolean {
 }
 
 function partIsCta(part: string, label: string): boolean {
-    return assetCtaPattern(label).test(part) || textCtaPattern(label).test(part);
+    return (
+        markdownCtaPattern(label).test(part) || assetCtaPattern(label).test(part) || textCtaPattern(label).test(part)
+    );
 }
 
-// alt="LABEL" uniquely identifies the asset-anchor CTA for this label (alt carries the escaped label).
+// The current form: a markdown link `[PREFIX LABEL](` or image-link `[![LABEL](`, where the label sits
+// immediately before the `](`. Matches both the text CTA and the image-link CTAs (Open in Autonoma, See
+// preview). The `](` check is agnostic to the destination form, so it matches whether or not the href is
+// angle-bracketed (`](<...>)`).
+function markdownCtaPattern(label: string): RegExp {
+    return new RegExp(`\\[[^\\]]*${escapeRegExp(label)}\\]\\(`);
+}
+
+// alt="LABEL" uniquely identifies the legacy asset-anchor CTA for this label (alt carries the escaped label).
 function assetCtaPattern(label: string): RegExp {
     return new RegExp(`alt="${escapeRegExp(label)}"`);
 }
 
-// >...LABEL...</a> - the text-link fallback anchor; the label may carry an emoji prefix. The asset form
+// >...LABEL...</a> - the legacy text-link anchor; the label may carry an emoji prefix. The asset form
 // never matches (its anchor text is empty: `/></a>`), so the two patterns stay mutually exclusive.
 function textCtaPattern(label: string): RegExp {
     return new RegExp(`>[^<]*${escapeRegExp(label)}[^<]*</a>`);

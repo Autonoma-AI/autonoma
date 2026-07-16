@@ -661,21 +661,12 @@ importers:
 
   apps/jobs/run-completion-notification:
     dependencies:
-      '@autonoma/checkpoint':
-        specifier: workspace:*
-        version: link:../../../packages/checkpoint
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db
-      '@autonoma/github':
-        specifier: workspace:*
-        version: link:../../../packages/github
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
-      '@autonoma/types':
-        specifier: workspace:*
-        version: link:../../../packages/types
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0
@@ -1104,6 +1095,9 @@ importers:
 
   apps/workers/investigation:
     dependencies:
+      '@autonoma/checkpoint':
+        specifier: workspace:*
+        version: link:../../../packages/checkpoint
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db

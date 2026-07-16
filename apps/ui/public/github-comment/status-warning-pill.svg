@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="168" height="44" viewBox="0 0 168 44" role="img" aria-labelledby="title desc">
-  <title id="title">Warning</title>
-  <desc id="desc">Autonoma warning status pill for GitHub pull request comments.</desc>
-  <rect x="1" y="1" width="165" height="42" rx="21" fill="#251f10" stroke="#F5A623" stroke-width="2"/>
-  <circle cx="28" cy="22" r="6" fill="#F5A623"/>
-  <text x="48" y="28" fill="#FFD9A0" font-family="Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="800" letter-spacing="0">WARNING</text>
-</svg>

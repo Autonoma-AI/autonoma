@@ -142,12 +142,15 @@ export class TeardownPipeline {
             });
         }
 
-        // The separate "runs" comment (test results, posted by the run-completion job) carries its own
-        // "See preview" button. Teardown never reposts it, so strip that now-dead link in place while
+        // The separate "investigation" comment (test results, posted by the investigation worker) carries its
+        // own "See preview" button. Teardown never reposts it, so strip that now-dead link in place while
         // leaving the results intact. Best-effort: a failure here must not block teardown.
-        logger.info("Step 6/7 stripping preview link from runs comment", { repo: repoFullName, pr: prNumber });
-        await this.stripPreviewLinkFromRunsComment(repoFullName, prNumber).catch((err) =>
-            logger.error("Failed to strip preview link from runs comment", err, { repo: repoFullName, pr: prNumber }),
+        logger.info("Step 6/7 stripping preview link from investigation comment", { repo: repoFullName, pr: prNumber });
+        await this.stripPreviewLinkFromInvestigationComment(repoFullName, prNumber).catch((err) =>
+            logger.error("Failed to strip preview link from investigation comment", err, {
+                repo: repoFullName,
+                pr: prNumber,
+            }),
         );
 
         logger.info("Step 7/7 setting teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
@@ -159,18 +162,18 @@ export class TeardownPipeline {
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber, namespace });
     }
 
-    // Fetches the runs comment, removes its "See preview" CTA, and re-posts the edited body. No-ops
-    // (with a log) when there is no runs comment, the comment is gone on GitHub, or it had no preview link.
-    private async stripPreviewLinkFromRunsComment(repoFullName: string, prNumber: number): Promise<void> {
-        const commentId = await this.resolveCommentId(repoFullName, prNumber, "runs");
+    // Fetches the investigation comment, removes its "See preview" CTA, and re-posts the edited body. No-ops
+    // (with a log) when there is no investigation comment, it is gone on GitHub, or it had no preview link.
+    private async stripPreviewLinkFromInvestigationComment(repoFullName: string, prNumber: number): Promise<void> {
+        const commentId = await this.resolveCommentId(repoFullName, prNumber, "investigation");
         if (commentId == null || commentId === "") {
-            logger.info("No runs comment; skipping preview-link strip", { repo: repoFullName, pr: prNumber });
+            logger.info("No investigation comment; skipping preview-link strip", { repo: repoFullName, pr: prNumber });
             return;
         }
 
         const body = await this.provider.getComment(repoFullName, commentId);
         if (body == null) {
-            logger.info("Runs comment not found on GitHub; skipping preview-link strip", {
+            logger.info("Investigation comment not found on GitHub; skipping preview-link strip", {
                 repo: repoFullName,
                 pr: prNumber,
                 commentId,
@@ -180,7 +183,7 @@ export class TeardownPipeline {
 
         const stripped = stripCtaFromBody(body, SEE_PREVIEW_CTA_LABEL);
         if (stripped === body) {
-            logger.info("Runs comment has no preview link; nothing to strip", {
+            logger.info("Investigation comment has no preview link; nothing to strip", {
                 repo: repoFullName,
                 pr: prNumber,
                 commentId,
@@ -189,12 +192,16 @@ export class TeardownPipeline {
         }
 
         await this.provider.updateComment(repoFullName, commentId, stripped);
-        logger.info("Stripped preview link from runs comment", { repo: repoFullName, pr: prNumber, commentId });
+        logger.info("Stripped preview link from investigation comment", {
+            repo: repoFullName,
+            pr: prNumber,
+            commentId,
+        });
     }
 
     // Best-effort lookup of a PR comment id by kind; returns undefined on a missing row or DB
     // error so callers can degrade gracefully (the "preview" caller falls back to the namespace
-    // annotation, the "runs" caller simply skips) and teardown never fails on this read.
+    // annotation, the "investigation" caller simply skips) and teardown never fails on this read.
     private async resolveCommentId(
         repoFullName: string,
         prNumber: number,

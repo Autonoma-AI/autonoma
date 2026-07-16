@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="139" height="44" viewBox="0 0 139 44" role="img" aria-labelledby="title desc">
-  <title id="title">Unknown</title>
-  <desc id="desc">Autonoma unknown status pill for GitHub pull request comments.</desc>
-  <rect x="1" y="1" width="135" height="42" rx="21" fill="#15181D" stroke="#8B949E" stroke-width="2"/>
-  <circle cx="28" cy="22" r="6" fill="#8B949E"/>
-  <text x="48" y="28" fill="#D0D7DE" font-family="Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="800" letter-spacing="0">UNKNOWN</text>
-</svg>

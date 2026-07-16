@@ -11,6 +11,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/checkpoint": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/diffs": "workspace:*",
         "@autonoma/github": "workspace:*",

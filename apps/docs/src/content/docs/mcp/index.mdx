@@ -6,7 +6,7 @@ description: Connect your coding agent to Autonoma's MCP server so it can see wh
 import Tabs from "../../../components/Tabs.astro"
 import TabItem from "../../../components/TabItem.astro"
 
-<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's live debugging data - deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix a broken preview from inside your repo, the same way it fixes anything else.</p>
+<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's investigation findings and live debugging data - what Autonoma flagged and why, deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix it from inside your repo, the same way it fixes anything else.</p>
 
 When Autonoma flags a problem on your PR, the fix usually lives in your codebase. Instead of copying logs out of a dashboard, point your agent at the MCP server and let it pull exactly what it needs.
 
@@ -161,6 +161,7 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | Tool | Input | Returns |
 | --- | --- | --- |
 | `list_apps` | none | The repos you can debug across your organizations - use when the repo isn't obvious |
+| `get_investigation` | repo, PR | Autonoma's findings for the PR's latest checkpoint - each finding's what-happened, root cause, evidence, suggested fix, and signed screenshot/clip URLs, plus suggested tests. Start here when Autonoma flagged bugs |
 | `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
 | `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service/addon states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
 | `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |

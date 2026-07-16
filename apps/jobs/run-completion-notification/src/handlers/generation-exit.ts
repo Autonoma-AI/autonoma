@@ -1,14 +1,11 @@
 import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { env } from "../env";
-import { updatePrCommentForGeneration } from "../pr-comment";
 
+// PR results comments are now posted solely by the investigation worker; this job survives only for the
+// Stripe billing refund on a failed generation and the mark-failed reaper (see index.ts).
 export async function handleGenerationExit(generationId: string): Promise<void> {
     const log = logger.child({ name: "handleGenerationExit", generationId });
-
-    await updatePrCommentForGeneration(generationId).catch((error) => {
-        log.error("GitHub PR comment update failed", error);
-    });
 
     const generation = await db.testGeneration.findUnique({
         where: { id: generationId },

@@ -5,6 +5,8 @@ import {
     type InvestigationCommentContext,
 } from "../src/activities/investigation-comment-payload";
 
+const stats = { assigned: 5, passed: 4, failed: 1, setupFailed: 0, running: 0, runningLabel: "running" };
+
 const context: InvestigationCommentContext = {
     prNumber: 42,
     commitSha: "e5d627abcdef",
@@ -12,6 +14,9 @@ const context: InvestigationCommentContext = {
     reportBaseUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/investigation",
     previewUrl: "https://preview.example.com",
     assetBaseUrl: "https://beta.autonoma.app/github-comment/",
+    repoFullName: "acme/web",
+    stats,
+    checkpointHeadline: "Autonoma found no issues in this PR.",
 };
 
 function verdict(category: string): InvestigationVerdict {
@@ -36,10 +41,10 @@ function result(slug: string, category: string, extra: Partial<InvestigationTest
 const noSign = async (): Promise<undefined> => undefined;
 
 describe("buildInvestigationCommentPayload", () => {
-    it("is critical, lists client bugs as rich findings, and signs their screenshots", async () => {
+    it("is critical, lists client bugs as rich findings, and signs the recording clip", async () => {
         const signed: string[] = [];
         const payload = await buildInvestigationCommentPayload(
-            [result("csv-export", "client_bug", { finalScreenshotUrl: "s3://b/shot.png" }), result("ok", "passed")],
+            [result("csv-export", "client_bug", { clipUrl: "s3://b/clip.gif" }), result("ok", "passed")],
             context,
             async (url) => {
                 signed.push(url);
@@ -48,18 +53,62 @@ describe("buildInvestigationCommentPayload", () => {
         );
 
         expect(payload.state).toBe("critical");
+        // Findings-driven headline; the primary checkpoint's stats ride alongside for dashboard parity.
+        expect(payload.headline).toBe("Autonoma found 1 bug in this PR.");
+        expect(payload.stats).toEqual(stats);
         expect(payload.bugs).toHaveLength(1);
         expect(payload.bugs[0]).toMatchObject({
             title: "client_bug headline",
             description: "what happened",
             remediation: "do the fix",
-            screenshotUrl: "signed:s3://b/shot.png",
+            // The animated clip is preferred over a static screenshot and signed for embedding.
+            screenshotUrl: "signed:s3://b/clip.gif",
             evidence: [{ source: "diff", file: "app/x.ts", lines: "1-2", snippet: "- a\n+ b" }],
         });
         expect(payload.bugs[0]?.href).toContain("/investigation/csv-export");
-        // A client bug carries a replay link (the run recording shows the failure).
+        // A client bug WITH a recording clip carries a replay link.
         expect(payload.bugs[0]?.replayHref).toContain("/investigation/csv-export");
-        expect(signed).toEqual(["s3://b/shot.png"]);
+        expect(signed).toEqual(["s3://b/clip.gif"]);
+    });
+
+    it("omits the replay link for a client bug with no recording clip", async () => {
+        const payload = await buildInvestigationCommentPayload(
+            [result("no-clip", "client_bug", { finalScreenshotUrl: "s3://b/shot.png" })],
+            context,
+            async (url) => `signed:${url}`,
+        );
+
+        // The static screenshot still embeds, but with no clip there is no replay to watch.
+        expect(payload.bugs[0]?.screenshotUrl).toBe("signed:s3://b/shot.png");
+        expect(payload.bugs[0]?.replayHref).toBeUndefined();
+    });
+
+    it("builds a coding-agent handoff with deep-links and a full findings+evidence prompt", async () => {
+        const payload = await buildInvestigationCommentPayload([result("csv-export", "client_bug")], context, noSign);
+
+        expect(payload.handoff).toBeDefined();
+        // The three https deep-links (GitHub strips custom schemes), Claude Code carrying the repo.
+        expect(payload.handoff?.links.map((link) => link.label)).toEqual([
+            "Open in Claude Code",
+            "Open in ChatGPT",
+            "Open in Cursor",
+        ]);
+        expect(payload.handoff?.links[0]?.href).toContain("https://claude.ai/code?prompt=");
+        expect(payload.handoff?.links[0]?.href).toContain("repositories=acme%2Fweb");
+
+        // The copy-paste prompt carries the whole finding: headline, file:line evidence, and the snippet.
+        const prompt = payload.handoff?.prompt ?? "";
+        expect(prompt).toContain("client_bug headline");
+        expect(prompt).toContain("app/x.ts:1-2");
+        expect(prompt).toContain("+ b");
+        // And the auth-free MCP path: connect the MCP + call get_investigation with this repo + PR.
+        expect(prompt).toContain("https://api.autonoma.app/v1/mcp/debug");
+        expect(prompt).toContain('get_investigation(repoFullName="acme/web", prNumber=42)');
+    });
+
+    it("omits the handoff when there are no findings", async () => {
+        const payload = await buildInvestigationCommentPayload([result("ok", "passed")], context, noSign);
+        expect(payload.handoff).toBeUndefined();
     });
 
     it("lists every finding type - client bugs, actionable issues, and engine artifacts - ordered by severity", async () => {
@@ -105,6 +154,7 @@ describe("buildInvestigationCommentPayload", () => {
         );
 
         expect(payload.state).toBe("warning");
+        expect(payload.headline).toBe("Autonoma raised 2 warnings in this PR.");
         expect(payload.bugs).toHaveLength(2);
         // Warnings get no "Watch replay" button - the recording adds nothing for scenario/env/test issues.
         expect(payload.bugs.every((bug) => bug.replayHref == null)).toBe(true);
@@ -132,11 +182,13 @@ describe("buildInvestigationCommentPayload", () => {
         expect(remediation).toContain("Client factory change: register a defineFactory for external_connectors");
     });
 
-    it("is healthy when nothing is actionable", async () => {
+    it("is healthy when nothing is actionable, deferring the headline to the primary checkpoint", async () => {
         const payload = await buildInvestigationCommentPayload([result("ok", "passed")], context, noSign);
 
         expect(payload.state).toBe("healthy");
         expect(payload.bugs).toHaveLength(0);
+        // No findings: the headline is the checkpoint-derived copy, never a hard-coded "no issues".
+        expect(payload.headline).toBe("Autonoma found no issues in this PR.");
     });
 
     it("adds the preview CTA only when a preview URL is present", async () => {

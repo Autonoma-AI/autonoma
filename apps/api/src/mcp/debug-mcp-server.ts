@@ -7,6 +7,7 @@ import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import type { McpAnalytics } from "./mcp-analytics";
+import type { RepoContext } from "./resolve-repo-context";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
@@ -30,6 +31,8 @@ Every tool is keyed by repoFullName ("owner/repo"). You almost never need to ask
 - Only if you are not inside the app's repo, or can't determine the remote, call list_apps to see the repos you can debug and ask the user which one.
 You do NOT need GitHub access - repoFullName is just how Autonoma identifies your app; the org is inferred from it and you must be a member.
 
+Start with the findings: call get_investigation(repoFullName, prNumber) to read what Autonoma flagged on the PR - each finding's what-happened, likely root cause, file:line code evidence, and a suggested fix, plus a screenshot/clip of the failing run. That is usually enough to fix a client bug in this repo. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
+
 Recommended flow when Autonoma flags a problem on a pull request:
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
 2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
@@ -50,17 +53,17 @@ Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take p
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
 const AGENTS_MD_SNIPPET = `## Autonoma
 
-After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause (get_deploy_status, diagnose_deploy, get_build_logs, get_app_logs, get_secret_status), fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_investigation for the findings + evidence (what broke and why), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
 export interface DebugMcpDeps {
     services: Services;
     /**
-     * Resolve the organization a call acts in from the `repoFullName` it names,
-     * verifying the authenticated user is a member. Throws NotFoundError when the
-     * repo has no preview environment or the user is not a member of its org.
+     * Resolve the organization + linked application a call acts in from the `repoFullName` it names,
+     * verifying the authenticated user is a member. Throws NotFoundError when no accessible Autonoma
+     * application is found or the user is not a member of its org.
      */
-    resolveOrg: (repoFullName: string) => Promise<string>;
+    resolveRepoContext: (repoFullName: string) => Promise<RepoContext>;
     /** List the repos the authenticated user can debug (across their orgs). */
     listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
@@ -90,21 +93,23 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
 }
 
 /**
- * Builds the "debug" MCP server: the client-facing, previewkit-scoped slice of
- * Workstream B. Every tool resolves its org from the `repoFullName` it names via
- * `deps.resolveOrg` (which verifies the authenticated user is a member) and then
+ * Builds the "debug" MCP server: the client-facing, previewkit-scoped debug surface an agent uses to
+ * fix a broken preview. Every tool resolves its org + application from the `repoFullName` it names via
+ * `deps.resolveRepoContext` (which verifies the authenticated user is a member) and then
  * reuses an existing org-scoped service - this layer only maps the agent-friendly
  * execution key (repoFullName, and prNumber where per-PR) onto those services.
  * Resolving per-repo (not a fixed org) is what lets a multi-org user's token work
  * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
  * presence + masked length only.
  *
- * Tools keyed by `snapshotId` (tests / reviews / runs) are intentionally absent:
- * they are blocked on the diffs-vs-investigation reconciliation.
+ * `get_investigation` exposes the investigation agent's findings for a PR (read-only, keyed by
+ * repo + PR - the same shadow-agent findings the PR comment shows, which can differ from the canonical
+ * diffs bugs). Broader per-snapshot test/review/run tools remain absent pending the diffs-vs-investigation
+ * reconciliation.
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveOrg, listRepos, analytics } = deps;
+    const { services, resolveRepoContext, listRepos, analytics } = deps;
 
     const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
 
@@ -113,7 +118,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
         {
             title: "List your debuggable apps",
             description:
-                "List the repos ('owner/repo') you can debug - every repo with an Autonoma preview environment in " +
+                "List the repos ('owner/repo') you can debug - every repo linked to an Autonoma application in " +
                 "an organization you belong to. Call this when you don't already know the repoFullName (e.g. it " +
                 "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments.",
             inputSchema: {},
@@ -145,9 +150,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("get_deploy_status", async () => {
                 logger.info("get_deploy_status", { extra: { repoFullName, prNumber } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                    const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
                     if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
                     return jsonResult(summary);
                 } catch (err) {
@@ -173,9 +177,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("get_endpoints", async () => {
                 logger.info("get_endpoints", { extra: { repoFullName, prNumber } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                    const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
                     if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
                     const endpoints = summary.services.map((service) => {
                         const hasUrl = service.endpoint != null && service.endpoint !== "";
@@ -271,13 +274,46 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("diagnose_deploy", async () => {
                 logger.info("diagnose_deploy", { extra: { repoFullName, prNumber } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitDiagnosis.signals(organizationId, {
-                        applicationId: app.id,
+                        applicationId,
                         prNumber,
                     });
                     return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_investigation",
+        {
+            title: "Get Autonoma's investigation findings for a PR",
+            description:
+                "Autonoma runs this PR's affected end-to-end tests against the preview and classifies each outcome. " +
+                "This returns those findings for the PR's latest checkpoint: per finding a headline, what happened, " +
+                "the likely root cause, observed app issues, a suggested fix, the file:line code evidence, and signed " +
+                "screenshot/clip URLs - plus any suggested new tests. These are the investigation agent's OWN findings " +
+                "(the same ones shown in the Autonoma PR comment): a second opinion that can legitimately differ from " +
+                'the canonical dashboard bugs. `status: "unavailable"` means no investigation has run for this PR yet. ' +
+                "Start here when Autonoma flagged bugs on a PR and you want the full evidence to fix them.",
+            inputSchema: repoPrInput,
+        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("get_investigation", async () => {
+                logger.info("get_investigation", { extra: { repoFullName, prNumber } });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const report = await services.branches.getInvestigationReportForPr(
+                        applicationId,
+                        prNumber,
+                        organizationId,
+                    );
+                    if (report == null) {
+                        return unavailableResult(`No investigation report for ${repoFullName} PR ${prNumber} yet.`);
+                    }
+                    return jsonResult(report);
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -303,9 +339,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("get_secret_status", async () => {
                 logger.info("get_secret_status", { extra: { repoFullName } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                    const status = await services.previewkitSecretStatus.status(app.id, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const status = await services.previewkitSecretStatus.status(applicationId, organizationId);
                     return jsonResult(status);
                 } catch (err) {
                     return toToolResult(err);
@@ -342,10 +377,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("set_secret", async () => {
                 logger.info("set_secret", { extra: { repoFullName, prNumber, app, key, removing: value == null } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitWrite.setSecret({
-                        applicationId: application.id,
+                        applicationId,
                         repoFullName,
                         prNumber,
                         appName: app,
@@ -412,10 +446,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("edit_previewkit_config", async () => {
                 logger.info("edit_previewkit_config", { extra: { repoFullName, prNumber, app, apply } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitWrite.editConfig({
-                        applicationId: application.id,
+                        applicationId,
                         repoFullName,
                         prNumber,
                         appName: app,
@@ -447,9 +480,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("get_config", async () => {
                 logger.info("get_config", { extra: { repoFullName } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                    const result = await services.previewkitWrite.getConfig(application.id, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const result = await services.previewkitWrite.getConfig(applicationId, organizationId);
                     return jsonResult(result);
                 } catch (err) {
                     return toToolResult(err);
@@ -490,10 +522,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     },
                 });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
-                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitWrite.applyConfig({
-                        applicationId: application.id,
+                        applicationId,
                         repoFullName,
                         prNumber,
                         document,
@@ -532,7 +563,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("wait_for_deploy", async () => {
                 logger.info("wait_for_deploy", { extra: { repoFullName, prNumber, app } });
                 try {
-                    const organizationId = await resolveOrg(repoFullName);
+                    const { organizationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitEnvironments.waitForDeploy({
                         repoFullName,
                         prNumber,
@@ -647,7 +678,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     ) {
         logger.info(`get_${source}_logs`, { extra: { repoFullName: input.repoFullName, prNumber: input.prNumber } });
         try {
-            const organizationId = await resolveOrg(input.repoFullName);
+            const { organizationId } = await resolveRepoContext(input.repoFullName);
             const result = await services.previewkitLogs.tail({
                 repoFullName: input.repoFullName,
                 prNumber: input.prNumber,

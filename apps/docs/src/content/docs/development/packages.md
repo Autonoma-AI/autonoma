@@ -207,7 +207,7 @@ Background job services, each deployed as a separate Docker image:
 
 | Job | Purpose |
 | --- | --- |
-| **run-completion-notification** | Slack/email notifications when test runs complete |
+| **run-completion-notification** | Stripe billing refund on failed generations + the mark-failed reaper |
 | **scenario** | Environment Factory scenario execution |
 | **diffs** | Computes test suite diffs |
 

@@ -33,12 +33,11 @@ describe("payloadBuilder", () => {
 
         expect(payload.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma", "See preview"]);
         expect(renderMarkdown(payload)).toContain(
-            '<a href="https://autonoma.app/summary" target="_blank" rel="noopener noreferrer">↗ Open in Autonoma</a> | ' +
-                '<a href="https://preview.example.com" target="_blank" rel="noopener noreferrer">👁 See preview</a>',
+            "[↗ Open in Autonoma](<https://autonoma.app/summary>) · [👁 See preview](<https://preview.example.com>)",
         );
     });
 
-    it("renders the SVG status pill and CTA images when assetBaseUrl is configured", () => {
+    it("renders text-first status with image-button CTAs for Open in Autonoma and See preview", () => {
         const markdown = renderMarkdown(
             payloadBuilder({
                 state: "critical",
@@ -50,24 +49,24 @@ describe("payloadBuilder", () => {
             }),
         );
 
-        // Status pill replaces the **UNHEALTHY** - headline text.
-        expect(markdown).toContain(
-            '<img src="https://cdn.autonoma.app/github-comment/status-critical-pill.svg" alt="UNHEALTHY" width="126" />',
-        );
-        expect(markdown).not.toContain("**UNHEALTHY** -");
+        // No status-pill image: an emoji title + a markdown state label carry the state, so a markdown-only
+        // renderer (Linear) still shows it.
+        expect(markdown).toContain("## 🔴 ");
+        expect(markdown).toContain("**UNHEALTHY** - ");
+        expect(markdown).not.toContain("status-critical-pill.svg");
+        expect(markdown).not.toContain("<img");
 
         // The per-bug marker is a colored-dot emoji, never an <img>: an image would hijack the click and
         // open the SVG in a new tab instead of expanding the bug.
         expect(markdown).toContain("🔴 Checkout button is hidden");
-        expect(markdown).not.toContain("status-dot-red.svg");
         expect(markdown).toContain("`x4`");
 
-        // CTA buttons replace the text links and open in a new tab.
+        // Both top-level CTAs render as markdown image-links (primary + secondary buttons).
         expect(markdown).toContain(
-            '<a href="https://autonoma.app/summary" target="_blank" rel="noopener noreferrer"><img src="https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg" alt="Open in Autonoma" width="150" /></a>',
+            "[![Open in Autonoma](<https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg>)](<https://autonoma.app/summary>)",
         );
         expect(markdown).toContain(
-            '<a href="https://preview.example.com" target="_blank" rel="noopener noreferrer"><img src="https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg" alt="See preview" width="150" /></a>',
+            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg>)](<https://preview.example.com>)",
         );
     });
 
@@ -105,11 +104,9 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**Failed** `3`");
         expect(markdown).toContain("**Duration** `1m22s`");
         expect(markdown).toContain("**Top issues**");
+        expect(markdown).toContain("🔴 [Checkout button is hidden](<https://autonoma.app/bug/1>) `x4`");
         expect(markdown).toContain(
-            '🔴 <a href="https://autonoma.app/bug/1" target="_blank" rel="noopener noreferrer">Checkout button is hidden</a> `x4`',
-        );
-        expect(markdown).toContain(
-            '<a href="https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123" target="_blank" rel="noopener noreferrer">↗ Open in Autonoma</a>',
+            "[↗ Open in Autonoma](<https://autonoma.app/app/demo/pull-requests/42/snapshots/snap_123>)",
         );
         expect(markdown).toContain("Triggered by commit `abc1234`");
     });
@@ -176,7 +173,7 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**UNKNOWN** - Build failed in \\*api\\*");
     });
 
-    it("does not show a pass rate for a not-run checkpoint", () => {
+    it("omits pass rate and duration entirely when there is no data (not-run checkpoint)", () => {
         const markdown = renderMarkdown(
             payloadBuilder({
                 state: "running",
@@ -186,7 +183,9 @@ describe("payloadBuilder", () => {
         );
 
         expect(markdown).toContain("**Tests** `39`");
-        expect(markdown).toContain("**Pass rate** `-`");
+        // No pass/fail data and no duration -> those fields are dropped, never rendered as a bare "-".
+        expect(markdown).not.toContain("**Pass rate**");
+        expect(markdown).not.toContain("**Duration**");
         expect(markdown).not.toContain("`0%`");
     });
 
@@ -255,5 +254,26 @@ describe("payloadBuilder", () => {
         // toggling the <details>.
         expect(markdown).toContain("<summary><strong>Evidence</strong></summary>");
         expect(markdown).not.toContain("evidence-chip");
+    });
+
+    it("renders the coding-agent handoff: deep-links plus a copy-paste prompt in a code fence", () => {
+        const markdown = renderMarkdown({
+            ...payloadBuilder({ state: "critical", prNumber: 42 }),
+            handoff: {
+                prompt: "Fix the bug.\n```\n- old\n+ new\n```",
+                links: [
+                    { label: "Open in Claude Code", href: "https://claude.ai/code?prompt=x&repositories=acme%2Fweb" },
+                    { label: "Open in ChatGPT", href: "https://chatgpt.com/?q=x" },
+                ],
+            },
+        });
+
+        expect(markdown).toContain("<summary>🤖 Hand off to a coding agent</summary>");
+        // Deep-links render as plain markdown links joined by " · ".
+        expect(markdown).toContain(
+            "[Open in Claude Code](<https://claude.ai/code?prompt=x&repositories=acme%2Fweb>) · [Open in ChatGPT](<https://chatgpt.com/?q=x>)",
+        );
+        // The prompt sits in a fence one backtick longer than the nested ``` block, so its code survives intact.
+        expect(markdown).toContain("````\nFix the bug.\n```\n- old\n+ new\n```\n````");
     });
 });

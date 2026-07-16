@@ -64,6 +64,21 @@ export class McpAnalytics {
     }
 
     /**
+     * Same as {@link observeOrgResolution} but for a resolver that returns the richer
+     * repo context (org + linked application); records `organizationId` into the scope
+     * and passes the whole context through untouched.
+     */
+    observeRepoContextResolution<T extends { organizationId: string }>(
+        resolve: (repoFullName: string) => Promise<T>,
+    ): (repoFullName: string) => Promise<T> {
+        return async (repoFullName) => {
+            const context = await resolve(repoFullName);
+            extendObservabilityContext({ organization: { organizationId: context.organizationId } });
+            return context;
+        };
+    }
+
+    /**
      * Run a tool handler in a fresh observability scope, then emit `mcp.tool_called`
      * with the outcome. Opening the scope here (rather than relying on one bound
      * upstream) means the org an inner `observeOrgResolution` records is always read

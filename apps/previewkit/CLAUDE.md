@@ -34,7 +34,7 @@ GitHub pull_request webhook
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
 `TeardownPipeline` (addon deprovision + namespace delete + PR comment). Teardown updates both PR
 comments: the previewkit `"preview"` comment is replaced with a "Torn down" message, and the
-`"runs"` test-results comment (owned by the run-completion job) has its now-dead "See preview"
+`"investigation"` test-results comment (owned by the investigation worker) has its now-dead "See preview"
 button stripped in place via `stripCtaFromBody` (`@autonoma/github/comment`). A per-app redeploy
 (`PATCH .../apps/:app`) creates a `pk-redeploy-app-*` Job (`rebuild` or `restart`).
 

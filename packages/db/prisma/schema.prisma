@@ -1957,7 +1957,6 @@ model PreviewkitEnvironment {
 
 enum GitHubPrCommentKind {
   preview
-  runs
   investigation
 
   @@map("github_pr_comment_kind")

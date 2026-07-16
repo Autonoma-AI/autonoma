@@ -341,6 +341,36 @@ export class BranchesService extends Service {
         }
     }
 
+    /**
+     * The latest investigation report for a pull request, resolved from `applicationId + prNumber` rather than a
+     * snapshot id. Picks the PR's newest primary checkpoint (twins and cancelled drafts excluded, mirroring
+     * `listSnapshots`) and loads its report via `getInvestigationReportData` (which handles the twin/legacy report
+     * and signs the media). Returns null when the PR has no branch, no checkpoint, or no renderable report yet.
+     * Org-scoped. Used by the MCP `get_investigation` tool so a coding agent can pull the findings by repo + PR
+     * without an in-app login.
+     */
+    async getInvestigationReportForPr(
+        applicationId: string,
+        prNumber: number,
+        organizationId: string,
+    ): Promise<InvestigationReportData | null> {
+        this.logger.info("Getting investigation report for PR", { applicationId, prNumber });
+        const branch = await this.db.branch.findFirst({
+            where: { applicationId, prInfo: { prNumber }, application: { organizationId } },
+            select: { id: true },
+        });
+        if (branch == null) return null;
+
+        const snapshot = await this.db.branchSnapshot.findFirst({
+            where: { branchId: branch.id, status: { not: "cancelled" }, investigationParent: { is: null } },
+            orderBy: { createdAt: "desc" },
+            select: { id: true },
+        });
+        if (snapshot == null) return null;
+
+        return this.getInvestigationReportData(snapshot.id, organizationId);
+    }
+
     /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
     private async signFindingMedia(finding: InvestigationFinding): Promise<InvestigationFinding> {
         const finalScreenshotUrl =

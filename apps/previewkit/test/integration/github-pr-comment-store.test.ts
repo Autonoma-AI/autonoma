@@ -74,7 +74,7 @@ integrationTestSuite({
     createHarness: () => PreviewkitTestHarness.create(),
     cases: (test) => {
         test("first run posts and persists the comment id even with no pre-existing row", async ({ harness }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, calls } = makeRecordingClient("comment-1");
 
             const result = await postOrUpdateCommentOnGithub({
@@ -90,7 +90,9 @@ integrationTestSuite({
             expect(calls).toEqual(["post"]);
 
             const row = await harness.db.gitHubPrComment.findUnique({
-                where: { repoFullName_prNumber_kind: { repoFullName: "acme/web", prNumber: 42, kind: "runs" } },
+                where: {
+                    repoFullName_prNumber_kind: { repoFullName: "acme/web", prNumber: 42, kind: "investigation" },
+                },
             });
             expect(row).not.toBeNull();
             expect(row!.commentId).toBe("comment-1");
@@ -98,7 +100,7 @@ integrationTestSuite({
         });
 
         test("a second run reuses the same comment instead of posting a duplicate", async ({ harness }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, calls } = makeRecordingClient("comment-1");
 
             const opts = {
@@ -125,7 +127,7 @@ integrationTestSuite({
         test("allow-new-head reuses the comment across commits and advances the stored head sha", async ({
             harness,
         }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, calls } = makeRecordingClient("comment-1");
 
             await postOrUpdateCommentOnGithub({
@@ -152,17 +154,19 @@ integrationTestSuite({
             expect(calls).toEqual(["post", "update:comment-1"]);
 
             const row = await harness.db.gitHubPrComment.findUnique({
-                where: { repoFullName_prNumber_kind: { repoFullName: "acme/web", prNumber: 42, kind: "runs" } },
+                where: {
+                    repoFullName_prNumber_kind: { repoFullName: "acme/web", prNumber: 42, kind: "investigation" },
+                },
             });
             expect(row!.commentId).toBe("comment-1");
             expect(row!.headSha).toBe("sha-new");
         });
 
-        test("preview and runs keep independent comments for the same PR", async ({ harness }) => {
+        test("preview and investigation keep independent comments for the same PR", async ({ harness }) => {
             const previewStore = createGitHubPrCommentStore(harness.db, "preview");
-            const runsStore = createGitHubPrCommentStore(harness.db, "runs");
+            const investigationStore = createGitHubPrCommentStore(harness.db, "investigation");
             const preview = makeRecordingClient("preview-comment");
-            const runs = makeRecordingClient("runs-comment");
+            const investigation = makeRecordingClient("investigation-comment");
 
             const base = { repoFullName: "acme/web", prNumber: 42, lastCommitSha: "sha-aaa" };
 
@@ -174,27 +178,28 @@ integrationTestSuite({
             });
             await postOrUpdateCommentOnGithub({
                 ...base,
-                client: runs.client,
-                store: runsStore,
+                client: investigation.client,
+                store: investigationStore,
                 payload: payloadBuilder({ state: "healthy", prNumber: 42 }),
             });
 
             // Each flow posts its own comment - neither updates the other.
             expect(preview.calls).toEqual(["post"]);
-            expect(runs.calls).toEqual(["post"]);
+            expect(investigation.calls).toEqual(["post"]);
 
             const rows = await harness.db.gitHubPrComment.findMany({
                 where: { repoFullName: "acme/web", prNumber: 42 },
+                // Postgres orders an enum by its declaration order (preview, investigation), not alphabetically.
                 orderBy: { kind: "asc" },
             });
             expect(rows.map((r) => [r.kind, r.commentId])).toEqual([
                 ["preview", "preview-comment"],
-                ["runs", "runs-comment"],
+                ["investigation", "investigation-comment"],
             ]);
         });
 
         test("two concurrent first completions post only one comment", async ({ harness }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, postCount } = makeSlowUniqueClient();
 
             const fire = () =>
@@ -222,7 +227,7 @@ integrationTestSuite({
         });
 
         test("repost deletes the previous comment and posts a fresh one at the bottom", async ({ harness }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, calls } = makeSequentialClient();
 
             const opts = {
@@ -252,7 +257,7 @@ integrationTestSuite({
         });
 
         test("two concurrent reposts serialize and leave exactly one comment", async ({ harness }) => {
-            const store = createGitHubPrCommentStore(harness.db, "runs");
+            const store = createGitHubPrCommentStore(harness.db, "investigation");
             const { client, postCount, deleteCount } = makeSlowUniqueClient();
 
             const fire = () =>

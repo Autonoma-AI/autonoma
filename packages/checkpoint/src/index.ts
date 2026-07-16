@@ -75,6 +75,12 @@ export {
 export { countOpenBugsBySnapshot } from "./open-bugs";
 export { buildCheckpointSummary, type BuildCheckpointSummaryInputs } from "./presentation";
 export {
+    statsFromSummary,
+    isNoTestsAffected,
+    healthyHeadlineFromSummary,
+    type CommentTestStats,
+} from "./summary-to-comment";
+export {
     listExecutedTestsForSnapshot,
     listExecutedTestsForSnapshots,
     finalOutcomeForGenerationStatus,

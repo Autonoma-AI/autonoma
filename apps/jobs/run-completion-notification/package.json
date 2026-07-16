@@ -14,11 +14,8 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
-        "@autonoma/checkpoint": "workspace:*",
         "@autonoma/db": "workspace:*",
-        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@autonoma/types": "workspace:*",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"

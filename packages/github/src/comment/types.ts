@@ -68,6 +68,17 @@ export const AutonomaCommentStatsSchema = z.object({
 });
 export type AutonomaCommentStats = z.infer<typeof AutonomaCommentStatsSchema>;
 
+/**
+ * The "hand off to a coding agent" block. `prompt` is the full, paste-ready brief (findings + evidence)
+ * shown in a copy-buttoned code fence; `links` are "open in <agent>" deep-links that prefill a short
+ * kickoff prompt (review-and-send, never auto-run). Absent on comments with no findings.
+ */
+export const AutonomaCommentHandoffSchema = z.object({
+    prompt: z.string(),
+    links: z.array(AutonomaCommentCtaSchema).default([]),
+});
+export type AutonomaCommentHandoff = z.infer<typeof AutonomaCommentHandoffSchema>;
+
 export const AutonomaCommentPayloadSchema = z.object({
     state: AutonomaCommentStateSchema,
     prNumber: z.number().int().positive(),
@@ -82,6 +93,7 @@ export const AutonomaCommentPayloadSchema = z.object({
     bugs: z.array(AutonomaCommentBugSchema).default([]),
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
+    handoff: AutonomaCommentHandoffSchema.optional(),
 });
 export type AutonomaCommentPayload = z.infer<typeof AutonomaCommentPayloadSchema>;
 

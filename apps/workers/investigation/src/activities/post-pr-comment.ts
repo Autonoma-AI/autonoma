@@ -1,3 +1,4 @@
+import { getCheckpointSummaries, healthyHeadlineFromSummary, statsFromSummary } from "@autonoma/checkpoint";
 import { db } from "@autonoma/db";
 import {
     createGitHubPrCommentStore,
@@ -48,10 +49,22 @@ export async function postInvestigationPrComment(
         return { status: "skipped" };
     }
 
-    const previewUrl = await resolvePreviewUrl(snapshotId);
     // The investigation runs on a detached shadow snapshot, but its in-app report is navigable under the PARENT
-    // checkpoint - so report/finding links must use the checkpoint id (the shadow is not a navigable checkpoint).
-    const reportSnapshotId = await resolveReportSnapshotId(snapshotId);
+    // (primary) checkpoint - so report/finding links must use the checkpoint id (the shadow is not a navigable
+    // checkpoint), and the comment's stats mirror that primary checkpoint (dashboard parity), never the twin's.
+    // previewUrl and the primary checkpoint are independent reads of this snapshot; resolve them together.
+    const [previewUrl, primary] = await Promise.all([
+        resolvePreviewUrl(snapshotId),
+        resolvePrimaryCheckpoint(snapshotId),
+    ]);
+    // The summary and the diffs-job status both hang off the primary checkpoint but not off each other.
+    const [summaries, diffsJob] = await Promise.all([
+        getCheckpointSummaries(db, [{ id: primary.id, status: primary.status }], logger),
+        db.diffsJob.findUnique({ where: { snapshotId: primary.id }, select: { status: true } }),
+    ]);
+    const summary = summaries.get(primary.id);
+    const stats = summary != null ? statsFromSummary(summary) : undefined;
+
     const storage = getStorage();
     const payload = await buildInvestigationCommentPayload(
         input.results,
@@ -59,9 +72,13 @@ export async function postInvestigationPrComment(
             prNumber: prMeta.prNumber,
             commitSha: meta.headSha,
             prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
-            reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, reportSnapshotId),
+            reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, primary.id),
             previewUrl,
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
+            repoFullName: meta.repoFullName,
+            stats,
+            // The findings-clean headline defers to the primary checkpoint (findings first, checkpoint second).
+            checkpointHeadline: healthyHeadlineFromSummary(summary, diffsJob?.status),
         },
         async (s3Url) => {
             // Serve the correct content type so GitHub's image proxy renders the animated GIF clip (client bugs)
@@ -113,15 +130,21 @@ async function resolvePreviewUrl(snapshotId: string): Promise<string | undefined
 
 /**
  * The investigation runs on a detached shadow snapshot, but its in-app report is navigable under the PARENT
- * checkpoint (the shadow is not itself a navigable checkpoint). Resolve the checkpoint id for the report/finding
- * links; fall back to the given id when this snapshot has no investigation parent (already a checkpoint).
+ * (primary) checkpoint (the shadow is not itself a navigable checkpoint). Resolve the primary checkpoint's id
+ * and status - the id anchors the report/finding links, and both feed the checkpoint summary the comment's
+ * stats come from. Falls back to this snapshot when it has no investigation parent (already a checkpoint).
  */
-async function resolveReportSnapshotId(snapshotId: string): Promise<string> {
+async function resolvePrimaryCheckpoint(snapshotId: string): Promise<{ id: string; status: string }> {
     const snapshot = await db.branchSnapshot.findUnique({
         where: { id: snapshotId },
-        select: { investigationParent: { select: { id: true } } },
+        select: {
+            status: true,
+            investigationParent: { select: { id: true, status: true } },
+        },
     });
-    return snapshot?.investigationParent?.id ?? snapshotId;
+    const parent = snapshot?.investigationParent;
+    if (parent != null) return { id: parent.id, status: parent.status };
+    return { id: snapshotId, status: snapshot?.status ?? "unknown" };
 }
 
 /** Absolute URL of the in-app PR overview page; the "Open in Autonoma" CTA lands here. */
