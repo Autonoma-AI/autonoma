@@ -213,6 +213,30 @@ integrationTestSuite({
             expect(reloaded.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
         });
 
+        test("savePreviewkitConfig returns warning-severity issues instead of dropping them", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_015);
+            await setStep(harness, appId, "previewkit_configuring");
+
+            // A postgres service no app connection references: the save must
+            // succeed (warning severity never blocks) but carry the warning, so
+            // the MCP agent path hears about the missing wiring at apply_config
+            // time instead of after a green deploy with a broken runtime.
+            const saved = await manager.savePreviewkitConfig(appId, orgId, {
+                version: 1,
+                apps: [{ name: "web", path: ".", port: 3000, primary: true }],
+                services: [{ name: "db", recipe: "postgres" }],
+            });
+
+            expect(saved.saved).toBe(true);
+            expect(saved.warnings).toContainEqual(
+                expect.objectContaining({ code: "unreferenced_database_service", severity: "warning" }),
+            );
+        });
+
         test("savePreviewkitConfig rejects undeclared dependency repos and merged duplicate names", async ({
             harness,
             seedResult: { orgId, createApp },

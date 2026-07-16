@@ -471,6 +471,7 @@ export type ConfigIssueCode =
     | "duplicate_name"
     | "unknown_connection_target"
     | "duplicate_connection_key"
+    | "unreferenced_database_service"
     | "empty_setup_task_command"
     | "unknown_setup_task_app"
     | "unknown_setup_task_repo"
@@ -584,6 +585,27 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
     const repoNames = new Set((config.config?.multirepo?.repos ?? []).map((repo) => repo.name));
     config.services.forEach((service, serviceIndex) => {
         issues.push(...validateSetupTasks(service.setup_tasks, appNames, repoNames, serviceIndex));
+    });
+
+    // A database service no app connection references is almost always a wiring
+    // gap: the database provisions and comes up healthy, but the apps have no env
+    // pointing at it, so the first runtime query fails ("DATABASE_URL not found")
+    // AFTER the deploy reports ready. Warn - never block - since an app could
+    // reach the service through a channel this validation can't see.
+    const referencedTargets = new Set(
+        config.apps.flatMap((app) => app.connections.flatMap((connection) => connectionTargets(connection.value))),
+    );
+    config.services.forEach((service, serviceIndex) => {
+        if (!isPreviewkitDatabaseEngine(service.recipe) || referencedTargets.has(service.name)) return;
+        issues.push({
+            severity: "warning",
+            code: "unreferenced_database_service",
+            path: ["services", serviceIndex],
+            message:
+                `Service "${service.name}" (${service.recipe}) is not referenced by any app connection - ` +
+                `your apps have no env pointing at it. Add a connection like ` +
+                `{ key: "DATABASE_URL", value: "{{${service.name}.url}}" } to the app that uses it.`,
+        });
     });
 
     issues.push(...validateHookSteps(config.hooks.pre_deploy, appNames, "pre_deploy"));

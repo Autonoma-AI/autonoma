@@ -38,6 +38,13 @@ export interface OnboardingPreviewkitConfig {
     document: PreviewConfig;
     /** One entry per dependency repo declared in the primary document's `config.multirepo.repos`. */
     dependencyConfigs: OnboardingPreviewkitDependencyConfig[];
+    /**
+     * Warning-severity semantic issues on the saved (merged) topology. Only set by
+     * `save`: errors block the save, but warnings would otherwise vanish silently -
+     * and the MCP agent path has no other channel to hear about them (e.g. a
+     * database service no app connection references).
+     */
+    warnings?: ConfigIssue[];
 }
 
 export interface PreviewkitDependencyDocument {
@@ -211,7 +218,8 @@ export class PreviewkitConfigService {
             config,
             dependencies.map((dependency) => dependency.config),
         );
-        const blockingIssues = validatePreviewConfigSemantics(merged).filter((issue) => issue.severity === "error");
+        const issues = validatePreviewConfigSemantics(merged);
+        const blockingIssues = issues.filter((issue) => issue.severity === "error");
         if (blockingIssues.length > 0) {
             const issueText = blockingIssues
                 .map((issue) => {
@@ -220,6 +228,13 @@ export class PreviewkitConfigService {
                 })
                 .join("; ");
             throw new BadRequestError(`Invalid PreviewKit config: ${issueText}`);
+        }
+        const warnings = issues.filter((issue) => issue.severity === "warning");
+        if (warnings.length > 0) {
+            this.logger.info("PreviewKit config saved with warnings", {
+                applicationId,
+                extra: { warnings: warnings.map((issue) => issue.message) },
+            });
         }
 
         await upsertConfig(
@@ -242,6 +257,7 @@ export class PreviewkitConfigService {
                 saved: true,
                 document: dependency.config,
             })),
+            warnings,
         };
     }
 

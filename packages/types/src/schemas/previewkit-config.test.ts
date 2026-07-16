@@ -240,6 +240,31 @@ describe("connection validation", () => {
         expect(issues.some((issue) => issue.code === "duplicate_connection_key")).toBe(true);
     });
 
+    it("warns when a database service is not referenced by any app connection", () => {
+        const config = parse([{ key: "NODE_ENV", value: "production" }]);
+        const issues = validatePreviewConfigSemantics(config);
+        const warning = issues.find((issue) => issue.code === "unreferenced_database_service");
+        expect(warning?.severity).toBe("warning");
+        expect(warning?.path).toEqual(["services", 0]);
+        expect(warning?.message).toContain("{{db.url}}");
+    });
+
+    it("does not warn about a database service some app connects to", () => {
+        const config = parse([{ key: "DATABASE_URL", value: "postgresql://preview:preview@{{db.host}}:5432/preview" }]);
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.code === "unreferenced_database_service")).toBe(false);
+    });
+
+    it("does not warn about non-database services without connections", () => {
+        const config = previewConfigSchema.parse({
+            version: 1,
+            apps: [{ name: "web", port: 3000 }],
+            services: [{ name: "flow", recipe: "temporal" }],
+        });
+        const issues = validatePreviewConfigSemantics(config);
+        expect(issues.some((issue) => issue.code === "unreferenced_database_service")).toBe(false);
+    });
+
     it("rejects a reserved key as a connection", () => {
         const result = previewConfigSchema.safeParse({
             version: 1,
