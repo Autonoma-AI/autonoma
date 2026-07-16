@@ -6,8 +6,6 @@ import { ensureBranchData } from "lib/query/branches.queries";
 import { Suspense } from "react";
 import { useIsMainBranchSelected, useSelectedBranch } from "../-use-selected-branch";
 import { AppLink } from "../../-app-link";
-import { useBranchActivity } from "../../-layout/use-branch-activity";
-import { AgentGeneratingView } from "./-agent-generating-view";
 import { BranchPicker } from "./-branch-picker";
 import { TestsTreeProvider } from "./-tests-tree/tests-tree-context";
 import { TestsTreePanel } from "./-tests-tree/tests-tree-panel";
@@ -84,11 +82,8 @@ function TestsPage() {
   const testCount = branch.activeSnapshot.testCaseAssignments.length;
   const hasPending = branch.pendingSnapshotId != null;
   const { isAdmin } = useAuth();
-  const { state, activities } = useBranchActivity();
 
   const changes = useBranchTestChanges(branch.id, !isMain);
-
-  const isGenerating = testCount === 0 && (state === "working" || activities.some((a) => a.type === "generation"));
 
   const header = (
     <header className="flex items-start justify-between gap-4">
@@ -108,17 +103,6 @@ function TestsPage() {
       )}
     </header>
   );
-
-  if (isGenerating) {
-    return (
-      <div className="flex flex-col gap-6">
-        {header}
-        <div className="flex min-h-[400px] border border-border-mid bg-surface-raised">
-          <AgentGeneratingView activities={activities} />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <TestChangesContext.Provider value={changes}>
