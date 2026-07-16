@@ -9,8 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PreviewAuthRouteImport } from './routes/preview-auth'
 import { Route as GithubInstalledRouteImport } from './routes/github-installed'
+import { Route as EulaRouteImport } from './routes/eula'
 import { Route as BlacklightRouteImport } from './routes/_blacklight'
 import { Route as BlacklightOnboardingRouteRouteImport } from './routes/_blacklight/onboarding/route'
 import { Route as BlacklightAppShellRouteRouteImport } from './routes/_blacklight/_app-shell/route'
@@ -68,6 +71,16 @@ import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnaps
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdInvestigationFindingIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation/$findingId'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
 
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewAuthRoute = PreviewAuthRouteImport.update({
   id: '/preview-auth',
   path: '/preview-auth',
@@ -76,6 +89,11 @@ const PreviewAuthRoute = PreviewAuthRouteImport.update({
 const GithubInstalledRoute = GithubInstalledRouteImport.update({
   id: '/github-installed',
   path: '/github-installed',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EulaRoute = EulaRouteImport.update({
+  id: '/eula',
+  path: '/eula',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlacklightRoute = BlacklightRouteImport.update({
@@ -436,8 +454,11 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChanges
 
 export interface FileRoutesByFullPath {
   '/': typeof BlacklightAppShellIndexRoute
+  '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/login': typeof BlacklightauthLoginRouteRouteWithChildren
   '/pending': typeof BlacklightauthPendingRoute
@@ -494,8 +515,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof BlacklightAppShellIndexRoute
+  '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
@@ -544,8 +568,11 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_blacklight': typeof BlacklightRouteWithChildren
+  '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/_blacklight/_app-shell': typeof BlacklightAppShellRouteRouteWithChildren
   '/_blacklight/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/_blacklight/(auth)/login': typeof BlacklightauthLoginRouteRouteWithChildren
@@ -606,8 +633,11 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/privacy'
+    | '/terms'
     | '/onboarding'
     | '/login'
     | '/pending'
@@ -664,8 +694,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/privacy'
+    | '/terms'
     | '/onboarding'
     | '/pending'
     | '/rejected'
@@ -713,8 +746,11 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_blacklight'
+    | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/privacy'
+    | '/terms'
     | '/_blacklight/_app-shell'
     | '/_blacklight/onboarding'
     | '/_blacklight/(auth)/login'
@@ -774,12 +810,29 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   BlacklightRoute: typeof BlacklightRouteWithChildren
+  EulaRoute: typeof EulaRoute
   GithubInstalledRoute: typeof GithubInstalledRoute
   PreviewAuthRoute: typeof PreviewAuthRoute
+  PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/preview-auth': {
       id: '/preview-auth'
       path: '/preview-auth'
@@ -792,6 +845,13 @@ declare module '@tanstack/react-router' {
       path: '/github-installed'
       fullPath: '/github-installed'
       preLoaderRoute: typeof GithubInstalledRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/eula': {
+      id: '/eula'
+      path: '/eula'
+      fullPath: '/eula'
+      preLoaderRoute: typeof EulaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_blacklight': {
@@ -1487,8 +1547,11 @@ const BlacklightRouteWithChildren = BlacklightRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   BlacklightRoute: BlacklightRouteWithChildren,
+  EulaRoute: EulaRoute,
   GithubInstalledRoute: GithubInstalledRoute,
   PreviewAuthRoute: PreviewAuthRoute,
+  PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
