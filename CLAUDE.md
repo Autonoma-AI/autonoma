@@ -314,6 +314,22 @@ const FACTORY_ERROR_CAP = 300; // <- reader has to hunt for this
 function sanitize(msg: string) { return msg.slice(0, FACTORY_ERROR_CAP); }
 ```
 
+### Single Source of Truth
+
+**Never hardcode a subset, slice, or projection of a canonical constant, enum, or type union - derive it.** A literal (array, `Set`, `Map`, object, or a repeated value) that copies part of an existing source of truth is type-checked only for *valid members*, not for staying *in sync*: it silently rots the moment the canonical source is reordered, renamed, or extended, and nothing catches it. Compute from the single source instead (index/compare/filter over it, or a small shared helper), and extract a shared named constant when the same literal value - a key, path, status, route, threshold - appears in more than one file. A deliberate denormalization is allowed only with a comment explaining why the copy exists and how it stays correct.
+
+```ts
+// BAD - hand-lists the tail of STEP_ORDER; a new step silently breaks this
+const STEPS_AT_OR_PAST_VERIFIED = new Set(["verified", "live", "completed"]);
+if (STEPS_AT_OR_PAST_VERIFIED.has(step)) { ... }
+
+// GOOD - derives from the one ordered source of truth
+function isStepAtOrPast(step: Step, target: Step): boolean {
+  return STEP_ORDER.indexOf(step) >= STEP_ORDER.indexOf(target);
+}
+if (isStepAtOrPast(step, "verified")) { ... }
+```
+
 ### Never Swallow Errors in Empty Catches
 
 **Never write an empty `catch` block.** A bare `catch {}` (or a catch whose only content is a comment) silently swallows every error and makes future debugging nearly impossible - when the surrounding logic mysteriously stops working, there is no breadcrumb to follow. Every catch must at minimum log the error so it shows up in Sentry and in local logs.
