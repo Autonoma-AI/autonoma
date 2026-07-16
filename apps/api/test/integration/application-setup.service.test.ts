@@ -241,7 +241,11 @@ apiTestSuite({
             expect(scenarios).toHaveLength(0);
         });
 
-        test("uploadArtifacts records the commit sha on the pending snapshot", async ({ harness }) => {
+        test("uploadArtifacts activates the first uploaded suite and records its commit sha", async ({ harness }) => {
+            // With replay removed the first uploaded suite is immediately usable, so
+            // artifact upload activates the snapshot it produced (rather than leaving
+            // it pending) - otherwise the Tests page, which reads the active snapshot,
+            // shows an empty suite after a successful upload.
             const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Commit Sha");
             const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 
@@ -259,18 +263,74 @@ apiTestSuite({
 
             const branch = await harness.db.branch.findFirstOrThrow({
                 where: { applicationId: app.id },
-                select: { pendingSnapshotId: true },
+                select: { activeSnapshotId: true, pendingSnapshotId: true },
             });
 
-            const pendingSnapshotId = branch.pendingSnapshotId;
-            expect(pendingSnapshotId).not.toBeNull();
-            if (pendingSnapshotId == null) throw new Error("expected a pending snapshot");
+            expect(branch.pendingSnapshotId).toBeNull();
+            const activeSnapshotId = branch.activeSnapshotId;
+            expect(activeSnapshotId).not.toBeNull();
+            if (activeSnapshotId == null) throw new Error("expected an active snapshot");
 
             const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
-                where: { id: pendingSnapshotId },
+                where: { id: activeSnapshotId },
                 select: { headSha: true },
             });
             expect(snapshot.headSha).toBe(sha);
+
+            const activeTests = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: activeSnapshotId },
+            });
+            expect(activeTests).toBe(1);
+        });
+
+        test("uploadArtifacts stages a suite update as pending once a live suite exists", async ({ harness }) => {
+            // The first upload activates; a later upload is an *update* to the live
+            // suite and must stay staged in the pending snapshot until the preview is
+            // verified and the app goes live, so it never silently replaces the
+            // running suite mid-onboarding.
+            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Second Upload");
+
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [
+                    {
+                        name: "login.md",
+                        folder: "auth",
+                        content: "---\ndescription: Logging in lands the user on the dashboard.\n---\n\nGo to /login",
+                    },
+                ],
+            });
+
+            const afterFirst = await harness.db.branch.findFirstOrThrow({
+                where: { applicationId: app.id },
+                select: { activeSnapshotId: true, pendingSnapshotId: true },
+            });
+            expect(afterFirst.pendingSnapshotId).toBeNull();
+            const firstActiveSnapshotId = afterFirst.activeSnapshotId;
+            expect(firstActiveSnapshotId).not.toBeNull();
+
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [
+                    {
+                        name: "signup.md",
+                        folder: "auth",
+                        content:
+                            "---\ndescription: Signing up creates an account and lands on onboarding.\n---\n\nGo to /signup",
+                    },
+                ],
+            });
+
+            const afterSecond = await harness.db.branch.findFirstOrThrow({
+                where: { applicationId: app.id },
+                select: { activeSnapshotId: true, pendingSnapshotId: true },
+            });
+            // The live suite is untouched; the update waits in a fresh pending snapshot.
+            expect(afterSecond.activeSnapshotId).toBe(firstActiveSnapshotId);
+            expect(afterSecond.pendingSnapshotId).not.toBeNull();
+
+            const liveTests = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: firstActiveSnapshotId ?? undefined },
+            });
+            expect(liveTests).toBe(1);
         });
 
         test("uploadArtifacts rejects scenario recipes in the generic artifact endpoint", async ({ harness }) => {

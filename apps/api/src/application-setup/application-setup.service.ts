@@ -195,13 +195,21 @@ export class ApplicationSetupService {
      * final `step.completed` event and the admin manual upload's
      * `PATCH {status:"completed"}`.
      *
+     * The pending snapshot is a staging mutex for *updating* an already-live
+     * suite: an update lands as pending and goes live with the preview. But the
+     * branch's FIRST suite has nothing to stage against - with replay removed the
+     * uploaded tests are immediately usable, so it must be activated on upload.
+     * Otherwise a successful upload leaves the Tests page (which reads the active
+     * snapshot) showing an empty suite. Activation discards pending generations
+     * (nothing fires against an unconfigured SDK) and does not advance onboarding,
+     * so it is safe before the preview is verified.
+     *
      * Finish setup and onboarding's "Go live" are independent signals and nothing
      * enforces their order, so we can land here before `goLive` was ever clicked.
-     * Reaching `diff_trigger` means the preview was verified, which is the only
-     * precondition for activating safely - so from there we go live ourselves
-     * rather than depend on a manual click the user may never make. Before that
-     * the preview is genuinely unverified, so we defer (and warn, so a stuck app
-     * is visible). Activation is idempotent, so a double signal is harmless.
+     * Reaching `diff_trigger` means the preview was verified, so from there we go
+     * live ourselves (advancing the state machine and activating) rather than
+     * depend on a manual click the user may never make. Activation is idempotent,
+     * so a double signal is harmless.
      */
     private async activateSnapshotAfterSetupCompletion(
         setupId: string,
@@ -209,8 +217,9 @@ export class ApplicationSetupService {
         organizationId: string,
     ): Promise<void> {
         const onboardingState = await this.onboardingManager.getState(applicationId);
+        const step = onboardingState.step;
 
-        if (onboardingState.step === "completed") {
+        if (step === "completed") {
             await this.onboardingManager.activatePendingSnapshot(applicationId, organizationId);
             // This branch skips goLive() (the app is already live), so recover any PR
             // comments the onboarding gate dropped ourselves. Idempotent, so overlap
@@ -220,22 +229,56 @@ export class ApplicationSetupService {
             return;
         }
 
-        const readyToGoLive = this.onboardingManager.isStepAtOrPast(onboardingState.step, "diff_trigger");
-        if (readyToGoLive) {
+        if (step === "diff_trigger") {
             log.info("Setup completed and preview verified - going live to activate snapshot", {
                 setupId,
                 applicationId,
-                step: onboardingState.step,
+                step,
             });
             await this.onboardingManager.goLive(applicationId, organizationId);
             return;
         }
 
-        log.warn("Setup completed but preview not verified yet - deferring snapshot activation to go-live", {
+        // Before the preview is verified: activate only the branch's first usable
+        // suite. A later upload is an update and stays staged in the pending
+        // snapshot until the preview is verified and the app goes live.
+        if (await this.isFirstUsableSuite(applicationId, organizationId)) {
+            log.info("Activating first uploaded suite before preview verification", {
+                setupId,
+                applicationId,
+                step,
+            });
+            await this.onboardingManager.activatePendingSnapshot(applicationId, organizationId);
+            return;
+        }
+
+        log.info("Setup completed - staging suite update in pending snapshot until go-live", {
             setupId,
             applicationId,
-            step: onboardingState.step,
+            step,
         });
+    }
+
+    /**
+     * True when this upload produced the branch's first usable suite: there is a
+     * pending snapshot to activate and no live suite yet (the active snapshot is
+     * absent or still the empty onboarding placeholder, with zero test-case
+     * assignments). Only the first suite activates immediately; later uploads stage
+     * into the pending snapshot and go live with the preview.
+     */
+    private async isFirstUsableSuite(applicationId: string, organizationId: string): Promise<boolean> {
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { mainBranch: { select: { activeSnapshotId: true, pendingSnapshotId: true } } },
+        });
+        const branch = app?.mainBranch;
+        if (branch?.pendingSnapshotId == null) return false;
+        if (branch.activeSnapshotId == null) return true;
+
+        const activeTestCount = await this.db.testCaseAssignment.count({
+            where: { snapshotId: branch.activeSnapshotId },
+        });
+        return activeTestCount === 0;
     }
 
     async uploadArtifacts(setupId: string, organizationId: string, body: UploadArtifactsBody) {

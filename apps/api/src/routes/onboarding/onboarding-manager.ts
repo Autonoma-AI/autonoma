@@ -888,15 +888,6 @@ export class OnboardingManager {
     }
 
     /**
-     * Whether `step` is at or past `target` in the onboarding sequence. Pure
-     * helper so callers can reason about ordering without reaching into the
-     * module-private `STEP_ORDER`.
-     */
-    isStepAtOrPast(step: OnboardingState["step"], target: OnboardingState["step"]): boolean {
-        return STEP_ORDER.indexOf(step) >= STEP_ORDER.indexOf(target);
-    }
-
-    /**
      * Activate the application's main-branch pending snapshot after onboarding
      * completes. Onboarding no longer pre-computes generations, so the uploaded
      * tests' generation jobs are never run - they generate later when a PR
