@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.8.36](https://github.com/Autonoma-AI/agent/compare/v1.8.35...v1.8.36) (2026-07-16)
+
+
+### Features
+
+* add annotations for claude mcp plugin ([#1541](https://github.com/Autonoma-AI/agent/issues/1541)) ([5d8d7d1](https://github.com/Autonoma-AI/agent/commit/5d8d7d194f7a8efa3c2121f960f76cb45e6f7ec6))
+* add tos, eula and privacy pages ([#1565](https://github.com/Autonoma-AI/agent/issues/1565)) ([096257c](https://github.com/Autonoma-AI/agent/commit/096257cb69650aed55745ce191078b691fff6523))
+* build vercel cronjobs ([#1545](https://github.com/Autonoma-AI/agent/issues/1545)) ([7f75ef5](https://github.com/Autonoma-AI/agent/commit/7f75ef5f68b16cc5a113b89dcccdb61c4e2a6b52))
+* cache-aware pricing for investigation classifier models ([#1547](https://github.com/Autonoma-AI/agent/issues/1547)) ([fc96b2f](https://github.com/Autonoma-AI/agent/commit/fc96b2fa73f413abed9f085b40512a652d01add8))
+* set redirect uri variable per environment ([#1566](https://github.com/Autonoma-AI/agent/issues/1566)) ([0757aec](https://github.com/Autonoma-AI/agent/commit/0757aecd59d296d60fa7db167c5c983b7fe129c5))
+* shadow-mode skeleton for the merged analysis pipeline ([#1526](https://github.com/Autonoma-AI/agent/issues/1526)) ([dbc65e8](https://github.com/Autonoma-AI/agent/commit/dbc65e834a444f1c7ba63788f0f2192d0e6fcf01))
+* single text-first PR comment + investigation findings over MCP ([#1493](https://github.com/Autonoma-AI/agent/issues/1493)) ([5dc2aef](https://github.com/Autonoma-AI/agent/commit/5dc2aef4d5df246c123eef1c20feee41ed2a9be5))
+
+
+### Bug Fixes
+
+* **api:** recover PR investigation comments dropped mid-onboarding ([#1497](https://github.com/Autonoma-AI/agent/issues/1497)) ([b734945](https://github.com/Autonoma-AI/agent/commit/b734945a0e281879859bf4acccffa88b4060c89b))
+* **db:restore:** clear jwks after restore so local auth can decrypt ([#1534](https://github.com/Autonoma-AI/agent/issues/1534)) ([f9058a5](https://github.com/Autonoma-AI/agent/commit/f9058a5db5aeab0981febb2b94e788cda0148ee6))
+* **mcp:** point MCP/API host at api.autonoma.app, off CloudFront ([#1551](https://github.com/Autonoma-AI/agent/issues/1551)) ([80bf358](https://github.com/Autonoma-AI/agent/commit/80bf3584e054232a0babfdeaa8fcc82db8de766d))
+* **onboarding:** activate the first uploaded suite so tests are immediately usable ([#1557](https://github.com/Autonoma-AI/agent/issues/1557)) ([3d96a7b](https://github.com/Autonoma-AI/agent/commit/3d96a7be29d9f4c4e383210fad83b6b4a9c0d20e))
+* **onboarding:** hide Docker sandbox tab in CLI setup step ([#1550](https://github.com/Autonoma-AI/agent/issues/1550)) ([31cf106](https://github.com/Autonoma-AI/agent/commit/31cf106d065d4d88ff81a72b915da33186496589))
+* **onboarding:** stop a rebuild demoting a verified preview back to previewkit_deploying ([#1559](https://github.com/Autonoma-AI/agent/issues/1559)) ([f7a23f3](https://github.com/Autonoma-AI/agent/commit/f7a23f3b8a91207fbe309b8cb9b99df3bdd9f078))
+* **onboarding:** stop CLI-step reset on refresh, gate on recipe, harden CLI upload ([#1553](https://github.com/Autonoma-AI/agent/issues/1553)) ([c6d7923](https://github.com/Autonoma-AI/agent/commit/c6d79230fa1ae0c9507be7b6ed7f28fb3ea5627b))
+* **previewkit:** show per-app build durations ([#1533](https://github.com/Autonoma-AI/agent/issues/1533)) ([142c6a0](https://github.com/Autonoma-AI/agent/commit/142c6a09259decd164d86292fa29e6c74407d3c7))
+* **previewkit:** use Autonoma bun base image (bun + curl) for the bun preset ([#1564](https://github.com/Autonoma-AI/agent/issues/1564)) ([a7f0326](https://github.com/Autonoma-AI/agent/commit/a7f032619ee966d3f49038523b794d554b89e90b))
+* **ui:** drop the 'Generating your tests' view on the Tests page ([#1554](https://github.com/Autonoma-AI/agent/issues/1554)) ([a1406d9](https://github.com/Autonoma-AI/agent/commit/a1406d992c6c93ba527f3768ca2374194ea51dc6))
+
 ## [1.8.35](https://github.com/Autonoma-AI/agent/compare/v1.8.34...v1.8.35) (2026-07-15)
 
 
