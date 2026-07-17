@@ -21,6 +21,18 @@ export const AgentLogEntrySchema = z.object({
 export type AgentLogEntry = z.infer<typeof AgentLogEntrySchema>;
 
 /**
+ * How the human answered an env request: which keys they set and which they
+ * skipped ("I don't have this"). Skips matter to the agent - it must adapt
+ * (default, drop, or rework the config) instead of assuming the value exists
+ * or re-requesting the same key.
+ */
+export const OnboardingAgentEnvResolutionSchema = z.object({
+    setKeys: z.array(z.string()),
+    skippedKeys: z.array(z.string()),
+});
+export type OnboardingAgentEnvResolution = z.infer<typeof OnboardingAgentEnvResolutionSchema>;
+
+/**
  * A question only the human can answer, raised by the agent mid-configuration and
  * rendered inline in the locked onboarding UI. Stored on
  * `OnboardingState.agentPendingRequest`; the agent discovers the resolution by
@@ -34,6 +46,13 @@ export const OnboardingAgentPendingEnvRequestSchema = z.object({
     appName: z.string().min(1),
     /** A human-facing note from the agent explaining what the keys are for. */
     note: z.string().optional(),
+    /**
+     * Present once the human answered WITH skips. The request then no longer
+     * renders as pending (the same stored column carries it, so no migration);
+     * the session view surfaces it as `lastEnvResolution` until the next request
+     * overwrites it. A fully-set answer clears the column instead.
+     */
+    resolution: OnboardingAgentEnvResolutionSchema.optional(),
 });
 
 export const OnboardingAgentPendingChoiceRequestSchema = z.object({

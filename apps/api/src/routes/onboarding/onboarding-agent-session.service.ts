@@ -5,6 +5,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
     type AgentLogEntryStatus,
+    type OnboardingAgentEnvResolution,
     type OnboardingAgentPendingRequest,
     OnboardingAgentPendingRequestSchema,
 } from "@autonoma/types";
@@ -61,6 +62,13 @@ export interface AgentSessionView {
     agentConnectedAt?: Date;
     agentLastActivityAt?: Date;
     pendingRequest?: OnboardingAgentPendingRequest;
+    /**
+     * How the human answered the LAST env request when they skipped keys: the
+     * agent must adapt to `skippedKeys` (default, drop, or rework the config)
+     * instead of assuming every requested value exists. Cleared by the next
+     * pending request; absent when the last answer set every key.
+     */
+    lastEnvResolution?: OnboardingAgentEnvResolution & { appName: string };
     logs: AgentLogEntry[];
     /** Which coding agent is driving (from MCP clientInfo); undefined when unknown. */
     agentClient?: string;
@@ -298,10 +306,44 @@ export class OnboardingAgentSessionService {
         });
     }
 
-    /** Clears a resolved pending request (the human answered in the UI). Org-scoped. */
-    async resolvePendingRequest(applicationId: string, organizationId: string): Promise<void> {
-        this.logger.info("Clearing resolved pending request", { applicationId, organizationId });
+    /**
+     * Resolves a pending request the human answered in the UI. A fully-set env
+     * answer (or a non-env request) clears the column, matching the agent's
+     * "cleared = all values set" contract. An answer WITH skipped keys instead
+     * writes a resolution back onto the stored request - same column, no
+     * migration - which {@link getForUi} surfaces as `lastEnvResolution` so the
+     * polling agent learns which keys it must live without. The set keys are
+     * derived here from the stored request (requested minus skipped) - the
+     * request is the single source of truth for what was asked. Org-scoped.
+     */
+    async resolvePendingRequest(applicationId: string, organizationId: string, skippedKeys?: string[]): Promise<void> {
+        this.logger.info("Clearing resolved pending request", {
+            applicationId,
+            organizationId,
+            extra: { skippedKeys },
+        });
         await this.assertAppInOrg(applicationId, organizationId);
+
+        if (skippedKeys != null && skippedKeys.length > 0) {
+            const state = await this.db.onboardingState.findUnique({
+                where: { applicationId },
+                select: { agentPendingRequest: true },
+            });
+            const request = this.parsePendingRequest(state?.agentPendingRequest ?? null);
+            if (request?.kind === "env") {
+                const skipped = new Set(skippedKeys);
+                const resolution: OnboardingAgentEnvResolution = {
+                    setKeys: request.keys.filter((key) => !skipped.has(key)),
+                    skippedKeys: request.keys.filter((key) => skipped.has(key)),
+                };
+                await this.db.onboardingState.update({
+                    where: { applicationId },
+                    data: { agentPendingRequest: { ...request, resolution }, agentLastActivityAt: new Date() },
+                });
+                return;
+            }
+        }
+
         await this.db.onboardingState.update({
             where: { applicationId },
             data: { agentPendingRequest: Prisma.JsonNull, agentLastActivityAt: new Date() },
@@ -373,6 +415,18 @@ export class OnboardingAgentSessionService {
         if (state == null) return undefined;
 
         const stale = state.agentHolder === "agent" && this.isStale(state.agentLastActivityAt);
+        // A request carrying a resolution was already answered (with skips): it is
+        // no longer pending - it rides the same column purely to carry the skip
+        // outcome to the polling agent.
+        const request = this.parsePendingRequest(state.agentPendingRequest);
+        const lastEnvResolution =
+            request?.kind === "env" && request.resolution != null
+                ? {
+                      appName: request.appName,
+                      setKeys: request.resolution.setKeys,
+                      skippedKeys: request.resolution.skippedKeys,
+                  }
+                : undefined;
         return {
             applicationId,
             step: state.step,
@@ -382,7 +436,8 @@ export class OnboardingAgentSessionService {
             stale,
             agentConnectedAt: state.agentConnectedAt ?? undefined,
             agentLastActivityAt: state.agentLastActivityAt ?? undefined,
-            pendingRequest: this.parsePendingRequest(state.agentPendingRequest),
+            pendingRequest: lastEnvResolution == null ? request : undefined,
+            lastEnvResolution,
             logs: state.agentLogs,
             agentClient: state.agentClient ?? undefined,
         };

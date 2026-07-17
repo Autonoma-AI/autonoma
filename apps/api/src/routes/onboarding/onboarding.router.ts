@@ -259,26 +259,40 @@ export const onboardingRouter = router({
         ),
 
     // Answer an agent env request: set the secret values the user entered (they
-    // never reach the agent) and clear the pending request so the agent continues.
+    // never reach the agent), record which keys they skipped ("I don't have
+    // this"), and resolve the pending request so the agent continues. Skips are
+    // fed back to the agent so it adapts instead of assuming the value exists.
     submitAgentEnv: protectedProcedure
         .input(
-            z.object({
-                applicationId: z.string(),
-                appName: z.string(),
-                items: z.array(SecretItemSchema).min(1).max(200),
-            }),
+            z
+                .object({
+                    applicationId: z.string(),
+                    appName: z.string(),
+                    items: z.array(SecretItemSchema).max(200),
+                    skippedKeys: z.array(z.string().min(1)).max(200).default([]),
+                })
+                .refine((value) => value.items.length > 0 || value.skippedKeys.length > 0, {
+                    message: "Provide at least one value or skip at least one key",
+                }),
         )
         .mutation(async ({ ctx, input }) => {
             // Order is deliberate and can't be a DB $transaction: upsert writes to the
             // external secret store (not Postgres), so it can't roll back. Set the
-            // secrets first, then clear the pending request - if the upsert throws, the
-            // request stays pending and the user retries; we never clear it prematurely.
-            await ctx.services.onboarding.upsertPreviewkitSecrets(
+            // secrets first, then resolve the pending request - if the upsert throws,
+            // the request stays pending and the user retries; we never clear it
+            // prematurely.
+            if (input.items.length > 0) {
+                await ctx.services.onboarding.upsertPreviewkitSecrets(
+                    input.applicationId,
+                    ctx.organizationId,
+                    input.appName,
+                    input.items,
+                );
+            }
+            await ctx.services.onboardingAgentSession.resolvePendingRequest(
                 input.applicationId,
                 ctx.organizationId,
-                input.appName,
-                input.items,
+                input.skippedKeys,
             );
-            await ctx.services.onboardingAgentSession.resolvePendingRequest(input.applicationId, ctx.organizationId);
         }),
 });

@@ -1,11 +1,11 @@
 import {
   Badge,
   Button,
+  Input,
   Progress,
   ScrollArea,
   Separator,
   Skeleton,
-  Textarea,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -36,9 +36,9 @@ import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useState, type ReactNode } from "react";
 import { setLastApp } from "../../../_app-shell/-last-app";
+import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
 import { PreviewTakingShape } from "./preview-taking-shape";
-import { parseDotenv } from "./topology-draft";
 
 // Deploy phases in which the app pods are rolling out (and emitting runtime logs),
 // as opposed to the earlier clone/build phases. Used to auto-focus the App logs tab.
@@ -139,10 +139,14 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 
       {pendingEnv != null && (
         <EnvRequestForm
+          // Remount per distinct request so values/skips from an answered request
+          // never leak into the next one.
+          key={`${pendingEnv.appName}:${pendingEnv.keys.join(",")}`}
           applicationId={applicationId}
           appName={pendingEnv.appName}
           keys={pendingEnv.keys}
           note={pendingEnv.note}
+          agentName={agentDisplayName(session.agentClient)}
         />
       )}
 
@@ -381,61 +385,93 @@ function StatusGlyph({ status }: { status?: AgentLogEntry["status"] }) {
 }
 
 /**
- * The inline env-value form the agent's request surfaces. The user pastes their
- * .env (parsed client-side; comments stripped) or the values never leave the
- * browser for the agent - they go straight to the backend. Shows the keys the
- * agent asked for.
+ * The inline env-value form the agent's request surfaces: one row per requested
+ * key (value input + a skip toggle for keys the user doesn't have), plus the
+ * shared paste-.env dialog to fill matching rows at once. Values never reach the
+ * agent - they go straight to the backend; skipped keys are fed back so the
+ * agent adapts instead of waiting on a value that doesn't exist.
  */
 function EnvRequestForm({
   applicationId,
   appName,
   keys,
   note,
+  agentName,
 }: {
   applicationId: string;
   appName: string;
   keys: string[];
   note?: string;
+  agentName: string;
 }) {
-  const [text, setText] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const submitEnv = useSubmitAgentEnv();
-  // Only the keys the agent actually asked for are sent - never persist unrelated
-  // secrets the user happens to have pasted in their .env.
-  const requested = new Set(keys);
-  const items = parseDotenv(text).filter((row) => requested.has(row.key));
-  // The agent's request_env contract reads a cleared pending request as "all keys
-  // are set", so a partial submit would let it deploy with missing secrets. Gate on
-  // set-membership, not count: a pasted .env with a duplicate key would pass a
-  // length check while a requested key is still missing.
-  const provided = new Set(items.map((row) => row.key));
-  const allKeysMatched = keys.every((key) => provided.has(key));
+
+  function setValue(key: string, value: string) {
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  // Fill only the keys the agent actually asked for - never persist unrelated
+  // secrets the user happens to have in their .env.
+  function importDotenv(entries: Array<{ key: string; value: string }>) {
+    const requested = new Set(keys);
+    const matched = entries.filter((entry) => requested.has(entry.key));
+    setValues((current) => {
+      const next = { ...current };
+      for (const entry of matched) next[entry.key] = entry.value;
+      return next;
+    });
+  }
+
+  // A key left empty means "I don't have this": submitting reports it as
+  // skipped so the agent adapts (default, drop, rework) instead of waiting on
+  // a value that doesn't exist. No per-key toggle - the filled/empty state IS
+  // the answer, and the button label spells out what will happen.
+  const items = keys
+    .filter((key) => (values[key] ?? "").trim() !== "")
+    .map((key) => ({ key, value: values[key] ?? "" }));
+  const skippedKeys = keys.filter((key) => (values[key] ?? "").trim() === "");
 
   function submit() {
-    if (!allKeysMatched) return;
-    submitEnv.mutate({ applicationId, appName, items });
+    submitEnv.mutate({ applicationId, appName, items, skippedKeys });
   }
 
   return (
-    <div className="flex flex-col gap-2 border border-primary/40 bg-surface-raised p-4">
-      <p className="text-2xs text-text-primary">
-        Claude needs these environment values for <span className="font-mono">{appName}</span>. Paste your{" "}
-        <span className="font-mono">.env</span> (values stay in your browser and go straight to Autonoma - the agent
-        never sees them).
-      </p>
+    <div className="flex flex-col gap-3 border border-primary/40 bg-surface-raised p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-2xs text-text-primary">
+          {agentName} needs these environment values for <span className="font-mono">{appName}</span>. Values stay in
+          your browser and go straight to Autonoma - the agent never sees them.
+        </p>
+        <div className="ml-auto">
+          <PasteEnvDialog
+            description={
+              <>
+                Paste your <span className="font-mono">.env</span> to fill the requested keys at once. Only the keys the
+                agent asked for are used - everything else is ignored. Values go straight to Autonoma; the agent never
+                sees them.
+              </>
+            }
+            onImport={importDotenv}
+          />
+        </div>
+      </div>
       {note != null && <p className="text-2xs text-text-secondary">{note}</p>}
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-col gap-2">
         {keys.map((key) => (
-          <Badge key={key} variant="outline" className="font-mono">
-            {key}
-          </Badge>
+          <div key={key} className="grid grid-cols-[minmax(9rem,0.6fr)_minmax(10rem,1fr)] items-center gap-2">
+            <span className="truncate font-mono text-2xs">{key}</span>
+            <Input
+              aria-label={`Value for ${key}`}
+              type="password"
+              value={values[key] ?? ""}
+              onChange={(event) => setValue(key, event.target.value)}
+              placeholder="Value"
+              className="font-mono"
+            />
+          </div>
         ))}
       </div>
-      <Textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder="KEY=value"
-        className="min-h-24 font-mono text-2xs"
-      />
       {submitEnv.isError && (
         <p className="text-2xs text-status-critical">
           {submitEnv.error?.message ?? "Failed to set the values. Check the keys and try again."}
@@ -443,11 +479,17 @@ function EnvRequestForm({
       )}
       <div className="flex items-center justify-end gap-2">
         <span className="mr-auto font-mono text-3xs text-text-secondary">
-          {provided.size} of {keys.length} requested key(s) matched
+          {items.length} of {keys.length} filled · empty keys are reported as unavailable so the agent adapts
         </span>
-        <Button size="sm" onClick={submit} disabled={!allKeysMatched || submitEnv.isPending}>
-          Set on Autonoma
-        </Button>
+        {items.length === 0 ? (
+          <Button size="sm" variant="outline" onClick={submit} disabled={submitEnv.isPending}>
+            I don't have these
+          </Button>
+        ) : (
+          <Button size="sm" onClick={submit} disabled={submitEnv.isPending}>
+            {skippedKeys.length === 0 ? "Set on Autonoma" : `Set ${items.length} · skip ${skippedKeys.length}`}
+          </Button>
+        )}
       </div>
     </div>
   );

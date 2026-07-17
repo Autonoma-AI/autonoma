@@ -49,7 +49,7 @@ Then loop until the preview is up:
 4. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
 5. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys). NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
 6. trigger_deploy(applicationId) - deploy the main branch (environment 0).
-7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own.
+7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own. When it clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 8. When status shows the preview is up, verify it yourself: curl the preview URL, or write a small Playwright script if the user has Playwright, and check you get what you expect. If it is broken, read the diagnostics, fix the config, and loop.
 
 Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
@@ -332,9 +332,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         status: "input_requested",
                         message:
                             "Asked the user to provide these values in the Autonoma UI. Poll get_session_status; " +
-                            "when pendingRequest is cleared they are set. Do NOT ask for or send the values " +
-                            "yourself, and do NOT tell the user to come back here and confirm - they answer in " +
-                            "the UI. Continue on your own once the request clears.",
+                            "when pendingRequest is cleared they are set. The user can SKIP keys they don't have - " +
+                            "check lastEnvResolution.skippedKeys and adapt the config (default it, drop it, or " +
+                            "rework the approach) instead of re-requesting the same key. Do NOT ask for or send " +
+                            "the values yourself, and do NOT tell the user to come back here and confirm - they " +
+                            "answer in the UI. Continue on your own once the request clears.",
                     };
                 },
             );
@@ -371,9 +373,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "The single polling tool: returns your control state, any pending user request, the deploy status, " +
                 "the preview URL, diagnostics, and `recentLogs` - a tail of the build logs while building (or both " +
                 "build and app logs on failure) so you can see WHY a deploy failed and fix it, not just that it did. " +
-                "Poll this to wait for a build to finish AND to wait for the user to answer a request. When " +
-                "diagnostics.status is `failed`, read recentLogs for the failing step, fix the config or ask the user " +
-                "for a missing secret, then redeploy. If it reports standDown, the user took over - stop configuring.",
+                "Poll this to wait for a build to finish AND to wait for the user to answer a request. When an env " +
+                "request resolves, `lastEnvResolution` tells you which keys were set and which the user SKIPPED " +
+                "(doesn't have) - adapt to skipped keys instead of re-requesting them. When diagnostics.status is " +
+                "`failed`, read recentLogs for the failing step, fix the config or ask the user for a missing " +
+                "secret, then redeploy. If it reports standDown, the user took over - stop configuring.",
             inputSchema: { applicationId: z.string() },
         },
         async ({ applicationId }) =>
@@ -397,6 +401,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         standDown: view?.holder === "human",
                         holder: view?.holder,
                         pendingRequest: view?.pendingRequest,
+                        lastEnvResolution: view?.lastEnvResolution,
                         previewVerificationStatus: view?.previewVerificationStatus,
                         step: view?.step,
                         previewUrl: readiness.previewUrl,
