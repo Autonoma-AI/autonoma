@@ -1,5 +1,5 @@
 import { db, type PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 import {
@@ -15,6 +15,13 @@ import {
 } from "@aws-sdk/client-secrets-manager";
 import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
 import { secretFingerprint } from "./secret-fingerprint";
+import {
+    collisionMessage,
+    describeSecretOwner,
+    isOwnedByCaller,
+    ownerTags,
+    type SecretOwnerIdentity,
+} from "./secret-ownership";
 
 /**
  * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
@@ -143,6 +150,7 @@ export class PreviewkitSecretsService {
         }
 
         const orgSlug = app.organization.slug;
+        const identity: SecretOwnerIdentity = { applicationId: app.id, orgSlug, applicationName: app.name, appName };
         const secretName = this.buildSecretName(orgSlug, app.name, appName);
         const existing = await this.prisma.previewkitSecret.findUnique({
             where: { applicationId_appName: { applicationId, appName } },
@@ -167,7 +175,7 @@ export class PreviewkitSecretsService {
         let changed: boolean;
         let arn: string;
         try {
-            arn = await this.createSecretInAws(secretName, orgSlug, app.name, appName, items);
+            arn = await this.createSecretInAws(secretName, identity, items);
             created = true;
             changed = true;
         } catch (err) {
@@ -179,7 +187,7 @@ export class PreviewkitSecretsService {
             // application, appName) can resolve to the same AWS name. Only adopt a
             // bundle whose owner tags prove it is ours; refuse a foreign secret rather
             // than reading/merging/repointing onto it (which would leak + corrupt it).
-            arn = await this.assertOwnedSecretArn(secretName, orgSlug, app.name, appName);
+            arn = await this.assertOwnedSecretArn(secretName, identity);
 
             if (scheduled) {
                 this.logger.warn("AWS secret is scheduled for deletion; restoring and adopting it", {
@@ -295,23 +303,16 @@ export class PreviewkitSecretsService {
      */
     private async createSecretInAws(
         secretName: string,
-        orgSlug: string,
-        applicationName: string,
-        appName: string,
+        identity: SecretOwnerIdentity,
         items: SecretItem[],
     ): Promise<string> {
         const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
-        this.logger.info("Creating AWS secret for app", { appName, secretName });
+        this.logger.info("Creating AWS secret for app", { appName: identity.appName, secretName });
         const result = await this.client.send(
             new CreateSecretCommand({
                 Name: secretName,
                 SecretString: JSON.stringify(secretValue),
-                Tags: [
-                    { Key: "previewkit:type", Value: "application-app" },
-                    { Key: "previewkit:org", Value: orgSlug },
-                    { Key: "previewkit:application", Value: applicationName },
-                    { Key: "previewkit:app", Value: appName },
-                ],
+                Tags: [{ Key: "previewkit:type", Value: "application-app" }, ...ownerTags(identity)],
             }),
         );
         if (result.ARN == null) throw new Error(`AWS secret created but no ARN returned for ${secretName}`);
@@ -327,34 +328,74 @@ export class PreviewkitSecretsService {
      * raw owner on create, so a tag mismatch means a collision with a foreign secret:
      * refuse (and log) rather than reconcile.
      */
-    private async assertOwnedSecretArn(
-        secretName: string,
-        orgSlug: string,
-        applicationName: string,
-        appName: string,
-    ): Promise<string> {
+    private async assertOwnedSecretArn(secretName: string, identity: SecretOwnerIdentity): Promise<string> {
         const result = await this.client.send(new DescribeSecretCommand({ SecretId: secretName }));
-        const tags = new Map((result.Tags ?? []).map((tag) => [tag.Key, tag.Value]));
-        const ownedByCaller =
-            tags.get("previewkit:org") === orgSlug &&
-            tags.get("previewkit:application") === applicationName &&
-            tags.get("previewkit:app") === appName;
-        if (!ownedByCaller) {
+        const owner = describeSecretOwner(result.Tags);
+        if (!isOwnedByCaller(owner, identity)) {
             this.logger.error(
                 "Refusing to adopt an AWS secret whose owner tags do not match the caller " +
                     "(sanitized-name collision with a different application)",
                 {
                     secretName,
-                    extra: { expectedOrg: orgSlug, expectedApplication: applicationName, expectedApp: appName },
+                    extra: {
+                        expectedOrg: identity.orgSlug,
+                        expectedApplication: identity.applicationName,
+                        expectedApp: identity.appName,
+                    },
                 },
             );
-            throw new Error(
-                `Refusing to adopt AWS secret "${secretName}": it is owned by a different (org, application, app). ` +
-                    `The sanitized name collides with another application; use a distinct app name.`,
-            );
+            throw new BadRequestError(collisionMessage(identity.appName, owner, identity.orgSlug));
         }
         if (result.ARN == null) throw new Error(`AWS secret ${secretName} has no ARN`);
         return result.ARN;
+    }
+
+    /**
+     * Save-time preflight: rejects a config whose app names would collide with a
+     * secret bundle owned by a DIFFERENT (org, application, app). Names are
+     * lossy-sanitized into the AWS path, so distinct names can share one path;
+     * without this check the collision only surfaces mid-deploy, deep inside the
+     * secret upsert, as an adoption refusal. Absent or caller-owned bundles are
+     * fine (the upsert adopts its own). Never throws on AWS unavailability - a
+     * transient Describe failure must not block saving a config.
+     */
+    async assertSecretPathsAvailable(
+        applicationId: string,
+        appNames: string[],
+        callerOrgId: string | undefined,
+    ): Promise<void> {
+        if (appNames.length === 0) return;
+        const app = await this.findApplication(applicationId, callerOrgId);
+        if (app == null) throw new NotFoundError(`Application not found: ${applicationId}`);
+
+        const orgSlug = app.organization.slug;
+        const collisions = await Promise.all(
+            appNames.map(async (appName) => {
+                const secretName = this.buildSecretName(orgSlug, app.name, appName);
+                const identity: SecretOwnerIdentity = {
+                    applicationId: app.id,
+                    orgSlug,
+                    applicationName: app.name,
+                    appName,
+                };
+                try {
+                    const result = await this.client.send(new DescribeSecretCommand({ SecretId: secretName }));
+                    const owner = describeSecretOwner(result.Tags);
+                    return isOwnedByCaller(owner, identity) ? undefined : collisionMessage(appName, owner, orgSlug);
+                } catch (err) {
+                    if (err instanceof ResourceNotFoundException) return undefined;
+                    this.logger.warn("Secret-path preflight check failed; not blocking the save", {
+                        applicationId,
+                        appName,
+                        err,
+                    });
+                    return undefined;
+                }
+            }),
+        );
+
+        const messages = collisions.filter((message): message is string => message != null);
+        if (messages.length > 0) throw new BadRequestError(messages.join(" "));
     }
 
     /** AWS rejects creating a secret whose name is pending deletion with InvalidRequestException. */

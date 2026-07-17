@@ -243,6 +243,7 @@ export class OnboardingManager {
         });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
+        await this.assertSecretPathsAvailable(applicationId, organizationId, document, dependencyDocuments);
 
         // AWS-first: upsert secrets before committing the config. If a
         // secret write throws, the config never saves, so the two stores stay
@@ -260,6 +261,33 @@ export class OnboardingManager {
         await this.sdkCapability.ensureManagedSharedSecretForConfig(applicationId, organizationId, saved.document);
 
         return saved;
+    }
+
+    /**
+     * Save-time collision preflight: every app name in the primary + dependency
+     * documents must map to a secret path that is unowned or ours. Names are
+     * lossy-sanitized into `previewkit/<org>/<application>/<app>`, so a foreign
+     * collision would otherwise only surface mid-deploy as an adoption refusal
+     * ("Refusing to adopt AWS secret ..."). Documents that fail shape-parsing are
+     * skipped here - the config save right after rejects them with the real error.
+     */
+    private async assertSecretPathsAvailable(
+        applicationId: string,
+        organizationId: string,
+        document: unknown,
+        dependencyDocuments: PreviewkitDependencyDocument[],
+    ): Promise<void> {
+        const secretsService = this.options.previewkitSecretsService;
+        if (secretsService?.assertSecretPathsAvailable == null) return;
+
+        const documents = [document, ...dependencyDocuments.map((dependency) => dependency.document)];
+        const appNames = documents.flatMap((entry) => {
+            const parsed = previewConfigSchema.safeParse(entry);
+            return parsed.success ? parsed.data.apps.map((app) => app.name) : [];
+        });
+        if (appNames.length === 0) return;
+
+        await secretsService.assertSecretPathsAvailable(applicationId, [...new Set(appNames)], organizationId);
     }
 
     /** Validate secret app names against the document being saved, then upsert (AWS) before the DB commit. */

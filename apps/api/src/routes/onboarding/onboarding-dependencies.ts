@@ -29,6 +29,12 @@ export interface OnboardingPreviewkitSecretsService {
         key: string,
         callerOrgId: string | undefined,
     ): Promise<string | undefined>;
+    /** Save-time preflight: throws when an app name's sanitized secret path is owned by a different application. */
+    assertSecretPathsAvailable?(
+        applicationId: string,
+        appNames: string[],
+        callerOrgId: string | undefined,
+    ): Promise<void>;
 }
 
 export interface OnboardingRepoIntrospection {
