@@ -25,6 +25,11 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    # DO NOT rely on this /v1/ same-origin proxy from application code. Frontend
+    # code must always address the API by its VITE_API_URL hostname, never via a
+    # same-origin /v1/ path that depends on this nginx redirect. This block exists
+    # only as a fallback for environments that need it; new call sites must use
+    # VITE_API_URL directly.
     location /v1/ {
         proxy_pass http://${API_UPSTREAM};
         proxy_set_header Host $host;
