@@ -32,7 +32,7 @@ import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
-import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { useAuth } from "lib/auth";
 import {
   useConfigureAndDiscoverSdkTarget,
@@ -578,6 +578,11 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
+  // Follow the deploy: watch the build while the image builds, then auto-switch to
+  // app logs once the pods roll out (status "deploying") or the env is ready, so
+  // runtime output appears without switching tabs. A failed deploy keeps the build
+  // tab (the failure marker is on the build stream). An explicit tab pick wins.
+  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
   // Set to a target id while a managed discover that 401'd is self-healing via
   // redeploy; the effect below retries discover exactly once when that target
   // returns to "ready". The retry sends allowSelfHeal=false, so a 401 that
@@ -633,6 +638,11 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
 
   const preparing =
     prepareTarget.isPending || (selectedTarget?.source === "previewkit" && selectedTarget.availability === "building");
+  // App pods emit runtime logs from the service-rollout phase onward; before that
+  // the interesting stream is the image build.
+  const appRollingOut = selectedTarget?.status === "deploying";
+  const logSource: PreviewLogSource =
+    logSourceOverride ?? (selectedTarget?.availability === "ready" || appRollingOut ? "app" : "build");
   const previewLogTarget = buildPreviewLogTarget(selectedTarget);
   const pullRequestUrl = buildPullRequestUrl(selectedTarget);
   const isValidating = discover.isPending || managedDiscover.isPending || state.discoveryInProgress;
@@ -714,7 +724,14 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5">
         <Label>Validation target</Label>
-        <Select value={selectedTargetId ?? ""} onValueChange={(value) => setSelectedTargetId(value ?? undefined)}>
+        <Select
+          value={selectedTargetId ?? ""}
+          onValueChange={(value) => {
+            setSelectedTargetId(value ?? undefined);
+            // A new target is a new deploy timeline - let the auto-switch drive again.
+            setLogSourceOverride(undefined);
+          }}
+        >
           <SelectTrigger className="max-w-lg">
             <SelectValue placeholder="Select a preview environment">
               {(value) => {
@@ -984,6 +1001,8 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
                 pr={previewLogTarget.pr}
                 app={previewLogTarget.app}
                 appBuilding={preparing}
+                source={logSource}
+                onSourceChange={setLogSourceOverride}
               />
             </>
           )}
