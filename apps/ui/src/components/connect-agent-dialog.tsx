@@ -30,10 +30,11 @@ export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
  * (autonoma.app) sits behind CloudFront, whose WAF/buffering can 403 or mangle
  * large request bodies (the whole `apply_config` document, a `set_secret` value)
  * and interfere with the MCP's streaming HTTP; the `api.` host is direct to the
- * ALB, off CloudFront. The OAuth handshake is unaffected - the 401 challenge and
- * discovery are anchored at APP_URL (the app origin) and the bearer token is
- * verified host-agnostically, so only the data plane moves off CloudFront.
- * Localhost and per-PR previews reach the API cross-origin at VITE_API_URL.
+ * ALB, off CloudFront. The OAuth handshake follows: the protected-resource
+ * metadata advertises this `api.` origin as its `resource` (MCP_RESOURCE_URL on
+ * the API), so a strict client's resource-match check passes; the authorization
+ * server itself stays on APP_URL (the app origin), where the 401 challenge and
+ * discovery are anchored. Localhost and per-PR previews reach the API cross-origin at VITE_API_URL.
  */
 export function mcpEndpointUrl(path: McpEndpoint): string {
   const isPreview = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);

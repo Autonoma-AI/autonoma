@@ -50,6 +50,12 @@ const APP_URL = env.APP_URL;
 // ingress). Diverges in local dev (UI :3000, API :4000) and previewkit
 // (separate UI/API deploys) - see BETTER_AUTH_URL in .env.example and .preview.yaml.
 const AUTH_BASE_URL = env.BETTER_AUTH_URL ?? APP_URL;
+// The origin advertised as the OAuth `resource` in the MCP protected-resource
+// metadata. Better Auth otherwise derives `resource` from `baseURL` (the AS
+// origin, APP_URL) - wrong when MCP clients connect to the dedicated `api.<host>`
+// origin off CloudFront, since a strict client rejects a resource that doesn't
+// match the host it dialed. Falls back to the API's own origin when unset.
+const MCP_RESOURCE_URL = env.MCP_RESOURCE_URL ?? AUTH_BASE_URL;
 const isProduction = env.NODE_ENV === "production";
 
 function decodeIdTokenPayload(idToken: string): {
@@ -464,7 +470,7 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             // round-trip). Unauthenticated MCP OAuth flows are sent to the UI
             // login page. Adds oauthApplication / oauthAccessToken / oauthConsent
             // (+ jwks) models - run a migration.
-            mcp({ loginPage: `${APP_URL}/login` }),
+            mcp({ loginPage: `${APP_URL}/login`, resource: MCP_RESOURCE_URL }),
             jwt(),
         ],
     });

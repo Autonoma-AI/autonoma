@@ -28,6 +28,16 @@ export const env = createEnv({
         // one ingress) but diverge in local dev (UI :3000, API :4000) and
         // previewkit (separate UI/API deploys). Falls back to APP_URL when unset.
         BETTER_AUTH_URL: z.string().url().optional(),
+        // Public origin advertised as the OAuth `resource` in the MCP
+        // protected-resource metadata - the host MCP clients actually connect
+        // to for /v1/mcp/*. In prod/beta this is the dedicated `api.<host>`
+        // origin (direct to the ALB, off CloudFront), which differs from the
+        // OAuth authorization server origin (APP_URL, behind CloudFront). A
+        // strict MCP client rejects the handshake unless this matches the host
+        // it dialed (see connect-agent-dialog's mcpEndpointUrl). Falls back to
+        // AUTH_BASE_URL (BETTER_AUTH_URL ?? APP_URL) when unset - correct for
+        // local dev and previewkit, where the MCP endpoint shares the API origin.
+        MCP_RESOURCE_URL: z.string().url().optional(),
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
         GOOGLE_CLIENT_ID: z.string().min(1),
         GOOGLE_CLIENT_SECRET: z.string().min(1),
