@@ -25,6 +25,7 @@ import { HammerIcon } from "@phosphor-icons/react/Hammer";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
+import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { formatDate, formatDuration, formatRelativeTime } from "lib/format";
@@ -62,6 +63,7 @@ export function PreviewEnvironmentExplorer({
   search,
   onSearchChange,
   showEnvironmentSummary = true,
+  compactAppDetail = false,
 }: {
   applicationId: string;
   environmentId: string;
@@ -75,6 +77,12 @@ export function PreviewEnvironmentExplorer({
    * composition, unchanged.
    */
   showEnvironmentSummary?: boolean;
+  /**
+   * Renders the selected service's detail as a compact strip (name/kind, status pill, inline
+   * URL/last-built/build-time/date, Rebuild/Restart in the header) instead of the label-above-value
+   * grid. Defaults to false: the main-branch usage keeps today's bulkier card, unchanged.
+   */
+  compactAppDetail?: boolean;
 }) {
   const services = summary.services;
   const apps = services.filter(isAppService);
@@ -125,14 +133,22 @@ export function PreviewEnvironmentExplorer({
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-          {selectedService != null && (
-            <PreviewAppDetail
-              service={selectedService}
-              latestBuild={summary.latestBuild}
-              applicationId={applicationId}
-              environmentId={environmentId}
-            />
-          )}
+          {selectedService != null &&
+            (compactAppDetail ? (
+              <CompactAppDetail
+                service={selectedService}
+                latestBuild={summary.latestBuild}
+                applicationId={applicationId}
+                environmentId={environmentId}
+              />
+            ) : (
+              <PreviewAppDetail
+                service={selectedService}
+                latestBuild={summary.latestBuild}
+                applicationId={applicationId}
+                environmentId={environmentId}
+              />
+            ))}
           <PreviewLogsSection
             service={selectedService}
             repoFullName={summary.repoFullName}
@@ -226,6 +242,8 @@ function PreviewServiceListItem({
   );
 }
 
+// The legacy per-app detail block: a label-above-value grid. Used only when `compact` is false (the
+// main-branch page's usage), so that page's layout stays exactly as it is today.
 function PreviewAppDetail({
   service,
   latestBuild,
@@ -301,6 +319,98 @@ function PreviewAppDetail({
   );
 }
 
+function DetailRow({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-text-secondary">
+        <RowIcon size={12} className="shrink-0" />
+        {label}
+      </dt>
+      <dd className="min-w-0 text-sm text-text-primary">{children}</dd>
+    </div>
+  );
+}
+
+// Compact strip pinned directly above the logs, reflecting whichever service is selected in the
+// rail: identity + status on one line, inline metadata (+ build-error, if any) on the next. Used only
+// when `compact` is true (the redesigned Preview tab), so this block stays a fixed couple of lines
+// regardless of viewport height, leaving the remaining space to the logs panel below it.
+function CompactAppDetail({
+  service,
+  latestBuild,
+  applicationId,
+  environmentId,
+}: {
+  service: PreviewService;
+  latestBuild: PreviewLatestBuild;
+  applicationId: string;
+  environmentId: string;
+}) {
+  const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
+  const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
+  // "Date" is when the latest environment build finished (fall back to its start). The duration
+  // comes from the selected app's build outcome, since apps build independently.
+  const buildDate = latestBuild?.finishedAt ?? latestBuild?.startedAt;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-3 border border-border-dim bg-surface-base px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <ServiceIcon size={18} className="shrink-0 text-text-secondary" />
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-sm font-semibold text-text-primary">{service.name}</span>
+          <span className="font-mono text-2xs uppercase tracking-wider text-text-secondary">{service.kind}</span>
+        </div>
+        <Badge variant={statusMeta.badge} className={cn("gap-1.5", statusMeta.className)}>
+          <StatusDot status={statusMeta.dot} className="rounded-full" />
+          {statusMeta.label}
+        </Badge>
+        {isAppService(service) && (
+          <PreviewAppRedeployControl
+            applicationId={applicationId}
+            environmentId={environmentId}
+            appName={service.name}
+            disabled={service.status === "building"}
+            className="ml-auto"
+          />
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-6">
+        <InlineMeta label="URL" icon={LinkIcon}>
+          {service.endpoint != null ? (
+            <a
+              href={service.endpoint}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex max-w-full items-center gap-1 transition-colors hover:text-text-primary hover:underline"
+            >
+              <ArrowSquareOutIcon size={11} className="shrink-0" />
+              <span className="truncate">{service.endpoint}</span>
+            </a>
+          ) : (
+            "-"
+          )}
+        </InlineMeta>
+        <InlineMeta label="Last built" icon={ClockIcon}>
+          {service.lastBuiltAt != null ? formatRelativeTime(service.lastBuiltAt) : "-"}
+        </InlineMeta>
+        <InlineMeta label="Build time" icon={TimerIcon}>
+          {service.buildDurationMs != null ? formatDuration(service.buildDurationMs) : "-"}
+        </InlineMeta>
+        <InlineMeta label="Date" icon={CalendarBlankIcon}>
+          {buildDate != null ? formatDate(buildDate) : "-"}
+        </InlineMeta>
+        {service.statusReason != null && (
+          <span className="ml-auto inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
+            <XCircleIcon size={13} className="shrink-0" />
+            {service.statusReason}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Per-app redeploy controls (rebuild / restart). Route-agnostic: takes application + environment ids
 // as props rather than reading them from a route, so it works under any of the routes that embed the
 // explorer.
@@ -309,11 +419,13 @@ function PreviewAppRedeployControl({
   environmentId,
   appName,
   disabled,
+  className,
 }: {
   applicationId: string;
   environmentId: string;
   appName: string;
   disabled: boolean;
+  className?: string;
 }) {
   const redeploy = useRedeployPreviewApp(applicationId, environmentId);
   const [selectedMode, setSelectedMode] = useState<PreviewRedeployAppMode>("rebuild");
@@ -340,7 +452,7 @@ function PreviewAppRedeployControl({
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div className={cn("flex flex-wrap gap-2", className)}>
         <Button
           variant="outline"
           size="xs"
@@ -403,15 +515,15 @@ function previewRedeployActionMeta(mode: PreviewRedeployAppMode, appName: string
   };
 }
 
-function DetailRow({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {
+function InlineMeta({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <dt className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-text-secondary">
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="flex shrink-0 items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-text-secondary">
         <RowIcon size={12} className="shrink-0" />
         {label}
-      </dt>
-      <dd className="min-w-0 text-sm text-text-primary">{children}</dd>
-    </div>
+      </span>
+      <span className="min-w-0 truncate font-mono text-xs text-text-primary">{children}</span>
+    </span>
   );
 }
 
