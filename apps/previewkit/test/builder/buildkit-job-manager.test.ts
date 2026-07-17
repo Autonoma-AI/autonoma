@@ -92,6 +92,7 @@ describe("BuildKitJobManager", () => {
         expect(job.spec?.activeDeadlineSeconds).toBe(2640);
         expect(podSpec?.serviceAccountName).toBeUndefined();
         expect(podSpec?.automountServiceAccountToken).toBe(false);
+        expect(podSpec?.enableServiceLinks).toBe(false);
         expect(podSpec?.nodeSelector).toEqual({ "kubernetes.io/arch": "amd64", pool: "buildkit" });
         expect(podSpec?.tolerations).toContainEqual({
             key: "pool",

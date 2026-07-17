@@ -364,6 +364,12 @@ export class BuildKitJobManager {
                     spec: {
                         restartPolicy: "Never",
                         automountServiceAccountToken: false,
+                        // Do not inject KUBERNETES_SERVICE_HOST/PORT into a pod
+                        // that executes repository-controlled build steps. The
+                        // egress policy also blocks cluster-private addresses,
+                        // but omitting service links avoids disclosing the API
+                        // endpoint in the build environment in the first place.
+                        enableServiceLinks: false,
                         terminationGracePeriodSeconds: 30,
                         nodeSelector: {
                             "kubernetes.io/arch": "amd64",
