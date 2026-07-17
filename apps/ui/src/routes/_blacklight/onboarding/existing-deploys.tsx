@@ -1,4 +1,13 @@
-import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@autonoma/blacklight";
+import {
+  Badge,
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  buttonVariants,
+} from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
@@ -14,25 +23,29 @@ import {
   useDeploymentSignalStatus,
   useLinkVercelProject,
 } from "lib/onboarding/onboarding-api";
-import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { type OnboardingSignalProvider, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
-type SignalProvider = "vercel" | "custom";
-
 export const Route = createFileRoute("/_blacklight/onboarding/existing-deploys")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("existing-deploys")} />,
 });
 
-export function ExistingDeploysPage({ appId }: { appId?: string }) {
+export function ExistingDeploysPage({
+  appId,
+  initialProvider,
+}: {
+  appId?: string;
+  initialProvider?: OnboardingSignalProvider;
+}) {
   const navigate = useNavigate();
   const sharedSecretQuery = useApplicationSharedSecret(appId ?? "");
   const signalStatusQuery = useDeploymentSignalStatus(appId ?? "");
   const vercelProjectsQuery = useAvailableVercelProjects(appId ?? "");
   const confirmSetup = useConfirmExistingDeploysSetup();
-  const [selectedProvider, setSelectedProvider] = useState<SignalProvider>("vercel");
+  const [selectedProvider, setSelectedProvider] = useState<OnboardingSignalProvider>(initialProvider ?? "vercel");
 
   // On the Vercel path, a linked project is required before continuing - without
   // it there's no protection-bypass header, so generated tests can never reach
@@ -261,19 +274,36 @@ function VercelConnectSection({ appId }: { appId: string }) {
           </p>
         </div>
       ) : data?.connected === false ? (
-        <div className="mt-4 flex flex-col gap-3 border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
-          <p className="text-sm text-text-secondary">No Vercel account is connected to this organization yet.</p>
-          {data.connectUrl != null && (
-            <a
-              href={data.connectUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex w-fit items-center gap-2 border border-primary-ink px-4 py-2 font-mono text-2xs font-bold uppercase tracking-widest text-primary-ink transition-colors hover:bg-primary-ink/10"
-            >
-              Connect Vercel
-              <ArrowSquareOutIcon size={13} weight="bold" />
-            </a>
-          )}
+        <div className="mt-5 border border-primary-ink/40 bg-surface-void p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center border border-primary-ink/40 text-primary-ink">
+              <VercelIcon />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg font-medium text-text-primary">Install the Autonoma Vercel integration</h3>
+              <p className="mt-2 max-w-2xl text-sm text-text-secondary">
+                You don&apos;t have the integration yet. We&apos;ll set you up on the Vercel marketplace and bring you
+                right back here to finish setup.
+              </p>
+              {data.connectUrl != null ? (
+                <a
+                  href={data.connectUrl}
+                  className={buttonVariants({
+                    variant: "accent",
+                    className: "mt-5 gap-2 px-6 py-3 font-mono text-sm font-bold uppercase",
+                  })}
+                  aria-label="onboarding-install-vercel-integration"
+                >
+                  Install the Autonoma Vercel integration
+                  <ArrowRightIcon size={16} weight="bold" />
+                </a>
+              ) : (
+                <p className="mt-4 font-mono text-2xs text-text-secondary">
+                  The Vercel integration URL isn&apos;t configured on this environment.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="mt-4 flex flex-wrap items-center gap-3">

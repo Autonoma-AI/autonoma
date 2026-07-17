@@ -576,6 +576,7 @@ async function handleInstallCallback(c: Context, code: string, redirectUri: stri
 
     const sessionToken = await createSession(userId, organizationId);
 
+    // No explicit target - finalize defaults to /onboarding?origin=vercel.
     return c.redirect(buildFinalizeUrl(sessionToken, organizationId));
 }
 
@@ -615,8 +616,32 @@ vercelMarketplaceRouter.get("/finalize", async (c) => {
 
     logger.info("Finalizing Vercel session via app origin", { organizationId, hasTargetUrl: targetUrl != null });
     await setSessionCookie(c, sessionToken);
-    return c.redirect(targetUrl ?? "/");
+    // Any Vercel-origin session with no explicit target (a fresh install, or an
+    // SSO callback where Vercel echoes no `url`) lands in onboarding rather than
+    // the dashboard. appendVercelOrigin tags it so the preview-environment steps
+    // are streamlined for marketplace-origin users. An explicit target (e.g. the
+    // deployment-details SSO link to /app/<slug>/...) is still honored.
+    const destination = targetUrl ?? `${env.APP_URL}/onboarding`;
+    return c.redirect(appendVercelOrigin(destination));
 });
+
+/**
+ * Tags the post-auth destination with `origin=vercel` so onboarding knows the
+ * user arrived from the Vercel marketplace and can streamline the
+ * preview-provider steps (skip the PreviewKit/custom choice and the quiz's
+ * provider picker, preselecting Vercel). `targetUrl` is already same-origin
+ * validated by {@link resolveSafeTargetUrl}.
+ */
+function appendVercelOrigin(targetUrl: string): string {
+    try {
+        const url = new URL(targetUrl);
+        url.searchParams.set("origin", "vercel");
+        return url.toString();
+    } catch (error) {
+        logger.warn("Could not append origin to Vercel finalize target", { targetUrl, error });
+        return targetUrl;
+    }
+}
 
 function buildFinalizeUrl(sessionToken: string, organizationId: string, targetUrl?: string): string {
     const oneTimeCode = randomBytes(16).toString("hex");

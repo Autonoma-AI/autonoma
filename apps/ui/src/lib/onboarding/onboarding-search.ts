@@ -3,6 +3,12 @@ import type { OnboardingStep } from "./onboarding-steps";
 
 type FocusSection = "config" | "secrets" | "logs";
 
+/** Which host tab the existing-deploys step opens on. */
+export type OnboardingSignalProvider = "vercel" | "custom";
+
+/** How the user entered onboarding, e.g. redirected from the Vercel marketplace. */
+export type OnboardingOrigin = "vercel";
+
 interface OnboardingSearchOverrides {
     error?: string;
     apiKey?: string;
@@ -12,6 +18,10 @@ interface OnboardingSearchOverrides {
     focusSection?: FocusSection;
     /** Active sub-step of the PreviewKit config step, so the sidebar can reflect it. */
     configStep?: ConfigStepId;
+    /** Pre-selected provider tab for the existing-deploys step, carried from the routing quiz. */
+    provider?: OnboardingSignalProvider;
+    /** Where the user came from; "vercel" streamlines the preview-provider steps. */
+    origin?: OnboardingOrigin;
 }
 
 /**
@@ -30,5 +40,7 @@ export function buildOnboardingSearch(step: OnboardingStep, appId?: string, over
         focusField: overrides.focusField,
         focusSection: overrides.focusSection,
         configStep: overrides.configStep,
+        provider: overrides.provider,
+        origin: overrides.origin,
     };
 }

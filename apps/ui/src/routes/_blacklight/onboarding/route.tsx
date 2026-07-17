@@ -55,7 +55,11 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     // The active PreviewKit config sub-step, mirrored here so the sidebar reflects it.
     const configStep =
       typeof search.configStep === "string" && isConfigStepId(search.configStep) ? search.configStep : undefined;
-    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection, configStep };
+    // Which host tab the existing-deploys step opens on, carried from the routing quiz.
+    const provider = search.provider === "vercel" || search.provider === "custom" ? search.provider : undefined;
+    // How the user entered onboarding; "vercel" (from the marketplace) streamlines the preview steps.
+    const origin = search.origin === "vercel" ? "vercel" : undefined;
+    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection, configStep, provider, origin };
   },
   loader: async ({ context: { queryClient }, location }) => {
     const session = await ensureSessionData(queryClient);
@@ -150,7 +154,10 @@ function OnboardingLayout() {
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
-  const { step, appId, error, focusApp, focusField, focusSection, configStep } = Route.useSearch();
+  const { step, appId, error, focusApp, focusField, focusSection, configStep, provider, origin } = Route.useSearch();
+  // useSearch widens the enums to `string`; re-narrow for the typed props.
+  const initialProvider = provider === "vercel" || provider === "custom" ? provider : undefined;
+  const onboardingOrigin = origin === "vercel" ? "vercel" : undefined;
   const currentStepId = resolveViewStep(step, backendStep, appId != null);
   const { data: agentSession } = useAgentSession(appId ?? "");
   const agentConfiguring = agentSession?.effectiveHolder === "agent";
@@ -191,8 +198,9 @@ function OnboardingLayout() {
   }
 
   function renderStep() {
-    if (currentStepId === "add-app") return <AddAppPage appId={appId} error={error} />;
-    if (currentStepId === "preview-environment") return <PreviewEnvironmentPage appId={appId} />;
+    if (currentStepId === "add-app") return <AddAppPage appId={appId} error={error} origin={onboardingOrigin} />;
+    if (currentStepId === "preview-environment")
+      return <PreviewEnvironmentPage appId={appId} origin={onboardingOrigin} />;
     if (currentStepId === "previewkit-config")
       return (
         <PreviewkitConfigPage
@@ -203,7 +211,8 @@ function OnboardingLayout() {
           configStep={configStep}
         />
       );
-    if (currentStepId === "existing-deploys") return <ExistingDeploysPage appId={appId} />;
+    if (currentStepId === "existing-deploys")
+      return <ExistingDeploysPage appId={appId} initialProvider={initialProvider} />;
     if (currentStepId === "deploy-verify") return <PreviewDeployVerifyPage appId={appId} />;
     if (currentStepId === "diff-trigger") return <DiffTriggerPage appId={appId} />;
     return <CompletePage appId={appId} />;

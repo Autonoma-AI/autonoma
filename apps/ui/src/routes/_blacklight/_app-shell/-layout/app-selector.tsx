@@ -27,6 +27,7 @@ import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useNavigate, useParams, useRouteContext } from "@tanstack/react-router";
 import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { useState } from "react";
 
@@ -118,20 +119,7 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
           <DropdownMenuItem
             className="gap-1.5 border border-dashed border-border-mid text-primary"
             onClick={() => {
-              void navigate({
-                to: "/onboarding",
-                search: {
-                  step: "add-app",
-                  appId: undefined,
-                  error: undefined,
-                  apiKey: undefined,
-                  setupId: undefined,
-                  focusApp: undefined,
-                  focusField: undefined,
-                  focusSection: undefined,
-                  configStep: undefined,
-                },
-              });
+              void navigate({ to: "/onboarding", search: buildOnboardingSearch("add-app") });
             }}
           >
             <PlusIcon size={14} weight="bold" />

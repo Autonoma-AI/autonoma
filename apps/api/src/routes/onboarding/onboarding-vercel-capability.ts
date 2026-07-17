@@ -15,15 +15,14 @@ export interface ListAvailableVercelProjectsResult {
     /** False when the org has never installed the Vercel Marketplace integration at all. */
     connected: boolean;
     projects: AvailableVercelProject[];
-    /** "Connect a new Vercel project" redirect target, or undefined if VERCEL_INTEGRATION_SLUG isn't configured. */
+    /** "Connect a new Vercel project" redirect target, or undefined if VERCEL_INTEGRATION_URL isn't configured. */
     connectUrl: string | undefined;
     /** Set when this application already has a Vercel project linked. */
     linkedProject: AvailableVercelProject | undefined;
 }
 
 function buildVercelConnectUrl(): string | undefined {
-    if (env.VERCEL_INTEGRATION_SLUG == null) return undefined;
-    return `https://vercel.com/integrations/${env.VERCEL_INTEGRATION_SLUG}/new`;
+    return env.VERCEL_INTEGRATION_URL;
 }
 
 export class OnboardingVercelCapabilityService {

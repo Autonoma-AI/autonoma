@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "lib/auth";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { ensureOrgStatusData, ensureOrganizationsData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
 import { AppShellLayout } from "./-layout/app-shell-layout";
@@ -45,20 +46,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   const isAdminEscapeHatch = isAdmin && pathname.startsWith("/admin");
 
   if (applications.length === 0 && !isAdminEscapeHatch) {
-    throw redirect({
-      to: "/onboarding",
-      search: {
-        step: "add-app",
-        appId: undefined,
-        error: undefined,
-        apiKey: undefined,
-        setupId: undefined,
-        focusApp: undefined,
-        focusField: undefined,
-        focusSection: undefined,
-        configStep: undefined,
-      },
-    });
+    throw redirect({ to: "/onboarding", search: buildOnboardingSearch("add-app") });
   }
 
   return { user, organizations, activeOrganization, applications };

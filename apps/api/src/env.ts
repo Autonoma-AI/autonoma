@@ -50,10 +50,11 @@ export const env = createEnv({
         VERCEL_CLIENT_SECRET: z.string().min(1).optional(),
         VERCEL_REDIRECT_URI: z.string().url().optional(),
         VERCEL_ENCRYPTION_KEY: z.string().length(64).optional(),
-        // The integration's URL slug (Vercel Integrations Console -> "URL Slug"),
-        // used to build the "Connect a new Vercel project" redirect:
-        // https://vercel.com/integrations/{slug}/new
-        VERCEL_INTEGRATION_SLUG: z.string().min(1).optional(),
+        // Full URL users are sent to in order to install / connect the Autonoma
+        // Vercel integration (e.g. https://vercel.com/integrations/{slug}/new, or a
+        // specific marketplace listing URL). Surfaced to the UI as the "Connect Vercel"
+        // target; when unset the connect step shows an explanatory message instead.
+        VERCEL_INTEGRATION_URL: z.string().url().optional(),
         AGENT_VERSION: z.string().optional().default("latest"),
         POSTHOG_KEY: z.string().optional(),
         POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),

@@ -17,7 +17,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeleteApplicationDialog } from "components/delete-application-dialog";
 import { useCompleteGithub } from "lib/onboarding/onboarding-api";
-import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { type OnboardingOrigin, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
 import {
   useGithubConfig,
@@ -56,7 +56,7 @@ function repoShortName(fullName: string): string {
   return fullName.split("/").pop() ?? fullName;
 }
 
-export function AddAppPage({ appId, error }: { appId?: string; error?: string }) {
+export function AddAppPage({ appId, error, origin }: { appId?: string; error?: string; origin?: OnboardingOrigin }) {
   return (
     <>
       <OnboardingPageHeader
@@ -79,7 +79,7 @@ export function AddAppPage({ appId, error }: { appId?: string; error?: string })
 
       <AddAppErrorBoundary>
         <Suspense fallback={<AddAppSkeleton />}>
-          <AddAppContent appId={appId} />
+          <AddAppContent appId={appId} origin={origin} />
         </Suspense>
       </AddAppErrorBoundary>
     </>
@@ -130,7 +130,7 @@ class AddAppErrorBoundary extends Component<{ children: ReactNode }, { error?: E
   }
 }
 
-function AddAppContent({ appId }: { appId?: string }) {
+function AddAppContent({ appId, origin }: { appId?: string; origin?: OnboardingOrigin }) {
   const { data: installation } = useGithubInstallation();
   const { data: repos } = useGithubRepositories();
 
@@ -138,7 +138,7 @@ function AddAppContent({ appId }: { appId?: string }) {
     return <InstallStep appId={appId} hasStaleInstallation={installation != null} appSlug={installation?.appSlug} />;
   }
 
-  return <RepoAndNameStep appId={appId} settingsUrl={installation.settingsUrl} />;
+  return <RepoAndNameStep appId={appId} settingsUrl={installation.settingsUrl} origin={origin} />;
 }
 
 function InstallStep({
@@ -199,7 +199,15 @@ function InstallStep({
   );
 }
 
-function RepoAndNameStep({ appId, settingsUrl }: { appId?: string; settingsUrl?: string }) {
+function RepoAndNameStep({
+  appId,
+  settingsUrl,
+  origin,
+}: {
+  appId?: string;
+  settingsUrl?: string;
+  origin?: OnboardingOrigin;
+}) {
   const navigate = useNavigate();
   const { data: repos } = useGithubRepositories();
   const { data: applications } = useSuspenseQuery(trpc.applications.list.queryOptions());
@@ -242,7 +250,10 @@ function RepoAndNameStep({ appId, settingsUrl }: { appId?: string; settingsUrl?:
   }
 
   function goToPreview(applicationId: string) {
-    void navigate({ to: "/onboarding", search: buildOnboardingSearch("preview-environment", applicationId) });
+    void navigate({
+      to: "/onboarding",
+      search: buildOnboardingSearch("preview-environment", applicationId, { origin }),
+    });
   }
 
   function linkAndContinue(applicationId: string, repoId: number) {
