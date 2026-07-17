@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.8.38](https://github.com/Autonoma-AI/agent/compare/v1.8.37...v1.8.38) (2026-07-17)
+
+
+### Features
+
+* add email password login form ([#1581](https://github.com/Autonoma-AI/agent/issues/1581)) ([666a9ca](https://github.com/Autonoma-AI/agent/commit/666a9ca4278b399fbc3742f0a6f3501fc51508ae))
+* **analysis:** re-home the shadow pipeline into packages/diffs + Impact Analysis ([#1599](https://github.com/Autonoma-AI/agent/issues/1599), [#1510](https://github.com/Autonoma-AI/agent/issues/1510)) ([#1600](https://github.com/Autonoma-AI/agent/issues/1600)) ([de72be1](https://github.com/Autonoma-AI/agent/commit/de72be13c7ac23a02ef6069c6ffaec0ad2de41e0))
+* **onboarding-mcp:** warn the agent when a ready preview is logging errors ([#1584](https://github.com/Autonoma-AI/agent/issues/1584)) ([f22e6fe](https://github.com/Autonoma-AI/agent/commit/f22e6fe4bfd4ebe494609218bf5ba9b59a58462a))
+* **onboarding:** auto-switch finish-setup logs from build to app as the deploy progresses ([#1595](https://github.com/Autonoma-AI/agent/issues/1595)) ([aaf127d](https://github.com/Autonoma-AI/agent/commit/aaf127d9ae78d4c66125fe973ba5cf8f94331dd0))
+* **onboarding:** debug-MCP agent entry and preview-config link on finish-setup ([#1596](https://github.com/Autonoma-AI/agent/issues/1596)) ([596e1b0](https://github.com/Autonoma-AI/agent/commit/596e1b0ea8bc2b48c425802c2158820f9403f705))
+* **onboarding:** deploy/redeploy button for SDK dry-run targets ([#1592](https://github.com/Autonoma-AI/agent/issues/1592)) ([8a89a79](https://github.com/Autonoma-AI/agent/commit/8a89a796cbe337489e3fd642ecf6e7c9e70c58dd))
+* **onboarding:** per-key env request form with skip - stop stranding users on keys they don't have ([#1587](https://github.com/Autonoma-AI/agent/issues/1587)) ([5dda445](https://github.com/Autonoma-AI/agent/commit/5dda4459b54cc01a35995ef757522b3e921575e0))
+* **onboarding:** show the build cause (branch @ sha + commit message) on SDK targets ([#1593](https://github.com/Autonoma-AI/agent/issues/1593)) ([771460e](https://github.com/Autonoma-AI/agent/commit/771460e8fec122697b7b296fea5994d8e3fafc63))
+* **onboarding:** tab/chime/browser-notification attention cues on the agent session (tRPC polling) ([#1588](https://github.com/Autonoma-AI/agent/issues/1588)) ([cf55d08](https://github.com/Autonoma-AI/agent/commit/cf55d08e2548098ac31de432d9b3f713e098c61e))
+* previewkit environment on the PR page and list ([#1482](https://github.com/Autonoma-AI/agent/issues/1482)) ([82d2e6a](https://github.com/Autonoma-AI/agent/commit/82d2e6a0495aa37a73f4eb4ea8feb13433b335cf))
+* **previewkit:** redeploy resolves the latest head instead of re-running the stored sha ([#1590](https://github.com/Autonoma-AI/agent/issues/1590)) ([1853734](https://github.com/Autonoma-AI/agent/commit/185373430b1ed5b769c2a7ef984db37acbe09f75))
+* **ui:** environment summary strip for the Preview tab ([#1626](https://github.com/Autonoma-AI/agent/issues/1626)) ([e0cbdac](https://github.com/Autonoma-AI/agent/commit/e0cbdac2dd0f072974d33be74f0e5c9454e367c8))
+* **ui:** fixed-viewport shell for the PR Preview tab ([#1617](https://github.com/Autonoma-AI/agent/issues/1617)) ([e0a1854](https://github.com/Autonoma-AI/agent/commit/e0a18544d0f2795a3d5da7ba0058f363b2a0b45c))
+* **ui:** logs toolbar and footer for the Preview tab ([#1622](https://github.com/Autonoma-AI/agent/issues/1622)) ([a122622](https://github.com/Autonoma-AI/agent/commit/a1226223e66c60028fcd618880254d2edeacbccd))
+* **ui:** storybook + MSW screenshot pipeline for PR UI previews ([#1594](https://github.com/Autonoma-AI/agent/issues/1594)) ([d51669b](https://github.com/Autonoma-AI/agent/commit/d51669b2c468da2ff2a296bc509d8ead3e9a6a06))
+
+
+### Bug Fixes
+
+* **ci:** vendor the OpenCode action to stop rate-limited setup flakes ([#1623](https://github.com/Autonoma-AI/agent/issues/1623)) ([f2707f3](https://github.com/Autonoma-AI/agent/commit/f2707f37588e4b796cbc7c258430e6067204e8f4))
+* **ingress:** 301-redirect legacy agent.* hosts to the canonical hosts ([#1586](https://github.com/Autonoma-AI/agent/issues/1586)) ([ef46d37](https://github.com/Autonoma-AI/agent/commit/ef46d37a0ec6cdd8d4ddf696c460119e53ad6745))
+* **mcp:** advertise the api.&lt;host&gt; origin as the OAuth resource ([#1625](https://github.com/Autonoma-AI/agent/issues/1625)) ([e184d8a](https://github.com/Autonoma-AI/agent/commit/e184d8a03b0ccf42ccc07c93e924b59b3f913180))
+* **onboarding:** show every open PR in the SDK target dropdown with its state ([#1576](https://github.com/Autonoma-AI/agent/issues/1576)) ([5c97e32](https://github.com/Autonoma-AI/agent/commit/5c97e32760c811b2288c9842edb6a978f3af91c5))
+* PR comment no longer shows green "no issues" over findings ([#1572](https://github.com/Autonoma-AI/agent/issues/1572)) ([a1c0aca](https://github.com/Autonoma-AI/agent/commit/a1c0aca6d3b4b7d7a7215756f83eb8ce167f98b5))
+* **previewkit:** block buildkit metadata and control-plane access ([#1603](https://github.com/Autonoma-AI/agent/issues/1603)) ([db80651](https://github.com/Autonoma-AI/agent/commit/db80651b5f233fbcc03f28880c766be713800d70))
+* **previewkit:** refresh EKS tokens before expiry ([#1604](https://github.com/Autonoma-AI/agent/issues/1604)) ([ceeb5ee](https://github.com/Autonoma-AI/agent/commit/ceeb5ee48f04f52a3d4cff0fe5bff61294836d29))
+* **previewkit:** secret-path collision preflight at config save + AWS-safe owner tags ([#1585](https://github.com/Autonoma-AI/agent/issues/1585)) ([c84b66b](https://github.com/Autonoma-AI/agent/commit/c84b66bccfe16a273b8f080d0cb2a2ad36776321))
+
+
+### Performance Improvements
+
+* **ui:** defer PostHog support chat ([#1616](https://github.com/Autonoma-AI/agent/issues/1616)) ([dda9d16](https://github.com/Autonoma-AI/agent/commit/dda9d16be6ff46230f4f2da39e900a135d310603))
+
 ## [1.8.37](https://github.com/Autonoma-AI/agent/compare/v1.8.36...v1.8.37) (2026-07-16)
 
 
