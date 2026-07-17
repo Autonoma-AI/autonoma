@@ -6,6 +6,12 @@
             "runtimeExecutable": "pnpm",
             "runtimeArgs": ["--filter", "@autonoma/ui", "dev"],
             "port": 3000
+        },
+        {
+            "name": "storybook",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": ["--filter", "@autonoma/ui", "storybook"],
+            "port": 6006
         }
     ]
 }

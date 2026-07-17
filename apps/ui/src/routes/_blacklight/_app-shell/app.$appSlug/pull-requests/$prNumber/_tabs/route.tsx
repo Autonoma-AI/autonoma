@@ -26,11 +26,17 @@ function PRTabsLayout() {
   const { prNumber } = Route.useParams();
 
   return (
-    <div className="-m-6 flex min-h-full flex-col">
+    // `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the viewport
+    // exactly; the Preview tab's panels scroll internally instead of the whole page. The Outlet is
+    // wrapped in its own flex/scroll region rather than left bare so the Overview tab (which has no
+    // bounded-height content of its own) keeps scrolling exactly as it does today.
+    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">
       <Suspense fallback={<PRHeaderSkeleton />}>
         <PRPageHeader prNumber={prNumber} />
       </Suspense>
-      <Outlet />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <Outlet />
+      </div>
     </div>
   );
 }
