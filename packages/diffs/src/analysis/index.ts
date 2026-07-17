@@ -32,3 +32,7 @@ export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from
 export { withRetry } from "./retry";
 export { dedupeAnalysisFindings } from "./dedup";
 export type { AnalysisFinding, ReconciledAnalysisFinding, DedupAnalysisFindingsDeps } from "./dedup";
+export { summarizeVerdictPlanes } from "./verdict-planes";
+export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
+export { narrateAnalysis } from "./narrate";
+export type { NarrateAnalysisDeps } from "./narrate";

@@ -77,6 +77,16 @@ export interface ReconcileAnalysisOutput {
     findingCount: number;
     /** How many of the deduped findings are client bugs. */
     clientBugCount: number;
+    // The two-plane + narration outputs below are optional because the frozen investigation worker shares this
+    // contract and emits only the fields above; the diffs analysis pipeline always populates them.
+    /** How many deduped findings fall on the coverage-confidence plane (never bugs, never blocking). */
+    coverageFindingCount?: number;
+    /** Proposed tests the run could not establish (delete findings with `origin: proposed`). */
+    unestablishedProposedCount?: number;
+    /** Pre-existing tests removed as obsolete (delete findings with `origin: pre_existing`). */
+    obsoleteRemovedCount?: number;
+    /** Whether the constrained narration was produced (a narration failure degrades to absent). */
+    narrated?: boolean;
     /** The DeployedComparison produced against the authoritative diffs output. */
     comparison: AnalysisDeployedComparison;
     /** How many findings were filed as bugs - always 0 in shadow mode (nothing is filed). */

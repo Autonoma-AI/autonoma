@@ -2417,6 +2417,16 @@ model AnalysisShadowRun {
   /// ![{ found: boolean; jobStatus?: string; deployedTestCount: number }]
   deployed Json?
 
+  /// The coverage-confidence plane summary: per-category counts of the deduped findings that are not app-health
+  /// (engine_artifact/environment_failure/scenario_issue/delete), plus the delete-origin split (proposed tests
+  /// the run could not establish vs pre-existing tests removed as obsolete). Display-only blob.
+  /// ![{ byCategory: { category: string; count: number }[]; total: number; unestablishedProposed: number; obsoleteRemoved: number }]
+  coverage Json?
+
+  /// The constrained prose narration of this run's two-plane verdict. Best-effort - absent when the narration
+  /// model call could not run. Derived from the FINAL verdict; it never alters it.
+  narration String?
+
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")

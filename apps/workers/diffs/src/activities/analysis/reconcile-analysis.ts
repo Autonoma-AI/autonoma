@@ -1,9 +1,13 @@
 import { db } from "@autonoma/db";
 import {
+    type CoverageSummary,
     DeployedComparison,
     type ReconciledAnalysisFinding,
+    type TwoPlaneSummary,
     dedupeAnalysisFindings,
+    narrateAnalysis,
     persistInvestigationCosts,
+    summarizeVerdictPlanes,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type {
@@ -13,6 +17,8 @@ import type {
 } from "@autonoma/workflow/activities";
 
 const CLIENT_BUG = "client_bug";
+const DEDUP_TAG = "analysis-reconcile-dedup";
+const NARRATION_TAG = "analysis-reconcile-narration";
 
 /**
  * How the Reconciler collapses the fan-out's candidates into deduped findings. Injected so tests exercise
@@ -26,30 +32,64 @@ export type AnalysisDedupe = (
 ) => Promise<ReconciledAnalysisFinding[]>;
 
 /**
+ * How the Reconciler narrates the finalized two-plane verdict. Injected so tests assert the narration is
+ * persisted (and never alters the verdict) deterministically without a live model; the default opens a metered
+ * model session and runs the constrained narration.
+ */
+export type AnalysisNarrator = (
+    input: { summary: TwoPlaneSummary; findingCount: number },
+    snapshotId: string,
+    logger: Logger,
+) => Promise<string | undefined>;
+
+/** The Reconciler's injectable model-backed steps - defaulted to the metered live implementations. */
+export interface ReconcileDeps {
+    dedupe?: AnalysisDedupe;
+    narrate?: AnalysisNarrator;
+}
+
+/**
  * Reconciler stage. Holistically deduplicates the Investigators' candidate findings (several tests can surface
- * the same underlying issue), unioning each group's evidence into one finding; derives the shadow verdict from
- * the deduped set; produces the shadow-vs-diffs DeployedComparison (reading the authoritative diffs job for the
- * twin's head SHA); and persists all of it to the shadow store (`AnalysisShadowRun`) - an isolated island that
- * is never a user-facing Bug/Issue. It is single-concern: no plan edits, no deletions, no re-runs, no finalize.
- * Filing real bugs stays dormant behind authoritative mode until the cutover ships.
+ * the same underlying issue), unioning each group's evidence into one finding; derives the DETERMINISTIC
+ * two-plane verdict from the deduped set (app-health headline + coverage-confidence summary) in code, then
+ * narrates it with a constrained model call that cannot alter it; loads the DeployedComparison against the
+ * authoritative diffs job for the twin's head SHA; and persists all of it to the shadow store
+ * (`AnalysisShadowRun`) - an isolated island that is never a user-facing Bug/Issue. It is single-concern: no
+ * plan edits, no deletions, no re-runs, no finalize. Filing real bugs stays dormant behind authoritative mode
+ * until the cutover ships. Never throws: every model-backed step is contained.
  */
 export async function reconcileAnalysis(
     input: ReconcileAnalysisInput,
-    dedupe: AnalysisDedupe = holisticDedupe,
+    deps: ReconcileDeps = {},
 ): Promise<ReconcileAnalysisOutput> {
     const { snapshotId, mode, candidates } = input;
+    const dedupe = deps.dedupe ?? holisticDedupe;
+    const narrate = deps.narrate ?? defaultNarrate;
     // snapshotId is bound to the observability context by the activity interceptor; only non-canonical fields go
     // in `extra`.
     const logger = rootLogger.child({ name: "reconcileAnalysis", extra: { mode, candidateCount: candidates.length } });
     logger.info("Reconciler stage started");
 
     const findings = await dedupe(candidates, snapshotId, logger);
+
+    // Derived in code from the finalized findings; the narration below is downstream and cannot change it.
+    const summary = summarizeVerdictPlanes(findings);
+    const { verdict, coverage } = summary;
     const clientBugCount = findings.filter((finding) => finding.category === CLIENT_BUG).length;
     const testCount = candidates.length;
     const findingCount = findings.length;
-    // Two-plane verdict, app-health plane only in this slice: a PR is `client_bug` if any finding is one.
-    const verdict = clientBugCount > 0 ? CLIENT_BUG : "passed";
-    logger.info("Deduped candidate findings", { extra: { testCount, findingCount, clientBugCount } });
+    logger.info("Derived two-plane verdict", {
+        extra: {
+            verdict,
+            findingCount,
+            clientBugCount,
+            coverageFindingCount: coverage.total,
+            unestablishedProposed: coverage.unestablishedProposed,
+            obsoleteRemoved: coverage.obsoleteRemoved,
+        },
+    });
+
+    const narration = await narrate({ summary, findingCount }, snapshotId, logger);
 
     // BranchSnapshot has no organizationId of its own - it inherits the org from its branch.
     const twin = await db.branchSnapshot.findUnique({
@@ -70,6 +110,8 @@ export async function reconcileAnalysis(
             testCount,
             clientBugCount,
             findings,
+            coverage,
+            narration,
             comparison,
         },
         logger,
@@ -82,7 +124,18 @@ export async function reconcileAnalysis(
     }
 
     logger.info("Reconciler stage finished; shadow store written, no user-facing rows filed");
-    return { verdict, testCount, findingCount, clientBugCount, comparison, filedCount: 0 };
+    return {
+        verdict,
+        testCount,
+        findingCount,
+        clientBugCount,
+        coverageFindingCount: coverage.total,
+        unestablishedProposedCount: coverage.unestablishedProposed,
+        obsoleteRemovedCount: coverage.obsoleteRemoved,
+        narrated: narration != null,
+        comparison,
+        filedCount: 0,
+    };
 }
 
 /**
@@ -102,7 +155,7 @@ async function holisticDedupe(
         const session = createModelSession();
         const findings = await dedupeAnalysisFindings({
             findings: candidates,
-            model: session.getModel({ model: "classifier", tag: "analysis-reconcile-dedup" }),
+            model: session.getModel({ model: "classifier", tag: DEDUP_TAG }),
         });
         // Cost tracking is auxiliary - a transient DB error must not discard the findings we already computed.
         await persistInvestigationCosts(db, snapshotId, session.costCollector, logger).catch((error) => {
@@ -120,6 +173,35 @@ async function holisticDedupe(
     }
 }
 
+/**
+ * The default narration: open a metered model session and run the constrained narration over the finalized
+ * verdict, then persist its AI spend. Lazily imports the session for the same reason as `holisticDedupe`.
+ * Contained: a failure to build the session degrades to an omitted narration (`narrateAnalysis` is itself
+ * contained for model failures), so a narration problem can never sink the Reconciler.
+ */
+async function defaultNarrate(
+    input: { summary: TwoPlaneSummary; findingCount: number },
+    snapshotId: string,
+    logger: Logger,
+): Promise<string | undefined> {
+    try {
+        const { createModelSession } = await import("../../services");
+        const session = createModelSession();
+        const narration = await narrateAnalysis({
+            summary: input.summary,
+            findingCount: input.findingCount,
+            model: session.getModel({ model: "classifier", tag: NARRATION_TAG }),
+        });
+        await persistInvestigationCosts(db, snapshotId, session.costCollector, logger).catch((error) => {
+            logger.warn("Failed to persist reconcile-narration costs; keeping the narration", { err: error });
+        });
+        return narration;
+    } catch (error) {
+        logger.warn("Narration model session unavailable; omitting the narration", { err: error });
+        return undefined;
+    }
+}
+
 interface PersistShadowRunInput {
     snapshotId: string;
     organizationId: string;
@@ -128,13 +210,15 @@ interface PersistShadowRunInput {
     testCount: number;
     clientBugCount: number;
     findings: ReconciledAnalysisFinding[];
+    coverage: CoverageSummary;
+    narration?: string;
     comparison: ReconcileAnalysisOutput["comparison"];
 }
 
 /**
  * Upsert the shadow run record - keyed by the twin snapshot so a re-run overwrites rather than duplicates. The
- * deduped findings are stored as a display blob (each with its unioned `coveredSlugs` + `members`); nothing
- * user-facing FKs into this row.
+ * deduped findings are stored as a display blob (each with its unioned `coveredSlugs` + `members`); the coverage
+ * summary, narration, and DeployedComparison sit alongside. Nothing user-facing FKs into this row.
  */
 async function persistShadowRun(input: PersistShadowRunInput, logger: Logger): Promise<void> {
     const findings = input.findings.map((finding) => ({
@@ -155,6 +239,8 @@ async function persistShadowRun(input: PersistShadowRunInput, logger: Logger): P
         testCount: input.testCount,
         clientBugCount: input.clientBugCount,
         findings,
+        coverage: input.coverage,
+        narration: input.narration,
         deployed: input.comparison,
     };
     await db.analysisShadowRun.upsert({
@@ -162,7 +248,9 @@ async function persistShadowRun(input: PersistShadowRunInput, logger: Logger): P
         create: { snapshotId: input.snapshotId, organizationId: input.organizationId, ...data },
         update: data,
     });
-    logger.info("Persisted shadow analysis run", { extra: { findingCount: findings.length } });
+    logger.info("Persisted shadow analysis run", {
+        extra: { findingCount: findings.length, narrated: input.narration != null },
+    });
 }
 
 /**

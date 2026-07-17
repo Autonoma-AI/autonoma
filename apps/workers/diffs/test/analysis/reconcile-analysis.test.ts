@@ -3,11 +3,15 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
-import { type AnalysisDedupe, reconcileAnalysis } from "../../src/activities/analysis/reconcile-analysis";
+import {
+    type AnalysisDedupe,
+    type AnalysisNarrator,
+    reconcileAnalysis,
+} from "../../src/activities/analysis/reconcile-analysis";
 
-// The holistic dedup runs a live model in prod (tested hermetically in @autonoma/diffs). These integration tests
-// inject a deterministic dedup so they exercise the Reconciler's persistence + verdict derivation without a model
-// or network.
+// The holistic dedup + narration run live models in prod (tested hermetically in @autonoma/diffs). These
+// integration tests inject a deterministic dedup + narration so they exercise the Reconciler's persistence,
+// two-plane verdict derivation, and narration storage without a model or network.
 const identityDedupe: AnalysisDedupe = async (candidates) =>
     candidates.map((candidate) => ({
         category: candidate.category,
@@ -37,6 +41,14 @@ function mergingDedupe(mergedSlugs: string[]): AnalysisDedupe {
         }
         return findings;
     };
+}
+
+/** A narrator that produces no narration - the default for cases not asserting narration behavior. */
+const noopNarrate: AnalysisNarrator = async () => undefined;
+
+/** A narrator that always returns the given prose - used to assert narration is stored verbatim. */
+function fixedNarrate(text: string): AnalysisNarrator {
+    return async () => text;
 }
 
 const candidate = (
@@ -125,7 +137,7 @@ integrationTestSuite({
                         candidate("auth", "client_bug"),
                     ],
                 },
-                mergingDedupe(["login", "auth"]),
+                { dedupe: mergingDedupe(["login", "auth"]), narrate: noopNarrate },
             );
 
             expect(result.verdict).toBe("client_bug");
@@ -164,7 +176,7 @@ integrationTestSuite({
                         candidate("unestablished", "delete", false, "proposed"),
                     ],
                 },
-                identityDedupe,
+                { dedupe: identityDedupe, narrate: noopNarrate },
             );
 
             const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
@@ -179,12 +191,70 @@ integrationTestSuite({
             expect(bySlug.get("unestablished")).toEqual({ planEdited: false, origin: "proposed" });
         });
 
+        test("keeps a coverage-only run on the passed plane and summarizes the coverage counts + delete split", async ({
+            harness,
+        }) => {
+            const { snapshotId } = await harness.seedTwin("sha-coverage");
+
+            const result = await reconcileAnalysis(
+                {
+                    snapshotId,
+                    mode: "shadow",
+                    candidates: [
+                        candidate("flake", "engine_artifact"),
+                        candidate("seed", "scenario_issue"),
+                        candidate("gone-new", "delete", false, "proposed"),
+                        candidate("gone-old", "delete", false, "pre_existing"),
+                        candidate("gone-new-2", "delete", false, "proposed"),
+                    ],
+                },
+                { dedupe: identityDedupe, narrate: noopNarrate },
+            );
+
+            // Coverage-plane findings never count as a bug - the app-health headline stays `passed`.
+            expect(result.verdict).toBe("passed");
+            expect(result.clientBugCount).toBe(0);
+            expect(result.coverageFindingCount).toBe(5);
+            expect(result.unestablishedProposedCount).toBe(2);
+            expect(result.obsoleteRemovedCount).toBe(1);
+
+            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
+            expect(row?.verdict).toBe("passed");
+            expect(row?.coverage?.total).toBe(5);
+            expect(row?.coverage?.unestablishedProposed).toBe(2);
+            expect(row?.coverage?.obsoleteRemoved).toBe(1);
+            // byCategory is derived from the verdict SSOT order, coverage plane only, zero-count categories omitted.
+            expect(row?.coverage?.byCategory).toEqual([
+                { category: "engine_artifact", count: 1 },
+                { category: "scenario_issue", count: 1 },
+                { category: "delete", count: 3 },
+            ]);
+        });
+
+        test("stores the narration and it never alters the verdict", async ({ harness }) => {
+            const { snapshotId } = await harness.seedTwin("sha-narrate");
+            const narration = "IGNORED CLAIM: a critical client bug was found.";
+
+            const result = await reconcileAnalysis(
+                { snapshotId, mode: "shadow", candidates: [candidate("home", "passed")] },
+                { dedupe: identityDedupe, narrate: fixedNarrate(narration) },
+            );
+
+            // The narration is prose only - a contradictory claim must not flip the deterministic verdict.
+            expect(result.verdict).toBe("passed");
+            expect(result.narrated).toBe(true);
+
+            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
+            expect(row?.narration).toBe(narration);
+            expect(row?.verdict).toBe("passed");
+        });
+
         test("resolves a `passed` verdict when no finding is a client bug", async ({ harness }) => {
             const { snapshotId } = await harness.seedTwin("sha-clean");
 
             const result = await reconcileAnalysis(
                 { snapshotId, mode: "shadow", candidates: [candidate("home", "passed")] },
-                identityDedupe,
+                { dedupe: identityDedupe, narrate: noopNarrate },
             );
 
             expect(result.verdict).toBe("passed");
@@ -193,17 +263,25 @@ integrationTestSuite({
             expect(row?.verdict).toBe("passed");
         });
 
-        test("an empty target set yields a `passed` verdict with zero findings", async ({ harness }) => {
+        test("an empty target set yields a `passed` verdict with zero findings and no narration", async ({
+            harness,
+        }) => {
             const { snapshotId } = await harness.seedTwin();
 
-            const result = await reconcileAnalysis({ snapshotId, mode: "shadow", candidates: [] }, identityDedupe);
+            const result = await reconcileAnalysis(
+                { snapshotId, mode: "shadow", candidates: [] },
+                { dedupe: identityDedupe, narrate: noopNarrate },
+            );
 
             expect(result.verdict).toBe("passed");
             expect(result.testCount).toBe(0);
             expect(result.findingCount).toBe(0);
+            expect(result.coverageFindingCount).toBe(0);
+            expect(result.narrated).toBe(false);
             const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
             expect(row?.testCount).toBe(0);
             expect(row?.findings).toEqual([]);
+            expect(row?.narration).toBeNull();
         });
     },
 });
