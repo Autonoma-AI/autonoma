@@ -475,7 +475,7 @@ function PreviewLogsBody({
       source={logs}
       onSourceChange={onLogsChange}
       fill
-      className="border border-border-dim bg-surface-base p-3"
+      toolbar
     />
   );
 }

@@ -1,12 +1,21 @@
 import { Badge, BrailleSpinner, Card, cn } from "@autonoma/blacklight";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
+import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { useEffect, useRef } from "react";
 import { env } from "../../env";
 import { parseAnsi } from "./parse-ansi";
 import { type BuildLogConnection, type BuildLogEntry, useBuildLogStream } from "./use-build-log-stream";
 
 const STICK_TO_BOTTOM_THRESHOLD_PX = 32;
+
+// Only "stdout"/"stderr" is available on a log entry - no server-side info/warn/error taxonomy exists,
+// and this file deliberately avoids content-keyword heuristics (see the stream-not-content comment on
+// `LogRow` below), so the filter has exactly two real severities. "Info" is the floor, so it shows
+// everything - same as "all" - and only "Error" (stderr) narrows the view.
+export type LogLevelFilter = "all" | "info" | "error";
+
+const LOG_LEVEL_RANK: Record<Exclude<LogLevelFilter, "all">, number> = { info: 1, error: 2 };
 
 interface BuildLogStreamViewerProps {
   /** Fully-formed SSE endpoint URL. See {@link buildPreviewLogStreamUrl}. */
@@ -19,6 +28,12 @@ interface BuildLogStreamViewerProps {
   waitingText?: string | undefined;
   /** When true, the viewer grows to fill its flex parent instead of using a fixed body height. */
   fill?: boolean | undefined;
+  /** When false, hides the inner title/status header - use when an outer layout (tabs, page title) already labels the stream and a footer shows status instead. Defaults to true. */
+  header?: boolean | undefined;
+  /** When true, appends a footer with connection/build status and shown/total/error line counts. Defaults to false. */
+  footer?: boolean | undefined;
+  /** Only show log entries at or above this severity; phase/status markers always show regardless. Defaults to "all". */
+  levelFilter?: LogLevelFilter | undefined;
   className?: string | undefined;
 }
 
@@ -34,6 +49,9 @@ export function BuildLogStreamViewer({
   title = "build logs",
   waitingText = "waiting for build output…",
   fill,
+  header = true,
+  footer = false,
+  levelFilter = "all",
   className,
 }: BuildLogStreamViewerProps) {
   const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers });
@@ -45,6 +63,9 @@ export function BuildLogStreamViewer({
   const deployInFlight =
     error == null && buildStatus !== "ready" && buildStatus !== "failed" && connection !== "closed";
   const lastPhaseId = [...entries].reverse().find((entry) => entry.kind === "phase")?.id;
+
+  const visibleEntries = entries.filter((entry) => matchesLevelFilter(entry, levelFilter));
+  const errorCount = entries.filter((entry) => entry.kind === "log" && deriveLogLevel(entry) === "error").length;
 
   const handleScroll = () => {
     const node = bodyRef.current;
@@ -60,14 +81,16 @@ export function BuildLogStreamViewer({
 
   return (
     <Card className={cn("flex flex-col overflow-hidden", fill === true && "min-h-0 flex-1", className)}>
-      <header className="flex items-center gap-2 border-b border-border-dim px-4 py-2">
-        <TerminalWindowIcon className="size-4 text-text-secondary" weight="duotone" />
-        <span className="font-mono text-2xs text-text-secondary">{title}</span>
-        <div className="ml-auto flex items-center gap-2">
-          {phase != null && <span className="font-mono text-3xs text-text-secondary">{phase}</span>}
-          <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
-        </div>
-      </header>
+      {header && (
+        <header className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-2">
+          <TerminalWindowIcon className="size-4 text-text-secondary" weight="duotone" />
+          <span className="font-mono text-2xs text-text-secondary">{title}</span>
+          <div className="ml-auto flex items-center gap-2">
+            {phase != null && <span className="font-mono text-3xs text-text-secondary">{phase}</span>}
+            <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
+          </div>
+        </header>
+      )}
 
       <div
         ref={bodyRef}
@@ -77,14 +100,28 @@ export function BuildLogStreamViewer({
           "overflow-y-auto bg-surface-void px-4 py-3 font-mono text-2xs leading-relaxed",
         )}
       >
-        {entries.length === 0 ? (
-          <EmptyState connection={connection} error={error} waitingText={waitingText} />
+        {visibleEntries.length === 0 ? (
+          <EmptyState connection={connection} error={error} waitingText={waitingText} filtered={entries.length > 0} />
         ) : (
-          entries.map((entry) => (
+          visibleEntries.map((entry) => (
             <LogRow key={entry.id} entry={entry} active={entry.id === lastPhaseId && deployInFlight} />
           ))
         )}
       </div>
+
+      {footer && (
+        <footer className="flex shrink-0 items-center gap-3 border-t border-border-dim px-4 py-2 font-mono text-3xs text-text-secondary">
+          <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
+          {phase != null && <span>{phase}</span>}
+          <span className="ml-auto tabular-nums">
+            {visibleEntries.length} / {entries.length} lines
+          </span>
+          <span className={cn("inline-flex items-center gap-1", errorCount > 0 && "text-status-critical")}>
+            <XCircleIcon size={12} />
+            {errorCount} {errorCount === 1 ? "error" : "errors"}
+          </span>
+        </footer>
+      )}
     </Card>
   );
 }
@@ -143,6 +180,17 @@ function LogRow({ entry, active }: { entry: BuildLogEntry; active?: boolean }) {
       ))}
     </>
   );
+}
+
+// Same "color by stream, not by content" reasoning as `LogRow` - `stderr` is the only real error
+// signal available, so that's what the level filter and the footer's error count key off too.
+export function deriveLogLevel(entry: BuildLogEntry): "info" | "error" {
+  return entry.stream === "stderr" ? "error" : "info";
+}
+
+export function matchesLevelFilter(entry: BuildLogEntry, levelFilter: LogLevelFilter): boolean {
+  if (levelFilter === "all" || entry.kind !== "log") return true;
+  return LOG_LEVEL_RANK[deriveLogLevel(entry)] >= LOG_LEVEL_RANK[levelFilter];
 }
 
 /**
@@ -205,12 +253,16 @@ function EmptyState({
   connection,
   error,
   waitingText,
+  filtered,
 }: {
   connection: BuildLogConnection;
   error: string | undefined;
   waitingText: string;
+  /** True when entries have arrived but the level filter matched none of them - a different message than "still waiting". */
+  filtered: boolean;
 }) {
   if (error != null) return <div className="text-status-critical">{error}</div>;
+  if (filtered) return <div className="text-text-secondary">No log lines match the current filter.</div>;
   return (
     <div className="flex items-center gap-2 text-text-secondary">
       <CircleNotchIcon className="size-3 animate-spin" />

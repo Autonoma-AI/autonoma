@@ -3,11 +3,17 @@ import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { XIcon } from "@phosphor-icons/react/X";
 import { useEffect, useState } from "react";
-import { BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
+import { type LogLevelFilter, BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
 
 // Wait for a pause in typing before applying the search, so each keystroke does not
 // reopen the SSE stream (a filter change is a new server-side query from the cursor).
 const SEARCH_DEBOUNCE_MS = 300;
+
+const LEVEL_OPTIONS: Array<{ value: LogLevelFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "info", label: "Info" },
+  { value: "error", label: "Error" },
+];
 
 /** Which log stream the tabs show: the build output or the running app's output. */
 export type PreviewLogSource = "build" | "app";
@@ -30,6 +36,12 @@ interface PreviewLogsTabsProps {
   source?: PreviewLogSource | undefined;
   /** Called when the user switches tabs - use it to persist the choice (e.g. in the URL). */
   onSourceChange?: ((source: PreviewLogSource) => void) | undefined;
+  /**
+   * Adds the level filter and a per-tab footer (status + line/error counts) - the "control room"
+   * toolbar. Defaults to false, preserving the plain Build/App + search toolbar and per-viewer header
+   * for the other pages that embed these tabs (onboarding, admin, finish-setup).
+   */
+  toolbar?: boolean | undefined;
   className?: string | undefined;
 }
 
@@ -53,11 +65,13 @@ export function PreviewLogsTabs({
   headers,
   source,
   onSourceChange,
+  toolbar = false,
   className,
 }: PreviewLogsTabsProps) {
   const contentClassName = fill === true ? "flex min-h-0 flex-col" : undefined;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [level, setLevel] = useState<LogLevelFilter>("all");
 
   // Debounce the search box: only the settled value drives the stream URL.
   useEffect(() => {
@@ -80,12 +94,31 @@ export function PreviewLogsTabs({
       onValueChange={(value) => onSourceChange?.(value === "build" ? "build" : "app")}
       className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}
     >
-      <div className="flex items-center gap-3">
+      <div className={cn("flex items-center gap-3", toolbar && "flex-wrap")}>
         <TabsList>
           {runtimeOnly !== true && <TabsTrigger value="build">Build logs</TabsTrigger>}
           <TabsTrigger value="app">App logs</TabsTrigger>
         </TabsList>
-        <div className="relative ml-auto w-full max-w-xs">
+
+        {toolbar && (
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-3xs uppercase tracking-wider text-text-secondary">Level</span>
+            {LEVEL_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                variant={level === option.value ? "secondary" : "ghost"}
+                size="xs"
+                aria-pressed={level === option.value}
+                onClick={() => setLevel(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        <div className={cn("relative max-w-xs", toolbar ? "min-w-40 flex-1" : "ml-auto w-full")}>
           {isSearchPending ? (
             <CircleNotchIcon
               size={14}
@@ -128,6 +161,9 @@ export function PreviewLogsTabs({
             title="app logs"
             waitingText={appWaitingText}
             fill={fill}
+            header={!toolbar}
+            footer={toolbar}
+            levelFilter={toolbar ? level : undefined}
           />
         )}
       </TabsContent>
@@ -138,6 +174,9 @@ export function PreviewLogsTabs({
             headers={headers}
             waitingText={buildWaitingText}
             fill={fill}
+            header={!toolbar}
+            footer={toolbar}
+            levelFilter={toolbar ? level : undefined}
           />
         </TabsContent>
       )}
