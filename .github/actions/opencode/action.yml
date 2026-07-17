@@ -1,0 +1,75 @@
+name: Run OpenCode
+description: >-
+  Vendored copy of anomalyco/opencode/github@67aec2212010d67775c35e696d8b8b54902eb338,
+  reduced to the inputs our workflows use. The upstream action resolves the
+  binary version at run time with an unauthenticated call to api.github.com,
+  which flakes on shared-runner IP rate limits: composite bash steps run with
+  `-e -o pipefail`, so the failed command substitution kills the step before
+  upstream's own `${VERSION:-latest}` fallback on the following line can
+  apply. It then installs whatever `latest` resolves to via an unpinned
+  install script, so a caller's SHA pin never pinned the code that actually
+  runs. This copy pins the binary release and downloads it from GitHub
+  releases with the authenticated runner token, so setup makes no
+  unauthenticated API calls at all.
+
+inputs:
+  version:
+    description: >-
+      OpenCode release tag to install. This default is the single place the
+      binary version is pinned - bump it deliberately, like a dependency.
+    required: false
+    default: "v1.18.3"
+  model:
+    description: Model to use (e.g. openrouter/z-ai/glm-5.2)
+    required: true
+  prompt:
+    description: Custom prompt to override OpenCode's default prompt
+    required: false
+  variant:
+    description: Model variant for provider-specific reasoning effort (e.g. high, max, minimal)
+    required: false
+  use_github_token:
+    description: >-
+      Post via the GITHUB_TOKEN env var instead of the OpenCode GitHub App's
+      OIDC token exchange.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Cache opencode
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.opencode/bin
+        # Named after the hardcoded asset below (not runner.os/arch) so the
+        # key and the downloaded binary cannot drift apart.
+        key: opencode-linux-x64-${{ inputs.version }}
+
+    - name: Install opencode
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        OPENCODE_VERSION: ${{ inputs.version }}
+      # The plain x64 asset needs AVX2 and glibc; ubuntu-latest runners have
+      # both. The tarball contains a single `opencode` binary at its root.
+      run: |
+        mkdir -p "$HOME/.opencode/bin"
+        gh release download "$OPENCODE_VERSION" --repo anomalyco/opencode \
+          --pattern "opencode-linux-x64.tar.gz" --output - \
+          | tar -xzf - -C "$HOME/.opencode/bin"
+
+    - name: Add opencode to PATH
+      shell: bash
+      run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+    - name: Run opencode
+      shell: bash
+      run: opencode github run
+      env:
+        MODEL: ${{ inputs.model }}
+        PROMPT: ${{ inputs.prompt }}
+        USE_GITHUB_TOKEN: ${{ inputs.use_github_token }}
+        VARIANT: ${{ inputs.variant }}
