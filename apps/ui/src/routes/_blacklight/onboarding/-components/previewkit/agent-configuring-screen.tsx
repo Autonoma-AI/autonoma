@@ -1,6 +1,10 @@
 import {
   Badge,
   Button,
+  Checkbox,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
   Input,
   Progress,
   ScrollArea,
@@ -12,6 +16,8 @@ import {
 } from "@autonoma/blacklight";
 import { type AgentLogEntry } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { BellRingingIcon } from "@phosphor-icons/react/BellRinging";
+import { BellSlashIcon } from "@phosphor-icons/react/BellSlash";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretUpIcon } from "@phosphor-icons/react/CaretUp";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
@@ -25,6 +31,8 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { TabAttention } from "components/tab-attention";
+import { playChime } from "lib/attention/play-chime";
 import {
   useAgentSession,
   useCompletePreviewOnboarding,
@@ -34,7 +42,7 @@ import {
 } from "lib/onboarding/onboarding-api";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
-import { Suspense, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { setLastApp } from "../../../_app-shell/-last-app";
 import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
@@ -62,6 +70,50 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   // the deploy logs) has served its purpose, so collapse it to a compact "you're
   // live, continue" card - but keep it one click away for anyone who wants to look.
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+
+  // Attention: the agent session can sit for minutes (building, thinking) and the
+  // user tabs away; when it needs them (env request, deploy done/failed) the tab
+  // title/favicon change, a chime plays, and - opted in - a browser notification
+  // fires. Driven by the session poll (which keeps polling in background tabs);
+  // the title/favicon themselves render declaratively via <TabAttention>.
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
+    () => typeof Notification !== "undefined" && Notification.permission === "granted",
+  );
+  const [attentionMessage, setAttentionMessage] = useState<string | undefined>(undefined);
+
+  const pendingRequestKind = session?.pendingRequest?.kind;
+  const verificationStatus = session?.previewVerificationStatus;
+  const agentClient = session?.agentClient;
+  const previousRef = useRef<
+    { pendingRequestKind: "env" | "choice" | undefined; verificationStatus: string } | undefined
+  >(undefined);
+  // Transition detection over polled data. useEffect is the right tool here: the
+  // chime and notification are true side effects, fired once per transition (a
+  // request appearing, the preview turning ready/failed) - never on first load.
+  useEffect(() => {
+    if (verificationStatus == null) return;
+    const previous = previousRef.current;
+    previousRef.current = { pendingRequestKind, verificationStatus };
+    if (previous == null) return;
+
+    const requestRaised = previous.pendingRequestKind == null && pendingRequestKind != null;
+    const becameReady = previous.verificationStatus !== "ready" && verificationStatus === "ready";
+    const becameFailed = previous.verificationStatus !== "failed" && verificationStatus === "failed";
+    const message = requestRaised
+      ? `${agentDisplayName(agentClient)} needs your input`
+      : becameReady
+        ? "Your preview is live"
+        : becameFailed
+          ? "Preview deploy failed"
+          : undefined;
+    if (message == null) return;
+
+    setAttentionMessage(message);
+    if (document.hasFocus()) return;
+    if (soundEnabled) playChime();
+    showBrowserNotification(browserNotificationsEnabled, message);
+  }, [pendingRequestKind, verificationStatus, agentClient, soundEnabled, browserNotificationsEnabled]);
 
   if (session == null) return undefined;
 
@@ -100,20 +152,29 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 
   return (
     <div className="flex flex-col gap-4 border border-border-dim bg-surface-base p-6">
+      <TabAttention message={attentionMessage} />
       <div className="flex items-center justify-between">
         <Badge variant="success" className="gap-1.5 font-mono">
           <PlugsConnectedIcon weight="bold" />
           MCP · onboarding · connected
         </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => stopAgent.mutate({ applicationId })}
-          disabled={stopAgent.isPending}
-        >
-          <StopIcon weight="bold" />
-          Take over
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <AttentionMenu
+            soundEnabled={soundEnabled}
+            onSoundChange={setSoundEnabled}
+            notificationsEnabled={browserNotificationsEnabled}
+            onNotificationsChange={setBrowserNotificationsEnabled}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => stopAgent.mutate({ applicationId })}
+            disabled={stopAgent.isPending}
+          >
+            <StopIcon weight="bold" />
+            Take over
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -216,6 +277,97 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 /** Section heading used inside the read-only configuring screen. */
 function SectionTitle({ children }: { children: ReactNode }) {
   return <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">{children}</p>;
+}
+
+/** Fire a browser notification when opted in, permitted, and the tab is unfocused (focused users see the UI). */
+function showBrowserNotification(enabled: boolean, message: string): void {
+  if (!enabled || typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted" || document.hasFocus()) return;
+  try {
+    new Notification("Autonoma", { body: message });
+  } catch (err) {
+    // Some platforms (e.g. Android Chrome) only allow notifications via a
+    // service worker - the tab flash and chime still cover the alert.
+    console.debug("Browser notification failed", err);
+  }
+}
+
+/**
+ * Sound + browser-notification opt-ins for the attention cues. The tab-title
+ * flash is always on (harmless); sound defaults on and is toggleable; browser
+ * notifications need an explicit permission grant, requested on first toggle.
+ */
+/**
+ * One "Notify me" button opening the attention preferences: a sound checkbox
+ * and a browser-notification checkbox (which requests the browser permission
+ * on first check). A single labeled entry point instead of two bare icons -
+ * the user shouldn't have to guess what a speaker and a bell mean here.
+ */
+function AttentionMenu({
+  soundEnabled,
+  onSoundChange,
+  notificationsEnabled,
+  onNotificationsChange,
+}: {
+  soundEnabled: boolean;
+  onSoundChange: (enabled: boolean) => void;
+  notificationsEnabled: boolean;
+  onNotificationsChange: (enabled: boolean) => void;
+}) {
+  const notificationsSupported = typeof Notification !== "undefined";
+  const anyEnabled = soundEnabled || notificationsEnabled;
+
+  async function handleNotificationsChange(checked: boolean) {
+    if (!checked) {
+      onNotificationsChange(false);
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      toastManager.add({
+        type: "critical",
+        title: "Notifications are blocked",
+        description: "Allow notifications for this site in your browser settings to get notified.",
+      });
+      return;
+    }
+    onNotificationsChange(true);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="sm" className="gap-1.5 text-text-secondary">
+            {anyEnabled ? <BellRingingIcon weight="bold" /> : <BellSlashIcon weight="bold" />}
+            Notify me
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="flex w-72 flex-col gap-3 p-3">
+        <p className="text-2xs text-text-secondary">
+          Get pinged when the agent needs your input or the deploy finishes - useful when you tab away. The tab title
+          always changes.
+        </p>
+        <label className="flex items-center gap-2 text-2xs text-text-primary">
+          <Checkbox checked={soundEnabled} onCheckedChange={(checked) => onSoundChange(checked === true)} />
+          Play a sound
+        </label>
+        {notificationsSupported ? (
+          <label className="flex items-start gap-2 text-2xs text-text-primary">
+            <Checkbox
+              checked={notificationsEnabled}
+              onCheckedChange={(checked) => void handleNotificationsChange(checked === true)}
+            />
+            <span className="flex flex-col">
+              Show a browser notification
+              <span className="text-3xs text-text-secondary">Your browser will ask for permission</span>
+            </span>
+          </label>
+        ) : undefined}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 /**

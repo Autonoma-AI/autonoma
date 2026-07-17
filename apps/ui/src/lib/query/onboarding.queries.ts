@@ -44,6 +44,11 @@ export function useAgentSession(applicationId: string) {
                     query.state.data?.effectiveHolder === "agent"
                         ? AGENT_SESSION_ACTIVE_POLL_MS
                         : AGENT_SESSION_IDLE_POLL_MS,
+                // The attention cues (tab title, chime, notification) hang off this
+                // poll and matter most when the user has tabbed away - without this,
+                // React Query pauses the interval in unfocused tabs. Browser timer
+                // throttling can still stretch the cadence in long-backgrounded tabs.
+                refetchIntervalInBackground: true,
             },
         ),
     );
