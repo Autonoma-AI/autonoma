@@ -129,10 +129,45 @@ const failedTargets: SdkDryRunTargets = {
       status: "failed",
       availability: "failed",
       error: 'app "web": image build failed: step 8/12 `RUN pnpm build` exited with code 1',
+      headRef: "feat/autonoma-sdk",
+      headSha: "d34db33f00d5",
       requiresSharedSecretInput: false,
       isAutoDetected: true,
     },
     mainTarget,
+  ],
+};
+
+const buildingTargets: SdkDryRunTargets = {
+  autoDetectedTargetId: "pr-42",
+  targets: [
+    {
+      id: "pr-42",
+      kind: "pr",
+      source: "previewkit",
+      label: "feat: autonoma-sdk endpoint",
+      prNumber: 42,
+      environmentId: "env_fixture_42",
+      repoFullName: "acme/web",
+      status: "building",
+      availability: "building",
+      headRef: "feat/autonoma-sdk",
+      headSha: "d34db33f00d5",
+      requiresSharedSecretInput: false,
+      isAutoDetected: true,
+    },
+    mainTarget,
+  ],
+};
+
+const headCommit: RouterOutputs["github"]["getCommit"] = {
+  sha: "d34db33f00d5",
+  message:
+    "feat: add autonoma environment factory endpoint\n\nMounts /api/autonoma with factories for Organization and User,\nreading both managed secrets from the environment.",
+  authorLogin: "ada-lovelace",
+  files: [
+    { filename: "src/routes/autonoma.ts", status: "added", additions: 84, deletions: 0 },
+    { filename: "package.json", status: "modified", additions: 2, deletions: 0 },
   ],
 };
 
@@ -160,6 +195,7 @@ function sdkStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
       listSdkDryRunTargets: targets,
       prepareSdkTarget: { status: "ready" },
     },
+    github: { getCommit: headCommit },
     applicationSetups: { artifactStatus },
     applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "9f2c4a1e8b7d6c5f" } },
     // The app shell's sidebar (milestones) reads these on every page.
@@ -242,6 +278,15 @@ const failedBuildFrames = sseFrames([
 
 const idleAppFrames = sseFrames([]);
 
+const inProgressBuildFrames = sseFrames([
+  { event: "phase", data: { kind: "phase", message: "cloning repository" }, at: at(0) },
+  { event: "log", data: { kind: "log", message: "acme/web@d34db33 extracted (412 files)" }, at: at(2) },
+  { event: "phase", data: { kind: "phase", message: "building images" }, at: at(3) },
+  { event: "log", data: { kind: "log", message: "#7 [4/9] COPY . /app" }, at: at(6) },
+  { event: "log", data: { kind: "log", message: "#8 [5/9] RUN pnpm install --frozen-lockfile" }, at: at(9) },
+  { event: "log", data: { kind: "log", message: "#8 41.2s progress: resolved 1247, downloaded 1189" }, at: at(50) },
+]);
+
 /**
  * The finish-setup SDK step across the preview-target states the deploy/redeploy
  * button covers: a ready target (redeploy at the latest head), a failed deploy
@@ -279,4 +324,16 @@ export const TargetFailed: Story = {
 export const TargetNoPreview: Story = {
   args: { path: PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(noPreviewTargets)) } },
+};
+
+export const TargetBuilding: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: inProgressBuildFrames, app: idleAppFrames }),
+        ...appShellHandlers(sdkStepFixtures(buildingTargets)),
+      ],
+    },
+  },
 };

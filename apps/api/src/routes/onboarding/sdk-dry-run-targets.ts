@@ -36,6 +36,9 @@ export interface SdkDryRunTarget {
     availability: SdkDryRunTargetAvailability;
     /** PreviewKit's failure reason, when availability is "failed". */
     error?: string;
+    /** Branch + commit the PreviewKit env is deployed (or deploying) at - the UI shows these as the build cause. Absent for external targets. */
+    headRef?: string;
+    headSha?: string;
     /** Absent until the preview has deployed (availability "building"/"failed"/"no_preview"). */
     previewUrl?: string;
     sdkUrl?: string;
@@ -119,6 +122,7 @@ interface PreviewkitTargetInfo {
     repoFullName: string;
     prNumber: number;
     headRef: string;
+    headSha: string;
     status: string;
     error?: string;
     /** Absent while the env is still building (urls fill in at deploy time). */
@@ -132,6 +136,7 @@ function buildPreviewkitTargetInfo(
         repoFullName: string;
         prNumber: number;
         headRef: string;
+        headSha: string;
         status: string;
         error: string | null;
         urls: unknown;
@@ -146,6 +151,7 @@ function buildPreviewkitTargetInfo(
         repoFullName: environment.repoFullName,
         prNumber: environment.prNumber,
         headRef: environment.headRef,
+        headSha: environment.headSha,
         status: environment.status,
         error: environment.error ?? undefined,
     };
@@ -222,6 +228,7 @@ export async function listSdkDryRunTargets(
                       prNumber: true,
                       urls: true,
                       headRef: true,
+                      headSha: true,
                       status: true,
                       error: true,
                       resolvedConfig: true,
@@ -267,6 +274,8 @@ export async function listSdkDryRunTargets(
             status: mainPreviewkitTarget.status,
             availability: previewkitAvailability(mainPreviewkitTarget.status, mainPreviewkitTarget.previewUrl),
             error: mainPreviewkitTarget.error,
+            headRef: mainPreviewkitTarget.headRef,
+            headSha: mainPreviewkitTarget.headSha,
             previewUrl: mainPreviewkitTarget.previewUrl,
             sdkUrl: mainPreviewkitTarget.previewUrl != null ? buildSdkUrl(mainPreviewkitTarget.previewUrl) : undefined,
             requiresSharedSecretInput: false,
@@ -315,6 +324,8 @@ export async function listSdkDryRunTargets(
                 status: previewkitTarget.status,
                 availability: previewkitAvailability(previewkitTarget.status, previewkitTarget.previewUrl),
                 error: previewkitTarget.error,
+                headRef: previewkitTarget.headRef,
+                headSha: previewkitTarget.headSha,
                 previewUrl: previewkitTarget.previewUrl,
                 sdkUrl: previewkitTarget.previewUrl != null ? buildSdkUrl(previewkitTarget.previewUrl) : undefined,
                 requiresSharedSecretInput: false,

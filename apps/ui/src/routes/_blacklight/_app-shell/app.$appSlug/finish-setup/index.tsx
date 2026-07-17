@@ -9,6 +9,9 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
 } from "@autonoma/blacklight";
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
@@ -50,6 +53,7 @@ import {
   useUploadSetupArtifacts,
 } from "lib/query/app-generations.queries";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
+import { useCommitFromGitHub } from "lib/query/github.queries";
 import { toastManager } from "lib/toast-manager";
 import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
@@ -522,6 +526,41 @@ function TargetSelectItems({ targets, disableUnready = false }: TargetSelectItem
   );
 }
 
+/**
+ * The cause of the target's current build: "<prefix> <branch> @ <sha> - <commit subject>",
+ * one line with overflow ellipsis and the full commit message in a tooltip. The
+ * message is resolved lazily from GitHub by sha (immutable, so cached hard).
+ */
+function TargetBuildCause({
+  applicationId,
+  target,
+  prefix,
+}: {
+  applicationId: string;
+  target: SdkDryRunTarget;
+  prefix: string;
+}) {
+  const { data: commit } = useCommitFromGitHub(applicationId, target.headSha);
+  if (target.headRef == null || target.headSha == null) return null;
+
+  const shortSha = target.headSha.slice(0, 7);
+  const subject = commit?.message.split("\n")[0];
+  const line = `${prefix} ${target.headRef} @ ${shortSha}${subject != null ? ` - ${subject}` : ""}`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<p className="max-w-lg cursor-default truncate font-mono text-2xs text-text-secondary" />}
+      >
+        {line}
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="max-w-md whitespace-pre-wrap">
+        {commit?.message ?? `${target.headRef} @ ${target.headSha}`}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function SdkStepBody({ applicationId }: { applicationId: string }) {
   const { data: state } = useOnboardingState(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
@@ -696,6 +735,9 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             SDK endpoint will appear once the preview finishes deploying.
           </p>
         )}
+        {selectedTarget?.availability === "building" && (
+          <TargetBuildCause applicationId={applicationId} target={selectedTarget} prefix="Building" />
+        )}
         {selectedTarget?.isAutoDetected && <p className="text-2xs text-text-secondary">Auto-selected your SDK PR.</p>}
         {selectedTargetSource === "previewkit" && selectedTargetAvailability === "ready" && (
           <div className="mt-1 flex items-center gap-2">
@@ -754,6 +796,7 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
             <p className="text-sm text-text-primary">This preview failed to deploy, so it can't be validated.</p>
           </div>
+          <TargetBuildCause applicationId={applicationId} target={selectedTarget} prefix="Failed at" />
           {selectedTarget.error != null && selectedTarget.error !== "" && (
             <p className="whitespace-pre-wrap break-words font-mono text-2xs text-status-critical/90">
               {selectedTarget.error}

@@ -1309,6 +1309,8 @@ integrationTestSuite({
             expect(building?.source).toBe("previewkit");
             expect(building?.sdkUrl).toBeUndefined();
             expect(building?.previewUrl).toBeUndefined();
+            expect(building?.headRef).toBe("feat/one");
+            expect(building?.headSha).toBe("sha-11");
 
             const failed = result.targets.find((t) => t.id === "pr-12");
             expect(failed?.availability).toBe("failed");
