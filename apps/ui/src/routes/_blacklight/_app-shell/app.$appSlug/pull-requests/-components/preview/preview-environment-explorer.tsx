@@ -61,12 +61,20 @@ export function PreviewEnvironmentExplorer({
   summary,
   search,
   onSearchChange,
+  showEnvironmentSummary = true,
 }: {
   applicationId: string;
   environmentId: string;
   summary: PreviewSummary;
   search: PreviewExplorerSearch;
   onSearchChange: (partial: PreviewExplorerSearch) => void;
+  /**
+   * Set to false when an ancestor already renders the environment-level summary (the redesigned
+   * Preview tab's `EnvironmentSummaryStrip`), so this component only renders the rail + selected-
+   * service detail + logs. Defaults to true: the standalone/main-branch usage owns the full
+   * composition, unchanged.
+   */
+  showEnvironmentSummary?: boolean;
 }) {
   const services = summary.services;
   const apps = services.filter(isAppService);
@@ -80,13 +88,14 @@ export function PreviewEnvironmentExplorer({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {summary.status === "ready" ? (
-        <Suspense fallback={<TestUserCardSkeleton />}>
-          <TestUserCard applicationId={applicationId} environmentId={environmentId} />
-        </Suspense>
-      ) : (
-        <TestUserCardUnavailable status={summary.status} />
-      )}
+      {showEnvironmentSummary &&
+        (summary.status === "ready" ? (
+          <Suspense fallback={<TestUserCardSkeleton />}>
+            <TestUserCard applicationId={applicationId} environmentId={environmentId} />
+          </Suspense>
+        ) : (
+          <TestUserCardUnavailable status={summary.status} />
+        ))}
       <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
         <aside className="flex shrink-0 flex-col lg:w-72">
           <div className="divide-y divide-border-dim border border-border-dim bg-surface-base lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -137,19 +146,21 @@ export function PreviewEnvironmentExplorer({
         {/* The rail owns a secondary, informational fetch - isolate its failures in an error boundary
                 so they degrade in place instead of taking down the services and logs via the router's
                 default error UI. */}
-        <QueryErrorResetBoundary>
-          {({ reset }) => (
-            <DeploymentRailErrorBoundary onRetry={reset}>
-              <Suspense fallback={<DeploymentRailSkeleton />}>
-                <DeploymentRail
-                  applicationId={applicationId}
-                  environmentId={environmentId}
-                  environmentActive={environmentActive}
-                />
-              </Suspense>
-            </DeploymentRailErrorBoundary>
-          )}
-        </QueryErrorResetBoundary>
+        {showEnvironmentSummary && (
+          <QueryErrorResetBoundary>
+            {({ reset }) => (
+              <DeploymentRailErrorBoundary onRetry={reset}>
+                <Suspense fallback={<DeploymentRailSkeleton />}>
+                  <DeploymentRail
+                    applicationId={applicationId}
+                    environmentId={environmentId}
+                    environmentActive={environmentActive}
+                  />
+                </Suspense>
+              </DeploymentRailErrorBoundary>
+            )}
+          </QueryErrorResetBoundary>
+        )}
       </div>
     </div>
   );

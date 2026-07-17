@@ -4,6 +4,12 @@ import {
   AlertTitle,
   BrailleSpinner,
   Button,
+  Dialog,
+  DialogBackdrop,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   Skeleton,
   Tabs,
   TabsContent,
@@ -58,13 +64,24 @@ type ActiveTestUser = {
 // distinct presentation without a type-erasing union `value`.
 type CredentialMode = { key: string; label: string; render: () => ReactNode };
 
-export function TestUserCard({ applicationId, environmentId }: { applicationId: string; environmentId: string }) {
+export function TestUserCard({
+  applicationId,
+  environmentId,
+  compact = false,
+}: {
+  applicationId: string;
+  environmentId: string;
+  /** Renders as a single-line strip with a "Provision"/"Credentials" button opening a Dialog for the
+   * full body, instead of an always-expanded card. Defaults to false (today's full-card layout). */
+  compact?: boolean;
+}) {
   const { data: options } = usePreviewTestUserOptions(applicationId, environmentId);
   const provision = usePreviewTestUserProvision();
   const teardown = usePreviewTestUserTeardown();
 
   const [scenarioOverride, setScenarioOverride] = useState("");
   const [active, setActive] = useState<ActiveTestUser | undefined>(undefined);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const scenarioId = scenarioOverride !== "" ? scenarioOverride : (options.scenarios[0]?.id ?? "");
 
@@ -101,33 +118,85 @@ export function TestUserCard({ applicationId, environmentId }: { applicationId: 
     );
   };
 
+  const body =
+    active != null ? (
+      <ActiveTestUserBody
+        active={active}
+        previewUrl={options.previewUrl}
+        teardownPending={teardown.isPending}
+        onTeardown={handleTeardown}
+      />
+    ) : options.disabledReason != null ? (
+      <p className="px-4 py-2.5 text-2xs text-status-warn">{options.disabledReason}</p>
+    ) : provision.isPending ? (
+      <ProvisioningBody />
+    ) : (
+      <EmptyBody
+        scenarios={options.scenarios}
+        scenarioId={scenarioId}
+        onScenarioChange={setScenarioOverride}
+        onProvision={handleProvision}
+        canProvision={scenarioId !== ""}
+        errorMessage={provision.error?.message}
+        previewUrl={options.previewUrl}
+      />
+    );
+
+  if (!compact) {
+    return (
+      <div className="border border-border-dim bg-surface-base shadow-sm">
+        <TestUserHeader />
+        {body}
+      </div>
+    );
+  }
+
   return (
-    <div className="border border-border-dim bg-surface-base shadow-sm">
-      <TestUserHeader />
-      {active != null ? (
-        <ActiveTestUserBody
-          active={active}
-          previewUrl={options.previewUrl}
-          teardownPending={teardown.isPending}
-          onTeardown={handleTeardown}
-        />
-      ) : options.disabledReason != null ? (
-        <p className="px-4 py-2.5 text-2xs text-status-warn">{options.disabledReason}</p>
-      ) : provision.isPending ? (
-        <ProvisioningBody />
-      ) : (
-        <EmptyBody
-          scenarios={options.scenarios}
-          scenarioId={scenarioId}
-          onScenarioChange={setScenarioOverride}
-          onProvision={handleProvision}
-          canProvision={scenarioId !== ""}
-          errorMessage={provision.error?.message}
-          previewUrl={options.previewUrl}
-        />
+    <div className="flex flex-1 items-center gap-3 px-4 py-3">
+      <span className="size-1.5 shrink-0 bg-primary" />
+      <UserFocusIcon size={14} className="shrink-0 text-text-secondary" />
+      <span className="font-mono text-2xs font-bold uppercase tracking-wider text-text-primary">Test user</span>
+      <span className="min-w-0 flex-1 truncate text-2xs text-text-secondary">
+        {compactStatusText({ active, disabledReason: options.disabledReason, provisionPending: provision.isPending })}
+      </span>
+      {options.disabledReason == null && (
+        <Button
+          variant={active != null ? "outline" : "cta"}
+          size="xs"
+          disabled={provision.isPending}
+          onClick={() => setDetailsOpen(true)}
+        >
+          {active != null ? "Credentials" : "Provision"}
+        </Button>
       )}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogBackdrop />
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Test user</DialogTitle>
+          </DialogHeader>
+          <DialogBody>{body}</DialogBody>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+// One-line status summary for the compact strip. Mirrors the full card's own body-selection order
+// (disabled > active > pending > empty) so the strip's text never contradicts what the Dialog shows.
+function compactStatusText({
+  active,
+  disabledReason,
+  provisionPending,
+}: {
+  active: ActiveTestUser | undefined;
+  disabledReason: string | undefined;
+  provisionPending: boolean;
+}): string {
+  if (disabledReason != null) return disabledReason;
+  if (active != null) return `Active - instance ${active.instanceId}`;
+  if (provisionPending) return "Provisioning...";
+  return "Not provisioned - sign in as a throwaway user.";
 }
 
 function TestUserHeader() {
@@ -530,23 +599,50 @@ function humanize(key: string): string {
 // Shown in place of the interactive card when the preview isn't "ready": the
 // app can't be signed into, so provisioning is gated behind a reason instead of
 // running the options query.
-export function TestUserCardUnavailable({ status }: { status: string }) {
+export function TestUserCardUnavailable({ status, compact = false }: { status: string; compact?: boolean }) {
+  const reason = NOT_READY_REASON[status] ?? DEFAULT_NOT_READY_REASON;
+
+  if (!compact) {
+    return (
+      <div className="border border-border-dim bg-surface-base shadow-sm">
+        <TestUserHeader />
+        <p className="px-4 py-2.5 text-2xs text-text-secondary">{reason}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="border border-border-dim bg-surface-base shadow-sm">
-      <TestUserHeader />
-      <p className="px-4 py-2.5 text-2xs text-text-secondary">{NOT_READY_REASON[status] ?? DEFAULT_NOT_READY_REASON}</p>
+    <div className="flex flex-1 items-center gap-3 px-4 py-3">
+      <span className="size-1.5 shrink-0 bg-primary" />
+      <UserFocusIcon size={14} className="shrink-0 text-text-secondary" />
+      <span className="font-mono text-2xs font-bold uppercase tracking-wider text-text-primary">Test user</span>
+      <span className="min-w-0 flex-1 truncate text-2xs text-text-secondary">{reason}</span>
+      <Button variant="outline" size="xs" disabled className="gap-1.5 opacity-50">
+        <UserPlusIcon size={13} />
+        Provision
+      </Button>
     </div>
   );
 }
 
-export function TestUserCardSkeleton() {
-  return (
-    <div className="border border-border-dim bg-surface-base shadow-sm">
-      <TestUserHeader />
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <Skeleton className="h-8 w-72" />
-        <Skeleton className="h-7 w-32" />
+export function TestUserCardSkeleton({ compact = false }: { compact?: boolean } = {}) {
+  if (!compact) {
+    return (
+      <div className="border border-border-dim bg-surface-base shadow-sm">
+        <TestUserHeader />
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <Skeleton className="h-8 w-72" />
+          <Skeleton className="h-7 w-32" />
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 items-center gap-4 px-4 py-3">
+      <Skeleton className="h-4 w-20" />
+      <Skeleton className="h-4 flex-1" />
+      <Skeleton className="h-7 w-24" />
     </div>
   );
 }
