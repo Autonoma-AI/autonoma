@@ -13,6 +13,7 @@ const HANDOFF_SUMMARY = "🤖 Hand off to a coding agent";
 const STATE_LABELS: Record<AutonomaCommentState, string> = {
     running: "RUNNING",
     healthy: "HEALTHY",
+    incomplete: "NOT FULLY TESTED",
     warning: "WARNING",
     critical: "UNHEALTHY",
     unknown: "UNKNOWN",
@@ -21,6 +22,7 @@ const STATE_LABELS: Record<AutonomaCommentState, string> = {
 const STATE_ICONS: Record<AutonomaCommentState, string> = {
     running: "🟡",
     healthy: "🟢",
+    incomplete: "⚪",
     warning: "🟡",
     critical: "🔴",
     unknown: "⚪",
@@ -135,19 +137,39 @@ function renderHandoff(handoff: AutonomaCommentHandoff): string {
 }
 
 function renderTitle(payload: AutonomaCommentPayload): string {
-    const count = payload.bugs.length;
+    const counts = countByMarker(payload.bugs);
     const rich = payload.bugs.some(isRichBug);
     // The rich investigation comment highlights the count and uses friendlier warning/healthy titles; the plain
-    // preview comment (no findings) falls through to the generic PR title.
-    if (payload.state === "critical" && count > 0) {
-        const label = `${count} ${count === 1 ? "bug" : "bugs"}`;
+    // preview comment (no findings) falls through to the generic PR title. Counts are per-severity (a client bug
+    // is a "bug", an actionable issue a "warning", an engine artifact an "engine issue") so a mixed run reads right.
+    if (payload.state === "critical" && counts.bugs > 0) {
+        const label = `${counts.bugs} ${counts.bugs === 1 ? "bug" : "bugs"}`;
         return `Autonoma found ${rich ? `\`${label}\`` : label} in this PR`;
     }
-    if (rich && payload.state === "warning" && count > 0) {
-        return `Autonoma raised \`${count} ${count === 1 ? "warning" : "warnings"}\` in this PR`;
+    if (rich && payload.state === "warning" && counts.warnings > 0) {
+        return `Autonoma raised \`${counts.warnings} ${counts.warnings === 1 ? "warning" : "warnings"}\` in this PR`;
     }
+    // Only engine artifacts surfaced: the flows never ran, so we can't claim "no issues" - we didn't finish testing.
+    if (payload.state === "incomplete") return "Autonoma couldn't fully test this PR";
     if (rich && payload.state === "healthy") return "Autonoma found no issues in this PR";
     return `Autonoma PR #${payload.prNumber}`;
+}
+
+/**
+ * Group the bug rows by the severity each carries in its own `markerState`, into the three buckets the comment
+ * counts and colors: client bugs, actionable warnings, and engine artifacts. A bug with no `markerState` (the
+ * diffs comment's plain bugs) counts as a bug, preserving that comment's existing "Bugs N" line unchanged.
+ */
+function countByMarker(bugs: AutonomaCommentBug[]): { bugs: number; warnings: number; engine: number } {
+    let bugCount = 0;
+    let warnings = 0;
+    let engine = 0;
+    for (const bug of bugs) {
+        if (bug.markerState === "warning") warnings += 1;
+        else if (bug.markerState === "incomplete") engine += 1;
+        else bugCount += 1;
+    }
+    return { bugs: bugCount, warnings, engine };
 }
 
 function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
@@ -168,7 +190,11 @@ function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
             fields.push(`**${titleCase(stats.runningLabel ?? "running")}** \`${stats.running}\``);
         if (stats.passed != null && stats.passed > 0) fields.push(`**Passed** \`${stats.passed}\``);
     }
-    if (payload.bugs.length > 0) fields.push(`**Bugs** \`${payload.bugs.length}\``);
+    // Split by severity so engine artifacts (the runner never ran the flow) are not miscounted as bugs.
+    const counts = countByMarker(payload.bugs);
+    if (counts.bugs > 0) fields.push(`**Bugs** \`${counts.bugs}\``);
+    if (counts.warnings > 0) fields.push(`**Warnings** \`${counts.warnings}\``);
+    if (counts.engine > 0) fields.push(`**Engine issues** \`${counts.engine}\``);
 
     const rate = passRate(stats);
     if (rate !== "-") fields.push(`**Pass rate** \`${rate}\``);
@@ -209,7 +235,7 @@ function renderBugList(payload: AutonomaCommentPayload): string {
     }
     return payload.bugs
         .slice(0, 3)
-        .map((bug) => `${renderBugMarker(payload.state)} ${renderBugLabel(bug)}${renderBugOccurrence(bug)}`)
+        .map((bug) => `${renderBugMarker(bug, payload.state)} ${renderBugLabel(bug)}${renderBugOccurrence(bug)}`)
         .join("  \n");
 }
 
@@ -229,7 +255,7 @@ function renderBugDetails(
     assetBaseUrl: string | undefined,
 ): string {
     const occurrence = bug.occurrenceCount != null ? ` <code>×${bug.occurrenceCount}</code>` : "";
-    const summary = `${renderBugMarker(state)} ${escapeHtml(bug.title)}${occurrence}`;
+    const summary = `${renderBugMarker(bug, state)} ${escapeHtml(bug.title)}${occurrence}`;
     const body: string[] = [];
 
     if (bug.screenshotUrl != null) {
@@ -318,8 +344,10 @@ function sanitizeRichMarkdown(value: string): string {
 // A colored-dot emoji, never an <img>: an image marker sitting inside a <summary> (or next to a
 // bug link) hijacks the click and opens the SVG in a new tab instead of toggling the <details> the
 // user meant to expand - the same reason the Evidence summary uses bold text over an image chip.
-function renderBugMarker(state: AutonomaCommentState): string {
-    return STATE_ICONS[state];
+// Each row is colored by its own severity (`markerState`); a plain diffs-comment bug (no marker)
+// falls back to the comment's overall state.
+function renderBugMarker(bug: AutonomaCommentBug, state: AutonomaCommentState): string {
+    return STATE_ICONS[bug.markerState ?? state];
 }
 
 function renderBugLabel(bug: AutonomaCommentBug): string {

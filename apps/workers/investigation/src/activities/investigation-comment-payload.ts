@@ -18,12 +18,25 @@ const MAX_HANDOFF_PROMPT_CHARS = 20_000;
 /** A `passed` result is the absence of a finding to act on, so it is the one category never shown as a card. */
 const HIDDEN_CATEGORY = "passed";
 
-/** Severity tiers so findings sort client bugs first, then actionable issues, then informational ones (engine artifacts). */
+/** The subset of comment states a single finding can carry: client bug, actionable issue, or engine artifact. */
+type FindingMarker = Extract<AutonomaCommentState, "critical" | "warning" | "incomplete">;
+
+/**
+ * A finding's severity in the comment-state vocabulary: a client bug is `critical`, an actionable issue
+ * `warning`, and everything else (engine artifacts) `incomplete` - the flow never truly ran. This one mapping
+ * drives both the per-finding row color and the sort order, so the two can never drift apart.
+ */
+function findingMarkerState(category: string): FindingMarker {
+    if (category === "client_bug") return "critical";
+    if (ACTIONABLE_CATEGORIES.has(category)) return "warning";
+    return "incomplete";
+}
+
+/** Findings sort by severity: client bugs first, then actionable issues, then informational ones (engine artifacts). */
+const FINDING_RANK: Record<FindingMarker, number> = { critical: 0, warning: 1, incomplete: 2 };
+
 function findingRank(result: InvestigationTestResult): number {
-    const category = result.verdict?.category ?? "";
-    if (category === "client_bug") return 0;
-    if (ACTIONABLE_CATEGORIES.has(category)) return 1;
-    return 2;
+    return FINDING_RANK[findingMarkerState(result.verdict?.category ?? "")];
 }
 
 export interface InvestigationCommentContext {
@@ -61,11 +74,20 @@ export async function buildInvestigationCommentPayload(
     const clientBugs = results.filter((result) => result.verdict?.category === "client_bug");
     const actionables = results.filter((result) => ACTIONABLE_CATEGORIES.has(result.verdict?.category ?? ""));
 
-    const state: AutonomaCommentState =
-        clientBugs.length > 0 ? "critical" : actionables.length > 0 ? "warning" : "healthy";
     const shown = results
         .filter((result) => (result.verdict?.category ?? "") !== HIDDEN_CATEGORY)
         .sort((a, b) => findingRank(a) - findingRank(b));
+
+    // Client bugs make it critical; actionable findings a warning; engine-artifact-only means the runner never
+    // executed the flow, so it is "not fully tested" (never "healthy" - we can't claim no issues when nothing ran).
+    const state: AutonomaCommentState =
+        clientBugs.length > 0
+            ? "critical"
+            : actionables.length > 0
+              ? "warning"
+              : shown.length > 0
+                ? "incomplete"
+                : "healthy";
 
     const bugs = await Promise.all(shown.map((result) => toBug(result, context, signScreenshot)));
 
@@ -77,7 +99,7 @@ export async function buildInvestigationCommentPayload(
     return {
         state,
         prNumber: context.prNumber,
-        headline: buildHeadline(state, shown.length, context.checkpointHeadline),
+        headline: buildHeadline(state, clientBugs.length, actionables.length, context.checkpointHeadline),
         stats: context.stats,
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
@@ -172,16 +194,23 @@ function capPrompt(prompt: string, prUrl: string): string {
 }
 
 /**
- * Findings first, checkpoint second: when the twin surfaced client bugs (critical) or actionable findings
- * (warning) the headline counts them; a findings-clean comment defers to the primary checkpoint's headline.
+ * Findings first, checkpoint second: client bugs (critical) count as bugs, actionable findings (warning) count
+ * as warnings; an engine-artifact-only run (incomplete) never ran the flow, so it says so; a findings-clean
+ * comment defers to the primary checkpoint's headline. Each count is the matching subset, never the total.
  */
-function buildHeadline(state: AutonomaCommentState, findingCount: number, checkpointHeadline: string): string {
+function buildHeadline(
+    state: AutonomaCommentState,
+    clientBugCount: number,
+    actionableCount: number,
+    checkpointHeadline: string,
+): string {
     if (state === "critical") {
-        return `Autonoma found ${findingCount} ${findingCount === 1 ? "bug" : "bugs"} in this PR.`;
+        return `Autonoma found ${clientBugCount} ${clientBugCount === 1 ? "bug" : "bugs"} in this PR.`;
     }
     if (state === "warning") {
-        return `Autonoma raised ${findingCount} ${findingCount === 1 ? "warning" : "warnings"} in this PR.`;
+        return `Autonoma raised ${actionableCount} ${actionableCount === 1 ? "warning" : "warnings"} in this PR.`;
     }
+    if (state === "incomplete") return "Autonoma couldn't fully test this PR.";
     return checkpointHeadline;
 }
 
@@ -242,6 +271,7 @@ async function toBug(
     return {
         title: verdict?.headline ?? result.slug,
         href: findingUrl,
+        markerState: findingMarkerState(verdict?.category ?? ""),
         replayHref,
         screenshotUrl,
         description: verdict?.whatHappened,

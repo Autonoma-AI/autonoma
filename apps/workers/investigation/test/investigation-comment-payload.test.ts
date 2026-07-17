@@ -59,6 +59,7 @@ describe("buildInvestigationCommentPayload", () => {
         expect(payload.bugs).toHaveLength(1);
         expect(payload.bugs[0]).toMatchObject({
             title: "client_bug headline",
+            markerState: "critical",
             description: "what happened",
             remediation: "do the fix",
             // The animated clip is preferred over a static screenshot and signed for embedding.
@@ -131,19 +132,23 @@ describe("buildInvestigationCommentPayload", () => {
             "scenario_issue headline",
             "engine_artifact headline",
         ]);
+        // Each finding carries its own severity marker, ordered client bug -> actionable -> engine artifact.
+        expect(payload.bugs.map((bug) => bug.markerState)).toEqual(["critical", "warning", "incomplete"]);
     });
 
-    it("surfaces an engine artifact even when the run is otherwise healthy", async () => {
+    it("is 'incomplete' (not healthy) when only engine artifacts surfaced - the flow never ran", async () => {
         const payload = await buildInvestigationCommentPayload(
             [result("engine", "engine_artifact"), result("ok", "passed")],
             context,
             noSign,
         );
 
-        // No client bug and no actionable finding, so the state stays healthy - but the engine artifact
-        // is still surfaced for transparency, while the passed result is not.
-        expect(payload.state).toBe("healthy");
+        // No client bug and no actionable finding, but an engine artifact means the runner never executed the
+        // flow, so we cannot claim "healthy / no issues" - the passed result is still withheld.
+        expect(payload.state).toBe("incomplete");
+        expect(payload.headline).toBe("Autonoma couldn't fully test this PR.");
         expect(payload.bugs.map((bug) => bug.title)).toEqual(["engine_artifact headline"]);
+        expect(payload.bugs[0]?.markerState).toBe("incomplete");
     });
 
     it("is a warning when only actionable findings exist (no client bug)", async () => {
@@ -156,6 +161,7 @@ describe("buildInvestigationCommentPayload", () => {
         expect(payload.state).toBe("warning");
         expect(payload.headline).toBe("Autonoma raised 2 warnings in this PR.");
         expect(payload.bugs).toHaveLength(2);
+        expect(payload.bugs.every((bug) => bug.markerState === "warning")).toBe(true);
         // Warnings get no "Watch replay" button - the recording adds nothing for scenario/env/test issues.
         expect(payload.bugs.every((bug) => bug.replayHref == null)).toBe(true);
     });

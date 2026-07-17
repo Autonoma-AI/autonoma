@@ -33,6 +33,8 @@ function defaultHeadline(state: AutonomaCommentState, bugCount: number, failedCo
             return "Autonoma received this commit and is preparing the preview and test sweep.";
         case "healthy":
             return "Autonoma found no blocking bugs in this PR sweep.";
+        case "incomplete":
+            return "Autonoma couldn't fully test this PR.";
         case "warning":
             return `Autonoma raised ${bugCount} ${bugCount === 1 ? "warning" : "warnings"} in this PR.`;
         case "critical": {

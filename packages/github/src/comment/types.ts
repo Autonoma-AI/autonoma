@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const AutonomaCommentStateSchema = z.enum(["running", "healthy", "warning", "critical", "unknown"]);
+export const AutonomaCommentStateSchema = z.enum([
+    "running",
+    "healthy",
+    "incomplete",
+    "warning",
+    "critical",
+    "unknown",
+]);
 export type AutonomaCommentState = z.infer<typeof AutonomaCommentStateSchema>;
 
 export const AutonomaCommentCtaSchema = z.object({
@@ -22,7 +29,7 @@ export type AutonomaCommentEvidence = z.infer<typeof AutonomaCommentEvidenceSche
 export const AutonomaCommentBugSchema = z.object({
     title: z.string(),
     href: z.string().optional(),
-    severity: z.string().optional(),
+    markerState: AutonomaCommentStateSchema.optional(),
     occurrenceCount: z.number().int().positive().optional(),
     /**
      * Rich detail (the investigation comment): when any of these are set, the bug renders as an expandable
