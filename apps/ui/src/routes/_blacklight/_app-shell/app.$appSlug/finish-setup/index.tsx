@@ -119,9 +119,13 @@ const FINISH_STEPS = [CLI_FINISH_STEP, SDK_FINISH_STEP, DRY_RUN_FINISH_STEP];
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/finish-setup/")({
   // Persist the CLI setup id (the planner's AUTONOMA_GENERATION_ID) in the URL so a
   // refresh reuses the same setup instead of minting a new one - which used to churn
-  // the generation id and reset the CLI step's progress.
-  validateSearch: (search: Record<string, unknown>): { setup?: string } => ({
+  // the generation id and reset the CLI step's progress. `target` pins the chosen
+  // dry-run target (`main` / `pr-<n>`) so an explicit pick on the SDK step carries
+  // into the dry-run step (and survives refresh); it falls back to the default when
+  // the target is gone (PR closed, preview torn down).
+  validateSearch: (search: Record<string, unknown>): { setup?: string; target?: string } => ({
     setup: typeof search.setup === "string" ? search.setup : undefined,
+    target: typeof search.target === "string" ? search.target : undefined,
   }),
   loader: async ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
@@ -426,7 +430,8 @@ function formatTargetLabel(target: {
   return target.isAutoDetected ? `${base} (SDK PR)` : base;
 }
 
-type SdkDryRunTarget = RouterOutputs["onboarding"]["listSdkDryRunTargets"]["targets"][number];
+type SdkDryRunTargets = RouterOutputs["onboarding"]["listSdkDryRunTargets"];
+type SdkDryRunTarget = SdkDryRunTargets["targets"][number];
 type TargetAvailability = SdkDryRunTarget["availability"];
 
 /** Short state note rendered next to non-ready targets in the selectors. */
@@ -450,6 +455,21 @@ function pickInitialDryRunTargetId(targets: {
   return autoDetected?.id ?? ready.find((t) => t.kind === "main")?.id ?? ready[0]?.id;
 }
 
+/**
+ * The initial dry-run target for a step: the URL-pinned target when it still
+ * exists, otherwise the step's own default. A pinned target that has since gone
+ * (PR closed, preview torn down) is no longer in the list, so it falls back
+ * cleanly instead of selecting nothing.
+ */
+function resolveInitialTargetId(
+  pinnedTargetId: string | undefined,
+  targets: SdkDryRunTargets,
+  fallbackTargetId: string | undefined,
+): string | undefined {
+  if (pinnedTargetId != null && targets.targets.some((t) => t.id === pinnedTargetId)) return pinnedTargetId;
+  return fallbackTargetId;
+}
+
 /** Show the dropdown filter once the list is long enough to need one. */
 const TARGET_SEARCH_THRESHOLD = 8;
 
@@ -464,7 +484,6 @@ interface SelectableTarget {
 
 interface TargetSelectItemsProps {
   targets: SelectableTarget[];
-  disableUnready?: boolean;
 }
 
 /** Every whitespace-separated token must appear in the label or "#<pr>". */
@@ -476,12 +495,13 @@ function matchesTargetQuery(target: SelectableTarget, query: string): boolean {
 }
 
 /**
- * The shared dropdown body for both target selectors: a "previews are per-PR"
+ * The dropdown body for the SDK step's target selector: a "previews are per-PR"
  * hint on top (the most common confusion is a pushed branch with no PR), a
  * title/#number filter once the PR list gets long, then every target with its
- * state spelled out.
+ * state spelled out. Unready targets stay selectable - the SDK step is where you
+ * debug a building/failed preview, so you must be able to pick one.
  */
-function TargetSelectItems({ targets, disableUnready = false }: TargetSelectItemsProps) {
+function TargetSelectItems({ targets }: TargetSelectItemsProps) {
   const [query, setQuery] = useState("");
   const showSearch = targets.length >= TARGET_SEARCH_THRESHOLD;
   const visibleTargets = showSearch ? targets.filter((target) => matchesTargetQuery(target, query)) : targets;
@@ -515,7 +535,7 @@ function TargetSelectItems({ targets, disableUnready = false }: TargetSelectItem
       {visibleTargets.map((target) => {
         const note = targetAvailabilityNote(target.availability);
         return (
-          <SelectItem key={target.id} value={target.id} disabled={disableUnready && target.availability !== "ready"}>
+          <SelectItem key={target.id} value={target.id}>
             {formatTargetLabel(target)}
             {note != null && <span className="ml-1.5 text-text-secondary">- {note}</span>}
           </SelectItem>
@@ -574,8 +594,13 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   const redeployTarget = useRedeploySdkDryRunTarget();
   const prepareMutate = prepareTarget.mutate;
 
-  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(
-    targets.autoDetectedTargetId ?? targets.targets[0]?.id,
+  const { target: pinnedTargetId } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  // Seed from the URL-pinned target (shared with the dry-run step) so an explicit
+  // pick carries across steps and survives a refresh; fall back to the auto-detected
+  // SDK PR when nothing is pinned or the pin no longer exists.
+  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(() =>
+    resolveInitialTargetId(pinnedTargetId, targets, targets.autoDetectedTargetId ?? targets.targets[0]?.id),
   );
   const [signingSecret, setSigningSecret] = useState("");
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
@@ -734,7 +759,10 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
         <Select
           value={selectedTargetId ?? ""}
           onValueChange={(value) => {
-            setSelectedTargetId(value ?? undefined);
+            const nextTargetId = value != null && value.length > 0 ? value : undefined;
+            setSelectedTargetId(nextTargetId);
+            // Pin the explicit pick so it carries into the dry-run step and a refresh.
+            void navigate({ search: (prev) => ({ ...prev, target: nextTargetId }), replace: true });
             // A new target is a new deploy timeline - let the auto-switch drive again.
             setLogSourceOverride(undefined);
           }}
@@ -1096,13 +1124,19 @@ function DryRunList({ applicationId }: { applicationId: string }) {
   const { data: scenarios } = useOnboardingScenarios(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
   const runDryRun = useRunScenarioDryRun();
+  const { target: pinnedTargetId } = Route.useSearch();
   const [results, setResults] = useState<Record<string, DryRunResult>>({});
   const [isRunning, setIsRunning] = useState(false);
-  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(pickInitialDryRunTargetId(targets));
   const [logsExpanded, setLogsExpanded] = useState(true);
 
+  // The dry run runs against the target validated on the SDK step - inherited via
+  // the URL pin, so there is no second picker to keep in sync (and diverge). Fall
+  // back to the first ready target when nothing is pinned or the pin is gone (PR
+  // closed, preview torn down); the SDK step's Back button is where you change it.
+  const selectedTargetId = resolveInitialTargetId(pinnedTargetId, targets, pickInitialDryRunTargetId(targets));
   const list = scenarios ?? [];
   const selectedTarget = targets.targets.find((t) => t.id === selectedTargetId);
+  const selectedTargetNote = selectedTarget != null ? targetAvailabilityNote(selectedTarget.availability) : undefined;
   const previewLogTarget = buildPreviewLogTarget(selectedTarget);
   const anyFailed = Object.values(results).some((result) => result.success === false);
 
@@ -1134,26 +1168,25 @@ function DryRunList({ applicationId }: { applicationId: string }) {
 
   return (
     <div className="flex flex-col gap-3 border-t border-border-dim pt-4">
-      {targets.targets.length > 0 && (
+      {selectedTarget != null && (
         <div className="flex flex-col gap-1.5">
-          <Label>Run against</Label>
-          <Select value={selectedTargetId ?? ""} onValueChange={(value) => setSelectedTargetId(value ?? undefined)}>
-            <SelectTrigger className="max-w-lg">
-              <SelectValue placeholder="Select a preview environment">
-                {(value) => {
-                  const target = targets.targets.find((t) => t.id === value);
-                  return target != null ? formatTargetLabel(target) : null;
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <TargetSelectItems targets={targets.targets} disableUnready />
-            </SelectContent>
-          </Select>
-          {selectedTarget?.sdkUrl != null && (
+          <Label>Running against</Label>
+          <div className="flex items-center gap-2 text-sm text-text-primary">
+            <span className="font-medium">{formatTargetLabel(selectedTarget)}</span>
+            {selectedTargetNote != null && <span className="text-text-secondary">- {selectedTargetNote}</span>}
+          </div>
+          {selectedTarget.sdkUrl != null && (
             <p className="font-mono text-2xs text-text-secondary">SDK endpoint: {selectedTarget.sdkUrl}</p>
           )}
+          <p className="text-2xs text-text-secondary">
+            The target you validated on the SDK step. Go Back to run against a different preview.
+          </p>
         </div>
+      )}
+      {selectedTarget == null && (
+        <p className="text-sm text-text-secondary">
+          No ready preview to run against. Go Back to the SDK step to deploy or select one.
+        </p>
       )}
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-text-primary">

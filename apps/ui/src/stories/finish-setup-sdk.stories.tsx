@@ -188,6 +188,28 @@ const noPreviewTargets: SdkDryRunTargets = {
   ],
 };
 
+// The app shell's sidebar (milestones) reads these on every page under the shell.
+const sidebarFixtures: TrpcFixtures = {
+  branches: {
+    list: [],
+    detailByName: {
+      id: baseApplication.mainBranchId ?? "branch_fixture_01",
+      name: "main",
+      pendingSnapshotId: null,
+      createdAt: FIXTURE_EPOCH,
+      updatedAt: FIXTURE_EPOCH,
+      activeSnapshot: {
+        id: "snapshot_fixture_01",
+        status: "active",
+        createdAt: FIXTURE_EPOCH,
+        source: "MANUAL",
+        testCaseAssignments: [],
+      },
+    },
+  },
+  bugs: { listSummary: [] },
+};
+
 function sdkStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
   return {
     onboarding: {
@@ -198,25 +220,53 @@ function sdkStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
     github: { getCommit: headCommit },
     applicationSetups: { artifactStatus },
     applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "9f2c4a1e8b7d6c5f" } },
-    // The app shell's sidebar (milestones) reads these on every page.
-    branches: {
-      list: [],
-      detailByName: {
-        id: baseApplication.mainBranchId ?? "branch_fixture_01",
-        name: "main",
-        pendingSnapshotId: null,
-        createdAt: FIXTURE_EPOCH,
-        updatedAt: FIXTURE_EPOCH,
-        activeSnapshot: {
-          id: "snapshot_fixture_01",
-          status: "active",
-          createdAt: FIXTURE_EPOCH,
-          source: "MANUAL",
-          testCaseAssignments: [],
-        },
-      },
+    ...sidebarFixtures,
+  };
+}
+
+/**
+ * Onboarding one step further than the SDK fixtures: the SDK is validated
+ * (`sdkConfigured`), so the page lands on the dry-run step. The dry-run step
+ * inherits the SDK step's target read-only, so no target picker fixture is
+ * needed beyond the same `listSdkDryRunTargets`.
+ */
+const scenarioList: RouterOutputs["scenarios"]["list"] = [
+  {
+    id: "scenario_standard",
+    applicationId: baseApplication.id,
+    name: "standard",
+    description: "One organization with an owner and three seats on the Pro plan.",
+    activeRecipeVersionId: "recipe_version_standard",
+    lastSeenFingerprint: null,
+    lastDiscoveredAt: FIXTURE_EPOCH,
+    fingerprintChangedAt: null,
+    isDisabled: false,
+    createdAt: FIXTURE_EPOCH,
+    updatedAt: FIXTURE_EPOCH,
+    organizationId: baseApplication.organizationId,
+  },
+];
+
+function makeDryRunState(): RouterOutputs["onboarding"]["getState"] {
+  return {
+    ...makeOnboardingState(),
+    sdkConfigured: true,
+    lastDiscoveredAt: FIXTURE_EPOCH,
+    lastDiscoveredModels: 2,
+    dryRunPassed: false,
+  };
+}
+
+function dryRunStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
+  return {
+    onboarding: {
+      getState: makeDryRunState(),
+      listSdkDryRunTargets: targets,
     },
-    bugs: { listSummary: [] },
+    applicationSetups: { artifactStatus },
+    applications: { list: [baseApplication] },
+    scenarios: { list: scenarioList },
+    ...sidebarFixtures,
   };
 }
 
@@ -324,6 +374,16 @@ export const TargetFailed: Story = {
 export const TargetNoPreview: Story = {
   args: { path: PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(noPreviewTargets)) } },
+};
+
+/**
+ * The dry-run step, one step past the SDK step. It inherits the target validated
+ * on the SDK step (the auto-detected SDK PR here) and shows it read-only - there
+ * is no second picker to keep in sync.
+ */
+export const DryRunStep: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(dryRunStepFixtures(readyTargets)) } },
 };
 
 export const TargetBuilding: Story = {
