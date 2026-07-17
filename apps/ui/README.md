@@ -98,4 +98,5 @@ src/
 - **Cache headers** - `nginx.conf.template` caches content-hashed `/assets/*` as `immutable` (one year), but serves `index.html` and the PWA `sw.js` with `Cache-Control: no-cache` so they always revalidate. The SPA entry keeps a stable URL and cannot be content-hashed, so without this a client can keep loading an old shell that points at asset hashes the latest deploy already deleted. In production the app sits behind CloudFront: these origin headers only take effect if the CloudFront cache behavior honors origin `Cache-Control` (and a deploy should invalidate `/` and `/index.html` at the edge).
 - **PWA** - `vite-plugin-pwa` (`registerType: "autoUpdate"`) precaches build assets for offline use; the `no-cache` on `sw.js` is what lets clients pick up a new service worker on the next visit.
 - **tRPC batching** - Queries are batched via `httpBatchLink`, except `FormData` uploads which use `httpLink`.
+- **Deferred support chat** - PostHog analytics initializes with the app, while the conversations widget and its external bundle load after the browser `load` event.
 - **ESM only** - No CommonJS. All imports use bare specifiers without `.js` extensions.
