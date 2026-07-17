@@ -119,6 +119,7 @@ Once paired, the agent works a loop, and the Autonoma UI streams every step:
 2. **Read and edit** - `get_config` / `apply_config` read and save the full preview environment config document. A save is validated; an invalid document returns the errors to fix.
 3. **Deploy** - `trigger_deploy` deploys your main branch as the preview.
 4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
+5. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
 
 While the agent holds the config, the Autonoma UI is read-only and shows what it is doing in real time. You can press **Take over** at any point to reclaim the config and continue by hand; the agent stands down immediately. If the agent goes idle, control returns to you automatically.
 
@@ -139,7 +140,7 @@ The agent should always ask you first whether to set env from your `.env` (you p
 | `apply_config` | applicationId, document | Saves the full config document (validated; errors returned to fix). Never carries secret values |
 | `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
 | `trigger_deploy` | applicationId | Deploys the main branch as the preview |
-| `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, diagnostics, and a `recentLogs` tail (build/app logs) to diagnose a failed deploy |
+| `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, diagnostics, and a `recentLogs` tail - build logs while building, the app's runtime logs once ready, both on failure |
 
 ## Troubleshooting
 
