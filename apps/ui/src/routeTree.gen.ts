@@ -30,6 +30,7 @@ import { Route as BlacklightauthPendingRouteImport } from './routes/_blacklight/
 import { Route as BlacklightauthLoginRouteRouteImport } from './routes/_blacklight/(auth)/login/route'
 import { Route as BlacklightAppShellAdminIndexRouteImport } from './routes/_blacklight/_app-shell/admin/index'
 import { Route as BlacklightauthLoginIndexRouteImport } from './routes/_blacklight/(auth)/login/index'
+import { Route as BlacklightauthLoginTestAccountRouteImport } from './routes/_blacklight/(auth)/login/test-account'
 import { Route as BlacklightAppShellAppAppSlugRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/route'
 import { Route as BlacklightAppShellSettingsApiKeysIndexRouteImport } from './routes/_blacklight/_app-shell/settings/api-keys/index'
 import { Route as BlacklightAppShellAppAppSlugIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/index'
@@ -185,6 +186,12 @@ const BlacklightauthLoginIndexRoute =
   BlacklightauthLoginIndexRouteImport.update({
     id: '/',
     path: '/',
+    getParentRoute: () => BlacklightauthLoginRouteRoute,
+  } as any)
+const BlacklightauthLoginTestAccountRoute =
+  BlacklightauthLoginTestAccountRouteImport.update({
+    id: '/test-account',
+    path: '/test-account',
     getParentRoute: () => BlacklightauthLoginRouteRoute,
   } as any)
 const BlacklightAppShellAppAppSlugRouteRoute =
@@ -488,6 +495,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
   '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
   '/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
+  '/login/test-account': typeof BlacklightauthLoginTestAccountRoute
   '/login/': typeof BlacklightauthLoginIndexRoute
   '/admin/': typeof BlacklightAppShellAdminIndexRoute
   '/app/$appSlug/admin': typeof BlacklightAppShellAppAppSlugAdminRouteRouteWithChildren
@@ -548,6 +556,7 @@ export interface FileRoutesByTo {
   '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
   '/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
+  '/login/test-account': typeof BlacklightauthLoginTestAccountRoute
   '/login': typeof BlacklightauthLoginIndexRoute
   '/admin': typeof BlacklightAppShellAdminIndexRoute
   '/admin/issues': typeof BlacklightAppShellAdminIssuesIndexRoute
@@ -606,6 +615,7 @@ export interface FileRoutesById {
   '/_blacklight/onboarding/previewkit-config': typeof BlacklightOnboardingPreviewkitConfigRoute
   '/_blacklight/_app-shell/': typeof BlacklightAppShellIndexRoute
   '/_blacklight/_app-shell/app/$appSlug': typeof BlacklightAppShellAppAppSlugRouteRouteWithChildren
+  '/_blacklight/(auth)/login/test-account': typeof BlacklightauthLoginTestAccountRoute
   '/_blacklight/(auth)/login/': typeof BlacklightauthLoginIndexRoute
   '/_blacklight/_app-shell/admin/': typeof BlacklightAppShellAdminIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/admin': typeof BlacklightAppShellAppAppSlugAdminRouteRouteWithChildren
@@ -671,6 +681,7 @@ export interface FileRouteTypes {
     | '/onboarding/preview-environment'
     | '/onboarding/previewkit-config'
     | '/app/$appSlug'
+    | '/login/test-account'
     | '/login/'
     | '/admin/'
     | '/app/$appSlug/admin'
@@ -731,6 +742,7 @@ export interface FileRouteTypes {
     | '/onboarding/preview-deploy-verify'
     | '/onboarding/preview-environment'
     | '/onboarding/previewkit-config'
+    | '/login/test-account'
     | '/login'
     | '/admin'
     | '/admin/issues'
@@ -788,6 +800,7 @@ export interface FileRouteTypes {
     | '/_blacklight/onboarding/previewkit-config'
     | '/_blacklight/_app-shell/'
     | '/_blacklight/_app-shell/app/$appSlug'
+    | '/_blacklight/(auth)/login/test-account'
     | '/_blacklight/(auth)/login/'
     | '/_blacklight/_app-shell/admin/'
     | '/_blacklight/_app-shell/app/$appSlug/admin'
@@ -989,6 +1002,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/login/'
       preLoaderRoute: typeof BlacklightauthLoginIndexRouteImport
+      parentRoute: typeof BlacklightauthLoginRouteRoute
+    }
+    '/_blacklight/(auth)/login/test-account': {
+      id: '/_blacklight/(auth)/login/test-account'
+      path: '/test-account'
+      fullPath: '/login/test-account'
+      preLoaderRoute: typeof BlacklightauthLoginTestAccountRouteImport
       parentRoute: typeof BlacklightauthLoginRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug': {
@@ -1569,11 +1589,13 @@ const BlacklightOnboardingRouteRouteWithChildren =
   )
 
 interface BlacklightauthLoginRouteRouteChildren {
+  BlacklightauthLoginTestAccountRoute: typeof BlacklightauthLoginTestAccountRoute
   BlacklightauthLoginIndexRoute: typeof BlacklightauthLoginIndexRoute
 }
 
 const BlacklightauthLoginRouteRouteChildren: BlacklightauthLoginRouteRouteChildren =
   {
+    BlacklightauthLoginTestAccountRoute: BlacklightauthLoginTestAccountRoute,
     BlacklightauthLoginIndexRoute: BlacklightauthLoginIndexRoute,
   }
 

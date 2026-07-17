@@ -1,10 +1,11 @@
-import { Badge, BrailleSpinner, Button, Input } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Button } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
 import { env } from "env";
 import { useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
 import * as React from "react";
+import { EmailPasswordForm } from "./-components/email-password-form";
 
 export const Route = createFileRoute("/_blacklight/(auth)/login/")({
   component: LoginPage,
@@ -16,48 +17,6 @@ export const Route = createFileRoute("/_blacklight/(auth)/login/")({
 
 function useIsPreviewEnvironment() {
   return window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
-}
-
-type EmailAuthMode = "signin" | "signup";
-
-function useEmailAuth() {
-  const [isPending, setIsPending] = React.useState(false);
-  const [mode, setMode] = React.useState<EmailAuthMode>("signin");
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsPending(true);
-    try {
-      const path = mode === "signin" ? "/v1/auth/sign-in/email" : "/v1/auth/sign-up/email";
-      const body = mode === "signin" ? { email, password } : { email, password, name: email };
-
-      const res = await fetch(`${env.VITE_API_URL}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
-      });
-
-      const data = (await res.json()) as { error?: { message?: string } };
-
-      if (!res.ok) {
-        throw new Error(data.error?.message ?? "Authentication failed");
-      }
-
-      window.location.replace(window.location.origin);
-    } catch (err) {
-      setIsPending(false);
-      toastManager.add({
-        type: "critical",
-        title: mode === "signin" ? "Sign in failed" : "Sign up failed",
-        description: err instanceof Error ? err.message : "Something went wrong. Please try again.",
-      });
-    }
-  };
-
-  return { submit, isPending, mode, setMode, email, setEmail, password, setPassword };
 }
 
 function useGoogleSignIn() {
@@ -139,43 +98,6 @@ function useErrorFromSearch() {
   }, [error, navigate]);
 }
 
-function PreviewLoginForm() {
-  const { submit, isPending, mode, setMode, email, setEmail, password, setPassword } = useEmailAuth();
-  const isSignUp = mode === "signup";
-
-  return (
-    <form onSubmit={submit} className="flex w-full flex-col gap-3">
-      <Input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={isPending}
-        required
-      />
-      <Input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        disabled={isPending}
-        required
-      />
-      <Button type="submit" variant="outline" size="lg" className="w-full gap-2" disabled={isPending}>
-        {isPending && <BrailleSpinner animation="braille" size="sm" />}
-        <span>{isPending ? "..." : isSignUp ? "Sign up" : "Sign in"}</span>
-      </Button>
-      <button
-        type="button"
-        className="text-center font-mono text-xs text-text-tertiary underline-offset-2 hover:underline"
-        onClick={() => setMode(isSignUp ? "signin" : "signup")}
-      >
-        {isSignUp ? "Already have an account? Sign in" : "No account? Sign up"}
-      </button>
-    </form>
-  );
-}
-
 function LoginPage() {
   const { signIn, isPending } = useGoogleSignIn();
   const dotSpotlight = useDotSpotlight();
@@ -218,7 +140,7 @@ function LoginPage() {
 
         <div className="mt-8 w-full">
           {isPreview ? (
-            <PreviewLoginForm />
+            <EmailPasswordForm />
           ) : (
             <Button variant="outline" size="lg" className="w-full gap-3" onClick={signIn} disabled={isPending}>
               {isPending ? <BrailleSpinner animation="braille" size="sm" /> : <Google />}

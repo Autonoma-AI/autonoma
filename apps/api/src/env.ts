@@ -13,6 +13,10 @@ export const env = createEnv({
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
         COOKIE_DOMAIN: z.string().optional(),
         PREVIEWKIT_ENV: z.stringbool().default(false),
+        // Comma-separated allowlist of emails permitted to use password sign-in/sign-up
+        // in production (e.g. a marketplace-reviewer test account). Every other account
+        // is Google SSO only - see the emailAndPassword hooks in auth.ts.
+        TEST_ACCOUNT_ALLOWED_EMAILS: z.string().optional(),
         INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
         // Fires the merged analysis pipeline (shadow mode) in parallel with the diffs job, on the same detached
         // twin as the shadow investigation. Off by default so it stays inert until deliberately enabled - a

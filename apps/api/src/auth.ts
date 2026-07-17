@@ -5,6 +5,7 @@ import { toSlug } from "@autonoma/utils";
 import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { betterAuth } from "better-auth/minimal";
 import { jwt, mcp, organization } from "better-auth/plugins";
 import type { CookieOptions } from "hono/utils/cookie";
@@ -17,6 +18,17 @@ import { vercelPreferredOrgKey } from "./vercel-marketplace/vercel-helpers";
 const GOOGLE_PROVIDER = "google";
 
 const INTERNAL_DOMAIN = `@${env.INTERNAL_DOMAIN}`;
+
+// Password sign-in/sign-up is otherwise disabled in production (Google SSO
+// only) - this allowlist carves out an exception for non-Google test
+// accounts (e.g. a marketplace reviewer) without opening password auth to
+// real users. Enforced in the `hooks.before` middleware below.
+const TEST_ACCOUNT_ALLOWED_EMAILS = new Set(
+    (env.TEST_ACCOUNT_ALLOWED_EMAILS ?? "")
+        .split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0),
+);
 
 function extractDomain(email: string): string {
     const parts = email.split("@");
@@ -266,7 +278,24 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             keyPrefix: "better-auth:",
         }),
         emailAndPassword: {
-            enabled: env.PREVIEWKIT_ENV,
+            enabled: env.PREVIEWKIT_ENV || TEST_ACCOUNT_ALLOWED_EMAILS.size > 0,
+        },
+        hooks: {
+            // Password sign-in/sign-up in production is reserved for
+            // TEST_ACCOUNT_ALLOWED_EMAILS - every other account must use Google
+            // SSO. Previewkit environments (env.PREVIEWKIT_ENV) are unaffected;
+            // this only gates the two email/password endpoints.
+            before: createAuthMiddleware(async (ctx) => {
+                if (env.PREVIEWKIT_ENV) return;
+                if (ctx.path !== "/sign-up/email" && ctx.path !== "/sign-in/email") return;
+
+                const email = typeof ctx.body?.email === "string" ? ctx.body.email.trim().toLowerCase() : "";
+                if (TEST_ACCOUNT_ALLOWED_EMAILS.has(email)) return;
+
+                throw new APIError("FORBIDDEN", {
+                    message: "Password sign-in is not available for this account. Use Google sign-in instead.",
+                });
+            }),
         },
         user: {
             additionalFields: {
