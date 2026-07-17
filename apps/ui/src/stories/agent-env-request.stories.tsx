@@ -124,3 +124,18 @@ export const PartiallyFilled: Story = {
     await userEvent.type(resend, "re_8fJq2FakeFixtureValue");
   },
 };
+
+/**
+ * The reveal eye toggled on: the typed value is shown in plaintext while the user
+ * checks it before submitting. The other rows stay masked, per-key.
+ */
+export const RevealedValue: Story = {
+  args: { applicationId: baseApplication.id },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const stripe = await canvas.findByLabelText("Value for STRIPE_SECRET_KEY");
+    await userEvent.type(stripe, "sk_live_51Mq8aFakeFixtureValue");
+    const reveal = await canvas.findByLabelText("Reveal value for STRIPE_SECRET_KEY");
+    await userEvent.click(reveal);
+  },
+};

@@ -22,6 +22,8 @@ import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretUpIcon } from "@phosphor-icons/react/CaretUp";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
+import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { EyeSlashIcon } from "@phosphor-icons/react/EyeSlash";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { InfoIcon } from "@phosphor-icons/react/Info";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
@@ -557,10 +559,18 @@ function EnvRequestForm({
   agentName: string;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  // Which values are shown in plaintext. Reveal is a while-you-type aid only:
+  // the values are never read back once submitted (they go straight to the
+  // backend), so this state lives entirely in the form and resets on remount.
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const submitEnv = useSubmitAgentEnv();
 
   function setValue(key: string, value: string) {
     setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function toggleRevealed(key: string) {
+    setRevealed((current) => ({ ...current, [key]: !current[key] }));
   }
 
   // Fill only the keys the agent actually asked for - never persist unrelated
@@ -613,14 +623,25 @@ function EnvRequestForm({
         {keys.map((key) => (
           <div key={key} className="grid grid-cols-[minmax(9rem,0.6fr)_minmax(10rem,1fr)] items-center gap-2">
             <span className="truncate font-mono text-2xs">{key}</span>
-            <Input
-              aria-label={`Value for ${key}`}
-              type="password"
-              value={values[key] ?? ""}
-              onChange={(event) => setValue(key, event.target.value)}
-              placeholder="Value"
-              className="font-mono"
-            />
+            <div className="relative">
+              <Input
+                aria-label={`Value for ${key}`}
+                type={revealed[key] ? "text" : "password"}
+                value={values[key] ?? ""}
+                onChange={(event) => setValue(key, event.target.value)}
+                placeholder="Value"
+                className="pr-9 font-mono"
+              />
+              <button
+                type="button"
+                title={revealed[key] ? "Hide value" : "Reveal value"}
+                aria-label={revealed[key] ? `Hide value for ${key}` : `Reveal value for ${key}`}
+                onClick={() => toggleRevealed(key)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary transition-colors hover:text-text-primary"
+              >
+                {revealed[key] ? <EyeSlashIcon size={14} /> : <EyeIcon size={14} />}
+              </button>
+            </div>
           </div>
         ))}
       </div>
