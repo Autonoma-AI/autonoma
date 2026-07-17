@@ -728,6 +728,16 @@ export class OnboardingManager {
         return listSdkDryRunTargets(this.db, applicationId, organizationId);
     }
 
+    /**
+     * SDK capability: user-triggered (re)deploy of a dry-run target's preview -
+     * an existing env redeploys at the latest head/config, a PR without one
+     * gets its first deploy.
+     */
+    async redeploySdkDryRunTarget(applicationId: string, organizationId: string, targetId: string): Promise<void> {
+        this.logger.info("Redeploying SDK dry-run target", { applicationId, organizationId, extra: { targetId } });
+        return this.sdkCapability.redeployDryRunTarget(applicationId, organizationId, targetId);
+    }
+
     /** Upsert the onboarding row and instantiate the matching state subclass. */
     private async loadState(applicationId: string): Promise<OnboardingState> {
         const initialOnboardingState = await this.db.onboardingState.upsert({

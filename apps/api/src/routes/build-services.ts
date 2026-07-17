@@ -172,6 +172,9 @@ export function buildServices({
             redeploy: async (repoFullName: string, prNumber: number, organizationId: string) => {
                 await previewkitTrigger.redeploy(repoFullName, prNumber, organizationId);
             },
+            deployPullRequest: async (organizationId: string, githubRepositoryId: number, prNumber: number) => {
+                await previewkitTrigger.deployPullRequest(organizationId, githubRepositoryId, prNumber);
+            },
         },
         previewkitSecretsService,
         repoIntrospection: repoIntrospectionService,

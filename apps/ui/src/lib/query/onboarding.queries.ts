@@ -151,6 +151,23 @@ export function usePrepareSdkTarget() {
     });
 }
 
+/**
+ * User-triggered (re)deploy of a dry-run target's preview: an existing env
+ * redeploys at the latest PR head + config, a PR without one gets its first
+ * deploy. The targets poll shows the resulting "building" state.
+ */
+export function useRedeploySdkDryRunTarget() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.redeploySdkDryRunTarget.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
+            },
+        }),
+        errorToast: { title: "Failed to deploy preview" },
+    });
+}
+
 export function useConfigureAndDiscoverSdkTarget() {
     const queryClient = useQueryClient();
     const onStepMismatch = useStepMismatchHandler();

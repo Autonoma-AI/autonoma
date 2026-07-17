@@ -10,6 +10,8 @@ export interface OnboardingPreviewkitClient {
     isConfigured(): boolean;
     deployApplicationMain(applicationId: string, organizationId: string): Promise<void>;
     redeploy(repoFullName: string, prNumber: number, organizationId: string): Promise<void>;
+    /** First deploy for an open PR with no preview environment yet (e.g. a draft the webhook skipped). */
+    deployPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void>;
 }
 
 export interface OnboardingPreviewkitSecretsService {

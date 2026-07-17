@@ -577,6 +577,47 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
+     * Starts a FIRST deploy for an open PR that has no preview environment yet
+     * (a draft PR the webhook skipped, or a missed delivery), resolving the
+     * PR's current head from GitHub. Deploying a draft here is deliberate: this
+     * is an explicit user action, unlike the webhook's noise-avoidance skip -
+     * though later pushes to a still-draft PR will not rebuild it.
+     */
+    async deployPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void> {
+        this.logger.info("Triggering first preview deploy for a PR without an environment", {
+            organizationId,
+            pr: prNumber,
+            extra: { githubRepositoryId },
+        });
+
+        const [repo, pr] = await Promise.all([
+            this.githubInstallationService.getRepository(organizationId, githubRepositoryId),
+            this.githubInstallationService.getPullRequest(organizationId, githubRepositoryId, prNumber),
+        ]);
+        if (pr.state !== "open") {
+            throw new ConflictError(`Pull request #${prNumber} is ${pr.state} and cannot be deployed`);
+        }
+
+        const branchId = await this.resolveBranchIdForPr(organizationId, githubRepositoryId, prNumber, pr.headRef);
+
+        await this.deploy(
+            {
+                repoFullName: repo.fullName,
+                prNumber,
+                organizationId,
+                githubRepositoryId,
+                headSha: pr.headSha,
+                headRef: pr.headRef,
+                baseSha: pr.baseSha,
+                baseRef: pr.baseRef,
+                cloneUrl: `https://github.com/${repo.fullName}.git`,
+                branchId,
+            },
+            "opened",
+        );
+    }
+
+    /**
      * Resolves the newest head for a redeploy: a PR environment follows the
      * PR's current head, the main-branch environment (PR 0) follows its tracked
      * branch. Best-effort - any GitHub failure (deleted branch, uninstalled

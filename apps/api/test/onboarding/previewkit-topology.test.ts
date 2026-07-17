@@ -287,6 +287,7 @@ integrationTestSuite({
                     isConfigured: () => true,
                     deployApplicationMain: vi.fn(async () => undefined),
                     redeploy: vi.fn(async () => undefined),
+                    deployPullRequest: vi.fn(async () => undefined),
                 },
             });
             await setStep(harness, appId, "previewkit_configuring");

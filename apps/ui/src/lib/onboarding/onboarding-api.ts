@@ -5,6 +5,7 @@ export {
     useConfigureAndDiscoverScenarios,
     useOnboardingScenarios,
     useOnboardingStateOptional,
+    useRedeploySdkDryRunTarget,
     useRunScenarioDryRun,
     useSdkDryRunTargets,
     useCompleteGithub,

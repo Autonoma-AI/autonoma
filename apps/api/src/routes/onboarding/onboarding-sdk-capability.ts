@@ -485,6 +485,39 @@ export class OnboardingSdkCapabilityService {
     }
 
     /**
+     * User-triggered (re)deploy of a dry-run target's preview. An existing
+     * PreviewKit environment is redeployed (picking up the latest PR head and
+     * config); a PR with no environment at all gets its first deploy. External
+     * (non-PreviewKit) previews cannot be deployed from here.
+     */
+    async redeployDryRunTarget(applicationId: string, organizationId: string, targetId: string): Promise<void> {
+        this.logger.info("Redeploying dry-run target", { applicationId, organizationId, targetId });
+
+        const { targets } = await listSdkDryRunTargets(this.db, applicationId, organizationId);
+        const target = targets.find((candidate) => candidate.id === targetId);
+        if (target == null) {
+            throw new BadRequestError(`Unknown dry-run target "${targetId}"`);
+        }
+
+        if (target.source === "previewkit" && target.environmentId != null && target.repoFullName != null) {
+            await this.redeployManagedTarget(
+                target.environmentId,
+                target.repoFullName,
+                target.prNumber ?? 0,
+                organizationId,
+            );
+            return;
+        }
+
+        if (target.availability === "no_preview" && target.kind === "pr" && target.prNumber != null) {
+            await this.deployPullRequestTarget(applicationId, organizationId, target.prNumber);
+            return;
+        }
+
+        throw new BadRequestError("This target's preview is not managed by PreviewKit and cannot be deployed here");
+    }
+
+    /**
      * Resolve the chosen dry-run target's SDK URL server-side (never trusting a
      * client-supplied URL) and persist it on the main-branch deployment, mirroring
      * what configureAndDiscover does so the existing resolveSdkConfig path picks it
@@ -768,6 +801,43 @@ export class OnboardingSdkCapabilityService {
         });
         this.logger.info("Managed target redeploy requested; status set to building", {
             extra: { environmentId, repoFullName, prNumber },
+        });
+    }
+
+    /**
+     * First deploy for a PR target with no preview environment (a draft the
+     * webhook skipped, or a missed delivery). No env row exists to flip to
+     * "building" - the deploy Job creates it, and the targets poll picks it up.
+     */
+    private async deployPullRequestTarget(
+        applicationId: string,
+        organizationId: string,
+        prNumber: number,
+    ): Promise<void> {
+        const previewkitClient = this.options.previewkitClient;
+        if (previewkitClient == null || !previewkitClient.isConfigured()) {
+            throw new BadRequestError("PreviewKit deploys are not configured for this environment");
+        }
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: {
+                githubRepositoryId: true,
+                onboardingState: { select: { previewEnvironmentMode: true } },
+            },
+        });
+        if (application == null) throw new OnboardingApplicationNotFoundError(applicationId);
+        if (application.githubRepositoryId == null) {
+            throw new BadRequestError("Application is not linked to a GitHub repository");
+        }
+        if (application.onboardingState?.previewEnvironmentMode === "existing_deploys") {
+            throw new BadRequestError("This application's previews are managed by an external provider");
+        }
+
+        await previewkitClient.deployPullRequest(organizationId, application.githubRepositoryId, prNumber);
+        this.logger.info("First preview deploy requested for PR target", {
+            applicationId,
+            extra: { prNumber },
         });
     }
 }

@@ -14,6 +14,7 @@ import {
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
@@ -36,6 +37,7 @@ import {
   useOnboardingScenarios,
   useOnboardingState,
   usePrepareSdkTarget,
+  useRedeploySdkDryRunTarget,
   useRunScenarioDryRun,
   useSdkDryRunTargets,
 } from "lib/onboarding/onboarding-api";
@@ -527,6 +529,7 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   const discover = useConfigureAndDiscoverScenarios();
   const managedDiscover = useConfigureAndDiscoverSdkTarget();
   const prepareTarget = usePrepareSdkTarget();
+  const redeployTarget = useRedeploySdkDryRunTarget();
   const prepareMutate = prepareTarget.mutate;
 
   const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(
@@ -644,6 +647,22 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
     );
   }
 
+  function handleRedeploy() {
+    if (selectedTarget == null) return;
+    redeployTarget.mutate(
+      { applicationId, targetId: selectedTarget.id },
+      {
+        onSuccess: () => {
+          toastManager.add({
+            type: "info",
+            title: "Preview deploy started",
+            description: "Build logs stream below - validation unlocks once the preview is ready.",
+          });
+        },
+      },
+    );
+  }
+
   if (targets.targets.length === 0) {
     return (
       <p className="text-sm text-text-secondary">
@@ -678,15 +697,54 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
           </p>
         )}
         {selectedTarget?.isAutoDetected && <p className="text-2xs text-text-secondary">Auto-selected your SDK PR.</p>}
+        {selectedTargetSource === "previewkit" && selectedTargetAvailability === "ready" && (
+          <div className="mt-1 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="xs"
+              className="gap-1.5"
+              onClick={handleRedeploy}
+              disabled={redeployTarget.isPending}
+            >
+              {redeployTarget.isPending ? (
+                <SpinnerGapIcon size={12} className="animate-spin" />
+              ) : (
+                <ArrowsClockwiseIcon size={12} />
+              )}
+              Redeploy preview
+            </Button>
+            <p className="text-2xs text-text-secondary">
+              Rebuilds at the latest commit with the current preview configuration.
+            </p>
+          </div>
+        )}
       </div>
 
       {selectedTarget?.availability === "no_preview" && (
-        <div className="flex items-start gap-2 border border-status-warn/30 bg-status-warn/5 px-3 py-2.5">
-          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
-          <p className="text-sm text-text-secondary">
-            Previews are built per pull request, and this PR has no preview environment. Draft PRs don't get preview
-            builds - mark the PR ready for review or push a new commit to trigger one.
-          </p>
+        <div className="flex flex-col gap-2 border border-status-warn/30 bg-status-warn/5 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+            <p className="text-sm text-text-secondary">
+              Previews are built per pull request, and this PR has no preview environment. Draft PRs don't get preview
+              builds automatically - mark the PR ready for review, push a new commit, or deploy one now.
+            </p>
+          </div>
+          <div>
+            <Button
+              variant="outline"
+              size="xs"
+              className="gap-1.5"
+              onClick={handleRedeploy}
+              disabled={redeployTarget.isPending}
+            >
+              {redeployTarget.isPending ? (
+                <SpinnerGapIcon size={12} className="animate-spin" />
+              ) : (
+                <PlayIcon size={12} />
+              )}
+              Deploy preview
+            </Button>
+          </div>
         </div>
       )}
 
@@ -702,8 +760,24 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             </p>
           )}
           <p className="text-2xs text-text-secondary">
-            The build logs below show what went wrong. Push a new commit to retry the deploy.
+            The build logs below show what went wrong. Push a new commit or redeploy to retry.
           </p>
+          <div>
+            <Button
+              variant="outline"
+              size="xs"
+              className="gap-1.5"
+              onClick={handleRedeploy}
+              disabled={redeployTarget.isPending}
+            >
+              {redeployTarget.isPending ? (
+                <SpinnerGapIcon size={12} className="animate-spin" />
+              ) : (
+                <ArrowsClockwiseIcon size={12} />
+              )}
+              Redeploy preview
+            </Button>
+          </div>
         </div>
       )}
 
