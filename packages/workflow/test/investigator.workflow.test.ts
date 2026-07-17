@@ -12,9 +12,14 @@ import type {
     SelfHealAnalysisTestOutput,
 } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
-import { workflowsPath } from "../src/worker";
 import { type InvestigatorWorkflowInput, investigatorWorkflow } from "../src/workflows/investigator.workflow";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
+
+// Compute the workflows bundle entrypoint directly rather than importing `workflowsPath` from ../src/worker: that
+// barrel also re-exports the Node-side worker, which transitively imports @autonoma/db (its env.ts validates
+// DATABASE_URL at import time). A hermetic workflow test must not require a database - CI runs it without one. The
+// Temporal worker bundles this entrypoint in the sandbox, where no db import exists.
+const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).pathname;
 
 /**
  * Behavioral tests for the Investigator's verdict state machine: the self-heal loop, the full taxonomy (a
