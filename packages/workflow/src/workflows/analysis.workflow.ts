@@ -15,7 +15,7 @@ const analysis = proxyActivities<AnalysisActivities>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.INVESTIGATION,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface AnalysisWorkflowInput {
@@ -104,7 +104,7 @@ async function runInvestigator(
     try {
         return await executeChild(WORKFLOW_TYPE.INVESTIGATOR, {
             workflowId: `investigator-${snapshotId}-${target.slug}`,
-            taskQueue: TaskQueue.INVESTIGATION,
+            taskQueue: TaskQueue.DIFFS,
             args: [
                 {
                     snapshotId,

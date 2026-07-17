@@ -11,6 +11,17 @@ export const env = createEnv({
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
         GITHUB_APP_SLUG: z.string().min(1),
+        // Merged analysis-pipeline shadow (classifier re-homed from the investigation worker). All OPTIONAL so
+        // this worker boots unchanged when the shadow is off (ANALYSIS_SHADOW_ENABLED, gated on the API side);
+        // createModelSession throws a clear error if the classifier key is missing when the shadow runs.
+        // The native-OpenAI classifier key (injected into the model session). The OpenRouter/Gemini/Groq keys are
+        // read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
+        OPENAI_API_KEY: z.string().min(1).optional(),
+        INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.6-luna"),
+        // The classifier tool-loop step budget.
+        INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
+        // Optional Loki base URL for the classifier's get_app_logs tool (e.g. http://loki.autonoma.app:3100).
+        LOKI_URL: z.string().optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

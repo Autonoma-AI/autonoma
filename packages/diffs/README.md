@@ -108,5 +108,14 @@ Tools classify their failures explicitly:
 | Path | Purpose |
 |---|---|
 | `./` | Public surface listed above |
+| `./analysis` | The re-homed classifier + merged-analysis-pipeline library (see below) |
 | `./prepare-affected-tests` | `prepareAffectedTestGenerations` callback that queues a generation for each test the agent marked affected |
 | `./env` | `@t3-oss/env-core` schema for required env vars |
+
+## `./analysis` - the merged analysis pipeline library
+
+`src/analysis/` is a **copy** of the classifier (`classifyRun` + its vision probes + its tools: `read_code` / `grep_code` / `git_diff` / `prior_runs` / `analyze_video` / `analyze_screenshot` / `view_step_screenshot` / `get_deployment_health`, plus the live-backend tools `run_script` / `get_preview_env` / `get_app_logs`), the deployed comparison (`DeployedComparison`), and the holistic finding dedup (`dedupeAnalysisFindings`), re-homed out of `packages/investigation` (issue #1599). It is the home of the merged analysis pipeline - Impact Analysis -> Investigators (parallel) -> Reconciler -> finalize - which runs on the **diffs worker** (`TaskQueue.DIFFS`) as an inert shadow (own detached snapshot, no promotion, no user-facing rows) that will eventually replace both diffs and investigation.
+
+Investigation's **selection** was deliberately NOT carried over (the copied selector is dead-on-arrival - #1510 replaces Impact Analysis with the `DiffsAgent`/`runDiffsAnalysis`, and the epic rejects the carry-forward the old selector did). The classifier's live-backend tools are kept as-is; converting them to frozen-source reads (and removing `run_script`) is deferred to #1514.
+
+After the re-home the pipeline shares no code with the frozen `packages/investigation`, so every downstream analysis-merge change modifies this copy freely. It is exposed on a dedicated subpath because it ships its own `openModelSession`/`ModelSession` that would collide with the diffs agents' model session on the main entrypoint. The pipeline's Temporal activities + worker infra live in `apps/workers/diffs/src/activities/{analysis,classify-run}`.

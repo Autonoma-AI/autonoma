@@ -733,6 +733,15 @@ model BranchSnapshot {
   investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
   investigationParent     BranchSnapshot? @relation("InvestigationPair")
 
+  // The detached snapshot the merged analysis pipeline (the diffs-worker shadow that will replace both diffs
+  // and investigation) runs on. Separate from the investigation twin above so the two shadows never share a
+  // snapshot: each owns its suite work independently. Same shape as the investigation pair - never wired to a
+  // branch pointer, reachable only via this FK; `analysisParent` (the reverse side) is the canonical signal
+  // that a snapshot IS such a detached analysis snapshot, used to hide it from user-facing snapshot queries.
+  analysisSnapshotId String?         @unique @map("analysis_snapshot_id")
+  analysisSnapshot   BranchSnapshot? @relation("AnalysisPair", fields: [analysisSnapshotId], references: [id], onDelete: SetNull)
+  analysisParent     BranchSnapshot? @relation("AnalysisPair")
+
   // Per-dependency deployed commit SHAs (keyed by previewkit multirepo dependency
   // name), pinned the first time grounding runs for this snapshot by resolving the
   // headSha-exact PreviewkitEnvironment and copying its enriched resolvedConfig dep

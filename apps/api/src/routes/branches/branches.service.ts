@@ -364,7 +364,12 @@ export class BranchesService extends Service {
         if (branch == null) return null;
 
         const snapshot = await this.db.branchSnapshot.findFirst({
-            where: { branchId: branch.id, status: { not: "cancelled" }, investigationParent: { is: null } },
+            where: {
+                branchId: branch.id,
+                status: { not: "cancelled" },
+                investigationParent: { is: null },
+                analysisParent: { is: null },
+            },
             orderBy: { createdAt: "desc" },
             select: { id: true },
         });
@@ -732,13 +737,15 @@ export class BranchesService extends Service {
         const snapshots = await this.db.branchSnapshot.findMany({
             // Canceled snapshots are abandoned drafts kept only for observability; they are
             // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
-            // Investigation twins (detached A/B snapshots, identified by a non-null investigationParent)
-            // are likewise hidden - they are not part of the branch's user-facing lineage.
+            // Detached shadow snapshots (the investigation twin, non-null investigationParent; and the
+            // analysis pipeline's own snapshot, non-null analysisParent) are likewise hidden - they are
+            // not part of the branch's user-facing lineage.
             where: {
                 branchId,
                 branch: { application: { organizationId } },
                 status: { not: "cancelled" },
                 investigationParent: { is: null },
+                analysisParent: { is: null },
             },
             select: {
                 id: true,
@@ -1067,8 +1074,13 @@ export class BranchesService extends Service {
                 snapshots: {
                     // Exclude cancelled snapshots so the PR-wide rollup reflects the real
                     // lineage; a cancelled draft must never become the latest rollup target.
-                    // Investigation twins are detached A/B snapshots, not part of the lineage either.
-                    where: { status: { not: "cancelled" }, investigationParent: { is: null } },
+                    // Detached shadow snapshots (investigation twin, analysis snapshot) are not part of
+                    // the lineage either.
+                    where: {
+                        status: { not: "cancelled" },
+                        investigationParent: { is: null },
+                        analysisParent: { is: null },
+                    },
                     select: snapshotSelect,
                     orderBy: { createdAt: "asc" },
                 },

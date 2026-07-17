@@ -36,7 +36,7 @@ export async function triggerAnalysisJob(params: TriggerAnalysisJobParams): Prom
         await client.workflow.start(WORKFLOW_TYPE.ANALYSIS, {
             workflowId,
             workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-            taskQueue: TaskQueue.INVESTIGATION,
+            taskQueue: TaskQueue.DIFFS,
             workflowExecutionTimeout: ANALYSIS_EXECUTION_TIMEOUT,
             searchAttributes: getWorkflowSearchAttributes(),
             args: [{ snapshotId, mode }],

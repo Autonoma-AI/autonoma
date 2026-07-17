@@ -14,7 +14,7 @@ const investigation = proxyActivities<InvestigationActivities>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.INVESTIGATION,
+    taskQueue: TaskQueue.DIFFS,
 });
 
 const general = proxyActivities<GeneralActivities>({

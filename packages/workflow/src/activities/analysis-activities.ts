@@ -1,8 +1,8 @@
 import type { AnalysisMode } from "@autonoma/types";
 
 /**
- * The merged analysis pipeline's activities (run on the INVESTIGATION task queue for now - the queue collapse
- * is a cleanup-phase concern). In `shadow` mode Impact Analysis really selects affected tests, the Investigators
+ * The merged analysis pipeline's activities (run on the DIFFS task queue - the pipeline is re-homed into the
+ * diffs worker; investigation is frozen). In `shadow` mode Impact Analysis really selects affected tests, the Investigators
  * really run + classify them, and the Reconciler persists the verdict + findings to the shadow store; nothing
  * user-facing is written and the twin is never promoted. Authoritative promotion + Bug/Issue filing stay guarded
  * behind `mode === "authoritative"` and remain dormant until the cutover ships.
