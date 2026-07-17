@@ -1,4 +1,4 @@
-import type { AnalysisMode } from "@autonoma/types";
+import type { AnalysisMode, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 
 /**
  * The merged analysis pipeline's activities (run on the DIFFS task queue - the pipeline is re-homed into the
@@ -17,6 +17,8 @@ export interface AnalysisInvestigationTarget {
     scenarioId?: string;
     /** Why this test was selected - fed to the classifier as context. */
     reason: string;
+    /** Whether this test pre-existed (affected) or was authored this run (proposed) - set at materialization. */
+    origin: AnalysisTestOrigin;
 }
 
 export interface RunImpactAnalysisInput {
@@ -33,10 +35,22 @@ export interface RunImpactAnalysisOutput {
 /** A candidate finding an Investigator emits. The Investigator never files - the Reconciler owns that write. */
 export interface AnalysisCandidateFinding {
     slug: string;
-    /** The Investigator's terminal verdict category. Collapsed to `passed` | `client_bug` in this slice - the
-     * full taxonomy (engine_artifact / environment_failure / scenario_issue / delete) lands with the verdict issue. */
-    category: string;
+    /** The Investigator's terminal verdict (the full two-plane taxonomy). Never `test_is_wrong` - that is a
+     * transient loop-routing signal that resolves to a re-run or, when exhausted, to `delete`. */
+    category: AnalysisVerdict;
     headline: string;
+    /**
+     * Whether the Investigator rewrote this test's plan during its run (a self-heal re-run was applied). This is
+     * the fidelity signal - it replaces the classifier's PlanFidelity axis: a finding whose plan was edited was
+     * reached against a corrected test, one whose plan was not is the test as authored.
+     */
+    planEdited: boolean;
+    /**
+     * Whether the test pre-existed (affected) or was authored this run (proposed). The data tag that lets a
+     * `delete` finding be read apart - an obsolete pre-existing test vs a proposed test that could not be
+     * established - without a separate verdict.
+     */
+    origin: AnalysisTestOrigin;
 }
 
 /** The deployed (authoritative diffs) agent's outcome, read for the shadow-vs-diffs comparison. */
@@ -79,9 +93,58 @@ export interface FinalizeAnalysisOutput {
     promoted: boolean;
 }
 
-/** The activities run by the merged analysis pipeline. */
+export interface SelfHealAnalysisTestInput {
+    /** The detached twin snapshot the test's rows live on. */
+    snapshotId: string;
+    /** The test whose plan to rewrite (its own (snapshot, testCase) rows). */
+    slug: string;
+    /** The classifier's COMPLETE revised plan to author onto the test. */
+    plan: string;
+}
+
+export interface SelfHealAnalysisTestOutput {
+    /** A fresh pending generation to re-run + re-classify, or undefined when one could not be prepared. */
+    testGenerationId?: string;
+    /** The scenario the rewritten plan pins (preserved from the test's current plan), when it pins one. */
+    scenarioId?: string;
+    /** Why no generation was prepared, when `testGenerationId` is absent (e.g. the slug has no assignment). */
+    skippedReason?: string;
+}
+
+export interface DeleteAnalysisTestInput {
+    /** The detached twin snapshot the test's assignment lives on. */
+    snapshotId: string;
+    /** The test whose assignment to remove from the twin. */
+    slug: string;
+    /**
+     * Whether the test pre-existed or was proposed this run. `pre_existing` removes only this snapshot's
+     * assignment (the global TestCase is a real suite member); `proposed` removes the whole TestCase (it was
+     * authored this run and would otherwise leak as an orphaned catalog row).
+     */
+    origin: AnalysisTestOrigin;
+}
+
+export interface DeleteAnalysisTestOutput {
+    /** Whether an assignment was actually removed (false when the slug had no assignment on the snapshot). */
+    deleted: boolean;
+    /** Why nothing was removed, when `deleted` is false. */
+    reason?: string;
+}
+
+/** The parent stages of the merged analysis pipeline (Impact Analysis, Reconciler, finalize). */
 export interface AnalysisActivities {
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
     reconcileAnalysis(input: ReconcileAnalysisInput): Promise<ReconcileAnalysisOutput>;
     finalizeAnalysis(input: FinalizeAnalysisInput): Promise<FinalizeAnalysisOutput>;
+}
+
+/**
+ * The Investigator's own row-local write activities on the detached snapshot: a self-heal plan rewrite
+ * (`UpdateTest`) and the eager `delete` self-delete (`RemoveTest`), both via the canonical `TestSuiteUpdater`
+ * update actions. A separate contract from `AnalysisActivities` (the parent stages): only the re-homed diffs
+ * worker implements these, so they stay off the contract the frozen investigation worker still satisfies.
+ */
+export interface InvestigatorActivities {
+    selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
+    deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
 }

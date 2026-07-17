@@ -145,6 +145,8 @@ async function persistShadowRun(input: PersistShadowRunInput, logger: Logger): P
             slug: member.slug,
             category: member.category,
             headline: member.headline,
+            planEdited: member.planEdited,
+            origin: member.origin,
         })),
     }));
     const data = {

@@ -1,5 +1,10 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AnalysisActivities, DiffsActivities, InvestigationActivities } from "@autonoma/workflow/activities";
+import type {
+    AnalysisActivities,
+    DiffsActivities,
+    InvestigationActivities,
+    InvestigatorActivities,
+} from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 
 export { analyzeDiffs } from "./analyze-diffs";
@@ -8,9 +13,11 @@ export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
+import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
 import { reconcileAnalysis as reconcileAnalysisImpl } from "./analysis/reconcile-analysis";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
+import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
 import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { finalizeDiffs } from "./finalize-diffs";
@@ -53,6 +60,11 @@ export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
 export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
+// The Investigator's own row-local writes on the detached snapshot: a self-heal plan rewrite (UpdateTest, queues
+// one generation) and the eager `delete` self-delete (RemoveTest, a single assignment delete). Both are fast, but
+// heartbeat for consistency with the other analysis activities.
+export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
+export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
@@ -72,3 +84,6 @@ export const classifyInvestigationRun = withHeartbeat(classifyImpl);
     finalizeAnalysis,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
+// The Investigator's own row-local writes (self-heal + eager self-delete), on their own contract - only the diffs
+// worker implements them, so they stay off the AnalysisActivities contract the frozen investigation worker shares.
+({ selfHealAnalysisTest, deleteAnalysisTest }) satisfies InvestigatorActivities;

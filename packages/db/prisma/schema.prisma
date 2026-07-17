@@ -2408,7 +2408,9 @@ model AnalysisShadowRun {
   /// The deduped findings the Reconciler produced: several tests surfacing the same underlying issue are
   /// unioned into one finding carrying every member (`coveredSlugs` + `members`). A display-only blob, not
   /// queried yet, so JSON not a child table.
-  /// ![{ category: string; headline: string; coveredSlugs: string[]; members: { slug: string; category: string; headline: string }[] }[]]
+  /// `planEdited` (self-heal fidelity) and `origin` ("pre_existing" | "proposed") on a member are written by the
+  /// re-homed diffs pipeline; both optional because the frozen (pre-re-home) investigation persist omits them.
+  /// ![{ category: string; headline: string; coveredSlugs: string[]; members: { slug: string; category: string; headline: string; planEdited?: boolean; origin?: "pre_existing" | "proposed" }[] }[]]
   findings Json?
 
   /// The authoritative diffs job's outcome for this PR, for the shadow-vs-diffs comparison. Display-only blob.

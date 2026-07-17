@@ -99,5 +99,10 @@ export type {
     ReconcileAnalysisOutput,
     FinalizeAnalysisInput,
     FinalizeAnalysisOutput,
+    InvestigatorActivities,
+    SelfHealAnalysisTestInput,
+    SelfHealAnalysisTestOutput,
+    DeleteAnalysisTestInput,
+    DeleteAnalysisTestOutput,
 } from "./analysis-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

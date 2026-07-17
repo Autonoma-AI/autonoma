@@ -1,4 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
+import type { AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 import { Output, generateText } from "ai";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
@@ -8,24 +9,42 @@ import { withRetry } from "./retry";
 // call is cheap. It retries at most twice, keeping the worst case well inside the activity's timeout.
 const DEDUP_TIMEOUT_MS = 3 * 60_000;
 const MODEL_CALL_TRIES = 2;
-const CLIENT_BUG = "client_bug";
+
+/**
+ * Severity order for choosing a merged group's headline category (lower = more severe). `client_bug` is the
+ * app-health plane and always wins - a client bug anywhere in the group makes the whole group a client bug; the
+ * coverage-plane order below mirrors the finding-category UI's actionability. A `Record` over the full verdict
+ * taxonomy so adding a verdict is a compile error here until it is placed.
+ */
+const CATEGORY_SEVERITY: Record<AnalysisVerdict, number> = {
+    client_bug: 0,
+    engine_artifact: 1,
+    scenario_issue: 2,
+    environment_failure: 3,
+    delete: 4,
+    passed: 5,
+};
 
 /** A candidate finding the Reconciler dedups - the thin shape the Investigators emit (one per test). */
 export interface AnalysisFinding {
     /** The test that surfaced this finding. Unique per candidate; what a cluster references. */
     slug: string;
-    category: string;
+    category: AnalysisVerdict;
     headline: string;
+    /** Whether the Investigator rewrote this test's plan before reaching this verdict (the fidelity signal). */
+    planEdited: boolean;
+    /** Whether the test pre-existed (affected) or was authored this run (proposed) - the data tag for `delete`. */
+    origin: AnalysisTestOrigin;
 }
 
 /**
  * A deduped finding: ONE underlying issue, carrying the union of every candidate (test) that surfaced it.
  * `coveredSlugs` (length >= 1) is the unioned evidence - length > 1 means several tests were merged into this
- * one finding. `members` keeps each source candidate so the union is inspectable. `category` is the most
- * severe of the members (a client bug anywhere in the group makes the whole group a client bug).
+ * one finding. `members` keeps each source candidate (with its own `planEdited`) so the union is inspectable.
+ * `category` is the most severe of the members (a client bug anywhere in the group makes the whole group one).
  */
 export interface ReconciledAnalysisFinding {
-    category: string;
+    category: AnalysisVerdict;
     headline: string;
     coveredSlugs: string[];
     members: AnalysisFinding[];
@@ -200,12 +219,15 @@ function toSingleton(finding: AnalysisFinding): ReconciledAnalysisFinding {
 }
 
 /**
- * The category of a merged group. A client bug anywhere in the group makes the whole group a client bug (the
- * app-health plane wins); otherwise the group keeps its first member's category. The full severity ordering
- * arrives with the verdict-taxonomy slice.
+ * The category of a merged group: the most severe of its members by CATEGORY_SEVERITY. A client bug anywhere in
+ * the group makes the whole group a client bug (the app-health plane wins); otherwise the most actionable
+ * coverage-plane category represents the shared cause.
  */
-function mostSevereCategory(members: AnalysisFinding[]): string {
-    if (members.some((member) => member.category === CLIENT_BUG)) return CLIENT_BUG;
+function mostSevereCategory(members: AnalysisFinding[]): AnalysisVerdict {
     // members is always non-empty (a cluster has >= 2, a singleton exactly 1); fail safe to the non-bug plane.
-    return members[0]?.category ?? "passed";
+    let severest: AnalysisVerdict = members[0]?.category ?? "passed";
+    for (const member of members) {
+        if (CATEGORY_SEVERITY[member.category] < CATEGORY_SEVERITY[severest]) severest = member.category;
+    }
+    return severest;
 }

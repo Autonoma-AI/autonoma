@@ -69,8 +69,9 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
 
 /**
  * Fan out one Investigator child workflow per target, in bounded waves - the single choke point that holds the
- * ceiling on concurrent browsers / scenario provisions. Returns the candidate findings the Investigators emit;
- * a test that could not be evaluated (or whose child failed) contributes no finding and is dropped here.
+ * ceiling on concurrent browsers / scenario provisions. Every target yields exactly one candidate finding: the
+ * Investigator always returns one, and a child that crashed or timed out is contained here as an engine_artifact
+ * (see runInvestigator), so no target is ever silently dropped and none can block the rendezvous.
  */
 async function runInvestigators(
     snapshotId: string,
@@ -82,24 +83,23 @@ async function runInvestigators(
     for (let offset = 0; offset < targets.length; offset += INVESTIGATOR_CONCURRENCY) {
         const wave = targets.slice(offset, offset + INVESTIGATOR_CONCURRENCY);
         const waveCandidates = await Promise.all(wave.map((target) => runInvestigator(snapshotId, mode, target, ids)));
-        for (const candidate of waveCandidates) {
-            if (candidate != null) candidates.push(candidate);
-        }
+        candidates.push(...waveCandidates);
     }
     return candidates;
 }
 
 /**
- * Run one Investigator child workflow. The child id is keyed to the twin + slug so it is idempotent. Contained:
- * a child that fails to execute (infra error, cancellation) is logged and drops this test's finding rather than
- * sinking the whole fan-out - the shadow run must always proceed to a verdict.
+ * Run one Investigator child workflow. The child id is keyed to the twin + slug so it is idempotent. Per-test
+ * containment: a child that fails to execute (crash, cancellation, timeout) is caught and yields a contained
+ * `engine_artifact` finding rather than sinking the whole fan-out - the shadow run must always proceed to a
+ * verdict, and an engine fault never counts as a bug against the PR nor blocks the Reconciler barrier.
  */
 async function runInvestigator(
     snapshotId: string,
     mode: AnalysisMode,
     target: AnalysisInvestigationTarget,
     ids: { snapshot: { snapshotId: string } },
-): Promise<AnalysisCandidateFinding | undefined> {
+): Promise<AnalysisCandidateFinding> {
     log.info("Starting Investigator child workflow", { ...ids, extra: { slug: target.slug } });
     try {
         return await executeChild(WORKFLOW_TYPE.INVESTIGATOR, {
@@ -112,15 +112,23 @@ async function runInvestigator(
                     testGenerationId: target.testGenerationId,
                     scenarioId: target.scenarioId,
                     reason: target.reason,
+                    origin: target.origin,
                     mode,
                 },
             ],
         });
     } catch (error) {
-        log.error("Investigator child workflow failed; dropping this test's finding", {
+        const message = rootFailureMessage(error);
+        log.error("Investigator child workflow failed; containing it as an engine_artifact", {
             ...ids,
-            extra: { slug: target.slug, message: rootFailureMessage(error) },
+            extra: { slug: target.slug, message },
         });
-        return undefined;
+        return {
+            slug: target.slug,
+            category: "engine_artifact",
+            headline: `The Investigator crashed or timed out: ${message}`,
+            planEdited: false,
+            origin: target.origin,
+        };
     }
 }

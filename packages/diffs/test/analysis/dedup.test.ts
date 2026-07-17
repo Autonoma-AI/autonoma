@@ -1,3 +1,4 @@
+import type { AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { type AnalysisFinding, dedupeAnalysisFindings } from "../../src/analysis/dedup";
@@ -28,8 +29,14 @@ function failingModel(): MockLanguageModelV3 {
     });
 }
 
-function finding(slug: string, category: string, headline = `${slug} headline`): AnalysisFinding {
-    return { slug, category, headline };
+function finding(
+    slug: string,
+    category: AnalysisVerdict,
+    headline = `${slug} headline`,
+    planEdited = false,
+    origin: AnalysisTestOrigin = "pre_existing",
+): AnalysisFinding {
+    return { slug, category, headline, planEdited, origin };
 }
 
 describe("dedupeAnalysisFindings", () => {
@@ -120,5 +127,36 @@ describe("dedupeAnalysisFindings", () => {
 
         expect(result).toHaveLength(3);
         expect(result.map((f) => f.coveredSlugs)).toEqual([["a"], ["b"], ["c"]]);
+    });
+
+    it("picks the most severe coverage-plane category for a merged group with no client bug", async () => {
+        // No client bug in the group, so the app-health plane does not apply; the group takes the most severe
+        // coverage-plane category by CATEGORY_SEVERITY (engine_artifact is more severe than scenario_issue).
+        const findings = [finding("a", "scenario_issue"), finding("b", "engine_artifact")];
+        const model = clustersModel([
+            { memberSlugs: ["a", "b"], headline: "shared infra fault", reason: "same cause" },
+        ]);
+
+        const result = await dedupeAnalysisFindings({ findings, model });
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.category).toBe("engine_artifact");
+        expect(result[0]?.coveredSlugs).toEqual(["a", "b"]);
+    });
+
+    it("preserves each member's planEdited through a merge", async () => {
+        const findings = [
+            finding("a", "client_bug", "a headline", true),
+            finding("b", "client_bug", "b headline", false),
+        ];
+        const model = clustersModel([{ memberSlugs: ["a", "b"], headline: "one defect", reason: "same cause" }]);
+
+        const result = await dedupeAnalysisFindings({ findings, model });
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.members.map((m) => ({ slug: m.slug, planEdited: m.planEdited }))).toEqual([
+            { slug: "a", planEdited: true },
+            { slug: "b", planEdited: false },
+        ]);
     });
 });

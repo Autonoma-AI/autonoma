@@ -2,6 +2,7 @@ import { db } from "@autonoma/db";
 import { type Codebase, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { AddTest, RegenerateSteps, TestSuiteUpdater, fetchTestSuiteInfo } from "@autonoma/test-updates";
+import type { AnalysisTestOrigin } from "@autonoma/types";
 import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
@@ -123,9 +124,10 @@ async function materializeTargets({
         organizationId: agentResult.organizationId,
     });
 
-    const materialized: { generationId: string; reason: string }[] = [];
+    const materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[] = [];
 
-    // New tests first (AddTest mints test case + plan + assignment + queues a generation).
+    // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` so a
+    // later `delete` on an un-establishable one removes the whole (this-run-only) TestCase, not just the assignment.
     for (const test of agentResult.createdTests) {
         const folderId = agentResult.flowFolderId(test.folderName);
         if (folderId == null) throw new Error(`Folder "${test.folderName}" not found for authored test "${test.name}"`);
@@ -138,10 +140,11 @@ async function materializeTargets({
                 scenarioId: test.scenarioId,
             }),
         );
-        materialized.push({ generationId, reason: NEW_TEST_REASON });
+        materialized.push({ generationId, reason: NEW_TEST_REASON, origin: "proposed" });
     }
 
     // Affected tests (RegenerateSteps clears the pinned plan's steps + queues a generation to regenerate them).
+    // Tagged `pre_existing` so a later `delete` removes only this run's assignment, never the real suite member.
     for (const affected of agentResult.affectedTests) {
         const testCaseId = agentResult.testCaseIdBySlug.get(affected.slug);
         if (testCaseId == null) {
@@ -149,7 +152,7 @@ async function materializeTargets({
             continue;
         }
         const generationId = await updater.apply(new RegenerateSteps({ testCaseId }));
-        materialized.push({ generationId, reason: affected.reasoning });
+        materialized.push({ generationId, reason: affected.reasoning, origin: "pre_existing" });
     }
 
     if (materialized.length === 0) {
@@ -166,7 +169,7 @@ async function materializeTargets({
 
 /** Resolve each materialized generation to its slug + scenario + architecture (one read), keeping web targets. */
 async function resolveTargets(
-    materialized: { generationId: string; reason: string }[],
+    materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[],
     logger: Logger,
 ): Promise<AnalysisInvestigationTarget[]> {
     const rows = await db.testGeneration.findMany({
@@ -198,6 +201,7 @@ async function resolveTargets(
             testGenerationId: entry.generationId,
             scenarioId: row.testPlan.scenario?.id,
             reason: entry.reason,
+            origin: entry.origin,
         });
     }
     return targets;

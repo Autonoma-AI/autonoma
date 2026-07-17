@@ -5,9 +5,9 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { expect } from "vitest";
 import { type AnalysisDedupe, reconcileAnalysis } from "../../src/activities/analysis/reconcile-analysis";
 
-// The holistic dedup runs a live model in prod (tested hermetically in the @autonoma/investigation package).
-// These integration tests inject a deterministic dedup so they exercise the Reconciler's persistence + verdict
-// derivation without a model or network.
+// The holistic dedup runs a live model in prod (tested hermetically in @autonoma/diffs). These integration tests
+// inject a deterministic dedup so they exercise the Reconciler's persistence + verdict derivation without a model
+// or network.
 const identityDedupe: AnalysisDedupe = async (candidates) =>
     candidates.map((candidate) => ({
         category: candidate.category,
@@ -39,10 +39,17 @@ function mergingDedupe(mergedSlugs: string[]): AnalysisDedupe {
     };
 }
 
-const candidate = (slug: string, category: string): AnalysisCandidateFinding => ({
+const candidate = (
+    slug: string,
+    category: AnalysisCandidateFinding["category"],
+    planEdited = false,
+    origin: AnalysisCandidateFinding["origin"] = "pre_existing",
+): AnalysisCandidateFinding => ({
     slug,
     category,
     headline: `${slug} headline`,
+    planEdited,
+    origin,
 });
 
 // reconcileAnalysis reads the `@autonoma/db` singleton (the global `db` proxy resolves to globalThis.prisma).
@@ -143,6 +150,33 @@ integrationTestSuite({
 
             // The shadow store is not the user-facing Bug model - a shadow run must never file one.
             expect(await harness.db.bug.count({ where: { organizationId } })).toBe(0);
+        });
+
+        test("persists each member's planEdited + origin data tags to the shadow store", async ({ harness }) => {
+            const { snapshotId } = await harness.seedTwin("sha-edited");
+
+            await reconcileAnalysis(
+                {
+                    snapshotId,
+                    mode: "shadow",
+                    candidates: [
+                        candidate("healed", "passed", true, "pre_existing"),
+                        candidate("unestablished", "delete", false, "proposed"),
+                    ],
+                },
+                identityDedupe,
+            );
+
+            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
+            const bySlug = new Map(
+                (row?.findings ?? []).flatMap((finding) =>
+                    finding.members.map(
+                        (member) => [member.slug, { planEdited: member.planEdited, origin: member.origin }] as const,
+                    ),
+                ),
+            );
+            expect(bySlug.get("healed")).toEqual({ planEdited: true, origin: "pre_existing" });
+            expect(bySlug.get("unestablished")).toEqual({ planEdited: false, origin: "proposed" });
         });
 
         test("resolves a `passed` verdict when no finding is a client bug", async ({ harness }) => {
