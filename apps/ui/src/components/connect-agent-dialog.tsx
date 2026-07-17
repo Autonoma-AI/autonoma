@@ -21,6 +21,9 @@ import { useState, type ReactNode } from "react";
 /** The two Autonoma MCP surfaces, addressed by their `/v1/mcp/<path>` suffix. */
 export type McpEndpoint = "onboarding" | "debug";
 
+/** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
+export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
+
 /**
  * Resolve the Autonoma MCP endpoint the user's coding agent connects to. We point
  * at the dedicated API host (`api.<app-host>`), NOT the app origin: the app host

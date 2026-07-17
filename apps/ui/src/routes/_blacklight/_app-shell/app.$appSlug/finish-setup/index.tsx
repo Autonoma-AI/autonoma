@@ -28,11 +28,13 @@ import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlayIcon } from "@phosphor-icons/react/Play";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
 import { useAuth } from "lib/auth";
 import {
   useConfigureAndDiscoverSdkTarget,
@@ -562,6 +564,7 @@ function TargetBuildCause({
 }
 
 function SdkStepBody({ applicationId }: { applicationId: string }) {
+  const app = useCurrentApplication();
   const { data: state } = useOnboardingState(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
   const sharedSecretQuery = useApplicationSharedSecret(applicationId);
@@ -578,6 +581,7 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   // Follow the deploy: watch the build while the image builds, then auto-switch to
   // app logs once the pods roll out (status "deploying") or the env is ready, so
   // runtime output appears without switching tabs. A failed deploy keeps the build
@@ -652,6 +656,9 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
     !preparing &&
     (!requiresSharedSecretInput || signingSecret.length > 0);
   const showDiscoveryError = state.lastDiscoveryError != null && !discover.isPending && !managedDiscover.isPending;
+  // When an error surface is visible, the debug/config actions move INTO it
+  // (promoted, next to Redeploy) - so the quiet row would duplicate them.
+  const showErrorActions = selectedTargetAvailability === "failed" || showDiscoveryError;
   // Logs are the debugging surface: on a discovery error, but also while a
   // preview is building or after its deploy failed - the answer is in there.
   const showPreviewLogs =
@@ -820,13 +827,24 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             </p>
           )}
           <p className="text-2xs text-text-secondary">
-            The build logs below show what went wrong. Push a new commit or redeploy to retry.
+            The build logs below show what went wrong. Push a new commit or redeploy to retry - or point your coding
+            agent at it and let it find the fix.
           </p>
-          <div>
+          <div className="flex items-center gap-2">
+            <Button variant="accent" size="xs" className="gap-1.5" onClick={() => setAgentDialogOpen(true)}>
+              <RobotIcon size={12} weight="bold" />
+              Debug with coding agent
+            </Button>
+            <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+              <Button variant="outline" size="xs" className="gap-1.5">
+                <ArrowSquareOutIcon size={12} weight="bold" />
+                Preview configuration
+              </Button>
+            </Link>
             <Button
               variant="outline"
               size="xs"
-              className="gap-1.5"
+              className="ml-auto gap-1.5"
               onClick={handleRedeploy}
               disabled={redeployTarget.isPending}
             >
@@ -937,7 +955,39 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
             Discovered{state.lastDiscoveredModels != null ? ` ${state.lastDiscoveredModels} models` : ""}
           </span>
         )}
+        {!showErrorActions && (
+          <div className="ml-auto flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setAgentDialogOpen(true)}>
+              <RobotIcon size={14} weight="bold" />
+              Debug with coding agent
+            </Button>
+            <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+              <Button variant="ghost" size="sm" className="gap-1.5">
+                <ArrowSquareOutIcon size={14} weight="bold" />
+                Preview configuration
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
+
+      <ConnectAgentDialog
+        open={agentDialogOpen}
+        onOpenChange={setAgentDialogOpen}
+        title="Debug with a coding agent"
+        description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
+        serverName="autonoma"
+        endpoint="debug"
+        docsUrl={DEBUG_MCP_DOCS_URL}
+        tellAgent={
+          <>
+            Then, from your repo, ask your agent about the preview - e.g.{" "}
+            <span className="font-mono text-text-primary">why did my preview fail?</span> or{" "}
+            <span className="font-mono text-text-primary">fix my preview deploy</span>. It reads the repo and PR from
+            your local git.
+          </>
+        }
+      />
 
       {showDiscoveryError && (
         <div className="flex flex-col gap-3">
@@ -952,6 +1002,16 @@ function SdkStepBody({ applicationId }: { applicationId: string }) {
               around the handler or discover path before re-validating.
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              <Button variant="accent" size="sm" className="gap-2" onClick={() => setAgentDialogOpen(true)}>
+                <RobotIcon size={14} weight="bold" />
+                Debug with coding agent
+              </Button>
+              <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <ArrowSquareOutIcon size={14} weight="bold" />
+                  Preview configuration
+                </Button>
+              </Link>
               {pullRequestUrl != null && (
                 <a href={pullRequestUrl} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="sm" className="gap-2">

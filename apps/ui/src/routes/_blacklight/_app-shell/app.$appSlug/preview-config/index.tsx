@@ -2,7 +2,7 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { createFileRoute } from "@tanstack/react-router";
-import { ConnectAgentDialog } from "components/connect-agent-dialog";
+import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
 import { Suspense, useState } from "react";
 import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
 import { PRIMARY_REPO_KEY, type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
@@ -11,9 +11,6 @@ import { usePreviewDraft } from "./-draft-context";
 import { PreviewRail, type RailSelection } from "./-rail";
 import { RepoView } from "./-repo-view";
 import { ServiceView } from "./-service-view";
-
-/** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
-const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/preview-config/")({
   component: PreviewConfigPage,
