@@ -20,6 +20,7 @@ import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 
 const BUILDKIT_DIAL_BUDGET_MS = 30_000;
 const BUILDKIT_LIFECYCLE_MARGIN_MS = 60_000;
+const EKS_TOKEN_REFRESH_INTERVAL_MS = 30_000;
 
 /**
  * Everything a preview run needs (pipelines + GitHub provider + heavy
@@ -47,11 +48,12 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
                 : undefined;
         const loader = new EksKubeconfigLoader(env.EKS_CLUSTER_NAME, env.AWS_REGION, staticClusterInfo);
         kc = await loader.load();
-        // Refresh the token every 45 seconds (STS presigned URLs expire in 60s).
-        // load() mutates the existing kc object in-place, so all API clients pick up the new token.
+        // Force a fresh token halfway through its 60-second validity window.
+        // refresh() mutates the existing kc object in place, so all API clients
+        // pick up the new token without rebuilding their clients.
         setInterval(() => {
-            loader.load().catch((err) => logger.error("Failed to refresh EKS kubeconfig token", err));
-        }, 45_000);
+            loader.refresh().catch((err) => logger.error("Failed to refresh EKS kubeconfig token", err));
+        }, EKS_TOKEN_REFRESH_INTERVAL_MS);
     } else {
         kc = new k8s.KubeConfig();
         if (env.KUBECONFIG != null) {

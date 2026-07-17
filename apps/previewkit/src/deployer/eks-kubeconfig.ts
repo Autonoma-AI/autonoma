@@ -6,7 +6,8 @@ import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
 import { logger as rootLogger, type Logger } from "../logger";
 
-// STS presigned URLs for EKS auth expire in 60 seconds — refresh at 50s to stay ahead.
+// STS presigned URLs for EKS auth expire in 60 seconds. Cache ordinary callers
+// for 50 seconds, while the background refresher uses refresh() to mint early.
 const CACHE_TTL_MS = 50 * 1000;
 
 interface CachedClusterInfo {
@@ -21,6 +22,11 @@ export interface EksKubeconfigLoaderOptions {
     clusterCa?: string;
 }
 
+interface EksKubeconfigLoaderDependencies {
+    now?: () => number;
+    tokenFactory?: () => Promise<string>;
+}
+
 export class EksKubeconfigLoader {
     private readonly logger: Logger;
     private readonly eksClient: EKSClient;
@@ -28,11 +34,14 @@ export class EksKubeconfigLoader {
     private clusterInfo?: CachedClusterInfo;
     private cachedKubeconfig?: k8s.KubeConfig;
     private cachedAt?: number;
+    private readonly now: () => number;
+    private readonly tokenFactory?: () => Promise<string>;
 
     constructor(
         private readonly clusterName: string,
         private readonly region: string,
         staticClusterInfo?: { endpoint: string; caData: string },
+        dependencies?: EksKubeconfigLoaderDependencies,
     ) {
         this.logger = rootLogger.child({ name: "EksKubeconfigLoader", cluster: clusterName });
         this.eksClient = new EKSClient({ region });
@@ -42,6 +51,8 @@ export class EksKubeconfigLoader {
             service: "sts",
             sha256: Sha256,
         });
+        this.now = dependencies?.now ?? Date.now;
+        this.tokenFactory = dependencies?.tokenFactory;
 
         if (staticClusterInfo != null) {
             this.clusterInfo = staticClusterInfo;
@@ -49,15 +60,29 @@ export class EksKubeconfigLoader {
     }
 
     async load(): Promise<k8s.KubeConfig> {
-        const now = Date.now();
+        const now = this.now();
         const needsRefresh = this.cachedAt == null || now - this.cachedAt >= CACHE_TTL_MS;
 
         if (!needsRefresh && this.cachedKubeconfig != null) {
             return this.cachedKubeconfig;
         }
 
-        const cluster = await this.describeCluster();
-        const token = await this.mintToken();
+        return await this.reload(now);
+    }
+
+    /**
+     * Mints a token regardless of cache age. The periodic refresher calls this
+     * before the current 60-second token can expire.
+     */
+    async refresh(): Promise<k8s.KubeConfig> {
+        this.logger.debug("Refreshing EKS kubeconfig token");
+        const kubeconfig = await this.reload(this.now());
+        this.logger.debug("Refreshed EKS kubeconfig token");
+        return kubeconfig;
+    }
+
+    private async reload(now: number): Promise<k8s.KubeConfig> {
+        const [cluster, token] = await Promise.all([this.describeCluster(), this.mintToken()]);
 
         if (this.cachedKubeconfig == null) {
             this.cachedKubeconfig = new k8s.KubeConfig();
@@ -96,6 +121,8 @@ export class EksKubeconfigLoader {
     }
 
     private async mintToken(): Promise<string> {
+        if (this.tokenFactory != null) return await this.tokenFactory();
+
         const hostname = `sts.${this.region}.amazonaws.com`;
         const request = new HttpRequest({
             method: "GET",
