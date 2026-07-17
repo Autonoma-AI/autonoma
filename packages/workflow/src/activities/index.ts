@@ -5,7 +5,6 @@ export type {
     ScenarioDownInput,
     ReviewGenerationInput,
     ReviewGenerationOutput,
-    AssignGenerationResultsInput,
     MarkGenerationFailedInput,
     NotifyGenerationExitInput,
     ApplyHealingActionsInput,

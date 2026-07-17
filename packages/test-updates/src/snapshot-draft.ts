@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
+import type { PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddTestParams, UpdateTestParams } from "./changes";
@@ -26,14 +26,6 @@ export class ApplicationNotFoundError extends Error {
     constructor(branchId: string) {
         super(`Branch ${branchId} not found or does not belong to the specified organization`);
         this.name = "ApplicationNotFoundError";
-    }
-}
-
-export class StepsPlanMismatchError extends Error {
-    constructor(stepsId: string, stepsPlanId: string, assignmentPlanId: string | undefined) {
-        super(
-            `StepInputList ${stepsId} belongs to plan ${stepsPlanId} but assignment has plan ${assignmentPlanId ?? "none"}`,
-        );
     }
 }
 
@@ -288,7 +280,7 @@ export class SnapshotDraft {
 
     /**
      * Retrieves information about the test cases currently assigned in this snapshot,
-     * including their associated plans and steps.
+     * including their associated plans.
      */
     public async currentTestSuiteInfo() {
         return fetchTestSuiteInfo(this.db, this.snapshotId);
@@ -312,9 +304,9 @@ export class SnapshotDraft {
         return getChangesForSnapshot(this.db, this.snapshotId, snapshot.prevSnapshotId, this.logger);
     }
 
-    /** Clears the steps for a test case, keeping the current plan. Returns the current planId. */
-    public async clearSteps(testCaseId: string) {
-        this.logger.info("Clearing steps for test case", { testCaseId });
+    /** Resolves the plan currently assigned to a test case in this snapshot. */
+    public async resolvePlanId(testCaseId: string) {
+        this.logger.info("Resolving plan for test case", { testCaseId });
 
         const assignment = await this.db.testCaseAssignment.findUniqueOrThrow({
             where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
@@ -325,17 +317,10 @@ export class SnapshotDraft {
             throw new Error(`Test case ${testCaseId} has no plan assigned`);
         }
 
-        await this.db.testCaseAssignment.update({
-            where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
-            data: { stepsId: null },
-        });
-
-        this.logger.info("Steps cleared for test case", { testCaseId, planId: assignment.planId });
-
         return { planId: assignment.planId };
     }
 
-    /** Updates the test plan for a test case and clears its steps (now stale). */
+    /** Updates the test plan for a test case. */
     public async updatePlan({ testCaseId, plan, scenarioId }: UpdateTestParams) {
         this.logger.info("Updating plan for test case", { testCaseId, scenarioId });
 
@@ -354,52 +339,15 @@ export class SnapshotDraft {
             this.logger.info("Updating test case assignment", { testCaseId });
             await tx.testCaseAssignment.update({
                 where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
-                data: { planId, stepsId: undefined },
+                data: { planId },
             });
 
             return { planId };
         });
 
-        this.logger.info("Plan updated and steps cleared for test case", { testCaseId });
+        this.logger.info("Plan updated for test case", { testCaseId });
 
         return { planId };
-    }
-
-    /**
-     * Updates the step list for a test case.
-     *
-     * @throws {StepsPlanMismatchError} If the step list does not belong to the
-     *   plan currently assigned to the test case.
-     */
-    private async updateSteps(tx: Prisma.TransactionClient, testCaseId: string, stepsId: string) {
-        this.logger.info("Updating steps for test case", { testCaseId, stepsId });
-
-        const assignment = await tx.testCaseAssignment.findUniqueOrThrow({
-            where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
-            select: { planId: true },
-        });
-
-        const stepList = await tx.stepInputList.findUniqueOrThrow({
-            where: { id: stepsId },
-            select: { planId: true },
-        });
-
-        if (stepList.planId !== assignment.planId) {
-            this.logger.error("Step list does not match assignment plan", {
-                testCaseId,
-                stepsId,
-                stepsPlanId: stepList.planId,
-                assignmentPlanId: assignment.planId,
-            });
-            throw new StepsPlanMismatchError(stepsId, stepList.planId, assignment.planId ?? undefined);
-        }
-
-        await tx.testCaseAssignment.update({
-            where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
-            data: { stepsId },
-        });
-
-        this.logger.info("Steps updated for test case", { testCaseId });
     }
 
     /**
@@ -441,7 +389,7 @@ export class SnapshotDraft {
 
             const previousAssignment = await tx.testCaseAssignment.findUnique({
                 where: { snapshotId_testCaseId: { snapshotId: snapshot.prevSnapshotId, testCaseId } },
-                select: { planId: true, stepsId: true },
+                select: { planId: true },
             });
 
             if (previousAssignment == null) {
@@ -458,7 +406,6 @@ export class SnapshotDraft {
                     snapshotId: this.snapshotId,
                     testCaseId,
                     planId: previousAssignment.planId ?? undefined,
-                    stepsId: previousAssignment.stepsId ?? undefined,
                 },
             });
         });
@@ -479,7 +426,7 @@ export class SnapshotDraft {
         return existing != null ? `${baseSlug}-${this.generateRandomSuffix()}` : baseSlug;
     }
 
-    /** Adds a new test case to this snapshot with an empty assignment (no plan or steps). */
+    /** Adds a new test case to this snapshot, creating its assignment with the given plan. */
     public async addTestCase({ name, description, plan, folderId, scenarioId, scenarioName }: AddTestParams) {
         const slug = await this.generateTestCaseSlug(name);
         this.logger.info("Adding new test case", { name, slug });
@@ -528,24 +475,6 @@ export class SnapshotDraft {
             return;
         }
         this.logger.info("Test case removed from snapshot", { testCaseId });
-    }
-
-    /**
-     * Batch-updates the step list for multiple test cases at once.
-     *
-     * Each entry maps a test case to its new step input list. Validates that every
-     * step list belongs to the plan currently assigned to its test case.
-     *
-     * @throws {StepsPlanMismatchError} If any step list does not match its assignment's plan.
-     */
-    public async updateManySteps(updates: ReadonlyArray<{ testCaseId: string; stepsId: string }>) {
-        this.logger.info("Batch-updating steps", { count: updates.length });
-
-        await this.db.$transaction(async (tx) => {
-            await Promise.all(updates.map(({ testCaseId, stepsId }) => this.updateSteps(tx, testCaseId, stepsId)));
-        });
-
-        this.logger.info("Batch step update complete", { count: updates.length });
     }
 
     /**

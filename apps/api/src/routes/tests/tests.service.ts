@@ -15,34 +15,18 @@ export class TestsService extends Service {
             where: { applicationId, application: { organizationId }, shadow: false },
             include: {
                 tags: { include: { tag: true } },
-                plans: {
-                    include: {
-                        stepLists: {
-                            include: { _count: { select: { list: true } } },
-                        },
-                    },
-                },
             },
             orderBy: { name: "asc" },
         });
 
-        return raw.map((tc) => {
-            let stepCount = 0;
-            for (const plan of tc.plans) {
-                for (const stepList of plan.stepLists) {
-                    stepCount += stepList._count.list;
-                }
-            }
-            return {
-                id: tc.id,
-                name: tc.name,
-                slug: tc.slug,
-                description: tc.description ?? undefined,
-                folderId: tc.folderId,
-                tags: tc.tags.map((tt) => tt.tag.name),
-                stepCount,
-            };
-        });
+        return raw.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            slug: tc.slug,
+            description: tc.description ?? undefined,
+            folderId: tc.folderId,
+            tags: tc.tags.map((tt) => tt.tag.name),
+        }));
     }
 
     async getTestDetail(applicationId: string, slug: string, snapshotId: string, organizationId: string) {

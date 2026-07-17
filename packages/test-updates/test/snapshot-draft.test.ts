@@ -45,42 +45,6 @@ testUpdateSuite({
             expect(tc.plan?.prompt).toBe("Go to login page");
         });
 
-        test("start: carries stepsId forward uniformly for every assignment", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const branchId = await harness.createBranch(organizationId, applicationId);
-
-            const first = await SnapshotDraft.start({ db: harness.db, branchId });
-            const { testCaseId, planId } = await first.addTestCase({
-                folderId,
-                name: "Has steps",
-                slug: "has-steps",
-                description: "Carries its replayable steps forward",
-                plan: "Open homepage",
-            });
-
-            const steps = await harness.db.stepInputList.create({
-                data: { planId, organizationId },
-                select: { id: true },
-            });
-            await harness.db.testCaseAssignment.update({
-                where: { snapshotId_testCaseId: { snapshotId: first.snapshotId, testCaseId } },
-                data: { stepsId: steps.id },
-            });
-
-            await first.activate();
-
-            const second = await SnapshotDraft.start({ db: harness.db, branchId });
-
-            const carried = await harness.db.testCaseAssignment.findUniqueOrThrow({
-                where: { snapshotId_testCaseId: { snapshotId: second.snapshotId, testCaseId } },
-                select: { stepsId: true },
-            });
-            // Steps survive the copy so the test re-runs next snapshot - the auto-fix probe.
-            expect(carried.stepsId).toBe(steps.id);
-        });
-
         test("start: copies scenario recipe versions from active snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },
@@ -541,55 +505,6 @@ testUpdateSuite({
 
             const info = await draft.currentTestSuiteInfo();
             expect(info.testCases).toHaveLength(0);
-        });
-
-        // -- updateManySteps() --
-
-        test("updateManySteps: updates steps for multiple test cases", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const draft = await harness.startDraft(organizationId, applicationId);
-
-            const { planId: planA } = await draft.addTestCase({
-                folderId,
-                name: "Batch A",
-                slug: "batch-a",
-                description: "First",
-                plan: "Plan A",
-            });
-            const { planId: planB } = await draft.addTestCase({
-                folderId,
-                name: "Batch B",
-                slug: "batch-b",
-                description: "Second",
-                plan: "Plan B",
-            });
-
-            const stepsA = await harness.db.stepInputList.create({ data: { planId: planA, organizationId } });
-            const stepsB = await harness.db.stepInputList.create({ data: { planId: planB, organizationId } });
-
-            const info = await draft.currentTestSuiteInfo();
-            const tcA = findTestCase(info, "batch-a");
-            const tcB = findTestCase(info, "batch-b");
-
-            await draft.updateManySteps([
-                { testCaseId: tcA.id, stepsId: stepsA.id },
-                { testCaseId: tcB.id, stepsId: stepsB.id },
-            ]);
-
-            const [assignmentA, assignmentB] = await Promise.all([
-                harness.db.testCaseAssignment.findUniqueOrThrow({
-                    where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: tcA.id } },
-                    select: { stepsId: true },
-                }),
-                harness.db.testCaseAssignment.findUniqueOrThrow({
-                    where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: tcB.id } },
-                    select: { stepsId: true },
-                }),
-            ]);
-            expect(assignmentA.stepsId).toBe(stepsA.id);
-            expect(assignmentB.stepsId).toBe(stepsB.id);
         });
 
         // -- cancel() --

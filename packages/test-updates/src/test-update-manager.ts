@@ -219,50 +219,6 @@ export class TestSuiteUpdater {
         return prepared;
     }
 
-    /**
-     * Assigns generation results to the snapshot.
-     *
-     * Loads completed generations, assigns step input lists from successful ones
-     * to the corresponding test case assignments.
-     * Failed generations are skipped (their assignments keep stepsId as null).
-     */
-    public async assignGenerationResults(generationIds: string[]) {
-        this.logger.info("Assigning generation results", { generationIds });
-
-        const generations = await this.generationManager.getGenerations(generationIds);
-
-        const successfulUpdates: Array<{ testCaseId: string; stepsId: string }> = [];
-        let failed = 0;
-
-        for (const generation of generations) {
-            if (generation.status === "success" && generation.stepsId != null) {
-                this.logger.info("Generation succeeded", {
-                    generationId: generation.id,
-                    testCaseId: generation.testPlan.testCaseId,
-                    stepsId: generation.stepsId,
-                });
-                successfulUpdates.push({
-                    testCaseId: generation.testPlan.testCaseId,
-                    stepsId: generation.stepsId,
-                });
-            } else {
-                this.logger.warn("Skipping failed generation", {
-                    generationId: generation.id,
-                    status: generation.status,
-                });
-                failed++;
-            }
-        }
-
-        if (successfulUpdates.length > 0) {
-            await this.snapshotDraft.updateManySteps(successfulUpdates);
-        }
-
-        this.logger.info("Generation results assigned", { assigned: successfulUpdates.length, failed });
-
-        return { assigned: successfulUpdates.length, failed };
-    }
-
     /** Returns all pending generation records for this snapshot. */
     public async getPendingGenerations() {
         return this.generationManager.getPendingGenerations();

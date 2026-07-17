@@ -37,11 +37,8 @@ export function FolderRow({ node, level, siblingFolderIds }: FolderRowProps) {
 
   const changes = useTestChanges();
   const isExpanded = expandedFolders.has(node.id);
-  // A folder reads as "new" when it holds any test rendered green - either added on this branch, or a
-  // freshly-created test that has no steps yet (matches the green treatment on the test rows themselves).
-  const hasNewTest = collectDescendantTests(node).some(
-    (t) => changes.byTestId.get(t.id) === "added" || t.hasSteps === false,
-  );
+  // A folder reads as "new" when it holds any test added on this branch (matches the test rows themselves).
+  const hasNewTest = collectDescendantTests(node).some((t) => changes.byTestId.get(t.id) === "added");
 
   const childFolderIds = node.children.filter((c): c is FolderNode => "children" in c).map((c) => c.id);
 

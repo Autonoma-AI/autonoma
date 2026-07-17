@@ -286,9 +286,7 @@ export class TestGenerationsService extends Service {
                 id: true,
                 status: true,
                 createdAt: true,
-                outputs: {
-                    include: { _count: { select: { list: true } } },
-                },
+                _count: { select: { attempts: true } },
                 testPlan: {
                     select: {
                         testCase: {
@@ -318,7 +316,7 @@ export class TestGenerationsService extends Service {
                 shortId: gen.id.slice(0, 8),
                 testName: testCase.name,
                 tags: testCase.tags.map((tt) => tt.tag.name),
-                stepCount: gen.outputs?._count.list ?? 0,
+                stepCount: gen._count.attempts,
                 status: gen.status,
                 createdAt: gen.createdAt,
             };

@@ -17,7 +17,7 @@ src/
 │   ├── web-activities.ts                # Web worker activity inputs and WebActivities interface
 │   └── mobile-activities.ts             # Mobile worker activity inputs and MobileActivities interface
 ├── workflows/                            # Temporal workflow definitions
-│   ├── batch-generation.workflow.ts      # Parallel generation + assignment
+│   ├── batch-generation.workflow.ts      # Parallel generation
 │   ├── generation-review.workflow.ts     # Standalone generation review
 │   ├── diffs.workflow.ts                 # Diffs analysis
 │   ├── previewkit.workflow.ts            # Preview deploy (per PR push / redeploy / main branch)
@@ -65,9 +65,9 @@ import {
   triggerBatchGeneration,
 } from "@autonoma/workflow";
 
-// Batch generation - spawns one singleGenerationWorkflow per test plan and
-// assigns step outputs onto the snapshot's test-case assignments when all finish.
+// Batch generation - spawns one singleGenerationWorkflow per test plan.
 await triggerBatchGeneration({
+  snapshotId: "snapshot-1",
   testPlans: [{ testGenerationId: "gen-1", scenarioId: "scenario-1" }],
   architecture: "WEB",
 });

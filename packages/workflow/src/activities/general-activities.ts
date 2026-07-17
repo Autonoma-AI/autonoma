@@ -46,11 +46,6 @@ export interface ReviewGenerationOutput {
     verdict?: GenerationVerdict;
 }
 
-export interface AssignGenerationResultsInput {
-    snapshotId: string;
-    generationIds: string[];
-}
-
 export interface NotifyGenerationExitInput {
     testGenerationId: string;
 }
@@ -308,7 +303,6 @@ export interface RunHealingAgentForRefinementOutput {
 export interface GeneralActivities {
     scenarioUp(input: ScenarioUpInput): Promise<ScenarioUpOutput>;
     scenarioDown(input: ScenarioDownInput): Promise<void>;
-    assignGenerationResults(input: AssignGenerationResultsInput): Promise<void>;
     markGenerationFailed(input: MarkGenerationFailedInput): Promise<void>;
     notifyGenerationExit(input: NotifyGenerationExitInput): Promise<void>;
     applyHealingActions(input: ApplyHealingActionsInput): Promise<ApplyHealingActionsOutput>;

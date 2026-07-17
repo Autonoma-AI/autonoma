@@ -17,7 +17,6 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `SnapshotNotPendingError` | Error | Snapshot is not in "processing" state |
 | `BranchAlreadyHasPendingSnapshotError` | Error | Branch already has an open draft |
 | `ApplicationNotFoundError` | Error | Branch not found or does not belong to the specified organization |
-| `StepsPlanMismatchError` | Error | Step list does not belong to the assigned plan |
 | `PLAN_AUTHORING_GUIDE` | String | The shared E2E test-plan authoring ruleset (mutation + functional source-of-truth assertion, allowed/banned verbs, i18n resolution). Owned here and consumed by both the diffs agent (`@autonoma/diffs` re-exports it) and the investigation selector, so both author plans to one bar. Lives in `src/plan-authoring/`. |
 
 **Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`
@@ -29,7 +28,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `AddTest` | Adds a test case with a plan and schedules generation |
 | `UpdateTest` | Updates the plan for an existing test case and queues regeneration |
 | `RemoveTest` | Removes a test case from the snapshot |
-| `RegenerateSteps` | Clears steps and queues a new generation for an existing plan |
+| `RegenerateSteps` | Queues a new generation for a test case's existing plan |
 | `DiscardChange` | Reverts a test case to its previous snapshot state |
 
 ### Temporal entry point (`@autonoma/test-updates/temporal`)
@@ -68,16 +67,14 @@ await updater.apply(new UpdateTest({
 await updater.apply(new RemoveTest({ testCaseId: "tc-def" }));
 ```
 
-### Queueing and assigning generations
+### Queueing generations
 
 ```ts
 // Fire generation jobs for all pending generations
 await updater.queuePendingGenerations();
-
-// Later, when generation results come back:
-const updater = await TestSuiteUpdater.continueUpdate({ db, branchId });
-const { assigned, failed } = await updater.assignGenerationResults(["gen-1", "gen-2"]);
 ```
+
+A generation passing its review is the definition of "validated" - there is no replay step and nothing pins a generation's steps onto its assignment.
 
 `continueUpdate` loads whichever snapshot is currently pending on the branch. Inside a workflow activity that was dispatched for a specific snapshot, use `continueUpdateBySnapshot` instead so later activities keep operating on the exact snapshot the workflow started on, even if a newer trigger has since replaced the branch's pending pointer:
 

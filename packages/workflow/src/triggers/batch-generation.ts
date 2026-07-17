@@ -30,7 +30,7 @@ export async function triggerBatchGeneration(params: TriggerBatchGenerationParam
             workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
             taskQueue: TaskQueue.GENERAL,
             searchAttributes: getWorkflowSearchAttributes(),
-            args: [{ snapshotId, testPlans, architecture }],
+            args: [{ testPlans, architecture }],
         });
     } catch (error) {
         const grpcCause =

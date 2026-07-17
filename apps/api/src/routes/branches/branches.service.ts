@@ -713,7 +713,6 @@ export class BranchesService extends Service {
                                 testCaseId: true,
                                 testCase: { select: { id: true, name: true, slug: true, folderId: true } },
                                 plan: { select: { id: true } },
-                                stepsId: true,
                             },
                         },
                     },

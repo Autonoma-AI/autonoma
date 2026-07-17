@@ -1,7 +1,6 @@
 import type { GeneralActivities } from "@autonoma/workflow/activities";
 
 export { scenarioUp, scenarioDown } from "./scenario";
-export { assignGenerationResults } from "./assign-generation-results";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { markGenerationFailed } from "./mark-generation-failed";
 export { applyHealingActions } from "./healing";
@@ -16,7 +15,6 @@ export {
     finalizePendingSnapshot,
 } from "./refinement";
 
-import { assignGenerationResults } from "./assign-generation-results";
 import { applyHealingActions } from "./healing";
 import { markGenerationFailed } from "./mark-generation-failed";
 import { notifyGenerationExit } from "./notify-generation-exit";
@@ -36,7 +34,6 @@ import { scenarioDown, scenarioUp } from "./scenario";
 ({
     scenarioUp,
     scenarioDown,
-    assignGenerationResults,
     notifyGenerationExit,
     markGenerationFailed,
     applyHealingActions,

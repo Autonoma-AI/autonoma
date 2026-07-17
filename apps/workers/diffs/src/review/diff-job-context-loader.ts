@@ -50,16 +50,6 @@ interface GenerationAttemptRow {
     screenshotAfter: string | null;
 }
 
-/** One `StepInput` (+ its single `StepOutput`), the legacy fallback source. */
-interface GenerationStepInputRow {
-    order: number;
-    interaction: string;
-    params: unknown;
-    screenshotBefore: string | null;
-    screenshotAfter: string | null;
-    outputs: { output: unknown }[];
-}
-
 /**
  * Gathers everything a diff-job agent needs from the database, at one of two
  * scopes:
@@ -147,8 +137,7 @@ export class DiffJobContextLoader {
                 },
                 affectedTest: { select: { affectedReason: true, reasoning: true } },
                 // The full attempt timeline (successes and failures), in true
-                // order, with the per-attempt diagnostic fields. The preferred
-                // source, since it keeps failed attempts visible.
+                // order, with the per-attempt diagnostic fields.
                 attempts: {
                     select: {
                         order: true,
@@ -163,27 +152,10 @@ export class DiffJobContextLoader {
                     },
                     orderBy: { order: "asc" },
                 },
-                // The successful-only StepInput list - the fallback source
-                // for generations that predate the StepAttempt table (see below).
-                steps: {
-                    select: {
-                        list: {
-                            select: {
-                                order: true,
-                                interaction: true,
-                                params: true,
-                                screenshotBefore: true,
-                                screenshotAfter: true,
-                                outputs: { select: { output: true }, take: 1 },
-                            },
-                            orderBy: { order: "asc" },
-                        },
-                    },
-                },
             },
         });
 
-        const steps = this.resolveGenerationSteps(generationId, generation.attempts, generation.steps?.list ?? []);
+        const steps = this.resolveGenerationSteps(generation.attempts);
 
         const conversation = await this.loadConversation(generation.conversationUrl);
         const change = this.buildChangeContext(generationId, generation.snapshot, generation.affectedTest);
@@ -223,53 +195,22 @@ export class DiffJobContextLoader {
     }
 
     /**
-     * Map a generation's persisted steps to the normalized reviewer step shape,
-     * preferring the `StepAttempt` timeline (failures included) and falling back
-     * to the successful-only `StepInput` list for generations that predate
-     * the `StepAttempt` table. The fallback marks every step a success, which is
-     * exact: that era only ever persisted successful steps.
+     * Map a generation's `StepAttempt` timeline (failures included) to the
+     * normalized reviewer step shape.
      */
-    private resolveGenerationSteps(
-        generationId: string,
-        attempts: readonly GenerationAttemptRow[],
-        stepInputs: readonly GenerationStepInputRow[],
-    ): GenerationStepData[] {
-        if (attempts.length > 0) {
-            return attempts.map((attempt) => {
-                const overlayPoints = getStepOverlayPoints(attempt.output);
-                return {
-                    order: attempt.order,
-                    interaction: attempt.interaction,
-                    params: attempt.params,
-                    status: attempt.status,
-                    output: attempt.output ?? undefined,
-                    error: attempt.error ?? undefined,
-                    errorName: attempt.errorName ?? undefined,
-                    screenshotBeforeKey: attempt.screenshotBefore ?? undefined,
-                    screenshotAfterKey: attempt.screenshotAfter ?? undefined,
-                    overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
-                };
-            });
-        }
-
-        if (stepInputs.length > 0) {
-            this.logger.info("No StepAttempt rows for generation; falling back to the StepInput list", {
-                generationId,
-                stepInputCount: stepInputs.length,
-            });
-        }
-
-        return stepInputs.map((input) => {
-            const output = input.outputs[0]?.output;
-            const overlayPoints = getStepOverlayPoints(output);
+    private resolveGenerationSteps(attempts: readonly GenerationAttemptRow[]): GenerationStepData[] {
+        return attempts.map((attempt) => {
+            const overlayPoints = getStepOverlayPoints(attempt.output);
             return {
-                order: input.order,
-                interaction: input.interaction,
-                params: input.params,
-                status: "success",
-                output: output ?? undefined,
-                screenshotBeforeKey: input.screenshotBefore ?? undefined,
-                screenshotAfterKey: input.screenshotAfter ?? undefined,
+                order: attempt.order,
+                interaction: attempt.interaction,
+                params: attempt.params,
+                status: attempt.status,
+                output: attempt.output ?? undefined,
+                error: attempt.error ?? undefined,
+                errorName: attempt.errorName ?? undefined,
+                screenshotBeforeKey: attempt.screenshotBefore ?? undefined,
+                screenshotAfterKey: attempt.screenshotAfter ?? undefined,
                 overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
             };
         });
@@ -404,28 +345,13 @@ export class DiffJobContextLoader {
                     },
                     orderBy: { order: "asc" },
                 },
-                steps: {
-                    select: {
-                        list: {
-                            select: {
-                                order: true,
-                                interaction: true,
-                                params: true,
-                                screenshotBefore: true,
-                                screenshotAfter: true,
-                                outputs: { select: { output: true }, take: 1 },
-                            },
-                            orderBy: { order: "asc" },
-                        },
-                    },
-                },
             },
         });
         if (generation == null) {
             this.logger.warn("Healing subject generation not found - no step evidence", { generationId });
             return [];
         }
-        return this.resolveGenerationSteps(generationId, generation.attempts, generation.steps?.list ?? []);
+        return this.resolveGenerationSteps(generation.attempts);
     }
 
     /**

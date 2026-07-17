@@ -139,20 +139,15 @@ export const bugDetailLatestOccurrenceIssueSelect = {
                             },
                         },
                     },
-                    outputs: {
+                    attempts: {
+                        orderBy: { order: "asc" },
                         select: {
-                            list: {
-                                orderBy: { order: "asc" },
-                                select: {
-                                    order: true,
-                                    output: true,
-                                    screenshotBefore: true,
-                                    screenshotAfter: true,
-                                    stepInput: {
-                                        select: { interaction: true, params: true },
-                                    },
-                                },
-                            },
+                            order: true,
+                            interaction: true,
+                            params: true,
+                            output: true,
+                            screenshotBefore: true,
+                            screenshotAfter: true,
                         },
                     },
                 },

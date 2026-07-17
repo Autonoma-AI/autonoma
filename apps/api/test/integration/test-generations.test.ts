@@ -203,7 +203,8 @@ apiTestSuite({
             expect(item).toBeDefined();
             expect(item?.shortId).toBe(generationWithSteps.id.slice(0, 8));
             expect(item?.testName).toBe("Homepage title test");
-            expect(item?.stepCount).toBe(2);
+            // stepCount is the full StepAttempt timeline (failures included), not the successful-only list.
+            expect(item?.stepCount).toBe(3);
             expect(item?.tags).toEqual([]);
             expect(item?.createdAt).toBeInstanceOf(Date);
         });

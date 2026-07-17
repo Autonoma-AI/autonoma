@@ -7,7 +7,6 @@ export interface TestCaseRecord {
     name: string;
     slug: string;
     folderId: string;
-    hasSteps?: boolean;
 }
 
 export type FolderNode = FolderRecord & { children: ChildNode[] };

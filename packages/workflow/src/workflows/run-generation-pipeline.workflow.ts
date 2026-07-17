@@ -45,7 +45,6 @@ export async function runGenerationPipelineWorkflow(input: RunGenerationPipeline
         taskQueue: TaskQueue.GENERAL,
         args: [
             {
-                snapshotId: input.snapshotId,
                 testPlans: generations.map((g) => ({
                     testGenerationId: g.testGenerationId,
                     scenarioId: g.scenarioId,

@@ -26,12 +26,11 @@ export function TestsTreePanel() {
   const changes = useTestChanges();
 
   const testCases: TestCaseRecord[] = branch.activeSnapshot.testCaseAssignments.map(
-    (a: { testCase: { id: string; name: string; slug: string; folderId: string }; stepsId: string | null }) => ({
+    (a: { testCase: { id: string; name: string; slug: string; folderId: string } }) => ({
       id: a.testCase.id,
       name: a.testCase.name,
       slug: a.testCase.slug,
       folderId: a.testCase.folderId,
-      hasSteps: a.stepsId != null,
     }),
   );
 

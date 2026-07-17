@@ -138,43 +138,6 @@ diffJobContextSuite({
             expect(succeeded?.errorName).toBeUndefined();
         });
 
-        test("falls back to the StepInput replay list for a generation predating the StepAttempt timeline", async ({
-            harness,
-            seedResult,
-        }) => {
-            // A pre-StepAttempt generation: only StepInput/StepOutput rows exist,
-            // no attempts. The loader must still surface its steps via the fallback.
-            const { generationId } = await harness.seedGeneration({
-                organizationId: seedResult.organizationId,
-                applicationId: seedResult.applicationId,
-                legacyStepInputs: [
-                    {
-                        order: 0,
-                        interaction: "type",
-                        params: { description: "email", text: "new@test.com" },
-                        output: { outcome: "success" },
-                        screenshotBefore: "generation/x/step-0-before.jpeg",
-                        screenshotAfter: "generation/x/step-0-after.jpeg",
-                    },
-                    {
-                        order: 1,
-                        interaction: "click",
-                        params: { description: "submit" },
-                        output: { outcome: "success", point: { x: 5, y: 9 } },
-                    },
-                ],
-            });
-
-            const context = await new DiffJobContextLoader(harness.db, harness.storage).loadGeneration(generationId);
-
-            expect(context.steps.map((s) => s.order)).toEqual([0, 1]);
-            // Every fallback step is a success - that era only persisted successes.
-            expect(context.steps.every((s) => s.status === "success")).toBe(true);
-            expect(context.steps[0]?.params).toEqual({ description: "email", text: "new@test.com" });
-            expect(context.steps[0]?.screenshotBeforeKey).toBe("generation/x/step-0-before.jpeg");
-            expect(context.steps[1]?.output).toEqual({ outcome: "success", point: { x: 5, y: 9 } });
-        });
-
         test("returns an empty conversation for a generation with no conversation URL", async ({
             harness,
             seedResult,

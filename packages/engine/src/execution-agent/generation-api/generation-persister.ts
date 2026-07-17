@@ -370,8 +370,8 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             data: { videoUrl },
         });
 
-        if (result.success && this.stepInputListId != null && this.testCaseId != null && this.snapshotId != null) {
-            this.logger.info("Upserting test case assignment with steps", {
+        if (result.success && this.testCaseId != null && this.snapshotId != null) {
+            this.logger.info("Upserting test case assignment", {
                 testCaseId: this.testCaseId,
                 snapshotId: this.snapshotId,
             });
@@ -381,11 +381,9 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                     snapshotId: this.snapshotId,
                     testCaseId: this.testCaseId,
                     planId: this.testPlanId,
-                    stepsId: this.stepInputListId,
                 },
                 update: {
                     planId: this.testPlanId,
-                    stepsId: this.stepInputListId,
                 },
             });
         }

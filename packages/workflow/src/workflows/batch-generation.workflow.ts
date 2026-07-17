@@ -1,24 +1,14 @@
-import { executeChild, log, ParentClosePolicy, proxyActivities } from "@temporalio/workflow";
-import type { GeneralActivities } from "../activities";
-import { TaskQueue } from "../task-queues";
+import { executeChild, log, ParentClosePolicy } from "@temporalio/workflow";
 import type { TestPlanItem, WorkflowArchitecture } from "../types";
 import { singleGenerationWorkflow } from "./single-generation.workflow";
 
-const general = proxyActivities<GeneralActivities>({
-    startToCloseTimeout: "10m",
-    heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.GENERAL,
-});
-
 export interface BatchGenerationInput {
-    snapshotId: string;
     testPlans: TestPlanItem[];
     architecture: WorkflowArchitecture;
 }
 
 export async function batchGenerationWorkflow(input: BatchGenerationInput): Promise<void> {
-    const { snapshotId, testPlans, architecture } = input;
+    const { testPlans, architecture } = input;
 
     const results = await Promise.allSettled(
         testPlans.map((plan) =>
@@ -46,9 +36,4 @@ export async function batchGenerationWorkflow(input: BatchGenerationInput): Prom
             });
         }
     }
-
-    await general.assignGenerationResults({
-        snapshotId,
-        generationIds: testPlans.map((p) => p.testGenerationId),
-    });
 }

@@ -7,7 +7,6 @@ export {
     SnapshotNotPendingError,
     BranchAlreadyHasPendingSnapshotError,
     ApplicationNotFoundError,
-    StepsPlanMismatchError,
 } from "./snapshot-draft";
 export type { TestSuiteInfo, SnapshotChange } from "./snapshot-draft";
 export {

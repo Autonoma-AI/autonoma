@@ -2,7 +2,7 @@ import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 
 export interface MergePlanImport {
-    /** Assignment id in the pinned source snapshot from which we read the winning plan/steps. */
+    /** Assignment id in the pinned source snapshot from which we read the winning plan. */
     sourceAssignmentId: string;
 }
 
@@ -17,13 +17,12 @@ export interface AppliedMergePlanImport {
     testCaseId: string;
     targetAssignmentId: string;
     planId: string | null;
-    stepsId: string | null;
     /** Whether a new row was created (target had no assignment for this test) or the existing one was updated in place. */
     operation: "created" | "updated";
 }
 
 /**
- * Applies the winning plan/steps from source snapshots into the target snapshot's
+ * Applies the winning plan from source snapshots into the target snapshot's
  * TestCaseAssignments. Used for the `unilateral_update` and `new_test`
  * classifications before regenerating with `merge_plan_imported`.
  *
@@ -59,7 +58,6 @@ export async function applyMergePlanImports({
             id: true,
             testCaseId: true,
             planId: true,
-            stepsId: true,
             testCase: { select: { slug: true } },
         },
     });
@@ -94,16 +92,14 @@ export async function applyMergePlanImports({
                     where: { id: existingTarget.id },
                     data: {
                         planId: source.planId,
-                        stepsId: source.stepsId,
                     },
-                    select: { id: true, planId: true, stepsId: true },
+                    select: { id: true, planId: true },
                 });
                 results.push({
                     slug: source.testCase.slug,
                     testCaseId: source.testCaseId,
                     targetAssignmentId: updated.id,
                     planId: updated.planId,
-                    stepsId: updated.stepsId,
                     operation: "updated",
                 });
                 continue;
@@ -114,16 +110,14 @@ export async function applyMergePlanImports({
                     snapshotId: targetSnapshotId,
                     testCaseId: source.testCaseId,
                     planId: source.planId ?? undefined,
-                    stepsId: source.stepsId ?? undefined,
                 },
-                select: { id: true, planId: true, stepsId: true },
+                select: { id: true, planId: true },
             });
             results.push({
                 slug: source.testCase.slug,
                 testCaseId: source.testCaseId,
                 targetAssignmentId: created.id,
                 planId: created.planId,
-                stepsId: created.stepsId,
                 operation: "created",
             });
         }

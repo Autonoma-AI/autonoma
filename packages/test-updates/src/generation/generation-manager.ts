@@ -20,7 +20,6 @@ export interface GenerationManagerParams {
 interface SnapshotGeneration {
     id: string;
     status: GenerationStatus;
-    stepsId: string | null;
     testPlanId: string;
     createdAt: Date;
     testPlan: {
@@ -152,14 +151,6 @@ export class GenerationManager {
                 scenarioId: gen.testPlan.scenario?.id,
                 architecture: gen.testPlan.testCase.application.architecture as WorkflowArchitecture,
             }));
-    }
-
-    /** Returns the generations matching the given IDs. */
-    async getGenerations(generationIds: string[]) {
-        const idSet = new Set(generationIds);
-        const generations = await this.fetchGenerations();
-
-        return generations.filter((gen) => idSet.has(gen.id));
     }
 
     /** Deletes a pending generation. Throws if the generation is not pending. */
@@ -387,7 +378,6 @@ export class GenerationManager {
             select: {
                 id: true,
                 status: true,
-                stepsId: true,
                 testPlanId: true,
                 createdAt: true,
                 testPlan: {

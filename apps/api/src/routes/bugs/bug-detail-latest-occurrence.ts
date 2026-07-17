@@ -56,8 +56,8 @@ export async function buildLatestOccurrenceEvidence(
             ]);
             return {
                 order: step.order,
-                interaction: step.stepInput.interaction,
-                params: step.stepInput.params,
+                interaction: step.interaction,
+                params: step.params,
                 outcome,
                 isFailing: failureStep != null && step.order === failureStep.order,
                 screenshotBeforeUrl,
@@ -75,10 +75,7 @@ export async function buildLatestOccurrenceEvidence(
         testSlug: source.testSlug,
         stepIndex: failureStep?.order,
         stepCount: outputs.length,
-        actionLabel:
-            failureStep != null
-                ? formatActionLabel(failureStep.stepInput.interaction, failureStep.stepInput.params)
-                : undefined,
+        actionLabel: failureStep != null ? formatActionLabel(failureStep.interaction, failureStep.params) : undefined,
         outcomeLabel: failureOutputData?.outcome,
         whatHappened: analysis?.failurePoint?.description ?? source.reasoning ?? undefined,
         lastPassingScreenshotUrl,
@@ -91,10 +88,28 @@ export async function buildLatestOccurrenceEvidence(
     };
 }
 
+/** A step in the reproduction timeline, normalized across the run and generation sources. */
+interface OccurrenceStep {
+    order: number;
+    interaction: string;
+    params: unknown;
+    output: unknown;
+    screenshotBefore: string | null;
+    screenshotAfter: string | null;
+}
+
 function buildOccurrenceSource(issue: BugLatestOccurrenceIssueRow | null) {
     const runReview = issue?.runReview;
     const run = runReview?.run;
     if (issue != null && runReview != null && run != null) {
+        const outputs: OccurrenceStep[] = (run.outputs?.list ?? []).map((step) => ({
+            order: step.order,
+            interaction: step.stepInput.interaction,
+            params: step.stepInput.params,
+            output: step.output,
+            screenshotBefore: step.screenshotBefore,
+            screenshotAfter: step.screenshotAfter,
+        }));
         return {
             kind: "run" as const,
             id: run.id,
@@ -103,7 +118,7 @@ function buildOccurrenceSource(issue: BugLatestOccurrenceIssueRow | null) {
             testSlug: run.assignment.testCase.slug,
             analysis: runReview.analysis,
             reasoning: runReview.reasoning,
-            outputs: run.outputs?.list ?? [],
+            outputs,
             fallbackScreenshotKey: undefined,
             fallbackVideoKey: `run/${run.id}/video.webm`,
         };
@@ -112,6 +127,14 @@ function buildOccurrenceSource(issue: BugLatestOccurrenceIssueRow | null) {
     const generationReview = issue?.generationReview;
     const generation = generationReview?.generation;
     if (issue != null && generationReview != null && generation != null) {
+        const outputs: OccurrenceStep[] = generation.attempts.map((attempt) => ({
+            order: attempt.order,
+            interaction: attempt.interaction,
+            params: attempt.params,
+            output: attempt.output,
+            screenshotBefore: attempt.screenshotBefore,
+            screenshotAfter: attempt.screenshotAfter,
+        }));
         return {
             kind: "generation" as const,
             id: generation.id,
@@ -120,7 +143,7 @@ function buildOccurrenceSource(issue: BugLatestOccurrenceIssueRow | null) {
             testSlug: generation.testPlan.testCase.slug,
             analysis: generationReview.analysis,
             reasoning: generationReview.reasoning,
-            outputs: generation.outputs?.list ?? [],
+            outputs,
             fallbackScreenshotKey: generation.finalScreenshot ?? undefined,
             fallbackVideoKey: generation.videoUrl ?? undefined,
         };
