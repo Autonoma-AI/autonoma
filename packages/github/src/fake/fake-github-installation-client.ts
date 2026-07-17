@@ -1,4 +1,5 @@
 import type {
+    BranchList,
     CloneRepositoryParams,
     Commit,
     CommitFile,
@@ -303,6 +304,12 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             throw new Error(`No commits on branch "${branchName}"`);
         }
         return head;
+    }
+
+    async listBranches(repoId: number): Promise<BranchList> {
+        const repoData = this.requireRepoById(repoId);
+        const names = [repoData.metadata.defaultBranch, ...repoData.branches.keys()];
+        return { names: [...new Set(names)], truncated: false };
     }
 
     async getGitTree(repoId: number, _ref: string): Promise<GitTree> {

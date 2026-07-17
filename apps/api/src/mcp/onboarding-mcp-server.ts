@@ -38,7 +38,7 @@ interface RecentLogTail {
  * same way. The app is pinned by a pairing code the user copies from the UI - the
  * agent never needs a repo name.
  */
-const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent configure that preview during onboarding: set up the build, databases, services and env, deploy off the main branch, and iterate until it comes up - while the user watches read-only in the Autonoma UI.
+const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent configure that preview during onboarding: set up the build, databases, services and env, deploy off the default branch (or a branch you choose), and iterate until it comes up - while the user watches read-only in the Autonoma UI.
 
 Start every session by pairing:
 1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
@@ -48,7 +48,7 @@ Then loop until the preview is up:
 3. get_config(applicationId) - read the current preview config.
 4. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
 5. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys). NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
-6. trigger_deploy(applicationId) - deploy the main branch (environment 0).
+6. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
 7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own. When it clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 8. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
 
@@ -227,6 +227,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         applicationId: view.applicationId,
                         currentConfig: config.document,
                         configExists: config.saved,
+                        deployBranch: config.deployBranch,
                     });
                 } catch (err) {
                     logger.warn("pair failed", { err });
@@ -247,7 +248,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 try {
                     const organizationId = await resolveOrg(applicationId);
                     const config = await services.onboarding.getPreviewkitConfig(applicationId, organizationId);
-                    return jsonResult({ document: config.document, configExists: config.saved });
+                    return jsonResult({
+                        document: config.document,
+                        configExists: config.saved,
+                        deployBranch: config.deployBranch,
+                    });
                 } catch (err) {
                     logger.warn("get_config failed", { applicationId, err });
                     return toToolResult(err);
@@ -266,22 +271,45 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Services do not auto-inject env into apps: wire each app to the databases/services it uses via " +
                 "connections, e.g. { key: 'DATABASE_URL', value: '{{db.url}}' } ({{name.property}} tokens resolve " +
                 "at deploy time; {{service.url}} is the full connection string). " +
+                "Optionally pass `branch` to set which branch the base preview (environment 0) deploys from. If unset it uses the " +
+                "repo's default branch (whatever it is named) - don't steer toward a branch name without cause. Set it " +
+                "when the user is working on a different branch (check their checkout's current branch and ask which " +
+                "to use). Validated against GitHub, so a typo is rejected. " +
+                "Setting the branch here does NOT deploy - trigger_deploy does. " +
                 "Pass a short `description` of what this save does - the user watches it on the activity feed.",
             inputSchema: {
                 applicationId: z.string(),
                 document: previewConfigSchema,
+                branch: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe(
+                        "Branch the base preview (environment 0) deploys from. Omit to use the repo's default branch; set it " +
+                            "when the user is working on a different branch (ask them which to use).",
+                    ),
                 description: activityDescription,
             },
         },
-        async ({ applicationId, document, description }) =>
+        async ({ applicationId, document, branch, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "apply_config",
                     message: description ?? "Saving preview config",
-                    toolArguments: { apps: document.apps.length },
+                    toolArguments:
+                        branch != null ? { apps: document.apps.length, branch } : { apps: document.apps.length },
                 },
-                (org) => services.onboarding.savePreviewkitConfig(applicationId, org, document),
+                async (org) => {
+                    const saved = await services.onboarding.savePreviewkitConfig(applicationId, org, document);
+                    if (branch == null) return saved;
+                    const { branch: deployBranch } = await services.onboarding.setDeployBranch(
+                        applicationId,
+                        org,
+                        branch,
+                    );
+                    return { ...saved, deployBranch };
+                },
             ),
     );
 
@@ -348,9 +376,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         {
             title: "Deploy the preview",
             description:
-                "Deploy the app's main branch as the preview (environment 0), applying the saved config. Then poll " +
-                "get_session_status until it is up, and verify the preview URL yourself. " +
-                "Pass a short `description` of what you are deploying - the user watches it on the activity feed.",
+                "Deploy the app's configured deploy branch as the base preview (environment 0), applying the " +
+                "saved config. If unset the deploy branch is the repo's default branch - but if the user's checkout is " +
+                "on a different branch, ask which to use and set it with apply_config's `branch` field before deploying, " +
+                "rather than steering to the default. Then poll get_session_status until it is up, and verify the preview " +
+                "URL yourself. Pass a short `description` of what you are deploying - the user watches it on the activity feed.",
             inputSchema: { applicationId: z.string(), description: activityDescription },
         },
         async ({ applicationId, description }) =>
@@ -358,7 +388,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "trigger_deploy",
-                    message: description ?? "Deploying preview (main branch)",
+                    message: description ?? "Deploying preview (default branch)",
                     toolArguments: {},
                 },
                 (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org),

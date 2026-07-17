@@ -56,6 +56,13 @@ export interface OnboardingGithubRepository {
 export interface OnboardingGithubService {
     listRepositories(orgId: string): Promise<OnboardingGithubRepository[]>;
     linkRepository(orgId: string, applicationId: string, githubRepoId: number): Promise<void>;
+    /** Resolves a branch's head SHA; used to validate a chosen deploy branch exists. Rejects (404) when it doesn't. */
+    getBranchHead(orgId: string, repoId: number, branchName: string): Promise<string>;
+    /** The repo's branch names + default branch, for the deploy-branch picker. `truncated` = more branches than one page. */
+    listApplicationBranches(
+        orgId: string,
+        applicationId: string,
+    ): Promise<{ names: string[]; defaultBranch: string; truncated: boolean }>;
 }
 
 export interface OnboardingApplicationsService {

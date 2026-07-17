@@ -6,7 +6,7 @@ description: Connect your coding agent to Autonoma's onboarding MCP server so it
 import Tabs from "../../../components/Tabs.astro"
 import TabItem from "../../../components/TabItem.astro"
 
-<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it configures your preview environment for you - reads the config, sets up apps, databases and services, asks you for any secrets it needs, deploys off your main branch, and iterates until the preview is up - while you watch, read-only, in the Autonoma UI.</p>
+<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it configures your preview environment for you - reads the config, sets up apps, databases and services, asks you for any secrets it needs, deploys off your default branch (or whichever branch you choose), and iterates until the preview is up - while you watch, read-only, in the Autonoma UI.</p>
 
 ![A coding agent plugs into Autonoma and lights up a live preview environment](/img/mcp/configure-preview-hero.jpg)
 
@@ -116,8 +116,8 @@ Client config formats change over time. If a snippet above no longer matches, ke
 Once paired, the agent works a loop, and the Autonoma UI streams every step:
 
 1. **Pair** - `pair(code)` claims your app's config for the agent and returns the current config.
-2. **Read and edit** - `get_config` / `apply_config` read and save the full preview environment config document. A save is validated; an invalid document returns the errors to fix.
-3. **Deploy** - `trigger_deploy` deploys your main branch as the preview.
+2. **Read and edit** - `get_config` / `apply_config` read and save the full preview environment config document. A save is validated; an invalid document returns the errors to fix. `apply_config` also takes an optional `branch` to set which branch the preview deploys from (defaults to your repo's default branch; setting it here does not deploy).
+3. **Deploy** - `trigger_deploy` deploys the configured deploy branch as the preview.
 4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
 5. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
 
@@ -135,11 +135,11 @@ The agent should always ask you first whether to set env from your `.env` (you p
 
 | Tool | Input | Does |
 | --- | --- | --- |
-| `pair` | code | Claims the app's config using the pairing code from the UI; returns its `applicationId` and current config |
-| `get_config` | applicationId | Reads the current preview environment config document |
-| `apply_config` | applicationId, document | Saves the full config document (validated; errors returned to fix). Never carries secret values |
+| `pair` | code | Claims the app's config using the pairing code from the UI; returns its `applicationId`, current config, and current `deployBranch` |
+| `get_config` | applicationId | Reads the current preview environment config document and the current `deployBranch` |
+| `apply_config` | applicationId, document, `branch?` | Saves the full config document (validated; errors returned to fix). Never carries secret values. Optional `branch` sets the deploy branch (defaults to the repo default; does not deploy) |
 | `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
-| `trigger_deploy` | applicationId | Deploys the main branch as the preview |
+| `trigger_deploy` | applicationId | Deploys the configured deploy branch (repo default unless overridden) as the preview |
 | `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, diagnostics, and a `recentLogs` tail - build logs while building, the app's runtime logs once ready, both on failure |
 
 ## Troubleshooting

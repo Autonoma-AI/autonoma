@@ -13,6 +13,7 @@ export {
     type Commit,
     type CommitFile,
     type GitTree,
+    type BranchList,
 } from "./github-installation-client";
 export type { EtagStore } from "./etag-store";
 export { FakeGitHubApp } from "./fake/fake-github-app";

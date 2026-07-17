@@ -13,6 +13,8 @@ export {
     useConfirmExistingDeploysSetup,
     usePreviewkitConfig,
     useSavePreviewkitConfig,
+    useSetDeployBranch,
+    useDeployBranches,
     useDeploymentSignalStatus,
     useValidatePreviewkitConfig,
     usePreviewkitSecrets,

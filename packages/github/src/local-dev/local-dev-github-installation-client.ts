@@ -1,5 +1,6 @@
 import { type Logger, logger } from "@autonoma/logger";
 import type {
+    BranchList,
     CloneRepositoryParams,
     Commit,
     GitHubInstallationClient,
@@ -154,6 +155,11 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
     async getBranchHead(repoId: number, branchName: string): Promise<string> {
         this.logger.info("Returning local-dev branch head", { repoId, branchName });
         return `head-${repoId}-${branchName}`;
+    }
+
+    async listBranches(repoId: number): Promise<BranchList> {
+        this.logger.info("Returning local-dev branches", { repoId });
+        return { names: ["main", "develop"], truncated: false };
     }
 
     async getGitTree(repoId: number, ref: string): Promise<GitTree> {

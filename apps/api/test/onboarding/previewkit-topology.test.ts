@@ -31,6 +31,12 @@ function buildTopologyServices(harness: OnboardingTestHarness, orgId: string, re
             });
             void organizationId;
         }),
+        getBranchHead: vi.fn(async () => "0".repeat(40)),
+        listApplicationBranches: vi.fn(async () => ({
+            names: ["main", "develop"],
+            defaultBranch: "main",
+            truncated: false,
+        })),
     };
     const applications = {
         createMinimalApplication: vi.fn(async (_name: string, organizationId: string) => ({
@@ -388,6 +394,45 @@ integrationTestSuite({
             expect(readiness.diagnostics.failures).toContainEqual(
                 expect.objectContaining({ code: "missing_path", appName: "api-app", fieldPath: "apps.1.path" }),
             );
+        });
+
+        test("setDeployBranch validates against GitHub, persists the branch, and getConfig reflects it", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_040);
+            const { github, applications } = buildTopologyServices(harness, orgId, []);
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
+            });
+            await setStep(harness, appId, "previewkit_configuring");
+
+            const result = await manager.setDeployBranch(appId, orgId, "refs/heads/release");
+
+            expect(result.branch).toBe("release");
+            expect(github.getBranchHead).toHaveBeenCalledWith(orgId, 93_040, "release");
+
+            const config = await manager.getPreviewkitConfig(appId, orgId);
+            expect(config.deployBranch).toBe("release");
+        });
+
+        test("setDeployBranch rejects a branch that doesn't exist on GitHub", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_041);
+            const { github, applications } = buildTopologyServices(harness, orgId, []);
+            github.getBranchHead.mockRejectedValueOnce(Object.assign(new Error("Not Found"), { status: 404 }));
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
+            });
+            await setStep(harness, appId, "previewkit_configuring");
+
+            await expect(manager.setDeployBranch(appId, orgId, "ghost")).rejects.toThrow(/not found on GitHub/);
         });
     },
 });

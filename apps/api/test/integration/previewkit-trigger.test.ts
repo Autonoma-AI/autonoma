@@ -400,7 +400,55 @@ apiTestSuite({
                 deploySpy,
             );
             await expect(branchMissing.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
-                /Main branch ref 'main' not found/,
+                /Deploy branch 'main' not found/,
+            );
+            expect(deploySpy).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranch errors when the configured deploy branch is gone (no silent fallback)", async ({
+            harness,
+            seedResult: { app },
+        }) => {
+            // The configured branch (here an explicit "autonoma") that no longer
+            // exists must error, never silently deploy the repo default instead - even
+            // though the default would resolve.
+            const appRow = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranchId: true },
+            });
+            const mainBranchId = appRow.mainBranchId;
+            if (mainBranchId == null) throw new Error("seeded app has no main branch");
+            await harness.db.branch.update({ where: { id: mainBranchId }, data: { name: "autonoma" } });
+            await harness.db.mainBranchInfo.updateMany({
+                where: { branchId: mainBranchId },
+                data: { githubRef: "autonoma" },
+            });
+
+            const notFound = Object.assign(new Error("Not Found"), { status: 404 });
+            const deploySpy = vi.fn().mockResolvedValue(undefined);
+            const service = new PreviewkitTriggerService(
+                harness.db,
+                {
+                    getRepository: () =>
+                        Promise.resolve({
+                            id: REPO_ID,
+                            name: "web",
+                            fullName: REPO_FULL_NAME,
+                            defaultBranch: "master",
+                            private: false,
+                        }),
+                    // The default "master" resolves; a fallback (if it existed) would use it.
+                    getBranchHead: (_orgId: string, _repoId: number, branch: string) =>
+                        branch === "master" ? Promise.resolve("main-sha-2") : Promise.reject(notFound),
+                    getPullRequest: () => Promise.reject(notFound),
+                },
+                deploySpy,
+                deploySpy,
+                deploySpy,
+            );
+
+            await expect(service.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
+                /Deploy branch 'autonoma' not found/,
             );
             expect(deploySpy).not.toHaveBeenCalled();
         });

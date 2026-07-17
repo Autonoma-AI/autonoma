@@ -8,6 +8,9 @@ import type { EtagStore } from "./etag-store";
 const execFileAsync = promisify(execFile);
 const GITHUB_API = "https://api.github.com";
 
+/** Branch-listing page size. One page is enough for a deploy-branch picker; repos past this are flagged truncated. */
+const BRANCHES_PER_PAGE = 100;
+
 const installationAuthSchema = z.object({ token: z.string().min(1) });
 
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
@@ -91,6 +94,13 @@ export interface GitTree {
     truncated: boolean;
 }
 
+export interface BranchList {
+    /** Branch names, first page only. */
+    names: string[];
+    /** True when the repo has more branches than the single page returned. */
+    truncated: boolean;
+}
+
 export interface GitHubInstallationClient {
     getInstallation(installationId: number): Promise<{ account: unknown }>;
     getInstallationToken(): Promise<string>;
@@ -105,6 +115,8 @@ export interface GitHubInstallationClient {
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
     getBranchHead(repoId: number, branchName: string): Promise<string>;
+    /** Branch names on the repo (first page only); `truncated` is true when the repo has more than the page limit. */
+    listBranches(repoId: number): Promise<BranchList>;
     /** Recursive file listing of the repo at `ref`. */
     getGitTree(repoId: number, ref: string): Promise<GitTree>;
     /** Decoded file content at `path`/`ref`, or undefined when the path doesn't exist (or is not a file). */
@@ -565,6 +577,22 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         const sha = data.commit.sha;
         this.logger.info("Fetched branch head", { repoId, branchName, sha });
         return sha;
+    }
+
+    async listBranches(repoId: number): Promise<BranchList> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Listing branches", { repoId });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/branches", {
+            owner,
+            repo,
+            per_page: BRANCHES_PER_PAGE,
+        });
+
+        const names = data.map((branch) => branch.name);
+        const truncated = data.length === BRANCHES_PER_PAGE;
+        this.logger.info("Listed branches", { repoId, count: names.length, truncated });
+        return { names, truncated };
     }
 
     async getGitTree(repoId: number, ref: string): Promise<GitTree> {

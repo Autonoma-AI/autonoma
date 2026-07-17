@@ -11,6 +11,12 @@ export const env = createEnv({
     server: {
         API_PORT: z.string(),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
+        // Branch name a new application's deploy ref is seeded with, before a repo
+        // is linked and its real default branch is known. It is overwritten with the
+        // repo's actual default branch the moment a repo is linked, so this is only
+        // a last-resort fallback for the brief unlinked window - never an assumption
+        // that a repo's default branch is "main".
+        FALLBACK_DEFAULT_BRANCH: z.string().default("main"),
         COOKIE_DOMAIN: z.string().optional(),
         PREVIEWKIT_ENV: z.stringbool().default(false),
         // Comma-separated allowlist of emails permitted to use password sign-in/sign-up

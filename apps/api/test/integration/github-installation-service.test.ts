@@ -172,6 +172,81 @@ apiTestSuite({
             expect(updated!.githubRepositoryId).toBe(3001);
         });
 
+        test("linkRepository sets the main-branch deploy ref to the repo's default branch", async ({
+            harness,
+            seedResult: { app, fakeClient },
+        }) => {
+            fakeClient.addRepository({
+                id: 3009,
+                name: "master-repo",
+                fullName: "org/master-repo",
+                defaultBranch: "master",
+                private: false,
+            });
+            await harness.services.github.handleInstallation(
+                88_890,
+                harness.organizationId,
+                "test-org",
+                999,
+                "Organization",
+            );
+
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3009);
+
+            const branch = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranch: { select: { name: true, mainInfo: { select: { githubRef: true } } } } },
+            });
+            expect(branch.mainBranch?.name).toBe("master");
+            expect(branch.mainBranch?.mainInfo?.githubRef).toBe("master");
+        });
+
+        test("linkRepository does not overwrite a user-chosen deploy branch on re-link", async ({
+            harness,
+            seedResult: { app, fakeClient },
+        }) => {
+            fakeClient.addRepository({
+                id: 3011,
+                name: "relink-repo",
+                fullName: "org/relink-repo",
+                defaultBranch: "master",
+                private: false,
+            });
+            await harness.services.github.handleInstallation(
+                88_891,
+                harness.organizationId,
+                "test-org",
+                999,
+                "Organization",
+            );
+
+            // First link resolves the deploy ref to the repo default.
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3011);
+
+            // The user then picks a specific branch.
+            const appRow = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranchId: true },
+            });
+            const mainBranchId = appRow.mainBranchId;
+            if (mainBranchId == null) throw new Error("seeded app has no main branch");
+            await harness.db.branch.update({ where: { id: mainBranchId }, data: { name: "feature-x" } });
+            await harness.db.mainBranchInfo.updateMany({
+                where: { branchId: mainBranchId },
+                data: { githubRef: "feature-x" },
+            });
+
+            // Re-linking the same repo must NOT reset that choice back to the default.
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3011);
+
+            const branch = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranch: { select: { name: true, mainInfo: { select: { githubRef: true } } } } },
+            });
+            expect(branch.mainBranch?.name).toBe("feature-x");
+            expect(branch.mainBranch?.mainInfo?.githubRef).toBe("feature-x");
+        });
+
         test("linkRepository throws NotFoundError for nonexistent app", async ({ harness }) => {
             await harness.services.github.handleInstallation(
                 99999,

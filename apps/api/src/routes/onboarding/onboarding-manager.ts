@@ -11,6 +11,7 @@ import {
     type SecretItem,
 } from "@autonoma/types";
 import { z } from "zod";
+import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
 import { computeArtifactStatus } from "../app-generations/artifact-status";
 import {
     type DeploymentSignalInput,
@@ -396,7 +397,10 @@ export class OnboardingManager {
     }
 
     async triggerPreviewkitMainDeploy(applicationId: string, organizationId: string) {
-        this.logger.info("Triggering PreviewKit main branch onboarding deploy", { applicationId, organizationId });
+        this.logger.info("Triggering PreviewKit base preview (environment 0) onboarding deploy", {
+            applicationId,
+            organizationId,
+        });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "trigger PreviewKit deploy");
 
@@ -432,6 +436,105 @@ export class OnboardingManager {
         });
 
         return this.getPreviewReadiness(applicationId, organizationId);
+    }
+
+    /**
+     * Sets the branch the base preview (environment 0) deploys from - the app's
+     * stored deploy ref, which {@link deployMainBranch} resolves at deploy time.
+     * Defaults to the repo's default branch; this is how a coding agent or the UI
+     * overrides it. Persisting the branch is deliberately separate from triggering a
+     * deploy, so the branch can be picked without deploying yet. The branch is
+     * validated against GitHub (a 404 means it doesn't exist) so a typo can't
+     * silently break the deploy.
+     */
+    async setDeployBranch(applicationId: string, organizationId: string, branch: string): Promise<{ branch: string }> {
+        this.logger.info("Setting PreviewKit deploy branch", { applicationId, organizationId, extra: { branch } });
+        await this.ensureApplicationHasRepository(applicationId, organizationId);
+        await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "set deploy branch");
+
+        const normalized = normalizeBranchName(branch);
+        if (normalized === "") throw new BadRequestError("Branch name is required");
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true, mainBranchId: true },
+        });
+        // The deploy branch is stored on the app's main-branch record (the base
+        // environment, distinct from the git default branch it tracks); its absence
+        // is a structural data error - every application is created with one.
+        if (application?.mainBranchId == null) throw new NotFoundError("Application has no main branch record");
+
+        const github = this.options.github;
+        if (github != null && application.githubRepositoryId != null) {
+            try {
+                await github.getBranchHead(organizationId, application.githubRepositoryId, normalized);
+            } catch (err) {
+                if (isGithubNotFound(err)) {
+                    throw new BadRequestError(`Branch '${normalized}' not found on GitHub`);
+                }
+                // A transient GitHub failure shouldn't block choosing a branch; the
+                // deploy re-resolves the ref and reports a genuine miss then.
+                this.logger.warn("Could not verify deploy branch on GitHub; saving anyway", { applicationId, err });
+            }
+        }
+
+        await this.db.$transaction([
+            this.db.branch.update({ where: { id: application.mainBranchId }, data: { name: normalized } }),
+            this.db.mainBranchInfo.updateMany({
+                where: { branchId: application.mainBranchId },
+                data: { githubRef: normalized },
+            }),
+        ]);
+
+        return { branch: normalized };
+    }
+
+    /**
+     * The branch options for the deploy-branch picker: the repo's branches with
+     * the repo default first, the currently-selected branch always present (even
+     * if it fell off the listed page), and the default flagged. `truncated` tells
+     * the UI the repo has more branches than the one page returned, so it can offer
+     * free-text entry for a branch that isn't listed.
+     */
+    async listDeployBranchOptions(
+        applicationId: string,
+        organizationId: string,
+    ): Promise<{ branches: string[]; defaultBranch?: string; currentBranch?: string; truncated: boolean }> {
+        this.logger.info("Listing deploy branch options", { applicationId, organizationId });
+        await this.ensureApplicationHasRepository(applicationId, organizationId);
+
+        const github = this.options.github;
+        const [application, listed] = await Promise.all([
+            this.db.application.findFirst({
+                where: { id: applicationId, organizationId },
+                select: { mainBranch: { select: { name: true } } },
+            }),
+            github?.listApplicationBranches(organizationId, applicationId).catch((err: unknown) => {
+                this.logger.warn("Failed to list branches from GitHub; deploy-branch picker falls back to free text", {
+                    applicationId,
+                    err,
+                });
+                return undefined;
+            }),
+        ]);
+
+        const currentBranch = application?.mainBranch?.name ?? undefined;
+        const defaultBranch = listed?.defaultBranch;
+
+        // Default first, then the current selection (if it isn't the default and
+        // isn't already listed), then the rest - deduped so a branch never repeats.
+        const ordered: string[] = [];
+        const seen = new Set<string>();
+        const add = (name: string | undefined) => {
+            if (name == null || name === "" || seen.has(name)) return;
+            seen.add(name);
+            ordered.push(name);
+        };
+        add(defaultBranch);
+        add(currentBranch);
+        for (const name of listed?.names ?? []) add(name);
+
+        return { branches: ordered, defaultBranch, currentBranch, truncated: listed?.truncated ?? false };
     }
 
     async getPreviewReadiness(applicationId: string, organizationId: string): Promise<PreviewReadiness> {

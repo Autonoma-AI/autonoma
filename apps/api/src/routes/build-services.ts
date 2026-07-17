@@ -145,7 +145,7 @@ export function buildServices({
     const previewkitAiModel = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY }).languageModel(
         PREVIEWKIT_AI_MODEL_ID,
     );
-    const applicationsService = new ApplicationsService(conn, encryptionHelper);
+    const applicationsService = new ApplicationsService(conn, encryptionHelper, env.FALLBACK_DEFAULT_BRANCH);
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
         githubService,

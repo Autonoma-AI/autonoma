@@ -153,6 +153,33 @@ export class GitHubInstallationService extends Service {
         return client.getBranchHead(repoId, branchName);
     }
 
+    /**
+     * The repo's branch names plus its default branch, for the deploy-branch picker.
+     * Bundles both GitHub reads so the caller resolves the list and the default in
+     * one round trip. `truncated` is true when the repo has more branches than the
+     * single page returned.
+     */
+    async listApplicationBranches(
+        orgId: string,
+        applicationId: string,
+    ): Promise<{ names: string[]; defaultBranch: string; truncated: boolean }> {
+        this.logger.info("Listing application branches", { orgId, applicationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId: orgId },
+            select: { githubRepositoryId: true },
+        });
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) throw new NotFoundError("Application is not linked to a GitHub repository");
+
+        const client = await this.getOrgInstallationClient(orgId);
+        const [repository, branches] = await Promise.all([
+            client.getRepository(app.githubRepositoryId),
+            client.listBranches(app.githubRepositoryId),
+        ]);
+        return { names: branches.names, defaultBranch: repository.defaultBranch, truncated: branches.truncated };
+    }
+
     async getApplicationPullRequest(
         organizationId: string,
         applicationId: string,
@@ -341,7 +368,11 @@ export class GitHubInstallationService extends Service {
 
         if (app == null) throw new NotFoundError();
 
-        await client.getRepository(githubRepoId);
+        const repository = await client.getRepository(githubRepoId);
+        // First-ever link vs a re-link (or a webhook re-firing this): only the first
+        // link resolves the deploy ref, so a re-link never clobbers a branch the user
+        // has since chosen.
+        const isFirstLink = app.githubRepositoryId == null;
 
         try {
             await this.db.application.update({
@@ -355,7 +386,36 @@ export class GitHubInstallationService extends Service {
             throw error;
         }
 
+        if (isFirstLink) {
+            await this.setMainBranchToRepoDefault(applicationId, repository.defaultBranch);
+        }
+
         this.logger.info("Repository linked to application", { applicationId, githubRepoId });
+    }
+
+    /**
+     * Resolves the application's deploy ref to the repo's real default branch. Called
+     * only on the first link, when the app still carries the seeded fallback ref and
+     * the default branch first becomes known - never on a re-link, so it can't
+     * overwrite a branch the user has since chosen. A no-op when the ref already
+     * matches the default.
+     */
+    private async setMainBranchToRepoDefault(applicationId: string, defaultBranch: string): Promise<void> {
+        const app = await this.db.application.findUnique({
+            where: { id: applicationId },
+            select: { mainBranchId: true, mainBranch: { select: { name: true } } },
+        });
+        const branchId = app?.mainBranchId;
+        if (branchId == null || app?.mainBranch?.name === defaultBranch) return;
+
+        this.logger.info("Setting main-branch deploy ref to repo default", {
+            applicationId,
+            extra: { from: app?.mainBranch?.name, to: defaultBranch },
+        });
+        await this.db.$transaction([
+            this.db.branch.update({ where: { id: branchId }, data: { name: defaultBranch } }),
+            this.db.mainBranchInfo.updateMany({ where: { branchId }, data: { githubRef: defaultBranch } }),
+        ]);
     }
 
     /**

@@ -285,6 +285,24 @@ export function usePreviewkitConfig(applicationId: string) {
     return useSuspenseQuery(trpc.onboarding.getPreviewkitConfig.queryOptions({ applicationId }));
 }
 
+export function useDeployBranches(applicationId: string) {
+    return useQuery(trpc.onboarding.listDeployBranches.queryOptions({ applicationId }));
+}
+
+export function useSetDeployBranch() {
+    const queryClient = useQueryClient();
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.setDeployBranch.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getPreviewkitConfig.queryKey() });
+            },
+            onError: (error) => onStepMismatch(error),
+        }),
+        errorToast: { title: "Failed to set deploy branch" },
+    });
+}
+
 export function useSavePreviewkitConfig() {
     const queryClient = useQueryClient();
     const onStepMismatch = useStepMismatchHandler();

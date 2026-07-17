@@ -36,6 +36,13 @@ export interface OnboardingPreviewkitConfig {
     applicationId: string;
     saved: boolean;
     document: PreviewConfig;
+    /**
+     * The branch the base preview (environment 0) deploys from - the app's stored
+     * deploy ref. Defaults to the repo's default branch (set when the repo is
+     * linked); the user or a coding agent can override it. Only populated by
+     * {@link PreviewkitConfigService.getConfig} (the read path).
+     */
+    deployBranch?: string;
     /** One entry per dependency repo declared in the primary document's `config.multirepo.repos`. */
     dependencyConfigs: OnboardingPreviewkitDependencyConfig[];
     /**
@@ -107,11 +114,13 @@ export class PreviewkitConfigService {
             select: {
                 id: true,
                 name: true,
+                mainBranch: { select: { name: true } },
                 previewkitConfig: { select: { document: true, dependencyDocuments: true } },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
+        const deployBranch = application.mainBranch?.name ?? undefined;
         const stored = application.previewkitConfig;
         if (stored == null) {
             return {
@@ -119,6 +128,7 @@ export class PreviewkitConfigService {
                 saved: false,
                 document: defaultPreviewkitConfig(application.name),
                 dependencyConfigs: [],
+                deployBranch,
             };
         }
 
@@ -131,6 +141,7 @@ export class PreviewkitConfigService {
             applicationId,
             saved: true,
             document: validation.data,
+            deployBranch,
             dependencyConfigs: await this.loadDependencyConfigs(
                 applicationId,
                 organizationId,

@@ -213,6 +213,18 @@ export const onboardingRouter = router({
             ctx.services.onboarding.triggerPreviewkitMainDeploy(input.applicationId, ctx.organizationId),
         ),
 
+    setDeployBranch: protectedProcedure
+        .input(z.object({ applicationId: z.string(), branch: z.string().min(1) }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.setDeployBranch(input.applicationId, ctx.organizationId, input.branch),
+        ),
+
+    listDeployBranches: protectedProcedure
+        .input(applicationIdInput)
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.listDeployBranchOptions(input.applicationId, ctx.organizationId),
+        ),
+
     getPreviewReadiness: protectedProcedure
         .input(applicationIdInput)
         .query(({ ctx, input }) =>

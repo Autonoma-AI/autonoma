@@ -7,6 +7,7 @@ import type {
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
 import { z } from "zod";
+import { githubErrorStatus, normalizeBranchName } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
@@ -355,20 +356,26 @@ export class PreviewkitTriggerService extends Service {
         const repo = await this.githubInstallationService
             .getRepository(application.organizationId, application.githubRepositoryId)
             .catch((err: unknown) => {
-                if (errorStatus(err) === 404) return undefined;
+                if (githubErrorStatus(err) === 404) return undefined;
                 throw err;
             });
         if (repo == null) throw new NotFoundError("Linked GitHub repository not found or inaccessible");
 
-        const mainRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name ?? repo.defaultBranch;
-        const branchName = normalizeBranchName(mainRef);
+        const githubRepositoryId = application.githubRepositoryId;
+        // The deploy ref is the app's configured branch: an explicit choice, or the
+        // repo default written at link time. It resolves to the repo default only
+        // when neither is set, never as a silent fallback for a ref that has gone
+        // missing - a chosen branch that no longer exists errors below.
+        const deployRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name ?? repo.defaultBranch;
+        const branchName = normalizeBranchName(deployRef);
         const headSha = await this.githubInstallationService
-            .getBranchHead(application.organizationId, application.githubRepositoryId, branchName)
+            .getBranchHead(application.organizationId, githubRepositoryId, branchName)
             .catch((err: unknown) => {
-                if (errorStatus(err) === 404) return undefined;
+                if (githubErrorStatus(err) === 404) return undefined;
                 throw err;
             });
-        if (headSha == null) throw new NotFoundError(`Main branch ref '${mainRef}' not found on GitHub`);
+
+        if (headSha == null) throw new NotFoundError(`Deploy branch '${branchName}' not found on GitHub`);
 
         await this.deploy(
             {
@@ -741,17 +748,4 @@ function environmentHasApp(
     if (appInstances.some((instance) => instance.appName === appName)) return true;
     const parsed = resolvedConfigAppsSchema.safeParse(resolvedConfig);
     return parsed.success && parsed.data.apps.some((app) => app.name === appName);
-}
-
-function normalizeBranchName(ref: string): string {
-    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
-}
-
-/** Status code carried by Octokit request errors (404 = repo/branch not visible to the installation). */
-function errorStatus(error: unknown): number | undefined {
-    if (error instanceof Error && "status" in error) {
-        const status: unknown = error.status;
-        return typeof status === "number" ? status : undefined;
-    }
-    return undefined;
 }

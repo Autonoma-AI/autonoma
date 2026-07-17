@@ -46,6 +46,7 @@ import { AppCard } from "./-components/previewkit/app-card";
 import { BranchMatchingField } from "./-components/previewkit/branch-matching-field";
 import { ConfigureWithAgentModal } from "./-components/previewkit/configure-with-agent-modal";
 import { DatabaseSection } from "./-components/previewkit/database-section";
+import { DeployBranchField } from "./-components/previewkit/deploy-branch-field";
 import { HooksSection } from "./-components/previewkit/hooks-section";
 import { ReviewSection } from "./-components/previewkit/review-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
@@ -722,7 +723,16 @@ function PreviewkitConfigContent({
             </div>
           ) : undefined}
 
-          {activeStep === "review" ? <ReviewSection draft={draft} repoName={repoName} /> : undefined}
+          {activeStep === "review" ? (
+            <div className="space-y-6">
+              <DeployBranchField
+                applicationId={appId}
+                currentBranch={configQuery.data.deployBranch}
+                defaultBranch={repositoryQuery.data?.defaultBranch}
+              />
+              <ReviewSection draft={draft} repoName={repoName} />
+            </div>
+          ) : undefined}
 
           {activeStep === "hooks" ? (
             <HooksSection

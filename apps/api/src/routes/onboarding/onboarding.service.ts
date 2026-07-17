@@ -35,6 +35,14 @@ export class OnboardingService extends Service {
         return this.manager.triggerPreviewkitMainDeploy(applicationId, organizationId);
     }
 
+    async setDeployBranch(applicationId: string, organizationId: string, branch: string) {
+        return this.manager.setDeployBranch(applicationId, organizationId, branch);
+    }
+
+    async listDeployBranchOptions(applicationId: string, organizationId: string) {
+        return this.manager.listDeployBranchOptions(applicationId, organizationId);
+    }
+
     async getPreviewkitConfig(applicationId: string, organizationId: string) {
         return this.manager.getPreviewkitConfig(applicationId, organizationId);
     }

@@ -70,6 +70,12 @@ export class ApplicationsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly encryption: EncryptionHelper,
+        /**
+         * Branch name a new app's deploy ref is seeded with until a repo is linked
+         * and its real default branch is known (see {@link env.FALLBACK_DEFAULT_BRANCH}).
+         * The link-time heal overwrites it with the repo's actual default.
+         */
+        private readonly fallbackDefaultBranch: string,
     ) {
         super();
     }
@@ -170,10 +176,10 @@ export class ApplicationsService extends Service {
 
                 const branch = await tx.branch.create({
                     data: {
-                        name: "main",
+                        name: this.fallbackDefaultBranch,
                         applicationId: app.id,
                         organizationId: data.organizationId,
-                        mainInfo: { create: { applicationId: app.id, githubRef: "main" } },
+                        mainInfo: { create: { applicationId: app.id, githubRef: this.fallbackDefaultBranch } },
                     },
                     select: { id: true },
                 });
@@ -269,10 +275,10 @@ export class ApplicationsService extends Service {
 
                 const branch = await tx.branch.create({
                     data: {
-                        name: "main",
+                        name: this.fallbackDefaultBranch,
                         applicationId: app.id,
                         organizationId,
-                        mainInfo: { create: { applicationId: app.id, githubRef: "main" } },
+                        mainInfo: { create: { applicationId: app.id, githubRef: this.fallbackDefaultBranch } },
                     },
                     select: { id: true },
                 });
