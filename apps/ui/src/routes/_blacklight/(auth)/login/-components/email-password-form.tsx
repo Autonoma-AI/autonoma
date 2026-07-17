@@ -1,5 +1,5 @@
 import { BrailleSpinner, Button, Input } from "@autonoma/blacklight";
-import { env } from "env";
+import { getApiOrigin } from "lib/api-origin";
 import { toastManager } from "lib/toast-manager";
 import * as React from "react";
 
@@ -18,7 +18,11 @@ function useEmailAuth() {
       const path = mode === "signin" ? "/v1/auth/sign-in/email" : "/v1/auth/sign-up/email";
       const body = mode === "signin" ? { email, password } : { email, password, name: email };
 
-      const res = await fetch(`${env.VITE_API_URL}${path}`, {
+      // getApiOrigin(), not a same-origin relative path or env.VITE_API_URL -
+      // see its doc comment: the app origin sits behind CloudFront, whose WAF
+      // can mangle a sign-in/sign-up payload (e.g. a password with characters
+      // that trip injection rules).
+      const res = await fetch(`${getApiOrigin()}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

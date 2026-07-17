@@ -15,7 +15,7 @@ import {
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
-import { env } from "env";
+import { getApiOrigin } from "lib/api-origin";
 import { useState, type ReactNode } from "react";
 
 /** The two Autonoma MCP surfaces, addressed by their `/v1/mcp/<path>` suffix. */
@@ -37,10 +37,7 @@ export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
  * discovery are anchored. Localhost and per-PR previews reach the API cross-origin at VITE_API_URL.
  */
 export function mcpEndpointUrl(path: McpEndpoint): string {
-  const isPreview = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
-  const isLocalhost = window.location.hostname === "localhost";
-  const base = isPreview || isLocalhost ? env.VITE_API_URL : `https://api.${window.location.hostname}`;
-  return `${base}/v1/mcp/${path}`;
+  return `${getApiOrigin()}/v1/mcp/${path}`;
 }
 
 interface AgentTab {
