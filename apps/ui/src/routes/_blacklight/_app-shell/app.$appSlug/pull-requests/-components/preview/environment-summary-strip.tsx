@@ -14,7 +14,6 @@ import {
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
-import { formatDuration, formatRelativeTime } from "lib/format";
 import { useDeploymentHistory } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Component, type ReactNode, Suspense, useState } from "react";
@@ -126,16 +125,9 @@ function DeploymentSummaryDetail({ deployment }: { deployment: DeploymentHistory
     <>
       <StatusDot status={statusMeta.dot} className="shrink-0 rounded-full" />
       <span className="font-mono text-sm text-text-primary">{deployment.headSha.slice(0, 7)}</span>
-      <Badge variant="outline" className="shrink-0">
-        Current
-      </Badge>
       <Badge variant={statusMeta.badge} className={cn("shrink-0 uppercase", statusMeta.className)}>
         {statusMeta.label}
       </Badge>
-      <span className="flex items-center gap-3 font-mono text-2xs text-text-secondary">
-        <span>{formatRelativeTime(deployment.startedAt)}</span>
-        {deployment.durationMs != null && <span>{formatDuration(deployment.durationMs)}</span>}
-      </span>
     </>
   );
 }

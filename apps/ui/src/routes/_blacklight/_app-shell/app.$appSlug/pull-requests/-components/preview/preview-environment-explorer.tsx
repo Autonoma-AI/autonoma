@@ -16,45 +16,32 @@ import {
 } from "@autonoma/blacklight";
 import type { PreviewRedeployAppMode } from "@autonoma/types";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
-import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
-import { CalendarBlankIcon } from "@phosphor-icons/react/CalendarBlank";
-import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { HammerIcon } from "@phosphor-icons/react/Hammer";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
-import { formatDate, formatDuration, formatRelativeTime } from "lib/format";
-import { useDeploymentHistory, useRedeployPreviewApp } from "lib/query/deployments.queries";
+import { formatDuration } from "lib/format";
+import { useRedeployPreviewApp } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { Component, type ReactNode, Suspense, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from "../preview-status-meta";
-import { DeploymentRow } from "./deployment-row";
-import { TestUserCard, TestUserCardSkeleton, TestUserCardUnavailable } from "./test-user-card";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 type PreviewService = PreviewSummary["services"][number];
-type PreviewLatestBuild = PreviewSummary["latestBuild"];
 
 /** URL-persisted view state for the explorer: the selected service and the chosen log focus. */
 export type PreviewExplorerSearch = { service?: string; logs?: PreviewLogSource };
 
-// The deployment rail is docked to the right of the content area at a fixed width, full height, with
-// its own left border. Desktop-only (the layout is a fixed three-column row); hidden below lg so it
-// never squeezes the services + center columns on narrow screens. Shared by the rail, its skeleton,
-// and its error state so all three occupy the same column footprint.
-const DEPLOYMENT_RAIL_CLASS = "hidden shrink-0 flex-col border-l border-border-dim bg-surface-base lg:flex lg:w-80";
-
 /**
  * The preview-environment explorer: the environment's services on the left, the selected service's
- * detail + logs in the center, and the deployment-history rail docked on the right. Reused by the
- * standalone preview-environment page and the PR page's Preview tab - both resolve a `summary` (by
- * environment id or by PR) and own the `{ service, logs }` URL state, threaded in via `search` +
- * `onSearchChange` so this component stays route-agnostic.
+ * compact detail + logs in the center. Reused by the standalone preview-environment page and the PR
+ * page's Preview tab - both resolve a `summary` (by environment id or by PR), render the environment-
+ * level `EnvironmentSummaryStrip` above this component, and own the `{ service, logs }` URL state,
+ * threaded in via `search` + `onSearchChange` so this component stays route-agnostic.
  */
 export function PreviewEnvironmentExplorer({
   applicationId,
@@ -62,121 +49,65 @@ export function PreviewEnvironmentExplorer({
   summary,
   search,
   onSearchChange,
-  showEnvironmentSummary = true,
-  compactAppDetail = false,
 }: {
   applicationId: string;
   environmentId: string;
   summary: PreviewSummary;
   search: PreviewExplorerSearch;
   onSearchChange: (partial: PreviewExplorerSearch) => void;
-  /**
-   * Set to false when an ancestor already renders the environment-level summary (the redesigned
-   * Preview tab's `EnvironmentSummaryStrip`), so this component only renders the rail + selected-
-   * service detail + logs. Defaults to true: the standalone/main-branch usage owns the full
-   * composition, unchanged.
-   */
-  showEnvironmentSummary?: boolean;
-  /**
-   * Renders the selected service's detail as a compact strip (name/kind, status pill, inline
-   * URL/last-built/build-time/date, Rebuild/Restart in the header) instead of the label-above-value
-   * grid. Defaults to false: the main-branch usage keeps today's bulkier card, unchanged.
-   */
-  compactAppDetail?: boolean;
 }) {
   const services = summary.services;
   const apps = services.filter(isAppService);
   const dependencies = services.filter((service) => !isAppService(service));
   const selectedService = services.find((service) => serviceKey(service) === search.service) ?? services[0];
   const onSelect = (service: PreviewService) => onSearchChange({ service: serviceKey(service) });
-  // Only the current deploy's logs are retained (Loki keeps the latest attempt per repo+PR), so the
-  // logs header is scoped to the currently-deployed SHA rather than any selected historical build.
-  const currentSha = summary.lastDeployedSha ?? undefined;
-  const environmentActive = summary.status === "building" || summary.phase === "deploy_requested";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {showEnvironmentSummary &&
-        (summary.status === "ready" ? (
-          <Suspense fallback={<TestUserCardSkeleton />}>
-            <TestUserCard applicationId={applicationId} environmentId={environmentId} />
-          </Suspense>
-        ) : (
-          <TestUserCardUnavailable status={summary.status} />
-        ))}
-      <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
-        <aside className="flex shrink-0 flex-col lg:w-72">
-          <div className="divide-y divide-border-dim border border-border-dim bg-surface-base lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-            {services.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-text-secondary">No services yet.</div>
-            ) : (
-              <>
-                {apps.length > 0 && (
-                  <PreviewServiceGroup
-                    label="Apps"
-                    services={apps}
-                    selectedService={selectedService}
-                    onSelect={onSelect}
-                  />
-                )}
-                {dependencies.length > 0 && (
-                  <PreviewServiceGroup
-                    label="Services"
-                    services={dependencies}
-                    selectedService={selectedService}
-                    onSelect={onSelect}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        </aside>
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-          {selectedService != null &&
-            (compactAppDetail ? (
-              <CompactAppDetail
-                service={selectedService}
-                latestBuild={summary.latestBuild}
-                applicationId={applicationId}
-                environmentId={environmentId}
-              />
-            ) : (
-              <PreviewAppDetail
-                service={selectedService}
-                latestBuild={summary.latestBuild}
-                applicationId={applicationId}
-                environmentId={environmentId}
-              />
-            ))}
-          <PreviewLogsSection
-            service={selectedService}
-            repoFullName={summary.repoFullName}
-            prNumber={summary.prNumber}
-            currentSha={currentSha}
-            logs={search.logs}
-            onLogsChange={(next) => onSearchChange({ logs: next })}
-          />
+    <div className="flex min-h-0 flex-1 lg:flex-row">
+      <aside className="flex shrink-0 flex-col lg:w-72">
+        <div className="divide-y divide-border-dim border border-border-dim bg-surface-base lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          {services.length === 0 ? (
+            <div className="px-3 py-4 text-sm text-text-secondary">No services yet.</div>
+          ) : (
+            <>
+              {apps.length > 0 && (
+                <PreviewServiceGroup
+                  label="Apps"
+                  services={apps}
+                  selectedService={selectedService}
+                  onSelect={onSelect}
+                />
+              )}
+              {dependencies.length > 0 && (
+                <PreviewServiceGroup
+                  label="Services"
+                  services={dependencies}
+                  selectedService={selectedService}
+                  onSelect={onSelect}
+                />
+              )}
+            </>
+          )}
         </div>
+      </aside>
 
-        {/* The rail owns a secondary, informational fetch - isolate its failures in an error boundary
-                so they degrade in place instead of taking down the services and logs via the router's
-                default error UI. */}
-        {showEnvironmentSummary && (
-          <QueryErrorResetBoundary>
-            {({ reset }) => (
-              <DeploymentRailErrorBoundary onRetry={reset}>
-                <Suspense fallback={<DeploymentRailSkeleton />}>
-                  <DeploymentRail
-                    applicationId={applicationId}
-                    environmentId={environmentId}
-                    environmentActive={environmentActive}
-                  />
-                </Suspense>
-              </DeploymentRailErrorBoundary>
-            )}
-          </QueryErrorResetBoundary>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {selectedService != null && (
+          <PreviewAppDetail service={selectedService} applicationId={applicationId} environmentId={environmentId} />
         )}
+        {selectedService?.statusReason != null && (
+          <span className="inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
+            <XCircleIcon size={13} className="shrink-0" />
+            {selectedService?.statusReason}
+          </span>
+        )}
+        <PreviewLogsBody
+          service={selectedService}
+          repoFullName={summary.repoFullName}
+          prNumber={summary.prNumber}
+          logs={search.logs}
+          onLogsChange={(next) => onSearchChange({ logs: next })}
+        />
       </div>
     </div>
   );
@@ -242,115 +173,20 @@ function PreviewServiceListItem({
   );
 }
 
-// The legacy per-app detail block: a label-above-value grid. Used only when `compact` is false (the
-// main-branch page's usage), so that page's layout stays exactly as it is today.
+// Compact strip pinned directly above the logs, reflecting whichever service is selected in the
+// rail: identity + status on one line, inline metadata on the next. Stays a fixed couple of lines
+// regardless of viewport height, leaving the remaining space to the logs panel.
 function PreviewAppDetail({
   service,
-  latestBuild,
   applicationId,
   environmentId,
 }: {
   service: PreviewService;
-  latestBuild: PreviewLatestBuild;
   applicationId: string;
   environmentId: string;
 }) {
   const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
   const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
-  // "Date" is when the latest environment build finished (fall back to its start). The duration
-  // comes from the selected app's build outcome, since apps build independently.
-  const buildDate = latestBuild?.finishedAt ?? latestBuild?.startedAt;
-
-  return (
-    <div className="shrink-0 border border-border-dim bg-surface-base">
-      <div className="flex items-center gap-3 border-b border-border-dim px-4 py-3">
-        <ServiceIcon size={18} className="shrink-0 text-text-secondary" />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-text-primary">{service.name}</div>
-          <div className="font-mono text-2xs uppercase tracking-wider text-text-secondary">{service.kind}</div>
-        </div>
-        <Badge variant={statusMeta.badge} className={cn("ml-auto gap-1.5", statusMeta.className)}>
-          <StatusDot status={statusMeta.dot} className="rounded-full" />
-          {statusMeta.label}
-        </Badge>
-      </div>
-
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-2">
-        <DetailRow label="URL" icon={LinkIcon}>
-          {service.endpoint != null ? (
-            <a
-              href={service.endpoint}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-1 font-mono text-text-secondary transition-colors hover:text-text-primary hover:underline"
-            >
-              <ArrowSquareOutIcon size={11} className="shrink-0" />
-              <span className="truncate">{service.endpoint}</span>
-            </a>
-          ) : (
-            <span className="text-text-secondary">-</span>
-          )}
-        </DetailRow>
-        <DetailRow label="Last built" icon={ClockIcon}>
-          {service.lastBuiltAt != null ? formatRelativeTime(service.lastBuiltAt) : "-"}
-        </DetailRow>
-        <DetailRow label="Date" icon={CalendarBlankIcon}>
-          {buildDate != null ? formatDate(buildDate) : "-"}
-        </DetailRow>
-        <DetailRow label="Build time" icon={TimerIcon}>
-          {service.buildDurationMs != null ? formatDuration(service.buildDurationMs) : "-"}
-        </DetailRow>
-        {isAppService(service) && (
-          <DetailRow label="Controls" icon={GearSixIcon}>
-            <PreviewAppRedeployControl
-              applicationId={applicationId}
-              environmentId={environmentId}
-              appName={service.name}
-              disabled={service.status === "building"}
-            />
-          </DetailRow>
-        )}
-      </dl>
-
-      {service.statusReason != null && (
-        <div className="border-t border-border-dim px-4 py-3 text-xs text-status-critical">{service.statusReason}</div>
-      )}
-    </div>
-  );
-}
-
-function DetailRow({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <dt className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-text-secondary">
-        <RowIcon size={12} className="shrink-0" />
-        {label}
-      </dt>
-      <dd className="min-w-0 text-sm text-text-primary">{children}</dd>
-    </div>
-  );
-}
-
-// Compact strip pinned directly above the logs, reflecting whichever service is selected in the
-// rail: identity + status on one line, inline metadata (+ build-error, if any) on the next. Used only
-// when `compact` is true (the redesigned Preview tab), so this block stays a fixed couple of lines
-// regardless of viewport height, leaving the remaining space to the logs panel below it.
-function CompactAppDetail({
-  service,
-  latestBuild,
-  applicationId,
-  environmentId,
-}: {
-  service: PreviewService;
-  latestBuild: PreviewLatestBuild;
-  applicationId: string;
-  environmentId: string;
-}) {
-  const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
-  const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
-  // "Date" is when the latest environment build finished (fall back to its start). The duration
-  // comes from the selected app's build outcome, since apps build independently.
-  const buildDate = latestBuild?.finishedAt ?? latestBuild?.startedAt;
 
   return (
     <div className="flex shrink-0 flex-col gap-3 border border-border-dim bg-surface-base px-4 py-3">
@@ -391,21 +227,9 @@ function CompactAppDetail({
             "-"
           )}
         </InlineMeta>
-        <InlineMeta label="Last built" icon={ClockIcon}>
-          {service.lastBuiltAt != null ? formatRelativeTime(service.lastBuiltAt) : "-"}
-        </InlineMeta>
         <InlineMeta label="Build time" icon={TimerIcon}>
           {service.buildDurationMs != null ? formatDuration(service.buildDurationMs) : "-"}
         </InlineMeta>
-        <InlineMeta label="Date" icon={CalendarBlankIcon}>
-          {buildDate != null ? formatDate(buildDate) : "-"}
-        </InlineMeta>
-        {service.statusReason != null && (
-          <span className="ml-auto inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
-            <XCircleIcon size={13} className="shrink-0" />
-            {service.statusReason}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -527,42 +351,6 @@ function InlineMeta({ label, icon: RowIcon, children }: { label: string; icon: I
   );
 }
 
-function PreviewLogsSection({
-  service,
-  repoFullName,
-  prNumber,
-  currentSha,
-  logs,
-  onLogsChange,
-}: {
-  service: PreviewService | undefined;
-  repoFullName: string;
-  prNumber: number;
-  currentSha: string | undefined;
-  logs: PreviewLogSource | undefined;
-  onLogsChange: (next: PreviewLogSource) => void;
-}) {
-  return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold text-text-primary">Logs</h2>
-        {service != null && currentSha != null && (
-          <span className="truncate font-mono text-2xs text-text-secondary">
-            {service.name} @ {currentSha.slice(0, 7)}
-          </span>
-        )}
-      </div>
-      <PreviewLogsBody
-        service={service}
-        repoFullName={repoFullName}
-        prNumber={prNumber}
-        logs={logs}
-        onLogsChange={onLogsChange}
-      />
-    </section>
-  );
-}
-
 function PreviewLogsBody({
   service,
   repoFullName,
@@ -603,108 +391,14 @@ function PreviewLogsBody({
   );
 }
 
-// The deployment rail: docked right, full content-area height, bound to the environment. Lists the
-// environment's deploys newest-first; the current deploy is highlighted, past deploys are display-
-// only (their per-commit logs aren't retained, so there's nothing to scope to).
-function DeploymentRail({
-  applicationId,
-  environmentId,
-  environmentActive,
-}: {
-  applicationId: string;
-  environmentId: string;
-  environmentActive: boolean;
-}) {
-  const { data: deployments } = useDeploymentHistory(applicationId, environmentId, {
-    pollWhileActive: environmentActive,
-  });
-
-  return (
-    <aside className={DEPLOYMENT_RAIL_CLASS}>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
-        <span className="size-2 shrink-0 rounded-full bg-primary" />
-        <h2 className="text-sm font-semibold text-text-primary">Deployments</h2>
-        <span className="ml-auto font-mono text-2xs tabular-nums text-text-secondary">{deployments.length}</span>
-      </div>
-      <div className="min-h-0 flex-1 divide-y divide-border-dim overflow-y-auto">
-        {deployments.length === 0 ? (
-          <div className="px-4 py-3 text-sm text-text-secondary">No deployments yet.</div>
-        ) : (
-          deployments.map((deployment) => <DeploymentRow key={deployment.id} deployment={deployment} />)
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function DeploymentRailSkeleton() {
-  return (
-    <aside className={DEPLOYMENT_RAIL_CLASS}>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
-        <Skeleton className="size-2 rounded-full" />
-        <Skeleton className="h-5 w-28" />
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-        {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-// Isolates a failed `deployments.history` fetch (thrown by useSuspenseQuery) to the rail. Retry
-// clears the local error and resets the query cache (via onRetry) so the child refetches.
-class DeploymentRailErrorBoundary extends Component<
-  { children: ReactNode; onRetry: () => void },
-  { hasError: boolean }
-> {
-  override state: { hasError: boolean } = { hasError: false };
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  override render() {
-    if (!this.state.hasError) return this.props.children;
-    return (
-      <aside className={DEPLOYMENT_RAIL_CLASS}>
-        <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
-          <span className="size-2 shrink-0 rounded-full bg-primary" />
-          <h2 className="text-sm font-semibold text-text-primary">Deployments</h2>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-3 text-center text-sm text-text-secondary">
-          <span>Couldn't load deployments.</span>
-          <Button
-            variant="outline"
-            size="xs"
-            className="gap-1.5"
-            onClick={() => {
-              this.setState({ hasError: false });
-              this.props.onRetry();
-            }}
-          >
-            <ArrowCounterClockwiseIcon size={12} />
-            Retry
-          </Button>
-        </div>
-      </aside>
-    );
-  }
-}
-
-/** Body skeleton mirroring the explorer's three-column layout (services / detail+logs / rail). */
+/** Body skeleton mirroring the explorer's layout (services rail / detail+logs). */
 export function PreviewEnvironmentExplorerSkeleton() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <TestUserCardSkeleton />
-      <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
-        <Skeleton className="h-64 shrink-0 lg:w-72" />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-          <Skeleton className="h-44 w-full shrink-0" />
-          <Skeleton className="min-h-0 w-full flex-1" />
-        </div>
-        <Skeleton className="hidden shrink-0 lg:block lg:w-80" />
+    <div className="flex min-h-0 flex-1 lg:flex-row">
+      <Skeleton className="h-64 shrink-0 lg:w-72" />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Skeleton className="h-20 w-full shrink-0" />
+        <Skeleton className="min-h-0 w-full flex-1" />
       </div>
     </div>
   );

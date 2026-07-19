@@ -26,10 +26,8 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 import { PrStatusBadge } from "./-components/pr-status-badge";
-import {
-  PreviewEnvironmentExplorer,
-  PreviewEnvironmentExplorerSkeleton,
-} from "./-components/preview/preview-environment-explorer";
+import { EnvironmentSummaryStrip } from "./-components/preview/environment-summary-strip";
+import { PreviewEnvironmentExplorer } from "./-components/preview/preview-environment-explorer";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type Bug = RouterOutputs["bugs"]["listByBranch"][number];
@@ -147,7 +145,8 @@ function MainBranchPreviewExplorer({ applicationId, environmentId }: { applicati
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-text-primary">Preview environment</h2>
-      <Suspense fallback={<PreviewEnvironmentExplorerSkeleton />}>
+      <EnvironmentSummaryStrip applicationId={applicationId} environmentId={environmentId} summary={summary} />
+      <div className="flex h-[32rem] flex-col">
         <PreviewEnvironmentExplorer
           applicationId={applicationId}
           environmentId={environmentId}
@@ -155,7 +154,7 @@ function MainBranchPreviewExplorer({ applicationId, environmentId }: { applicati
           search={search}
           onSearchChange={(partial) => void navigate({ search: (prev) => ({ ...prev, ...partial }), replace: true })}
         />
-      </Suspense>
+      </div>
     </section>
   );
 }

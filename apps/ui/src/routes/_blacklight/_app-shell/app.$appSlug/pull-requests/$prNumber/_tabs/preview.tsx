@@ -1,4 +1,4 @@
-import { Panel, PanelBody, Skeleton } from "@autonoma/blacklight";
+import { Panel, PanelBody } from "@autonoma/blacklight";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import type { PreviewLogSource } from "components/build-logs/preview-logs-tabs";
@@ -14,7 +14,10 @@ import {
   EnvironmentSummaryStrip,
   EnvironmentSummaryStripSkeleton,
 } from "../../-components/preview/environment-summary-strip";
-import { PreviewEnvironmentExplorer } from "../../-components/preview/preview-environment-explorer";
+import {
+  PreviewEnvironmentExplorer,
+  PreviewEnvironmentExplorerSkeleton,
+} from "../../-components/preview/preview-environment-explorer";
 
 // Persisted in the URL so a refresh keeps the selected service and the chosen log focus (build vs app).
 type PreviewSearch = { service?: string; logs?: PreviewLogSource };
@@ -77,7 +80,7 @@ function PreviewByEnvironment({
   const { data: summary } = usePreviewSummaryById(applicationId, environmentId, { refetchWhileActive: true });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col">
       <EnvironmentSummaryStrip applicationId={applicationId} environmentId={environmentId} summary={summary} />
       <PreviewEnvironmentExplorer
         applicationId={applicationId}
@@ -85,8 +88,6 @@ function PreviewByEnvironment({
         summary={summary}
         search={search}
         onSearchChange={onSearchChange}
-        showEnvironmentSummary={false}
-        compactAppDetail
       />
     </div>
   );
@@ -105,19 +106,13 @@ function NoPreviewPanel() {
   );
 }
 
-// Mirrors PreviewByEnvironment's redesigned layout (summary strip + rail/center, no docked deployment
-// rail column) so there's no layout shift once data loads.
+// Mirrors PreviewByEnvironment's layout (summary strip + rail/center) so there's no layout shift
+// once data loads.
 function PreviewPageSkeleton() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col">
       <EnvironmentSummaryStripSkeleton />
-      <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
-        <Skeleton className="h-64 shrink-0 lg:w-72" />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-          <Skeleton className="h-20 w-full shrink-0" />
-          <Skeleton className="min-h-0 w-full flex-1" />
-        </div>
-      </div>
+      <PreviewEnvironmentExplorerSkeleton />
     </div>
   );
 }

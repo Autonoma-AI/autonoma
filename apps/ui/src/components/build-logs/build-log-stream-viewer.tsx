@@ -80,7 +80,7 @@ export function BuildLogStreamViewer({
   }, [entries]);
 
   return (
-    <Card className={cn("flex flex-col overflow-hidden", fill === true && "min-h-0 flex-1", className)}>
+    <Card className={cn("flex flex-col overflow-hidden", fill === true && "min-h-0 flex-1 gap-0", className)}>
       {header && (
         <header className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-2">
           <TerminalWindowIcon className="size-4 text-text-secondary" weight="duotone" />

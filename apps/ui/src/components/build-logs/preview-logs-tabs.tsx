@@ -94,14 +94,14 @@ export function PreviewLogsTabs({
       onValueChange={(value) => onSourceChange?.(value === "build" ? "build" : "app")}
       className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}
     >
-      <div className={cn("flex items-center gap-3", toolbar && "flex-wrap")}>
+      <div className={cn("flex items-center gap-3", toolbar && "flex-wrap pl-2 pt-2")}>
         <TabsList>
           {runtimeOnly !== true && <TabsTrigger value="build">Build logs</TabsTrigger>}
           <TabsTrigger value="app">App logs</TabsTrigger>
         </TabsList>
 
         {toolbar && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 ml-auto">
             <span className="font-mono text-3xs uppercase tracking-wider text-text-secondary">Level</span>
             {LEVEL_OPTIONS.map((option) => (
               <Button
