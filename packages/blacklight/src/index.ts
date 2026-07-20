@@ -104,6 +104,7 @@ export {
     type SnapshotHealthCounts,
 } from "./components/ui/health-summary";
 export { Panel, PanelHeader, PanelTitle, PanelBody } from "./components/ui/panel";
+export { Popover, PopoverTrigger, PopoverContent } from "./components/ui/popover";
 export { Progress, ProgressTrack, ProgressIndicator, ProgressLabel, ProgressValue } from "./components/ui/progress";
 export { ScrollArea } from "./components/ui/scroll-area";
 export {

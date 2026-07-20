@@ -1,7 +1,7 @@
-import { Skeleton } from "@autonoma/blacklight";
+import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@autonoma/blacklight";
 import type { PrPipelineStatus } from "@autonoma/types";
-import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
-import { formatRelativeTime } from "lib/format";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { formatDate, formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
 import type { ReactNode } from "react";
 import { BranchPill } from "./branch-pill";
@@ -86,6 +86,7 @@ function MetaRow({
   const resolvedBaseRef = baseRef ?? targetBranchName;
   const commitsCount = pr?.commitsCount ?? 0;
   const createdAt = pr?.createdAt != null ? new Date(pr.createdAt) : undefined;
+  const headSha = pr?.headSha;
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-text-secondary">
@@ -93,19 +94,43 @@ function MetaRow({
         <div className="flex items-center gap-2">
           <PRAuthorStack applicationId={applicationId} prNumber={prNumber} primaryAuthor={author} />
           <span className="font-medium text-text-primary">@{author}</span>
-          <span className="text-text-tertiary">
-            {commitsCount} {commitsCount === 1 ? "commit" : "commits"}
-          </span>
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        <BranchPill name={headRef} />
-        <ArrowRightIcon size={12} className="text-text-tertiary" />
-        <BranchPill name={resolvedBaseRef} emphasize />
-      </div>
+      <BranchPill name={resolvedBaseRef} emphasize />
 
       {createdAt != null && <span className="text-text-tertiary">· created {formatRelativeTime(createdAt)}</span>}
+
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button variant="outline" size="xs" className="group gap-1 font-mono text-3xs uppercase tracking-wider" />
+          }
+        >
+          Details
+          <CaretDownIcon size={10} className="transition-transform group-data-[popup-open]:rotate-180" />
+        </PopoverTrigger>
+        <PopoverContent align="start">
+          <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 whitespace-nowrap">
+            <dt className="text-3xs uppercase tracking-wide text-text-tertiary">Source</dt>
+            <dd className="text-xs text-text-primary">{headRef}</dd>
+
+            <dt className="text-3xs uppercase tracking-wide text-text-tertiary">Base</dt>
+            <dd className="text-xs text-text-primary">{resolvedBaseRef}</dd>
+
+            <dt className="text-3xs uppercase tracking-wide text-text-tertiary">Commits</dt>
+            <dd className="text-xs text-text-primary">
+              {commitsCount} {commitsCount === 1 ? "commit" : "commits"}
+              {headSha != null && ` · ${headSha.slice(0, 7)}`}
+            </dd>
+
+            <dt className="text-3xs uppercase tracking-wide text-text-tertiary">Created</dt>
+            <dd className="text-xs text-text-primary">
+              {createdAt != null ? `${formatRelativeTime(createdAt)} · ${formatDate(createdAt)}` : "-"}
+            </dd>
+          </dl>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
