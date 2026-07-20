@@ -4,8 +4,9 @@ import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 export type PRTab = "overview" | "preview";
 
-// Inline tab switcher for the PR header's title row. Rendered only for PRs backed by a real
-// previewkit_environment: a non-preview PR (BYO deploy, or none) shows no tabs at all.
+// The tab switcher, rendered as a bare Tabs widget (the meta row that hosts it owns the
+// border/background/padding). Rendered only for PRs backed by a real previewkit_environment: a
+// non-preview PR (BYO deploy, or none) renders no tabs at all.
 export function PRTabs({
   applicationId,
   prNumber,
@@ -19,13 +20,13 @@ export function PRTabs({
   if (summary.source !== "previewkit") return null;
 
   return (
-    <Tabs value={active} className="shrink-0">
+    <Tabs value={active}>
       <TabsList variant="line">
         <TabsTrigger
           value="overview"
           render={<AppLink to="/app/$appSlug/pull-requests/$prNumber" params={{ prNumber }} />}
         >
-          PR Analysis
+          Analysis
         </TabsTrigger>
         <TabsTrigger
           value="preview"
