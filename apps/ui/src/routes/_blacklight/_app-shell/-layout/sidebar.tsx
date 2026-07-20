@@ -240,7 +240,7 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
     <aside className="flex flex-col border-r border-border-dim bg-surface-base">
       {/* Header */}
       {!collapsed && (
-        <span className="shrink-0 px-1.5 py-1 text-xs bg-primary text-background text-center font-semibold">
+        <span className="shrink-0 px-1.5 py-1 text-xs bg-primary text-background text-center font-semibold font-mono">
           EARLY VERSION
         </span>
       )}

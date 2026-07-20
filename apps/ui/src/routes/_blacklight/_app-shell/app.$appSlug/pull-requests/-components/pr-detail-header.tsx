@@ -3,6 +3,7 @@ import type { PrPipelineStatus } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
+import type { ReactNode } from "react";
 import { BranchPill } from "./branch-pill";
 import { PRAuthorStack } from "./pr-author-stack";
 import { PrStatusBadge } from "./pr-status-badge";
@@ -18,6 +19,7 @@ export function PRDetailHeader({
   pr,
   prPending,
   status,
+  tabs,
 }: {
   applicationId: string;
   prNumber: number;
@@ -27,6 +29,7 @@ export function PRDetailHeader({
   pr: PullRequest | undefined;
   prPending: boolean;
   status: PrPipelineStatus;
+  tabs: ReactNode;
 }) {
   // Prefer the live GitHub title, fall back to the cached PR title (same source as the PR list), and
   // only fall back to the branch name when neither is available.
@@ -35,35 +38,28 @@ export function PRDetailHeader({
   const showTitleSkeleton = prPending && pr?.title == null && cachedTitle == null;
 
   return (
-    <header className="flex min-h-36 items-start justify-between gap-4 border-b border-border-dim bg-surface-base px-6 py-5">
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
-            PR <span className="text-text-primary">#{prNumber}</span>
-          </span>
-        </div>
-
+    <div className="flex shrink-0 flex-col gap-2 border-b border-border-dim bg-surface-base px-6 py-3">
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 font-mono text-2xs text-text-tertiary">#{prNumber}</span>
         {showTitleSkeleton ? (
-          <Skeleton className="h-7 w-96" />
+          <Skeleton className="h-5 w-96" />
         ) : (
-          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">
-            <span className="break-words">{title}</span>
+          <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary" title={title}>
+            {title}
           </h1>
         )}
-        <MetaRow
-          applicationId={applicationId}
-          prNumber={prNumber}
-          branchName={branchName}
-          targetBranchName={targetBranchName}
-          pr={pr}
-          prPending={prPending}
-        />
-      </div>
-
-      <div className="flex shrink-0 flex-col items-end gap-3">
         <PrStatusBadge status={status} />
+        {tabs}
       </div>
-    </header>
+      <MetaRow
+        applicationId={applicationId}
+        prNumber={prNumber}
+        branchName={branchName}
+        targetBranchName={targetBranchName}
+        pr={pr}
+        prPending={prPending}
+      />
+    </div>
   );
 }
 

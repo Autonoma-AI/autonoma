@@ -40,10 +40,12 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
         pr={pr.data ?? undefined}
         prPending={pr.isPending}
         status={prStatus}
+        tabs={
+          <Suspense fallback={null}>
+            <PRTabs applicationId={app.id} prNumber={prNumber} active={activeTab} />
+          </Suspense>
+        }
       />
-      <Suspense fallback={null}>
-        <PRTabs applicationId={app.id} prNumber={prNumber} active={activeTab} />
-      </Suspense>
     </>
   );
 }
