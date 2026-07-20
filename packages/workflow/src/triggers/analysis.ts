@@ -1,5 +1,4 @@
 import { logger, withObservabilityContext } from "@autonoma/logger";
-import type { AnalysisMode } from "@autonoma/types";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
@@ -15,20 +14,20 @@ import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 const ANALYSIS_EXECUTION_TIMEOUT = "6h";
 
 export interface TriggerAnalysisJobParams {
-    /** The detached twin snapshot the pipeline operates on. */
+    /** The branch's real pending snapshot the pipeline operates on. */
     snapshotId: string;
-    mode: AnalysisMode;
 }
 
 /**
- * Start the merged analysis pipeline for a snapshot. Runs in PARALLEL with the diffs job on every PR; the
- * workflow id is idempotent (`analysis-<snapshotId>`) so a duplicate trigger is rejected rather than re-run.
+ * Start the merged analysis pipeline for a snapshot (an org that has analysis enabled - it replaces the diffs
+ * job). The workflow id is idempotent (`analysis-<snapshotId>`) so a duplicate trigger is rejected rather than
+ * re-run.
  */
 export async function triggerAnalysisJob(params: TriggerAnalysisJobParams): Promise<void> {
-    const { snapshotId, mode } = params;
+    const { snapshotId } = params;
 
     return await withObservabilityContext({ snapshot: { snapshotId } }, async () => {
-        logger.info("Triggering analysis pipeline", { extra: { mode } });
+        logger.info("Triggering analysis pipeline");
 
         const client = await getTemporalClient();
         const workflowId = `analysis-${snapshotId}`;
@@ -39,10 +38,10 @@ export async function triggerAnalysisJob(params: TriggerAnalysisJobParams): Prom
             taskQueue: TaskQueue.DIFFS,
             workflowExecutionTimeout: ANALYSIS_EXECUTION_TIMEOUT,
             searchAttributes: getWorkflowSearchAttributes(),
-            args: [{ snapshotId, mode }],
+            args: [{ snapshotId }],
         });
 
-        logger.info("Analysis pipeline started", { workflowId, extra: { mode } });
+        logger.info("Analysis pipeline started", { workflowId });
     });
 }
 

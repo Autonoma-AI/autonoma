@@ -1,9 +1,10 @@
-import type { AnalysisMode, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
+import type { AnalysisFindingReport, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type {
     AnalysisCandidateFinding,
     GeneralActivities,
     InvestigationActivities,
+    InvestigationTestResult,
     InvestigationVerdict,
     InvestigatorActivities,
     WebActivities,
@@ -72,11 +73,11 @@ const web = proxyActivities<WebActivities>({
 });
 
 export interface InvestigatorWorkflowInput {
-    /** The detached twin snapshot the pipeline operates on. */
+    /** The snapshot the pipeline operates on. */
     snapshotId: string;
     /** The test this Investigator owns. */
     slug: string;
-    /** The shadow generation to run for this test (created up front by Impact Analysis). */
+    /** The generation to run for this test (created up front by Impact Analysis). */
     testGenerationId: string;
     /** The scenario to provision before the run, when the test pins one. */
     scenarioId?: string;
@@ -85,11 +86,10 @@ export interface InvestigatorWorkflowInput {
     /** Whether this test pre-existed (affected) or was authored this run (proposed). Rides onto the finding and
      * decides how a `delete` cleans up (assignment-only vs the whole TestCase). */
     origin: AnalysisTestOrigin;
-    mode: AnalysisMode;
 }
 
 /**
- * Investigator (child workflow, one per test): run the test's shadow generation on the web worker, classify the
+ * Investigator (child workflow, one per test): run the test's generation on the web worker, classify the
  * outcome, and emit ONE candidate finding across the full two-plane taxonomy. It writes no rows other than its
  * own test's (plan edit + eager self-delete) and files no bugs (the Reconciler owns the one cross-test write).
  *
@@ -100,9 +100,9 @@ export interface InvestigatorWorkflowInput {
  * coverage-plane verdict (environment_failure / scenario_issue / engine_artifact), never a silent drop.
  */
 export async function investigatorWorkflow(input: InvestigatorWorkflowInput): Promise<AnalysisCandidateFinding> {
-    const { snapshotId, slug, testGenerationId, scenarioId, reason, origin, mode } = input;
+    const { snapshotId, slug, testGenerationId, scenarioId, reason, origin } = input;
     const ids = { snapshot: { snapshotId } };
-    log.info("Investigator workflow started", { ...ids, extra: { slug, origin, mode } });
+    log.info("Investigator workflow started", { ...ids, extra: { slug, origin } });
 
     const finding = await runWithSelfHeal(snapshotId, slug, testGenerationId, scenarioId, reason, origin);
     log.info("Investigator workflow finished", {
@@ -140,7 +140,14 @@ async function runWithSelfHeal(
 
         const routed = routeVerdict(outcome.verdict.category);
         if (routed !== TEST_IS_WRONG) {
-            return { slug, category: routed, headline: outcome.verdict.headline, planEdited, origin };
+            return {
+                slug,
+                category: routed,
+                headline: outcome.verdict.headline,
+                planEdited,
+                origin,
+                report: toFindingReport(outcome.result),
+            };
         }
 
         // The test looks wrong on a healthy app. Try one self-heal rewrite + re-run, unless this is the final
@@ -148,7 +155,7 @@ async function runWithSelfHeal(
         const isFinalIteration = iteration === MAX_INVESTIGATOR_ITERATIONS;
         const rerun = isFinalIteration ? undefined : await prepareSelfHealRerun(snapshotId, slug, outcome.verdict);
         if (rerun == null) {
-            return resolveToDelete(snapshotId, slug, outcome.verdict, planEdited, origin);
+            return resolveToDelete(snapshotId, slug, outcome.verdict, outcome.result, planEdited, origin);
         }
 
         log.info("Self-healing: rewrote the plan on the test's own rows; re-running", {
@@ -190,10 +197,40 @@ function routeVerdict(category: string): AnalysisVerdict | typeof TEST_IS_WRONG 
     }
 }
 
-/** The outcome of one run+classify pass: a real classifier verdict, or a contained fault mapped to a verdict. */
+/** The outcome of one run+classify pass: a real classifier verdict (with the full rich result to persist), or a
+ * contained fault mapped to a verdict. */
 type ClassifyOutcome =
-    | { kind: "verdict"; verdict: InvestigationVerdict }
+    | { kind: "verdict"; verdict: InvestigationVerdict; result: InvestigationTestResult }
     | { kind: "fault"; category: AnalysisVerdict; headline: string };
+
+/**
+ * Map the classifier's rich result onto the finding's evidence bundle - the full output the pipeline used to
+ * discard. The Reconciler persists it onto the `AnalysisFinding` row, which is what the UI renders (a
+ * `client_bug` carries its evidence here, not in any Bug/Issue). Media ride as `s3://` keys (signed on read).
+ * Pure shaping; the runner fields (`videoUrl`/`finalScreenshotUrl`/`clipUrl`) are already storage keys despite
+ * their names.
+ */
+function toFindingReport(result: InvestigationTestResult): AnalysisFindingReport {
+    const verdict = result.verdict;
+    return {
+        confidence: verdict?.confidence,
+        whatHappened: verdict?.whatHappened,
+        rootCause: verdict?.rootCause,
+        remediation: verdict?.remediation,
+        observedAppIssues: verdict?.observedAppIssues,
+        falsePositiveRisk: verdict?.falsePositiveRisk,
+        plan: result.plan,
+        runSuccess: result.runSuccess,
+        stepCount: result.stepCount,
+        runSteps: result.runSteps,
+        runTrace: result.runTrace,
+        evidence: verdict?.evidence,
+        videoKey: result.videoUrl,
+        screenshotKey: result.finalScreenshotUrl,
+        clipKey: result.clipUrl,
+        error: result.error,
+    };
+}
 
 /**
  * Author the classifier's revised plan onto THIS test's own (snapshot, testCase) rows and prepare a fresh shadow
@@ -240,6 +277,7 @@ async function resolveToDelete(
     snapshotId: string,
     slug: string,
     verdict: InvestigationVerdict,
+    result: InvestigationTestResult,
     planEdited: boolean,
     origin: AnalysisTestOrigin,
 ): Promise<AnalysisCandidateFinding> {
@@ -248,10 +286,10 @@ async function resolveToDelete(
         extra: { slug, category: verdict.category, planEdited, origin },
     });
     try {
-        const result = await investigator.deleteAnalysisTest({ snapshotId, slug, origin });
+        const deletion = await investigator.deleteAnalysisTest({ snapshotId, slug, origin });
         log.info("Self-delete complete", {
             snapshot: { snapshotId },
-            extra: { slug, deleted: result.deleted, reason: result.reason },
+            extra: { slug, deleted: deletion.deleted, reason: deletion.reason },
         });
     } catch (error) {
         log.warn("Self-delete failed; still reporting the delete verdict", {
@@ -259,7 +297,14 @@ async function resolveToDelete(
             extra: { slug, message: rootFailureMessage(error) },
         });
     }
-    return { slug, category: "delete", headline: verdict.headline, planEdited, origin };
+    return {
+        slug,
+        category: "delete",
+        headline: verdict.headline,
+        planEdited,
+        origin,
+        report: toFindingReport(result),
+    };
 }
 
 /**
@@ -308,7 +353,7 @@ async function runAndClassify(
             });
             return { kind: "fault", category: "engine_artifact", headline: "The classifier produced no verdict" };
         }
-        return { kind: "verdict", verdict: result.verdict };
+        return { kind: "verdict", verdict: result.verdict, result };
     } catch (error) {
         const message = rootFailureMessage(error);
         log.error("Classification failed; containing this test", {

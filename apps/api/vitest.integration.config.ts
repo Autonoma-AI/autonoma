@@ -18,8 +18,6 @@ export default defineConfig({
             REDIS_URL: "redis://localhost:6379",
             // Exercise the shadow investigation path (detached snapshot + pairing) in integration tests.
             INVESTIGATION_SHADOW_ENABLED: "true",
-            // Exercise the shadow analysis pipeline path (same detached twin, mode=shadow) in integration tests.
-            ANALYSIS_SHADOW_ENABLED: "true",
             // GitHub App: tests run against the fake (LOCAL_DEV=true). Real credentials
             // are unnecessary; passing them as base64 PEM is awkward in test fixtures.
             LOCAL_DEV: "true",

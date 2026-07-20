@@ -1,5 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
+import type { AnalysisFindingReport, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 import { Output, generateText } from "ai";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
@@ -25,7 +25,7 @@ const CATEGORY_SEVERITY: Record<AnalysisVerdict, number> = {
     passed: 5,
 };
 
-/** A candidate finding the Reconciler dedups - the thin shape the Investigators emit (one per test). */
+/** A candidate finding the Reconciler dedups - the shape the Investigators emit (one per test). */
 export interface AnalysisFinding {
     /** The test that surfaced this finding. Unique per candidate; what a cluster references. */
     slug: string;
@@ -35,6 +35,9 @@ export interface AnalysisFinding {
     planEdited: boolean;
     /** Whether the test pre-existed (affected) or was authored this run (proposed) - the data tag for `delete`. */
     origin: AnalysisTestOrigin;
+    /** The classifier's full rich output for this test (narrative, evidence, run-trace frames, media keys) -
+     * persisted onto the finding row. Absent for a contained fault/crash that reached no classifier verdict. */
+    report?: AnalysisFindingReport;
 }
 
 /**
@@ -48,6 +51,10 @@ export interface ReconciledAnalysisFinding {
     headline: string;
     coveredSlugs: string[];
     members: AnalysisFinding[];
+    /** The rich evidence to display + persist for this finding: the representative member's report (the member
+     * whose verdict matches the merged category, so a merged group's client-bug evidence wins). Absent when no
+     * member reached a classifier verdict. */
+    report?: AnalysisFindingReport;
 }
 
 export interface DedupAnalysisFindingsDeps {
@@ -197,11 +204,13 @@ function toReconciledFindings(
         for (const member of members) {
             if (member.slug !== anchor.slug) absorbed.add(member.slug);
         }
+        const category = mostSevereCategory(members);
         mergedByAnchor.set(anchor.slug, {
-            category: mostSevereCategory(members),
+            category,
             headline: cluster.headline.trim() === "" ? anchor.headline : cluster.headline,
             coveredSlugs: members.map((member) => member.slug),
             members,
+            report: representativeReport(members, category),
         });
     }
 
@@ -213,9 +222,29 @@ function toReconciledFindings(
     return out;
 }
 
-/** A standalone finding: itself as the sole member. */
+/** A standalone finding: itself as the sole member, carrying its own report. */
 function toSingleton(finding: AnalysisFinding): ReconciledAnalysisFinding {
-    return { category: finding.category, headline: finding.headline, coveredSlugs: [finding.slug], members: [finding] };
+    return {
+        category: finding.category,
+        headline: finding.headline,
+        coveredSlugs: [finding.slug],
+        members: [finding],
+        report: finding.report,
+    };
+}
+
+/**
+ * The report to display for a merged group: the first member whose verdict IS the merged category, so a group
+ * that is a client bug shows the client bug's evidence (not an absorbed passed/coverage member's), falling back
+ * to the first member with any report. Undefined when no member reached a classifier verdict.
+ */
+function representativeReport(
+    members: AnalysisFinding[],
+    category: AnalysisVerdict,
+): AnalysisFindingReport | undefined {
+    const representative = members.find((member) => member.category === category && member.report != null);
+    if (representative?.report != null) return representative.report;
+    return members.find((member) => member.report != null)?.report;
 }
 
 /**

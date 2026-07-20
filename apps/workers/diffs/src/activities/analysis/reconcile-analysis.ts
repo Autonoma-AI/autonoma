@@ -1,7 +1,6 @@
-import { db } from "@autonoma/db";
+import { type Prisma, db } from "@autonoma/db";
 import {
     type CoverageSummary,
-    DeployedComparison,
     type ReconciledAnalysisFinding,
     type TwoPlaneSummary,
     dedupeAnalysisFindings,
@@ -49,25 +48,27 @@ export interface ReconcileDeps {
 }
 
 /**
- * Reconciler stage. Holistically deduplicates the Investigators' candidate findings (several tests can surface
- * the same underlying issue), unioning each group's evidence into one finding; derives the DETERMINISTIC
- * two-plane verdict from the deduped set (app-health headline + coverage-confidence summary) in code, then
- * narrates it with a constrained model call that cannot alter it; loads the DeployedComparison against the
- * authoritative diffs job for the twin's head SHA; and persists all of it to the shadow store
- * (`AnalysisShadowRun`) - an isolated island that is never a user-facing Bug/Issue. It is single-concern: no
- * plan edits, no deletions, no re-runs, no finalize. Filing real bugs stays dormant behind authoritative mode
- * until the cutover ships. Never throws: every model-backed step is contained.
+ * Reconciler stage - the single cross-test writer. Holistically deduplicates the Investigators' candidate
+ * findings (several tests can surface the same underlying issue), unioning each group's evidence into one
+ * finding; derives the DETERMINISTIC two-plane verdict from the deduped set (app-health headline +
+ * coverage-confidence summary) in code, then narrates it with a constrained model call that cannot alter it; and
+ * persists the whole run to the rich store (`AnalysisReport` + per-test `AnalysisFinding` rows, carrying every
+ * candidate's evidence, media keys, and the Impact Analysis reasoning).
+ *
+ * It files NO user-facing rows: the `AnalysisFinding` store is the single source of truth for every finding,
+ * `client_bug` included (it carries its full evidence on the row). `client_bug` is still the app-health plane and
+ * still drives the headline verdict - it just is not copied into `Bug`/`Issue`.
  */
 export async function reconcileAnalysis(
     input: ReconcileAnalysisInput,
     deps: ReconcileDeps = {},
 ): Promise<ReconcileAnalysisOutput> {
-    const { snapshotId, mode, candidates } = input;
+    const { snapshotId, candidates, impactReasoning } = input;
     const dedupe = deps.dedupe ?? holisticDedupe;
     const narrate = deps.narrate ?? defaultNarrate;
     // snapshotId is bound to the observability context by the activity interceptor; only non-canonical fields go
     // in `extra`.
-    const logger = rootLogger.child({ name: "reconcileAnalysis", extra: { mode, candidateCount: candidates.length } });
+    const logger = rootLogger.child({ name: "reconcileAnalysis", extra: { candidateCount: candidates.length } });
     logger.info("Reconciler stage started");
 
     const findings = await dedupe(candidates, snapshotId, logger);
@@ -92,38 +93,29 @@ export async function reconcileAnalysis(
     const narration = await narrate({ summary, findingCount }, snapshotId, logger);
 
     // BranchSnapshot has no organizationId of its own - it inherits the org from its branch.
-    const twin = await db.branchSnapshot.findUnique({
+    const snapshot = await db.branchSnapshot.findUnique({
         where: { id: snapshotId },
-        select: { headSha: true, branch: { select: { organizationId: true } } },
+        select: { branch: { select: { organizationId: true } } },
     });
-    if (twin == null) throw new Error(`Twin snapshot ${snapshotId} not found; cannot reconcile the analysis run`);
+    if (snapshot == null) throw new Error(`Snapshot ${snapshotId} not found; cannot reconcile the analysis run`);
+    const organizationId = snapshot.branch.organizationId;
 
-    const comparison = await loadComparison(twin.headSha, logger);
-    logger.info("Produced DeployedComparison", { extra: comparison });
-
-    await persistShadowRun(
+    await persistAnalysisReport(
         {
             snapshotId,
-            organizationId: twin.branch.organizationId,
-            mode,
+            organizationId,
             verdict,
             testCount,
             clientBugCount,
             findings,
             coverage,
             narration,
-            comparison,
+            impactReasoning,
         },
         logger,
     );
 
-    if (mode === "authoritative") {
-        // Filing real Bug/Issue stays dormant until the authoritative cutover ships; log so an accidental
-        // authoritative run is visible.
-        logger.warn("Authoritative reconcile is not implemented yet; filing no user-facing rows");
-    }
-
-    logger.info("Reconciler stage finished; shadow store written, no user-facing rows filed");
+    logger.info("Reconciler stage finished", { extra: { findingCount } });
     return {
         verdict,
         testCount,
@@ -133,8 +125,6 @@ export async function reconcileAnalysis(
         unestablishedProposedCount: coverage.unestablishedProposed,
         obsoleteRemovedCount: coverage.obsoleteRemoved,
         narrated: narration != null,
-        comparison,
-        filedCount: 0,
     };
 }
 
@@ -202,72 +192,107 @@ async function defaultNarrate(
     }
 }
 
-interface PersistShadowRunInput {
+interface PersistAnalysisReportInput {
     snapshotId: string;
     organizationId: string;
-    mode: string;
     verdict: string;
     testCount: number;
     clientBugCount: number;
     findings: ReconciledAnalysisFinding[];
     coverage: CoverageSummary;
     narration?: string;
-    comparison: ReconcileAnalysisOutput["comparison"];
+    impactReasoning?: string;
 }
 
 /**
- * Upsert the shadow run record - keyed by the twin snapshot so a re-run overwrites rather than duplicates. The
- * deduped findings are stored as a display blob (each with its unioned `coveredSlugs` + `members`); the coverage
- * summary, narration, and DeployedComparison sit alongside. Nothing user-facing FKs into this row.
+ * Persist the run to the rich store, keyed by snapshot so a re-run overwrites rather than duplicates: upsert the
+ * `AnalysisReport` header (verdict, counts, coverage, narration, Impact Analysis reasoning) and replace its child
+ * `AnalysisFinding` rows wholesale (the deduped set, each carrying its representative candidate's rich evidence +
+ * media keys + the union `coveredSlugs`). One transaction so the header and its findings are always consistent.
+ * This is the queryable home the UI reads.
  */
-async function persistShadowRun(input: PersistShadowRunInput, logger: Logger): Promise<void> {
-    const findings = input.findings.map((finding) => ({
-        category: finding.category,
-        headline: finding.headline,
-        coveredSlugs: finding.coveredSlugs,
-        members: finding.members.map((member) => ({
-            slug: member.slug,
-            category: member.category,
-            headline: member.headline,
-            planEdited: member.planEdited,
-            origin: member.origin,
-        })),
-    }));
-    const data = {
-        mode: input.mode,
+async function persistAnalysisReport(input: PersistAnalysisReportInput, logger: Logger): Promise<void> {
+    const reportFields = {
         verdict: input.verdict,
         testCount: input.testCount,
         clientBugCount: input.clientBugCount,
-        findings,
         coverage: input.coverage,
         narration: input.narration,
-        deployed: input.comparison,
+        impactReasoning: input.impactReasoning,
     };
-    await db.analysisShadowRun.upsert({
-        where: { snapshotId: input.snapshotId },
-        create: { snapshotId: input.snapshotId, organizationId: input.organizationId, ...data },
-        update: data,
+    await db.$transaction(async (tx) => {
+        await tx.analysisReport.upsert({
+            where: { snapshotId: input.snapshotId },
+            create: { snapshotId: input.snapshotId, organizationId: input.organizationId, ...reportFields },
+            update: reportFields,
+        });
+        // Replace children wholesale: a re-run's row set always mirrors the latest classification.
+        await tx.analysisFinding.deleteMany({ where: { reportSnapshotId: input.snapshotId } });
+        if (input.findings.length > 0) {
+            await tx.analysisFinding.createMany({
+                data: buildFindingRows(input.snapshotId, input.organizationId, input.findings),
+            });
+        }
     });
-    logger.info("Persisted shadow analysis run", {
-        extra: { findingCount: findings.length, narrated: input.narration != null },
+    logger.info("Persisted analysis report", {
+        extra: {
+            findingCount: input.findings.length,
+            narrated: input.narration != null,
+            impactReasoned: input.impactReasoning != null,
+        },
     });
 }
 
 /**
- * The deployed (authoritative diffs) agent's outcome for the twin's head SHA, mapped to the comparison shape.
- * Supplementary and best-effort: a missing diffs job or a query error degrades to `found: false` rather than
- * sinking the run.
+ * Map each deduped finding to an `AnalysisFinding` row (modeled on InvestigationFinding). `findingKey` is the
+ * stable per-report routing id: the anchor slug, suffixed on the rare collision so the `(report, findingKey)`
+ * unique never trips. The rich fields come from the finding's representative report; `planEdited`/`origin` from
+ * the member whose verdict IS the merged category (the client bug in a merged group), falling back to the anchor.
+ * `coveredSlugs` is set only on a merged finding (length > 1); a standalone one carries just its own `slug`.
  */
-async function loadComparison(headSha: string | null, logger: Logger): Promise<ReconcileAnalysisOutput["comparison"]> {
-    if (headSha == null) {
-        logger.warn("Twin has no head SHA; skipping deployed comparison");
-        return { found: false, deployedTestCount: 0 };
-    }
-    try {
-        const deployed = await new DeployedComparison(db).byHeadSha(headSha);
-        return { found: deployed.found, jobStatus: deployed.jobStatus, deployedTestCount: deployed.perTest.length };
-    } catch (error) {
-        logger.warn("Deployed comparison unavailable; returning an empty comparison", { err: error });
-        return { found: false, deployedTestCount: 0 };
-    }
+function buildFindingRows(
+    snapshotId: string,
+    organizationId: string,
+    findings: ReconciledAnalysisFinding[],
+): Prisma.AnalysisFindingCreateManyInput[] {
+    const keyCounts = new Map<string, number>();
+    return findings.map((finding, index) => {
+        const slug = finding.coveredSlugs[0] ?? "unknown";
+        const seen = keyCounts.get(slug) ?? 0;
+        keyCounts.set(slug, seen + 1);
+        const findingKey = seen === 0 ? slug : `${slug}-${seen + 1}`;
+
+        const representative =
+            finding.members.find((member) => member.category === finding.category) ?? finding.members[0];
+        const report = finding.report;
+        return {
+            reportSnapshotId: snapshotId,
+            organizationId,
+            findingKey,
+            slug,
+            category: finding.category,
+            confidence: report?.confidence,
+            headline: finding.headline,
+            whatHappened: report?.whatHappened,
+            observedAppIssues: report?.observedAppIssues,
+            remediation: report?.remediation,
+            rootCause: report?.rootCause,
+            falsePositiveRisk: report?.falsePositiveRisk,
+            plan: report?.plan,
+            runSuccess: report?.runSuccess,
+            stepCount: report?.stepCount,
+            planEdited: representative?.planEdited,
+            origin: representative?.origin,
+            runSteps: report?.runSteps,
+            runTrace: report?.runTrace,
+            evidence: report?.evidence,
+            // These carry the raw s3:// keys (the API signs them on read), not URLs.
+            videoKey: report?.videoKey,
+            screenshotKey: report?.screenshotKey,
+            clipKey: report?.clipKey,
+            error: report?.error,
+            coveredSlugs: finding.coveredSlugs.length > 1 ? finding.coveredSlugs : undefined,
+            displayOrder: index,
+        };
+    });
 }

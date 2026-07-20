@@ -1,17 +1,18 @@
-import type { AnalysisMode, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
+import type { AnalysisFindingReport, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 
 /**
- * The merged analysis pipeline's activities (run on the DIFFS task queue - the pipeline is re-homed into the
- * diffs worker; investigation is frozen). In `shadow` mode Impact Analysis really selects affected tests, the Investigators
- * really run + classify them, and the Reconciler persists the verdict + findings to the shadow store; nothing
- * user-facing is written and the twin is never promoted. Authoritative promotion + Bug/Issue filing stay guarded
- * behind `mode === "authoritative"` and remain dormant until the cutover ships.
+ * The merged analysis pipeline's activities (run on the DIFFS task queue). The pipeline IS the PR-analysis
+ * pipeline for an org that has it enabled: Impact Analysis selects + materializes the affected/proposed tests on
+ * the branch's real pending snapshot, the Investigators run + classify them, the Reconciler persists the report +
+ * per-test findings (the single source of truth for every finding, `client_bug` included - no Bug/Issue is
+ * filed), and finalize promotes the snapshot. It replaces the diffs job for that org; whether it runs at all is
+ * gated by the per-org flag + the global master switch at the trigger.
  */
 
 /** One test the Impact Analysis stage selects for an Investigator to run + classify. */
 export interface AnalysisInvestigationTarget {
     slug: string;
-    /** The shadow generation the Investigator runs (created up front by the selection). */
+    /** The generation the Investigator runs (created up front by the selection). */
     testGenerationId: string;
     /** The scenario to provision before the run, when the test pins one. */
     scenarioId?: string;
@@ -22,14 +23,16 @@ export interface AnalysisInvestigationTarget {
 }
 
 export interface RunImpactAnalysisInput {
-    /** The detached twin snapshot the pipeline operates on (never a branch pointer). */
+    /** The branch's real pending snapshot the pipeline operates on. */
     snapshotId: string;
-    mode: AnalysisMode;
 }
 
 export interface RunImpactAnalysisOutput {
     /** The diff-affected tests to fan out one Investigator over each. */
     targets: AnalysisInvestigationTarget[];
+    /** The stage's account of WHY it selected this set (affected + proposed). Persisted onto the AnalysisReport
+     * by the Reconciler. Optional: absent when selection produced no reasoning. */
+    reasoning?: string;
 }
 
 /** A candidate finding an Investigator emits. The Investigator never files - the Reconciler owns that write. */
@@ -51,25 +54,25 @@ export interface AnalysisCandidateFinding {
      * established - without a separate verdict.
      */
     origin: AnalysisTestOrigin;
-}
-
-/** The deployed (authoritative diffs) agent's outcome, read for the shadow-vs-diffs comparison. */
-export interface AnalysisDeployedComparison {
-    /** Whether a diffs job was found for the twin's head SHA. */
-    found: boolean;
-    jobStatus?: string;
-    /** How many tests the deployed agent flagged as affected (0 when not found). */
-    deployedTestCount: number;
+    /**
+     * The classifier's full rich output for this run (narrative, evidence, run-trace frames, media keys) - what
+     * the pipeline used to discard. The Reconciler persists it onto the finding's `AnalysisFinding` row (the
+     * store that renders it - a `client_bug` carries its evidence here, not in any Bug/Issue). Absent for a
+     * contained scenario/classify fault or a crashed Investigator, which never reached a classifier verdict.
+     */
+    report?: AnalysisFindingReport;
 }
 
 export interface ReconcileAnalysisInput {
     snapshotId: string;
-    mode: AnalysisMode;
     candidates: AnalysisCandidateFinding[];
+    /** The Impact Analysis stage's selection reasoning, persisted onto the AnalysisReport. Optional: absent when
+     * the stage produced none. */
+    impactReasoning?: string;
 }
 
 export interface ReconcileAnalysisOutput {
-    /** The shadow app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`. */
+    /** The app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`. */
     verdict: string;
     /** How many tests were investigated (raw candidate findings, before dedup). */
     testCount: number;
@@ -77,34 +80,33 @@ export interface ReconcileAnalysisOutput {
     findingCount: number;
     /** How many of the deduped findings are client bugs. */
     clientBugCount: number;
-    // The two-plane + narration outputs below are optional because the frozen investigation worker shares this
-    // contract and emits only the fields above; the diffs analysis pipeline always populates them.
     /** How many deduped findings fall on the coverage-confidence plane (never bugs, never blocking). */
-    coverageFindingCount?: number;
+    coverageFindingCount: number;
     /** Proposed tests the run could not establish (delete findings with `origin: proposed`). */
-    unestablishedProposedCount?: number;
+    unestablishedProposedCount: number;
     /** Pre-existing tests removed as obsolete (delete findings with `origin: pre_existing`). */
-    obsoleteRemovedCount?: number;
+    obsoleteRemovedCount: number;
     /** Whether the constrained narration was produced (a narration failure degrades to absent). */
-    narrated?: boolean;
-    /** The DeployedComparison produced against the authoritative diffs output. */
-    comparison: AnalysisDeployedComparison;
-    /** How many findings were filed as bugs - always 0 in shadow mode (nothing is filed). */
-    filedCount: number;
+    narrated: boolean;
 }
 
 export interface FinalizeAnalysisInput {
     snapshotId: string;
-    mode: AnalysisMode;
+    /**
+     * When present, the run FAILED with this reason: finalize marks the AnalysisJob `failed` and does NOT
+     * promote. Absent on the happy path, where finalize promotes the snapshot and marks the job `completed`.
+     * Mirrors `finalizeDiffs`'s both-terminal shape.
+     */
+    failureReason?: string;
 }
 
 export interface FinalizeAnalysisOutput {
-    /** Whether the twin snapshot was promoted - always false in shadow mode. */
+    /** Whether the snapshot was promoted - false on the failure path. */
     promoted: boolean;
 }
 
 export interface SelfHealAnalysisTestInput {
-    /** The detached twin snapshot the test's rows live on. */
+    /** The snapshot the test's rows live on. */
     snapshotId: string;
     /** The test whose plan to rewrite (its own (snapshot, testCase) rows). */
     slug: string;
@@ -122,9 +124,9 @@ export interface SelfHealAnalysisTestOutput {
 }
 
 export interface DeleteAnalysisTestInput {
-    /** The detached twin snapshot the test's assignment lives on. */
+    /** The snapshot the test's assignment lives on. */
     snapshotId: string;
-    /** The test whose assignment to remove from the twin. */
+    /** The test whose assignment to remove from the snapshot. */
     slug: string;
     /**
      * Whether the test pre-existed or was proposed this run. `pre_existing` removes only this snapshot's
@@ -149,10 +151,9 @@ export interface AnalysisActivities {
 }
 
 /**
- * The Investigator's own row-local write activities on the detached snapshot: a self-heal plan rewrite
- * (`UpdateTest`) and the eager `delete` self-delete (`RemoveTest`), both via the canonical `TestSuiteUpdater`
- * update actions. A separate contract from `AnalysisActivities` (the parent stages): only the re-homed diffs
- * worker implements these, so they stay off the contract the frozen investigation worker still satisfies.
+ * The Investigator's own row-local write activities on the snapshot: a self-heal plan rewrite (`UpdateTest`) and
+ * the eager `delete` self-delete (`RemoveTest`), both via the canonical `TestSuiteUpdater` update actions. A
+ * separate contract from `AnalysisActivities` (the parent stages).
  */
 export interface InvestigatorActivities {
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;

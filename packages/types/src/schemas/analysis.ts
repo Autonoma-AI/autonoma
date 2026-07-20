@@ -1,15 +1,5 @@
 import { z } from "zod";
-
-/**
- * The mode the merged analysis pipeline runs in.
- *
- * - `shadow`: inert to production. Runs on a detached twin snapshot in parallel with the diffs job, never
- *   promotes a snapshot and files no user-facing rows - it only observes (logs + a DeployedComparison against
- *   the authoritative diffs output). This is the transitional mode while the pipeline is validated against diffs.
- * - `authoritative`: the production mode (dormant until the cutover) - promotes the snapshot and files real bugs.
- */
-export const analysisModeSchema = z.enum(["shadow", "authoritative"]);
-export type AnalysisMode = z.infer<typeof analysisModeSchema>;
+import { investigationEvidenceSchema, investigationRunStepSchema } from "./investigation-report";
 
 /**
  * The terminal verdict an Investigator emits for one test - the complete taxonomy the merged pipeline resolves
@@ -54,3 +44,38 @@ export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
  */
 export const analysisTestOriginSchema = z.enum(["pre_existing", "proposed"]);
 export type AnalysisTestOrigin = z.infer<typeof analysisTestOriginSchema>;
+
+/**
+ * The rich per-test evidence an Investigator captures when it classifies a run - the classifier's full output
+ * (`classifyInvestigationRun`) that the merged pipeline used to collapse to a 5-field candidate and discard. It
+ * rides on every candidate finding (optional: a contained scenario/classify fault or a crashed Investigator has
+ * no classifier output) so the Reconciler can persist it onto an `AnalysisFinding` row, mirroring the frozen
+ * `InvestigationFinding`. Media are stored as `s3://` keys (signed on read), never raw URLs.
+ */
+export const analysisFindingReportSchema = z.object({
+    confidence: z.string().optional(),
+    whatHappened: z.string().optional(),
+    rootCause: z.string().optional(),
+    remediation: z.string().optional(),
+    /** App problems seen in the run independent of this test's pass/fail. */
+    observedAppIssues: z.string().optional(),
+    /** The classifier's explicit false-positive self-check. */
+    falsePositiveRisk: z.string().optional(),
+    /** The test plan the run was checked against (the "reproduction" steps). */
+    plan: z.string().optional(),
+    runSuccess: z.boolean().optional(),
+    stepCount: z.number().optional(),
+    /** The run agent's per-step text trace (interaction + status + per-step error). */
+    runSteps: z.array(z.string()).optional(),
+    /** The structured, inspectable trace: per-step frame (`s3://` key) + click coords. */
+    runTrace: z.array(investigationRunStepSchema).optional(),
+    evidence: z.array(investigationEvidenceSchema).optional(),
+    /** `s3://` media keys, signed on read. */
+    videoKey: z.string().optional(),
+    screenshotKey: z.string().optional(),
+    /** Short GIF clip of the failure (client bugs only), signed on read. */
+    clipKey: z.string().optional(),
+    /** Present instead of the verdict fields when the model failed to classify this test. */
+    error: z.string().optional(),
+});
+export type AnalysisFindingReport = z.infer<typeof analysisFindingReportSchema>;

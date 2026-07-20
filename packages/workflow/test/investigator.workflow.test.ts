@@ -1,4 +1,4 @@
-import type { AnalysisTestOrigin } from "@autonoma/types";
+import type { AnalysisFindingReport, AnalysisTestOrigin } from "@autonoma/types";
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
@@ -88,6 +88,26 @@ function classified(v: InvestigationVerdict): InvestigationTestResult {
     return { slug: SLUG, plan: "1. Open checkout.", runSuccess: v.category === "passed", stepCount: 2, verdict: v };
 }
 
+/**
+ * The rich report the fixture's classified result yields on a terminal/delete finding - the classifier output the
+ * pipeline now carries instead of discarding. Asserting it in the state-machine tests proves the capture happens
+ * for every terminal path (undefined-valued media/trace keys are elided by `toEqual`).
+ */
+function expectedReport(overrides: Partial<AnalysisFindingReport> = {}): AnalysisFindingReport {
+    return {
+        confidence: "high",
+        whatHappened: "n/a",
+        rootCause: "n/a",
+        remediation: "n/a",
+        falsePositiveRisk: "none",
+        plan: "1. Open checkout.",
+        runSuccess: false,
+        stepCount: 2,
+        evidence: [{ source: "run", detail: "n/a" }],
+        ...overrides,
+    };
+}
+
 const analysisActivities = {
     async classifyInvestigationRun(): Promise<InvestigationTestResult> {
         const next = harness.classifyQueue.shift();
@@ -160,7 +180,6 @@ function runInvestigator(origin: AnalysisTestOrigin = "pre_existing"): Promise<A
         testGenerationId: ORIGINAL_GENERATION,
         reason: "diff touched checkout",
         origin,
-        mode: "shadow",
     };
     executionCounter += 1;
     return env.client.workflow.execute(investigatorWorkflow, {
@@ -187,6 +206,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "healed and green",
             planEdited: true,
             origin: "pre_existing",
+            report: expectedReport({ runSuccess: true }),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
         // The plan-edit was authored against THIS test's own snapshot + test case, carrying the classifier's plan.
@@ -210,6 +230,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "still stale",
             planEdited: true,
             origin: "pre_existing",
+            report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
         // Only ONE plan-edit was authored (the final iteration does not request another re-run) ...
@@ -233,6 +254,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "asserts a removed feature",
             planEdited: false,
             origin: "proposed",
+            report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.selfHealCalls).toHaveLength(0);
@@ -256,6 +278,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "cannot prepare",
             planEdited: false,
             origin: "pre_existing",
+            report: expectedReport(),
         });
         // The rewrite was requested once, but no re-run happened (no HEALED_GENERATION).
         expect(harness.selfHealCalls).toHaveLength(1);
@@ -274,6 +297,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "checkout total is wrong",
             planEdited: false,
             origin: "pre_existing",
+            report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.selfHealCalls).toHaveLength(0);
@@ -291,6 +315,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "user was never seeded",
             planEdited: false,
             origin: "pre_existing",
+            report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.deleteCalls).toHaveLength(0);

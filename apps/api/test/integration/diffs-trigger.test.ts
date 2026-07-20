@@ -626,7 +626,7 @@ apiTestSuite({
             expect(report?.clientBugCount).toBe(1);
         });
 
-        test("triggers the shadow analysis pipeline on the detached twin in shadow mode", async ({
+        test("runs the diffs job (not analysis) when analysis is disabled for the org", async ({
             harness,
             seedResult: { app, service },
         }) => {
@@ -654,16 +654,11 @@ apiTestSuite({
                 webhookUrl: "https://webhook.example.com/hook",
             });
 
-            const twinId = (
-                await harness.db.branchSnapshot.findUniqueOrThrow({
-                    where: { id: result.snapshotId },
-                    select: { investigationSnapshotId: true },
-                })
-            ).investigationSnapshotId;
-            expect(twinId).not.toBeNull();
-
-            // The analysis pipeline runs in parallel with the diffs job, on the SAME detached twin, in shadow mode.
-            expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: twinId, mode: "shadow" });
+            // Analysis is off by default (master switch off), so the diffs job is the PR analysis: a DiffsJob is
+            // created for the snapshot and the merged analysis pipeline is never triggered.
+            expect(await harness.db.diffsJob.findUnique({ where: { snapshotId: result.snapshotId } })).not.toBeNull();
+            expect(await harness.db.analysisJob.count({ where: { organizationId: harness.organizationId } })).toBe(0);
+            expect(harness.triggerAnalysis).not.toHaveBeenCalled();
         });
 
         test("supersession cancels the in-flight investigation twin and its workflow", async ({

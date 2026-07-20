@@ -36,16 +36,25 @@ export interface SelectImpactTargetsParams {
 export async function selectImpactTargets({
     snapshotId,
     codebase,
-}: SelectImpactTargetsParams): Promise<AnalysisInvestigationTarget[]> {
+}: SelectImpactTargetsParams): Promise<ImpactSelection> {
     const logger = rootLogger.child({ name: "selectImpactTargets", extra: { snapshotId } });
     logger.info("Impact Analysis selection started");
 
     const agentResult = await runSelection({ snapshotId, codebase, logger });
-    return materializeTargets({ snapshotId, agentResult, logger });
+    const targets = await materializeTargets({ snapshotId, agentResult, logger });
+    return { targets, reasoning: agentResult.reasoning };
+}
+
+/** The Impact Analysis selection: the tests to investigate + the agent's overall account of why it chose them. */
+export interface ImpactSelection {
+    targets: AnalysisInvestigationTarget[];
+    reasoning: string;
 }
 
 interface AgentSelection {
     organizationId: string;
+    /** The DiffsAgent's overall summary of what the diff affects and why - the selection reasoning. */
+    reasoning: string;
     affectedTests: { slug: string; reasoning: string }[];
     createdTests: { name: string; description: string; plan: string; folderName: string; scenarioId?: string }[];
     flowFolderId(folderName: string): string | undefined;
@@ -91,6 +100,7 @@ async function runSelection({
 
     return {
         organizationId: branchData.organizationId,
+        reasoning: result.reasoning,
         affectedTests: result.affectedTests.map((test) => ({ slug: test.slug, reasoning: test.reasoning })),
         createdTests: result.createdTests.map((test) => ({
             name: test.name,

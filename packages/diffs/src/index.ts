@@ -102,6 +102,7 @@ export {
     type HealingReviewLink,
 } from "./healing/actions";
 export { BugMatcher, type BugCandidate } from "./healing/bug-matcher";
+export { resolveOrCreateBug, type ResolveOrCreateBugParams } from "./healing/file-bug";
 export {
     PLAN_AUTHORING_GUIDE,
     buildPlanAuthoringContext,

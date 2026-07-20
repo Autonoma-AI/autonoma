@@ -10,8 +10,6 @@
 export { Category, Confidence, Evidence, EvidenceSource, PlanFidelity, RunVerdict } from "./schema";
 export { PriorRuns } from "./db/prior-runs";
 export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
-export { DeployedComparison } from "./db/deployed-comparison";
-export type { DeployedAgentComparison, DeployedTestResult } from "./db/deployed-comparison";
 export { assertSnapshotPending } from "./db/assert-snapshot-pending";
 export { PreviewSecrets } from "./preview/preview-secrets";
 export { PreviewEnvironment } from "./preview/preview-environment";

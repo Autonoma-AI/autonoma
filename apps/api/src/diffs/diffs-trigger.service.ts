@@ -79,16 +79,12 @@ export class DiffsTriggerService extends Service {
     }
 
     /**
-     * Fire the shadow workflows in PARALLEL with the diffs job, behind feature flags. Each shadow runs on its
-     * OWN detached snapshot (a baseline clone never wired to a branch pointer): the legacy `investigation` agent
-     * on the snapshot paired via `investigationSnapshotId`, and the merged `analysis` pipeline (which will
-     * replace both diffs and investigation) on a SEPARATE snapshot paired via `analysisSnapshotId`. Giving each
-     * shadow its own snapshot means their suite work never collides on a shared twin and never pollutes the
-     * diffs snapshot's pending-generation set.
+     * Fire the shadow `investigation` agent in PARALLEL with the diffs job, behind its feature flag. It runs on
+     * its OWN detached snapshot (a baseline clone never wired to a branch pointer) paired via
+     * `investigationSnapshotId`, so its suite work never collides with the diffs snapshot's pending-generation set.
      *
-     * Best-effort: this must never block or fail the diffs trigger, so errors are contained (logged). Each
-     * shadow's detached snapshot is created independently; when the branch has no baseline suite to fork from
-     * there is nothing to shadow.
+     * Best-effort: this must never block or fail the diffs trigger, so errors are contained (logged). When the
+     * branch has no baseline suite to fork from there is nothing to shadow.
      */
     private async maybeTriggerShadows(params: {
         diffsSnapshotId: string;
@@ -97,61 +93,24 @@ export class DiffsTriggerService extends Service {
         headSha: string;
         baseSha: string;
     }): Promise<void> {
-        if (!env.INVESTIGATION_SHADOW_ENABLED && !env.ANALYSIS_SHADOW_ENABLED) return;
-        const { diffsSnapshotId, branchId, organizationId, headSha, baseSha } = params;
-
-        // Independent shadows on independent snapshots - fire them concurrently. Each start is contained and
-        // never rejects, so one failing shadow never skips the other and neither sinks the diffs trigger.
-        const starts: Promise<void>[] = [];
-        if (env.INVESTIGATION_SHADOW_ENABLED) {
-            starts.push(
-                this.startShadowOnOwnSnapshot({
-                    name: "investigation",
-                    diffsSnapshotId,
-                    branchId,
-                    organizationId,
-                    headSha,
-                    baseSha,
-                    pair: (snapshotId) => ({ investigationSnapshotId: snapshotId }),
-                    start: (snapshotId) => this.triggerInvestigationJob({ snapshotId }),
-                }),
-            );
-        }
-        if (env.ANALYSIS_SHADOW_ENABLED) {
-            starts.push(
-                this.startShadowOnOwnSnapshot({
-                    name: "analysis",
-                    diffsSnapshotId,
-                    branchId,
-                    organizationId,
-                    headSha,
-                    baseSha,
-                    pair: (snapshotId) => ({ analysisSnapshotId: snapshotId }),
-                    start: (snapshotId) => this.triggerAnalysisJob({ snapshotId, mode: "shadow" }),
-                }),
-            );
-        }
-        await Promise.all(starts);
+        if (!env.INVESTIGATION_SHADOW_ENABLED) return;
+        await this.startInvestigationShadow(params);
     }
 
     /**
-     * Create one shadow's own detached snapshot, pair it onto the diffs snapshot via the shadow's pointer, and
-     * start the shadow workflow on it. Never rejects: a failed create/pair/start is contained so it cannot skip a
-     * sibling shadow running concurrently, and it must never sink the diffs trigger. When the branch has no
-     * baseline suite to fork from there is nothing to shadow.
+     * Create the investigation shadow's own detached snapshot, pair it onto the diffs snapshot via
+     * `investigationSnapshotId`, and start the investigation workflow on it. Never rejects: a failed
+     * create/pair/start is contained so it never sinks the diffs trigger. When the branch has no baseline suite to
+     * fork from there is nothing to shadow.
      */
-    private async startShadowOnOwnSnapshot(params: {
-        name: string;
+    private async startInvestigationShadow(params: {
         diffsSnapshotId: string;
         branchId: string;
         organizationId: string;
         headSha: string;
         baseSha: string;
-        /** The diffs-snapshot pointer that pairs it to this shadow's detached snapshot. */
-        pair: (snapshotId: string) => { investigationSnapshotId: string } | { analysisSnapshotId: string };
-        start: (snapshotId: string) => Promise<void>;
     }): Promise<void> {
-        const { name, diffsSnapshotId, branchId, organizationId, headSha, baseSha } = params;
+        const { diffsSnapshotId, branchId, organizationId, headSha, baseSha } = params;
         try {
             const created = await createDetachedSnapshot({
                 db: this.db,
@@ -162,27 +121,26 @@ export class DiffsTriggerService extends Service {
                 baseSha,
             });
             if (created == null) {
-                this.logger.info("No baseline suite; skipping shadow workflow", {
+                this.logger.info("No baseline suite; skipping investigation shadow", {
                     snapshot: { snapshotId: diffsSnapshotId },
-                    extra: { shadow: name },
                 });
                 return;
             }
 
             await this.db.branchSnapshot.update({
                 where: { id: diffsSnapshotId },
-                data: params.pair(created.snapshotId),
+                data: { investigationSnapshotId: created.snapshotId },
             });
 
-            await params.start(created.snapshotId);
-            this.logger.info("Shadow workflow triggered on detached snapshot", {
+            await this.triggerInvestigationJob({ snapshotId: created.snapshotId });
+            this.logger.info("Investigation shadow triggered on detached snapshot", {
                 snapshot: { snapshotId: created.snapshotId },
-                extra: { shadow: name, diffsSnapshotId },
+                extra: { diffsSnapshotId },
             });
         } catch (error) {
-            this.logger.warn("Shadow workflow failed to start", {
+            this.logger.warn("Investigation shadow failed to start", {
                 snapshot: { snapshotId: diffsSnapshotId },
-                extra: { shadow: name, error: String(error) },
+                extra: { error: String(error) },
             });
         }
     }
@@ -392,11 +350,7 @@ export class DiffsTriggerService extends Service {
             webhookHeaders,
         });
 
-        const snapshotId = await this.createSnapshot(branch.id, organizationId, headSha, baseSha);
-
-        await this.triggerDiffsJob({ branchId: branch.id, snapshotId });
-        await this.maybeTriggerShadows({
-            diffsSnapshotId: snapshotId,
+        const snapshotId = await this.startAnalysisPipeline({
             branchId: branch.id,
             organizationId,
             headSha,
@@ -476,16 +430,7 @@ export class DiffsTriggerService extends Service {
             webhookHeaders,
         });
 
-        const snapshotId = await this.createSnapshot(branchId, organizationId, headSha, baseSha);
-
-        await this.triggerDiffsJob({ branchId, snapshotId });
-        await this.maybeTriggerShadows({
-            diffsSnapshotId: snapshotId,
-            branchId,
-            organizationId,
-            headSha,
-            baseSha,
-        });
+        const snapshotId = await this.startAnalysisPipeline({ branchId, organizationId, headSha, baseSha });
 
         this.logger.info("Main branch diffs analysis triggered successfully", {
             branchId,
@@ -562,11 +507,63 @@ export class DiffsTriggerService extends Service {
         return { ...(webhookHeaders ?? {}), "x-previewkit-bypass": bypassToken };
     }
 
+    /**
+     * Create the branch's real pending snapshot and start the org's PR-analysis pipeline on it. Two paths, chosen
+     * per-org (gated by the global master switch):
+     *
+     * - analysis disabled (default): the diffs job is the PR analysis. Create the snapshot with a DiffsJob, fire
+     *   the diffs workflow, and fan out the inert investigation shadow.
+     * - analysis enabled: the merged pipeline IS the org's PR analysis. Create the snapshot with an AnalysisJob,
+     *   run the analysis pipeline on that real pending snapshot (it promotes + files bugs at finalize), and skip
+     *   the diffs job AND the investigation shadow entirely.
+     *
+     * Returns the created snapshot id.
+     */
+    private async startAnalysisPipeline(params: {
+        branchId: string;
+        organizationId: string;
+        headSha: string;
+        baseSha: string;
+    }): Promise<string> {
+        const { branchId, organizationId, headSha, baseSha } = params;
+        const analysisEnabled = await this.resolveAnalysisEnabled(organizationId);
+        const snapshotId = await this.createSnapshot(branchId, organizationId, headSha, baseSha, analysisEnabled);
+
+        if (analysisEnabled) {
+            await this.triggerAnalysisJob({ snapshotId });
+            this.logger.info("Analysis pipeline triggered on the real pending snapshot", {
+                branchId,
+                snapshot: { snapshotId },
+            });
+            return snapshotId;
+        }
+
+        await this.triggerDiffsJob({ branchId, snapshotId });
+        await this.maybeTriggerShadows({ diffsSnapshotId: snapshotId, branchId, organizationId, headSha, baseSha });
+        return snapshotId;
+    }
+
+    /**
+     * Whether the merged analysis pipeline is this org's PR analysis. Requires BOTH the global master switch
+     * (`ANALYSIS_AUTHORITATIVE_ENABLED`) and the org's own `analysisEnabled` setting; so the whole fleet stays on
+     * diffs unless the switch is on, and even then only orgs deliberately flipped run analysis - and the switch
+     * reverts every org at once.
+     */
+    private async resolveAnalysisEnabled(organizationId: string): Promise<boolean> {
+        if (!env.ANALYSIS_AUTHORITATIVE_ENABLED) return false;
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { analysisEnabled: true },
+        });
+        return settings?.analysisEnabled === true;
+    }
+
     private async createSnapshot(
         branchId: string,
         organizationId: string,
         headSha: string,
         baseSha: string,
+        analysisEnabled: boolean,
     ): Promise<string> {
         try {
             const updater = await TestSuiteUpdater.startUpdate({
@@ -577,18 +574,16 @@ export class DiffsTriggerService extends Service {
                 headSha,
                 baseSha,
             });
-            await this.createDiffsJob(updater.snapshotId, organizationId);
+            await this.createJob(updater.snapshotId, organizationId, analysisEnabled);
             return updater.snapshotId;
         } catch (error) {
             if (!(error instanceof BranchAlreadyHasPendingSnapshotError)) throw error;
 
-            this.logger.info("Cancelling existing diffs job and superseding pending snapshot", { branchId });
+            this.logger.info("Superseding the pending snapshot and its in-flight pipeline", { branchId });
 
             const staleUpdater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
-            await this.cancelDiffsJob(staleUpdater.snapshotId);
-            await this.supersedeShadows(staleUpdater.snapshotId);
+            await this.supersedeStalePipeline(staleUpdater.snapshotId);
             await staleUpdater.cancel();
-            await this.markDiffsJobSuperseded(staleUpdater.snapshotId);
 
             this.logger.info("Stale snapshot cancelled, starting fresh update", {
                 branchId,
@@ -603,12 +598,20 @@ export class DiffsTriggerService extends Service {
                 headSha,
                 baseSha,
             });
-            await this.createDiffsJob(updater.snapshotId, organizationId);
+            await this.createJob(updater.snapshotId, organizationId, analysisEnabled);
             return updater.snapshotId;
         }
     }
 
-    private async createDiffsJob(snapshotId: string, organizationId: string): Promise<void> {
+    /** Create the status-tracking job for the snapshot: an AnalysisJob when analysis runs, else a DiffsJob. */
+    private async createJob(snapshotId: string, organizationId: string, analysisEnabled: boolean): Promise<void> {
+        if (analysisEnabled) {
+            await this.db.analysisJob.create({
+                data: { snapshotId, organizationId, status: "running", startedAt: new Date() },
+            });
+            this.logger.info("AnalysisJob created", { snapshot: { snapshotId } });
+            return;
+        }
         await this.db.diffsJob.create({
             data: { snapshotId, organizationId, status: "pending" },
         });
@@ -616,78 +619,76 @@ export class DiffsTriggerService extends Service {
     }
 
     /**
-     * Cancel the shadow snapshots (if any) of a diffs snapshot being superseded. Each shadow now runs on its OWN
-     * detached snapshot, so stop each in-flight workflow on its own snapshot (investigation on
-     * `investigationSnapshotId`, analysis on `analysisSnapshotId`) so neither keeps running against a
-     * soon-to-be-replaced preview, and mark each detached snapshot `cancelled` so its state is terminal. Every
-     * cancel is unconditional (best-effort, a not-found workflow is a no-op) so a flag flipped between trigger
-     * and supersede never strands a run. Best-effort throughout - never blocks the fresh diffs trigger.
+     * Cancel whatever pipeline was running on a superseded snapshot. Every step is a best-effort no-op when it
+     * does not apply, so this is safe regardless of whether the stale run was a diffs run or an analysis run
+     * (which may differ from the new one if the org's setting was flipped between pushes):
+     *
+     * - diffs run: the diffs workflow runs on this snapshot; the investigation shadow runs on its detached twin
+     *   (cancelled via `supersedeShadows`). The DiffsJob is marked terminal.
+     * - analysis run: the analysis workflow runs on THIS snapshot; the AnalysisJob is marked terminal. There is
+     *   no diffs workflow, so that cancel is a no-op.
+     */
+    private async supersedeStalePipeline(staleSnapshotId: string): Promise<void> {
+        // The three cancels hit independent targets (the diffs workflow, the analysis workflow, and the
+        // investigation twin) and each is a contained no-op when its target does not exist, so fire them together;
+        // allSettled so one failure never skips the others. This covers a stale run of either kind (which may
+        // differ from the new one if the org's setting was flipped between pushes).
+        await Promise.allSettled([
+            this.cancelDiffsJob(staleSnapshotId),
+            this.cancelAnalysisJob(staleSnapshotId),
+            this.supersedeShadows(staleSnapshotId),
+        ]);
+        // Mark whichever job existed terminal - independent tables, both contained (updateMany no-ops on a miss).
+        await Promise.all([
+            this.markDiffsJobSuperseded(staleSnapshotId),
+            this.markAnalysisJobSuperseded(staleSnapshotId),
+        ]);
+    }
+
+    /**
+     * Cancel the investigation shadow (if any) of a diffs snapshot being superseded: stop its in-flight workflow
+     * on its detached twin (`investigationSnapshotId`) so it stops running against a soon-to-be-replaced preview,
+     * and mark that twin `cancelled` so its state is terminal. Best-effort throughout - a not-found workflow is a
+     * no-op and this never blocks the fresh diffs trigger.
      */
     private async supersedeShadows(staleDiffsSnapshotId: string): Promise<void> {
         try {
             const stale = await this.db.branchSnapshot.findUnique({
                 where: { id: staleDiffsSnapshotId },
-                select: { investigationSnapshotId: true, analysisSnapshotId: true },
+                select: { investigationSnapshotId: true },
             });
-            if (stale == null) return;
+            const twinSnapshotId = stale?.investigationSnapshotId;
+            if (twinSnapshotId == null) return;
 
-            // Independent best-effort supersedes on independent snapshots - run concurrently. allSettled so a
-            // failure in one neither delays nor skips the other.
-            await Promise.allSettled([
-                this.supersedeShadowSnapshot(
-                    "investigation",
-                    stale.investigationSnapshotId,
-                    staleDiffsSnapshotId,
-                    this.cancelInvestigationJob,
-                ),
-                this.supersedeShadowSnapshot(
-                    "analysis",
-                    stale.analysisSnapshotId,
-                    staleDiffsSnapshotId,
-                    this.cancelAnalysisJob,
-                ),
-            ]);
+            try {
+                await this.cancelInvestigationJob(twinSnapshotId);
+            } catch (error) {
+                this.logger.warn("Investigation shadow cancel failed during supersession", {
+                    snapshot: { snapshotId: twinSnapshotId },
+                    extra: { error: String(error) },
+                });
+            }
+            await this.db.branchSnapshot.update({
+                where: { id: twinSnapshotId },
+                data: { status: "cancelled" },
+            });
+            this.logger.info("Superseded investigation shadow snapshot cancelled", {
+                snapshot: { snapshotId: twinSnapshotId },
+                extra: { staleDiffsSnapshotId },
+            });
         } catch (error) {
-            this.logger.warn("Failed to supersede shadow snapshots", {
+            this.logger.warn("Failed to supersede investigation shadow snapshot", {
                 snapshot: { snapshotId: staleDiffsSnapshotId },
                 extra: { error: String(error) },
             });
         }
     }
 
-    /**
-     * Cancel one shadow's in-flight workflow on its detached snapshot and mark that snapshot `cancelled`. No-op
-     * when the shadow was never paired (its pointer is null). Contained so a cancel failure still writes the
-     * terminal status and never blocks the sibling shadow's supersede.
-     */
-    private async supersedeShadowSnapshot(
-        name: string,
-        shadowSnapshotId: string | null,
-        staleDiffsSnapshotId: string,
-        cancel: (snapshotId: string) => Promise<void>,
-    ): Promise<void> {
-        if (shadowSnapshotId == null) return;
-        try {
-            await cancel(shadowSnapshotId);
-        } catch (error) {
-            this.logger.warn("A shadow workflow cancel failed during supersession", {
-                snapshot: { snapshotId: shadowSnapshotId },
-                extra: { shadow: name, error: String(error) },
-            });
-        }
-        await this.db.branchSnapshot.update({
-            where: { id: shadowSnapshotId },
-            data: { status: "cancelled" },
-        });
-        this.logger.info("Superseded shadow snapshot cancelled", {
-            snapshot: { snapshotId: shadowSnapshotId },
-            extra: { shadow: name, staleDiffsSnapshotId },
-        });
-    }
-
     private async markDiffsJobSuperseded(snapshotId: string): Promise<void> {
         try {
-            await this.db.diffsJob.update({
+            // updateMany (not update) so it is a no-op rather than a throw when the stale run had no DiffsJob (an
+            // authoritative run) - both mark helpers fire on every supersession regardless of the stale run's mode.
+            const result = await this.db.diffsJob.updateMany({
                 where: { snapshotId },
                 data: {
                     status: "failed",
@@ -695,9 +696,30 @@ export class DiffsTriggerService extends Service {
                     completedAt: new Date(),
                 },
             });
-            this.logger.info("Stale DiffsJob marked as superseded", { snapshotId });
+            if (result.count > 0) this.logger.info("Stale DiffsJob marked as superseded", { snapshotId });
         } catch (error) {
             this.logger.warn("Failed to mark stale DiffsJob as superseded", { snapshotId, extra: { error } });
+        }
+    }
+
+    /**
+     * Mark a stale AnalysisJob terminal on supersession (authoritative runs). `updateMany` scoped to a still
+     * `running` job so it is a no-op when the stale run had no AnalysisJob (a shadow run) or already finished -
+     * never a throw.
+     */
+    private async markAnalysisJobSuperseded(snapshotId: string): Promise<void> {
+        try {
+            const result = await this.db.analysisJob.updateMany({
+                where: { snapshotId, status: "running" },
+                data: {
+                    status: "failed",
+                    failureReason: "Superseded by a newer analysis request",
+                    completedAt: new Date(),
+                },
+            });
+            if (result.count > 0) this.logger.info("Stale AnalysisJob marked as superseded", { snapshotId });
+        } catch (error) {
+            this.logger.warn("Failed to mark stale AnalysisJob as superseded", { snapshotId, extra: { error } });
         }
     }
 }

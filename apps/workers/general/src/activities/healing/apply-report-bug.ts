@@ -1,5 +1,5 @@
-import type { BugStatus, Prisma } from "@autonoma/db";
 import { db } from "@autonoma/db";
+import { resolveOrCreateBug } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { stripUnbackedNarrativeImages } from "@autonoma/types";
 import type { IssueReport } from "@autonoma/workflow/activities";
@@ -44,10 +44,18 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
             select: { branchId: true, branch: { select: { applicationId: true } } },
         });
 
-        const bugId =
-            input.matchedBugId != null
-                ? await linkExistingBug(tx, input.matchedBugId, snapshot.branchId, input)
-                : await createNewBug(tx, snapshot.branchId, snapshot.branch.applicationId, input);
+        const bugId = await resolveOrCreateBug({
+            tx,
+            matchedBugId: input.matchedBugId,
+            branchId: snapshot.branchId,
+            applicationId: snapshot.branch.applicationId,
+            testCaseId: input.testCaseId,
+            severity: input.severity,
+            organizationId: input.organizationId,
+            title: input.title,
+            description: input.description,
+            detectingSnapshotId: input.snapshotId,
+        });
 
         await tx.issue.create({
             data: {
@@ -85,69 +93,6 @@ function buildIssueReport(input: ApplyReportBugInput): IssueReport | undefined {
     return { ...input.report, suspectedCause: input.suspectedCause };
 }
 
-async function linkExistingBug(
-    tx: Prisma.TransactionClient,
-    bugId: string,
-    snapshotBranchId: string,
-    input: ApplyReportBugInput,
-): Promise<string> {
-    const bug = await tx.bug.findUniqueOrThrow({
-        where: { id: bugId },
-        select: { status: true, severity: true, branchId: true },
-    });
-
-    // Invariant: a matched bug must live on the same branch as the detecting
-    // snapshot. BugMatcher only ever proposes candidates from this branch, so a
-    // mismatch means a cross-branch match slipped through - refuse to attach.
-    if (bug.branchId !== snapshotBranchId) {
-        throw new Error(
-            `report_bug branch invariant violation: matched bug ${bugId} is on branch ${bug.branchId ?? "null"} but the detecting snapshot ${input.snapshotId} is on branch ${snapshotBranchId}`,
-        );
-    }
-
-    const newStatus: BugStatus = bug.status === "resolved" ? "regressed" : bug.status;
-    const newSeverity = pickHigherSeverity(bug.severity, input.severity);
-
-    await tx.bug.update({
-        where: { id: bugId },
-        data: {
-            lastSeenAt: new Date(),
-            status: newStatus,
-            severity: newSeverity,
-            ...(newStatus === "regressed" ? { resolvedAt: null } : {}),
-        },
-    });
-
-    await tx.bugTestCaseEvidence.upsert({
-        where: { bugId_testCaseId: { bugId, testCaseId: input.testCaseId } },
-        create: { bugId, testCaseId: input.testCaseId },
-        update: { lastSeenAt: new Date() },
-    });
-
-    return bugId;
-}
-
-async function createNewBug(
-    tx: Prisma.TransactionClient,
-    branchId: string,
-    applicationId: string,
-    input: ApplyReportBugInput,
-): Promise<string> {
-    const bug = await tx.bug.create({
-        data: {
-            title: input.title,
-            description: input.description,
-            severity: input.severity,
-            branchId,
-            applicationId,
-            organizationId: input.organizationId,
-            evidence: { create: { testCaseId: input.testCaseId } },
-        },
-        select: { id: true },
-    });
-    return bug.id;
-}
-
 /**
  * Strip every narrative image whose src is not a manifest-backed evidence token:
  * unbacked `evidence:` tokens, but also raw storage paths or URLs the agent
@@ -168,10 +113,4 @@ function sanitizeReport(report: IssueReport | undefined, logger: Logger): IssueR
         extra: { strippedSrcs },
     });
     return { ...report, narrativeMarkdown: markdown };
-}
-
-const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 } as const;
-
-function pickHigherSeverity<S extends keyof typeof SEVERITY_RANK>(a: S, b: S): S {
-    return SEVERITY_RANK[a] >= SEVERITY_RANK[b] ? a : b;
 }

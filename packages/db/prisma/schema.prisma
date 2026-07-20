@@ -143,8 +143,10 @@ model Organization {
   previewkitEnvironments PreviewkitEnvironment[]
   previewkitOrgSecrets   PreviewkitOrgSecret[]
   diffsJobs              DiffsJob[]
+  analysisJobs           AnalysisJob[]
   investigationReports   InvestigationReport[]
-  analysisShadowRuns     AnalysisShadowRun[]
+  analysisReports        AnalysisReport[]
+  analysisFindings       AnalysisFinding[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
   vercelInstallations    VercelInstallation[]
@@ -733,15 +735,6 @@ model BranchSnapshot {
   investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
   investigationParent     BranchSnapshot? @relation("InvestigationPair")
 
-  // The detached snapshot the merged analysis pipeline (the diffs-worker shadow that will replace both diffs
-  // and investigation) runs on. Separate from the investigation twin above so the two shadows never share a
-  // snapshot: each owns its suite work independently. Same shape as the investigation pair - never wired to a
-  // branch pointer, reachable only via this FK; `analysisParent` (the reverse side) is the canonical signal
-  // that a snapshot IS such a detached analysis snapshot, used to hide it from user-facing snapshot queries.
-  analysisSnapshotId String?         @unique @map("analysis_snapshot_id")
-  analysisSnapshot   BranchSnapshot? @relation("AnalysisPair", fields: [analysisSnapshotId], references: [id], onDelete: SetNull)
-  analysisParent     BranchSnapshot? @relation("AnalysisPair")
-
   // Per-dependency deployed commit SHAs (keyed by previewkit multirepo dependency
   // name), pinned the first time grounding runs for this snapshot by resolving the
   // headSha-exact PreviewkitEnvironment and copying its enriched resolvedConfig dep
@@ -761,8 +754,9 @@ model BranchSnapshot {
   testGenerations TestGeneration[]
 
   diffsJob             DiffsJob?
+  analysisJob          AnalysisJob?
   investigationReport  InvestigationReport?
-  analysisShadowRun    AnalysisShadowRun?
+  analysisReport       AnalysisReport?
   investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
   issues               Issue[]
   refinementLoop       RefinementLoop?
@@ -1797,6 +1791,12 @@ model OrganizationSettings {
   // roll autofix out per trusted org (Centinel first) before enabling it broadly.
   investigationAutofixEnabled Boolean @default(false) @map("investigation_autofix_enabled")
 
+  // Whether the merged analysis pipeline is this org's PR-analysis pipeline: when on, the pipeline runs on the
+  // branch's real pending snapshot, promotes it, and files real Bug/Issue - retiring the diffs job for the org.
+  // The trigger reads this, gated by the global ANALYSIS_AUTHORITATIVE_ENABLED master switch, so a flip is per-org
+  // and reversible for the whole fleet. Off until a deliberate go/no-go.
+  analysisEnabled Boolean @default(false) @map("analysis_enabled")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2387,35 +2387,56 @@ model AffectedTest {
   @@map("affected_test")
 }
 
-/// The merged analysis pipeline's SHADOW run record - the queryable home for one shadow run's verdict, its
-/// per-test findings, and the side-by-side comparison against the authoritative diffs job. Written only in
-/// `shadow` mode (authoritative mode files real Bug/Issue instead), so it is never user-facing. Like
-/// InvestigationReport it is an isolated island: it only FKs OUTWARD (snapshot / org, cascade) and nothing in
-/// the core app FKs into it, so retiring the shadow machinery at cutover is a clean DROP TABLE.
-model AnalysisShadowRun {
+enum AnalysisJobStatus {
+  running
+  completed
+  failed
+
+  @@map("analysis_job_status")
+}
+
+/// The status row for one authoritative-mode analysis run - the AnalysisJob mirrors DiffsJob so the snapshot
+/// status/badge/history queries have a job to read when an org runs the merged pipeline instead of diffs (there
+/// is no DiffsJob then). Created `running` by the trigger and flipped `completed`/`failed` by finalize (a
+/// supersession marks it terminal). Keyed 1:1 by snapshot, cascade from BranchSnapshot. Health counts still
+/// derive from runs; this only tracks the pipeline's own lifecycle.
+model AnalysisJob {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
-  /// The pipeline mode that produced this row (always `shadow` today; recorded so an accidental write is visible).
-  mode String
+  status AnalysisJobStatus @default(running)
 
-  /// The shadow app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`.
+  failureReason String? @map("failure_reason") @db.Text
+
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("analysis_job")
+}
+
+/// The merged analysis pipeline's rich per-snapshot report. One row per run holds the run header (verdict,
+/// counts), the Impact Analysis selection reasoning, the coverage-plane summary, and the constrained narration;
+/// its per-test findings live in the AnalysisFinding child table. These rows drive the user-facing snapshot/PR
+/// UI, and the `client_bug` findings are ALSO filed as durable Bug/Issue. Only FKs OUTWARD (snapshot / org,
+/// cascade); nothing in the core app FKs into it.
+model AnalysisReport {
+  snapshotId String         @id @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  /// The app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`.
   verdict String
 
   testCount      Int @default(0) @map("test_count")
   clientBugCount Int @default(0) @map("client_bug_count")
 
-  /// The deduped findings the Reconciler produced: several tests surfacing the same underlying issue are
-  /// unioned into one finding carrying every member (`coveredSlugs` + `members`). A display-only blob, not
-  /// queried yet, so JSON not a child table.
-  /// `planEdited` (self-heal fidelity) and `origin` ("pre_existing" | "proposed") on a member are written by the
-  /// re-homed diffs pipeline; both optional because the frozen (pre-re-home) investigation persist omits them.
-  /// ![{ category: string; headline: string; coveredSlugs: string[]; members: { slug: string; category: string; headline: string; planEdited?: boolean; origin?: "pre_existing" | "proposed" }[] }[]]
-  findings Json?
-
-  /// The authoritative diffs job's outcome for this PR, for the shadow-vs-diffs comparison. Display-only blob.
-  /// ![{ found: boolean; jobStatus?: string; deployedTestCount: number }]
-  deployed Json?
+  /// The Impact Analysis stage's account of why it selected the tests it did (the affected + proposed set). Text,
+  /// display-only; absent when selection produced no reasoning.
+  impactReasoning String? @map("impact_reasoning") @db.Text
 
   /// The coverage-confidence plane summary: per-category counts of the deduped findings that are not app-health
   /// (engine_artifact/environment_failure/scenario_issue/delete), plus the delete-origin split (proposed tests
@@ -2427,12 +2448,85 @@ model AnalysisShadowRun {
   /// model call could not run. Derived from the FINAL verdict; it never alters it.
   narration String?
 
+  findings AnalysisFinding[]
+
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@map("analysis_shadow_run")
+  @@map("analysis_report")
+}
+
+/// One deduped per-test finding of an analysis run (the merged pipeline's OWN classification, modeled on the
+/// frozen InvestigationFinding - NOT reused from it). Media stays as `s3://` keys (signed on read); display-only
+/// blobs (evidence, run trace) are JSON; the fields the UI filters/sorts on are real columns. Cascades from both
+/// its parent report and its organization (matching AnalysisReport/AnalysisJob); the denormalized `organizationId`
+/// also backs the `[organizationId, category]` cross-report index. Every investigated test yields exactly one row
+/// across the full taxonomy (incl. `passed`); this store is the single source of truth for every finding,
+/// `client_bug` included (it carries its full evidence on the row) - the pipeline files no Bug/Issue.
+model AnalysisFinding {
+  id               String         @id @default(cuid())
+  reportSnapshotId String         @map("report_snapshot_id")
+  report           AnalysisReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
+
+  /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
+  findingKey String @map("finding_key")
+  slug       String
+  /// The Investigator's terminal AnalysisVerdict (passed/client_bug/engine_artifact/environment_failure/
+  /// scenario_issue/delete).
+  category          String
+  confidence        String?
+  headline          String  @db.Text
+  whatHappened      String? @map("what_happened") @db.Text
+  observedAppIssues String? @map("observed_app_issues") @db.Text
+  remediation       String? @db.Text
+  rootCause         String? @map("root_cause") @db.Text
+  falsePositiveRisk String? @map("false_positive_risk") @db.Text
+  plan              String? @db.Text
+  runSuccess        Boolean? @map("run_success")
+  stepCount         Int?     @map("step_count")
+
+  /// Whether the Investigator rewrote this test's plan before reaching the verdict (the self-heal fidelity
+  /// signal that replaces the classifier's PlanFidelity axis).
+  planEdited Boolean? @map("plan_edited")
+  /// Whether the test pre-existed (`pre_existing`) or was authored this run (`proposed`) - the data tag that
+  /// tells an obsolete-test `delete` apart from an un-establishable proposal.
+  origin String?
+
+  /// string[] run-step trace and InvestigationRunStep[] structured trace - display blobs, never queried.
+  /// [InvestigationRunSteps]
+  runSteps Json? @map("run_steps")
+  /// [InvestigationRunTrace]
+  runTrace Json? @map("run_trace")
+  /// [InvestigationEvidenceList]
+  evidence Json?
+
+  /// `s3://` keys, signed on read.
+  videoKey      String? @map("video_key")
+  screenshotKey String? @map("screenshot_key")
+  /// Short GIF clip of the failure (client bugs only).
+  clipKey String? @map("clip_key")
+
+  /// Present instead of the verdict fields when the model failed to classify this test.
+  error String? @db.Text
+
+  /// When several tests surfaced the same underlying issue and the Reconciler unioned them into this one
+  /// finding, the slugs of every test it now represents (this finding's own slug plus the absorbed ones).
+  /// Length > 1 means a merged finding; absent/length 1 means standalone.
+  /// [InvestigationCoveredSlugs]
+  coveredSlugs Json? @map("covered_slugs")
+
+  displayOrder Int @map("display_order")
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([reportSnapshotId, findingKey])
+  @@index([reportSnapshotId])
+  @@index([organizationId, category])
+  @@map("analysis_finding")
 }
 
 // Generic durable fixed-window rate-limit counter. One row per limiter key (e.g.

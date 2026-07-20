@@ -1,5 +1,6 @@
 import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import type { AnalysisFindingReport } from "@autonoma/types";
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
@@ -121,16 +122,15 @@ class ReconcileHarness implements IntegrationHarness {
 }
 
 integrationTestSuite({
-    name: "reconcileAnalysis (shadow store)",
+    name: "reconcileAnalysis (rich store)",
     createHarness: () => ReconcileHarness.create(),
     cases: (test) => {
-        test("persists deduped findings with unioned evidence and files nothing user-facing", async ({ harness }) => {
-            const { snapshotId, organizationId } = await harness.seedTwin("sha-mixed");
+        test("persists deduped findings with unioned coverage", async ({ harness }) => {
+            const { snapshotId } = await harness.seedTwin("sha-mixed");
 
             const result = await reconcileAnalysis(
                 {
                     snapshotId,
-                    mode: "shadow",
                     candidates: [
                         candidate("checkout", "passed"),
                         candidate("login", "client_bug"),
@@ -145,32 +145,28 @@ integrationTestSuite({
             expect(result.testCount).toBe(3);
             expect(result.findingCount).toBe(2);
             expect(result.clientBugCount).toBe(1);
-            expect(result.filedCount).toBe(0);
-            // No diffs job exists for this head sha, so the comparison degrades to "not found".
-            expect(result.comparison.found).toBe(false);
 
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
-            expect(row?.mode).toBe("shadow");
-            expect(row?.verdict).toBe("client_bug");
-            expect(row?.testCount).toBe(3);
-            expect(row?.clientBugCount).toBe(1);
-            expect(row?.findings).toHaveLength(2);
-            const mergedFinding = row?.findings?.find((finding) => finding.coveredSlugs.length > 1);
+            const report = await harness.db.analysisReport.findUnique({
+                where: { snapshotId },
+                include: { findings: true },
+            });
+            expect(report?.verdict).toBe("client_bug");
+            expect(report?.testCount).toBe(3);
+            expect(report?.clientBugCount).toBe(1);
+            expect(report?.findings).toHaveLength(2);
+            // The merged finding carries its union in coveredSlugs (set only when > 1); its anchor slug is `login`.
+            const mergedFinding = report?.findings.find((finding) => finding.coveredSlugs != null);
             expect(mergedFinding?.coveredSlugs).toEqual(["login", "auth"]);
-            expect(mergedFinding?.members).toHaveLength(2);
-            expect(row?.deployed).toEqual({ found: false, deployedTestCount: 0 });
-
-            // The shadow store is not the user-facing Bug model - a shadow run must never file one.
-            expect(await harness.db.bug.count({ where: { organizationId } })).toBe(0);
+            expect(mergedFinding?.slug).toBe("login");
+            expect(mergedFinding?.category).toBe("client_bug");
         });
 
-        test("persists each member's planEdited + origin data tags to the shadow store", async ({ harness }) => {
+        test("persists each finding's planEdited + origin data tags as columns", async ({ harness }) => {
             const { snapshotId } = await harness.seedTwin("sha-edited");
 
             await reconcileAnalysis(
                 {
                     snapshotId,
-                    mode: "shadow",
                     candidates: [
                         candidate("healed", "passed", true, "pre_existing"),
                         candidate("unestablished", "delete", false, "proposed"),
@@ -179,16 +175,33 @@ integrationTestSuite({
                 { dedupe: identityDedupe, narrate: noopNarrate },
             );
 
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
+            const report = await harness.db.analysisReport.findUnique({
+                where: { snapshotId },
+                include: { findings: true },
+            });
             const bySlug = new Map(
-                (row?.findings ?? []).flatMap((finding) =>
-                    finding.members.map(
-                        (member) => [member.slug, { planEdited: member.planEdited, origin: member.origin }] as const,
-                    ),
+                (report?.findings ?? []).map(
+                    (finding) => [finding.slug, { planEdited: finding.planEdited, origin: finding.origin }] as const,
                 ),
             );
             expect(bySlug.get("healed")).toEqual({ planEdited: true, origin: "pre_existing" });
             expect(bySlug.get("unestablished")).toEqual({ planEdited: false, origin: "proposed" });
+        });
+
+        test("persists the Impact Analysis reasoning onto the report", async ({ harness }) => {
+            const { snapshotId } = await harness.seedTwin("sha-reasoning");
+
+            await reconcileAnalysis(
+                {
+                    snapshotId,
+                    candidates: [candidate("home", "passed")],
+                    impactReasoning: "The diff touches the checkout total calculation.",
+                },
+                { dedupe: identityDedupe, narrate: noopNarrate },
+            );
+
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId } });
+            expect(report?.impactReasoning).toBe("The diff touches the checkout total calculation.");
         });
 
         test("keeps a coverage-only run on the passed plane and summarizes the coverage counts + delete split", async ({
@@ -199,7 +212,6 @@ integrationTestSuite({
             const result = await reconcileAnalysis(
                 {
                     snapshotId,
-                    mode: "shadow",
                     candidates: [
                         candidate("flake", "engine_artifact"),
                         candidate("seed", "scenario_issue"),
@@ -218,13 +230,13 @@ integrationTestSuite({
             expect(result.unestablishedProposedCount).toBe(2);
             expect(result.obsoleteRemovedCount).toBe(1);
 
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
-            expect(row?.verdict).toBe("passed");
-            expect(row?.coverage?.total).toBe(5);
-            expect(row?.coverage?.unestablishedProposed).toBe(2);
-            expect(row?.coverage?.obsoleteRemoved).toBe(1);
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId } });
+            expect(report?.verdict).toBe("passed");
+            expect(report?.coverage?.total).toBe(5);
+            expect(report?.coverage?.unestablishedProposed).toBe(2);
+            expect(report?.coverage?.obsoleteRemoved).toBe(1);
             // byCategory is derived from the verdict SSOT order, coverage plane only, zero-count categories omitted.
-            expect(row?.coverage?.byCategory).toEqual([
+            expect(report?.coverage?.byCategory).toEqual([
                 { category: "engine_artifact", count: 1 },
                 { category: "scenario_issue", count: 1 },
                 { category: "delete", count: 3 },
@@ -236,7 +248,7 @@ integrationTestSuite({
             const narration = "IGNORED CLAIM: a critical client bug was found.";
 
             const result = await reconcileAnalysis(
-                { snapshotId, mode: "shadow", candidates: [candidate("home", "passed")] },
+                { snapshotId, candidates: [candidate("home", "passed")] },
                 { dedupe: identityDedupe, narrate: fixedNarrate(narration) },
             );
 
@@ -244,23 +256,23 @@ integrationTestSuite({
             expect(result.verdict).toBe("passed");
             expect(result.narrated).toBe(true);
 
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
-            expect(row?.narration).toBe(narration);
-            expect(row?.verdict).toBe("passed");
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId } });
+            expect(report?.narration).toBe(narration);
+            expect(report?.verdict).toBe("passed");
         });
 
         test("resolves a `passed` verdict when no finding is a client bug", async ({ harness }) => {
             const { snapshotId } = await harness.seedTwin("sha-clean");
 
             const result = await reconcileAnalysis(
-                { snapshotId, mode: "shadow", candidates: [candidate("home", "passed")] },
+                { snapshotId, candidates: [candidate("home", "passed")] },
                 { dedupe: identityDedupe, narrate: noopNarrate },
             );
 
             expect(result.verdict).toBe("passed");
             expect(result.clientBugCount).toBe(0);
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
-            expect(row?.verdict).toBe("passed");
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId } });
+            expect(report?.verdict).toBe("passed");
         });
 
         test("an empty target set yields a `passed` verdict with zero findings and no narration", async ({
@@ -269,7 +281,7 @@ integrationTestSuite({
             const { snapshotId } = await harness.seedTwin();
 
             const result = await reconcileAnalysis(
-                { snapshotId, mode: "shadow", candidates: [] },
+                { snapshotId, candidates: [] },
                 { dedupe: identityDedupe, narrate: noopNarrate },
             );
 
@@ -278,10 +290,55 @@ integrationTestSuite({
             expect(result.findingCount).toBe(0);
             expect(result.coverageFindingCount).toBe(0);
             expect(result.narrated).toBe(false);
-            const row = await harness.db.analysisShadowRun.findUnique({ where: { snapshotId } });
-            expect(row?.testCount).toBe(0);
-            expect(row?.findings).toEqual([]);
-            expect(row?.narration).toBeNull();
+            const report = await harness.db.analysisReport.findUnique({
+                where: { snapshotId },
+                include: { findings: true },
+            });
+            expect(report?.testCount).toBe(0);
+            expect(report?.findings).toEqual([]);
+            expect(report?.narration).toBeNull();
+        });
+
+        test("files no Bug/Issue - a client bug lives in AnalysisFinding with its evidence", async ({ harness }) => {
+            const { snapshotId, organizationId } = await harness.seedTwin("sha-nofile");
+            const report: AnalysisFindingReport = {
+                whatHappened: "The total showed $0.",
+                rootCause: "The subtotal was not summed.",
+                screenshotKey: "s3://frames/key.png",
+                clipKey: "s3://clips/clip.gif",
+            };
+            // The dedup carries the classifier's rich report onto the finding (identityDedupe drops it otherwise).
+            const dedupeWithReport: AnalysisDedupe = async (candidates) =>
+                candidates.map((c) => ({
+                    category: c.category,
+                    headline: c.headline,
+                    coveredSlugs: [c.slug],
+                    members: [c],
+                    report: c.category === "client_bug" ? report : undefined,
+                }));
+
+            const result = await reconcileAnalysis(
+                { snapshotId, candidates: [candidate("checkout", "client_bug")] },
+                { dedupe: dedupeWithReport, narrate: noopNarrate },
+            );
+
+            expect(result.verdict).toBe("client_bug");
+            expect(result.clientBugCount).toBe(1);
+
+            // The analysis pipeline files NO user-facing rows - AnalysisFinding is the single source of truth.
+            expect(await harness.db.bug.count({ where: { organizationId } })).toBe(0);
+            expect(await harness.db.issue.count({ where: { organizationId } })).toBe(0);
+
+            // The client bug lives on its AnalysisFinding row, carrying its full evidence + media keys.
+            const stored = await harness.db.analysisReport.findUnique({
+                where: { snapshotId },
+                include: { findings: true },
+            });
+            const finding = stored?.findings.find((f) => f.slug === "checkout");
+            expect(finding?.category).toBe("client_bug");
+            expect(finding?.whatHappened).toBe("The total showed $0.");
+            expect(finding?.screenshotKey).toBe("s3://frames/key.png");
+            expect(finding?.clipKey).toBe("s3://clips/clip.gif");
         });
     },
 });

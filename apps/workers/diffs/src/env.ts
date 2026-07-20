@@ -11,9 +11,9 @@ export const env = createEnv({
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
         GITHUB_APP_SLUG: z.string().min(1),
-        // Merged analysis-pipeline shadow (classifier re-homed from the investigation worker). All OPTIONAL so
-        // this worker boots unchanged when the shadow is off (ANALYSIS_SHADOW_ENABLED, gated on the API side);
-        // createModelSession throws a clear error if the classifier key is missing when the shadow runs.
+        // Merged analysis pipeline (classifier re-homed from the investigation worker). All OPTIONAL so this
+        // worker boots unchanged when analysis is off (ANALYSIS_AUTHORITATIVE_ENABLED, gated on the API side);
+        // createModelSession throws a clear error if the classifier key is missing when analysis runs.
         // The native-OpenAI classifier key (injected into the model session). The OpenRouter/Gemini/Groq keys are
         // read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
         OPENAI_API_KEY: z.string().min(1).optional(),

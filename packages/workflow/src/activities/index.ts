@@ -92,7 +92,6 @@ export type {
     AnalysisActivities,
     AnalysisInvestigationTarget,
     AnalysisCandidateFinding,
-    AnalysisDeployedComparison,
     RunImpactAnalysisInput,
     RunImpactAnalysisOutput,
     ReconcileAnalysisInput,

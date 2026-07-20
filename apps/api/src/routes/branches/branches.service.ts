@@ -368,7 +368,6 @@ export class BranchesService extends Service {
                 branchId: branch.id,
                 status: { not: "cancelled" },
                 investigationParent: { is: null },
-                analysisParent: { is: null },
             },
             orderBy: { createdAt: "desc" },
             select: { id: true },
@@ -737,15 +736,13 @@ export class BranchesService extends Service {
         const snapshots = await this.db.branchSnapshot.findMany({
             // Canceled snapshots are abandoned drafts kept only for observability; they are
             // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
-            // Detached shadow snapshots (the investigation twin, non-null investigationParent; and the
-            // analysis pipeline's own snapshot, non-null analysisParent) are likewise hidden - they are
+            // The detached investigation twin (non-null investigationParent) is likewise hidden - it is
             // not part of the branch's user-facing lineage.
             where: {
                 branchId,
                 branch: { application: { organizationId } },
                 status: { not: "cancelled" },
                 investigationParent: { is: null },
-                analysisParent: { is: null },
             },
             select: {
                 id: true,
@@ -1074,12 +1071,10 @@ export class BranchesService extends Service {
                 snapshots: {
                     // Exclude cancelled snapshots so the PR-wide rollup reflects the real
                     // lineage; a cancelled draft must never become the latest rollup target.
-                    // Detached shadow snapshots (investigation twin, analysis snapshot) are not part of
-                    // the lineage either.
+                    // The detached investigation twin is not part of the lineage either.
                     where: {
                         status: { not: "cancelled" },
                         investigationParent: { is: null },
-                        analysisParent: { is: null },
                     },
                     select: snapshotSelect,
                     orderBy: { createdAt: "asc" },

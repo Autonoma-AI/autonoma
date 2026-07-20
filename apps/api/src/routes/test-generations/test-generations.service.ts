@@ -27,7 +27,7 @@ export class TestGenerationsService extends Service {
                 // that land on the PR's active snapshot, not just the detached shadow snapshots, which the
                 // parent snapshot filters alone would miss).
                 shadow: false,
-                snapshot: { investigationParent: { is: null }, analysisParent: { is: null } },
+                snapshot: { investigationParent: { is: null } },
             },
             select: {
                 id: true,
@@ -279,7 +279,7 @@ export class TestGenerationsService extends Service {
                 // history. The `shadow` flag is the per-row guard (it also catches shadow rows on the PR's
                 // active snapshot, which the parent snapshot filters alone miss).
                 shadow: false,
-                snapshot: { investigationParent: { is: null }, analysisParent: { is: null } },
+                snapshot: { investigationParent: { is: null } },
                 ...(applicationId != null ? { testPlan: { testCase: { applicationId } } } : {}),
             },
             select: {

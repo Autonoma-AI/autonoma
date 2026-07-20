@@ -5,15 +5,15 @@ import { env } from "./env";
 /**
  * Open a fresh, metered model session for one analysis-pipeline activity (reuses @autonoma/ai's registry:
  * smart-visual Gemini-Flash via OpenRouter + the native-OpenAI gpt-5.6-luna classifier). Throws if the
- * classifier key is not configured on this worker - the analysis shadow is gated by ANALYSIS_SHADOW_ENABLED
- * on the API side, so the key is only needed once the shadow is deliberately turned on; each activity contains
- * this error, so a misconfigured worker fails the shadow rather than the diffs pipeline.
+ * classifier key is not configured on this worker - the analysis pipeline is gated by ANALYSIS_AUTHORITATIVE_ENABLED
+ * on the API side, so the key is only needed once analysis is deliberately turned on; each activity contains
+ * this error, so a misconfigured worker fails the analysis run rather than the diffs pipeline.
  */
 export function createModelSession(): ModelSession {
     if (env.OPENAI_API_KEY == null) {
         throw new Error(
             "OPENAI_API_KEY is not configured on the diffs worker; the analysis classifier cannot run. " +
-                "Provision it before enabling ANALYSIS_SHADOW_ENABLED.",
+                "Provision it before enabling ANALYSIS_AUTHORITATIVE_ENABLED.",
         );
     }
     return openModelSession({

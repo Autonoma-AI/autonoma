@@ -1,9 +1,6 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AnalysisActivities, InvestigationActivities } from "@autonoma/workflow/activities";
+import type { InvestigationActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
-import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
-import { reconcileAnalysis as reconcileAnalysisImpl } from "./analysis/reconcile-analysis";
-import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
 import { assertSnapshotPending as assertSnapshotPendingImpl } from "./assert-pending";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { diagnoseInvestigationScenario as diagnoseScenarioImpl } from "./diagnose-scenario";
@@ -74,13 +71,6 @@ export const persistInvestigationEdits = withHeartbeat(persistEditsImpl);
 // DB reads + one structured reconcile call; heartbeat it so a slow model call does not trip the 2m timeout.
 export const mergeInvestigationEdits = withHeartbeat(mergeEditsImpl);
 
-// --- Merged analysis pipeline (shadow). runImpactAnalysis clones the repo + runs the selector (MINUTES), so it
-// MUST heartbeat like the other reasoning activities; reconcile (comparison lookup + shadow-store write) and
-// finalize (plumbing) are fast but heartbeat for consistency with the rest of the investigation-queue activities.
-export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
-export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
-export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
-
 /** Compile-time guarantee that the exported activities satisfy the workflow's activity contract. */
 const _activities: InvestigationActivities = {
     assertSnapshotPending,
@@ -99,11 +89,3 @@ const _activities: InvestigationActivities = {
     mergeInvestigationEdits,
 };
 void _activities;
-
-/** Compile-time guarantee that the analysis-pipeline activities satisfy their contract. */
-const _analysisActivities: AnalysisActivities = {
-    runImpactAnalysis,
-    reconcileAnalysis,
-    finalizeAnalysis,
-};
-void _analysisActivities;
