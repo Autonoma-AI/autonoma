@@ -49,6 +49,31 @@ export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 export const analysisTestOriginSchema = z.enum(["pre_existing", "proposed"]);
 export type AnalysisTestOrigin = z.infer<typeof analysisTestOriginSchema>;
 
+/** How many deduped findings carry a given coverage-plane category (categories with zero are omitted). */
+export const coverageCategoryCountSchema = z.object({
+    category: analysisVerdictSchema,
+    count: z.number().int().nonnegative(),
+});
+export type CoverageCategoryCount = z.infer<typeof coverageCategoryCountSchema>;
+
+/**
+ * The coverage-confidence plane of a run, summarized. `byCategory` counts the DEDUPED findings per coverage
+ * category (one distinct issue counted once); the delete split counts individual TESTS (finding members) so a
+ * merged `delete` group still reports every test it could not establish or removed. This is the shape the
+ * Reconciler derives (`summarizeVerdictPlanes`), persists onto `AnalysisReport.coverage` (a JSON blob), and the
+ * PR comment / UI read back - so it lives here as the single source of truth, validated at the read boundary.
+ */
+export const coverageSummarySchema = z.object({
+    byCategory: z.array(coverageCategoryCountSchema),
+    /** Total deduped findings on the coverage plane. */
+    total: z.number().int().nonnegative(),
+    /** delete tests that were proposed this run and could not be established (member-level, by origin). */
+    unestablishedProposed: z.number().int().nonnegative(),
+    /** delete tests that pre-existed and were removed as obsolete (member-level, by origin). */
+    obsoleteRemoved: z.number().int().nonnegative(),
+});
+export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
+
 /**
  * The rich per-test evidence an Investigator captures when it classifies a run - the classifier's full output
  * (`classifyInvestigationRun`) that the merged pipeline used to collapse to a 5-field candidate and discard. It

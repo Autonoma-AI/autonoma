@@ -90,6 +90,12 @@ export const AutonomaCommentPayloadSchema = z.object({
     state: AutonomaCommentStateSchema,
     prNumber: z.number().int().positive(),
     headline: z.string(),
+    /**
+     * An optional prose paragraph rendered right under the headline - the analysis comment's constrained
+     * narration of the run. LLM-authored, so it is sanitized on render. Absent on the diffs/preview/investigation
+     * comments, which carry no run-level summary.
+     */
+    summary: z.string().optional(),
     stats: AutonomaCommentStatsSchema.optional(),
     commitRef: z.string().optional(),
     duration: z.string().optional(),

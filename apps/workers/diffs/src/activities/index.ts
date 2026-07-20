@@ -15,6 +15,7 @@ export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
+import { postAnalysisPrComment as postAnalysisPrCommentImpl } from "./analysis/post-analysis-comment";
 import { reconcileAnalysis as reconcileAnalysisImpl } from "./analysis/reconcile-analysis";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
@@ -59,6 +60,8 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
 export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
+// A DB read + a single GitHub API call - fast, but heartbeat for consistency with the other analysis activities.
+export const postAnalysisPrComment = withHeartbeat(postAnalysisPrCommentImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // The Investigator's own row-local writes on the detached snapshot: a self-heal plan rewrite (UpdateTest, queues
 // one generation) and the eager `delete` self-delete (RemoveTest, a single assignment delete). Both are fast, but
@@ -82,6 +85,7 @@ export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
     runImpactAnalysis,
     reconcileAnalysis,
     finalizeAnalysis,
+    postAnalysisPrComment,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
 // The Investigator's own row-local writes (self-heal + eager self-delete), on their own contract - only the diffs

@@ -256,6 +256,16 @@ describe("payloadBuilder", () => {
         expect(markdown).not.toContain("evidence-chip");
     });
 
+    it("renders the run summary as a prose paragraph right under the headline", () => {
+        const markdown = renderMarkdown({
+            ...payloadBuilder({ state: "healthy", prNumber: 42, message: "Autonoma found no issues in this PR." }),
+            summary: "The app passed every affected flow; two proposed tests could not be established.",
+        });
+
+        expect(markdown).toContain("**HEALTHY** - Autonoma found no issues in this PR.");
+        expect(markdown).toContain("The app passed every affected flow; two proposed tests could not be established.");
+    });
+
     it("renders the coding-agent handoff: deep-links plus a copy-paste prompt in a code fence", () => {
         const markdown = renderMarkdown({
             ...payloadBuilder({ state: "critical", prNumber: 42 }),

@@ -69,6 +69,19 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
         // Stage 4 - finalize: promote the snapshot + mark the AnalysisJob completed.
         const finalized = await analysis.finalizeAnalysis({ snapshotId });
         log.info("Analysis pipeline completed", { ...ids, extra: { promoted: finalized.promoted } });
+
+        // Stage 5 - PR comment: post/update the run's comment (flag-gated, idempotent). The report is already
+        // persisted and the snapshot promoted, so a comment failure must NEVER fail the completed run - it is
+        // caught here so it can never reach the outer catch, which would otherwise re-finalize the job as failed.
+        try {
+            const comment = await analysis.postAnalysisPrComment({ snapshotId });
+            log.info("Analysis PR comment step finished", { ...ids, extra: { status: comment.status } });
+        } catch (commentError) {
+            log.error("Analysis PR comment failed; run already completed, continuing", {
+                ...ids,
+                extra: { message: rootFailureMessage(commentError) },
+            });
+        }
     } catch (error) {
         const failureReason = rootFailureMessage(error);
         log.error("Analysis pipeline failed; finalizing the run as failed", { ...ids, extra: { failureReason } });

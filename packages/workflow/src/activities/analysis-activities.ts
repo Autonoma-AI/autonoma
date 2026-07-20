@@ -105,6 +105,18 @@ export interface FinalizeAnalysisOutput {
     promoted: boolean;
 }
 
+export interface PostAnalysisPrCommentInput {
+    /** The branch's real pending snapshot the run reconciled - the comment reads its persisted AnalysisReport. */
+    snapshotId: string;
+}
+
+export interface PostAnalysisPrCommentOutput {
+    /** "posted" (new comment) | "updated" (edited in place) | "skipped" (flag off, no PR, or no report). */
+    status: "posted" | "updated" | "skipped";
+    /** The PR comment id when one was posted or updated; absent when skipped. */
+    commentId?: string;
+}
+
 export interface SelfHealAnalysisTestInput {
     /** The snapshot the test's rows live on. */
     snapshotId: string;
@@ -143,11 +155,16 @@ export interface DeleteAnalysisTestOutput {
     reason?: string;
 }
 
-/** The parent stages of the merged analysis pipeline (Impact Analysis, Reconciler, finalize). */
+/**
+ * The parent stages of the merged analysis pipeline (Impact Analysis, Reconciler, finalize) plus the terminal
+ * PR-comment step. `postAnalysisPrComment` runs after finalize on the happy path and is fully contained: it
+ * reads the persisted AnalysisReport and posts/updates a single `analysis`-kind PR comment, gated OFF by default.
+ */
 export interface AnalysisActivities {
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
     reconcileAnalysis(input: ReconcileAnalysisInput): Promise<ReconcileAnalysisOutput>;
     finalizeAnalysis(input: FinalizeAnalysisInput): Promise<FinalizeAnalysisOutput>;
+    postAnalysisPrComment(input: PostAnalysisPrCommentInput): Promise<PostAnalysisPrCommentOutput>;
 }
 
 /**

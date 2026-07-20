@@ -1,5 +1,7 @@
-import { type AnalysisVerdict, analysisVerdictSchema } from "@autonoma/types";
+import { type AnalysisVerdict, type CoverageSummary, analysisVerdictSchema } from "@autonoma/types";
 import type { ReconciledAnalysisFinding } from "./dedup";
+
+export type { CoverageCategoryCount, CoverageSummary } from "@autonoma/types";
 
 /**
  * The two planes the verdict taxonomy splits into. `app_health` is the only plane that counts against the PR;
@@ -28,27 +30,6 @@ const VERDICT_PLANE: Record<AnalysisVerdict, VerdictPlane> = {
 const COVERAGE_VERDICTS: AnalysisVerdict[] = analysisVerdictSchema.options.filter(
     (verdict) => VERDICT_PLANE[verdict] === "coverage",
 );
-
-/** How many deduped findings carry a given coverage-plane category (categories with zero are omitted). */
-export interface CoverageCategoryCount {
-    category: AnalysisVerdict;
-    count: number;
-}
-
-/**
- * The coverage-confidence plane, summarized. `byCategory` counts the DEDUPED findings per coverage category
- * (one distinct issue counted once); the delete split counts individual TESTS (finding members) so a merged
- * `delete` group still reports every test it could not establish or removed.
- */
-export interface CoverageSummary {
-    byCategory: CoverageCategoryCount[];
-    /** Total deduped findings on the coverage plane. */
-    total: number;
-    /** delete tests that were proposed this run and could not be established (member-level, by origin). */
-    unestablishedProposed: number;
-    /** delete tests that pre-existed and were removed as obsolete (member-level, by origin). */
-    obsoleteRemoved: number;
-}
 
 /** The finalized two-plane verdict: the app-health headline and the coverage-confidence summary. */
 export interface TwoPlaneSummary {

@@ -98,6 +98,8 @@ export type {
     ReconcileAnalysisOutput,
     FinalizeAnalysisInput,
     FinalizeAnalysisOutput,
+    PostAnalysisPrCommentInput,
+    PostAnalysisPrCommentOutput,
     InvestigatorActivities,
     SelfHealAnalysisTestInput,
     SelfHealAnalysisTestOutput,

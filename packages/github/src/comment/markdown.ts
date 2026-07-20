@@ -60,6 +60,12 @@ export function renderMarkdown(payload: AutonomaCommentPayload): string {
     sections.push("", `## ${STATE_ICONS[payload.state]} ${renderTitle(payload)}`, "");
     sections.push(`**${STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
 
+    // The run-level narration (analysis comment) sits right under the headline as a prose paragraph. It is
+    // LLM-authored, so it is sanitized the same way rich bug prose is.
+    if (payload.summary != null && payload.summary !== "") {
+        sections.push("", sanitizeRichMarkdown(payload.summary));
+    }
+
     // The stats line mirrors the in-app checkpoint row; show it on every comment that carries test stats,
     // rich or not, so the comment reads the same as the dashboard for the same snapshot.
     if (payload.stats != null) {

@@ -22,6 +22,9 @@ export const env = createEnv({
         INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
         // Optional Loki base URL for the classifier's get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
+        // Master switch for the authoritative analysis PR comment. OFF by default so the pipeline can run + promote
+        // for a canary org without posting to GitHub until the comment is deliberately turned on.
+        ANALYSIS_PR_COMMENT_ENABLED: z.stringbool().default(false),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

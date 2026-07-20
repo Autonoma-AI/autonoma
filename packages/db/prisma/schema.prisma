@@ -1969,6 +1969,7 @@ model PreviewkitEnvironment {
 enum GitHubPrCommentKind {
   preview
   investigation
+  analysis
 
   @@map("github_pr_comment_kind")
 }
@@ -2422,8 +2423,8 @@ model AnalysisJob {
 /// The merged analysis pipeline's rich per-snapshot report. One row per run holds the run header (verdict,
 /// counts), the Impact Analysis selection reasoning, the coverage-plane summary, and the constrained narration;
 /// its per-test findings live in the AnalysisFinding child table. These rows drive the user-facing snapshot/PR
-/// UI, and the `client_bug` findings are ALSO filed as durable Bug/Issue. Only FKs OUTWARD (snapshot / org,
-/// cascade); nothing in the core app FKs into it.
+/// UI and are the single source of truth for every finding, `client_bug` included - the pipeline files NO
+/// Bug/Issue. Only FKs OUTWARD (snapshot / org, cascade); nothing in the core app FKs into it.
 model AnalysisReport {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
