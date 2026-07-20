@@ -239,12 +239,19 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
   return (
     <aside className="flex flex-col border-r border-border-dim bg-surface-base">
       {/* Header */}
+      {!collapsed && (
+        <span className="shrink-0 px-1.5 py-1 text-xs bg-primary text-background text-center font-semibold">
+          EARLY VERSION
+        </span>
+      )}
       <div className={`flex shrink-0 flex-col gap-2 ${collapsed ? "px-2 py-3" : "px-3 py-3"}`}>
         <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between gap-2"}`}>
           {!collapsed && (
-            <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-tertiary">
-              {activeOrganization.name}
-            </span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-tertiary">
+                {activeOrganization.name}
+              </span>
+            </div>
           )}
           <Tooltip>
             <TooltipTrigger

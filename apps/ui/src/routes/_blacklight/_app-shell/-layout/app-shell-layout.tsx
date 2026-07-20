@@ -116,19 +116,6 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
           <main className="relative flex flex-col overflow-hidden bg-surface-void">
             <GridBackground />
 
-            <div className="relative z-10 flex shrink-0 flex-col">
-              <div className="flex items-center justify-center gap-2 bg-primary px-4 py-1.5 text-2xs font-medium text-primary-foreground">
-                <span>You're using an early version of Autonoma.</span>
-                <button
-                  type="button"
-                  onClick={() => setFeedbackOpen(true)}
-                  className="cursor-pointer underline underline-offset-2 hover:opacity-80"
-                >
-                  Share your feedback
-                </button>
-              </div>
-            </div>
-
             <div className="relative z-10 flex-1 overflow-y-auto p-6">{children}</div>
           </main>
         </div>
