@@ -75,6 +75,15 @@ export const branchesRouter = router({
             services.branches.getAnalysisReportData(input.snapshotId, organizationId),
         ),
 
+    // The authoritative `AnalysisJob` lifecycle for a snapshot (null for a diffs snapshot). The PR page reads this
+    // to identify an authoritative snapshot before its report exists and to show the run's status as a fallback
+    // while findings are still being produced. User-facing.
+    analysisJob: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisJobStatus(input.snapshotId, organizationId),
+        ),
+
     // The shadow investigation agent's report (a freshly-signed S3 URL), for comparing against the deployed
     // agent. Internal-only: gated to @autonoma.app users. Returns undefined when no shadow report exists.
     investigationReport: internalEmailProcedure

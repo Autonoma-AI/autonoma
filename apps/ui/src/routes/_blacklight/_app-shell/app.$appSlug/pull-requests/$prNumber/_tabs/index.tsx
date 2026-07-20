@@ -4,6 +4,9 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
+import { AnalysisFindingsPanel } from "components/analysis/findings-panel";
+import { PrVerdictHeadline } from "components/analysis/pr-verdict-headline";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ShaRange } from "components/snapshot/sha-range";
 import {
@@ -14,7 +17,18 @@ import {
   type TestEntry,
 } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
-import { ensureBranchByPrData, useBranchByPr, useSnapshotHistory } from "lib/query/branches.queries";
+import {
+  ensureAnalysisJobData,
+  ensureAnalysisReportData,
+  ensureBranchByPrData,
+  ensureSnapshotHistoryData,
+  latestSnapshotOf,
+  sortSnapshotsNewestFirst,
+  useAnalysisJob,
+  useAuthoritativeAnalysisReport,
+  useBranchByPr,
+  useSnapshotHistory,
+} from "lib/query/branches.queries";
 import { useBugsListByBranch } from "lib/query/bugs.queries";
 import { useCommitFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
@@ -39,7 +53,17 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
   loader: async ({ context, params: { appSlug, prNumber } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    await ensureBranchByPrData(context.queryClient, app.id, prNumber);
+    const branch = await ensureBranchByPrData(context.queryClient, app.id, prNumber);
+    // Prefetch the latest snapshot's analysis job + report so the authoritative-vs-diffs gate resolves without a
+    // client-side waterfall. Both resolve to null for a diffs PR (cheap), leaving today's layout untouched.
+    const snapshots = await ensureSnapshotHistoryData(context.queryClient, branch.id);
+    const latest = latestSnapshotOf(snapshots);
+    if (latest != null) {
+      await Promise.all([
+        ensureAnalysisJobData(context.queryClient, latest.id),
+        ensureAnalysisReportData(context.queryClient, latest.id),
+      ]);
+    }
   },
   component: OverviewTab,
 });
@@ -58,7 +82,7 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
   const app = useCurrentApplication();
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const orderedSnapshots = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const orderedSnapshots = sortSnapshotsNewestFirst(snapshots);
   const latestSnapshot = orderedSnapshots[0];
 
   if (latestSnapshot == null) {
@@ -70,13 +94,106 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
   }
 
   return (
-    <PullRequestDetailWithCheckpoint
+    <PrOverview
       applicationId={app.id}
       branchId={branch.id}
       prNumber={prNumber}
       snapshots={orderedSnapshots}
       latestSnapshot={latestSnapshot}
     />
+  );
+}
+
+// The overview gate. An authoritative snapshot (the merged pipeline ran on it, so it has an `AnalysisJob`) gets
+// the findings-first layout; every other PR - shadow/diffs alike - renders exactly as before. The job also
+// distinguishes a still-running authoritative snapshot (no report yet) from a diffs one, which the report-presence
+// gate alone cannot.
+function PrOverview({
+  applicationId,
+  branchId,
+  prNumber,
+  snapshots,
+  latestSnapshot,
+}: {
+  applicationId: string;
+  branchId: string;
+  prNumber: number;
+  snapshots: Snapshot[];
+  latestSnapshot: Snapshot;
+}) {
+  const { data: analysisJob } = useAnalysisJob(latestSnapshot.id);
+
+  if (analysisJob == null) {
+    return (
+      <PullRequestDetailWithCheckpoint
+        applicationId={applicationId}
+        branchId={branchId}
+        prNumber={prNumber}
+        snapshots={snapshots}
+        latestSnapshot={latestSnapshot}
+      />
+    );
+  }
+
+  return (
+    <AuthoritativePrOverview
+      prNumber={prNumber}
+      snapshots={snapshots}
+      latestSnapshot={latestSnapshot}
+      analysisJob={analysisJob}
+    />
+  );
+}
+
+// The authoritative PR overview: the two-plane verdict headline + the latest snapshot's full findings list in the
+// main column, with the checkpoint-history rail retained. While the run is still in flight (no report yet), the
+// main column falls back to the `AnalysisJob` status and polls until the report lands. The cross-PR aggregation
+// card and the "Checkpoints in this PR" list are intentionally gone.
+function AuthoritativePrOverview({
+  prNumber,
+  snapshots,
+  latestSnapshot,
+  analysisJob,
+}: {
+  prNumber: number;
+  snapshots: Snapshot[];
+  latestSnapshot: Snapshot;
+  analysisJob: NonNullable<RouterOutputs["branches"]["analysisJob"]>;
+}) {
+  const { data: report } = useAuthoritativeAnalysisReport(latestSnapshot.id, analysisJob.status === "running");
+
+  return (
+    <div className="p-6">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="flex min-w-0 flex-col gap-4">
+          {report != null ? (
+            <>
+              <PrVerdictHeadline findings={report.findings} />
+              <AnalysisFindingsPanel findings={report.findings} prNumber={prNumber} snapshotId={latestSnapshot.id} />
+              <LatestSnapshotLink prNumber={prNumber} snapshotId={latestSnapshot.id} />
+            </>
+          ) : (
+            <AnalysisJobStatus job={analysisJob} />
+          )}
+        </div>
+        <CheckpointRail prNumber={prNumber} snapshots={snapshots} />
+      </div>
+    </div>
+  );
+}
+
+// A quiet link to the latest snapshot's report, where the impact-analysis reasoning, findings summary, and test
+// suite changes live in full - detail the trimmed PR overview deliberately omits.
+function LatestSnapshotLink({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
+      params={{ prNumber, snapshotId }}
+      className="inline-flex items-center gap-1 self-start font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary transition-colors hover:text-text-primary"
+    >
+      View impact analysis and suite changes
+      <ArrowRightIcon size={12} />
+    </AppLink>
   );
 }
 

@@ -12,7 +12,7 @@ import {
     type SnapshotHealthCounts,
     tallyExecutedTests,
 } from "@autonoma/checkpoint";
-import type { Prisma } from "@autonoma/db";
+import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
@@ -66,6 +66,19 @@ const RENDERABLE_OR_LIVE_REPORT: Prisma.InvestigationReportWhereInput = {
  * relation count on the presence reads so the entry point can be colored without loading the findings.
  */
 const WARNING_FINDING_CATEGORIES = ["scenario_issue", "environment_failure"];
+
+/**
+ * An authoritative snapshot's `AnalysisJob` lifecycle, as the PR page consumes it. Present only for a snapshot
+ * the merged pipeline ran (an org running analysis instead of diffs); `null` for a diffs snapshot. Drives the PR
+ * page's running-snapshot fallback: while the run is in flight (or failed) there is no `AnalysisReport` yet, so
+ * the page shows this status instead of the findings list.
+ */
+export interface AnalysisJobStatusView {
+    status: AnalysisJobStatus;
+    failureReason?: string;
+    startedAt?: Date;
+    completedAt?: Date;
+}
 
 /** One PR's investigation entry-point presence (drives the colored pill on the Home + PR lists). */
 export interface InvestigationPresenceEntry {
@@ -438,6 +451,43 @@ export class BranchesService extends Service {
             };
         } catch (error) {
             this.logger.warn("Could not load analysis report data; treating as absent", {
+                extra: { snapshotId },
+                err: error,
+            });
+            return null;
+        }
+    }
+
+    /**
+     * The authoritative `AnalysisJob` lifecycle for a snapshot: the merged pipeline's own status row (mirroring a
+     * `DiffsJob`). Returns `null` for a diffs snapshot (no `AnalysisJob`), so the PR page can tell an authoritative
+     * snapshot apart from a diffs one even before any `AnalysisReport` exists - the running-snapshot fallback reads
+     * this to show the run's status while findings are still being produced. Org-scoped, keyed 1:1 by snapshot.
+     *
+     * Degrades to `null` on any failure, like `getAnalysisReportData`: this is the PR page's gate query (the whole
+     * layout branches on it), so a transient DB error must fall back to the diffs layout, never crash the page.
+     */
+    async getAnalysisJobStatus(snapshotId: string, organizationId: string): Promise<AnalysisJobStatusView | null> {
+        this.logger.info("Getting analysis job status", { extra: { snapshotId } });
+        try {
+            const job = await this.db.analysisJob.findFirst({
+                where: { snapshotId, organizationId },
+                select: { status: true, failureReason: true, startedAt: true, completedAt: true },
+            });
+            if (job == null) {
+                this.logger.info("No analysis job for snapshot; treating as a diffs snapshot", {
+                    extra: { snapshotId },
+                });
+                return null;
+            }
+            return {
+                status: job.status,
+                failureReason: job.failureReason ?? undefined,
+                startedAt: job.startedAt ?? undefined,
+                completedAt: job.completedAt ?? undefined,
+            };
+        } catch (error) {
+            this.logger.warn("Could not load analysis job status; treating as absent", {
                 extra: { snapshotId },
                 err: error,
             });

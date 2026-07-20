@@ -3,6 +3,7 @@ import { env } from "env";
 import { useAuth } from "lib/auth";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
+import type { RouterOutputs } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
 export type PullRequestStateFilter = "open" | "closed" | "merged";
@@ -136,6 +137,38 @@ export async function ensureAnalysisReportData(queryClient: QueryClient, snapsho
     await ensureAPIQueryData(queryClient, trpc.branches.analysisReport.queryOptions({ snapshotId }));
 }
 
+/**
+ * The authoritative analysis report for the PR page, polled while the run is still in flight so the page flips
+ * from the AnalysisJob-status fallback to the findings list the moment finalize writes the report. Terminal jobs
+ * never poll (a completed run already has its report, a failed one never will). Shares the `analysisReport` query
+ * key with `useAnalysisReport`, so both observers re-render together when the report lands.
+ */
+export function useAuthoritativeAnalysisReport(snapshotId: string, jobRunning: boolean) {
+    return useSuspenseQuery({
+        ...trpc.branches.analysisReport.queryOptions({ snapshotId }),
+        refetchInterval: (query) => (query.state.data == null && jobRunning ? 5000 : false),
+        refetchIntervalInBackground: true,
+    });
+}
+
+/**
+ * The authoritative `AnalysisJob` lifecycle for a snapshot (null for a diffs snapshot). Presence identifies an
+ * authoritative PR snapshot before any report exists, so the PR page can branch to the new layout and show the
+ * run's status while findings are still being produced. Polls while the job is running so a terminal transition
+ * (completed/failed) is reflected without a manual reload.
+ */
+export function useAnalysisJob(snapshotId: string) {
+    return useSuspenseQuery({
+        ...trpc.branches.analysisJob.queryOptions({ snapshotId }),
+        refetchInterval: (query) => (query.state.data?.status === "running" ? 5000 : false),
+        refetchIntervalInBackground: true,
+    });
+}
+
+export async function ensureAnalysisJobData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisJob.queryOptions({ snapshotId }));
+}
+
 export function useBranches(state: PullRequestStateFilter = "open") {
     const currentApp = useCurrentApplication();
     return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));
@@ -195,7 +228,19 @@ export function useSnapshotHistory(branchId: string) {
 }
 
 export async function ensureSnapshotHistoryData(queryClient: QueryClient, branchId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.snapshotHistory.queryOptions({ branchId }));
+    return await ensureAPIQueryData(queryClient, trpc.branches.snapshotHistory.queryOptions({ branchId }));
+}
+
+type SnapshotHistoryEntry = RouterOutputs["branches"]["snapshotHistory"][number];
+
+/** A branch's snapshot history sorted newest-first (the list is not guaranteed ordered by the server). */
+export function sortSnapshotsNewestFirst(snapshots: SnapshotHistoryEntry[]): SnapshotHistoryEntry[] {
+    return [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+/** The newest snapshot in a branch's history, or undefined for a PR with no snapshots yet. */
+export function latestSnapshotOf(snapshots: SnapshotHistoryEntry[]): SnapshotHistoryEntry | undefined {
+    return sortSnapshotsNewestFirst(snapshots)[0];
 }
 
 const TERMINAL_DIFFS_JOB_STATUSES = new Set(["completed", "failed"]);
