@@ -1,7 +1,7 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
-import { ReasoningMarkdown } from "./reasoning-block";
+import { ReasoningPanel } from "./reasoning-panel";
 
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 type SeverityBadgeVariant = "critical" | "high" | "warn" | "secondary";
@@ -42,21 +42,6 @@ export function SnapshotReportDocumentSkeleton() {
       </div>
       <Skeleton className="h-64 w-full" />
     </div>
-  );
-}
-
-function ReasoningPanel({ title, content, empty }: { title: string; content: string | undefined; empty: string }) {
-  const hasContent = content != null && content.trim().length > 0;
-
-  return (
-    <Panel>
-      <PanelHeader>
-        <PanelTitle>{title}</PanelTitle>
-      </PanelHeader>
-      <PanelBody>
-        {hasContent ? <ReasoningMarkdown content={content} /> : <p className="text-xs text-text-tertiary">{empty}</p>}
-      </PanelBody>
-    </Panel>
   );
 }
 

@@ -2,25 +2,28 @@
 CREATE TYPE "analysis_job_status" AS ENUM ('running', 'completed', 'failed');
 
 -- DropForeignKey
-ALTER TABLE "analysis_shadow_run" DROP CONSTRAINT "analysis_shadow_run_organization_id_fkey";
+-- Idempotent: the shadow-run island reached some databases from an earlier branch build where these objects
+-- were named/shaped differently (or absent), so drop defensively - the DROP TABLE below removes the table and
+-- any surviving constraints regardless, and a clean database still drops exactly what it created.
+ALTER TABLE "analysis_shadow_run" DROP CONSTRAINT IF EXISTS "analysis_shadow_run_organization_id_fkey";
 
 -- DropForeignKey
-ALTER TABLE "analysis_shadow_run" DROP CONSTRAINT "analysis_shadow_run_snapshot_id_fkey";
+ALTER TABLE "analysis_shadow_run" DROP CONSTRAINT IF EXISTS "analysis_shadow_run_snapshot_id_fkey";
 
 -- DropForeignKey
-ALTER TABLE "branch_snapshot" DROP CONSTRAINT "branch_snapshot_analysis_snapshot_id_fkey";
+ALTER TABLE "branch_snapshot" DROP CONSTRAINT IF EXISTS "branch_snapshot_analysis_snapshot_id_fkey";
 
 -- DropIndex
-DROP INDEX "branch_snapshot_analysis_snapshot_id_key";
+DROP INDEX IF EXISTS "branch_snapshot_analysis_snapshot_id_key";
 
 -- AlterTable
-ALTER TABLE "branch_snapshot" DROP COLUMN "analysis_snapshot_id";
+ALTER TABLE "branch_snapshot" DROP COLUMN IF EXISTS "analysis_snapshot_id";
 
 -- AlterTable
 ALTER TABLE "organization_settings" ADD COLUMN     "analysis_enabled" BOOLEAN NOT NULL DEFAULT false;
 
 -- DropTable
-DROP TABLE "analysis_shadow_run";
+DROP TABLE IF EXISTS "analysis_shadow_run";
 
 -- CreateTable
 CREATE TABLE "analysis_job" (

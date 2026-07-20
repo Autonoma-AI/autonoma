@@ -67,6 +67,14 @@ export const branchesRouter = router({
             services.branches.getSnapshotReport(input.snapshotId, organizationId),
         ),
 
+    // The authoritative analysis report (merged pipeline's findings + signed media) for the snapshot page. The
+    // page gates the new authoritative layout on this resolving non-null; returns null otherwise. User-facing.
+    analysisReport: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisReportData(input.snapshotId, organizationId),
+        ),
+
     // The shadow investigation agent's report (a freshly-signed S3 URL), for comparing against the deployed
     // agent. Internal-only: gated to @autonoma.app users. Returns undefined when no shadow report exists.
     investigationReport: internalEmailProcedure

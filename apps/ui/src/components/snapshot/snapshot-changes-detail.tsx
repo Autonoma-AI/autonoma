@@ -1,6 +1,7 @@
 import { Badge, cn } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { Link } from "@tanstack/react-router";
+import { useIsAuthoritativeSnapshot } from "lib/query/branches.queries";
 import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -21,6 +22,7 @@ const GENERATION_STATUS_BADGE: Record<string, "status-pending" | "status-running
 export function SnapshotChangesDetail() {
   const { snapshotId, testId } = useChangesDetailParams();
   const entry = useSnapshotEntry(snapshotId, testId);
+  const isAuthoritative = useIsAuthoritativeSnapshot(snapshotId);
 
   if (entry == null) {
     return (
@@ -30,12 +32,35 @@ export function SnapshotChangesDetail() {
     );
   }
 
-  return <TestEntryDetail entry={entry} />;
+  return <TestEntryDetail entry={entry} isAuthoritative={isAuthoritative} />;
 }
 
-function TestEntryDetail({ entry }: { entry: TestEntry }) {
+function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAuthoritative: boolean }) {
   const app = useCurrentApplication();
   const { prNumber } = useChangesDetailParams();
+
+  const reasoningSection = entry.reasoning != null && entry.reasoning.trim().length > 0 && (
+    <DetailSection label={reasoningLabel(entry.category)}>
+      <Prose>{entry.reasoning}</Prose>
+    </DetailSection>
+  );
+  const planSection = entry.plan != null && entry.plan.trim().length > 0 && (
+    <DetailSection label="Plan">
+      <ClampedProse>{entry.plan}</ClampedProse>
+    </DetailSection>
+  );
+  const previousPlanSection = entry.previousPlan != null && entry.previousPlan.trim().length > 0 && (
+    <DetailSection label="Previous plan">
+      <ClampedProse className="text-text-secondary">{entry.previousPlan}</ClampedProse>
+    </DetailSection>
+  );
+  const generationSection = entry.generation != null && (
+    <DetailSection
+      label="Generation"
+      headerExtras={<GenerationActions generation={entry.generation} />}
+      reasoning={entry.generation.reviewReasoning}
+    />
+  );
 
   return (
     <article className="flex flex-col">
@@ -59,27 +84,21 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
         </div>
       </header>
 
-      {entry.reasoning != null && entry.reasoning.trim().length > 0 && (
-        <DetailSection label={reasoningLabel(entry.category)}>
-          <Prose>{entry.reasoning}</Prose>
-        </DetailSection>
-      )}
-      {entry.plan != null && entry.plan.trim().length > 0 && (
-        <DetailSection label="Plan">
-          <ClampedProse>{entry.plan}</ClampedProse>
-        </DetailSection>
-      )}
-      {entry.previousPlan != null && entry.previousPlan.trim().length > 0 && (
-        <DetailSection label="Previous plan">
-          <ClampedProse className="text-text-secondary">{entry.previousPlan}</ClampedProse>
-        </DetailSection>
-      )}
-      {entry.generation != null && (
-        <DetailSection
-          label="Generation"
-          headerExtras={<GenerationActions generation={entry.generation} />}
-          reasoning={entry.generation.reviewReasoning}
-        />
+      {/* Authoritative snapshots lead with the generation (link + status), then the plan, and drop the diffs-era
+          "why existing tests do not cover this" reasoning - the analysis narration carries that story instead. */}
+      {isAuthoritative ? (
+        <>
+          {generationSection}
+          {planSection}
+          {previousPlanSection}
+        </>
+      ) : (
+        <>
+          {reasoningSection}
+          {planSection}
+          {previousPlanSection}
+          {generationSection}
+        </>
       )}
     </article>
   );

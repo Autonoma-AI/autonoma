@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { investigationEvidenceSchema, investigationRunStepSchema } from "./investigation-report";
+import {
+    investigationEvidenceSchema,
+    investigationFindingSchema,
+    investigationRunStepSchema,
+} from "./investigation-report";
 
 /**
  * The terminal verdict an Investigator emits for one test - the complete taxonomy the merged pipeline resolves
@@ -79,3 +83,23 @@ export const analysisFindingReportSchema = z.object({
     error: z.string().optional(),
 });
 export type AnalysisFindingReport = z.infer<typeof analysisFindingReportSchema>;
+
+/**
+ * The authoritative analysis report as the snapshot page consumes it: the merged pipeline's per-run
+ * `AnalysisReport` header plus its `AnalysisFinding` children, re-signed for display. The findings reuse the
+ * `investigationFindingSchema` display shape so the snapshot page renders them with the same findings-list and
+ * evidence-detail components (repointed at the analysis store); the analysis-only signals (`planEdited`, origin,
+ * clip) are not surfaced here. `category` is the terminal `AnalysisVerdict` as a plain string - the UI maps the
+ * known verdicts to styles and falls back gracefully, matching the investigation display contract.
+ *
+ * The presence of this report (non-null) is the page-level gate: a snapshot with one renders the authoritative
+ * layout, otherwise the diffs UI is left untouched.
+ */
+export const analysisReportDataSchema = z.object({
+    /** The Impact Analysis stage's account of why it selected the tests it did (feeds IMPACT ANALYSIS). */
+    impactReasoning: z.string().optional(),
+    /** The constrained prose narration of the two-plane verdict (feeds FINDINGS SUMMARY). */
+    narration: z.string().optional(),
+    findings: z.array(investigationFindingSchema),
+});
+export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;

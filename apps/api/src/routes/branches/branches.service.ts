@@ -23,6 +23,7 @@ import {
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
 import type {
+    AnalysisReportData,
     CheckpointPresentationSummary,
     InvestigationFinding,
     InvestigationReportData,
@@ -113,6 +114,36 @@ const investigationSuggestedTestSelect = {
 
 type InvestigationFindingRow = Prisma.InvestigationFindingGetPayload<{ select: typeof investigationFindingSelect }>;
 
+/**
+ * Columns read from an AnalysisFinding row to reconstruct the UI's finding shape. The authoritative store mirrors
+ * InvestigationFinding but has no planFidelity/suggestedFixDiff (those axes were dropped) and carries analysis-only
+ * signals (planEdited, origin, clip) that the snapshot page does not surface - so they are omitted here.
+ */
+const analysisFindingSelect = {
+    findingKey: true,
+    slug: true,
+    category: true,
+    confidence: true,
+    falsePositiveRisk: true,
+    headline: true,
+    whatHappened: true,
+    observedAppIssues: true,
+    remediation: true,
+    rootCause: true,
+    plan: true,
+    runSuccess: true,
+    stepCount: true,
+    runSteps: true,
+    runTrace: true,
+    evidence: true,
+    videoKey: true,
+    screenshotKey: true,
+    error: true,
+    coveredSlugs: true,
+} satisfies Prisma.AnalysisFindingSelect;
+
+type AnalysisFindingRow = Prisma.AnalysisFindingGetPayload<{ select: typeof analysisFindingSelect }>;
+
 /** Reconstruct the UI's InvestigationFinding from a persisted row (media keys are signed separately, on read). */
 function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
     return {
@@ -128,6 +159,34 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
         remediation: row.remediation ?? undefined,
         rootCause: row.rootCause ?? undefined,
         suggestedFixDiff: row.suggestedFixDiff ?? undefined,
+        evidence: row.evidence ?? [],
+        plan: row.plan ?? undefined,
+        runSuccess: row.runSuccess ?? undefined,
+        stepCount: row.stepCount ?? undefined,
+        runSteps: row.runSteps ?? undefined,
+        // Each step's screenshotUrl is still a raw s3:// key here; signFindingMedia signs them on read.
+        runTrace: row.runTrace ?? undefined,
+        // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
+        videoUrl: row.videoKey ?? undefined,
+        finalScreenshotUrl: row.screenshotKey ?? undefined,
+        error: row.error ?? undefined,
+        coveredSlugs: row.coveredSlugs ?? undefined,
+    };
+}
+
+/** Reconstruct the UI finding shape from an AnalysisFinding row (media keys are signed separately, on read). */
+function rowToAnalysisFinding(row: AnalysisFindingRow): InvestigationFinding {
+    return {
+        id: row.findingKey,
+        slug: row.slug,
+        category: row.category,
+        confidence: row.confidence ?? undefined,
+        falsePositiveRisk: row.falsePositiveRisk ?? undefined,
+        headline: row.headline,
+        whatHappened: row.whatHappened ?? undefined,
+        observedAppIssues: row.observedAppIssues ?? undefined,
+        remediation: row.remediation ?? undefined,
+        rootCause: row.rootCause ?? undefined,
         evidence: row.evidence ?? [],
         plan: row.plan ?? undefined,
         runSuccess: row.runSuccess ?? undefined,
@@ -336,6 +395,49 @@ export class BranchesService extends Service {
             // A transient DB error must never error the page - degrade to "no rich report" and let the page
             // render its graceful fallback.
             this.logger.warn("Could not load structured investigation report; treating as absent", {
+                extra: { snapshotId },
+                err: error,
+            });
+            return null;
+        }
+    }
+
+    /**
+     * The authoritative analysis report for the snapshot page: the merged pipeline's per-run `AnalysisReport`
+     * header (impact reasoning + narration) plus its `AnalysisFinding` children, each re-signed into
+     * browser-openable media URLs. Reads keyed 1:1 by snapshot (the report's primary key), org-scoped.
+     *
+     * Returns `null`, never `undefined`, for absence: this is the page-level gate (a snapshot with a report gets
+     * the authoritative layout, otherwise the diffs UI is left untouched), consumed by a React Query query whose
+     * queryFn must not resolve to `undefined`. Degrades to `null` on any failure so a transient DB error never
+     * crashes the snapshot page - it just falls back to the diffs layout.
+     */
+    async getAnalysisReportData(snapshotId: string, organizationId: string): Promise<AnalysisReportData | null> {
+        this.logger.info("Getting analysis report data", { extra: { snapshotId } });
+        try {
+            const report = await this.db.analysisReport.findFirst({
+                where: { snapshotId, organizationId },
+                select: {
+                    impactReasoning: true,
+                    narration: true,
+                    findings: { orderBy: { displayOrder: "asc" }, select: analysisFindingSelect },
+                },
+            });
+            if (report == null) return null;
+
+            const findings = await Promise.all(
+                report.findings.map((finding) => this.signFindingMedia(rowToAnalysisFinding(finding))),
+            );
+            this.logger.info("Analysis report data assembled", {
+                extra: { snapshotId, findingCount: findings.length },
+            });
+            return {
+                impactReasoning: report.impactReasoning ?? undefined,
+                narration: report.narration ?? undefined,
+                findings,
+            };
+        } catch (error) {
+            this.logger.warn("Could not load analysis report data; treating as absent", {
                 extra: { snapshotId },
                 err: error,
             });
@@ -895,7 +997,20 @@ export class BranchesService extends Service {
         });
 
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
-        if (snapshot.diffsJob == null) throw new NotFoundError("Snapshot has no diffs job");
+
+        // An authoritative-mode snapshot has an AnalysisJob, not a DiffsJob, so its detail carries no diffs-pipeline
+        // metadata - the page reads its findings from the AnalysisReport instead. Synthesize an empty, terminal
+        // diffs job so the shared detail shape (changes, created tests, executed tests - all still real and driven
+        // by the snapshot's assignments) loads for the changes tab; the diffs-only surfaces (pipeline strip,
+        // Temporal link) are gated off in the authoritative layout.
+        const diffsJob: NonNullable<typeof snapshot.diffsJob> = snapshot.diffsJob ?? {
+            status: "completed",
+            analysisReasoning: null,
+            failureReason: null,
+            startedAt: null,
+            completedAt: null,
+            affectedTests: [],
+        };
 
         const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = options.includeWorkflow
             ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
@@ -905,7 +1020,9 @@ export class BranchesService extends Service {
             : Promise.resolve(undefined);
 
         const { prInfo, ...branchRest } = snapshot.branch;
-        const { diffsJob, branch: _branch, ...snapshotRest } = snapshot;
+        // The raw diffs job is captured into `diffsJob` above (with the authoritative fallback); strip it here so
+        // it is not spread into the flat snapshot, which returns it separately as `diffsJobWithMeta`.
+        const { diffsJob: _rawDiffsJob, branch: _branch, ...snapshotRest } = snapshot;
         const flatSnapshot = {
             ...snapshotRest,
             branch: { ...branchRest, prNumber: prInfo?.prNumber },

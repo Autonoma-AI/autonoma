@@ -116,6 +116,26 @@ export async function ensureInvestigationReportData(queryClient: QueryClient, sn
     await ensureAPIQueryData(queryClient, trpc.branches.investigationReportData.queryOptions({ snapshotId }));
 }
 
+/**
+ * The authoritative analysis report (merged-pipeline findings + narration) for a snapshot. This is the
+ * page-level gate: when it resolves non-null the snapshot page renders the authoritative layout; otherwise the
+ * diffs UI is left untouched. A suspense query prefetched in the snapshot route loader - the queryFn resolves to
+ * `null` (a valid value) for a diffs snapshot, so the gate never flashes. User-facing (not internal-gated).
+ */
+export function useAnalysisReport(snapshotId: string) {
+    return useSuspenseQuery(trpc.branches.analysisReport.queryOptions({ snapshotId }));
+}
+
+/** True when the snapshot has an authoritative analysis report (drives the authoritative page/changes layout). */
+export function useIsAuthoritativeSnapshot(snapshotId: string): boolean {
+    const { data } = useAnalysisReport(snapshotId);
+    return data != null;
+}
+
+export async function ensureAnalysisReportData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisReport.queryOptions({ snapshotId }));
+}
+
 export function useBranches(state: PullRequestStateFilter = "open") {
     const currentApp = useCurrentApplication();
     return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));

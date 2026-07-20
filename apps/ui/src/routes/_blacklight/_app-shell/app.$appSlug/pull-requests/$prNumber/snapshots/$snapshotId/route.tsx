@@ -1,43 +1,29 @@
-import {
-  Badge,
-  Button,
-  cn,
-  Panel,
-  PanelBody,
-  PanelHeader,
-  PanelTitle,
-  Skeleton,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@autonoma/blacklight";
+import { Button, cn, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
-import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
-import { Link, Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
+import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
+import { AnalysisReportBody } from "components/analysis/analysis-report-body";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
 import { PipelineStrip } from "components/snapshot/pipeline-strip";
 import { SnapshotReportDocument, SnapshotReportDocumentSkeleton } from "components/snapshot/report-document";
-import { ShaRange } from "components/snapshot/sha-range";
+import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
+import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
 import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import { useAuth } from "lib/auth";
-import { formatDuration, formatRelativeTime } from "lib/format";
 import {
+  ensureAnalysisReportData,
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
   FULL_SNAPSHOT_DETAIL,
-  useInvestigationReport,
+  useAnalysisReport,
   useSnapshotDetail,
   useSnapshotReport,
 } from "lib/query/branches.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
-import { CheckpointSummaryBadge } from "../../../-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
-import { unresolvedLabel } from "../../../-components/outcome-vocab";
 
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 
@@ -50,6 +36,7 @@ export const Route = createFileRoute(
     await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
       ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
+      ensureAnalysisReportData(context.queryClient, snapshotId),
     ]);
   },
   component: SnapshotReportLayout,
@@ -69,149 +56,60 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
   const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
+  // Presence of an authoritative analysis report is the page-level gate: when set, render the new findings-first
+  // layout; otherwise leave the diffs sections untouched. Prefetched in the loader, so this never flashes.
+  const { data: analysisReport } = useAnalysisReport(snapshotId);
   const { isAdmin } = useAuth();
-  // Internal-only: the shadow investigation agent's report, for comparing against the deployed agent. The
-  // hook is enabled only for @autonoma.app users, so `investigation` is undefined for everyone else.
-  const { data: investigation } = useInvestigationReport(snapshotId);
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
-  // The investigation pages own the full screen (their own header + back link), so render only their Outlet.
+  // The investigation + analysis finding-detail pages own the full screen (their own header + back link), so
+  // render only their Outlet.
   const showingInvestigation = location.pathname.includes("/investigation");
+  const showingFindings = location.pathname.includes("/findings");
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const { changes, createdTests, diffsJob, refinementLoop } = detail;
+  const isAuthoritative = analysisReport != null;
 
-  if (showingInvestigation) return <Outlet />;
+  if (showingInvestigation || showingFindings) return <Outlet />;
+
+  const adminControls = isAdmin ? (
+    <div className="flex items-center gap-2">
+      {!isAuthoritative && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPipelineOpen((prev) => !prev)}
+          aria-expanded={pipelineOpen}
+        >
+          <GearSixIcon size={14} />
+          {pipelineOpen ? "Hide pipeline" : "Show pipeline"}
+        </Button>
+      )}
+      {!isAuthoritative && diffsJob.temporalWorkflow != null && (
+        <TemporalLink workflowId={diffsJob.temporalWorkflow.workflowId} runId={diffsJob.temporalWorkflow.runId} />
+      )}
+      <SentryLogsLink filterField="snapshotId" filterValue={snapshotId} />
+    </div>
+  ) : undefined;
 
   return (
     <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
-      <header className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-text-tertiary">
-          <AppLink
-            to="/app/$appSlug/pull-requests/$prNumber"
-            params={{ prNumber }}
-            aria-label="Back to pull request"
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-primary"
-          >
-            <ArrowLeftIcon size={12} />
-          </AppLink>
-          <CameraIcon size={14} />
-          <span className="font-mono text-2xs uppercase tracking-widest">Report</span>
-        </div>
+      <SnapshotReportHeader report={report} prNumber={prNumber} snapshotId={snapshotId} adminControls={adminControls} />
 
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-medium tracking-tight text-text-primary">
-              Here is what we just tested and what broke
-            </h1>
-            <p className="mt-1 text-sm text-text-secondary">
-              Checkpoint report for PR #{prNumber} on {report.snapshot.branch.name}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {report.summary != null ? (
-              <CheckpointSummaryBadge summary={report.summary} />
-            ) : (
-              <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
-                {report.health}
-              </Badge>
-            )}
-            {investigation != null && (
-              <AppLink
-                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
-                params={{ prNumber, snapshotId }}
-                aria-label="View the shadow investigation agent report"
-              >
-                <Button variant="outline" size="sm">
-                  <MagnifyingGlassIcon size={14} />
-                  Investigation
-                  {investigation.clientBugCount > 0
-                    ? ` · ${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
-                    : ""}
-                </Button>
-              </AppLink>
-            )}
-            {isAdmin && (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPipelineOpen((prev) => !prev)}
-                  aria-expanded={pipelineOpen}
-                >
-                  <GearSixIcon size={14} />
-                  {pipelineOpen ? "Hide pipeline" : "Show pipeline"}
-                </Button>
-                {diffsJob.temporalWorkflow != null && (
-                  <TemporalLink
-                    workflowId={diffsJob.temporalWorkflow.workflowId}
-                    runId={diffsJob.temporalWorkflow.runId}
-                  />
-                )}
-                <SentryLogsLink filterField="snapshotId" filterValue={report.snapshot.id} />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 text-xs text-text-tertiary">
-          <span>{formatRelativeTime(report.snapshot.createdAt)}</span>
-          <span>{formatDuration(report.results.durationMs)}</span>
-          <span>{report.results.total} tests run</span>
-          <span>{report.results.passed} passed</span>
-          <span className={report.results.failed > 0 ? "text-status-critical" : undefined}>
-            {report.results.failed} failed
-          </span>
-          {report.results.setupFailed > 0 && (
-            <span className="text-status-warn">{report.results.setupFailed} setup failed</span>
-          )}
-          {report.results.running > 0 && (
-            <span>
-              {report.results.running} {unresolvedLabel(report.summary?.executionState)}
-            </span>
-          )}
-          {report.results.pending > 0 && <span>{report.results.pending} pending</span>}
-          <span>commit range:</span>
-          <ShaRange baseSha={report.snapshot.baseSha ?? null} headSha={report.snapshot.headSha ?? null} />
-        </div>
-      </header>
-
-      <Tabs value={activeTab} className="gap-4">
-        <TabsList variant="line">
-          <TabsTrigger
-            value="report"
-            render={
-              <Link
-                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
-                params={{ appSlug, prNumber, snapshotId }}
-              />
-            }
-          >
-            Checkpoint report
-          </TabsTrigger>
-          <TabsTrigger
-            value="changes"
-            render={
-              <Link
-                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes"
-                params={{ appSlug, prNumber, snapshotId }}
-              />
-            }
-          >
-            Test suite changes
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <SnapshotReportTabs appSlug={appSlug} prNumber={prNumber} snapshotId={snapshotId} activeTab={activeTab} />
 
       {showingChanges ? (
         <div className="flex flex-col lg:min-h-0 lg:flex-1">
           <Outlet />
         </div>
+      ) : analysisReport != null ? (
+        <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
       ) : (
         <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}
 
-      {isAdmin && pipelineOpen && (
+      {isAdmin && !isAuthoritative && pipelineOpen && (
         <PipelineStrip
           diffsJob={diffsJob}
           changes={changes}
@@ -280,11 +178,4 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
       <SnapshotReportDocumentSkeleton />
     </div>
   );
-}
-
-function healthVariant(health: string): "success" | "critical" | "status-running" | "outline" {
-  if (health === "healthy") return "success";
-  if (health === "critical") return "critical";
-  if (health === "running") return "status-running";
-  return "outline";
 }
