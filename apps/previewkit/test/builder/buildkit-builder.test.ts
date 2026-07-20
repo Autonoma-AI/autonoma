@@ -1,4 +1,4 @@
-import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -78,19 +78,6 @@ class SuccessfulJobManager {
     }
 }
 
-class LifecycleRecordingJobManager {
-    constructor(private readonly eventsPath: string) {}
-
-    async provision(): Promise<{ name: string; host: string }> {
-        await appendFile(this.eventsPath, "provision\n");
-        return { name: "buildkit-lifecycle", host: "tcp://10.40.0.23:1234" };
-    }
-
-    async release(): Promise<void> {
-        await appendFile(this.eventsPath, "release\n");
-    }
-}
-
 describe("BuildKitBuilder", () => {
     it("does not provision buildkit infrastructure when local Dockerfile validation fails", async () => {
         const jobManager = new CountingJobManager();
@@ -155,48 +142,31 @@ describe("BuildKitBuilder", () => {
         expect(jobManager.events).toEqual(["provision-1", "release-1", "provision-2", "release-2"]);
     });
 
-    it("prepares a Railpack build before provisioning its buildkit Job", async () => {
-        const tempDir = await mkdtemp(join(tmpdir(), "previewkit-build-lifecycle-test-"));
-        const binDir = join(tempDir, "bin");
-        const buildctlPath = join(binDir, "buildctl");
-        const railpackPath = join(binDir, "railpack");
-        const eventsPath = join(tempDir, "events.txt");
-        const previousPath = process.env.PATH;
-        const previousEventsPath = process.env.PREVIEWKIT_CAPTURE_EVENTS;
+    it("throws an actionable error when an app has neither a Dockerfile nor a build block", async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), "previewkit-no-build-test-"));
+        const jobManager = new CountingJobManager();
+        const builder = new BuildKitBuilder({
+            jobManager,
+            buildTimeoutMs: 5_000,
+        });
 
         try {
-            await mkdir(binDir, { recursive: true });
-            await writeFile(eventsPath, "");
-            await writeFile(buildctlPath, "#!/bin/sh\nprintf 'buildctl\\n' >> \"$PREVIEWKIT_CAPTURE_EVENTS\"\n");
-            await writeFile(
-                railpackPath,
-                '#!/bin/sh\nprintf \'prepare\\n\' >> "$PREVIEWKIT_CAPTURE_EVENTS"\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--plan-out" ]; then\n    shift\n    printf \'{"provider":"node"}\\n\' > "$1"\n  fi\n  shift\ndone\n',
-            );
-            await chmod(buildctlPath, 0o755);
-            await chmod(railpackPath, 0o755);
-            process.env.PATH = `${binDir}:${previousPath ?? ""}`;
-            process.env.PREVIEWKIT_CAPTURE_EVENTS = eventsPath;
+            const error = await builder
+                .build({
+                    appName: "web",
+                    contextPath: tempDir,
+                    buildArgs: {},
+                    imageTag: "registry.local:5000/acme/web:abc1234",
+                })
+                .catch((err: unknown) => err);
 
-            const builder = new BuildKitBuilder({
-                jobManager: new LifecycleRecordingJobManager(eventsPath),
-                buildTimeoutMs: 5_000,
-            });
-            await builder.build({
-                appName: "web",
-                contextPath: tempDir,
-                buildArgs: {},
-                imageTag: "registry.local:5000/acme/web:abc1234",
-            });
-
-            const events = (await readFile(eventsPath, "utf8")).trim().split("\n");
-            expect(events).toEqual(["prepare", "provision", "buildctl", "release"]);
+            expect(error).toBeInstanceOf(BuildError);
+            expect(error).toHaveProperty("message", expect.stringContaining("no `build` block"));
+            expect(jobManager.provisionCount).toBe(0);
+            expect(jobManager.releasedNames).toEqual([]);
         } finally {
-            if (previousPath == null) delete process.env.PATH;
-            else process.env.PATH = previousPath;
-            if (previousEventsPath == null) delete process.env.PREVIEWKIT_CAPTURE_EVENTS;
-            else process.env.PREVIEWKIT_CAPTURE_EVENTS = previousEventsPath;
             await rm(tempDir, { recursive: true, force: true }).catch((err: unknown) => {
-                console.warn("Failed to remove PreviewKit builder lifecycle test directory", err);
+                console.warn("Failed to remove PreviewKit no-build test directory", err);
             });
         }
     });
@@ -206,7 +176,6 @@ describe("BuildKitBuilder", () => {
         const appDir = join(tempDir, "apps", "web");
         const binDir = join(tempDir, "bin");
         const buildctlPath = join(binDir, "buildctl");
-        const railpackPath = join(binDir, "railpack");
         const capturedArgsPath = join(tempDir, "buildctl-args.txt");
         const previousPath = process.env.PATH;
         const previousCapturePath = process.env.PREVIEWKIT_CAPTURE_ARGS;
@@ -220,12 +189,7 @@ describe("BuildKitBuilder", () => {
                 JSON.stringify({ name: "web", scripts: { start: "node server.js" } }),
             );
             await writeFile(buildctlPath, '#!/bin/sh\nprintf "%s\\n" "$@" > "$PREVIEWKIT_CAPTURE_ARGS"\n');
-            await writeFile(
-                railpackPath,
-                '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--plan-out" ]; then\n    shift\n    printf \'{"provider":"node"}\\n\' > "$1"\n  fi\n  shift\ndone\n',
-            );
             await chmod(buildctlPath, 0o755);
-            await chmod(railpackPath, 0o755);
             process.env.PATH = `${binDir}:${previousPath ?? ""}`;
             process.env.PREVIEWKIT_CAPTURE_ARGS = capturedArgsPath;
 
@@ -256,10 +220,6 @@ describe("BuildKitBuilder", () => {
                         buildArgs: {},
                         imageTag,
                     },
-                },
-                {
-                    name: "Railpack",
-                    request: { appName: "web", contextPath: appDir, buildArgs: {}, imageTag },
                 },
             ];
 

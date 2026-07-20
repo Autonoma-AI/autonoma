@@ -1,26 +1,26 @@
 export interface BuildRequest {
     appName: string;
-    /** Directory passed to `railpack prepare` and used for Dockerfile resolution. */
+    /** Directory used for Dockerfile resolution and as the default build context. */
     contextPath: string;
     /**
      * Docker build context root. Defaults to `contextPath` when omitted.
      *
-     * Set for Dockerfile/auto-detect builds whose Dockerfile needs to see files
-     * outside the per-app dir (workspace deps visible during `bun install`
-     * inside the container build). Override only.
+     * Set for Dockerfile builds whose Dockerfile needs to see files outside the
+     * per-app dir (workspace deps visible during `bun install` inside the
+     * container build). Override only.
      */
     buildContext?: string;
     dockerfile?: string;
     // Target stage for a multi-stage user-authored Dockerfile (buildctl `--opt
     // target=`, like `docker build --target`). Only meaningful on the
-    // on-disk-Dockerfile path; ignored by generated/monorepo/Railpack builds
-    // (those are single-stage). Without it buildkit builds the last stage, which
-    // is the wrong service when a Dockerfile ends with a worker/sidecar stage.
+    // on-disk-Dockerfile path; ignored by generated builds (those are
+    // single-stage). Without it buildkit builds the last stage, which is the
+    // wrong service when a Dockerfile ends with a worker/sidecar stage.
     target?: string;
     // Runtime-generated Dockerfile content. When set, the builder writes it to a
     // tmp dir and builds with `dockerfile.v0`, skipping the on-disk-Dockerfile
-    // and Railpack paths. Build args are baked in as `ENV` lines by the
-    // generator, so they are NOT also passed as `--opt build-arg`.
+    // path. Build args are baked in as `ENV` lines by the generator, so they are
+    // NOT also passed as `--opt build-arg`.
     generatedDockerfile?: string;
     buildArgs: Record<string, string>;
     imageTag: string;
@@ -40,7 +40,12 @@ export interface BuildRequest {
     signal?: AbortSignal;
 }
 
-export type BuildRuntime = "node" | "docker-image" | "unknown";
+/**
+ * The kind of artifact a build produced. Every build now goes through BuildKit
+ * from a Dockerfile (user-authored or generated), so the only value is
+ * `docker-image`.
+ */
+export type BuildRuntime = "docker-image";
 
 export interface BuildResult {
     imageTag: string;

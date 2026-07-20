@@ -87,7 +87,7 @@ describe("previewConfigSchema build block", () => {
         expect(parseWithBuild({ framework: "node", build_context: "repo" }).success).toBe(false);
     });
 
-    it("parses an app with no build block (Railpack fallback)", () => {
+    it("parses an app with no build block (bare-Dockerfile path)", () => {
         const result = previewConfigSchema.safeParse({ version: 1, apps: [{ name: "web", port: 3000 }] });
         expect(result.success).toBe(true);
         if (result.success) {

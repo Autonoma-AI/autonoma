@@ -199,9 +199,11 @@ const databaseSetupTaskSchema = z.object({
 //   `CMD <entrypoint>` with a tiered toolbelt, skipping all autodetection. It is
 //   the most general generated build - the framework presets above are just this
 //   with the base image and commands prefilled.
-// When `build` is omitted the pipeline falls back to Railpack autodetection
-// (an on-disk Dockerfile still wins). `build_context: root` builds from the
-// repository root so workspace dependencies resolve - this, plus a
+// When `build` is omitted the app's bare `dockerfile` field (or a Dockerfile on
+// disk at the app path) is built via the same BuildKit Dockerfile path; there is
+// no autodetection, and an app with neither a `build` block nor any Dockerfile
+// fails the deploy with an actionable error. `build_context: root` builds from
+// the repository root so workspace dependencies resolve - this, plus a
 // turbo-filtered build/run command (filtered by the app's real workspace
 // package name), is how turbo monorepos build (turbo is not a bespoke
 // scenario - it is just `build_context: root` on a framework preset).

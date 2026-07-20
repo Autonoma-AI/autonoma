@@ -1454,9 +1454,11 @@ export class PreviewPipeline {
      * Resolves an app's build inputs. An explicit `build` block is the single
      * source of strategy: a `dockerfile` framework builds the named Dockerfile;
      * any other framework builds a generated Dockerfile (via `generateDockerfile`);
-     * `build_context: root` builds from the repo root. With no `build` block, falls
-     * back to the legacy dockerfile / Railpack path (removed once `build` is
-     * universal).
+     * `build_context: root` builds from the repo root. With no `build` block, the
+     * app's bare `dockerfile` field (or a Dockerfile on disk at the app path) is
+     * built via the same BuildKit Dockerfile path - there is no autodetection.
+     * An app with neither a `build` block nor any Dockerfile fails with an
+     * actionable error at dispatch (see `BuildKitBuilder.dispatchBuild`).
      */
     private resolveBuildInputs(
         app: PreviewConfig["apps"][number],

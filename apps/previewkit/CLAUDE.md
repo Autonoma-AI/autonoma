@@ -83,7 +83,7 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   final-outcome computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `buildkit-job-manager.ts` (one
-  privileged rootful buildkitd Job per app-build attempt), `turbo-monorepo.ts` (legacy monorepo path).
+  privileged rootful buildkitd Job per app-build attempt).
 - `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
   framework preset (`node`/`next`/`vite`/`bun`) when an app uses the new `build` config block.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
@@ -169,12 +169,16 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
       `RawSpec`), and the `os-toolbelt.ts` (apt) + `node-package-manager.ts` (npm/pnpm/yarn/bun)
       strategy tables. Adding a runtime is a catalog entry; adding a package manager or base OS is one
       strategy entry - never a new branch in the generator.
-2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
-   or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
+2. **Bare Dockerfile (no `build` block)** - the app's `dockerfile` field, or a `Dockerfile` on disk at
+   the app path, is built through the same BuildKit Dockerfile path (`buildWithBuildctl`). There is no
+   autodetection: an app with neither a `build` block nor any Dockerfile fails the deploy with an
+   actionable `BuildError` at dispatch. The build model is deterministic - build a Dockerfile (user or
+   generated) or error. (Railpack autodetection and the `monorepo: turbo` special-case have both been
+   removed.)
 
-Build paths complete local validation and preparation before requesting infrastructure. In particular,
-Railpack and Turbo finish `railpack prepare` before `BuildKitJobManager` provisions a privileged
-rootful buildkitd Kubernetes Job. The manager waits for its pod to be Scheduled and Ready, verifies
+Build paths complete local validation and preparation before requesting infrastructure, so
+`BuildKitJobManager` provisions a privileged rootful buildkitd Kubernetes Job only once the build
+inputs are resolved. The manager waits for its pod to be Scheduled and Ready, verifies
 TCP reachability on its pod IP, and then `buildctl` runs against that isolated endpoint. The Job runs
 in the control cluster's `buildkit` namespace, one per app-build attempt, and is deleted in the
 builder's `finally` block. Each Job/pod is labelled with the deploy identity

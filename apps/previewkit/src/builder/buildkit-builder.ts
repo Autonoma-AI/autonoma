@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -134,10 +134,15 @@ class TeeBuildLog implements BuildLogWriter {
 }
 
 /**
- * Builds container images using two strategies:
+ * Builds container images from a Dockerfile.
+ * The source of the Dockerfile is the only variable:
  *
- * 1. If the app has a Dockerfile - build with `buildctl` and `dockerfile.v0`
- * 2. Otherwise - run `railpack prepare` from the app directory.
+ * 1. A generated Dockerfile (framework preset / `runtime` escape hatch) - built
+ *    with `buildctl` and `dockerfile.v0`.
+ * 2. A user-authored Dockerfile (the `dockerfile` field, or one on disk at the
+ *    app directory) - built the same way.
+ * 3. Neither - a hard, actionable `BuildError`. There is no autodetection
+ *    fallback: an app must carry a `build` block or a Dockerfile.
  *
  * All paths push directly to the registry via buildctl's image exporter.
  *
@@ -306,7 +311,12 @@ export class BuildKitBuilder implements Builder {
         if (dockerfilePath != null) {
             return this.buildWithBuildctl(request, dockerfilePath, getBuildkitHost, logStream);
         }
-        return this.buildWithRailpack(request, getBuildkitHost, logStream);
+        // No generated Dockerfile, no user Dockerfile: the build is undetermined.
+        throw new BuildError(
+            `App "${request.appName}" cannot be built: it has no \`build\` block in its preview config ` +
+                `and no Dockerfile in its app directory. Add a \`build\` block (a framework preset or the ` +
+                `\`runtime\` escape hatch) to the app, or commit a Dockerfile. PreviewKit no longer `,
+        );
     }
 
     private async onTransientError(
@@ -429,7 +439,7 @@ export class BuildKitBuilder implements Builder {
             // secret (for Dockerfiles that consume it via `RUN --mount=type=secret,
             // id=<key>`, reading /run/secrets/<key>). Without the secret, mount-based
             // Dockerfiles get an empty file and fail. buildctl reads the secret value
-            // from our env. Mirrors the railpack/generated-Dockerfile paths.
+            // from our env. Mirrors the generated-Dockerfile path.
             const buildSecretEnv: Record<string, string> = {};
             for (const [key, value] of Object.entries(request.buildArgs)) {
                 args.push("--opt", `build-arg:${key}=${value}`);
@@ -526,93 +536,6 @@ export class BuildKitBuilder implements Builder {
         }
     }
 
-    private async buildWithRailpack(
-        request: BuildRequest,
-        getBuildkitHost: GetBuildKitHost,
-        logStream: BuildLogWriter,
-    ): Promise<BuildDispatchResult> {
-        this.logger.info("Preparing build with railpack (auto-detect)", {
-            extra: {
-                app: request.appName,
-                contextPath: request.contextPath,
-                imageTag: request.imageTag,
-            },
-        });
-
-        const ecrAuth = await this.ecr.getAuth(request.imageTag);
-        const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
-        const planDir = join(tmpdir(), `previewkit-railpack-plan-${randomUUID()}`);
-        await mkdir(planDir, { recursive: true });
-
-        try {
-            const envArgs = Object.entries(request.buildArgs).flatMap(([k, v]) => ["--env", `${k}=${v}`]);
-            const planPath = join(planDir, "railpack-plan.json");
-            await this.exec(
-                "railpack",
-                ["prepare", request.contextPath, "--plan-out", planPath, ...envArgs],
-                {},
-                logStream,
-                request.signal,
-            );
-            const runtime = await detectRailpackRuntime(planPath);
-            const buildkitHost = await getBuildkitHost();
-            this.logger.info("Building prepared railpack plan with BuildKit", {
-                extra: {
-                    app: request.appName,
-                    imageTag: request.imageTag,
-                    runtime,
-                    buildkitHost,
-                },
-            });
-
-            const buildContext = request.buildContext ?? request.contextPath;
-            const args = [
-                "--addr",
-                buildkitHost,
-                "build",
-                "--progress",
-                "plain",
-                "--frontend",
-                "gateway.v0",
-                "--opt",
-                "source=ghcr.io/railwayapp/railpack-frontend",
-                "--local",
-                `context=${buildContext}`,
-                "--local",
-                `dockerfile=${planDir}`,
-                "--opt",
-                "platform=linux/amd64",
-                "--output",
-                `type=image,name=${request.imageTag},push=true`,
-            ];
-
-            const buildSecretEnv: Record<string, string> = {};
-            for (const [key, value] of Object.entries(request.buildArgs)) {
-                args.push("--secret", `id=${key},env=${key}`);
-                buildSecretEnv[key] = value;
-            }
-
-            const extraEnv: Record<string, string> = { ...buildSecretEnv };
-            if (dockerConfigDir != null) {
-                extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
-            }
-
-            await this.exec("buildctl", args, extraEnv, logStream, request.signal);
-            return { imageTag: request.imageTag, runtime };
-        } finally {
-            await rm(planDir, { recursive: true }).catch((err: unknown) => {
-                this.logger.warn("Failed to clean up railpack plan dir", { extra: { planDir, err } });
-            });
-            if (dockerConfigDir != null) {
-                await rm(dockerConfigDir, { recursive: true }).catch((err: unknown) => {
-                    this.logger.warn("Failed to clean up docker config dir", {
-                        extra: { dockerConfigDir, err },
-                    });
-                });
-            }
-        }
-    }
-
     private exec(
         command: string,
         args: string[],
@@ -691,30 +614,4 @@ export class BuildKitBuilder implements Builder {
         const safe = imageTag.replace(/[^A-Za-z0-9_.-]/g, "_");
         return join(tmpdir(), `previewkit-build-log-${safe}-${Date.now()}.log`);
     }
-}
-
-async function detectRailpackRuntime(planPath: string): Promise<BuildRuntime> {
-    try {
-        const raw = await readFile(planPath, "utf8");
-        const plan: unknown = JSON.parse(raw);
-        if (containsNodeRuntimeSignal(plan)) return "node";
-        return "unknown";
-    } catch (err) {
-        rootLogger.warn("Failed to detect Railpack runtime", { extra: { planPath, err } });
-        return "unknown";
-    }
-}
-
-function containsNodeRuntimeSignal(value: unknown): boolean {
-    if (typeof value === "string") return value.toLowerCase() === "node";
-    if (Array.isArray(value)) return value.some((entry) => containsNodeRuntimeSignal(entry));
-    if (value == null || typeof value !== "object") return false;
-
-    return Object.entries(value).some(([key, nested]) => {
-        const normalizedKey = key.toLowerCase();
-        const isRuntimeField =
-            normalizedKey === "provider" || normalizedKey === "runtime" || normalizedKey === "language";
-        if (isRuntimeField && typeof nested === "string" && nested.toLowerCase() === "node") return true;
-        return containsNodeRuntimeSignal(nested);
-    });
 }
