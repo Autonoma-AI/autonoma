@@ -106,6 +106,13 @@ export function createApiApp() {
     app.get("/.well-known/oauth-authorization-server", (c) => oAuthDiscoveryMetadata(auth)(c.req.raw));
     app.get("/.well-known/oauth-protected-resource", (c) => oAuthProtectedResourceMetadata(auth)(c.req.raw));
 
+    // Domain-ownership proof for the OpenAI Apps directory submission - see
+    // OPENAI_APPS_CHALLENGE_TOKEN in env.ts.
+    app.get("/.well-known/openai-apps-challenge", (c) => {
+        if (env.OPENAI_APPS_CHALLENGE_TOKEN == null) return c.notFound();
+        return c.text(env.OPENAI_APPS_CHALLENGE_TOKEN);
+    });
+
     // ─── Application Setup (Claude plugin API) ────────────────────────
 
     app.route("/v1/setup", applicationSetupHttpRouter);

@@ -11,6 +11,11 @@ export const env = createEnv({
     server: {
         API_PORT: z.string(),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
+        // Domain-ownership token OpenAI's Apps directory checks for at
+        // /.well-known/openai-apps-challenge before accepting an MCP server
+        // registration on this domain. Set per submission; harmless to leave
+        // in place afterward.
+        OPENAI_APPS_CHALLENGE_TOKEN: z.string().optional(),
         // Branch name a new application's deploy ref is seeded with, before a repo
         // is linked and its real default branch is known. It is overwritten with the
         // repo's actual default branch the moment a repo is linked, so this is only
