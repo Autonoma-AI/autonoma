@@ -1,4 +1,5 @@
 import { Button } from "@autonoma/blacklight";
+import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useLocation } from "@tanstack/react-router";
@@ -13,7 +14,7 @@ import { type PRTab, PRTabs } from "./pr-tabs";
 
 type Repository = RouterOutputs["github"]["getApplicationRepository"];
 
-// The shared PR-page chrome: breadcrumb + PR detail header + (when a preview exists) the tab bar.
+// The shared PR-page chrome: back action + PR detail header + (when a preview exists) the tab bar.
 // Rendered once by the PR tab layout so it persists - not remounted - as the Outlet swaps between the
 // Overview and Preview tabs. The active tab is derived from the URL, and the checkpoint badge reflects
 // the latest snapshot's summary (undefined for a PR with no snapshots yet).
@@ -29,7 +30,7 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
 
   return (
     <>
-      <PRTopBar appName={app.name} architecture={app.architecture} prNumber={prNumber} prUrl={prUrl} />
+      <PRTopBar prUrl={prUrl} />
       <PRDetailHeader
         applicationId={app.id}
         prNumber={prNumber}
@@ -47,38 +48,13 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
   );
 }
 
-function PRTopBar({
-  appName,
-  architecture,
-  prNumber,
-  prUrl,
-}: {
-  appName: string;
-  architecture: string;
-  prNumber: number;
-  prUrl: string | undefined;
-}) {
-  const appInitial = appName.trim().charAt(0).toUpperCase() || "A";
-
+function PRTopBar({ prUrl }: { prUrl: string | undefined }) {
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border-dim bg-surface-void px-5">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="inline-flex size-5 shrink-0 items-center justify-center bg-primary font-mono text-3xs font-bold text-primary-foreground">
-          {appInitial}
-        </span>
-        <span className="truncate text-xs font-medium text-text-secondary">
-          {appName} / {architecture.toLowerCase()}
-        </span>
-      </div>
-
-      <div className="flex min-w-0 items-center gap-2 font-mono text-2xs text-text-secondary">
-        <span>/</span>
-        <AppLink to="/app/$appSlug/pull-requests" className="transition-colors hover:text-text-primary">
-          Pull requests
-        </AppLink>
-        <span>/</span>
-        <span className="text-text-primary">#{prNumber}</span>
-      </div>
+      <Button variant="ghost" size="sm" render={<AppLink to="/app/$appSlug/pull-requests" />}>
+        <ArrowLeftIcon size={14} />
+        Back
+      </Button>
 
       {prUrl != null && (
         <a href={prUrl} target="_blank" rel="noopener noreferrer" className="ml-auto">
