@@ -63,10 +63,10 @@ describe("payloadBuilder", () => {
 
         // Both top-level CTAs render as markdown image-links (primary + secondary buttons).
         expect(markdown).toContain(
-            "[![Open in Autonoma](<https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v2.svg>)](<https://autonoma.app/summary>)",
+            "[![Open in Autonoma](<https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v3.svg>)](<https://autonoma.app/summary>)",
         );
         expect(markdown).toContain(
-            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg>)](<https://preview.example.com>)",
+            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v3.svg>)](<https://preview.example.com>)",
         );
     });
 

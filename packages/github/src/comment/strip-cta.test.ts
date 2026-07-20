@@ -22,7 +22,7 @@ describe("stripCtaFromBody", () => {
         );
         expect(body).toContain(PREVIEW_URL);
         expect(body).toContain(
-            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg>)](<https://preview.example.com>)",
+            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v3.svg>)](<https://preview.example.com>)",
         );
 
         const stripped = stripCtaFromBody(body, SEE_PREVIEW_CTA_LABEL);
@@ -31,7 +31,7 @@ describe("stripCtaFromBody", () => {
         expect(stripped).not.toContain(PREVIEW_URL);
         expect(stripped).not.toContain("See preview");
         // The Open in Autonoma image-link and the comment content survive.
-        expect(stripped).toContain("open-in-autonoma-button-v2.svg");
+        expect(stripped).toContain("open-in-autonoma-button-v3.svg");
         expect(stripped).toContain(SUMMARY_URL);
         expect(stripped).toContain("Checkout button is hidden");
         // No dangling separator left behind on the CTA line.
@@ -69,7 +69,7 @@ describe("stripCtaFromBody", () => {
             }),
         );
         expect(body).toContain(
-            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v2.svg>)](<https://preview.example.com>)",
+            "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v3.svg>)](<https://preview.example.com>)",
         );
 
         const stripped = stripCtaFromBody(body, SEE_PREVIEW_CTA_LABEL);

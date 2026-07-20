@@ -35,9 +35,11 @@ export const SEE_PREVIEW_CTA_LABEL = "See preview";
 // The comment is text-first (portable to markdown-only renderers like Linear): most CTAs are plain
 // markdown links. The two top-level CTAs keep an image (a Vercel-style primary + secondary pair) rendered
 // as a markdown image-link that still degrades to a plain link where images are stripped.
+// The version suffix cache-busts GitHub's camo image proxy, which caches by source URL: any visual
+// change to a button must ship under a new filename (keep the old file so existing comments still render).
 const CTA_ASSETS: Record<string, string> = {
-    "Open in Autonoma": "open-in-autonoma-button-v2.svg",
-    [SEE_PREVIEW_CTA_LABEL]: "see-preview-button-v2.svg",
+    "Open in Autonoma": "open-in-autonoma-button-v3.svg",
+    [SEE_PREVIEW_CTA_LABEL]: "see-preview-button-v3.svg",
 };
 
 const CTA_TEXT_PREFIXES: Record<string, string> = {
