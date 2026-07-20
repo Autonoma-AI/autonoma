@@ -1,5 +1,5 @@
 import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import type { IntegrationHarness } from "@autonoma/integration-test";
+import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { AutoTopUpService } from "../src/auto-topup.service";
 import { BillingPricingService } from "../src/billing-pricing.service";
@@ -37,7 +37,7 @@ export class BillingTestHarness implements IntegrationHarness {
     }
 
     async afterAll() {
-        await this.pgContainer.stop();
+        await stopContainer(this.pgContainer);
     }
 
     async beforeEach() {

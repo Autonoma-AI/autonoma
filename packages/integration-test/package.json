@@ -13,6 +13,10 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests"
     },
+    "dependencies": {
+        "@autonoma/logger": "workspace:*",
+        "testcontainers": "^11.12.0"
+    },
     "devDependencies": {
         "@types/node": "catalog:",
         "dotenv": "catalog:",

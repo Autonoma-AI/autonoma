@@ -1,5 +1,5 @@
 import { type PrismaClient, type SnapshotStatus, TriggerSource, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { type IntegrationHarness, integrationTestSuite, stopContainer } from "@autonoma/integration-test";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestAPI } from "vitest";
@@ -26,7 +26,7 @@ export class InvestigationDbHarness implements IntegrationHarness {
 
     async beforeAll(): Promise<void> {}
     async afterAll(): Promise<void> {
-        await this.pgContainer.stop();
+        await stopContainer(this.pgContainer);
     }
     async beforeEach(): Promise<void> {}
     async afterEach(): Promise<void> {}

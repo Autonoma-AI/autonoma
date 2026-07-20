@@ -8,6 +8,7 @@ Lightweight harness and test suite helper for writing integration tests with Vit
 | ---------------------- | --------- | ------------------------------------------------------------------ |
 | `integrationTestSuite` | Function  | Wires a harness into Vitest `describe`/`beforeAll`/`afterAll` etc. |
 | `IntegrationHarness`   | Interface | Contract every harness must implement.                             |
+| `stopContainer`        | Function  | Stops a Testcontainers container, tolerating a benign teardown race. |
 
 ## IntegrationHarness interface
 
@@ -21,6 +22,14 @@ interface IntegrationHarness {
 ```
 
 Implement this interface to manage infrastructure for your tests - Testcontainers (Postgres, Redis, LocalStack), Prisma clients, service instances, etc.
+
+## stopContainer
+
+```ts
+function stopContainer(container: StartedTestContainer): Promise<void>;
+```
+
+Stops a Testcontainers container from a harness's `afterAll()`. On a contended CI runner, the Docker daemon can report a container as still running by the time removal is attempted - often because Testcontainers' own Ryuk reaper raced the explicit `stop()` call - even though the container is already gone or going. `stopContainer` swallows (and logs a warning for) that specific removal race; any other error still fails the suite. Prefer this over calling `.stop()` directly in harness teardown.
 
 ## integrationTestSuite
 
@@ -42,7 +51,7 @@ function integrationTestSuite<THarness extends IntegrationHarness, TSeedResult =
 ### 1. Implement a harness
 
 ```ts
-import type { IntegrationHarness } from "@autonoma/integration-test";
+import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 
 export class MyHarness implements IntegrationHarness {
@@ -55,7 +64,7 @@ export class MyHarness implements IntegrationHarness {
   }
 
   async beforeAll() { /* create shared seed data */ }
-  async afterAll() { await this.container.stop(); }
+  async afterAll() { await stopContainer(this.container); }
   async beforeEach() {}
   async afterEach() {}
 }
@@ -108,4 +117,4 @@ export function apiTestSuite<TSeedResult>({ name, seed, cases }) {
 - `beforeAll` has a 120-second timeout to allow for container startup.
 - Fixtures (`harness`, `seedResult`) are injected via Vitest's `test.extend`, so they are available as destructured parameters in every test callback.
 - The package is ESM-only (`"type": "module"`).
-- No runtime dependencies - only Vitest as a dev dependency.
+- Depends on `@autonoma/logger` (for `stopContainer`'s teardown-race warning) and `testcontainers` (for the `StartedTestContainer` type); Vitest remains a dev dependency only.

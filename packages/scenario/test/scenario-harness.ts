@@ -7,7 +7,7 @@ import {
     applyMigrations,
     createClient,
 } from "@autonoma/db";
-import type { IntegrationHarness } from "@autonoma/integration-test";
+import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { EncryptionHelper } from "../src/encryption";
 import { ScenarioRecipeStore } from "../src/scenario-recipe-store";
@@ -119,7 +119,7 @@ export class ScenarioTestHarness implements IntegrationHarness {
 
     async afterAll() {
         await this.webhookServer.stop();
-        await this.pgContainer.stop();
+        await stopContainer(this.pgContainer);
     }
 
     async beforeEach() {

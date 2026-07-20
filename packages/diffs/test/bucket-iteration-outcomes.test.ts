@@ -6,7 +6,7 @@ import {
     applyMigrations,
     createClient,
 } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { type IntegrationHarness, integrationTestSuite, stopContainer } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
 import { bucketIterationOutcomes } from "../src/refinement/bucket-iteration-outcomes";
@@ -46,7 +46,7 @@ class BucketerHarness implements IntegrationHarness {
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await stopContainer(this.pg);
     }
     async beforeEach() {}
     async afterEach() {}

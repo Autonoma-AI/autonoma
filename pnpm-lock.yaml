@@ -1866,6 +1866,13 @@ importers:
         version: 7.0.2
 
   packages/integration-test:
+    dependencies:
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      testcontainers:
+        specifier: ^11.12.0
+        version: 11.12.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
