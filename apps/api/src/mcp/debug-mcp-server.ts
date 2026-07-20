@@ -122,7 +122,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "an organization you belong to. Call this when you don't already know the repoFullName (e.g. it " +
                 "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments.",
             inputSchema: {},
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async () =>
             analytics.track("list_apps", async () => {
@@ -144,7 +144,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "Per-service deploy status for a PR's preview environment: overall health, each service's " +
                 "status/endpoint/build outcome, and the latest build. Start here when a preview is broken.",
             inputSchema: repoPrInput,
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber }) =>
             analytics.track("get_deploy_status", async () => {
@@ -171,7 +171,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "exposed) - the entry carries a `reason`, so a service count higher than the number of URLs is " +
                 "expected, not a bug. Use the URLs to hit the deployed app directly.",
             inputSchema: repoPrInput,
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber }) =>
             analytics.track("get_endpoints", async () => {
@@ -221,7 +221,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 filter: logFilterSchema(),
                 from: logFromSchema(),
             },
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber, app, limit, filter, from }) =>
             analytics.track("get_build_logs", () =>
@@ -248,7 +248,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 filter: logFilterSchema(),
                 from: logFromSchema(),
             },
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber, app, limit, filter, from }) =>
             analytics.track("get_app_logs", () =>
@@ -268,7 +268,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 'as a starting point. `status: "ok"` means no failure was detected. Use when get_deploy_status shows ' +
                 "a failure and you want the full evidence in one call.",
             inputSchema: repoPrInput,
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber }) =>
             analytics.track("diagnose_deploy", async () => {
@@ -299,6 +299,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 'the canonical dashboard bugs. `status: "unavailable"` means no investigation has run for this PR yet. ' +
                 "Start here when Autonoma flagged bugs on a PR and you want the full evidence to fix them.",
             inputSchema: repoPrInput,
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber }) =>
             analytics.track("get_investigation", async () => {
@@ -333,7 +334,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "match. `missingBuildSecrets` are declared build secrets with no value set (a concrete misconfig to " +
                 "fix). Takes the repo ('owner/repo').",
             inputSchema: { repoFullName: repoPrInput.repoFullName },
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName }) =>
             analytics.track("get_secret_status", async () => {
@@ -371,7 +372,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 key: z.string().min(1).max(255),
                 value: z.string().min(1).max(65536).optional(),
             },
-            annotations: { readOnlyHint: false, destructiveHint: true },
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         },
         async ({ repoFullName, prNumber, app, key, value }) =>
             analytics.track("set_secret", async () => {
@@ -429,7 +430,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     .optional(),
                 apply: z.boolean().optional(),
             },
-            annotations: { readOnlyHint: false, destructiveHint: false },
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         },
         async ({
             repoFullName,
@@ -474,7 +475,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "a build/wiring tweak to ONE existing service, edit_previewkit_config is simpler and doesn't need the " +
                 "whole document. The config is per-app, so this takes only repoFullName.",
             inputSchema: { repoFullName: repoPrInput.repoFullName },
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName }) =>
             analytics.track("get_config", async () => {
@@ -508,7 +509,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 document: previewConfigSchema,
                 apply: z.boolean().optional(),
             },
-            annotations: { readOnlyHint: false, destructiveHint: true },
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         },
         async ({ repoFullName, prNumber, document, apply }) =>
             analytics.track("apply_config", async () => {
@@ -557,7 +558,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 app: appNameSchema(),
                 timeoutSeconds: z.number().int().min(5).max(55).optional(),
             },
-            annotations: { readOnlyHint: true },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
         async ({ repoFullName, prNumber, app, timeoutSeconds }) =>
             analytics.track("wait_for_deploy", async () => {
