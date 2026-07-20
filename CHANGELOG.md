@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.8.39](https://github.com/Autonoma-AI/agent/compare/v1.8.38...v1.8.39) (2026-07-20)
+
+
+### Features
+
+* **analysis:** Investigator self-heal loop + full verdict taxonomy ([#1512](https://github.com/Autonoma-AI/agent/issues/1512), [#1513](https://github.com/Autonoma-AI/agent/issues/1513)) ([#1614](https://github.com/Autonoma-AI/agent/issues/1614)) ([0f59756](https://github.com/Autonoma-AI/agent/commit/0f59756216c79cbae6a5c65b2db6a1debc0f9e34))
+* **analysis:** two-plane verdict + constrained narration ([#1516](https://github.com/Autonoma-AI/agent/issues/1516)) ([#1636](https://github.com/Autonoma-AI/agent/issues/1636)) ([e4e4e8f](https://github.com/Autonoma-AI/agent/commit/e4e4e8f9acf575dd8947487f22562ecadc0b9e72))
+* merged analysis pipeline as authoritative PR analysis (behind a flag) ([#1647](https://github.com/Autonoma-AI/agent/issues/1647)) ([d7cf017](https://github.com/Autonoma-AI/agent/commit/d7cf017b466c7a89184cac05bf3382dd5ec17f7e))
+* **onboarding:** add Vercel preview-environment routing quiz ([#1570](https://github.com/Autonoma-AI/agent/issues/1570)) ([1e592b0](https://github.com/Autonoma-AI/agent/commit/1e592b024e3d0ece450583fe7d367a198057f709))
+* **onboarding:** configurable previewkit deploy branch, default to repo default ([#1635](https://github.com/Autonoma-AI/agent/issues/1635)) ([e148b40](https://github.com/Autonoma-AI/agent/commit/e148b40d79decf6d3cad0e658a2fa9981ae91883))
+* **ui:** authoritative snapshot-page UI (findings list, FINDINGS SUMMARY, changes-tab tweaks) ([#1645](https://github.com/Autonoma-AI/agent/issues/1645)) ([#1648](https://github.com/Autonoma-AI/agent/issues/1648)) ([b909cd6](https://github.com/Autonoma-AI/agent/commit/b909cd690329be30dbee828f0d5c3547cde5476b))
+* **ui:** collapse PR breadcrumb into a single Back action ([#1652](https://github.com/Autonoma-AI/agent/issues/1652)) ([858a891](https://github.com/Autonoma-AI/agent/commit/858a8914c1e5ec90040731a296891e30885672e4))
+* **ui:** collapse PR metadata to essentials behind a Details toggle ([#1657](https://github.com/Autonoma-AI/agent/issues/1657)) ([d8871d2](https://github.com/Autonoma-AI/agent/commit/d8871d2d589ea0c7373cf638ef28718b3ac10dab))
+* **ui:** compact app inspector strip for the Preview tab ([#1628](https://github.com/Autonoma-AI/agent/issues/1628)) ([11a82f1](https://github.com/Autonoma-AI/agent/commit/11a82f13cc58780a37d6b89cda44b7a087562054))
+* **ui:** fold early-version banner into sidebar ([#1651](https://github.com/Autonoma-AI/agent/issues/1651)) ([0f3ea74](https://github.com/Autonoma-AI/agent/commit/0f3ea7403a54a0a60f93586ef1702cc3b961fb31))
+* **ui:** fold PR title, status pill, and tabs into one header row ([#1655](https://github.com/Autonoma-AI/agent/issues/1655)) ([9649e1f](https://github.com/Autonoma-AI/agent/commit/9649e1f571993e6190564df2b06e0ba13514b46c))
+* **ui:** reveal toggle for agent-requested env values ([#1629](https://github.com/Autonoma-AI/agent/issues/1629)) ([e74f4e1](https://github.com/Autonoma-AI/agent/commit/e74f4e109b3ceb5c7e33b490543da503046dd087))
+* **ui:** trim the deployment bar and flush the Preview tab's section spacing ([#1633](https://github.com/Autonoma-AI/agent/issues/1633)) ([927929f](https://github.com/Autonoma-AI/agent/commit/927929f21dad5e7531200555ab5c3dc5027e00fb))
+
+
+### Bug Fixes
+
+* **analysis:** stop loading @autonoma/db in the workflow test (unbreaks main CI) ([#1634](https://github.com/Autonoma-AI/agent/issues/1634)) ([4c9f5bb](https://github.com/Autonoma-AI/agent/commit/4c9f5bbe43994dd8c8edf054b0d5c957683b5376))
+* **api:** resolve branch name collisions deterministically in getBranchByName ([#1640](https://github.com/Autonoma-AI/agent/issues/1640)) ([db74143](https://github.com/Autonoma-AI/agent/commit/db74143a672a7c355f6df52195affbdbc8433753))
+* **github:** cache-bust PR comment button SVGs to v3 ([#1639](https://github.com/Autonoma-AI/agent/issues/1639)) ([7db205c](https://github.com/Autonoma-AI/agent/commit/7db205cfd3ead93bd8ef17c629881f1ea63ab44e))
+* signing path ([#1621](https://github.com/Autonoma-AI/agent/issues/1621)) ([55fb4e6](https://github.com/Autonoma-AI/agent/commit/55fb4e618e7008cf7b74b8c872c864bac33dcca5))
+* **test:** tolerate benign Testcontainers teardown race in integration harnesses ([#1656](https://github.com/Autonoma-AI/agent/issues/1656)) ([8418541](https://github.com/Autonoma-AI/agent/commit/84185415b11091e99fcd955f75cfd9b4074590e1))
+* **ui:** one target selection across finish-setup steps (drop the dry-run picker) ([#1637](https://github.com/Autonoma-AI/agent/issues/1637)) ([4d59c9b](https://github.com/Autonoma-AI/agent/commit/4d59c9b026556e20a409540ce36b14b4849331a2))
+
 ## [1.8.38](https://github.com/Autonoma-AI/agent/compare/v1.8.37...v1.8.38) (2026-07-17)
 
 
