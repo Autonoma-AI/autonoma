@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.40](https://github.com/Autonoma-AI/agent/compare/v1.8.39...v1.8.40) (2026-07-20)
+
+
+### Features
+
+* add annotations for openai ([#1661](https://github.com/Autonoma-AI/agent/issues/1661)) ([82c2331](https://github.com/Autonoma-AI/agent/commit/82c2331f891a7ccd4430da07e96d68030ab5eeb8))
+* authoritative analysis PR comment (new analysis comment kind) ([#1649](https://github.com/Autonoma-AI/agent/issues/1649)) ([a5cb446](https://github.com/Autonoma-AI/agent/commit/a5cb446a398ee67b285f8fdd5b1f04acda99d1f0))
+* **ui:** authoritative PR-page UI (embed latest findings + history) ([#1646](https://github.com/Autonoma-AI/agent/issues/1646)) ([#1650](https://github.com/Autonoma-AI/agent/issues/1650)) ([8093abc](https://github.com/Autonoma-AI/agent/commit/8093abc10c6d2c9c69e21e950efd281ba593977c))
+* **ui:** merge PR header into two compact rows ([#1658](https://github.com/Autonoma-AI/agent/issues/1658)) ([9324aef](https://github.com/Autonoma-AI/agent/commit/9324aef1cad3e28748eef82114df43a9b8f56d7d))
+
 ## [1.8.39](https://github.com/Autonoma-AI/agent/compare/v1.8.38...v1.8.39) (2026-07-20)
 
 
