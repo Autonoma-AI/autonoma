@@ -693,36 +693,52 @@ export class BranchesService extends Service {
     async getBranchByName(applicationId: string, branchName: string, organizationId: string) {
         this.logger.info("Getting branch by name", { applicationId, branchName });
 
-        const branch = await this.db.branch.findFirst({
-            where: {
-                applicationId,
-                name: branchName,
-                application: { organizationId },
-            },
-            select: {
-                id: true,
-                name: true,
-                pendingSnapshotId: true,
-                createdAt: true,
-                updatedAt: true,
-                activeSnapshot: {
-                    select: {
-                        id: true,
-                        status: true,
-                        createdAt: true,
-                        source: true,
-                        testCaseAssignments: {
-                            select: {
-                                id: true,
-                                testCaseId: true,
-                                testCase: { select: { id: true, name: true, slug: true, folderId: true } },
-                                plan: { select: { id: true } },
+        // Branch names are not unique per application: PR branches store the PR head ref as their name
+        // (see upsert-pr-branch), so a PR whose head ref equals the main branch name creates a
+        // snapshot-less homonym. Resolve deterministically: the main branch always wins its own name,
+        // then the homonym with an active snapshot, then the most recently updated one.
+        const [application, candidates] = await Promise.all([
+            this.db.application.findFirst({
+                where: { id: applicationId, organizationId },
+                select: { mainBranchId: true },
+            }),
+            this.db.branch.findMany({
+                where: {
+                    applicationId,
+                    name: branchName,
+                    application: { organizationId },
+                },
+                orderBy: { updatedAt: "desc" },
+                select: {
+                    id: true,
+                    name: true,
+                    pendingSnapshotId: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    activeSnapshot: {
+                        select: {
+                            id: true,
+                            status: true,
+                            createdAt: true,
+                            source: true,
+                            testCaseAssignments: {
+                                select: {
+                                    id: true,
+                                    testCaseId: true,
+                                    testCase: { select: { id: true, name: true, slug: true, folderId: true } },
+                                    plan: { select: { id: true } },
+                                },
                             },
                         },
                     },
                 },
-            },
-        });
+            }),
+        ]);
+
+        const branch =
+            candidates.find((b) => b.id === application?.mainBranchId) ??
+            candidates.find((b) => b.activeSnapshot != null) ??
+            candidates[0];
 
         if (branch == null) throw new NotFoundError("Branch not found");
         if (branch.activeSnapshot == null) throw new InternalError("Branch has no active snapshot");
