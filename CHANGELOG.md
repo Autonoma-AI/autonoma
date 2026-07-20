@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.41](https://github.com/Autonoma-AI/agent/compare/v1.8.40...v1.8.41) (2026-07-20)
+
+
+### Features
+
+* domain verification challenge ([#1663](https://github.com/Autonoma-AI/agent/issues/1663)) ([b5659ee](https://github.com/Autonoma-AI/agent/commit/b5659eece6bdea398a27e31a4c2acf52936e87a7))
+
 ## [1.8.40](https://github.com/Autonoma-AI/agent/compare/v1.8.39...v1.8.40) (2026-07-20)
 
 
