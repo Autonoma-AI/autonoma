@@ -2,8 +2,8 @@
  * Adapted from https://github.com/vercel/ai/blob/main/packages/ai/src/util/retry-with-exponential-backoff.ts
  */
 
-import { logger } from "@autonoma/logger";
 import { APICallError } from "ai";
+import { getDefaultLogger } from "./logger";
 
 export interface RetryConfig {
     maxRetries: number;
@@ -99,7 +99,7 @@ export function buildRetry({
                     currentDelay = getRetryDelayInMs(error, currentDelay);
                 }
 
-                logger.warn("AI request failed, retrying", {
+                getDefaultLogger().warn("AI request failed, retrying", {
                     attempt: i + 1,
                     maxRetries,
                     delayMs: currentDelay,

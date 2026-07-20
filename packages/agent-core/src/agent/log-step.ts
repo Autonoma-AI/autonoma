@@ -1,5 +1,5 @@
-import type { Logger } from "@autonoma/logger";
 import type { ContentPart, ToolSet } from "ai";
+import type { Logger } from "../logger";
 
 /**
  * Default per-step logger used by {@link AgentLoop.onStepFinish}. Pulls the text, tool calls,

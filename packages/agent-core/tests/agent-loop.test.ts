@@ -1,13 +1,47 @@
 import { MockLanguageModelV3 } from "ai/test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { AgentLoop, MaxStepsReached, MultipleResultCalls } from "../src/agent/agent-loop";
 import { FinishTool, ReportResultTool } from "../src/agent/tools/agent-result";
 import { AgentTool } from "../src/agent/tools/agent-tool";
+import { type Logger, noopLogger, setDefaultLogger } from "../src/logger";
 
 interface FakeResult {
     payload: string;
 }
+
+interface LogRecord {
+    bindings: Record<string, unknown>;
+    message: string;
+}
+
+/** A {@link Logger} that records every emitted line (with its accumulated child bindings). */
+class RecordingLogger implements Logger {
+    constructor(
+        readonly sink: LogRecord[] = [],
+        private readonly bindings: Record<string, unknown> = {},
+    ) {}
+    child(bindings: Record<string, unknown>): Logger {
+        return new RecordingLogger(this.sink, { ...this.bindings, ...bindings });
+    }
+    private record(message: string): void {
+        this.sink.push({ bindings: this.bindings, message });
+    }
+    info(message: string): void {
+        this.record(message);
+    }
+    warn(message: string): void {
+        this.record(message);
+    }
+    error(message: string): void {
+        this.record(message);
+    }
+    fatal(message: string): void {
+        this.record(message);
+    }
+}
+
+afterEach(() => setDefaultLogger(noopLogger));
 
 function makeLoop(): AgentLoop<FakeResult> {
     return new AgentLoop<FakeResult>({
@@ -87,6 +121,26 @@ describe("AgentLoop forces tool calls and stays bounded", () => {
         for (const call of model.doGenerateCalls) {
             expect(call.toolChoice).toEqual({ type: "required" });
         }
+    });
+
+    it("routes tool logs through the logger registered with setDefaultLogger", async () => {
+        const sink: LogRecord[] = [];
+        setDefaultLogger(new RecordingLogger(sink));
+
+        await new AgentLoop<FakeResult>({
+            name: "logged-loop",
+            model: alwaysCallsNoopModel(),
+            systemPrompt: "system",
+            tools: [new NoopTool()],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps: 2,
+        })
+            .runLoop([{ role: "user", content: "go" }])
+            .catch(() => undefined);
+
+        // Tools must log through the registered default logger, not the silent built-in default.
+        const toolLogs = sink.filter((r) => r.bindings.toolName === "noop");
+        expect(toolLogs.length).toBeGreaterThan(0);
     });
 
     it("stops with MaxStepsReached when the model never reports a result", async () => {

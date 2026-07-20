@@ -7,6 +7,7 @@ export {
     MaxStepsReached,
     MultipleResultCalls,
     MODEL_MAX_RETRIES,
+    DEFAULT_MAX_STEPS,
 } from "./agent-loop";
 export {
     AgentTool,

@@ -24,6 +24,7 @@
     "dependencies": {
         "@ai-sdk/google": "catalog:",
         "@ai-sdk/groq": "catalog:",
+        "@autonoma/agent-core": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@google/genai": "^1.42.0",

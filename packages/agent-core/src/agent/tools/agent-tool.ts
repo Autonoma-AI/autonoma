@@ -1,6 +1,6 @@
-import { logger, type Logger } from "@autonoma/logger";
 import { tool, type Tool } from "ai";
 import type z from "zod";
+import { getDefaultLogger, type Logger } from "../../logger";
 import type { AgentLoop } from "../agent-loop";
 import { FatalToolError, FixableToolError } from "./tool-errors";
 
@@ -78,7 +78,7 @@ export abstract class AgentTool<TInput, TOutput, TLoop extends AgentLoop = Agent
         this.errorHandling = errorHandling ?? "continue_unless_fatal";
         this.inputSchema = inputSchema;
 
-        this.logger = logger.child({ name: "AgentTool", toolName: this.name });
+        this.logger = getDefaultLogger().child({ name: "AgentTool", toolName: this.name });
     }
 
     /** The main logic of the tool. Must be implemented by subclasses. */

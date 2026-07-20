@@ -1,4 +1,3 @@
-import { logger, type Logger } from "@autonoma/logger";
 import {
     stepCountIs,
     ToolLoopAgent,
@@ -9,7 +8,8 @@ import {
     type Tool,
 } from "ai";
 import type { MessageCompactor } from "../compaction/types";
-import type { LanguageModel } from "../registry/model-registry";
+import { getDefaultLogger, type Logger } from "../logger";
+import type { LanguageModel } from "../model";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
@@ -146,7 +146,7 @@ export class AgentLoop<TResult = unknown> {
         this.maxSteps = maxSteps ?? DEFAULT_MAX_STEPS;
         this.compactor = compactor;
 
-        this.logger = logger.child({ name: this.name });
+        this.logger = getDefaultLogger().child({ name: this.name });
     }
 
     /** Set the result of the execution. Called by {@link ReportResultTool.execute}. */

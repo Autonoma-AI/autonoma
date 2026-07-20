@@ -12,9 +12,11 @@ The AI primitives are split across two packages:
 
 This skill is the conceptual map. The live model list, package exports, and detailed usage examples are maintained in `packages/ai/README.md` and `packages/visual-ai/README.md` - treat those READMEs (and `packages/ai/src/registry/model-entries.ts` for the models) as the source of truth and update them when behavior changes.
 
-## Agent Abstraction (`agent/`)
+## Agent Abstraction (`@autonoma/agent-core`)
 
-The most important building block in this package. It is the generic, reusable tool-loop agent that every agentic workflow extends - the reviewers, healing, resolution, and diffs agents in `packages/diffs` are all subclasses. (Note: the *test-execution* agent in `@autonoma/engine` is separate and wraps the AI SDK directly; this abstraction is for the non-execution, reasoning-style agents.) It wraps the Vercel AI SDK's `ToolLoopAgent` and adds typed results, typed tool error handling, and optional message compaction.
+The agent abstraction and compaction now live in the dependency-free [`@autonoma/agent-core`](../../../packages/agent-core) package (deps: `ai` + `zod` only), so they can be bundled into the published planner CLI without `@autonoma/logger`/`@sentry/node` or the model registry. `@autonoma/ai` re-exports every symbol unchanged and registers its Sentry logger as the loop's default at import, so backend code keeps importing them from `@autonoma/ai` exactly as before. A CLI depends on `@autonoma/agent-core` directly and injects its own `Logger` (or leaves it silent).
+
+The most important building block. It is the generic, reusable tool-loop agent that every agentic workflow extends - the reviewers, healing, resolution, and diffs agents in `packages/diffs` are all subclasses. (Note: the *test-execution* agent in `@autonoma/engine` is separate and wraps the AI SDK directly; this abstraction is for the non-execution, reasoning-style agents.) It wraps the Vercel AI SDK's `ToolLoopAgent` and adds typed results, typed tool error handling, and optional message compaction.
 
 Three classes form the core, with a clean immutable-config / per-run-state split:
 
@@ -78,7 +80,7 @@ Also in `@autonoma/visual-ai`. `PointDetector` (abstract) locates a single pixel
 
 ## Other Subsystems
 
-- **`compaction/`** (`@autonoma/ai`) - message-compaction strategies consumed by the agent loop's `compactor`.
+- **`compaction/`** (`@autonoma/agent-core`, re-exported by `@autonoma/ai`) - message-compaction strategies consumed by the agent loop's `compactor`.
 
 ## Evaluation Framework
 

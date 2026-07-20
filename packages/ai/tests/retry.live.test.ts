@@ -1,10 +1,10 @@
+import type { RetryConfig } from "@autonoma/agent-core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ObjectGenerator } from "../src/object/object-generator";
 import { MODEL_ENTRIES } from "../src/registry/model-entries";
 import { type LanguageModel, ModelRegistry } from "../src/registry/model-registry";
 import type { ErrorInformation, RequestInformation, ResponseInformation } from "../src/registry/monitoring";
-import type { RetryConfig } from "../src/retry";
 
 function createMonitoredModelRegistry(modelKey = "TEST_MODEL") {
     // Track the number of requests and errors - use object properties so they're passed by reference

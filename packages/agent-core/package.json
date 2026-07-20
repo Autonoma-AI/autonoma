@@ -1,0 +1,29 @@
+{
+    "name": "@autonoma/agent-core",
+    "version": "1.0.0",
+    "description": "Dependency-free agent loop core: the AgentLoop, tool abstraction, and message compaction shared by @autonoma/ai and the planner CLI.",
+    "keywords": [],
+    "license": "ISC",
+    "author": "",
+    "type": "module",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "vitest",
+        "lint-files": "oxlint --fix",
+        "lint": "pnpm lint-files .",
+        "fmt": "oxfmt --write src/",
+        "build": "tsc --noCheck",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "ai": "catalog:",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "typescript": "catalog:",
+        "vitest": "catalog:"
+    }
+}

@@ -1,9 +1,5 @@
-import {
-    type LanguageModel as AISDKLanguageModel,
-    type LanguageModelMiddleware,
-    defaultSettingsMiddleware,
-    wrapLanguageModel,
-} from "ai";
+import type { LanguageModel } from "@autonoma/agent-core";
+import { type LanguageModelMiddleware, defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import type { VideoUploader } from "../object/video/video-processor";
 import type { CostCollector } from "./cost-collector";
 import type { CostFunction } from "./costs";
@@ -11,7 +7,7 @@ import type { ModelEntry } from "./model-entries";
 import { type MonitoringCallbacks, createLoggingMiddleware, mergeMonitoringCallbacks } from "./monitoring";
 import { type ModelOptions, type ModelSettings, buildSettings } from "./options";
 
-export type LanguageModel = Extract<AISDKLanguageModel, { specificationVersion: "v3" }>;
+export type { LanguageModel };
 
 /**
  * A video-capable model bundled with the {@link VideoUploader} its provider requires.

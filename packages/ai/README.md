@@ -4,11 +4,13 @@ Core AI primitives for the Autonoma test execution platform: model management, s
 
 Screenshot-driven primitives (visual checkers, point/object detection) live in [`@autonoma/visual-ai`](../visual-ai), which depends on this package and on `@autonoma/image`.
 
+The tool-loop agent abstraction (`AgentLoop`, `Agent`, `AgentTool`, `ReportResultTool`) and conversation compaction live in the dependency-free [`@autonoma/agent-core`](../agent-core) package so they can be bundled into the published planner CLI without pulling in `@autonoma/logger`/`@sentry/node` or the model registry. This package re-exports every one of those symbols unchanged, and registers its `@autonoma/logger` singleton as the loop's default logger at import - so consumers of `@autonoma/ai` see no difference.
+
 ## Package Exports
 
 | Export Path | Description |
 |-------------|-------------|
-| `@autonoma/ai` | Core primitives: registry, `ObjectGenerator`, agent, compaction, video, text utilities. No `sharp`. |
+| `@autonoma/ai` | Core primitives: registry, `ObjectGenerator`, video, text utilities, plus re-exported agent + compaction from `@autonoma/agent-core`. No `sharp`. |
 | `@autonoma/ai/env` | Validated environment config (`GROQ_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`) |
 | `@autonoma/ai/evaluation` | Generic AI evaluation framework for benchmarking accuracy |
 
@@ -18,10 +20,10 @@ Screenshot-driven primitives (visual checkers, point/object detection) live in [
 src/
 ├── registry/       # Model registry, entries, providers, cost tracking
 ├── object/         # Structured JSON output generation (+ video support)
-├── agent/          # Reusable tool-loop agent abstraction
-├── compaction/     # Conversation compaction strategies
 └── text/           # Text utilities (assertion splitting)
 ```
+
+The agent abstraction (`agent/`) and compaction strategies (`compaction/`) moved to [`@autonoma/agent-core`](../agent-core) and are re-exported from this package's barrel for backward compatibility.
 
 ## Model Registry
 

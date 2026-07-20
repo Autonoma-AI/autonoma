@@ -27,5 +27,38 @@ export { AssertionSplitter } from "./text/assertion-splitter";
 
 export type { ModelEntry } from "./registry/model-entries";
 
-export * from "./agent";
-export * from "./compaction";
+import { setDefaultLogger } from "@autonoma/agent-core";
+import { logger } from "@autonoma/logger";
+
+// agent-core's loop defaults to a silent logger. Registering the backend Sentry logger here routes
+// every agent built via @autonoma/ai through it; the planner CLI never imports @autonoma/ai, so it
+// leaves the default silent.
+setDefaultLogger(logger);
+
+export {
+    Agent,
+    AgentLoop,
+    type AgentConfig,
+    type AgentRunResult,
+    NoAgentResultError,
+    MaxStepsReached,
+    MultipleResultCalls,
+    MODEL_MAX_RETRIES,
+    AgentTool,
+    type AgentToolModelOutput,
+    type AgentToolModelOutputOptions,
+    type AgentToolParameters,
+    type ToolEnvelope,
+    type AgentToolInput,
+    type AgentToolOutput,
+    type AgentToolSdkTool,
+    ReportResultTool,
+    FinishTool,
+    type FinishToolParameters,
+    FixableToolError,
+    FatalToolError,
+    logStepContent,
+    type CompactionResult,
+    type MessageCompactor,
+    RedactOldToolResults,
+} from "@autonoma/agent-core";

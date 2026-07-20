@@ -1,9 +1,9 @@
+import { DEFAULT_RETRY_CONFIG, type RetryConfig, buildRetry } from "@autonoma/agent-core";
 import { external } from "@autonoma/errors";
 import { Output, type ToolSet, generateText, stepCountIs } from "ai";
 import type z from "zod";
 import { AI_REQUEST_TIMEOUT_MS } from "../constants";
 import type { LanguageModel } from "../registry/model-registry";
-import { DEFAULT_RETRY_CONFIG, type RetryConfig, buildRetry } from "../retry";
 import { type ObjectGenerationParams, buildMessages } from "./build-messages";
 import { InvalidVideoInputError, modelSupportsVideo } from "./video/video-input";
 
