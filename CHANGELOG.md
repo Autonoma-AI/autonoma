@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.42](https://github.com/Autonoma-AI/agent/compare/v1.8.41...v1.8.42) (2026-07-20)
+
+
+### Features
+
+* remove env from explicit subst ([#1666](https://github.com/Autonoma-AI/agent/issues/1666)) ([25a28b6](https://github.com/Autonoma-AI/agent/commit/25a28b6352dd2de029fee321646674d21e25bed7))
+
 ## [1.8.41](https://github.com/Autonoma-AI/agent/compare/v1.8.40...v1.8.41) (2026-07-20)
 
 
