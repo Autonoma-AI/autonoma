@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.44](https://github.com/Autonoma-AI/agent/compare/v1.8.43...v1.8.44) (2026-07-21)
+
+
+### Features
+
+* **billing:** add previewkit compute-usage billing primitives ([#1677](https://github.com/Autonoma-AI/agent/issues/1677)) ([d5f710e](https://github.com/Autonoma-AI/agent/commit/d5f710e8033a93fca0f7ce1afd8b370fb49d3430))
+* **billing:** add the previewkit usage-meter sweep ([#1687](https://github.com/Autonoma-AI/agent/issues/1687)) ([05ea2e5](https://github.com/Autonoma-AI/agent/commit/05ea2e585eefb23159364fd85f522d6175d621bc))
+* **monitoring:** migrate monitoring to Amazon Managed Prometheus ([#1674](https://github.com/Autonoma-AI/agent/issues/1674)) ([6e8ddf0](https://github.com/Autonoma-AI/agent/commit/6e8ddf058e62ca19967b48ca7455e6872d960d0f))
+* **previewkit:** fatal Sentry alert when an app cannot be built ([#1671](https://github.com/Autonoma-AI/agent/issues/1671)) ([c18baec](https://github.com/Autonoma-AI/agent/commit/c18baeccd00d71efc6d5db36737239396b81066b))
+* uninstall finalized ([#1676](https://github.com/Autonoma-AI/agent/issues/1676)) ([efe4c81](https://github.com/Autonoma-AI/agent/commit/efe4c8195575bb1cfef79ef6910902b13edf0c9a))
+
+
+### Bug Fixes
+
+* **monitoring:** cut AMP ingestion 86% and fix never-firing alert rules ([#1678](https://github.com/Autonoma-AI/agent/issues/1678)) ([b492311](https://github.com/Autonoma-AI/agent/commit/b492311526480a0943e64154ff067f1d6d84885d))
+
 ## [1.8.43](https://github.com/Autonoma-AI/agent/compare/v1.8.42...v1.8.43) (2026-07-21)
 
 
