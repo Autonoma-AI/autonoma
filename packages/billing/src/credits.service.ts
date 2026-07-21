@@ -5,7 +5,7 @@ import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "@
 import * as Sentry from "@sentry/node";
 import type { AutoTopUpService } from "./auto-topup.service";
 import type { BillingPricingService } from "./billing-pricing.service";
-import { getGenerationCreditCost, isUniqueConstraintError } from "./billing-utils";
+import { computePreviewUsageCost, getGenerationCreditCost, isUniqueConstraintError } from "./billing-utils";
 import type {
     DeductCreditsResultRow,
     GenerationRefundResultRow,
@@ -442,6 +442,148 @@ export class CreditsService extends Service {
             .catch((error: unknown) => {
                 if (isUniqueConstraintError(error)) {
                     this.logger.info("LLM proxy deduction already recorded, skipping", { organizationId, requestId });
+                    return false;
+                }
+                throw error;
+            });
+
+        if (didDeduct) {
+            await this.autoTopUpService.triggerAutoTopUp(organizationId, pricing);
+        }
+        return didDeduct;
+    }
+
+    /**
+     * Deduct credits for one closed PreviewkitUsageWindow's measured compute
+     * (vCPU-seconds and memory GB-seconds), at the org's flat per-hour rates.
+     * Charges are rounded up to a minimum of 1 whole credit, same as
+     * `deductCreditsForLlmProxy` - there is no fractional-credit ledger, so an
+     * idle window's sub-credit cost is not tracked between calls. A window
+     * whose measured usage prices out to exactly zero (typically a `degraded`
+     * window with no samples) is skipped entirely, matching the non-positive-
+     * cost guard below.
+     *
+     * Balance floors at zero rather than requiring sufficiency - a mid-flight
+     * environment must never be half-billed. Idempotent on `usageWindowId`
+     * (one deduction per window, however many times the sweep retries it).
+     */
+    async deductCreditsForPreviewUsage(
+        organizationId: string,
+        usageWindowId: string,
+        vcpuSeconds: number,
+        gbSeconds: number,
+    ): Promise<boolean> {
+        this.logger.info("Deducting previewkit usage credits", {
+            organizationId,
+            usageWindowId,
+            vcpuSeconds,
+            gbSeconds,
+        });
+
+        const pricing = await this.pricingService.getOrCreatePricing(organizationId);
+        const rawCost = computePreviewUsageCost(vcpuSeconds, gbSeconds, pricing);
+
+        if (!(rawCost > 0)) {
+            this.logger.info("Skipping previewkit usage deduction for non-positive cost", {
+                organizationId,
+                usageWindowId,
+                vcpuSeconds,
+                gbSeconds,
+                rawCost,
+            });
+            return false;
+        }
+
+        const cost = Math.max(1, Math.ceil(rawCost));
+        const transactionId = `ctr_preview_${usageWindowId}`;
+
+        const didDeduct = await this.db
+            .$transaction(async (tx) => {
+                const rawTx = this.asRawTx(tx);
+                const [result] = await rawTx.$queryRaw<Array<DeductCreditsResultRow>>`
+                    WITH customer AS (
+                        SELECT organization_id, credit_balance, subscription_credit_balance
+                        FROM billing_customer
+                        WHERE organization_id = ${organizationId}
+                        FOR UPDATE
+                    ),
+                    eligible AS (
+                        SELECT
+                            organization_id,
+                            credit_balance,
+                            subscription_credit_balance,
+                            LEAST(subscription_credit_balance, ${cost}) AS subscription_consumed
+                        FROM customer
+                    ),
+                    inserted AS (
+                        INSERT INTO credit_transaction (
+                            id,
+                            organization_id,
+                            type,
+                            amount,
+                            balance_after,
+                            usage_window_id
+                        )
+                        SELECT
+                            ${transactionId},
+                            organization_id,
+                            'PREVIEW_RUNTIME_CONSUMPTION'::credit_transaction_type,
+                            ${-cost},
+                            GREATEST(credit_balance - ${cost}, 0),
+                            ${usageWindowId}
+                        FROM eligible
+                        ON CONFLICT (id) DO NOTHING
+                        RETURNING id
+                    ),
+                    updated AS (
+                        UPDATE billing_customer bc
+                        SET
+                            credit_balance = GREATEST(eligible.credit_balance - ${cost}, 0),
+                            subscription_credit_balance =
+                                GREATEST(eligible.subscription_credit_balance - eligible.subscription_consumed, 0)
+                        FROM eligible
+                        WHERE bc.organization_id = eligible.organization_id
+                          AND EXISTS (SELECT 1 FROM inserted)
+                        RETURNING bc.credit_balance, bc.subscription_credit_balance
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::bigint FROM inserted) AS inserted_count,
+                        (SELECT credit_balance FROM updated LIMIT 1) AS new_balance,
+                        (SELECT subscription_credit_balance FROM updated LIMIT 1) AS new_subscription_balance
+                `;
+                if (result == null) {
+                    this.logger.warn("Previewkit usage deduction query returned no result row", {
+                        organizationId,
+                        usageWindowId,
+                    });
+                    return false;
+                }
+
+                if (result.inserted_count === 0n) {
+                    this.logger.info("Previewkit usage deduction already recorded, skipping", {
+                        organizationId,
+                        usageWindowId,
+                    });
+                    return false;
+                }
+
+                this.logger.info("Previewkit usage credits deducted", {
+                    organizationId,
+                    usageWindowId,
+                    vcpuSeconds,
+                    gbSeconds,
+                    cost,
+                    newBalance: result.new_balance,
+                    newSubscriptionBalance: result.new_subscription_balance,
+                });
+                return true;
+            })
+            .catch((error: unknown) => {
+                if (isUniqueConstraintError(error)) {
+                    this.logger.info("Previewkit usage deduction already recorded, skipping", {
+                        organizationId,
+                        usageWindowId,
+                    });
                     return false;
                 }
                 throw error;

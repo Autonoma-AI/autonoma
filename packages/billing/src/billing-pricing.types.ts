@@ -9,4 +9,6 @@ export type BillingPricingValues = {
     creditsIosRunCost: number;
     creditsAndroidRunCost: number;
     stripeTopupAmountCents: number;
+    creditsPerVcpuHour: number;
+    creditsPerGbMemoryHour: number;
 };

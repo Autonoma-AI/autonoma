@@ -21,6 +21,8 @@ export class BillingPricingService extends Service {
                 creditsIosRunCost: true,
                 creditsAndroidRunCost: true,
                 stripeTopupAmountCents: true,
+                creditsPerVcpuHour: true,
+                creditsPerGbMemoryHour: true,
             },
         });
         if (existing != null) return existing;
@@ -40,6 +42,8 @@ export class BillingPricingService extends Service {
                 creditsIosRunCost: true,
                 creditsAndroidRunCost: true,
                 stripeTopupAmountCents: true,
+                creditsPerVcpuHour: true,
+                creditsPerGbMemoryHour: true,
             },
         });
     }

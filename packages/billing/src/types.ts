@@ -95,6 +95,12 @@ export interface BillingService {
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext): Promise<boolean>;
     checkLlmProxyGate(organizationId: string, freeCliCreditCap: number): Promise<LlmProxyGateResult>;
     deductCreditsForLlmProxy(organizationId: string, costUsd: number, requestId: string): Promise<boolean>;
+    deductCreditsForPreviewUsage(
+        organizationId: string,
+        usageWindowId: string,
+        vcpuSeconds: number,
+        gbSeconds: number,
+    ): Promise<boolean>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;
     listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;

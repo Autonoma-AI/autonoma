@@ -65,6 +65,15 @@ export class DisabledBillingService implements BillingService {
         return Promise.resolve(false);
     }
 
+    deductCreditsForPreviewUsage(
+        _organizationId: string,
+        _usageWindowId: string,
+        _vcpuSeconds: number,
+        _gbSeconds: number,
+    ) {
+        return Promise.resolve(false);
+    }
+
     refundCreditsForGeneration(_generationId: string) {
         return Promise.resolve();
     }

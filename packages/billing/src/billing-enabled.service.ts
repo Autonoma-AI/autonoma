@@ -59,6 +59,15 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.creditsService.deductCreditsForLlmProxy(organizationId, costUsd, requestId);
     }
 
+    deductCreditsForPreviewUsage(
+        organizationId: string,
+        usageWindowId: string,
+        vcpuSeconds: number,
+        gbSeconds: number,
+    ) {
+        return this.creditsService.deductCreditsForPreviewUsage(organizationId, usageWindowId, vcpuSeconds, gbSeconds);
+    }
+
     refundCreditsForGeneration(generationId: string) {
         return this.creditsService.refundCreditsForGeneration(generationId);
     }

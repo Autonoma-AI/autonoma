@@ -16,6 +16,17 @@ export function getGenerationCreditCost(architecture: ApplicationArchitecture, p
     }
 }
 
+/**
+ * Raw (possibly fractional, possibly zero) credit cost of one usage window's
+ * measured compute, at the org's flat per-hour rates. Not rounded - callers
+ * decide how to turn this into a whole-credit charge.
+ */
+export function computePreviewUsageCost(vcpuSeconds: number, gbSeconds: number, pricing: BillingPricingValues) {
+    const vcpuCost = (vcpuSeconds / 3600) * pricing.creditsPerVcpuHour;
+    const gbCost = (gbSeconds / 3600) * pricing.creditsPerGbMemoryHour;
+    return vcpuCost + gbCost;
+}
+
 export function buildAutoTopUpIdempotencyKey(organizationId: string) {
     const fiveMinuteBucket = Math.floor(Date.now() / (5 * 60 * 1000));
     return `auto-topup:${organizationId}:${fiveMinuteBucket}`;

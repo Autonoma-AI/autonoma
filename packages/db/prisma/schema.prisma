@@ -1723,6 +1723,7 @@ enum CreditTransactionType {
   GENERATION_REFUND
   RUN_CONSUMPTION
   LLM_PROXY_CONSUMPTION
+  PREVIEW_RUNTIME_CONSUMPTION
 
   @@map("credit_transaction_type")
 }
@@ -1769,6 +1770,14 @@ model BillingPricing {
   creditsIosRunCost            Int @default(200) @map("credits_ios_run_cost")
   creditsAndroidRunCost        Int @default(40) @map("credits_android_run_cost")
   stripeTopupAmountCents       Int @default(10000) @map("stripe_topup_amount_cents")
+
+  // Flat, fleet-uniform previewkit compute-usage rates - not derived from instance
+  // types, spot prices, or AWS cost data. Zero until a deliberate go/no-go once
+  // shadow-mode usage data informs real numbers; deductCreditsForPreviewUsage never
+  // charges while both are 0, and enforcement is separately gated by
+  // PREVIEWKIT_BILLING_ENABLED + OrganizationSettings.previewkitBillingEnabled.
+  creditsPerVcpuHour     Int @default(0) @map("credits_per_vcpu_hour")
+  creditsPerGbMemoryHour Int @default(0) @map("credits_per_gb_memory_hour")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1823,6 +1832,7 @@ model CreditTransaction {
   stripeInvoiceId       String? @unique @map("stripe_invoice_id")
   stripeRefundId        String? @unique @map("stripe_refund_id")
   promoRedemptionId     String? @unique @map("promo_redemption_id")
+  usageWindowId         String? @unique @map("usage_window_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1950,6 +1960,11 @@ model PreviewkitEnvironment {
   deployedAt DateTime? @map("deployed_at")
   tornDownAt DateTime? @map("torn_down_at")
 
+  // Compute-usage metering checkpoint: the exclusive end of the last closed,
+  // billed PreviewkitUsageWindow. Null means metering hasn't started yet (or
+  // this environment predates the meter) - the sweep starts from deployedAt.
+  meteredAt DateTime? @map("metered_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1965,6 +1980,7 @@ model PreviewkitEnvironment {
   builds       PreviewkitBuild[]
   appInstances PreviewkitAppInstance[]
   addons       PreviewkitAddon[]
+  usageWindows PreviewkitUsageWindow[]
 
   @@unique([repoFullName, prNumber])
   @@index([organizationId, status])
@@ -2015,6 +2031,46 @@ model PreviewkitBuild {
   @@unique([environmentId, headSha])
   @@index([environmentId, startedAt])
   @@map("previewkit_build")
+}
+
+// One row per closed, wall-clock-aligned 15-minute compute-usage window for a
+// running environment. Written by the usage-meter sweep from AMP (Amazon
+// Managed Prometheus) cAdvisor series, scoped to the whole K8s namespace -
+// customer app pods, provisioned databases, and hook Jobs all count. Rows keep
+// the raw measured inputs (not a precomputed credit amount) so bills stay
+// auditable and recomputable if BillingPricing rates change later.
+model PreviewkitUsageWindow {
+  id String @id @default(cuid())
+
+  environmentId String                @map("environment_id")
+  environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  // Denormalized from environment.organizationId - deliberately, so the sweep
+  // and billing queries never need to join through PreviewkitEnvironment.
+  // Stays correct because it's set once at insert time from the same row the
+  // sweep already read to get environmentId, and an environment's
+  // organizationId never changes after creation.
+  organizationId String @map("organization_id")
+
+  windowStart DateTime @map("window_start")
+  windowEnd   DateTime @map("window_end")
+
+  vcpuSeconds Float @map("vcpu_seconds")
+  gbSeconds   Float @map("gb_seconds")
+
+  // True when the sweep found zero samples for this namespace in this window
+  // (the scraper wasn't collecting) rather than genuinely zero usage. Written
+  // at zero usage either way; this flag distinguishes the two for alerting
+  // and billing audits.
+  degraded Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // One row per (environment, window). Makes the sweep an idempotent upsert -
+  // a crashed-and-rerun sweep for a window it already closed is a no-op.
+  @@unique([environmentId, windowStart])
+  @@index([organizationId])
+  @@map("previewkit_usage_window")
 }
 
 // One row per app built within a PreviewkitBuild. Normalized out of what used
