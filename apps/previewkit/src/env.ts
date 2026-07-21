@@ -46,7 +46,7 @@ export const env = createEnv({
         BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
         BUILDKIT_IMAGE: z
             .string()
-            .default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub/moby/buildkit:v0.31.1"),
+            .default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub/moby/buildkit:v0.31.2"),
         BUILD_TIMEOUT_MS: timeoutEnv(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: timeoutEnv(600_000), // 10 minutes
         // Karpenter provisioning and buildkitd startup have separate budgets so
