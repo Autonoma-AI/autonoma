@@ -1,11 +1,27 @@
-import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { type PrismaClient, PreviewkitStatus, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { AutoTopUpService } from "../src/auto-topup.service";
+import { EnabledBillingService } from "../src/billing-enabled.service";
 import { BillingPricingService } from "../src/billing-pricing.service";
 import { CreditsService } from "../src/credits.service";
+import type { BillingService } from "../src/types";
 
 const POSTGRES_IMAGE = "postgres:17-alpine";
+
+export interface CreatePreviewkitEnvironmentInput {
+    organizationId: string;
+    status?: PreviewkitStatus;
+    meteredAt?: Date;
+    deployedAt?: Date;
+    tornDownAt?: Date;
+}
+
+export interface CreatedPreviewkitEnvironment {
+    id: string;
+    organizationId: string;
+    namespace: string;
+}
 
 /**
  * Real-Postgres harness for the billing credit logic. Mirrors the scenario
@@ -16,13 +32,16 @@ const POSTGRES_IMAGE = "postgres:17-alpine";
 export class BillingTestHarness implements IntegrationHarness {
     public readonly db: PrismaClient;
     public readonly creditsService: CreditsService;
+    public readonly billingService: BillingService;
 
     private readonly pgContainer: StartedPostgreSqlContainer;
+    private previewkitEnvironmentSeq = 0;
 
     constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer) {
         this.db = db;
         this.pgContainer = pgContainer;
         this.creditsService = new CreditsService(db, new AutoTopUpService(db), new BillingPricingService(db));
+        this.billingService = new EnabledBillingService(db);
     }
 
     static async create(): Promise<BillingTestHarness> {
@@ -41,7 +60,12 @@ export class BillingTestHarness implements IntegrationHarness {
     }
 
     async beforeEach() {
-        // No-op
+        // Cascades from organization to billing_customer, billing_pricing,
+        // credit_transaction, and previewkit_environment/previewkit_usage_window -
+        // every test starts from an empty table, so the previewkit usage-meter
+        // sweep (which scans across all environments, not a single org) never
+        // sees another test's leftover rows.
+        await this.db.$executeRawUnsafe('TRUNCATE TABLE "organization" CASCADE');
     }
 
     async afterEach() {
@@ -62,5 +86,28 @@ export class BillingTestHarness implements IntegrationHarness {
             data: { organizationId: org.id, creditBalance },
         });
         return org.id;
+    }
+
+    /** A PreviewkitEnvironment row for the usage-meter sweep tests, uniquely named per call. */
+    async createPreviewkitEnvironment(input: CreatePreviewkitEnvironmentInput): Promise<CreatedPreviewkitEnvironment> {
+        const seq = this.previewkitEnvironmentSeq++;
+        const namespace = `preview-test-org-repo-pr-${seq}`;
+
+        const env = await this.db.previewkitEnvironment.create({
+            data: {
+                organizationId: input.organizationId,
+                namespace,
+                repoFullName: "test-org/repo",
+                prNumber: seq,
+                headSha: `sha-${seq}`,
+                headRef: `branch-${seq}`,
+                status: input.status ?? PreviewkitStatus.ready,
+                meteredAt: input.meteredAt,
+                deployedAt: input.deployedAt ?? new Date(0),
+                tornDownAt: input.tornDownAt,
+            },
+        });
+
+        return { id: env.id, organizationId: env.organizationId, namespace: env.namespace };
     }
 }

@@ -83,6 +83,10 @@ minimumReleaseAgeExclude:
   - '@storybook/react-vite@10.5.2'
   - '@storybook/react@10.5.2'
   - storybook@10.5.2
+  - '@smithy/core@3.29.7'
+  - '@smithy/hash-node@4.4.12'
+  - '@smithy/protocol-http@5.5.12'
+  - '@smithy/signature-v4@5.6.8'
 
 onlyBuiltDependencies:
   - '@prisma/engines'

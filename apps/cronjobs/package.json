@@ -6,10 +6,12 @@
     "scripts": {
         "billing-invoicer": "dotenv -e ../../.env -- tsx scripts/vercel-billing-invoicer/index.ts",
         "usage-reporter": "dotenv -e ../../.env -- tsx scripts/vercel-usage-reporter/index.ts",
+        "usage-meter": "dotenv -e ../../.env -- tsx scripts/preview-usage-meter/index.ts",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix scripts/"
     },
     "dependencies": {
+        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/utils": "workspace:*",

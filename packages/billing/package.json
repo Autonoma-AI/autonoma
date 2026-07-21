@@ -21,7 +21,11 @@
         "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
+        "@aws-sdk/credential-providers": "^3.1048.0",
         "@sentry/node": "catalog:",
+        "@smithy/hash-node": "^4.4.12",
+        "@smithy/protocol-http": "^5.5.12",
+        "@smithy/signature-v4": "^5.6.8",
         "@t3-oss/env-core": "catalog:",
         "stripe": "^20.4.1",
         "zod": "catalog:"
