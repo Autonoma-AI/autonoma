@@ -312,11 +312,15 @@ export class BuildKitBuilder implements Builder {
             return this.buildWithBuildctl(request, dockerfilePath, getBuildkitHost, logStream);
         }
         // No generated Dockerfile, no user Dockerfile: the build is undetermined.
-        throw new BuildError(
+        const undeterminedBuild = new BuildError(
             `App "${request.appName}" cannot be built: it has no \`build\` block in its preview config ` +
                 `and no Dockerfile in its app directory. Add a \`build\` block (a framework preset or the ` +
                 `\`runtime\` escape hatch) to the app, or commit a Dockerfile. PreviewKit no longer `,
         );
+        this.logger.fatal("App cannot be built: no build block and no Dockerfile", undeterminedBuild, {
+            extra: { app: request.appName, contextPath: request.contextPath },
+        });
+        throw undeterminedBuild;
     }
 
     private async onTransientError(
