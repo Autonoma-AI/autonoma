@@ -358,7 +358,7 @@ vercelInstallationsRouter.delete("/:installationId", async (c) => {
 
     if (installation == null) {
         logger.warn("DELETE installation not found", { installationId });
-        return c.json({ ok: true });
+        return c.json({ finalized: true });
     }
 
     await db.$transaction(async (tx) => {
