@@ -1142,7 +1142,10 @@ export class PreviewPipeline {
     /**
      * Step 4 - the GitHub side effects that must land: update the PR comment with
      * the per-app status table, set the final commit status, and create the GitHub
-     * deployment + deployment status (which triggers diffs).
+     * deployment + deployment status (for the Deployments UI and any BYO
+     * `deployment_status` workflow). For PreviewKit-managed apps the diffs run is
+     * started by the runner directly (Temporal, see `triggerDiffsAfterDeploy`),
+     * not by this deployment event.
      */
     async finalize(
         event: PullRequestEvent,
@@ -1215,7 +1218,7 @@ export class PreviewPipeline {
                     pr: prNumber,
                 });
             }
-            logger.info("Finalize step 3/3 creating GitHub deployment + status (triggers diffs)", {
+            logger.info("Finalize step 3/3 creating GitHub deployment + status (Deployments UI / BYO)", {
                 repo: repoFullName,
                 pr: prNumber,
             });

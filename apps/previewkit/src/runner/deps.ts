@@ -1,6 +1,7 @@
 import { db } from "@autonoma/db";
 import type { PreviewDeployEvent } from "@autonoma/types";
 import { markBuildSuperseded } from "../db";
+import { triggerDiffsAfterDeploy } from "../diffs/trigger-diffs-after-deploy";
 import { logger as rootLogger } from "../logger";
 import type { RunPreviewJobDeps } from "./run-preview-job";
 
@@ -12,6 +13,8 @@ import type { RunPreviewJobDeps } from "./run-preview-job";
 export const defaultRunPreviewJobDeps: RunPreviewJobDeps = {
     markSuperseded: markBuildSuperseded,
     resolveTeardownHeadSha,
+    triggerDiffs: (event, result) =>
+        triggerDiffsAfterDeploy(event, result, rootLogger.child({ name: "triggerDiffsAfterDeploy" })),
 };
 
 /**

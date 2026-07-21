@@ -1,6 +1,7 @@
 export { batchGenerationWorkflow } from "./batch-generation.workflow";
 export { singleGenerationWorkflow } from "./single-generation.workflow";
 export { diffsAnalysisWorkflow } from "./diffs.workflow";
+export { triggerPrDiffsWorkflow, type TriggerPrDiffsInput } from "./trigger-pr-diffs.workflow";
 export {
     refinementLoopWorkflow,
     type RefinementLoopInput,

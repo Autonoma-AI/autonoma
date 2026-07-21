@@ -139,6 +139,12 @@ export const env = createEnv({
         // from here to pin the runner image, then creates the runner Job in the
         // shared `previewkit` namespace. Required when PREVIEWKIT_ENABLED is on.
         NAMESPACE: z.string().min(1).optional(),
+        // This API's own Temporal address/namespace, forwarded to previewkit runner Jobs so their post-deploy
+        // diffs trigger starts the workflow on THIS env's Temporal (@autonoma/workflow reads its own copy from
+        // process.env; these are declared here only to forward per-Job via the launcher). Optional: unset means
+        // the runner no-ops the trigger.
+        TEMPORAL_ADDRESS: z.string().min(1).optional(),
+        TEMPORAL_NAMESPACE: z.string().min(1).optional(),
         // Shared secret for incoming service-to-service calls: authenticates the
         // native /v1/previewkit/* routes (requireApiKeyOrService) and
         // /v1/diffs/internal/trigger (Authorization: Bearer <secret>).

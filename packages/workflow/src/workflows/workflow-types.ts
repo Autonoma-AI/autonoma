@@ -2,6 +2,7 @@ export const WORKFLOW_TYPE = {
     BATCH_GENERATION: "batchGenerationWorkflow",
     SINGLE_GENERATION: "singleGenerationWorkflow",
     DIFFS_ANALYSIS: "diffsAnalysisWorkflow",
+    TRIGGER_PR_DIFFS: "triggerPrDiffsWorkflow",
     REFINEMENT_LOOP: "refinementLoopWorkflow",
     RUN_GENERATION_PIPELINE: "runGenerationPipelineWorkflow",
     INVESTIGATION: "investigationWorkflow",

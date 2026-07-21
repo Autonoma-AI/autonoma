@@ -25,6 +25,12 @@ export const env = createEnv({
         // Master switch for the authoritative analysis PR comment. OFF by default so the pipeline can run + promote
         // for a canary org without posting to GitHub until the comment is deliberately turned on.
         ANALYSIS_PR_COMMENT_ENABLED: z.stringbool().default(false),
+        // Pipeline gates for the PreviewKit-triggered PR run (`prepareDiffsRun` activity), which reuses the API's
+        // per-org analysis-vs-diffs logic. MUST be set to the same values as the API so the PreviewKit path picks
+        // the same pipeline: ANALYSIS_AUTHORITATIVE_ENABLED is the global analysis master switch (else diffs);
+        // INVESTIGATION_SHADOW_ENABLED gates the diffs fallback's investigation shadow.
+        ANALYSIS_AUTHORITATIVE_ENABLED: z.stringbool().default(false),
+        INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

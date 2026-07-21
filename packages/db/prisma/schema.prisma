@@ -1797,6 +1797,11 @@ model OrganizationSettings {
   // and reversible for the whole fleet. Off until a deliberate go/no-go.
   analysisEnabled Boolean @default(false) @map("analysis_enabled")
 
+  // Whether a ready PreviewKit preview auto-starts the Autonoma review for this org (the Temporal
+  // previewkit-ready trigger). Off by default so we roll it out per org (autonoma first) before enabling broadly.
+  // Requires TEMPORAL_ADDRESS on the previewkit runner too - that's the fleet-wide capability, this is who fires.
+  previewkitAutoTriggerEnabled Boolean @default(false) @map("previewkit_auto_trigger_enabled")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

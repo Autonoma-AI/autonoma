@@ -1,8 +1,4 @@
-/**
- * Fixed convention: the Autonoma SDK / diff webhook lives at
- * `<preview>/api/autonoma`. Single source of truth so the dry-run targets
- * controller and the deployment-signal diff trigger never drift apart.
- */
-export function buildSdkUrl(previewUrl: string): string {
-    return `${previewUrl.replace(/\/$/, "")}/api/autonoma`;
-}
+// The SDK/preview-webhook URL convention lives in @autonoma/test-updates so the
+// API and the diffs-worker activity derive it identically. Re-exported here to
+// keep existing onboarding/vercel import sites stable.
+export { buildSdkUrl } from "@autonoma/test-updates";

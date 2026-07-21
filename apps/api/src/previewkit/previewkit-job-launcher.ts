@@ -91,6 +91,14 @@ export interface PreviewkitJobLauncherOptions {
      */
     databaseUrl: string;
     /**
+     * The launching API's own Temporal address/namespace, injected per-Job (like `databaseUrl`) so the runner's
+     * post-deploy diffs trigger starts the workflow on the LAUNCHING env's Temporal (prod -> prod, beta -> beta),
+     * overriding the production values the shared `previewkit-env-file` secret carries. Optional: when the API
+     * has no Temporal configured the runner simply no-ops the trigger.
+     */
+    temporalAddress?: string;
+    temporalNamespace?: string;
+    /**
      * Sentry environment tag for the runner. Injected as an explicit (non-secret)
      * env var, sourced from the launching API's own SENTRY_ENV - so runner errors
      * are tagged with the env that launched them. Replaces the former
@@ -305,6 +313,22 @@ export class PreviewkitJobLauncher {
             [LABEL_ENV]: envKey,
             [LABEL_PR]: String(event.prNumber),
         };
+
+        // Explicit env wins over envFrom on name collision: DATABASE_URL and the Temporal address/namespace
+        // override the production values the shared previewkit-env-file secret carries, so the runner writes to -
+        // and triggers diffs on - the launching API's own DB + Temporal. SENTRY_ENV is non-secret runner config.
+        const runnerEnv = [
+            { name: "PREVIEWKIT_JOB_SPEC", value: JSON.stringify(spec) },
+            { name: "DATABASE_URL", value: this.options.databaseUrl },
+            { name: "SENTRY_ENV", value: this.options.sentryEnv },
+        ];
+        if (this.options.temporalAddress != null) {
+            runnerEnv.push({ name: "TEMPORAL_ADDRESS", value: this.options.temporalAddress });
+        }
+        if (this.options.temporalNamespace != null) {
+            runnerEnv.push({ name: "TEMPORAL_NAMESPACE", value: this.options.temporalNamespace });
+        }
+
         return {
             apiVersion: "batch/v1",
             kind: "Job",
@@ -351,19 +375,7 @@ export class PreviewkitJobLauncher {
                                 image,
                                 command: RUNNER_COMMAND,
                                 envFrom: [{ secretRef: { name: RUNNER_ENV_SECRET } }],
-                                // Explicit env wins over envFrom on name collision:
-                                // DATABASE_URL overrides the production DB URL the
-                                // shared previewkit-env-file secret carries, so the
-                                // runner writes to the launching API's own DB.
-                                // SENTRY_ENV is non-secret runner config sourced from
-                                // the launching API (replaces the previewkit-runner-env
-                                // ConfigMap) so runner errors are tagged with the env
-                                // that launched them.
-                                env: [
-                                    { name: "PREVIEWKIT_JOB_SPEC", value: JSON.stringify(spec) },
-                                    { name: "DATABASE_URL", value: this.options.databaseUrl },
-                                    { name: "SENTRY_ENV", value: this.options.sentryEnv },
-                                ],
+                                env: runnerEnv,
                                 resources: {
                                     requests: { cpu: "500m", memory: "1Gi" },
                                     limits: { memory: "4Gi" },

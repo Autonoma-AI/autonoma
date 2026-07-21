@@ -101,6 +101,15 @@ export const env = createEnv({
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
+        // Temporal, for the post-deploy diffs trigger. Optional so dev/self-host and any environment without
+        // a control-plane Temporal simply no-op the trigger (the runner still deploys the preview). When set,
+        // @autonoma/workflow's client reads TEMPORAL_ADDRESS/TEMPORAL_NAMESPACE from process.env directly; these
+        // are declared here only so the runner can gate on "is Temporal wired for this environment?". The
+        // launcher injects the launching env's values per-Job (like DATABASE_URL) so a beta preview triggers on
+        // beta's Temporal, not the shared secret's production one.
+        TEMPORAL_ADDRESS: z.string().optional(),
+        TEMPORAL_NAMESPACE: z.string().optional(),
+
         // The serialized {mode, event, ...} payload for a single
         // deploy/teardown run, set by the API's PreviewkitJobLauncher on the
         // runner Job. Present only when this process is a one-shot runner Job

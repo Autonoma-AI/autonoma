@@ -7,6 +7,7 @@ import type {
 } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 
+export { prepareDiffsRun } from "./prepare-diffs-run";
 export { analyzeDiffs } from "./analyze-diffs";
 export { markDiffsGenerating } from "./mark-diffs-generating";
 export { finalizeDiffs } from "./finalize-diffs";
@@ -23,6 +24,7 @@ import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { finalizeDiffs } from "./finalize-diffs";
 import { markDiffsGenerating } from "./mark-diffs-generating";
+import { prepareDiffsRun } from "./prepare-diffs-run";
 import { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 import { reviewGeneration } from "./review/generation";
 
@@ -71,6 +73,7 @@ export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
+    prepareDiffsRun,
     analyzeDiffs,
     markDiffsGenerating,
     finalizeDiffs,

@@ -37,6 +37,8 @@ export type {
 
 export type {
     DiffsActivities,
+    PrepareDiffsRunInput,
+    PrepareDiffsRunResult,
     AnalyzeDiffsInput,
     MarkDiffsGeneratingInput,
     FinalizeDiffsInput,

@@ -53,6 +53,8 @@ function getLauncher(): PreviewkitJobLauncher {
         jobNamespace: PREVIEWKIT_JOB_NAMESPACE,
         imageNamespace: env.NAMESPACE,
         databaseUrl: env.DATABASE_URL,
+        temporalAddress: env.TEMPORAL_ADDRESS,
+        temporalNamespace: env.TEMPORAL_NAMESPACE,
         sentryEnv: env.SENTRY_ENV,
     });
     logger.info("Previewkit launcher initialized", {

@@ -101,6 +101,11 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
 - `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, AWS Secrets Manager.
+  `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
+  starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
+  a resolved primary URL, a `branchId` on the event, and the org's `previewkitAutoTriggerEnabled` per-org rollout
+  gate), so an Autonoma review begins without the customer's `deployment_status` Action. The launcher forwards
+  this env's `TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` per-Job.
 
 ## The public surface lives in apps/api
 

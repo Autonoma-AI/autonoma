@@ -19,6 +19,14 @@ export {
 export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
 export { createDetachedSnapshot, type CreateDetachedSnapshotParams } from "./queries/create-detached-snapshot";
+export { buildSdkUrl } from "./queries/sdk-url";
+export {
+    DiffsRunPreparer,
+    type DiffsRunFlags,
+    type DiffsRunPreparerDeps,
+    type PrepareDiffsRunParams,
+    type PrepareDiffsRunResult,
+} from "./queries/prepare-diffs-run";
 export {
     findMergeSourceSnapshot,
     type FindMergeSourceSnapshotParams,

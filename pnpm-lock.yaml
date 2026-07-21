@@ -710,6 +710,9 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@autonoma/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       '@aws-crypto/sha256-js':
         specifier: ^5.2.0
         version: 5.2.0

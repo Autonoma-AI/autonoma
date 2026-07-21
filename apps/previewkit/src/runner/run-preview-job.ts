@@ -70,6 +70,12 @@ export interface RunPreviewJobDeps {
     markSuperseded: (namespace: string, headSha: string) => Promise<void>;
     /** Resolve the deployed-commit sha for a teardown whose event has none. */
     resolveTeardownHeadSha: (event: PreviewDeployEvent) => Promise<PreviewDeployEvent>;
+    /**
+     * Start the diffs run (as a Temporal job) once a PR preview env is ready. The impl applies its own guards
+     * (Temporal unconfigured, main env 0, no branchId, not ready, no primary url) and may throw - `runDeploy`
+     * isolates it so a failure never flips the already-`ready` outcome.
+     */
+    triggerDiffs: (event: PreviewDeployEvent, result: DeployPreviewEnvironmentOutput) => Promise<void>;
 }
 
 /**
@@ -154,6 +160,19 @@ async function runDeploy(
         });
 
         await previewPipeline.finalize(event, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
+
+        // Start the diffs run now the env is ready. Isolated: the environment is already persisted `ready`, so a
+        // failed trigger must not reach the outer catch (which, with a non-null `deployed`, would mislabel the
+        // outcome `finalize_failed`).
+        try {
+            await deps.triggerDiffs(event, deployed);
+        } catch (err) {
+            Sentry.captureException(err);
+            logger.error("Failed to trigger diffs after deploy; leaving environment ready", {
+                extra: { ...ids.extra, message: errorMessage(err) },
+            });
+        }
+
         logger.info("Preview deploy completed", ids);
         return "ready";
     } catch (err) {

@@ -5,12 +5,47 @@ import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
 import { FakeGenerationProvider } from "@autonoma/test-updates";
+import type {
+    PipelineWorkflows,
+    TriggerAnalysisJobParams,
+    TriggerDiffsJobParams,
+    TriggerInvestigationJobParams,
+} from "@autonoma/workflow";
 import Redis from "ioredis";
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 import { buildAuth } from "../src/auth";
 import { type Services, buildServices } from "../src/routes/build-services";
 import { appRouter } from "../src/routes/router";
 import { t } from "../src/trpc";
+
+/**
+ * Test double for {@link PipelineWorkflows}: routes every operation to the shared `triggerWorkflow` spy, except
+ * analysis (its own `triggerAnalysis` spy) so tests can assert analysis triggers without conflation.
+ */
+class FakePipelineWorkflows implements PipelineWorkflows {
+    constructor(
+        private readonly onWorkflow: Mock,
+        private readonly onAnalysis: Mock,
+    ) {}
+    triggerDiffs(params: TriggerDiffsJobParams): Promise<void> {
+        return this.onWorkflow(params);
+    }
+    cancelDiffs(snapshotId: string): Promise<void> {
+        return this.onWorkflow(snapshotId);
+    }
+    triggerInvestigation(params: TriggerInvestigationJobParams): Promise<void> {
+        return this.onWorkflow(params);
+    }
+    cancelInvestigation(snapshotId: string): Promise<void> {
+        return this.onWorkflow(snapshotId);
+    }
+    triggerAnalysis(params: TriggerAnalysisJobParams): Promise<void> {
+        return this.onAnalysis(params);
+    }
+    cancelAnalysis(snapshotId: string): Promise<void> {
+        return this.onWorkflow(snapshotId);
+    }
+}
 
 export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
@@ -85,14 +120,10 @@ export class APITestHarness implements IntegrationHarness {
             storageProvider: storage,
             scenarioManager,
             encryptionHelper,
+            getVercelEncryptionHelper: () => encryptionHelper,
             generationProvider,
             githubApp,
-            triggerDiffsJob: triggerWorkflow,
-            cancelDiffsJob: triggerWorkflow,
-            triggerInvestigationJob: triggerWorkflow,
-            cancelInvestigationJob: triggerWorkflow,
-            triggerAnalysisJob: triggerAnalysis,
-            cancelAnalysisJob: triggerWorkflow,
+            pipelineWorkflows: new FakePipelineWorkflows(triggerWorkflow, triggerAnalysis),
             triggerPreviewDeploy: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,

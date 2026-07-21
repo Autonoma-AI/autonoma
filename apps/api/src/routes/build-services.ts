@@ -3,20 +3,17 @@ import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
+import { logger } from "@autonoma/logger";
 import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
-import type { GenerationProvider } from "@autonoma/test-updates";
+import { DiffsRunPreparer, type GenerationProvider } from "@autonoma/test-updates";
 import type {
     TriggerPreviewDeployParams,
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
-import type {
-    TriggerAnalysisJobParams,
-    TriggerDiffsJobParams,
-    TriggerInvestigationJobParams,
-} from "@autonoma/workflow";
+import type { PipelineWorkflows } from "@autonoma/workflow";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
@@ -97,12 +94,7 @@ export interface ServicesParams {
     getVercelEncryptionHelper: () => EncryptionHelper;
     generationProvider: GenerationProvider;
     githubApp: GitHubApp;
-    triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
-    cancelDiffsJob: (snapshotId: string) => Promise<void>;
-    triggerInvestigationJob: (params: TriggerInvestigationJobParams) => Promise<void>;
-    cancelInvestigationJob: (snapshotId: string) => Promise<void>;
-    triggerAnalysisJob: (params: TriggerAnalysisJobParams) => Promise<void>;
-    cancelAnalysisJob: (snapshotId: string) => Promise<void>;
+    pipelineWorkflows: PipelineWorkflows;
     triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
     triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
@@ -120,12 +112,7 @@ export function buildServices({
     getVercelEncryptionHelper,
     generationProvider,
     githubApp,
-    triggerDiffsJob,
-    cancelDiffsJob,
-    triggerInvestigationJob,
-    cancelInvestigationJob,
-    triggerAnalysisJob,
-    cancelAnalysisJob,
+    pipelineWorkflows,
     triggerPreviewDeploy,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
@@ -153,16 +140,16 @@ export function buildServices({
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,
     );
-    const diffsTriggerService = new DiffsTriggerService(
-        conn,
-        githubService,
-        triggerDiffsJob,
-        cancelDiffsJob,
-        triggerInvestigationJob,
-        cancelInvestigationJob,
-        triggerAnalysisJob,
-        cancelAnalysisJob,
-    );
+    const diffsRunPreparer = new DiffsRunPreparer({
+        db: conn,
+        logger: logger.child({ name: "DiffsRunPreparer" }),
+        workflows: pipelineWorkflows,
+        flags: {
+            analysisAuthoritativeEnabled: env.ANALYSIS_AUTHORITATIVE_ENABLED,
+            investigationShadowEnabled: env.INVESTIGATION_SHADOW_ENABLED,
+        },
+    });
+    const diffsTriggerService = new DiffsTriggerService(conn, githubService, diffsRunPreparer, pipelineWorkflows);
     const onboardingOptions = {
         previewkitClient: {
             isConfigured: () => env.PREVIEWKIT_ENABLED,
