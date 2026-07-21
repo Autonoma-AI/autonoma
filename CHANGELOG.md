@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.43](https://github.com/Autonoma-AI/agent/compare/v1.8.42...v1.8.43) (2026-07-21)
+
+
+### Features
+
+* **previewkit:** trigger the diffs/analysis run as a Temporal job on preview-ready ([#1638](https://github.com/Autonoma-AI/agent/issues/1638)) ([335facb](https://github.com/Autonoma-AI/agent/commit/335facb0efe0b3b2334c6fd05e0e6f9628109e31))
+
 ## [1.8.42](https://github.com/Autonoma-AI/agent/compare/v1.8.41...v1.8.42) (2026-07-20)
 
 
