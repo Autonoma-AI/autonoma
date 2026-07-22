@@ -13,7 +13,7 @@ import type {
     TopupRefundResultRow,
 } from "./billing.types";
 import { Service } from "./service";
-import type { DeductGenerationContext, LlmProxyGateResult } from "./types";
+import type { DeductGenerationContext, LlmProxyGateResult, PreviewDeployGateResult } from "./types";
 
 type TxClient = Prisma.TransactionClient;
 type RawTxClient = TxClient & Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -293,6 +293,29 @@ export class CreditsService extends Service {
             balance,
             freeCliCreditCap,
         });
+        return { allowed: true };
+    }
+
+    /**
+     * Pre-flight gate for launching a NEW previewkit deploy or per-app redeploy
+     * (never for teardown). Mirrors `checkLlmProxyGate`'s `balance <= 0` check
+     * against the one combined `creditBalance` pool - simpler than the
+     * generation gate since there's no priced amount to compare against, only
+     * "does this org have any money at all". An already-running environment is
+     * never torn down by this gate; it only blocks launching a new Job.
+     */
+    async checkPreviewDeployCreditsGate(organizationId: string): Promise<PreviewDeployGateResult> {
+        const customer = await this.db.billingCustomer.findUnique({
+            where: { organizationId },
+            select: { creditBalance: true },
+        });
+        const balance = customer?.creditBalance ?? 0;
+
+        if (balance <= 0) {
+            this.logger.info("Preview deploy credits gate blocked - out of credits", { organizationId, balance });
+            return { allowed: false, reason: "out_of_credits" };
+        }
+
         return { allowed: true };
     }
 

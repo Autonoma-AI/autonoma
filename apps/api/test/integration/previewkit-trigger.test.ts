@@ -1,12 +1,82 @@
+import type { PreviewDeployGateResult } from "@autonoma/billing";
 import { ApplicationArchitecture, type PreviewkitStatus } from "@autonoma/db";
-import { ConflictError, NotFoundError } from "@autonoma/errors";
+import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
 import { expect, vi } from "vitest";
+import { env } from "../../src/env";
 import { PreviewkitTriggerService } from "../../src/previewkit/previewkit-trigger.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
 const REPO_ID = 2001;
 const REPO_FULL_NAME = "acme/web";
+
+/** Stands in for a real BillingService in tests that don't exercise the credits gate. */
+const allowingBillingService = {
+    checkPreviewDeployCreditsGate: (): Promise<PreviewDeployGateResult> => Promise.resolve({ allowed: true }),
+};
+
+/** Flips both dual-gate switches on for the duration of `fn`, restoring both afterward. */
+async function withBillingEnforced(
+    harness: APITestHarness,
+    organizationId: string,
+    fn: () => Promise<void>,
+): Promise<void> {
+    const wasGloballyEnabled = env.PREVIEWKIT_BILLING_ENABLED;
+    env.PREVIEWKIT_BILLING_ENABLED = true;
+    await harness.db.organizationSettings.upsert({
+        where: { organizationId },
+        create: { organizationId, previewkitBillingEnabled: true },
+        update: { previewkitBillingEnabled: true },
+    });
+    try {
+        await fn();
+    } finally {
+        env.PREVIEWKIT_BILLING_ENABLED = wasGloballyEnabled;
+        await harness.db.organizationSettings.upsert({
+            where: { organizationId },
+            create: { organizationId, previewkitBillingEnabled: false },
+            update: { previewkitBillingEnabled: false },
+        });
+    }
+}
+
+async function setCreditBalance(harness: APITestHarness, organizationId: string, creditBalance: number): Promise<void> {
+    await harness.db.billingCustomer.upsert({
+        where: { organizationId },
+        create: { organizationId, creditBalance },
+        update: { creditBalance },
+    });
+}
+
+/**
+ * A `PreviewkitTriggerService` wired to the REAL credit balance in the DB (not
+ * `harness.services.previewkitTrigger`, which runs against `DisabledBillingService`
+ * in tests since `STRIPE_ENABLED` is off - that no-ops the gate entirely). Mirrors
+ * `checkPreviewDeployCreditsGate`'s own `balance <= 0` check; the gate's balance
+ * arithmetic itself is covered separately in packages/billing/test/credits-preview-deploy-gate.test.ts -
+ * this exercises the trigger-service orchestration (dual-gate read, comment, throw).
+ */
+function gateTestService(harness: APITestHarness): PreviewkitTriggerService {
+    return new PreviewkitTriggerService(
+        harness.db,
+        harness.services.github,
+        {
+            checkPreviewDeployCreditsGate: async (organizationId: string) => {
+                const customer = await harness.db.billingCustomer.findUnique({
+                    where: { organizationId },
+                    select: { creditBalance: true },
+                });
+                const balance = customer?.creditBalance ?? 0;
+                return balance <= 0
+                    ? { allowed: false as const, reason: "out_of_credits" as const }
+                    : { allowed: true as const };
+            },
+        },
+        harness.triggerWorkflow,
+        harness.triggerWorkflow,
+        harness.triggerWorkflow,
+    );
+}
 
 function pullRequestPayload(prNumber: number, draft = false): Record<string, unknown> {
     return {
@@ -372,7 +442,9 @@ apiTestSuite({
                     getRepository: () => Promise.reject(notFound),
                     getBranchHead: () => Promise.reject(notFound),
                     getPullRequest: () => Promise.reject(notFound),
+                    postComment: () => Promise.reject(notFound),
                 },
+                allowingBillingService,
                 deploySpy,
                 deploySpy,
                 deploySpy,
@@ -394,7 +466,9 @@ apiTestSuite({
                         }),
                     getBranchHead: () => Promise.reject(notFound),
                     getPullRequest: () => Promise.reject(notFound),
+                    postComment: () => Promise.reject(notFound),
                 },
+                allowingBillingService,
                 deploySpy,
                 deploySpy,
                 deploySpy,
@@ -441,7 +515,9 @@ apiTestSuite({
                     getBranchHead: (_orgId: string, _repoId: number, branch: string) =>
                         branch === "master" ? Promise.resolve("main-sha-2") : Promise.reject(notFound),
                     getPullRequest: () => Promise.reject(notFound),
+                    postComment: () => Promise.reject(notFound),
                 },
+                allowingBillingService,
                 deploySpy,
                 deploySpy,
                 deploySpy,
@@ -849,6 +925,131 @@ apiTestSuite({
             await expect(service.redeployApp(REPO_FULL_NAME, 24, "web", "rebuild", "some-other-org")).rejects.toThrow(
                 NotFoundError,
             );
+        });
+
+        test("deploy is blocked and comments on the PR when the org is out of credits and both gates are on", async ({
+            harness,
+        }) => {
+            const service = gateTestService(harness);
+            harness.triggerWorkflow.mockClear();
+            harness.githubApp.defaultClient.comments.length = 0;
+            await setCreditBalance(harness, harness.organizationId, 0);
+
+            await withBillingEnforced(harness, harness.organizationId, async () => {
+                await expect(
+                    service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(40)),
+                ).rejects.toThrow(InsufficientPreviewCreditsError);
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.githubApp.defaultClient.comments).toHaveLength(1);
+            expect(harness.githubApp.defaultClient.comments[0]).toMatchObject({
+                repoFullName: REPO_FULL_NAME,
+                prNumber: 40,
+            });
+        });
+
+        test("deploy proceeds once the org has a positive balance", async ({ harness }) => {
+            const service = gateTestService(harness);
+            harness.triggerWorkflow.mockClear();
+            await setCreditBalance(harness, harness.organizationId, 1_000);
+
+            await withBillingEnforced(harness, harness.organizationId, async () => {
+                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(41));
+            });
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+        });
+
+        test("deploy is not blocked when the global PREVIEWKIT_BILLING_ENABLED switch is off", async ({ harness }) => {
+            const service = gateTestService(harness);
+            harness.triggerWorkflow.mockClear();
+            // Zero balance, org setting on, but the global switch stays off (default) - not enforced.
+            await setCreditBalance(harness, harness.organizationId, 0);
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, previewkitBillingEnabled: true },
+                update: { previewkitBillingEnabled: true },
+            });
+
+            try {
+                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(42));
+                expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            } finally {
+                await harness.db.organizationSettings.upsert({
+                    where: { organizationId: harness.organizationId },
+                    create: { organizationId: harness.organizationId, previewkitBillingEnabled: false },
+                    update: { previewkitBillingEnabled: false },
+                });
+            }
+        });
+
+        test("deploy is not blocked when the org's own previewkitBillingEnabled setting is off", async ({
+            harness,
+        }) => {
+            const service = gateTestService(harness);
+            harness.triggerWorkflow.mockClear();
+            // Zero balance, global switch on, but the org never opted in - not enforced.
+            await setCreditBalance(harness, harness.organizationId, 0);
+            const wasGloballyEnabled = env.PREVIEWKIT_BILLING_ENABLED;
+            env.PREVIEWKIT_BILLING_ENABLED = true;
+            try {
+                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(43));
+                expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            } finally {
+                env.PREVIEWKIT_BILLING_ENABLED = wasGloballyEnabled;
+            }
+        });
+
+        test("redeployApp is blocked the same way as deploy when the org is out of credits", async ({ harness }) => {
+            const service = gateTestService(harness);
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-44",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 44,
+                    headSha: "head-44",
+                    headRef: "feature/pr-44",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                },
+            });
+            harness.triggerWorkflow.mockClear();
+            await setCreditBalance(harness, harness.organizationId, 0);
+
+            await withBillingEnforced(harness, harness.organizationId, async () => {
+                await expect(
+                    service.redeployApp(REPO_FULL_NAME, 44, "web", "rebuild", harness.organizationId),
+                ).rejects.toThrow(InsufficientPreviewCreditsError);
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("teardown is never blocked by the credits gate, even when out of credits", async ({ harness }) => {
+            const service = gateTestService(harness);
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-acme-web-pr-45",
+                    repoFullName: REPO_FULL_NAME,
+                    prNumber: 45,
+                    headSha: "head-45",
+                    headRef: "feature/pr-45",
+                    githubRepositoryId: REPO_ID,
+                    status: "ready",
+                    organizationId: harness.organizationId,
+                },
+            });
+            harness.triggerWorkflow.mockClear();
+            await setCreditBalance(harness, harness.organizationId, 0);
+
+            await withBillingEnforced(harness, harness.organizationId, async () => {
+                await service.teardownFromWebhook(harness.organizationId, pullRequestPayload(45));
+            });
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
         });
     },
 });

@@ -3,7 +3,7 @@ import type { BillingCheckoutType } from "@autonoma/types";
 import { BillingCustomerService } from "./billing-customer.service";
 import { BillingPricingService } from "./billing-pricing.service";
 import { BillingPromoService } from "./billing-promo.service";
-import type { BillingService, DeductGenerationContext, LlmProxyGateResult } from "./types";
+import type { BillingService, DeductGenerationContext, LlmProxyGateResult, PreviewDeployGateResult } from "./types";
 
 export class DisabledBillingService implements BillingService {
     private readonly billingCustomerService: BillingCustomerService;
@@ -72,6 +72,11 @@ export class DisabledBillingService implements BillingService {
         _gbSeconds: number,
     ) {
         return Promise.resolve(false);
+    }
+
+    checkPreviewDeployCreditsGate(_organizationId: string): Promise<PreviewDeployGateResult> {
+        // Billing disabled means no metering and no gate - allow, matching the other no-op gates.
+        return Promise.resolve({ allowed: true });
     }
 
     refundCreditsForGeneration(_generationId: string) {

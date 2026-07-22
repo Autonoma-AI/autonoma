@@ -1,3 +1,4 @@
+import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { env } from "../env";
 import { buildGitHubApp } from "../github/github-app";
@@ -17,6 +18,7 @@ const triggers = resolvePreviewkitTriggers();
 export const previewkitTriggerService = new PreviewkitTriggerService(
     db,
     new GitHubInstallationService(db, buildGitHubApp(env)),
+    createBillingService(db),
     triggers.deploy,
     triggers.teardown,
     triggers.redeployApp,

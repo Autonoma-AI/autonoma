@@ -1811,6 +1811,13 @@ model OrganizationSettings {
   // Requires TEMPORAL_ADDRESS on the previewkit runner too - that's the fleet-wide capability, this is who fires.
   previewkitAutoTriggerEnabled Boolean @default(false) @map("previewkit_auto_trigger_enabled")
 
+  // Whether previewkit compute-usage billing is enforced for this org: a new deploy/redeploy is declined once the
+  // org's combined credit balance is at or below zero (already-running environments are never torn down for it).
+  // Gated by the global PREVIEWKIT_BILLING_ENABLED master switch, so a flip is per-org and reversible for the
+  // whole fleet. Off by default while usage accrues in shadow mode; enabled per org (autonoma first) once rates
+  // are picked from that data.
+  previewkitBillingEnabled Boolean @default(false) @map("previewkit_billing_enabled")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

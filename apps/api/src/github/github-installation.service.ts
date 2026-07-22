@@ -116,6 +116,13 @@ export class GitHubInstallationService extends Service {
         return client.getRepository(repoId);
     }
 
+    async postComment(orgId: string, repoFullName: string, prNumber: number, body: string): Promise<string> {
+        this.logger.info("Posting PR comment", { orgId, repoFullName, prNumber });
+
+        const client = await this.getOrgInstallationClient(orgId);
+        return client.postComment(repoFullName, prNumber, body);
+    }
+
     async getApplicationRepository(organizationId: string, applicationId: string): Promise<Repository | null> {
         this.logger.info("Fetching application repository", { organizationId, applicationId });
 

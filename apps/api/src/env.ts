@@ -134,6 +134,13 @@ export const env = createEnv({
         // self-host without preview infrastructure - webhooks silently skip and
         // the lifecycle routes return 503.
         PREVIEWKIT_ENABLED: z.stringbool().default(false),
+        // Global master switch for previewkit compute-usage billing enforcement. Off by default: while off, no
+        // org's new deploy/redeploy is ever declined for a zero balance, no matter its per-org
+        // `previewkitBillingEnabled` setting - usage still accrues and windows still get billed
+        // (deductCreditsForPreviewUsage), only enforcement at deploy time is gated. Only when this is on does an
+        // org whose setting is enabled actually get blocked. Two gates (this env switch + the per-org setting) so
+        // a flip is deliberate, per-org, and instantly reversible for the whole fleet.
+        PREVIEWKIT_BILLING_ENABLED: z.stringbool().default(false),
         // The API's own Kubernetes namespace (production / beta / alpha). The
         // previewkit launcher reads the per-env `previewkit-runner-image` ConfigMap
         // from here to pin the runner image, then creates the runner Job in the

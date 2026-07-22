@@ -108,6 +108,25 @@ blocks once the wallet is empty, so the overspend is bounded; tighten with per-A
 (the `ApiKey` model already carries `rateLimit*` fields) or an atomic check-and-reserve if CLI volume
 grows.
 
+### Previewkit deploy credits gate
+
+A new preview deploy or per-app redeploy (never teardown) is declined once an org's combined
+`BillingCustomer.creditBalance` is at or below zero - `PreviewkitTriggerService.deploy()` /
+`.redeployApp()` call `checkPreviewDeployCreditsGate` before launching the Kubernetes Job. Gated by
+two switches so enforcement rolls out per org without affecting anyone else:
+
+- `PREVIEWKIT_BILLING_ENABLED` (default `false`) - the global master switch. Off means no org is
+  ever blocked, no matter its own setting.
+- `OrganizationSettings.previewkitBillingEnabled` (default `false`) - per-org opt-in, only
+  consulted once the global switch is on.
+
+A blocked deploy throws `InsufficientPreviewCreditsError` (`402` on the `/v1/previewkit` HTTP
+routes) and posts a PR comment explaining why before throwing, so every trigger path - GitHub
+webhook, HTTP route, or admin action - surfaces the same explanation regardless of how the deploy
+was started. Usage still accrues and bills via the separate 15-minute usage-meter sweep
+(`apps/cronjobs`) whether or not enforcement is on; this gate only controls whether a *new* deploy
+is allowed to start.
+
 ### PreviewKit topology suggestions
 
 The onboarding PreviewKit builder proposes apps, services, and env vars from the linked repo,

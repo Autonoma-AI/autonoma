@@ -136,6 +136,7 @@ export function buildServices({
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
         githubService,
+        billingService,
         triggerPreviewDeploy,
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,

@@ -1,5 +1,6 @@
+import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
-import { ConflictError, NotFoundError } from "@autonoma/errors";
+import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
 import type {
     PreviewRedeployAppMode,
     TriggerPreviewDeployParams,
@@ -7,10 +8,15 @@ import type {
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
 import { z } from "zod";
+import { env } from "../env";
 import { githubErrorStatus, normalizeBranchName } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
+
+/** Posted to the PR when a deploy/redeploy is declined for a zero credit balance. */
+const INSUFFICIENT_CREDITS_COMMENT =
+    "This organization is out of credits, so this preview environment could not be deployed. Add credits to resume previews.";
 
 export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
 
@@ -57,10 +63,10 @@ interface MainBranchPushTarget {
     cloneUrl: string;
 }
 
-/** The GitHub reads the main-branch preflight and redeploy head-resolution need. */
+/** The GitHub reads the main-branch preflight and redeploy head-resolution need, plus posting the credits-blocked comment. */
 export type PreviewkitGitHubReader = Pick<
     GitHubInstallationService,
-    "getRepository" | "getBranchHead" | "getPullRequest"
+    "getRepository" | "getBranchHead" | "getPullRequest" | "postComment"
 >;
 
 /** The pull_request webhook fields the preview lifecycle needs. */
@@ -107,6 +113,7 @@ export class PreviewkitTriggerService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly githubInstallationService: PreviewkitGitHubReader,
+        private readonly billingService: Pick<BillingService, "checkPreviewDeployCreditsGate">,
         private readonly triggerDeploy: (params: TriggerPreviewDeployParams) => Promise<void>,
         private readonly triggerTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>,
         private readonly triggerRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>,
@@ -121,6 +128,8 @@ export class PreviewkitTriggerService extends Service {
             pr: request.prNumber,
             action,
         });
+
+        await this.assertDeployCreditsAvailable(request.organizationId, request.repoFullName, request.prNumber);
 
         await this.triggerDeploy({
             event: {
@@ -263,6 +272,52 @@ export class PreviewkitTriggerService extends Service {
             });
             return undefined;
         }
+    }
+
+    /**
+     * Declines a NEW deploy/redeploy (never teardown) when the org's combined
+     * credit balance is at or below zero, provided both the global
+     * `PREVIEWKIT_BILLING_ENABLED` switch and the org's own
+     * `previewkitBillingEnabled` setting are on - either off is a no-op, so
+     * enforcement rolls out per org without affecting anyone else. Posts a PR
+     * comment explaining why before throwing, so every caller (webhook, HTTP
+     * route, admin action) surfaces the same explanation on the PR regardless
+     * of how the deploy was triggered.
+     */
+    private async assertDeployCreditsAvailable(
+        organizationId: string,
+        repoFullName: string,
+        prNumber: number,
+    ): Promise<void> {
+        if (!env.PREVIEWKIT_BILLING_ENABLED) return;
+
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { previewkitBillingEnabled: true },
+        });
+        if (settings?.previewkitBillingEnabled !== true) return;
+
+        const gate = await this.billingService.checkPreviewDeployCreditsGate(organizationId);
+        if (gate.allowed) return;
+
+        this.logger.info("Blocking preview deploy: organization is out of credits", {
+            organizationId,
+            repo: repoFullName,
+            pr: prNumber,
+        });
+
+        await this.githubInstallationService
+            .postComment(organizationId, repoFullName, prNumber, INSUFFICIENT_CREDITS_COMMENT)
+            .catch((error: unknown) => {
+                this.logger.warn("Failed to post insufficient-credits PR comment", {
+                    organizationId,
+                    repo: repoFullName,
+                    pr: prNumber,
+                    error: String(error),
+                });
+            });
+
+        throw new InsufficientPreviewCreditsError();
     }
 
     /**
@@ -714,6 +769,8 @@ export class PreviewkitTriggerService extends Service {
         if (!environmentHasApp(environment.appInstances, environment.resolvedConfig, appName)) {
             throw new NotFoundError(`App "${appName}" not found in this environment`);
         }
+
+        await this.assertDeployCreditsAvailable(environment.organizationId, repoFullName, prNumber);
 
         await this.triggerRedeployApp({
             event: {

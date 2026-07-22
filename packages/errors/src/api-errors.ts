@@ -65,6 +65,17 @@ export class SubscriptionGracePeriodExpiredError extends APIError {
 }
 
 /**
+ * Thrown when an organization's credit balance is at or below zero and previewkit
+ * billing enforcement declines a new preview deploy or per-app redeploy. Already-
+ * running environments are never torn down for this - only new Job launches.
+ */
+export class InsufficientPreviewCreditsError extends APIError {
+    constructor(message = "Insufficient credits to launch a new preview deploy") {
+        super(message);
+    }
+}
+
+/**
  * Thrown when a call to a third-party API (e.g. Vercel, Stripe, GitHub) fails,
  * either due to a network error or a non-2xx response. Carries the provider
  * name so callers/observability can attribute the failure, and preserves the

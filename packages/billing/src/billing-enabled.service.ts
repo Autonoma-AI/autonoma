@@ -68,6 +68,10 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.creditsService.deductCreditsForPreviewUsage(organizationId, usageWindowId, vcpuSeconds, gbSeconds);
     }
 
+    checkPreviewDeployCreditsGate(organizationId: string) {
+        return this.creditsService.checkPreviewDeployCreditsGate(organizationId);
+    }
+
     refundCreditsForGeneration(generationId: string) {
         return this.creditsService.refundCreditsForGeneration(generationId);
     }

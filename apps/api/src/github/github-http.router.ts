@@ -1,4 +1,5 @@
 import { db } from "@autonoma/db";
+import { InsufficientPreviewCreditsError } from "@autonoma/errors";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
@@ -259,7 +260,12 @@ async function startPullRequestDeploy(
         logger.info("Skipping preview deploy: PREVIEWKIT_ENABLED is off", { action, organizationId });
         return;
     }
-    await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+    try {
+        await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+    } catch (error) {
+        if (!(error instanceof InsufficientPreviewCreditsError)) throw error;
+        logger.info("Skipped preview deploy: organization is out of credits", { action, organizationId });
+    }
 }
 
 /**
@@ -299,5 +305,10 @@ async function startMainBranchPushDeploy(organizationId: string, payload: Record
         logger.info("Skipping main-branch push deploy: PREVIEWKIT_ENABLED is off", { organizationId });
         return;
     }
-    await previewkitTriggerService.deployMainBranchFromPushWebhook(organizationId, payload);
+    try {
+        await previewkitTriggerService.deployMainBranchFromPushWebhook(organizationId, payload);
+    } catch (error) {
+        if (!(error instanceof InsufficientPreviewCreditsError)) throw error;
+        logger.info("Skipped main-branch push deploy: organization is out of credits", { organizationId });
+    }
 }

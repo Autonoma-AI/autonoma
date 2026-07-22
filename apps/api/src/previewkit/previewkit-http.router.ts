@@ -1,6 +1,6 @@
 import { type AuthCaller, type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth";
 import { db } from "@autonoma/db";
-import { ConflictError, NotFoundError } from "@autonoma/errors";
+import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { BuildLogEntry } from "@autonoma/logger/build-log-event";
 import type { LogStore } from "@autonoma/logger/log-store";
@@ -444,6 +444,7 @@ function previewsDisabled(c: Context): Response {
 function lifecycleErrorResponse(c: Context, error: unknown, logContext: Record<string, string | number>): Response {
     if (error instanceof NotFoundError) return c.json({ error: error.message }, 404);
     if (error instanceof ConflictError) return c.json({ error: error.message }, 409);
+    if (error instanceof InsufficientPreviewCreditsError) return c.json({ error: error.message }, 402);
 
     logger.error("Preview lifecycle operation failed", error, logContext);
     return c.json({ error: "Preview lifecycle operation failed" }, 500);

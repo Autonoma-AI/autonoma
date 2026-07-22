@@ -60,6 +60,9 @@ export type LlmProxyGateReason = "out_of_credits" | "grace_period_expired" | "fr
 
 export type LlmProxyGateResult = { allowed: true } | { allowed: false; reason: LlmProxyGateReason };
 
+/** Why a preview deploy/redeploy was declined - currently only one reason: the org's combined balance is <= 0. */
+export type PreviewDeployGateResult = { allowed: true } | { allowed: false; reason: "out_of_credits" };
+
 export type BillingSessionResult = {
     url: string | null;
 };
@@ -101,6 +104,7 @@ export interface BillingService {
         vcpuSeconds: number,
         gbSeconds: number,
     ): Promise<boolean>;
+    checkPreviewDeployCreditsGate(organizationId: string): Promise<PreviewDeployGateResult>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;
     listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;

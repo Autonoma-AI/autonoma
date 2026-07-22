@@ -6,6 +6,7 @@ export {
     BadRequestError,
     InternalError,
     InsufficientCreditsError,
+    InsufficientPreviewCreditsError,
     SubscriptionGracePeriodExpiredError,
     TooManyRequestsError,
     ThirdPartyError,
