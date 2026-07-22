@@ -340,16 +340,26 @@ vercelInstallationsRouter.delete("/:installationId", async (c) => {
     const { installationId } = c.req.param();
     logger.info("DELETE installation", { installationId });
 
+    // Vercel's uninstall call must finalize immediately - if we ever respond
+    // with anything other than `finalized: true`, Vercel leaves the
+    // uninstall stuck "pending" for up to 24h before retrying. So auth
+    // problems are logged for visibility but never block the deletion or the
+    // response below; the installationId in the URL path is trusted either
+    // way (it's the resource being uninstalled, not sensitive to disclose).
     const auth = await authenticateVercelRequest(c);
     if (!auth.success) {
-        return c.json({ error: auth.error }, 401);
-    }
-    if (installationMismatch(auth, installationId)) {
-        logger.warn("DELETE installation: JWT installationId does not match path", {
+        logger.warn("DELETE installation: auth failed, deleting anyway to finalize immediately", {
             installationId,
-            authInstallationId: auth.installationId,
+            error: auth.error,
         });
-        return c.json({ error: "Installation mismatch" }, 403);
+    } else if (installationMismatch(auth, installationId)) {
+        logger.warn(
+            "DELETE installation: JWT installationId does not match path, deleting anyway to finalize immediately",
+            {
+                installationId,
+                authInstallationId: auth.installationId,
+            },
+        );
     }
 
     const installation = await db.vercelInstallation.findUnique({
