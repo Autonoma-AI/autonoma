@@ -15,7 +15,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 4;
+export const INTEGRATION_PROMPT_VERSION = 5;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -218,7 +218,12 @@ session is done and can upload the recipe:
 Its contents MUST be exactly:
     { "complete": true }
 Do NOT write this marker while any checklist item is unfinished. It is how control
-returns to the CLI - it is not optional.`;
+returns to the CLI - it is not optional. The planner watches for this marker and
+takes the terminal back shortly after it appears. After writing it, end with ONE
+short closing message telling the developer:
+    "The integration is done. The Autonoma planner takes this terminal back in a
+    few seconds to continue the setup - or exit now to continue immediately."
+Nothing after that message - no further questions, summaries, or work.`;
 }
 
 /** Render the integration prompt to its durable file and return the file path. */

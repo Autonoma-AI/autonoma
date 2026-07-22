@@ -5,7 +5,8 @@
         "rootDir": ".",
         "declaration": false,
         "declarationMap": false,
-        "resolveJsonModule": true
+        "resolveJsonModule": true,
+        "jsx": "react-jsx"
     },
     "include": ["src", "tests", "evals"]
 }

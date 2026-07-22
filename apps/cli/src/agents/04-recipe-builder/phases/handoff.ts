@@ -1,8 +1,10 @@
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import * as p from "@clack/prompts";
+import { debugLog } from "../../../core/debug";
 import { suspend, resume } from "../../../core/interrupt";
 import { notify } from "../../../core/notify";
-import { readCompletion } from "../completion";
+import * as p from "../../../ui/prompts";
+import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
 import { INTEGRATION_PROMPT_FILE, writeIntegrationPrompt } from "../integration-prompt";
 import type { AgentLauncher, PermissionMode } from "../launcher";
 import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../launcher";
@@ -12,6 +14,9 @@ import { saveRecipeState } from "../state";
 
 /** Total interactive launches allowed: the first, plus one re-launch to finish. */
 export const MAX_LAUNCH_ATTEMPTS = 2;
+
+/** Breathing room before the terminal switches to the coding agent. */
+const HANDOFF_COUNTDOWN_SECONDS = 10;
 
 export interface HandoffDeps {
     /** Launchers to detect/select over. Injected in tests; built from the repo in prod. */
@@ -196,8 +201,31 @@ async function launchAgent(
         priorFailure: target.priorFailure,
     });
 
+    // A stale marker from an earlier session would make the completion watcher
+    // reclaim the terminal seconds after launch - the agent must write it fresh.
+    await rm(join(target.outputDir, COMPLETION_MARKER_FILE), { force: true }).catch((err) => {
+        debugLog("Could not clear a stale completion marker", { err });
+    });
+
     p.log.info(`Launching ${launcher.label}. It will implement the integration - watch and steer it as it works.`);
     notify("Autonoma", "Handing off to your local agent");
+
+    if (target.interactive) {
+        await p.countdown({
+            title: `Handing off to ${launcher.label}`,
+            lines: [
+                `Your terminal is about to switch to ${launcher.label}. It will implement the ` +
+                    `Autonoma SDK integration inside your repo: install the SDK, wire the endpoint, ` +
+                    `and write a real factory for every entity in the audit, validating each one ` +
+                    `against your locally running app.`,
+                `This dashboard disappears while it works - that's expected. Watch and steer it ` +
+                    `like any ${launcher.label} session; this usually takes a while.`,
+                `When it finishes and exits, you come straight back here and the planner continues ` +
+                    `where it left off: submitting the validated recipe, then generating your test suite.`,
+            ],
+            seconds: HANDOFF_COUNTDOWN_SECONDS,
+        });
+    }
 
     // Hand the terminal (SIGINT + raw mode) to the agent, then take it back.
     suspend();

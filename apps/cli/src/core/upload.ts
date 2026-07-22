@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import * as p from "@clack/prompts";
 import { glob } from "glob";
 import type { AppConfig } from "../config";
+import * as p from "../ui/prompts";
 import { debugLog } from "./debug";
 import { loadGitInfo } from "./git";
 

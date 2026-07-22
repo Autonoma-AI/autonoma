@@ -7,10 +7,8 @@ import { formatContext, type ProjectContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { getModel } from "../../core/model";
 import { pickString } from "../../core/pick-string";
-import { reviewLoop } from "../../core/review";
 import type { buildReadFileTool } from "../../tools";
 import { buildCodebaseTools } from "../../tools";
-import { parseCoreFlows, renderFlowsTable } from "./flows";
 import { SYSTEM_PROMPT } from "./prompt";
 
 export interface KBGeneratorInput {
@@ -284,34 +282,8 @@ When AUTONOMA.md correctly reflects every declared critical flow, call finish.`;
         if (!result) result = beforeSelfReview;
     }
 
-    const reviewed = await reviewLoop(result, {
-        agentId: "kb-generator",
-        outputDir: input.outputDir,
-        nonInteractive: input.nonInteractive,
-        renderSummary: async () => {
-            const flows = await parseCoreFlows(input.outputDir);
-            return flows.length ? renderFlowsTable(flows) : undefined;
-        },
-        reviewGuidance:
-            "Check that every page/route in your app appears in core_flows.\n" +
-            "Verify that every flow the user named as critical in the Project Context appears in core_flows and is marked core: true with a coreReason.\n" +
-            "Verify the mission for each feature describes the ONE thing it must do correctly.\n" +
-            "Look for missing features or incorrectly grouped pages.\n" +
-            "A complex app should have 20-40 features - if you see fewer than 15, features are probably grouped too aggressively.",
-        onFeedback: async (feedback) => {
-            result = undefined;
-            const feedbackPrompt = `The user reviewed your knowledge base output and has this feedback:
-
-"${feedback}"
-
-Read your previous output file (AUTONOMA.md) from the output directory to see what you produced.
-Adjust based on the feedback. You can read source files again if needed.
-Call page_coverage to see current state. When done with changes, call finish again.`;
-
-            await runAgent(finalConfig, feedbackPrompt, () => result);
-            return result;
-        },
-    });
+    // Output review happens live in the TUI - the run no longer stops to ask.
+    const reviewed = result;
 
     return (
         reviewed ?? {

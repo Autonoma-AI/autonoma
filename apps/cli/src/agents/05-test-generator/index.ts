@@ -9,7 +9,6 @@ import { createStepLogger } from "../../core/display";
 import { formatException } from "../../core/errors";
 import { loadGitignorePatterns } from "../../core/gitignore";
 import { getModel } from "../../core/model";
-import { reviewLoop } from "../../core/review";
 import { runConsolidatedReview, type TestReviewFeedback } from "./review";
 
 const MAX_CONCURRENCY = 8;
@@ -356,7 +355,10 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                     batch.map(async (fb) => {
                         const fixPrompt = buildReviewFixPrompt(fb);
                         try {
-                            await runAgent({ ...agentConfig, maxSteps: 30 }, fixPrompt, () => undefined);
+                            // `result` is already set by the generation phase, so the nudge loop is
+                            // skipped: the fix agent runs one pass and stops on finish instead of
+                            // being force-nudged MAX_NUDGES times after every clean pass.
+                            await runAgent({ ...agentConfig, maxSteps: 30 }, fixPrompt, () => result);
                         } catch (err) {
                             console.warn(
                                 `  [fix] Error fixing ${fb.relativePath}: ${err instanceof Error ? err.message : String(err)}`,
@@ -404,31 +406,8 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         }
     }
 
-    const reviewed = await reviewLoop(result, {
-        agentId: "test-generator",
-        outputDir: input.outputDir,
-        nonInteractive: input.nonInteractive,
-        showPreview: false,
-        reviewGuidance:
-            "Check that critical flows have test coverage.\n" +
-            "Verify test steps reference real UI elements (button labels, form fields, navigation paths).\n" +
-            "Look for tests that seem to duplicate each other or reference features that don't exist.\n" +
-            "Test files are in the qa-tests/ folder in the output directory shown above.",
-        onFeedback: async (feedback) => {
-            result = undefined;
-            const feedbackPrompt = `The user reviewed the generated tests and has this feedback:
-
-"${feedback}"
-
-Check current progress with get_progress.
-Read your previous test files if needed.
-Adjust based on the feedback - add missing tests, fix existing ones, or explore new areas.
-When done, call finish again.`;
-
-            await runAgent(agentConfig, feedbackPrompt, () => result);
-            return result;
-        },
-    });
+    // Output review happens live in the TUI - the run no longer stops to ask.
+    const reviewed = result;
 
     return (
         reviewed ?? {

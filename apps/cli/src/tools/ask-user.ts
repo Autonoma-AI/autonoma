@@ -1,6 +1,6 @@
-import * as p from "@clack/prompts";
 import { tool } from "ai";
 import { z } from "zod";
+import * as p from "../ui/prompts";
 
 export function buildAskUserTool() {
     return tool({
@@ -20,14 +20,18 @@ export function buildAskUserTool() {
         }),
         execute: async (input) => {
             // In non-interactive / no-TTY runs there is no human to answer, and
-            // clack's prompt would block forever waiting on a TTY. Auto-skip so the
+            // a prompt would block forever with nobody to answer. Auto-skip so the
             // agent falls back to inferring the answer from the codebase.
             if (!process.stdin.isTTY) {
                 return {
                     answer: "No interactive user is available (non-interactive run). Do not ask again - infer the answer by reading the relevant model/schema/service files in the codebase and proceed with your best judgment.",
                 };
             }
-            const answer = await p.text({ message: input.question });
+            const answer = await p.text({
+                message: input.question,
+                detail: "The agent needs this to continue - esc skips the question.",
+                cancelable: true,
+            });
             if (p.isCancel(answer)) return { answer: "User skipped this question" };
             return { answer };
         },

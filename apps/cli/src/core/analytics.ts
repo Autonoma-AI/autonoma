@@ -102,7 +102,7 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
             $process_person_profile: identity != null,
             cli_version: CLI_VERSION,
             // Runtime version - lets us confirm/monitor Node-version-specific
-            // failures (e.g. the @clack `util.styleText` crash on Node < 22.13).
+            // failures (e.g. a `util.styleText` crash on Node < 22.13 in old deps).
             node_version: process.versions.node,
         },
     });

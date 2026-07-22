@@ -152,7 +152,14 @@ export async function buildListDirectoryTool(workingDirectory: string) {
             const maybeIgnored = input.gitignore ? isIgnored : undefined;
 
             const tree = await buildTree(targetDir, input.depth, 0, maybeIgnored, relBase || undefined);
-            const rendered = renderTree(tree);
+            let rendered = renderTree(tree);
+            // The tree is retained in the conversation until the step ends;
+            // an uncapped listing of a big repo is a heap-exhaustion vector.
+            const MAX_TREE_BYTES = 128 * 1024;
+            if (rendered.length > MAX_TREE_BYTES) {
+                rendered =
+                    rendered.slice(0, MAX_TREE_BYTES) + "\n... [tree truncated - list a subdirectory or reduce depth]";
+            }
             const relPath = relative(workingDirectory, targetDir) || ".";
 
             return {

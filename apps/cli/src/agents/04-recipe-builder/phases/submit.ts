@@ -1,4 +1,4 @@
-import * as p from "@clack/prompts";
+import * as p from "../../../ui/prompts";
 import { type FullRecipeJson, RECIPE_FILE, loadRecipe } from "../recipe";
 
 const UPLOAD_COMMAND = "npx @autonoma-ai/planner@latest upload";

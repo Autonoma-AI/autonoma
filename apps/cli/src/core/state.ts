@@ -61,6 +61,17 @@ export async function saveState(outputDir: string, state: PipelineState): Promis
 
 export type StepName = keyof PipelineState["steps"];
 
+/** Canonical pipeline order - the one list every consumer derives from. */
+export const STEP_ORDER: StepName[] = [
+    "projectMapper",
+    "pagesFinder",
+    "kb",
+    "entityAudit",
+    "scenarioRecipe",
+    "recipeBuilder",
+    "testGenerator",
+];
+
 export async function markStep(
     outputDir: string,
     state: PipelineState,
@@ -76,14 +87,5 @@ export async function markStep(
 }
 
 export function nextPendingStep(state: PipelineState): StepName | undefined {
-    const order: StepName[] = [
-        "projectMapper",
-        "pagesFinder",
-        "kb",
-        "entityAudit",
-        "scenarioRecipe",
-        "recipeBuilder",
-        "testGenerator",
-    ];
-    return order.find((s) => state.steps[s] !== "done") ?? undefined;
+    return STEP_ORDER.find((s) => state.steps[s] !== "done") ?? undefined;
 }

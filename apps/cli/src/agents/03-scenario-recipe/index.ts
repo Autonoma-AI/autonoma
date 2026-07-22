@@ -8,11 +8,10 @@ import { type ProjectContext, formatContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { getModel } from "../../core/model";
 import { parseEntityNames } from "../../core/parse-entity-audit";
-import { reviewLoop } from "../../core/review";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
 import { SCENARIO_DESIGN_PROMPT } from "./prompt";
-import { parseScenario, renderScenarioTable, validateScenarioIsConcrete } from "./scenario-table";
+import { validateScenarioIsConcrete } from "./scenario-table";
 
 export interface ScenarioRecipeInput {
     projectRoot: string;
@@ -135,36 +134,8 @@ When done, call finish.`;
     await runAgent(agentConfig, prompt, () => result);
     logger.summary();
 
-    const reviewed = await reviewLoop(result, {
-        agentId: "scenario-recipe",
-        outputDir: input.outputDir,
-        nonInteractive: input.nonInteractive,
-        renderSummary: async () => {
-            const parsed = await parseScenario(input.outputDir);
-            return parsed.entityTypes.length ? renderScenarioTable(parsed) : undefined;
-        },
-        reviewGuidance:
-            "The scenario defines test data that will exist in the database during E2E tests.\n" +
-            "Each entity_type should have a realistic count and data values.\n\n" +
-            "What to check:\n" +
-            "  - Every entity from the entity audit should appear here\n" +
-            "  - Counts should be realistic (not just 1 of each)\n" +
-            "  - Enum fields should have diverse values (not all the same)\n" +
-            "  - Data values should match your actual database patterns",
-        onFeedback: async (feedback) => {
-            result = undefined;
-            const feedbackPrompt = `The user reviewed the scenario design and has this feedback:
-
-"${feedback}"
-
-Read your previous output (scenarios.md) from the output directory.
-Adjust based on the feedback. You can read entity-audit.md or source files again if needed.
-When done with changes, call finish again.`;
-
-            await runAgent(agentConfig, feedbackPrompt, () => result);
-            return result;
-        },
-    });
+    // Output review happens live in the TUI - the run no longer stops to ask.
+    const reviewed = result;
 
     if (!reviewed) {
         const scenariosPath = join(input.outputDir, "scenarios.md");

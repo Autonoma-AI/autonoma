@@ -17,50 +17,55 @@ AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@lates
 
 That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner` (the installed command is `autonoma-planner`). Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
 
-Before the run starts, the planner asks a few quick questions to steer the output:
+It works through seven steps; everything it produces is readable live in the dashboard as it's written.
 
-- What is this project?
-- Why do you want E2E tests?
-- What are the most critical flows?
+## Watch it work
 
-Then it works through six steps, pausing for your review between each.
+A full run can take an hour or more, so the pipeline phase runs inside a live dashboard right in your terminal: the steps and their progress on the left, every generated file in the middle, and the document being written right now on the right - streaming live from disk so you can read the knowledge base, scenarios, and tests as they're produced. An activity feed at the bottom shows exactly what the agent is doing at any moment, and the top bar tracks elapsed time and a single estimated time remaining.
+
+Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produced file, and scroll it while the run continues. Press `f` to jump back to following the newest file. Progress is saved continuously - Ctrl+C twice exits, and `--resume` picks up where you left off.
 
 ## What it does
 
 | # | Step | What it does | Output |
 | --- | --- | --- | --- |
-| 1 | **Find your pages** | Maps every page and route in your app. | - |
-| 2 | **Build a knowledge base** | Learns your features, flows, and UI patterns. | `AUTONOMA.md` |
-| 3 | **Map your data models** | Finds what your app stores and how each record is created. | `entity-audit.md` |
-| 4 | **Design test scenarios** | Decides the realistic data each test runs against. | `scenarios.md` |
-| 5 | **Set up test data** | Wires small helpers that create and clean up that data, validates the full up/down cycle against your app, and submits the recipe. | `recipe.json` |
-| 6 | **Generate the tests** | Writes the E2E tests as natural-language markdown, covering every page and feature. | `qa-tests/` |
+| 1 | **Map your project structure** | Finds your frontend(s) and backend(s) so later steps scan only what matters. | `project-map.json` |
+| 2 | **Find your pages** | Maps every page and route in your app. | `pages.json` |
+| 3 | **Build a knowledge base** | Learns your features, flows, and UI patterns. | `AUTONOMA.md` |
+| 4 | **Map your data models** | Finds what your app stores and how each record is created. | `entity-audit.md` |
+| 5 | **Design test scenarios** | Decides the realistic data each test runs against. | `scenarios.md` |
+| 6 | **Set up test data** | Hands the [Environment Factory](/environment-factory/) integration to your own coding agent, which implements it, validates it live, and produces the recipe. | `recipe.json` |
+| 7 | **Generate the tests** | Writes the E2E tests as natural-language markdown, covering every page and feature. | `qa-tests/` |
 
-Step 5 is where the planner connects to the [Environment Factory](/environment-factory/) - it wires the create/teardown helpers and proves they work end to end before any tests are written.
+### Step 6: your coding agent wires the test data
 
-## Review checkpoints
+Setting up test data means wiring the [Environment Factory](/environment-factory/) into your backend - real code in your repo. Instead of handing you instructions to paste somewhere, the planner launches your **locally installed Claude** in one session, the same way `git commit` opens your editor: the dashboard steps aside, your agent takes the terminal, and control returns when it's done.
 
-The planner pauses after each step and shows you what it produced. Review it before moving on - these checkpoints determine the quality of the final suite. If a step got something wrong, you can retry it with a note steering the agent in the right direction.
+The agent installs the SDK, builds the endpoint, registers factories that call your app's real creation code, generates the test-data recipe, and validates every entity against your locally running app - creating records, checking your database, tearing them down, and checking they're gone. When it reports the integration complete, the planner uploads the recipe and moves on to test generation.
 
-The steps that matter most to review:
+By default the session is fully autonomous; pass `--permission-mode` to make it ask before edits or commands instead. If no supported agent is installed (or you decline), the planner writes the full instructions to `~/.autonoma/<app>/integration-prompt.md` so you can implement them with any assistant, then continue with `--resume`.
 
-- **Find your pages / Knowledge base** - sets what gets tested and how coverage is prioritized.
-- **Map your data models** - decides which models run your real business logic during tests.
-- **Design test scenarios** - fixed values become assertions; variable values become tokens substituted at run time.
-- **Set up test data** - confirms the scenarios actually work against your real database.
+## Reviewing the output
+
+Everything the planner produces streams into the dashboard's file list the moment it's written - open any file and read it while the run continues. If a step fails, the planner stops and asks whether to retry, retry with a steering note, or stop; progress is saved either way.
 
 ## Commands and flags
 
 ```bash
 autonoma-planner            # run the pipeline (default command)
 autonoma-planner status     # show progress for the current project
+autonoma-planner upload     # re-upload already-generated artifacts after a failed upload
 
 # Useful flags
 --project <path>            # target a repo other than the current directory
+--frontend <path>           # in a monorepo, the frontend directory to plan tests for
+--backends <path,path>      # the backend/data-layer directories it depends on
 --step <name>               # run or re-run a single step
 --resume                    # continue from where a previous run stopped
---non-interactive           # run without the review pauses (CI)
+--non-interactive           # run unattended, plain output (CI)
 --model <id>                # pick a different Autonoma-hosted model (still no key needed)
+--agent <name>              # which coding agent handles the test-data step (default: auto-detect)
+--permission-mode <mode>    # its autonomy: bypassPermissions (default) | acceptEdits | default
 ```
 
 ## Output

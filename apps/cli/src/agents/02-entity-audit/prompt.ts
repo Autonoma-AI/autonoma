@@ -42,8 +42,11 @@ When next_model returns done, write entity-audit.md and call finish.
 
 ## Output file
 
-You produce ONE file, entity-audit.md - YAML frontmatter with ALL models, then a
-markdown body organized by module/area.
+You produce ONE file: entity-audit.md. It is the complete spec a developer (or
+coding agent) later implements factories from, so creation_file, creation_function,
+and side_effects must be precise enough to write the factory without re-auditing.
+
+YAML frontmatter with ALL models, then markdown body organized by module/area.
 
 Frontmatter format:
 \`\`\`yaml

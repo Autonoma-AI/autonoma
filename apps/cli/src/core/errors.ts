@@ -78,7 +78,7 @@ export function sleep(ms: number): Promise<void> {
 
 /**
  * True when an error represents the user deliberately stopping the run - a
- * Ctrl+C or a "cancel" choice at an interactive prompt (clack throws/returns a
+ * Ctrl+C or a "cancel" choice at an interactive prompt (the prompt returns a
  * cancel that we surface as a "... cancelled" error). These are not failures:
  * callers should save progress and exit quietly, and must NOT report them to
  * error tracking, where they'd masquerade as bugs.

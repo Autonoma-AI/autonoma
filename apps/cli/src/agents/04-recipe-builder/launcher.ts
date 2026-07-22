@@ -1,8 +1,17 @@
 import type { StdioOptions } from "node:child_process";
-import * as p from "@clack/prompts";
+import { dirname } from "node:path";
 import spawn from "cross-spawn";
 import which from "which";
 import { debugLog } from "../../core/debug";
+import * as p from "../../ui/prompts";
+import { readCompletion } from "./completion";
+
+/** How often to check for the completion marker while the agent runs. */
+const MARKER_POLL_MS = 2000;
+/** Marker seen -> let the agent finish streaming its summary before reclaiming. */
+const MARKER_EXIT_GRACE_MS = 30_000;
+/** SIGTERM ignored -> force-kill after this long. */
+const KILL_ESCALATION_MS = 10_000;
 
 /**
  * The autonomy the interactive agent runs with, in plain-language labels that map
@@ -94,17 +103,71 @@ export class ClaudeLauncher implements AgentLauncher {
                 env: this.opts.env,
                 stdio,
             });
+            // An interactive session never exits on its own - after the final
+            // message it sits at its REPL. The completion marker is the real
+            // "done" signal, so watch for it and reclaim the terminal.
+            const stopWatching = interactive ? watchForCompletion(dirname(promptFile), proc) : () => {};
             proc.on("error", (err: Error) => {
                 debugLog("Claude Code failed to spawn", { err });
                 p.log.error(`Couldn't launch Claude Code: ${err.message}`);
+                stopWatching();
                 resolve(undefined);
             });
             proc.on("close", (code) => {
                 debugLog("Claude Code exited", { code });
+                stopWatching();
                 resolve(code ?? undefined);
             });
         });
     }
+}
+
+export interface CompletionWatchTiming {
+    pollMs: number;
+    graceMs: number;
+    killMs: number;
+}
+
+const DEFAULT_WATCH_TIMING: CompletionWatchTiming = {
+    pollMs: MARKER_POLL_MS,
+    graceMs: MARKER_EXIT_GRACE_MS,
+    killMs: KILL_ESCALATION_MS,
+};
+
+/**
+ * Poll for the completion marker while the interactive agent runs; once it
+ * appears, give the agent a beat to finish streaming its summary, then
+ * terminate it so control returns to the planner. Returns a cleanup fn.
+ */
+export function watchForCompletion(
+    outputDir: string,
+    proc: { kill(signal: NodeJS.Signals): boolean },
+    timing: CompletionWatchTiming = DEFAULT_WATCH_TIMING,
+): () => void {
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = setInterval(() => {
+        void readCompletion(outputDir).then((complete) => {
+            if (!complete || graceTimer != null) return;
+            debugLog("Completion marker detected while the agent runs; scheduling terminal reclaim");
+            clearInterval(poll);
+            graceTimer = setTimeout(() => {
+                debugLog("Reclaiming the terminal from the interactive agent (SIGTERM)");
+                proc.kill("SIGTERM");
+                killTimer = setTimeout(() => {
+                    debugLog("Agent ignored SIGTERM; escalating to SIGKILL");
+                    proc.kill("SIGKILL");
+                }, timing.killMs);
+            }, timing.graceMs);
+        });
+    }, timing.pollMs);
+
+    return () => {
+        clearInterval(poll);
+        if (graceTimer != null) clearTimeout(graceTimer);
+        if (killTimer != null) clearTimeout(killTimer);
+    };
 }
 
 /** Every launcher this CLI knows how to build. Claude only, for now. */
@@ -156,7 +219,7 @@ export async function selectLauncher(
 
 /**
  * Resolve the permission mode: a preset from the `--permission-mode` flag wins;
- * otherwise offer a clack select defaulting to fully autonomous.
+ * otherwise offer a select prompt defaulting to fully autonomous.
  */
 export async function selectPermissionMode(preset?: PermissionMode): Promise<PermissionMode> {
     if (preset != null) return preset;

@@ -1,4 +1,4 @@
-// Minimum Node.js the planner supports. Not arbitrary: @clack/prompts (our
+// Minimum Node.js the planner supports. Not arbitrary: ink and react (our
 // interactive UI) calls `util.styleText(["inverse", "hidden"], ...)`, and the
 // array form of `styleText` only exists on Node >= 22.13 (and 23+). On older
 // Node the first prompt render throws a cryptic `The argument 'format' must be
@@ -20,7 +20,7 @@ export function isSupportedNodeVersion(raw: string): boolean {
 
 /**
  * Exit early with a clear message when the runtime is too old for the CLI's
- * dependencies. Uses plain `console` (not @clack) on purpose: @clack is exactly
+ * dependencies. Uses plain `console` (not the TUI) on purpose: the TUI stack is exactly
  * what breaks on the unsupported versions, so it can't be trusted to render the
  * warning. Called as the very first thing the process does.
  */

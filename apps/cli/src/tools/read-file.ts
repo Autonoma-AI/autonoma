@@ -4,6 +4,10 @@ import { tool } from "ai";
 import { z } from "zod";
 
 const MAX_LINES = 2000;
+// A line cap alone is useless against minified bundles or lockfiles (megabytes
+// on one line). Every result is retained in the agent's conversation for the
+// whole step, so an uncapped read is a straight path to heap exhaustion.
+const MAX_OUTPUT_BYTES = 256 * 1024;
 
 const inputSchema = z.object({
     filePath: z.string().describe("Path to the file (absolute or relative to working directory)"),
@@ -65,6 +69,11 @@ export async function executeReadFile(
     try {
         const content = await readFile(resolved.absolutePath, "utf-8");
         const sliced = sliceLines(content, offset ?? 0, limit ?? MAX_LINES);
+        if (sliced.numbered.length > MAX_OUTPUT_BYTES) {
+            sliced.numbered =
+                sliced.numbered.slice(0, MAX_OUTPUT_BYTES) +
+                `\n... [output truncated at ${Math.round(MAX_OUTPUT_BYTES / 1024)}KB - request a smaller offset/limit range]`;
+        }
 
         return {
             path: resolved.relativePath,

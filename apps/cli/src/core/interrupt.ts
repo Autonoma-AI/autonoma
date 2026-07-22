@@ -1,6 +1,5 @@
-import readline from "node:readline";
-import { settings } from "@clack/core";
 import { debugLog } from "./debug";
+import { pauseUi, resumeUi, teardownUi } from "./ui-lifecycle";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
@@ -19,15 +18,29 @@ let armed = false;
 let armTimer: ReturnType<typeof setTimeout> | undefined;
 let onExit: ((exitCode?: number) => void) | undefined;
 let quitting = false;
-// The readline.createInterface pair, captured at install so suspend/resume can
-// swap the SIGINT-injecting wrapper out (to hand stdin to a child) and back in.
-let originalCreateInterface: typeof readline.createInterface | undefined;
-let patchedCreateInterface: typeof readline.createInterface | undefined;
+
+// While the Ink TUI is mounted, the arm hint must render inside the frame
+// instead of scribbling on stderr. The TUI registers a display callback; when
+// unset, the hint falls back to a plain stderr line.
+let armDisplay: ((armed: boolean) => void) | undefined;
+
+export function setInterruptArmDisplay(cb: ((armed: boolean) => void) | undefined): void {
+    armDisplay = cb;
+}
+
+function showArmed(isArmed: boolean): void {
+    if (armDisplay != null) {
+        armDisplay(isArmed);
+        return;
+    }
+    if (isArmed) process.stderr.write(`\n${EXIT_HINT}\n`);
+}
 
 function disarm(): void {
     if (armTimer) clearTimeout(armTimer);
     armTimer = undefined;
     armed = false;
+    showArmed(false);
 }
 
 /** Last-resort synchronous exit. Never waits on a promise or the event loop. */
@@ -61,61 +74,48 @@ function handleInterrupt(): void {
     // Claude Code-style: a second Ctrl+C within the window quits; otherwise it
     // disarms and the run continues untouched.
     armed = true;
-    process.stderr.write(`\n${EXIT_HINT}\n`);
+    showArmed(true);
     armTimer = setTimeout(disarm, ARM_WINDOW_MS);
 }
 
 /**
- * Install Ctrl+C double-press handling and neuter ESC-as-exit.
+ * Feed a Ctrl+C press from the Ink TUI (mounted with exitOnCtrlC: false, so
+ * raw-mode presses arrive as input, never as SIGINT). Applies the exact same
+ * double-press policy as the signal path.
+ */
+export function interruptPress(): void {
+    handleInterrupt();
+}
+
+/**
+ * Install Ctrl+C double-press handling.
  *
- * - ESC no longer cancels prompts (the alias is removed).
- * - Ctrl+C requires two presses within a 3s window to quit. The first press
- *   shows a hint; if no second press lands, the run continues.
- *
- * Works both while a clack prompt owns stdin (via a SIGINT listener injected
- * onto each readline interface) and between prompts (via process SIGINT).
+ * Ctrl+C requires two presses within a 3s window to quit. The first press
+ * shows a hint; if no second press lands, the run continues. While the Ink
+ * TUI owns stdin (raw mode) presses arrive via interruptPress(); everywhere
+ * else Ctrl+C arrives as a normal process SIGINT.
  */
 export function installInterruptHandler(opts: { onExit: (exitCode?: number) => void }): void {
     onExit = opts.onExit;
     if (installed) return;
     installed = true;
 
-    // ESC should do nothing. clack maps "escape" -> "cancel" by default and
-    // updateSettings can't remove an existing alias, so delete it on the live map.
-    settings.aliases.delete("escape");
-
-    // Between prompts (raw mode off), Ctrl+C arrives as a normal process signal.
     process.on("SIGINT", handleInterrupt);
-
-    // During a clack prompt, readline owns stdin in raw mode. Node's readline
-    // closes the interface on Ctrl+C ONLY when it has no "SIGINT" listener; if a
-    // listener exists it emits "SIGINT" and leaves the prompt running. So inject
-    // one onto every interface clack creates.
-    const original = readline.createInterface.bind(readline);
-    originalCreateInterface = original;
-    // The one unavoidable assertion in this package: readline.createInterface is
-    // an overloaded builtin, and a single-signature wrapper is not structurally
-    // assignable to its overload set without bridging the type here.
-    patchedCreateInterface = ((...args: Parameters<typeof readline.createInterface>) => {
-        const iface = original(...args);
-        iface.on("SIGINT", handleInterrupt);
-        return iface;
-    }) as typeof readline.createInterface;
-    readline.createInterface = patchedCreateInterface;
 }
 
 /**
- * Hand the terminal to a spawned interactive child (e.g. a local agent). Detaches
- * the CLI's SIGINT double-tap handler and the readline SIGINT interception, and
- * restores cooked mode, so Ctrl+C behaves the way the developer expects INSIDE the
- * child - interrupting it, not killing the whole CLI. Idempotent; a no-op if the
- * handler was never installed.
+ * Hand the terminal to a spawned interactive child (e.g. a local agent).
+ * Unmounts the TUI, detaches the CLI's SIGINT double-tap handler, and restores
+ * cooked mode, so Ctrl+C behaves the way the developer expects INSIDE the
+ * child - interrupting it, not killing the whole CLI. Idempotent; a no-op if
+ * the handler was never installed.
  */
 export function suspend(): void {
     if (!installed) return;
+    // The Ink frame must be gone before the child owns the terminal.
+    pauseUi();
     disarm();
     process.removeListener("SIGINT", handleInterrupt);
-    if (originalCreateInterface != null) readline.createInterface = originalCreateInterface;
     restoreTerminal();
 }
 
@@ -125,7 +125,7 @@ export function resume(): void {
     if (!process.listeners("SIGINT").includes(handleInterrupt)) {
         process.on("SIGINT", handleInterrupt);
     }
-    if (patchedCreateInterface != null) readline.createInterface = patchedCreateInterface;
+    resumeUi();
 }
 
 /**
@@ -154,6 +154,7 @@ export function installTerminationDiagnostics(): void {
     }
 
     process.on("uncaughtException", (err) => {
+        teardownUi();
         const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
         process.stderr.write(`\n[diagnostics] uncaughtException (${memSnapshot()}): ${detail}\n`);
         restoreTerminal();
@@ -165,6 +166,7 @@ export function installTerminationDiagnostics(): void {
     // let the pipeline continue in a corrupted state (emitting a bad plan/factory from a
     // half-finished step). Surface the breadcrumb, then honor the crash instead of swallowing it.
     process.on("unhandledRejection", (reason) => {
+        teardownUi();
         const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
         process.stderr.write(`\n[diagnostics] unhandledRejection (${memSnapshot()}): ${detail}\n`);
         restoreTerminal();

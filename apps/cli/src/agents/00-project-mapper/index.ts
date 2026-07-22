@@ -1,8 +1,10 @@
 import { tool } from "ai";
+import { z } from "zod";
 import { buildDefaultStepLogger, runAgent } from "../../core/agent";
 import { getModel } from "../../core/model";
 import { type ProjectMap, ProjectMapSchema } from "../../core/project-map";
 import { buildCodebaseTools } from "../../tools";
+import { findUncoveredDirs } from "./coverage";
 
 export interface ProjectMapperInput {
     projectRoot: string;
@@ -22,12 +24,21 @@ const SYSTEM_PROMPT =
     "which - a human (or the agent driving you) picks afterward from what you found. So enumerate EVERY candidate " +
     "frontend and EVERY candidate backend you can justify; do not prune down to a single app. Pruning happens at " +
     "selection, using the dependency edges you record.\n\n" +
-    "Discover the structure - never assume it. Read package/dependency manifests, config files, and the directory " +
-    "layout, then reason from evidence:\n" +
+    "Work as INVENTORY -> CLASSIFY, in that order:\n" +
+    "1. INVENTORY: build the complete list of candidate units MECHANICALLY before classifying anything. Read however " +
+    "this repo declares its members - workspace/package manifests, build orchestration configs - and list the " +
+    "top-level directories. That inventory, not your intuition while exploring, is the checklist you work through.\n" +
+    "2. CLASSIFY every inventory entry by reading its manifest/entry points - frontend, backend, both, or ignore. " +
+    "Every entry ends up in the map somewhere; NEVER drop one silently. Two runs over the same codebase must produce " +
+    "the same map, because both derive it from the same inventory.\n\n" +
+    "What each group means:\n" +
     "- A FRONTEND renders a user interface (pages/routes/views, a UI framework or bundler, browser entry points).\n" +
-    "- A BACKEND serves an API and/or owns the data layer (a database schema, ORM models, migrations, server routes).\n" +
+    "- A BACKEND serves an API and/or owns the data layer (a database schema, ORM models, migrations, server routes). " +
+    "Backend shapes that are easy to miss - include ALL of them: a service that only exposes an API (no data layer of " +
+    "its own), a background worker / queue or job consumer that reads or writes the same database, a shared data-layer " +
+    "package, and a gateway plus the services behind it.\n" +
     "- IGNORE is the rest: infra, build tooling, examples, generated code, and packages that are neither a UI nor a " +
-    "service/data-layer.\n\n" +
+    "service/data-layer. Ignoring is an explicit decision with a why - not the absence of an entry.\n\n" +
     "For EACH frontend, record `dependsOn`: the repo-relative paths (each must be one of the backends you list) that " +
     "that frontend actually needs in order to work - the API/service(s) it calls and the data layer(s) that own the " +
     "records it renders. Infer these from evidence: the frontend's dependency manifest, the API clients/SDKs it " +
@@ -59,13 +70,15 @@ export async function runProjectMapper(input: ProjectMapperInput): Promise<Proje
     const { logger, onStepFinish } = buildDefaultStepLogger("project-map", MAX_STEPS);
 
     let captured: ProjectMap | undefined;
+    let uncoveredAtCapture: string[] = [];
 
     const prompt =
         `Map the codebase rooted at ${input.projectRoot}.\n\n` +
-        "Explore the layout and dependency manifests, then enumerate EVERY candidate frontend and EVERY candidate " +
-        "backend/data-layer, and for each frontend record the backends it depends on. List everything genuinely " +
-        "irrelevant under ignore. Do not prune to a single app - a human picks the one to test afterward. Then call " +
-        "set_project_map and finish.";
+        "First build the full inventory (workspace/package manifests + top-level directories), then classify EVERY " +
+        "inventory entry: every candidate frontend, every candidate backend/data-layer (including API-only services " +
+        "and background workers), and everything genuinely irrelevant under ignore. For each frontend record the " +
+        "backends it depends on. Do not prune to a single app - a human picks the one to test afterward. Then call " +
+        "set_project_map (it verifies nothing was missed) and finish.";
 
     const agentConfig = {
         id: "project-mapper",
@@ -79,14 +92,45 @@ export async function runProjectMapper(input: ProjectMapperInput): Promise<Proje
                 set_project_map: tool({
                     description:
                         "Record the final project map: the frontend app(s), the backend(s)/data layer(s), and the " +
-                        "directories to ignore. Call this once you are confident in the partition, then call finish.",
+                        "directories to ignore. Call this once you are confident in the partition, then call finish. " +
+                        "The map must account for every directory in the repo - unaccounted ones are returned so you " +
+                        "can classify them and call this again.",
                     inputSchema: ProjectMapSchema,
-                    execute: (map) => {
+                    execute: async (map) => {
                         captured = map;
-                        return (
+                        const recorded =
                             `Recorded: ${map.frontends.length} frontend(s), ${map.backends.length} backend(s), ` +
-                            `${map.ignore.length} ignored. Now call finish.`
-                        );
+                            `${map.ignore.length} ignored.`;
+                        const uncovered = await findUncoveredDirs(input.projectRoot, map);
+                        uncoveredAtCapture = uncovered;
+                        if (uncovered.length > 0) {
+                            return (
+                                `${recorded} BUT these directories are not covered by any entry: ` +
+                                `${uncovered.join(", ")}. Check each one - if it holds a frontend or a ` +
+                                "backend/data layer (including API-only services and background workers), add it; " +
+                                "otherwise add it to ignore with a why. Then call set_project_map again with the " +
+                                "complete map."
+                            );
+                        }
+                        return `${recorded} Every directory is accounted for. Now call finish.`;
+                    },
+                }),
+                finish: tool({
+                    description: "End this step. Call once set_project_map has recorded a complete map.",
+                    inputSchema: z.object({}),
+                    execute: () => {
+                        if (captured == null) {
+                            return { error: "Cannot finish: no map recorded - call set_project_map first." };
+                        }
+                        if (uncoveredAtCapture.length > 0) {
+                            return {
+                                error:
+                                    "Cannot finish: the recorded map leaves directories unaccounted for: " +
+                                    `${uncoveredAtCapture.join(", ")}. Classify each (frontend, backend, or ` +
+                                    "ignore with a why) and call set_project_map again.",
+                            };
+                        }
+                        return "Done.";
                     },
                 }),
             };
@@ -94,7 +138,10 @@ export async function runProjectMapper(input: ProjectMapperInput): Promise<Proje
         onStepFinish,
     };
 
-    await runAgent(agentConfig, prompt, () => captured);
+    // Incomplete coverage keeps the nudge loop alive (the agent is told which
+    // directories it missed); after the nudge budget we still return whatever
+    // map was captured - a map with holes beats no map.
+    await runAgent(agentConfig, prompt, () => (uncoveredAtCapture.length === 0 ? captured : undefined));
     logger.summary();
 
     return captured;

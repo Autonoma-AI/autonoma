@@ -1,20 +1,25 @@
-// MUST be first: guards the Node version before @clack/prompts (below) loads.
+// MUST be first: guards the Node version before ink/react (below) load.
 import "./core/ensure-node";
+
+// Before react/ink load: without this the published CLI runs React's
+// development build - slower renders and far heavier memory retention.
+process.env.NODE_ENV ??= "production";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as p from "@clack/prompts";
 import { uploadRecipeFromDisk } from "./agents/04-recipe-builder/phases/submit";
 import { runSdkCommand } from "./agents/04-recipe-builder/sdk-command";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
 import { track, trackError, flushAnalytics } from "./core/analytics";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
-import { type ProjectContext, saveContext, loadContext } from "./core/context";
+import { type ProjectContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { DEFAULT_MODEL } from "./core/model";
 import { ensureOutputDir } from "./core/output";
+import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
+import * as p from "./ui/prompts";
 
 // tsup emits source maps; ask Node to apply them so any stack that does reach
 // our own code points at src/* instead of the bundled dist/index.js.
@@ -34,8 +39,20 @@ import {
     saveProjectMap,
     type ScopeSelection,
 } from "./core/project-map";
-import { loadState, markStep, nextPendingStep, type StepName, type PipelineState } from "./core/state";
+import {
+    initialState,
+    loadState,
+    markStep,
+    nextPendingStep,
+    saveState,
+    STEP_ORDER,
+    type StepName,
+    type PipelineState,
+} from "./core/state";
 import { uploadArtifacts } from "./core/upload";
+import { CLI_VERSION } from "./core/version";
+import { STEP_INTROS, STEP_SUMMARIES } from "./ui/steps";
+import { getActiveStore, type RunStore } from "./ui/store";
 
 const PAGES_FILE = "pages.json";
 
@@ -99,33 +116,8 @@ function isStepName(value: string): value is StepName {
     return value in STEP_LABELS;
 }
 
-// One-line plain-language summary per step, used in the upfront overview and the
-// "continue?" prompts so it's always clear what's coming before it runs.
-const STEP_SUMMARIES: Record<StepName, string> = {
-    projectMapper: "Identify your frontend(s), backend(s), and which folders to ignore.",
-    pagesFinder: "Map every page and route in your app.",
-    kb: "Learn your app's features, flows, and UI patterns.",
-    entityAudit: "Find what your app stores (users, orgs, ...) and how each one is created.",
-    scenarioRecipe: "Decide the realistic data each test will run against.",
-    recipeBuilder: "Wire up small helpers that create and clean up that data in your database.",
-    testGenerator: "Write the end-to-end tests, covering every page and feature.",
-};
-
-const STEP_INTROS: Record<StepName, string> = {
-    projectMapper:
-        "Looking at how your codebase is laid out - which folder(s) are the frontend, which are the backend/data layer, and which are unrelated - so every later step scans only what matters instead of the whole repo.",
-    pagesFinder:
-        "Scanning your codebase to find every page and route, so we know the full surface area that needs test coverage.",
-    kb: "Reading those pages to learn your app's features, flows, and UI patterns - the context everything after this builds on.",
-    entityAudit:
-        "Finding the things your app stores (users, organizations, orders, ...) and how each one gets created, so we can generate realistic test data for them.",
-    scenarioRecipe:
-        "Designing the data each test will run against - concrete, realistic values that match how your app actually uses them.",
-    recipeBuilder:
-        "Handing off to your local coding agent to wire up small helpers that create and clean up test data in your own database. It implements them, generates the recipe, and validates each one live against your app running locally - you watch it work, then we continue.",
-    testGenerator:
-        "Writing the actual end-to-end tests, covering every page and feature with depth proportional to its complexity.",
-};
+// Step summaries and intros live in ui/steps.ts so the dashboard's help modal
+// shares the exact copy the prompts use.
 
 /**
  * Turn the mapper's candidate map into a single testable surface. Precedence:
@@ -156,29 +148,40 @@ async function resolveScopeSelection(
     return pickDefaultSelection(map);
 }
 
-/** Interactive radio (frontend) + checkbox (backends, pre-checked to the frontend's dependencies). */
+/**
+ * Interactive radio (frontend) + checkbox (backends, pre-checked to the
+ * frontend's dependencies). Esc on the backends question goes BACK to the
+ * frontend pick; the flow can only move forward or back, never abort the run.
+ */
 async function promptScopeSelection(map: ProjectMap): Promise<ScopeSelection> {
-    const frontend = await p.select({
-        message: "Which frontend do you want to plan tests for?",
-        options: map.frontends.map((f) => ({ value: f.path, label: `${f.path}  [${f.framework}]`, hint: f.why })),
-    });
-    if (p.isCancel(frontend)) throw new Error("Cancelled");
+    while (true) {
+        const frontend = await p.select({
+            message: "Which frontend do you want to plan tests for?",
+            detail: "One frontend per run - the whole test suite is planned against it.",
+            options: map.frontends.map((f) => ({ value: f.path, label: `${f.path}  [${f.framework}]`, hint: f.why })),
+        });
+        if (p.isCancel(frontend)) continue;
 
-    if (map.backends.length === 0) return { frontend, backends: [] };
+        if (map.backends.length === 0) return { frontend, backends: [] };
 
-    // Resolve dependsOn through the same tolerant matcher the non-interactive path uses, so a
-    // dependency named by its data-layer schema path still pre-checks its owning backend option
-    // (whose value is the backend's own path) instead of silently going un-checked.
-    const needed = defaultBackendsFor(map, frontend);
-    const backends = await p.multiselect({
-        message: "Which backends does it need? (pre-checked: the ones it depends on)",
-        options: map.backends.map((b) => ({ value: b.path, label: `${b.path}  [${b.framework}]`, hint: b.why })),
-        initialValues: needed,
-        required: false,
-    });
-    if (p.isCancel(backends)) throw new Error("Cancelled");
+        // Resolve dependsOn through the same tolerant matcher the non-interactive path uses, so a
+        // dependency named by its data-layer schema path still pre-checks its owning backend option
+        // (whose value is the backend's own path) instead of silently going un-checked.
+        const needed = defaultBackendsFor(map, frontend);
+        const backends = await p.multiselect({
+            message: "Which backends does this frontend talk to?",
+            detail:
+                "Pick EVERY backend and data layer it depends on - you can select several. " +
+                "The ones the mapper detected are pre-checked.",
+            options: map.backends.map((b) => ({ value: b.path, label: `${b.path}  [${b.framework}]`, hint: b.why })),
+            initialValues: needed,
+            required: false,
+            cancelable: true,
+        });
+        if (p.isCancel(backends)) continue; // esc: back to the frontend pick
 
-    return { frontend, backends };
+        return { frontend, backends };
+    }
 }
 
 async function runStep(
@@ -197,6 +200,7 @@ async function runStep(
     track("cli_step_started", { step });
 
     state = await markStep(outputDir, state, step, "running");
+    getActiveStore()?.startStep(step);
 
     if (step !== "pagesFinder" && projectContext && !projectContext.pages) {
         const pages = await loadPages(outputDir);
@@ -204,6 +208,10 @@ async function runStep(
             projectContext = { ...projectContext, pages: [...pages.values()] };
         }
     }
+
+    // Size signals for the analytics event - the measured-duration data shows
+    // repo size dominates step time, so future ETA heuristics need these.
+    let stepMetrics: Record<string, number> = {};
 
     try {
         let result: AgentResult | undefined;
@@ -250,6 +258,11 @@ async function runStep(
                 }
 
                 const scoped = applySelection(map, selection);
+                stepMetrics = {
+                    frontend_count: map.frontends.length,
+                    backend_count: map.backends.length,
+                    ignored_count: map.ignore.length,
+                };
                 await saveProjectMap(outputDir, scoped);
                 p.note(renderProjectMap(scoped), "Project map");
                 break;
@@ -265,10 +278,12 @@ async function runStep(
                     extraMessage: projectMap != null ? formatFrontendScope(projectMap) : undefined,
                 });
                 await savePages(outputDir, pages);
+                stepMetrics = { page_count: pages.size };
                 break;
             }
             case "kb": {
                 const { runKBGenerator } = await import("./agents/01-kb-generator/index");
+                stepMetrics = { page_count: projectContext?.pages?.length ?? 0 };
                 result = await runKBGenerator({
                     projectRoot: config.projectRoot,
                     outputDir,
@@ -327,6 +342,7 @@ async function runStep(
             case "testGenerator": {
                 const { runTestGenerator } = await import("./agents/05-test-generator/index");
                 const pages = await loadPages(outputDir);
+                stepMetrics = { page_count: pages.size };
                 result = await runTestGenerator({
                     projectRoot: config.projectRoot,
                     outputDir,
@@ -378,10 +394,26 @@ async function runStep(
         trackError(err, { step, source: "step_exception" });
     }
 
+    getActiveStore()?.endStep(step, state.steps[step]);
+
+    if (step === "entityAudit") {
+        const { parseEntityNames } = await import("./core/parse-entity-audit");
+        stepMetrics = { ...stepMetrics, entity_count: (await parseEntityNames(outputDir)).length };
+    }
+    if (step === "testGenerator") {
+        const { readdir } = await import("node:fs/promises");
+        const entries = await readdir(join(outputDir, "qa-tests"), { recursive: true }).catch(() => []);
+        stepMetrics = {
+            ...stepMetrics,
+            test_count: entries.map((e) => String(e)).filter((e) => e.endsWith(".md")).length,
+        };
+    }
+
     track("cli_step_completed", {
         step,
         status: state.steps[step],
         duration_ms: Date.now() - stepStartedAt,
+        ...stepMetrics,
     });
 
     return state;
@@ -392,30 +424,33 @@ type FailureAction = { kind: "retry"; guidance?: string } | { kind: "exit" };
 async function promptStepFailure(label: string): Promise<FailureAction> {
     notify("Autonoma", `${label} failed - action needed`);
 
-    const action = await p.select({
-        message: "This step failed. What would you like to do?",
-        options: [
-            { value: "retry", label: "Retry this step", hint: "Run it again from the top" },
-            {
-                value: "guidance",
-                label: "Retry with guidance",
-                hint: "Tell the agent what went wrong or what to focus on",
-            },
-            { value: "exit", label: "Stop here (progress saved)", hint: "Resume later with --resume" },
-        ],
-    });
+    while (true) {
+        const action = await p.select({
+            message: `${label} failed. What would you like to do?`,
+            options: [
+                { value: "retry", label: "Retry this step", hint: "Run it again from the top" },
+                {
+                    value: "guidance",
+                    label: "Retry with guidance",
+                    hint: "Tell the agent what went wrong or what to focus on",
+                },
+                { value: "exit", label: "Stop here (progress saved)", hint: "Resume later with --resume" },
+            ],
+        });
 
-    if (p.isCancel(action) || action === "exit") return { kind: "exit" };
-    if (action === "retry") return { kind: "retry" };
+        if (p.isCancel(action) || action === "exit") return { kind: "exit" };
+        if (action === "retry") return { kind: "retry" };
 
-    const guidance = await p.text({
-        message: "What should the agent do differently?",
-        placeholder: "e.g. the part that failed, or what to focus on",
-    });
-    if (p.isCancel(guidance)) return { kind: "exit" };
+        const guidance = await p.text({
+            message: "What should the agent do differently?",
+            placeholder: "e.g. the part that failed, or what to focus on",
+            cancelable: true,
+        });
+        if (p.isCancel(guidance)) continue; // esc: back to the retry choices
 
-    const trimmed = guidance.trim();
-    return { kind: "retry", guidance: trimmed || undefined };
+        const trimmed = guidance.trim();
+        return { kind: "retry", guidance: trimmed || undefined };
+    }
 }
 
 // A failed step should never hard-stop an interactive run - the user gets to
@@ -462,6 +497,42 @@ async function showStatus(outputDir: string) {
     }
 }
 
+interface MountedDashboard {
+    store: RunStore;
+    unmount: () => void;
+}
+
+/**
+ * Mount the Ink dashboard - interactive TTY only. Mounted before the setup
+ * questions so every prompt (resume, project context, scope selection, step
+ * failure) renders as the docked ACTION REQUIRED panel; there is no separate
+ * terminal-mode prompt path anymore.
+ */
+async function mountDashboard(outputDir: string, projectSlug: string): Promise<MountedDashboard | undefined> {
+    const isTTY = !!process.stdout.isTTY && !!process.stdin.isTTY;
+    if (!isTTY) return undefined;
+
+    const { mountUi } = await import("./ui/mount");
+    return mountUi({
+        outputDir,
+        meta: { title: "Generating your test suite", project: projectSlug, version: CLI_VERSION },
+    });
+}
+
+/**
+ * Reflect an existing run's settled steps in the dashboard (resume). A stale
+ * "running" from an interrupted session is skipped - that step will re-run,
+ * and seeding it would show a spinner nothing is driving.
+ */
+function seedDashboard(ui: MountedDashboard | undefined, state: PipelineState): void {
+    if (ui == null) return;
+    for (const [step, status] of Object.entries(state.steps)) {
+        if (isStepName(step) && (status === "done" || status === "failed" || status === "paused")) {
+            ui.store.endStep(step, status);
+        }
+    }
+}
+
 const BANNER = `
 ${PRIMARY}${BOLD} █████╗ ██╗   ██╗████████╗ ██████╗ ███╗   ██╗ ██████╗ ███╗   ███╗ █████╗
 ██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗████╗  ██║██╔═══██╗████╗ ████║██╔══██╗
@@ -487,32 +558,6 @@ function ensureAutonomaAuth(): boolean {
         "Not authenticated. Launch the planner from the Autonoma app, or set AUTONOMA_API_TOKEN (create a key at https://autonoma.app/settings/api-keys).",
     );
     return false;
-}
-
-async function gatherProjectContext(): Promise<ProjectContext | undefined> {
-    const description = await p.text({
-        message: "What is this project? (a short description so the agent knows what it's looking at)",
-        placeholder: "e.g. An insurance underwriting platform with a Next.js frontend and Express API",
-    });
-    if (p.isCancel(description)) return undefined;
-
-    const testingGoal = await p.text({
-        message: "Why do you want E2E tests? (what are you trying to catch or protect?)",
-        placeholder: "e.g. We're about to refactor the claims flow and want regression coverage",
-    });
-    if (p.isCancel(testingGoal)) return undefined;
-
-    const criticalFlows = await p.text({
-        message: "What are the most critical flows? (the ones that absolutely cannot break)",
-        placeholder: "e.g. User signup, creating a policy, submitting a claim, payment processing",
-    });
-    if (p.isCancel(criticalFlows)) return undefined;
-
-    return {
-        description,
-        testingGoal,
-        criticalFlows,
-    };
 }
 
 async function main() {
@@ -585,12 +630,15 @@ async function main() {
 
     // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
     const resumeCommand = `autonoma-planner --resume` + (args.project ? ` --project ${args.project}` : "");
+    let mountedUi: MountedDashboard | undefined;
     installInterruptHandler({
         // exitCode defaults to 0 for a user-initiated Ctrl+C (progress saved, a clean stop);
         // an external SIGTERM/SIGHUP passes the conventional 143/129 so the flushed exit still
         // carries the signal code a reaper/CI reads, not a 0 that looks like normal completion.
         onExit: (exitCode = 0) => {
             track("cli_run_exited");
+            mountedUi?.unmount();
+            mountedUi = undefined;
             restoreTerminal();
             console.log("");
             p.log.warn(`Your progress is saved. To resume, run:\n  ${resumeCommand}`);
@@ -643,6 +691,10 @@ async function main() {
         }
     }
 
+    // Mount the dashboard BEFORE the setup questions: every prompt from here
+    // on renders as the docked ACTION REQUIRED panel inside the TUI.
+    if (!nonInteractive) mountedUi = await mountDashboard(outputDir, config.projectSlug);
+
     let isResuming = !!(args.resume || args.step);
     let projectContext: ProjectContext | undefined;
 
@@ -659,37 +711,31 @@ async function main() {
         });
 
         if (p.isCancel(resume)) {
+            mountedUi?.unmount();
+            mountedUi = undefined;
             p.log.warn("Cancelled.");
             return;
         }
 
         if (resume) {
             isResuming = true;
+        } else {
+            // Starting over: drop the old run's step marks, or the fresh run
+            // inherits stale "done" states the moment it saves progress.
+            state = initialState();
+            await saveState(outputDir, state);
         }
     }
 
-    if (isResuming || nonInteractive) {
-        const saved = await loadContext(outputDir);
-        if (saved) {
-            projectContext = saved;
-            p.log.info(`Loaded project context from previous run`);
-        }
-    }
+    if (isResuming) seedDashboard(mountedUi, state);
 
-    if (!projectContext && nonInteractive) {
-        p.log.error(
-            "Non-interactive mode requires saved project context. Run interactively first, or create .project-context.json manually.",
-        );
-        return;
-    }
-
-    if (!projectContext) {
-        projectContext = await gatherProjectContext();
-        if (!projectContext) {
-            p.log.warn("Cancelled.");
-            return;
-        }
-        await saveContext(outputDir, projectContext);
+    // Project context is optional: the agents discover the codebase themselves.
+    // A .project-context.json (from an older run, or hand-written to steer the
+    // agents) is still honored when present.
+    const saved = await loadContext(outputDir);
+    if (saved) {
+        projectContext = saved;
+        p.log.info(`Loaded project context from previous run`);
     }
 
     p.note(
@@ -700,23 +746,25 @@ async function main() {
         "Output folder",
     );
 
-    console.log("");
-    p.log.info(`Got it. I'll focus on: ${projectContext.criticalFlows}\n` + `  Starting the pipeline now.`);
-    console.log("");
-
     const stepArg = strArg(args, "step");
     const targetStep: StepName | undefined = stepArg != null && isStepName(stepArg) ? stepArg : undefined;
     if (stepArg != null && targetStep == null) {
+        mountedUi?.unmount();
+        mountedUi = undefined;
         p.log.error(`Unknown --step "${stepArg}". Valid steps: ${Object.keys(STEP_LABELS).join(", ")}`);
         return;
     }
 
     if (targetStep) {
         if (targetStep === "testGenerator" && state.steps.scenarioRecipe !== "done") {
+            mountedUi?.unmount();
+            mountedUi = undefined;
             p.log.error("Cannot run test generation yet - the scenario recipe step must complete first.");
             return;
         }
         state = await runStepWithRecovery(targetStep, outputDir, state, config, projectContext, nonInteractive);
+        mountedUi?.unmount();
+        mountedUi = undefined;
         if (state.steps[targetStep] === "failed") {
             const retryCommand =
                 `autonoma-planner --step ${targetStep}` + (args.project ? ` --project ${args.project}` : "");
@@ -729,19 +777,13 @@ async function main() {
 
     const startStep = isResuming ? nextPendingStep(state) : "projectMapper";
     if (!startStep) {
+        mountedUi?.unmount();
+        mountedUi = undefined;
         p.log.success("All steps complete.");
         return;
     }
 
-    const steps: StepName[] = [
-        "projectMapper",
-        "pagesFinder",
-        "kb",
-        "entityAudit",
-        "scenarioRecipe",
-        "recipeBuilder",
-        "testGenerator",
-    ];
+    const steps = STEP_ORDER;
     const startIdx = steps.indexOf(startStep);
 
     // Up-front overview so it's clear what each step does before any of them run.
@@ -764,23 +806,10 @@ async function main() {
                 process.exitCode = 1;
                 break;
             }
-
-            // Pages Finder runs silently and continues on its own - there's nothing
-            // actionable to confirm at that point, so we skip the prompt after it.
-            const skipConfirmAfter: StepName[] = ["pagesFinder"];
-
-            if (i < steps.length - 1 && !nonInteractive && !skipConfirmAfter.includes(step)) {
-                const nextStep = steps[i + 1]!;
-                const shouldContinue = await p.confirm({
-                    message: `Next: ${STEP_LABELS[nextStep]} - ${STEP_SUMMARIES[nextStep]}\nContinue?`,
-                });
-                if (p.isCancel(shouldContinue) || !shouldContinue) {
-                    p.log.info("Pipeline paused. Use --resume to continue.");
-                    break;
-                }
-            }
         }
     } catch (err) {
+        mountedUi?.unmount();
+        mountedUi = undefined;
         if (isUserCancellation(err)) {
             p.log.warn("Your progress is saved. Run again with --resume to continue from where you left off.");
             return;
@@ -809,12 +838,28 @@ async function main() {
         }
     }
 
+    const anyFailed = Object.values(state.steps).some((s) => s === "failed");
+    getActiveStore()?.finish({ kind: allStepsDone ? "complete" : anyFailed ? "failed" : "paused" });
+    mountedUi?.unmount();
+    mountedUi = undefined;
+
+    // The dashboard frame is cleared on unmount; leave a durable plain-text
+    // summary and the next step in the scrollback instead.
+    if (allStepsDone) {
+        p.log.success("Your test suite is ready.");
+        p.log.info(`Artifacts: ${outputDir}`);
+        p.log.info("Next: connect a preview environment and run it -> https://autonoma.app");
+    }
     p.outro("Done");
 }
 
 main()
     .then(() => flushAnalytics())
     .catch(async (err) => {
+        // The dashboard may still be up; kill it first so the console is real
+        // again - otherwise the error prints into the dead frame's captured
+        // log and the user sees nothing.
+        teardownUi();
         // A cancellation that bubbled all the way up - exit quietly without a stack
         // or an error-tracking event; the user chose to stop.
         if (isUserCancellation(err)) {

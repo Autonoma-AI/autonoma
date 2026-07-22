@@ -8,10 +8,8 @@ import { type ProjectContext, formatContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { formatException } from "../../core/errors";
 import { getModel } from "../../core/model";
-import { reviewLoop } from "../../core/review";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
-import { parseAuditedModels, renderEntityAuditTable } from "./audit-table";
 import { SYSTEM_PROMPT } from "./prompt";
 
 // Each model costs the agent ~2 steps (grep for its creation path, mark it audited), so a
@@ -454,43 +452,8 @@ write_file already targets the output directory - use just the filename.`;
         };
     }
 
-    const reviewed = await reviewLoop(result, {
-        agentId: "entity-audit",
-        outputDir: input.outputDir,
-        nonInteractive: input.nonInteractive,
-        renderSummary: async () => {
-            const models = await parseAuditedModels(input.outputDir);
-            return models.length ? renderEntityAuditTable(models) : undefined;
-        },
-        reviewGuidance:
-            "Each model entry has these key fields:\n" +
-            "  independently_created - true if this entity has its own creation API/function, false if only created as a side effect\n" +
-            "  creation_file / creation_function - where in YOUR code this entity gets created\n" +
-            "  side_effects - other entities that get created automatically when this one is created\n" +
-            "  created_by - which parent entity's creation triggers this one\n\n" +
-            "What to check:\n" +
-            "  - Every database model should be listed\n" +
-            "  - independently_created should be correct - models created only as side effects should be false\n" +
-            "  - creation_file and creation_function should reference real code in your project\n" +
-            "  - Side effects should be complete (e.g., creating a User also creates a Profile)",
-        onFeedback: async (feedback) => {
-            result = undefined;
-            const feedbackPrompt = `The user reviewed your entity audit and has this feedback:
-
-"${feedback}"
-
-Read your previous output (entity-audit.md) from the output directory.
-Call model_coverage to see current state.
-Adjust based on the feedback. You can grep/read source files again if needed.
-When done with changes, call finish again.`;
-
-            await runAgent(agentConfig, feedbackPrompt, () => result);
-            // Re-canonicalize after the agent revised its answers, so the file stays
-            // parseable regardless of how the agent rewrote it.
-            await writeCanonicalAudit();
-            return result;
-        },
-    });
+    // Output review happens live in the TUI - the run no longer stops to ask.
+    const reviewed = result;
 
     if (!reviewed) {
         const auditPath = join(input.outputDir, "entity-audit.md");

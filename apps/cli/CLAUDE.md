@@ -40,6 +40,28 @@ Never use file counts, directory sizes, or glob results as a proxy for feature c
 
 ---
 
+## TUI architecture (src/ui/)
+
+The interactive dashboard is Ink 7 + React 19, and follows a strict store-first design:
+
+- **`src/ui/store.ts` is the single source of truth.** The Ink tree is a pure projection of
+  `RunState` via `useSyncExternalStore`. Never put run state in React state.
+- **Pipeline code never imports Ink.** It talks to the UI through three seams only: the
+  `src/ui/prompts.ts` facade (import it as `* as p`; blocking prompts render as the docked
+  ACTION REQUIRED panel via the store's prompt bridge - there is no other prompt library),
+  the active store (`getActiveStore()`, undefined when headless), and `core/ui-lifecycle.ts`
+  (pause/resume, used by `core/interrupt.ts` suspend/resume for the coding-agent handoff).
+- **Headless = no store.** The store singleton is only set while the TUI is mounted; every
+  consumer must fall back to plain output when `getActiveStore()` returns undefined, keeping
+  `--non-interactive`/CI output unchanged.
+- **Rendering is a character grid** (`grid.ts` + `draw/`), not Ink flexbox - deterministic
+  columns and borders. Repaints coalesce to one per 16ms burst plus a 250ms clock. **Never
+  pass the Grid (or any large per-render object) as a React prop** - React retains prop
+  objects per render, and a ~2MB grid retained at repaint rate leaks hundreds of MB per
+  minute (this exact shape OOMed real runs; render it inline in the component that built it).
+- Iterate visually with `pnpm ui:gallery` (fixture-driven scenes, Tab/Shift+Tab). Design
+  rationale and constraints: `docs/ui-design-brief.md`; roadmap: `docs/tui-plan.md`.
+
 ## Tooling
 
 This package follows the monorepo conventions (see the root `CLAUDE.md`): ESM-only, strictest TypeScript, pnpm + turborepo, `undefined` over `null`, `??`/`!= null`, no `.js` import extensions.

@@ -7,7 +7,16 @@ const inputSchema = z.object({
     cwd: z.string().optional().describe("Directory to search in. Defaults to working directory."),
 });
 
-const DEFAULT_IGNORE = ["**/node_modules/**", "**/dist/**", "**/.git/**"];
+const DEFAULT_IGNORE = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.git/**",
+    "**/.next/**",
+    "**/build/**",
+    "**/coverage/**",
+];
+/** Results live in the agent's conversation until the step ends - cap them. */
+const MAX_MATCHES = 500;
 
 export interface GlobResult {
     matches: string[];
@@ -26,6 +35,13 @@ export async function executeGlob(
             nodir: true,
             ignore: ignorePatterns,
         });
+        if (matches.length > MAX_MATCHES) {
+            return {
+                matches: matches.slice(0, MAX_MATCHES),
+                count: matches.length,
+                error: `${matches.length} matches - showing the first ${MAX_MATCHES}. Narrow the pattern.`,
+            };
+        }
         return { matches, count: matches.length };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

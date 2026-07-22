@@ -25,6 +25,27 @@ autonoma-planner upload [--project <path>]
 `run` is the default and may be omitted. A run can take an hour or more; progress is saved, so you
 can stop and `--resume` later.
 
+### The dashboard (TUI)
+
+On an interactive terminal the pipeline phase runs inside a live Ink dashboard: a horizontal
+pipeline strip across the top (step status, spinner on the running step, sub-progress), the
+file list on the left (each generated file with its status), and a wide document viewer showing
+the file currently being written, live from disk - known documents (frontmatter, pages.json)
+render as readable cards and tables instead of raw source. An IDE-style ACTIVITY panel at the
+bottom streams the agent's tool calls. Navigate with arrows or `h/j/k/l` (left/right switch
+between the file list and the viewer - right from the list opens the selected file; up/down
+move the cursor or scroll), `f` re-follows the newest file, `g`/`G` jump top/bottom, `?` opens
+a help modal explaining the current step with docs links, and Ctrl+C twice exits with progress
+saved. Questions (resume?, scope selection, step failures) render as an ACTION REQUIRED modal
+inside the dashboard; the terminal is handed over only for the
+SDK-integration handoff below, and the dashboard comes back when the agent exits.
+
+Piped output, CI, and `--non-interactive` keep the plain line-based output. See
+`docs/ui-design-brief.md` for the design rationale and `docs/tui-plan.md` for the build plan;
+`pnpm ui:gallery` steps through every dashboard state with fixture data (Tab / Shift+Tab).
+Pass a past run's output directory - `pnpm ui:gallery ~/.autonoma/<slug>` - to add a scene
+backed by real files, so navigation and scrolling can be tested on real documents.
+
 `upload` re-uploads everything already generated in `~/.autonoma/<app>/` - the recipe and the
 artifacts (test cases, `AUTONOMA.md`, `scenarios.md`, `entity-audit.md`) - without re-running the
 whole planner. Useful when an upload failed. Both the recipe and artifact endpoints are idempotent,

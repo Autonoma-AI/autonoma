@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import * as p from "@clack/prompts";
 import type { AppConfig } from "../../config";
 import type { AgentResult } from "../../core/agent";
 import type { ProjectContext } from "../../core/context";
 import { readEnv } from "../../env";
+import * as p from "../../ui/prompts";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
 import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
 import { runCompletionPhase, runHandoffPhase, type HandoffDeps, type PhaseOutcome } from "./phases/handoff";

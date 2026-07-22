@@ -68,6 +68,10 @@ The Environment Factory is part of deepening your coverage - it's what lets Auto
 
 ## Get started
 
+:::tip[Let the planner wire it for you]
+You don't have to build this by hand. The [test planner](/test-planner/)'s "Set up test data" step hands the whole integration to your locally installed coding agent: it implements the endpoint, registers factories that call your real creation code, and validates the full up/down cycle against your running app - before any tests are written. The guides below are for doing it yourself, and for understanding what the agent set up.
+:::
+
 <CardGrid>
     <Card title="Setup guide">
         Install the SDK, create the endpoint, wire up auth, and register your factories - end to end.

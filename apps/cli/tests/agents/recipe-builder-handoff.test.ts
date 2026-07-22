@@ -3,17 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-// Step-04 is interactive; mock the clack layer so it runs headless. The handoff is
-// opt-in-with-yes-default, so confirm returns true; the permission mode and agent
-// are pre-seeded in state, so no select is ever reached.
-vi.mock("@clack/prompts", () => ({
-    confirm: vi.fn(() => Promise.resolve(true)),
-    select: vi.fn(() => Promise.resolve(undefined)),
-    text: vi.fn(() => Promise.resolve("")),
-    isCancel: () => false,
-    note: vi.fn(),
-    log: { info: vi.fn(), step: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() },
-}));
+// Step-04 is interactive, but with no TUI store mounted the prompts facade
+// resolves to safe defaults: confirm -> yes (the handoff is opt-in with a yes
+// default) and the permission mode/agent are pre-seeded in state, so no
+// select is ever reached.
 vi.mock("../../src/core/notify", () => ({ notify: vi.fn() }));
 
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
@@ -134,6 +127,18 @@ describe("runRecipeBuilder handoff + completion", () => {
         // One launch in the handoff phase + exactly one bounded re-launch in completion.
         expect(launcher.calls).toBe(2);
         expect((await loadState()).phase).toBe("completion"); // never advanced to submit
+    });
+
+    test("a stale completion marker is cleared before launch - it can't fake success", async () => {
+        await seedHandoffPhase(true);
+        await writeFile(join(dir, COMPLETION_MARKER_FILE), JSON.stringify({ complete: true }), "utf-8");
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        // Without the pre-launch cleanup the stale marker would read as done.
+        expect(result.success).toBe(false);
+        expect(launcher.calls).toBe(2); // initial launch + the bounded re-launch
     });
 
     test("no supported agent -> manual fallback pauses without launching", async () => {
