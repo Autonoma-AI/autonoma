@@ -2570,6 +2570,11 @@ model AnalysisFinding {
   /// Short GIF clip of the failure (client bugs only).
   clipKey String? @map("clip_key")
 
+  /// `s3://` URL of the Investigator classifier's persisted LLM conversation (the reasoning that produced this
+  /// verdict), signed on read. Best-effort at write and display-only: absent when the upload failed and on
+  /// findings written before this column existed. Backs the "View classifier reasoning" debug link.
+  classificationConversationUrl String? @map("classification_conversation_url")
+
   /// Present instead of the verdict fields when the model failed to classify this test.
   error String? @db.Text
 

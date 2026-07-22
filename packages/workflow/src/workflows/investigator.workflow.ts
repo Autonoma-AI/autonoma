@@ -228,6 +228,7 @@ function toFindingReport(result: InvestigationTestResult): AnalysisFindingReport
         videoKey: result.videoUrl,
         screenshotKey: result.finalScreenshotUrl,
         clipKey: result.clipUrl,
+        classificationConversationUrl: result.classificationConversationUrl,
         error: result.error,
     };
 }

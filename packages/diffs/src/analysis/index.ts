@@ -24,7 +24,7 @@ export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { CLASSIFIER_SYSTEM_PROMPT, buildVerdictPrompt } from "./classify/prompt";
 export { VerdictForModel, toRunVerdict } from "./classify/verdict-schema";
 export { classifyRun } from "./classify/classify-run";
-export type { ClassifyContext } from "./classify/classify-run";
+export type { ClassifyContext, ClassifyRunResult } from "./classify/classify-run";
 export { buildClassifierTools } from "./classify/tools";
 export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from "./classify/dependencies";
 export { withRetry } from "./retry";

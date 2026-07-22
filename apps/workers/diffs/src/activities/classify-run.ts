@@ -17,6 +17,7 @@ import { withSnapshotContext } from "../codebase/snapshot-context";
 import { env } from "../env";
 import { webmToGif } from "../media/webm-to-gif";
 import { createModelSession, getStorage } from "../services";
+import { uploadConversation } from "../upload-conversation";
 
 type AttemptRow = {
     order: number;
@@ -120,7 +121,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             extra: { previewIntegrated, appLogsAvailable },
         });
 
-        const verdict = await classifyRun(
+        const { verdict, conversation } = await classifyRun(
             {
                 appSlug: context.appSlug,
                 prNumber: prMeta.prNumber,
@@ -154,7 +155,19 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             },
         );
 
-        await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
+        // Persist the classifier's reasoning (best-effort) so a wrong verdict can be debugged, alongside the cost
+        // ledger - both are independent auxiliary writes and a failure of either must not sink the classification.
+        const [classificationConversationUrl] = await Promise.all([
+            uploadConversation({
+                storage: getStorage(),
+                snapshotId,
+                phase: "classify",
+                slug,
+                conversation,
+                logger: logger.child({ name: "uploadConversation" }),
+            }),
+            persistInvestigationCosts(db, snapshotId, session.costCollector, logger),
+        ]);
 
         // The report features the frame the classifier judged most descriptive (verdict.keyStepIndex), not
         // mechanically the last/failed one. When it named no step we show no screenshot rather than falling back
@@ -175,6 +188,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             videoUrl: generation.videoUrl ?? undefined,
             finalScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
+            classificationConversationUrl,
         };
     });
 }

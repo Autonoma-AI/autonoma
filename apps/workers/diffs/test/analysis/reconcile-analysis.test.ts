@@ -306,6 +306,7 @@ integrationTestSuite({
                 rootCause: "The subtotal was not summed.",
                 screenshotKey: "s3://frames/key.png",
                 clipKey: "s3://clips/clip.gif",
+                classificationConversationUrl: "s3://diffs-job/snap/classify-checkout-conversation.json",
             };
             // The dedup carries the classifier's rich report onto the finding (identityDedupe drops it otherwise).
             const dedupeWithReport: AnalysisDedupe = async (candidates) =>
@@ -339,6 +340,10 @@ integrationTestSuite({
             expect(finding?.whatHappened).toBe("The total showed $0.");
             expect(finding?.screenshotKey).toBe("s3://frames/key.png");
             expect(finding?.clipKey).toBe("s3://clips/clip.gif");
+            // The classifier conversation URL rides on the same row, keyed per slug, for finding-level debugging.
+            expect(finding?.classificationConversationUrl).toBe(
+                "s3://diffs-job/snap/classify-checkout-conversation.json",
+            );
         });
     },
 });

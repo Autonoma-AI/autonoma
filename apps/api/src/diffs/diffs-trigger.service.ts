@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { TriggerSource } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
-import { createDetachedSnapshot, DiffsRunPreparer } from "@autonoma/test-updates";
+import type { DiffsRunPreparer } from "@autonoma/test-updates";
+import { createDetachedSnapshot } from "@autonoma/test-updates";
 import type { PipelineWorkflows } from "@autonoma/workflow";
 import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
@@ -369,5 +370,4 @@ export class DiffsTriggerService extends Service {
 
         return { branchId, snapshotId: prepared.snapshotId, deploymentId: prepared.deploymentId };
     }
-
 }

@@ -104,6 +104,9 @@ export const analysisFindingReportSchema = z.object({
     screenshotKey: z.string().optional(),
     /** Short GIF clip of the failure (client bugs only), signed on read. */
     clipKey: z.string().optional(),
+    /** `s3://` URL of the classifier's persisted LLM conversation (the reasoning behind this verdict), signed on
+     * read. Best-effort: absent when the conversation upload failed. */
+    classificationConversationUrl: z.string().optional(),
     /** Present instead of the verdict fields when the model failed to classify this test. */
     error: z.string().optional(),
 });

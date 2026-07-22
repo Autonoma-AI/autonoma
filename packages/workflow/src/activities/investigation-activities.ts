@@ -136,6 +136,12 @@ export interface InvestigationTestResult {
     finalScreenshotUrl?: string;
     /** S3 key of a short GIF clip of the failure (client bugs only), embedded in the investigation PR comment. */
     clipUrl?: string;
+    /**
+     * `s3://` URL of the classifier's persisted LLM conversation for this run (the reasoning behind the verdict),
+     * uploaded by the classify activity and signed on read. Best-effort: absent when the upload failed or the run
+     * reached no classifier verdict. Threaded onto the finding row so a wrong verdict can be debugged.
+     */
+    classificationConversationUrl?: string;
     /** Validation outcome if the suggested modification was run through the validate->edit->retry loop. */
     modificationValidation?: TestValidationResult;
     /** How a scenario failure should be repaired (attached by the diagnose pass for scenario_issue results). */

@@ -290,6 +290,7 @@ function buildFindingRows(
             videoKey: report?.videoKey,
             screenshotKey: report?.screenshotKey,
             clipKey: report?.clipKey,
+            classificationConversationUrl: report?.classificationConversationUrl,
             error: report?.error,
             coveredSlugs: finding.coveredSlugs.length > 1 ? finding.coveredSlugs : undefined,
             displayOrder: index,

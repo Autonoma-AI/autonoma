@@ -1,5 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import { Output, generateText, stepCountIs } from "ai";
+import { type ModelMessage, Output, generateText, stepCountIs } from "ai";
 import { withRetry } from "../retry";
 import type { RunVerdict } from "../schema";
 import type { ClassifierDeps } from "./dependencies";
@@ -117,11 +117,23 @@ function buildInvestigationPrompt(
 }
 
 /**
+ * The classifier's output: the verdict plus the full LLM conversation that produced it. The conversation is
+ * TEXT-ONLY - the investigation prompt, the model's tool-using reasoning, and the verdict exchange - so the
+ * caller can persist it for finding-level debugging. The run media (the screenshot inlined into the prompt) is
+ * deliberately excluded: it rides on the finding as a signed key, and inlining a raw `Uint8Array` would bloat
+ * (and corrupt) the JSON.
+ */
+export interface ClassifyRunResult {
+    verdict: RunVerdict;
+    conversation: ModelMessage[];
+}
+
+/**
  * Classify the outcome of a browser test run: investigate the cause with the tools, then commit to a
  * single verdict. The 300-line monolith is gone - the prompt, tools, schema, and retry each live in their
  * own module, and every capability is injected (ClassifierDeps) so this is unit-testable with fakes.
  */
-export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps): Promise<RunVerdict> {
+export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps): Promise<ClassifyRunResult> {
     const logger = rootLogger.child({
         name: "classifyRun",
         extra: { appSlug: context.appSlug, prNumber: context.prNumber, test: context.test.slug },
@@ -147,11 +159,16 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
 
     const tools = buildClassifierTools(deps);
     const toolNote = describeUnavailableTools(deps);
+    const investigationPrompt = buildInvestigationPrompt(
+        context,
+        deps.run,
+        errorScan,
+        fidelityScan,
+        visualScan,
+        toolNote,
+    );
     const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: Uint8Array }> = [
-        {
-            type: "text",
-            text: buildInvestigationPrompt(context, deps.run, errorScan, fidelityScan, visualScan, toolNote),
-        },
+        { type: "text", text: investigationPrompt },
     ];
     if (deps.run.finalScreenshot != null) {
         userContent.push({ type: "image", image: deps.run.finalScreenshot });
@@ -171,19 +188,52 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
         { label: "investigation" },
     );
 
+    const verdictPrompt = buildVerdictPrompt(context.test.plan, investigation.text);
     const verdictGeneration = await withRetry(
         () =>
             generateText({
                 model: deps.reasoningModel,
                 system: CLASSIFIER_SYSTEM_PROMPT,
                 output: Output.object({ schema: VerdictForModel }),
-                prompt: buildVerdictPrompt(context.test.plan, investigation.text),
+                prompt: verdictPrompt,
                 abortSignal: AbortSignal.timeout(VERDICT_TIMEOUT_MS),
             }),
         { label: "verdict" },
     );
 
     const verdict = toRunVerdict(verdictGeneration.output);
-    logger.info("Run classified", { extra: { category: verdict.category, confidence: verdict.confidence } });
-    return verdict;
+    const conversation = buildConversation(
+        investigationPrompt,
+        investigation.response.messages,
+        verdictPrompt,
+        verdictGeneration.response.messages,
+    );
+    logger.info("Run classified", {
+        extra: {
+            category: verdict.category,
+            confidence: verdict.confidence,
+            conversationMessages: conversation.length,
+        },
+    });
+    return { verdict, conversation };
+}
+
+/**
+ * Reassemble the classifier's two-phase exchange into one text-only transcript for persistence: the
+ * investigation prompt + the model's tool-using reasoning, then the verdict prompt + its structured answer. The
+ * initial user prompt is re-added as text so the inlined run screenshot (a raw `Uint8Array` that does not
+ * JSON-serialize) stays out - that frame is persisted separately as a signed key on the finding.
+ */
+function buildConversation(
+    investigationPrompt: string,
+    investigationMessages: ModelMessage[],
+    verdictPrompt: string,
+    verdictMessages: ModelMessage[],
+): ModelMessage[] {
+    return [
+        { role: "user", content: investigationPrompt },
+        ...investigationMessages,
+        { role: "user", content: verdictPrompt },
+        ...verdictMessages,
+    ];
 }
