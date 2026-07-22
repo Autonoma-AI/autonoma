@@ -1,4 +1,28 @@
-import { useTheme } from "@/components/theme-provider";
+import { Bug } from "@phosphor-icons/react/Bug";
+import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
+import { Clock } from "@phosphor-icons/react/Clock";
+import { Code } from "@phosphor-icons/react/Code";
+import { Copy } from "@phosphor-icons/react/Copy";
+import { Eye } from "@phosphor-icons/react/Eye";
+import { FileCode } from "@phosphor-icons/react/FileCode";
+import { Gear } from "@phosphor-icons/react/Gear";
+import { GitBranch } from "@phosphor-icons/react/GitBranch";
+import { Globe } from "@phosphor-icons/react/Globe";
+import { Heartbeat } from "@phosphor-icons/react/Heartbeat";
+import type { Icon } from "@phosphor-icons/react/lib";
+import { Lightning } from "@phosphor-icons/react/Lightning";
+import { Lock } from "@phosphor-icons/react/Lock";
+import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
+import { Play } from "@phosphor-icons/react/Play";
+import { Pulse } from "@phosphor-icons/react/Pulse";
+import { Robot } from "@phosphor-icons/react/Robot";
+import { Rocket } from "@phosphor-icons/react/Rocket";
+import { Shield } from "@phosphor-icons/react/Shield";
+import { Terminal } from "@phosphor-icons/react/Terminal";
+import { Trash } from "@phosphor-icons/react/Trash";
+import { Upload } from "@phosphor-icons/react/Upload";
+import { Warning } from "@phosphor-icons/react/Warning";
+import { XCircle } from "@phosphor-icons/react/XCircle";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -18,31 +42,6 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Bug } from "@phosphor-icons/react/Bug";
-import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
-import { Clock } from "@phosphor-icons/react/Clock";
-import { Code } from "@phosphor-icons/react/Code";
-import { Copy } from "@phosphor-icons/react/Copy";
-import { Eye } from "@phosphor-icons/react/Eye";
-import { FileCode } from "@phosphor-icons/react/FileCode";
-import { Gear } from "@phosphor-icons/react/Gear";
-import { GitBranch } from "@phosphor-icons/react/GitBranch";
-import { Globe } from "@phosphor-icons/react/Globe";
-import { Heartbeat } from "@phosphor-icons/react/Heartbeat";
-import { Lightning } from "@phosphor-icons/react/Lightning";
-import { Lock } from "@phosphor-icons/react/Lock";
-import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import { Play } from "@phosphor-icons/react/Play";
-import { Pulse } from "@phosphor-icons/react/Pulse";
-import { Robot } from "@phosphor-icons/react/Robot";
-import { Rocket } from "@phosphor-icons/react/Rocket";
-import { Shield } from "@phosphor-icons/react/Shield";
-import { Terminal } from "@phosphor-icons/react/Terminal";
-import { Trash } from "@phosphor-icons/react/Trash";
-import { Upload } from "@phosphor-icons/react/Upload";
-import { Warning } from "@phosphor-icons/react/Warning";
-import { XCircle } from "@phosphor-icons/react/XCircle";
-import type { Icon } from "@phosphor-icons/react/lib";
 import { Logo } from "./components/logo";
 
 const ICON_CATALOG: Array<{ name: string; icon: Icon }> = [
@@ -72,40 +71,15 @@ const ICON_CATALOG: Array<{ name: string; icon: Icon }> = [
   { name: "FileCode", icon: FileCode },
 ];
 
-const THEMES = [
-  { value: "blacklight-dark", label: "Blacklight Dark", description: "Lime accent on void" },
-  { value: "blacklight", label: "Blacklight", description: "Lime accent on lavender" },
-] as const;
-
 export function App() {
-  const { theme, setTheme } = useTheme();
-
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background p-8 text-foreground">
         <div className="mx-auto flex max-w-4xl flex-col gap-10">
           {/* Header */}
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-lg font-semibold">Blacklight Design System</h1>
-              <p className="text-sm text-muted-foreground">Styled primitives for the Command Center dashboard</p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="theme" className="text-3xs uppercase tracking-widest text-text-tertiary">
-                Theme
-              </label>
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as typeof theme)}
-                className="h-8 border border-border-mid bg-surface-void px-3 font-mono text-xs text-foreground outline-none focus:border-primary"
-              >
-                {THEMES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <h1 className="text-lg font-semibold">Blacklight Design System</h1>
+            <p className="text-sm text-muted-foreground">Styled primitives for the Command Center dashboard</p>
           </div>
 
           <Separator />

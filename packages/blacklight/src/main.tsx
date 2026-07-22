@@ -1,8 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
 import "./index.css";
-import { ThemeProvider } from "@/components/theme-provider.tsx";
 import App from "./App.tsx";
 import DocsPage from "./docs-page.tsx";
 import LogoPage from "./logo-page.tsx";
@@ -33,8 +31,6 @@ function Router() {
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
-    <ThemeProvider>
-      <Router />
-    </ThemeProvider>
+    <Router />
   </StrictMode>,
 );

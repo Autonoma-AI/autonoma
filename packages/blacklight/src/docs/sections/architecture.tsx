@@ -1,4 +1,4 @@
-import { CodeBlock, Paragraph, SectionDesc, SectionTitle, SubTitle } from "../components/atoms";
+import { Code, CodeBlock, Paragraph, SectionDesc, SectionTitle, SubTitle } from "../components/atoms";
 
 export function ArchitectureSection() {
   return (
@@ -15,10 +15,9 @@ export function ArchitectureSection() {
 ├── src/
 │   ├── components/ui/     # 17 UI components (CVA + Base UI)
 │   ├── lib/utils.ts       # cn() utility (clsx + tailwind-merge)
-│   ├── index.css           # Theme tokens + Tailwind config
+│   ├── index.css          # Theme tokens + Tailwind config
 │   └── components/
-│       ├── theme-provider  # Theme context + D-key toggle
-│       └── logo            # Animated logo component`}
+│       └── logo           # Animated logo component`}
       </CodeBlock>
 
       <SubTitle>Component Pattern</SubTitle>
@@ -49,33 +48,19 @@ export function ArchitectureSection() {
 
       <SubTitle>Theme System</SubTitle>
       <Paragraph>
-        Themes are CSS class names applied to the root element. Each theme defines 42+ CSS custom properties. The
-        ThemeProvider manages class toggling and localStorage persistence.
+        Blacklight ships a single theme, applied via the <Code>.blacklight</Code> class name on the root element. The
+        class defines 40+ CSS custom properties - add it directly to your root HTML element, no provider component
+        needed.
       </Paragraph>
       <div className="my-4 grid grid-cols-2 gap-3">
-        {[
-          {
-            theme: "blacklight-dark",
-            accent: "Lime (#C2E812)",
-            bg: "Void (#050505)",
-          },
-          {
-            theme: "blacklight",
-            accent: "Lime (#C2E812)",
-            bg: "Lavender (#EFE9F4)",
-          },
-        ].map((t) => (
-          <div key={t.theme} className="border border-border-dim bg-surface-base p-3">
-            <div className="mb-1 font-mono text-3xs font-bold uppercase tracking-wider text-primary-ink">
-              .{t.theme}
-            </div>
-            <div className="font-mono text-4xs text-text-tertiary">
-              Accent: {t.accent}
-              <br />
-              Background: {t.bg}
-            </div>
+        <div className="border border-border-dim bg-surface-base p-3">
+          <div className="mb-1 font-mono text-3xs font-bold uppercase tracking-wider text-primary-ink">.blacklight</div>
+          <div className="font-mono text-4xs text-text-tertiary">
+            Accent: Lime (#CCFF00)
+            <br />
+            Background: Void (#050505)
           </div>
-        ))}
+        </div>
       </div>
     </>
   );

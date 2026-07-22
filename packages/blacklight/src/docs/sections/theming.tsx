@@ -9,25 +9,17 @@ export function ThemingSection() {
         adjust existing ones.
       </SectionDesc>
 
-      <SubTitle>Using the Theme Hook</SubTitle>
+      <SubTitle>Applying the Theme</SubTitle>
       <Paragraph>
-        Access the current theme and setter via the <Code>useTheme</Code> hook. This returns the active theme name and a
-        function to change it.
+        Add the <Code>blacklight</Code> class to your root HTML element. It registers every CSS custom property below -
+        no provider component or client-side setup required.
       </Paragraph>
-      <CodeBlock label="USAGE.TSX">
-        <span className="text-status-critical">import</span> {"{ "}
-        <span className="text-chart-3">useTheme</span>
-        {" }"} <span className="text-status-critical">from</span>{" "}
-        <span className="text-text-secondary">&quot;@autonoma/blacklight&quot;</span>
-        {";"}
-        {"\n\n"}
-        <span className="text-status-critical">const</span> {"{ theme, setTheme } = "}
-        <span className="text-chart-3">useTheme</span>()
-        {"\n\n"}
-        <span className="text-text-tertiary">{"// theme: 'blacklight' | 'blacklight-dark'"}</span>
-        {"\n"}
-        <span className="text-chart-3">setTheme</span>(
-        <span className="text-text-secondary">&quot;blacklight-dark&quot;</span>)
+      <CodeBlock label="INDEX.HTML">
+        <span className="text-chart-2">{"<html "}</span>
+        <span className="text-chart-3">class</span>
+        {"="}
+        <span className="text-text-secondary">&quot;blacklight&quot;</span>
+        <span className="text-chart-2">{">"}</span>
       </CodeBlock>
 
       <SubTitle>Overriding Tokens</SubTitle>

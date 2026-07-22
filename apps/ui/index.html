@@ -1,23 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="blacklight">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>html { background-color: #050505; }</style>
-    <script>
-      (function() {
-        try {
-          var stored = localStorage.getItem('theme');
-          var cls = 'blacklight-dark';
-          if (stored === 'blacklight' || stored === 'blacklight-dark') {
-            cls = stored;
-          } else if (stored === 'system') {
-            cls = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'blacklight-dark' : 'blacklight';
-          }
-          document.documentElement.classList.add(cls);
-        } catch(e) {}
-      })();
-    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">

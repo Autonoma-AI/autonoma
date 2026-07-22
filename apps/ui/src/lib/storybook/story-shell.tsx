@@ -1,4 +1,4 @@
-import { ThemeProvider, ToastProvider } from "@autonoma/blacklight";
+import { ToastProvider } from "@autonoma/blacklight";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterContextProvider,
@@ -30,11 +30,9 @@ export function StoryShell({ children }: StoryShellProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterContextProvider router={router}>
-        <ThemeProvider defaultTheme="blacklight-dark">
-          <ToastProvider toastManager={toastManager} timeout={2500} limit={3}>
-            <div className="blacklight-dark min-h-dvh bg-surface-void text-text-primary">{children}</div>
-          </ToastProvider>
-        </ThemeProvider>
+        <ToastProvider toastManager={toastManager} timeout={2500} limit={3}>
+          <div className="blacklight min-h-dvh bg-surface-void text-text-primary">{children}</div>
+        </ToastProvider>
       </RouterContextProvider>
     </QueryClientProvider>
   );

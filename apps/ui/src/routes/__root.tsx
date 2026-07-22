@@ -34,7 +34,7 @@ function usePosthogIdentify() {
 
 function MobileBlocker() {
   return (
-    <div className="blacklight-dark flex min-h-dvh flex-col items-center justify-center gap-6 bg-surface-void px-8 text-center">
+    <div className="blacklight flex min-h-dvh flex-col items-center justify-center gap-6 bg-surface-void px-8 text-center">
       <div className="flex size-16 items-center justify-center rounded-2xl bg-surface-secondary">
         <Monitor className="size-8 text-text-secondary" />
       </div>
@@ -60,7 +60,7 @@ function RootLayout() {
 
   if (session.isPending) {
     return (
-      <div className="blacklight-dark flex min-h-screen items-center justify-center bg-surface-void">
+      <div className="blacklight flex min-h-screen items-center justify-center bg-surface-void">
         <span className="text-text-tertiary">Loading…</span>
       </div>
     );

@@ -5,12 +5,12 @@
 @import "@fontsource-variable/geist-mono";
 
 @source "./components";
-@custom-variant dark (&:is(.blacklight-dark *));
+@custom-variant dark (&:is(.blacklight *));
 
 /* ═══════════════════════════════════════════
-   Default - Blacklight Dark (lime on void)
+   Blacklight (lime on void)
    ═══════════════════════════════════════════ */
-.blacklight-dark {
+.blacklight {
   --background: #050505;
   --foreground: #EDEDED;
   --card: #0A0A0A;
@@ -83,77 +83,6 @@
   --primary-contrast: #CCFF00;
   --violet-accent: #8B5CF6;
   --primary-ink: #CCFF00;
-}
-
-/* ═══════════════════════════════════════════
-   Blacklight mode - Lime accent on lavender
-   ═══════════════════════════════════════════ */
-.blacklight {
-  --background: #EFE9F4;
-  --foreground: #0F0326;
-  --card: #E0D7EA;
-  --card-foreground: #0F0326;
-  --popover: #E0D7EA;
-  --popover-foreground: #0F0326;
-  --primary: #CCFF00;
-  --primary-foreground: #0F0326;
-  --secondary: #E0D7EA;
-  --secondary-foreground: #0F0326;
-  --muted: #E0D7EA;
-  --muted-foreground: #60507A;
-  --accent: #CCFF00;
-  --accent-foreground: #0F0326;
-  --destructive: #C50326;
-  --border: rgba(15, 3, 38, 0.15);
-  --input: rgba(15, 3, 38, 0.3);
-  --ring: #CCFF00;
-
-  --chart-1: #CCFF00;
-  --chart-2: #2A1052;
-  --chart-3: #F77F00;
-  --chart-4: #D90429;
-  --chart-5: #F9C74F;
-
-  --sidebar: #E0D7EA;
-  --sidebar-foreground: #0F0326;
-  --sidebar-primary: #CCFF00;
-  --sidebar-primary-foreground: #0F0326;
-  --sidebar-accent: #EFE9F4;
-  --sidebar-accent-foreground: #0F0326;
-  --sidebar-border: rgba(15, 3, 38, 0.15);
-  --sidebar-ring: #CCFF00;
-
-  --surface-void: #EFE9F4;
-  --surface-base: #E0D7EA;
-  --surface-raised: #FFFFFF;
-
-  --border-dim: rgba(15, 3, 38, 0.15);
-  --border-mid: rgba(15, 3, 38, 0.3);
-  --border-highlight: #0F0326;
-
-  /* Two-tier hierarchy (see dark theme note). secondary and tertiary share one
-     supporting tone; primary carries all reading text. */
-  --text-primary: #0F0326;
-  --text-secondary: #60507A;
-  --text-tertiary: #60507A;
-
-  --status-critical: #C50326;
-  --status-high: #A84400;
-  --status-warn: #806000;
-  --status-success: #2A6B2A;
-  --status-pending: #0369A1;
-
-  --accent-glow: rgba(194, 232, 18, 0.4);
-  --accent-dim: rgba(42, 16, 82, 0.05);
-
-  /* Darker lime for use on low-contrast surfaces */
-  --primary-contrast: #567000;
-
-  /* Dark violet for enhanced contrast on lavender */
-  --violet-accent: #4C1D95;
-
-  /* Text-safe primary: violet on lavender for legibility */
-  --primary-ink: #4C1D95;
 }
 
 /* ═══════════════════════════════════════════
@@ -234,10 +163,8 @@
   --color-accent-glow: var(--accent-glow);
   --color-accent-dim: var(--accent-dim);
 
-  /* Violet accent (light themes) */
   --color-violet-accent: var(--violet-accent);
 
-  /* Primary ink - text-safe primary (violet on blacklight light, primary elsewhere) */
   --color-primary-ink: var(--primary-ink);
 
   /* Radius */
@@ -307,8 +234,7 @@
    Base layer
    ═══════════════════════════════════════════ */
 @layer base {
-  .blacklight,
-  .blacklight-dark {
+  .blacklight {
     @apply bg-background text-foreground font-sans antialiased;
 
     * {

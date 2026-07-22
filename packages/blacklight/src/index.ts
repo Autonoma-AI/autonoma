@@ -150,9 +150,6 @@ export type { CommandUI } from "./components/commands/command-ui";
 // Logo
 export { Logo, type LogoProps, type LogoVariant } from "./components/logo";
 
-// Theme
-export { ThemeProvider, useTheme } from "./components/theme-provider";
-
 // Screenshot with overlay
 export {
     ScreenshotWithOverlay,

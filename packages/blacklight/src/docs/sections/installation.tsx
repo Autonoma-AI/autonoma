@@ -1,14 +1,14 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CodeBlock, Paragraph, SectionDesc, SectionTitle, StepNumber } from "../components/atoms";
+import { Code, CodeBlock, Paragraph, SectionDesc, SectionTitle, StepNumber } from "../components/atoms";
 
 export function InstallationSection() {
   return (
     <>
       <SectionTitle>Installation</SectionTitle>
       <SectionDesc>
-        Set up Blacklight in your project. Install the package, import styles, wrap with the theme provider, and start
-        using components.
+        Set up Blacklight in your project. Install the package, import styles, add the theme class, and start using
+        components.
       </SectionDesc>
 
       <Tabs defaultValue="react" className="mb-8">
@@ -55,41 +55,21 @@ export function InstallationSection() {
             <div className="flex gap-5">
               <StepNumber n={3} />
               <div className="flex-1">
-                <h3 className="mb-3 font-mono text-base font-bold">Configure Theme Provider</h3>
+                <h3 className="mb-3 font-mono text-base font-bold">Add the Theme Class</h3>
                 <Paragraph>
-                  Wrap your application root with the ThemeProvider. This enables theme switching between light, dark,
-                  and system modes.
+                  Add the <Code>blacklight</Code> class to your root HTML element. It&apos;s a plain CSS class - no
+                  provider component or client-side setup required.
                 </Paragraph>
-                <CodeBlock label="APP.TSX">
-                  <span className="text-status-critical">import</span> {"{ "}
-                  <span className="text-chart-3">ThemeProvider</span>
-                  {" }"} <span className="text-status-critical">from</span>{" "}
-                  <span className="text-text-secondary">&quot;@autonoma/blacklight&quot;</span>
-                  {";"}
-                  {"\n\n"}
-                  <span className="text-status-critical">function</span> <span className="text-chart-3">App</span>
-                  {"() {\n"}
-                  {"  "}
-                  <span className="text-status-critical">return</span> ({"\n"}
-                  {"    "}
-                  <span className="text-chart-2">{"<ThemeProvider>"}</span>
-                  {"\n"}
-                  {"      "}
-                  <span className="text-chart-2">{"<YourApp />"}</span>
-                  {"\n"}
-                  {"    "}
-                  <span className="text-chart-2">{"</ThemeProvider>"}</span>
-                  {"\n"}
-                  {"  );\n"}
-                  {"}"}
+                <CodeBlock label="INDEX.HTML">
+                  <span className="text-chart-2">{"<html "}</span>
+                  <span className="text-chart-3">lang</span>
+                  {"="}
+                  <span className="text-text-secondary">&quot;en&quot;</span>{" "}
+                  <span className="text-chart-3">class</span>
+                  {"="}
+                  <span className="text-text-secondary">&quot;blacklight&quot;</span>
+                  <span className="text-chart-2">{">"}</span>
                 </CodeBlock>
-                <Alert variant="warning" className="mt-4">
-                  <AlertTitle>Important</AlertTitle>
-                  <AlertDescription>
-                    ThemeProvider must be at the root of your component tree. It applies theme classes to the document
-                    and persists selection via localStorage.
-                  </AlertDescription>
-                </Alert>
               </div>
             </div>
 
@@ -130,29 +110,35 @@ export function InstallationSection() {
               <div className="flex-1">
                 <h3 className="mb-3 font-mono text-base font-bold">Import in Layout</h3>
                 <Paragraph>
-                  Import styles in your root layout. Use the ThemeProvider with the &quot;use client&quot; directive.
+                  Import styles and add the <Code>blacklight</Code> class to the root layout&apos;s <Code>html</Code>{" "}
+                  tag. No client component required - the class is static markup.
                 </Paragraph>
                 <CodeBlock label="LAYOUT.TSX">
-                  <span className="text-text-tertiary">&quot;use client&quot;</span>
-                  {";"}
-                  {"\n"}
                   <span className="text-status-critical">import</span>{" "}
                   <span className="text-text-secondary">&quot;@autonoma/blacklight/styles.css&quot;</span>
                   {";"}
-                  {"\n"}
-                  <span className="text-status-critical">import</span> {"{ "}
-                  <span className="text-chart-3">ThemeProvider</span>
-                  {" }"} <span className="text-status-critical">from</span>{" "}
-                  <span className="text-text-secondary">&quot;@autonoma/blacklight&quot;</span>
-                  {";"}
+                  {"\n\n"}
+                  <span className="text-status-critical">export default function</span>{" "}
+                  <span className="text-chart-3">RootLayout</span>
+                  {"({ children }) {\n"}
+                  {"  "}
+                  <span className="text-status-critical">return</span> ({"\n"}
+                  {"    "}
+                  <span className="text-chart-2">{"<html "}</span>
+                  <span className="text-chart-3">lang</span>
+                  {"="}
+                  <span className="text-text-secondary">&quot;en&quot;</span>{" "}
+                  <span className="text-chart-3">className</span>
+                  {"="}
+                  <span className="text-text-secondary">&quot;blacklight&quot;</span>
+                  <span className="text-chart-2">{">"}</span>
+                  {"\n      "}
+                  <span className="text-chart-2">{"<body>{children}</body>"}</span>
+                  {"\n    "}
+                  <span className="text-chart-2">{"</html>"}</span>
+                  {"\n  );\n"}
+                  {"}"}
                 </CodeBlock>
-                <Alert variant="info" className="mt-4">
-                  <AlertTitle>Note</AlertTitle>
-                  <AlertDescription>
-                    Next.js App Router requires &quot;use client&quot; for the ThemeProvider wrapper since it uses React
-                    context and localStorage.
-                  </AlertDescription>
-                </Alert>
               </div>
             </div>
           </div>

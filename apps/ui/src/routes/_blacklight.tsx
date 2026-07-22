@@ -1,5 +1,4 @@
 import {
-  ThemeProvider,
   Toast,
   ToastClose,
   ToastDescription,
@@ -17,18 +16,16 @@ export const Route = createFileRoute("/_blacklight")({
 
 function BlacklightLayout() {
   return (
-    <ThemeProvider defaultTheme="blacklight-dark">
-      <ToastProvider toastManager={toastManager} timeout={2500} limit={3}>
-        <ThemedShell />
-        <GlobalToasts />
-      </ToastProvider>
-    </ThemeProvider>
+    <ToastProvider toastManager={toastManager} timeout={2500} limit={3}>
+      <ThemedShell />
+      <GlobalToasts />
+    </ToastProvider>
   );
 }
 
 function ThemedShell() {
   return (
-    <div className="blacklight-dark h-dvh">
+    <div className="blacklight h-dvh">
       <Outlet />
     </div>
   );

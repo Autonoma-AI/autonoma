@@ -1,4 +1,4 @@
-import { useTheme } from "@/components/theme-provider";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import {
   DataTable,
@@ -13,7 +13,6 @@ import { Panel, PanelBody, PanelHeader, PanelTitle } from "@/components/ui/panel
 import { Sparkline } from "@/components/ui/sparkline";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 
 /* ═══════════════════════════════════════════
    Mock data
@@ -84,15 +83,6 @@ const errorConfig = {
 } satisfies ChartConfig;
 
 /* ═══════════════════════════════════════════
-   Theme switcher
-   ═══════════════════════════════════════════ */
-
-const THEMES = [
-  { value: "blacklight-dark", label: "Blacklight Dark" },
-  { value: "blacklight", label: "Blacklight" },
-] as const;
-
-/* ═══════════════════════════════════════════
    Helper: CPU color
    ═══════════════════════════════════════════ */
 
@@ -123,8 +113,6 @@ const AXIS_TICK = {
    ═══════════════════════════════════════════ */
 
 export function TelemetryPage() {
-  const { theme, setTheme } = useTheme();
-
   return (
     <div className="min-h-screen bg-surface-void p-6 text-foreground">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -134,20 +122,7 @@ export function TelemetryPage() {
             <div className="mb-1 text-text-secondary">FILE_REF: ANL_SYS_V3.1.OBJ</div>
             <div className="text-sm font-bold tracking-wider text-text-primary">TELEMETRY_DASHBOARD</div>
           </div>
-          <div className="flex items-center gap-4">
-            <span>{"FREQ: 550NM // STAT: ACTIVE"}</span>
-            <select
-              value={theme}
-              onChange={(e) => setTheme(e.target.value as typeof theme)}
-              className="h-7 border border-border-mid bg-surface-void px-3 font-mono text-3xs text-foreground opacity-60 outline-none transition-opacity hover:opacity-100 focus:border-primary focus:opacity-100"
-            >
-              {THEMES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <span>{"FREQ: 550NM // STAT: ACTIVE"}</span>
         </header>
 
         {/* Metrics row */}

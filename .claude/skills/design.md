@@ -2,18 +2,18 @@
 
 > **Scope**: Use these guidelines when creating or modifying components in `packages/blacklight` or building UI in `apps/ui`.
 
-## Critical: Theme-Safe Color Usage
+## Critical: Correct Primary Token Usage
 
-Blacklight has two active themes - **dark** (lime on void) and **light** (lime on lavender). Lime (`--primary`) is invisible on lavender. Follow these rules:
+Blacklight ships a single theme (lime on void). `primary-ink` and `primary` currently resolve to the same lime, but they mean different things - keep using the right one so components stay correct if a token value ever changes.
 
 ### Use `primary-ink` for text, borders, and accents - NEVER raw `primary`
 
-| Token | Dark mode | Light mode | Use for |
-|-------|-----------|------------|---------|
-| `primary` | `#C2E812` (lime) | `#C2E812` (lime) | **Only** filled backgrounds (`bg-primary`) where foreground uses `text-primary-foreground` |
-| `primary-ink` | `#C2E812` (lime) | `#4C1D95` (violet) | Text, borders, outlines, icons, progress indicators - anything that must be readable |
-| `primary-foreground` | `#050505` | `#0F0326` | Text ON a `bg-primary` fill |
-| `primary-contrast` | `#C2E812` | `#567000` | Darker lime for low-contrast light surfaces |
+| Token | Value | Use for |
+|-------|-------|---------|
+| `primary` | `#CCFF00` (lime) | **Only** filled backgrounds (`bg-primary`) where foreground uses `text-primary-foreground` |
+| `primary-ink` | `#CCFF00` (lime) | Text, borders, outlines, icons, progress indicators - anything that must be readable |
+| `primary-foreground` | `#050505` | Text ON a `bg-primary` fill |
+| `primary-contrast` | `#CCFF00` | Reserved for low-contrast surfaces |
 
 **Rules:**
 - `text-primary` - BANNED for body text/labels. Use `text-primary-ink` instead.
@@ -22,11 +22,11 @@ Blacklight has two active themes - **dark** (lime on void) and **light** (lime o
 - SVG `stroke`/`fill` with CSS variables - must use `style={{ stroke: 'var(--primary-ink)' }}`, NOT SVG attributes (`stroke={color}`), because SVG attributes don't resolve CSS variables.
 - Progress bars, sparklines, chart accents - override with `primary-ink` when placed outside filled containers.
 
-### Status colors are already theme-safe
-`--status-critical`, `--status-success`, `--status-warn`, `--status-pending`, `--status-high` adapt per theme. Use them directly.
+### Status colors
+`--status-critical`, `--status-success`, `--status-warn`, `--status-pending`, `--status-high` - use them directly.
 
-### Surface/text/border tiers are theme-safe
-`text-text-primary`, `bg-surface-base`, `border-border-dim` etc. all adapt. Use them for standard UI.
+### Surface/text/border tiers
+`text-text-primary`, `bg-surface-base`, `border-border-dim` etc. - use them for standard UI.
 
 ---
 
@@ -35,7 +35,7 @@ Blacklight has two active themes - **dark** (lime on void) and **light** (lime o
 ### Colors
 
 ```
-Primary:       --primary (#C2E812 lime)      --primary-ink (lime/violet)
+Primary:       --primary (#CCFF00 lime)      --primary-ink (lime)
 Surfaces:      --surface-void > --surface-base > --surface-raised
 Borders:       --border-dim > --border-mid > --border-highlight
 Text:          --text-primary > --text-secondary > --text-tertiary
@@ -173,18 +173,13 @@ To override the indicator color (e.g., for theme-safe `primary-ink`):
 
 ---
 
-## Themes
+## Theme
 
 | Theme | Class | Background | Accent |
 |-------|-------|-----------|--------|
-| Blacklight Dark | `.blacklight-dark` | `#050505` void | Lime |
-| Blacklight Light | `.blacklight` | `#EFE9F4` lavender | Lime + violet ink |
+| Blacklight | `.blacklight` | `#050505` void | Lime |
 
-Key light-mode adaptations:
-- Logo uses `--violet-accent` instead of `--primary` for contrast
-- `--primary-ink` switches from lime to violet
-- Status colors shift to darker variants for readability on lavender
-- `--accent-dim` becomes subtle violet tint instead of lime tint
+The `.blacklight` class is static markup on the root HTML element (see `apps/ui/index.html`, `packages/blacklight/index.html`) - no provider component or runtime setup applies it. There is no theme switching.
 
 ---
 
@@ -192,7 +187,6 @@ Key light-mode adaptations:
 
 - [ ] Uses `primary-ink` (not `primary`) for text, borders, icons
 - [ ] Uses `primary` only for filled backgrounds with `primary-foreground` text
-- [ ] Tested in both dark and light themes
 - [ ] Uses Phosphor icons with individual imports
 - [ ] No hardcoded pixel values in Tailwind
 - [ ] Uses `cn()` for className merging

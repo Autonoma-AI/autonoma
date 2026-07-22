@@ -1,9 +1,7 @@
 "use client";
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-
 import { cn } from "../../lib/utils";
-import { useTheme } from "../theme-provider";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -27,11 +25,8 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
 }
 
 function DialogContent({ className, children, ...props }: DialogPrimitive.Popup.Props) {
-  const { theme } = useTheme();
-  const resolvedTheme = theme === "system" ? "blacklight-dark" : theme;
-
   return (
-    <DialogPrimitive.Portal className={resolvedTheme}>
+    <DialogPrimitive.Portal className="blacklight">
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

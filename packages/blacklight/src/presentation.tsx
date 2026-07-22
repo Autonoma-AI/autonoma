@@ -1,5 +1,27 @@
+import { Bug } from "@phosphor-icons/react/Bug";
+import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
+import { Clock } from "@phosphor-icons/react/Clock";
+import { Code } from "@phosphor-icons/react/Code";
+import { Eye } from "@phosphor-icons/react/Eye";
+import { Gear } from "@phosphor-icons/react/Gear";
+import { GitBranch } from "@phosphor-icons/react/GitBranch";
+import { Globe } from "@phosphor-icons/react/Globe";
+import { Layout } from "@phosphor-icons/react/Layout";
+import type { Icon } from "@phosphor-icons/react/lib";
+import { Lightning } from "@phosphor-icons/react/Lightning";
+import { Lock } from "@phosphor-icons/react/Lock";
+import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
+import { Pause } from "@phosphor-icons/react/Pause";
+import { Play } from "@phosphor-icons/react/Play";
+import { Pulse } from "@phosphor-icons/react/Pulse";
+import { Robot } from "@phosphor-icons/react/Robot";
+import { Rocket } from "@phosphor-icons/react/Rocket";
+import { Shield } from "@phosphor-icons/react/Shield";
+import { Terminal } from "@phosphor-icons/react/Terminal";
+import { Timer } from "@phosphor-icons/react/Timer";
+import { Warning } from "@phosphor-icons/react/Warning";
+import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { Logo } from "@/components/logo";
-import { useTheme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardLabel, CardMeta, CardValue } from "@/components/ui/card";
@@ -20,29 +42,6 @@ import { Sparkline } from "@/components/ui/sparkline";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Bug } from "@phosphor-icons/react/Bug";
-import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
-import { Clock } from "@phosphor-icons/react/Clock";
-import { Code } from "@phosphor-icons/react/Code";
-import { Eye } from "@phosphor-icons/react/Eye";
-import { Gear } from "@phosphor-icons/react/Gear";
-import { GitBranch } from "@phosphor-icons/react/GitBranch";
-import { Globe } from "@phosphor-icons/react/Globe";
-import { Layout } from "@phosphor-icons/react/Layout";
-import { Lightning } from "@phosphor-icons/react/Lightning";
-import { Lock } from "@phosphor-icons/react/Lock";
-import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import { Pause } from "@phosphor-icons/react/Pause";
-import { Play } from "@phosphor-icons/react/Play";
-import { Pulse } from "@phosphor-icons/react/Pulse";
-import { Robot } from "@phosphor-icons/react/Robot";
-import { Rocket } from "@phosphor-icons/react/Rocket";
-import { Shield } from "@phosphor-icons/react/Shield";
-import { Terminal } from "@phosphor-icons/react/Terminal";
-import { Timer } from "@phosphor-icons/react/Timer";
-import { Warning } from "@phosphor-icons/react/Warning";
-import type { Icon } from "@phosphor-icons/react/lib";
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 
 /* ═══════════════════════════════════════════
    Shared sub-components
@@ -1320,31 +1319,9 @@ function SlideUIFragments() {
    Main Presentation Component
    ═══════════════════════════════════════════ */
 
-const THEMES = [
-  { value: "blacklight-dark", label: "Blacklight Dark" },
-  { value: "blacklight", label: "Blacklight" },
-] as const;
-
 export function Presentation() {
-  const { theme, setTheme } = useTheme();
-
   return (
     <main className="h-screen w-screen overflow-y-auto scroll-smooth snap-y snap-mandatory">
-      {/* Floating theme switcher */}
-      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-        <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as typeof theme)}
-          className="h-7 border border-border-mid bg-surface-void px-3 font-mono text-3xs text-foreground opacity-60 outline-none transition-opacity hover:opacity-100 focus:border-primary focus:opacity-100"
-        >
-          {THEMES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <SlideCover />
       <SlideLogoShowcase />
       <SlideColorSystem />

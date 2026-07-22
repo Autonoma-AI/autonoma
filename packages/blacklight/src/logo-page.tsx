@@ -1,6 +1,5 @@
-import { Logo } from "@/components/logo";
-import { useTheme } from "@/components/theme-provider";
 import { useCallback, useRef, useState } from "react";
+import { Logo } from "@/components/logo";
 
 /* ═══════════════════════════════════════════
    Logo Page - 6 variant grid with copy-to-clipboard
@@ -57,11 +56,6 @@ const VARIANTS: VariantConfig[] = [
     wrapperClass: "text-text-secondary",
   },
 ];
-
-const THEMES = [
-  { value: "blacklight-dark", label: "Blacklight Dark" },
-  { value: "blacklight", label: "Blacklight" },
-] as const;
 
 function LogoCard({ config }: { config: VariantConfig }) {
   const svgRef = useRef<HTMLDivElement>(null);
@@ -140,25 +134,8 @@ function LogoCard({ config }: { config: VariantConfig }) {
 }
 
 export function LogoPage() {
-  const { theme, setTheme } = useTheme();
-
   return (
     <main className="relative min-h-screen bg-background">
-      {/* Theme switcher */}
-      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-        <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as typeof theme)}
-          className="h-7 border border-border-mid bg-surface-void px-3 font-mono text-3xs text-foreground opacity-60 outline-none transition-opacity hover:opacity-100 focus:border-primary focus:opacity-100"
-        >
-          {THEMES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <div className="mx-auto flex max-w-6xl flex-col gap-8 px-8 py-16">
         {/* Header */}
         <div className="flex flex-col gap-3">

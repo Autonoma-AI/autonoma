@@ -10,18 +10,10 @@ Import the stylesheet once at your app entry point:
 import "@autonoma/blacklight/styles.css";
 ```
 
-Wrap your app with the theme provider:
+Add the `blacklight` class to your root HTML element:
 
-```tsx
-import { ThemeProvider } from "@autonoma/blacklight";
-
-function App() {
-  return (
-    <ThemeProvider defaultTheme="blacklight-dark">
-      {/* your app */}
-    </ThemeProvider>
-  );
-}
+```html
+<html lang="en" class="blacklight">
 ```
 
 ## Usage
@@ -60,10 +52,6 @@ Components for rendering execution agent commands in the UI:
 - `InteractionBadge` - styled badge for command interaction types
 - `commandColors` - color map for command types
 
-### Theme
-
-- `ThemeProvider` / `useTheme` - theme context with two themes: `blacklight` (light, lavender) and `blacklight-dark` (dark, lime on void). Supports `system` auto-detection. Press `d` to toggle themes.
-
 ### Utilities
 
 - `cn(...inputs)` - merges class names via `clsx` + `tailwind-merge`
@@ -71,7 +59,7 @@ Components for rendering execution agent commands in the UI:
 
 ## Theming
 
-Themes are applied via CSS class on the document root (`blacklight` or `blacklight-dark`). All colors use CSS custom properties:
+The theme is applied via a `blacklight` CSS class on the document root. All colors use CSS custom properties:
 
 - **Semantic** - `--primary`, `--secondary`, `--accent`, `--destructive`, `--background`, `--foreground`
 - **Surface** - `--surface-void`, `--surface-base`, `--surface-raised`
@@ -80,7 +68,7 @@ Themes are applied via CSS class on the document root (`blacklight` or `blacklig
 - **Status** - `--status-critical`, `--status-high`, `--status-warn`, `--status-success`
 - **Accent** - `--accent-glow`, `--accent-dim`
 
-The dark theme uses lime (#C2E812) on near-black. The light theme uses lime accents on lavender with violet for text-safe contrast.
+The theme uses lime (#CCFF00) on near-black. Override any custom property on a class of your own to create a variant.
 
 ## Architecture Notes
 
