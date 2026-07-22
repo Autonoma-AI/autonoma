@@ -1,4 +1,3 @@
-import { db } from "@autonoma/db";
 import type { DeployPreviewEnvironmentOutput, PreviewDeployEvent } from "@autonoma/types";
 import { triggerPrDiffsJob } from "@autonoma/workflow";
 import { env } from "../env";
@@ -17,9 +16,10 @@ import type { Logger } from "../logger";
  * - main-branch environment 0 (`prNumber <= 0`) - main diffs are push-driven;
  * - no `branchId` on the deploy event (repo not onboarded) - nothing to run;
  * - environment not fully ready (matches the old `deployment_status: success` gate);
- * - no primary url resolved;
- * - the org does not have `previewkitAutoTriggerEnabled` (per-org rollout gate) - checked last, only after the
- *   cheap guards pass, so a disabled org never even starts a workflow.
+ * - no primary url resolved.
+ *
+ * Fires for every PreviewKit-managed app: any org whose preview reaches `ready`
+ * gets an Autonoma review, so this is the GitHub-Action-free path for all clients.
  *
  * Never rethrows meaningfully to the caller in `runDeploy`: the env is already
  * `ready`, so `runDeploy` isolates a throw here rather than mislabeling the outcome.
@@ -49,18 +49,6 @@ export async function triggerDiffsAfterDeploy(
     }
     if (result.primaryUrl == null) {
         logger.warn("Skipping diffs trigger: no primary url resolved", ids);
-        return;
-    }
-
-    // Per-org rollout gate (mirrors analysisEnabled / investigationAutofixEnabled): only orgs deliberately
-    // flipped on trigger a run, so we can canary this on autonoma's org before enabling it broadly. Checked last
-    // so a disabled org spends only one bounded lookup and never starts a workflow.
-    const settings = await db.organizationSettings.findUnique({
-        where: { organizationId: event.organizationId },
-        select: { previewkitAutoTriggerEnabled: true },
-    });
-    if (settings?.previewkitAutoTriggerEnabled !== true) {
-        logger.info("Skipping diffs trigger: PreviewKit auto-trigger not enabled for this org", ids);
         return;
     }
 

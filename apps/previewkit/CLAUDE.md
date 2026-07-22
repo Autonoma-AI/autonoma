@@ -103,9 +103,9 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, AWS Secrets Manager.
   `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
   starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
-  a resolved primary URL, a `branchId` on the event, and the org's `previewkitAutoTriggerEnabled` per-org rollout
-  gate), so an Autonoma review begins without the customer's `deployment_status` Action. The launcher forwards
-  this env's `TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` per-Job.
+  a resolved primary URL, and a `branchId` on the event), so an Autonoma review begins without the customer's
+  `deployment_status` Action. It fires for every PreviewKit-managed app - there is no per-org gate. The launcher
+  forwards this env's `TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` per-Job.
 
 ## The public surface lives in apps/api
 

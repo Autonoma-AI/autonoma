@@ -2,15 +2,13 @@ import type { DeployPreviewEnvironmentOutput, PreviewDeployEvent } from "@autono
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "../../src/logger";
 
-const { mockEnv, triggerPrDiffsJob, findOrgSettings } = vi.hoisted(() => ({
+const { mockEnv, triggerPrDiffsJob } = vi.hoisted(() => ({
     mockEnv: { TEMPORAL_ADDRESS: undefined as string | undefined },
     triggerPrDiffsJob: vi.fn(),
-    findOrgSettings: vi.fn(),
 }));
 
 vi.mock("../../src/env", () => ({ env: mockEnv }));
 vi.mock("@autonoma/workflow", () => ({ triggerPrDiffsJob }));
-vi.mock("@autonoma/db", () => ({ db: { organizationSettings: { findUnique: findOrgSettings } } }));
 
 import { triggerDiffsAfterDeploy } from "../../src/diffs/trigger-diffs-after-deploy";
 
@@ -51,7 +49,6 @@ describe("triggerDiffsAfterDeploy", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockEnv.TEMPORAL_ADDRESS = "temporal.example.com:7233";
-        findOrgSettings.mockResolvedValue({ previewkitAutoTriggerEnabled: true });
     });
 
     it("starts the diffs run workflow when the preview is ready", async () => {
@@ -93,15 +90,8 @@ describe("triggerDiffsAfterDeploy", () => {
         expect(triggerPrDiffsJob).not.toHaveBeenCalled();
     });
 
-    it("skips when PreviewKit auto-trigger is not enabled for the org", async () => {
-        findOrgSettings.mockResolvedValue({ previewkitAutoTriggerEnabled: false });
-        await triggerDiffsAfterDeploy(makeEvent(), makeResult(), testLogger);
-        expect(triggerPrDiffsJob).not.toHaveBeenCalled();
-    });
-
-    it("skips when the org has no settings row", async () => {
-        findOrgSettings.mockResolvedValue(null);
-        await triggerDiffsAfterDeploy(makeEvent(), makeResult(), testLogger);
-        expect(triggerPrDiffsJob).not.toHaveBeenCalled();
+    it("triggers for any org - there is no per-org gate", async () => {
+        await triggerDiffsAfterDeploy(makeEvent({ organizationId: "some-other-org" }), makeResult(), testLogger);
+        expect(triggerPrDiffsJob).toHaveBeenCalledTimes(1);
     });
 });
