@@ -36,6 +36,67 @@ export const analysisVerdictSchema = z.enum([
 export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 
 /**
+ * The two planes the verdict taxonomy splits into. `app_health` is the only plane that counts against the PR;
+ * `coverage` is the coverage-confidence plane (never a bug, never blocking).
+ */
+export type AnalysisVerdictPlane = "app_health" | "coverage";
+
+/**
+ * The single source of truth for the plane partition of the verdict taxonomy, derived from every surface that
+ * needs it (the Reconciler coverage summary, the PR verdict headline, the checkpoint rail). A `Record` over the
+ * `AnalysisVerdict` SSOT, so adding a verdict is a compile error here until it is assigned a plane - a plane can
+ * never silently omit a verdict or count one twice.
+ */
+const VERDICT_PLANE: Record<AnalysisVerdict, AnalysisVerdictPlane> = {
+    client_bug: "app_health",
+    passed: "app_health",
+    engine_artifact: "coverage",
+    environment_failure: "coverage",
+    scenario_issue: "coverage",
+    delete: "coverage",
+};
+
+/** The coverage-plane verdicts, derived from the partition over the schema's option list (never hand-listed). */
+export const coverageVerdicts: AnalysisVerdict[] = analysisVerdictSchema.options.filter(
+    (verdict) => VERDICT_PLANE[verdict] === "coverage",
+);
+
+/**
+ * The plane a verdict falls on. Verdicts arrive from the store as plain strings, so an unknown value falls back
+ * to `coverage` - it never counts against the PR - matching the UI's graceful fallback.
+ */
+export function analysisVerdictPlane(category: string): AnalysisVerdictPlane {
+    const parsed = analysisVerdictSchema.safeParse(category);
+    return parsed.success ? VERDICT_PLANE[parsed.data] : "coverage";
+}
+
+/**
+ * The presentation bucket a finding falls in: a client bug (the only verdict that counts against the PR), a
+ * passed app-health check, or a non-blocking coverage-plane check. Derived from the plane partition plus the
+ * single actionable verdict, so it can never drift from the taxonomy.
+ */
+export type AnalysisFindingBucket = "bug" | "passed" | "coverage";
+
+export function analysisFindingBucket(category: string): AnalysisFindingBucket {
+    if (analysisVerdictPlane(category) === "coverage") return "coverage";
+    return category === analysisVerdictSchema.enum.client_bug ? "bug" : "passed";
+}
+
+/** How many findings fall in each presentation bucket. */
+export interface AnalysisFindingBucketCounts {
+    bug: number;
+    passed: number;
+    coverage: number;
+}
+
+/** Tally findings (by their terminal verdict `category`) into the three presentation buckets. */
+export function countAnalysisFindingBuckets(categories: Iterable<string>): AnalysisFindingBucketCounts {
+    const counts: AnalysisFindingBucketCounts = { bug: 0, passed: 0, coverage: 0 };
+    for (const category of categories) counts[analysisFindingBucket(category)] += 1;
+    return counts;
+}
+
+/**
  * How a test entered the analysis run - the data tag that tells a `delete` finding apart:
  *
  * - `pre_existing`: an affected test the PR's diff touched (Impact Analysis marked it via `RegenerateSteps`). Its

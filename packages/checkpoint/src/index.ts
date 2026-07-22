@@ -73,7 +73,18 @@ export {
     type SnapshotHealthResult,
 } from "./health";
 export { countOpenBugsBySnapshot } from "./open-bugs";
-export { buildCheckpointSummary, type BuildCheckpointSummaryInputs } from "./presentation";
+export {
+    buildCheckpointSummary,
+    buildAuthoritativeCheckpointSummary,
+    type AuthoritativeAnalysisJobStatus,
+    type AuthoritativeCheckpointInputs,
+    type BuildCheckpointSummaryInputs,
+} from "./presentation";
+export {
+    authoritativeSnapshotHealth,
+    loadAuthoritativeCheckpointInputs,
+    type LoadedAuthoritativeInputs,
+} from "./authoritative";
 export {
     statsFromSummary,
     isNoTestsAffected,

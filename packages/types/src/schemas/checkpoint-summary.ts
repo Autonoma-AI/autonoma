@@ -37,6 +37,23 @@ export const checkpointFailingByKindSchema = z.object({
 });
 export type CheckpointFailingByKind = z.infer<typeof checkpointFailingByKindSchema>;
 
+// The authoritative-analysis view of a checkpoint, present only when the merged pipeline ran on the snapshot (it
+// has an AnalysisJob). When set, tone/label/reason are derived from the AnalysisReport verdict + finding
+// categories rather than the legacy health/Bug model, and the counts below drive the authoritative metrics line.
+// The three counts are the presentation buckets of the run's findings (see analysisFindingBucket).
+export const checkpointAnalysisSummarySchema = z.object({
+    // The AnalysisJob lifecycle. Mirrors the `AnalysisJobStatus` db enum (types cannot import it).
+    jobStatus: z.enum(["running", "completed", "failed"]),
+    // Client-bug findings - the only plane that counts against the PR (turns the checkpoint red).
+    bugCount: z.number().int().nonnegative(),
+    // Findings that passed on the app-health plane.
+    passedCount: z.number().int().nonnegative(),
+    // Coverage-plane findings (engine_artifact / environment_failure / scenario_issue / delete) - never a
+    // failure; surfaced as "couldn't confirm".
+    coverageCount: z.number().int().nonnegative(),
+});
+export type CheckpointAnalysisSummary = z.infer<typeof checkpointAnalysisSummarySchema>;
+
 export const checkpointPresentationSummarySchema = z.object({
     tone: checkpointToneSchema,
     label: z.string(),
@@ -49,6 +66,8 @@ export const checkpointPresentationSummarySchema = z.object({
     testCounts: checkpointTestCountsSchema,
     failingByKind: checkpointFailingByKindSchema,
     suiteChangeCount: z.number(),
+    // Set only for authoritative-analysis snapshots; absent for legacy diffs/shadow snapshots.
+    analysis: checkpointAnalysisSummarySchema.optional(),
 });
 export type CheckpointPresentationSummary = z.infer<typeof checkpointPresentationSummarySchema>;
 
