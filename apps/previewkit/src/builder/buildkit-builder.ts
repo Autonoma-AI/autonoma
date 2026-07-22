@@ -428,7 +428,7 @@ export class BuildKitBuilder implements Builder {
                 "--opt",
                 "platform=linux/amd64",
                 "--output",
-                `type=image,name=${request.imageTag},push=true`,
+                `type=image,name=${request.imageTag},push=true,compression=zstd`,
             ];
 
             // Select a stage in a multi-stage Dockerfile. Without it buildkit
@@ -514,7 +514,7 @@ export class BuildKitBuilder implements Builder {
                 "--opt",
                 "platform=linux/amd64",
                 "--output",
-                `type=image,name=${request.imageTag},push=true`,
+                `type=image,name=${request.imageTag},push=true,compression=zstd`,
             ];
 
             const extraEnv: Record<string, string> = {};

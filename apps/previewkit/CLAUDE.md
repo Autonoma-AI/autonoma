@@ -206,6 +206,10 @@ The BestEffort Job can exhaust its dedicated node, but required anti-affinity is
 builds from that failure. The ingress NetworkPolicy restricts other pods, but the
 unauthenticated BuildKit endpoint still assumes trusted build inputs because an executor in the same
 pod can reach it. No remote layer cache is currently configured, so every fresh Job starts cold.
+The image exporter (`buildctl --output type=image,...`) requests `compression=zstd` instead of
+buildkit's gzip default, so the export's per-layer compression is multi-threaded across the node's
+cores rather than pegging one core - the fix for a `runtime` build's single giant install/build
+layer otherwise taking minutes to export on 4 vCPUs.
 Build logs stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log
 upload. Every attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so
 `PreviewPipeline.build` calls `logSink.markStart(namespace)` at the top of each attempt to push a
