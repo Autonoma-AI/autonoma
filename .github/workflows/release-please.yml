@@ -9,6 +9,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -23,10 +27,26 @@ jobs:
         with:
           client-id: ${{ secrets.ACTIONS_APP_CLIENT_ID }}
           private-key: ${{ secrets.ACTIONS_APP_PRIVATE_KEY }}
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Root version is CalVer: v1.<2-digit-year><month><day>.<release-count-that-day-UTC>,
+      # e.g. v1.260721.2 for the second release merged on 2026-07-21. Computed fresh on every
+      # run and handed to release-please via release-as so it always targets the next
+      # sequence number for today (or 1 if none exist yet).
+      - name: Compute next calver version
+        id: calver
+        run: |
+          set -euo pipefail
+          TODAY=$(date -u +%y%m%d)
+          LAST=$(git tag --list "v1.${TODAY}.*" | sed -E "s/^v1\.${TODAY}\.//" | sort -n | tail -1)
+          NEXT=$(( ${LAST:-0} + 1 ))
+          echo "version=1.${TODAY}.${NEXT}" >> "$GITHUB_OUTPUT"
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v5
         with:
           release-type: node
           token: ${{ steps.app-token.outputs.token }}
-          versioning-strategy: always-bump-patch
+          release-as: ${{ steps.calver.outputs.version }}

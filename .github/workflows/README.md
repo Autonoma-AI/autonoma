@@ -11,11 +11,14 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Triggers on every push to `main`
 - Creates/updates a release PR with changelog
 - When the release PR is merged, creates a GitHub release
-- Uses conventional commits to determine version bump
-- **Multi-component**: tracks two independently-versioned packages
-    - root (`.`) -> tags like `v1.8.9`, drives the production k8s deploy below
-    - CLI (`apps/cli`, `@autonoma-ai/planner`) -> tags like `cli-v0.1.14`, drives the npm publish below
-- `separate-pull-requests: true`, so the root and the CLI each get their own release PR
+- Root-only: `release-please-config.json` contains just the root (`.`) package, so this workflow releases the root - CalVer tags like `v1.260721.2` (`v1.<YY><MM><DD>.<release count that UTC day>`), driving the production k8s deploy below. Computed fresh each run from existing tags and forced via release-please's `release-as` input - commit types (`feat`/`fix`) still control changelog sections but no longer influence the version number itself
+- The CLI (`apps/cli`, `@autonoma-ai/planner`) is released independently by the separate **CLI Release Please** workflow below (`cli-release-please.yml`), which produces semver tags like `cli-v0.1.14` and drives the npm publish below
+
+### 1a. **CLI Release Please** (`cli-release-please.yml`)
+
+- Same release-please mechanics as above, but scoped entirely to `apps/cli` via its own config/manifest (`release-please-config-cli.json`, `.release-please-manifest-cli.json`)
+- Uses conventional commits to determine version bumps (standard semver, unlike the root's CalVer scheme) since `@autonoma-ai/planner` is npm-published and consumers rely on semver ranges
+- Kept fully separate from the root workflow so the CLI's version and release PR never interact with the root's
 
 ### 2. **Production Build** (`production-build.yml`)
 
@@ -218,6 +221,8 @@ Kubernetes maintains the last 3 ReplicaSets for each deployment (configured via 
 - `deployment/apps/*.yaml` - Kubernetes manifests with `revisionHistoryLimit`
 
 ## Conventional Commits
+
+The table below drives changelog sections for both packages, and the version bump for the CLI package. The root package's version is CalVer (`v1.YYMMDD.N`, see above) - commit types there only sort entries into changelog sections and never change the version number.
 
 Release-please uses [conventional commits](https://www.conventionalcommits.org/) to determine version bumps:
 
