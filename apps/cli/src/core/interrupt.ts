@@ -19,6 +19,10 @@ let armed = false;
 let armTimer: ReturnType<typeof setTimeout> | undefined;
 let onExit: ((exitCode?: number) => void) | undefined;
 let quitting = false;
+// The readline.createInterface pair, captured at install so suspend/resume can
+// swap the SIGINT-injecting wrapper out (to hand stdin to a child) and back in.
+let originalCreateInterface: typeof readline.createInterface | undefined;
+let patchedCreateInterface: typeof readline.createInterface | undefined;
 
 function disarm(): void {
     if (armTimer) clearTimeout(armTimer);
@@ -88,14 +92,40 @@ export function installInterruptHandler(opts: { onExit: (exitCode?: number) => v
     // listener exists it emits "SIGINT" and leaves the prompt running. So inject
     // one onto every interface clack creates.
     const original = readline.createInterface.bind(readline);
+    originalCreateInterface = original;
     // The one unavoidable assertion in this package: readline.createInterface is
     // an overloaded builtin, and a single-signature wrapper is not structurally
     // assignable to its overload set without bridging the type here.
-    readline.createInterface = ((...args: Parameters<typeof readline.createInterface>) => {
+    patchedCreateInterface = ((...args: Parameters<typeof readline.createInterface>) => {
         const iface = original(...args);
         iface.on("SIGINT", handleInterrupt);
         return iface;
     }) as typeof readline.createInterface;
+    readline.createInterface = patchedCreateInterface;
+}
+
+/**
+ * Hand the terminal to a spawned interactive child (e.g. a local agent). Detaches
+ * the CLI's SIGINT double-tap handler and the readline SIGINT interception, and
+ * restores cooked mode, so Ctrl+C behaves the way the developer expects INSIDE the
+ * child - interrupting it, not killing the whole CLI. Idempotent; a no-op if the
+ * handler was never installed.
+ */
+export function suspend(): void {
+    if (!installed) return;
+    disarm();
+    process.removeListener("SIGINT", handleInterrupt);
+    if (originalCreateInterface != null) readline.createInterface = originalCreateInterface;
+    restoreTerminal();
+}
+
+/** Re-arm the CLI's Ctrl+C handling after a suspended child exits. Idempotent. */
+export function resume(): void {
+    if (!installed) return;
+    if (!process.listeners("SIGINT").includes(handleInterrupt)) {
+        process.on("SIGINT", handleInterrupt);
+    }
+    if (patchedCreateInterface != null) readline.createInterface = patchedCreateInterface;
 }
 
 /**

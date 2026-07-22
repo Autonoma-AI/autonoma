@@ -21,7 +21,6 @@
         "start": "node dist/index.js",
         "test": "vitest run",
         "test:watch": "vitest",
-        "eval:classifier": "tsx evals/failure-classifier.eval.ts",
         "eval:sdk": "tsx --env-file=../../.env evals/sdk-integration/run.ts",
         "eval:planner": "tsx --env-file=../../.env evals/planner/run.ts",
         "eval:bootstrap": "tsx --env-file=../../.env evals/planner/bootstrap.ts",

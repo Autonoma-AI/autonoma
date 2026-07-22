@@ -12,21 +12,25 @@
  * token 403s through the proxy.
  */
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFile, mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
+import { writeIntegrationPrompt } from "../../src/agents/04-recipe-builder/integration-prompt";
+import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
 import { ensureCachedCheckout } from "../framework/checkout";
 import { driveClaude } from "../framework/drive-claude";
 import { DEFAULT_AWS_REGION, readHarnessEnv } from "../framework/env";
 import { commitAll, copyTree, git } from "../framework/git";
-import { runDir as runDirFor } from "../framework/paths";
+import { EVALS_ROOT, runDir as runDirFor } from "../framework/paths";
 import { loadCase, type LoadedCase } from "./case";
 import { judgeRun } from "./judge";
-import { renderIntegrationPrompt } from "./prompt";
 import { verdictSchema } from "./verdict";
 
 const DEFAULT_DRIVE_MODEL = "us.anthropic.claude-opus-4-8";
 const DEFAULT_TIMEOUT_MIN = 40;
+/** The built CLI the driven agent invokes as its endpoint tool (`<node> <this> sdk ...`). */
+const CLI_DIST = join(EVALS_ROOT, "..", "dist", "index.js");
 
 interface Args {
     repo: string;
@@ -79,8 +83,9 @@ async function stageJudge(params: {
     cacheDir: string;
     runDir: string;
     artifactsDir: string;
+    stagedArtifacts: string;
 }): Promise<void> {
-    const { judgeRoot, sandbox, cacheDir, runDir, artifactsDir } = params;
+    const { judgeRoot, sandbox, cacheDir, runDir, artifactsDir, stagedArtifacts } = params;
     await copyTree(sandbox, join(judgeRoot, "agent"));
     await copyTree(cacheDir, join(judgeRoot, "golden"));
     await mkdir(join(judgeRoot, "spec"), { recursive: true });
@@ -90,7 +95,7 @@ async function stageJudge(params: {
         [join(runDir, "progress.log"), join(judgeRoot, "progress.log")],
         [join(runDir, "claude.stream.jsonl"), join(judgeRoot, "claude.stream.jsonl")],
         [join(artifactsDir, "entity-audit.md"), join(judgeRoot, "spec", "entity-audit.md")],
-        [join(artifactsDir, "recipe.json"), join(judgeRoot, "spec", "recipe.json")],
+        [join(stagedArtifacts, RECIPE_FILE), join(judgeRoot, "spec", "recipe.agent.json")],
     ] as const) {
         await copyFile(from, to).catch((err) => console.error(`[stage] skipped ${basename(from)}: ${err.message}`));
     }
@@ -105,6 +110,13 @@ async function main(): Promise<void> {
     if (!args.noDrive && env.AWS_BEARER_TOKEN_BEDROCK == null) {
         throw new Error(
             "AWS_BEARER_TOKEN_BEDROCK is required for a drive; set it in your environment (or pass --no-drive).",
+        );
+    }
+    // The agent validates by shelling out to the built CLI's `sdk` command, so it must exist.
+    if (!args.noDrive && !existsSync(CLI_DIST)) {
+        throw new Error(
+            `The built CLI is required for the agent's \`sdk\` tool but is missing at ${CLI_DIST}. ` +
+                `Build it first: \`pnpm --filter @autonoma-ai/planner build\` (or pass --no-drive).`,
         );
     }
 
@@ -125,15 +137,26 @@ async function main(): Promise<void> {
     // Stage the frozen artifacts OUTSIDE the sandbox so the agent reads them without polluting its diff.
     const stagedArtifacts = join(runDir, "artifacts");
     await copyTree(kase.artifactsDir, stagedArtifacts);
+    // The agent GENERATES the recipe in this flow; drop the frozen one so it can't read/edit a
+    // pre-made answer. The frozen recipe stays available to the judge from the case dir.
+    await rm(join(stagedArtifacts, RECIPE_FILE), { force: true });
 
     const sharedSecret = randomBytes(32).toString("hex");
     const runHome = join(runDir, "home");
     mkdirSync(runHome, { recursive: true });
 
-    const prompt = renderIntegrationPrompt({
-        sharedSecret,
-        artifactsDir: stagedArtifacts,
+    // Render the CLI's own integration prompt (single source of truth) and hand the agent the
+    // built CLI as its `sdk` endpoint tool. The shared secret rides the env (appEnv below).
+    const cliCommand = `${process.execPath} ${CLI_DIST}`;
+    const promptFile = await writeIntegrationPrompt({
+        outputDir: stagedArtifacts,
+        recipePath: join(stagedArtifacts, RECIPE_FILE),
+        cliCommand,
     });
+    const prompt =
+        `Read the file ${promptFile} and follow its instructions exactly to integrate ` +
+        `Autonoma into this application. It is your complete spec. Do not stop until every ` +
+        `item in it is done and you have written the completion marker it describes.`;
 
     const bedrockToken = env.AWS_BEARER_TOKEN_BEDROCK;
     if (bedrockToken == null) throw new Error("AWS_BEARER_TOKEN_BEDROCK is required for a drive.");
@@ -162,26 +185,33 @@ async function main(): Promise<void> {
     writeFileSync(join(runDir, "agent.diff"), agentDiff + "\n");
     writeFileSync(join(runDir, "golden.diff"), goldenDiff + "\n");
 
+    // Deterministic signals of the new shape: did the agent generate a recipe and report done?
+    const recipeGenerated = existsSync(join(stagedArtifacts, RECIPE_FILE));
+    const completionMarkerWritten = existsSync(join(stagedArtifacts, COMPLETION_MARKER_FILE));
+    log(`recipe generated: ${recipeGenerated} · completion marker: ${completionMarkerWritten}`);
+
     if (args.noJudge) {
         log(`drive complete (--no-judge). diffs + transcript in ${runDir}`);
         return;
     }
 
     const judgeRoot = join(runDir, "judge");
-    await stageJudge({ judgeRoot, sandbox, cacheDir, runDir, artifactsDir: kase.artifactsDir });
+    await stageJudge({ judgeRoot, sandbox, cacheDir, runDir, artifactsDir: kase.artifactsDir, stagedArtifacts });
 
     log("judging");
     const verdict = await judgeRun({ judgeRoot, modelId: args.judgeModel });
     if (verdict == null) {
         throw new Error("Judge did not return a verdict; see the judge output above.");
     }
-    writeFileSync(join(runDir, "verdict.json"), JSON.stringify(verdictSchema.parse(verdict), null, 2) + "\n");
+    const finalVerdict = { ...verdictSchema.parse(verdict), recipeGenerated, completionMarkerWritten };
+    writeFileSync(join(runDir, "verdict.json"), JSON.stringify(finalVerdict, null, 2) + "\n");
 
     log(`verdict: ${verdict.passed ? "PASS" : "FAIL"}`);
     process.stdout.write(
         `factories: ${verdict.factoryCoverage.covered.length} covered, ${verdict.factoryCoverage.missing.length} missing` +
             `${verdict.factoryCoverage.missing.length ? ` (${verdict.factoryCoverage.missing.join(", ")})` : ""}\n`,
     );
+    process.stdout.write(`recipe generated: ${recipeGenerated} · completion marker: ${completionMarkerWritten}\n`);
     for (const [key, dim] of Object.entries(verdict.dimensions)) {
         process.stdout.write(`  ${dim.satisfied ? "✓" : "✗"} ${key}: ${dim.evidence}\n`);
     }

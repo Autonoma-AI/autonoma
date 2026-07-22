@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { uploadRecipeFromDisk } from "./agents/04-recipe-builder/phases/submit";
+import { runSdkCommand } from "./agents/04-recipe-builder/sdk-command";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
 import { track, trackError, flushAnalytics } from "./core/analytics";
@@ -121,7 +122,7 @@ const STEP_INTROS: Record<StepName, string> = {
     scenarioRecipe:
         "Designing the data each test will run against - concrete, realistic values that match how your app actually uses them.",
     recipeBuilder:
-        "Helping you wire up small helpers that create and clean up test data in your own database. We give you a copy-paste guide for each one and test it live against your app running locally - you deploy later, once everything passes.",
+        "Handing off to your local coding agent to wire up small helpers that create and clean up test data in your own database. It implements them, generates the recipe, and validates each one live against your app running locally - you watch it work, then we continue.",
     testGenerator:
         "Writing the actual end-to-end tests, covering every page and feature with depth proportional to its complexity.",
 };
@@ -309,6 +310,7 @@ async function runStep(
             }
             case "recipeBuilder": {
                 const { runRecipeBuilder } = await import("./agents/04-recipe-builder/index");
+                const { parsePermissionMode } = await import("./agents/04-recipe-builder/launcher");
                 result = await runRecipeBuilder({
                     projectRoot: config.projectRoot,
                     outputDir,
@@ -317,6 +319,8 @@ async function runStep(
                     projectContext,
                     nonInteractive,
                     retryGuidance,
+                    agent: config.agent,
+                    permissionMode: parsePermissionMode(config.permissionMode),
                 });
                 break;
             }
@@ -552,10 +556,22 @@ async function main() {
         process.exit(recipeUploaded ? 0 : 1);
     }
 
+    // `sdk <discover|up|down>` is the interactive agent's endpoint tool, not a
+    // developer-facing command: it's non-interactive, prints JSON, and its exit code
+    // signals HTTP success. It shells out from inside the handoff session.
+    if (command === "sdk") {
+        const exitCode = await runSdkCommand(process.argv.slice(3), {
+            env: process.env,
+            stdout: (text) => process.stdout.write(text),
+            stderr: (text) => process.stderr.write(text),
+        });
+        process.exit(exitCode);
+    }
+
     if (command === "help" || args.help) {
         console.log("Usage:");
         console.log(
-            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]",
+            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive] [--agent <name>] [--permission-mode <default|acceptEdits|bypassPermissions>]",
         );
         console.log("  test-planner status [--project <path>]");
         console.log("  test-planner upload [--project <path>]   # re-upload already-generated recipe + artifacts");
@@ -595,6 +611,8 @@ async function main() {
                       .map((s) => s.trim())
                       .filter((s) => s.length > 0)
                 : undefined,
+        agent: strArg(args, "agent"),
+        permissionMode: strArg(args, "permission-mode"),
     });
 
     if (!ensureAutonomaAuth()) {

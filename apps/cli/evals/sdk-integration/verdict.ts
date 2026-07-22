@@ -8,7 +8,13 @@ const dimensionSchema = z.object({
 });
 
 /** The load-bearing dimensions the SDK integration exists to get right. */
-export const VERDICT_DIMENSIONS = ["endpointImplemented", "realCreationPaths", "teardownScoped", "realAuth"] as const;
+export const VERDICT_DIMENSIONS = [
+    "endpointImplemented",
+    "realCreationPaths",
+    "teardownScoped",
+    "realAuth",
+    "perEntityValidation",
+] as const;
 
 export const verdictSchema = z.object({
     /** Did the agent achieve functional parity with the client's golden integration. */
@@ -28,6 +34,9 @@ export const verdictSchema = z.object({
         teardownScoped: dimensionSchema,
         /** The auth callback returns real usable credentials, not a placeholder. */
         realAuth: dimensionSchema,
+        /** The transcript shows the agent generated the recipe and validated each entity
+         *  by driving the CLI's `sdk up`/`down` and checking the DB (created, then gone). */
+        perEntityValidation: dimensionSchema,
     }),
     /** How the agent's integration compares to golden - cite specific differences. */
     reasoning: z.string(),

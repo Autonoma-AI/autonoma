@@ -23,19 +23,15 @@ import { runPlanner } from "../framework/run-planner-step";
 const OUTPUT_SLUG = "eval";
 const DEFAULT_TIMEOUT_MIN = 30;
 
-/** The planner steps to run, in order. Test generation is skipped - the eval doesn't use it. */
-const BOOTSTRAP_STEPS = ["projectMapper", "pagesFinder", "kb", "entityAudit", "scenarioRecipe", "recipeBuilder"];
+/**
+ * The planner steps to run, in order. Test generation is skipped; `recipeBuilder` is skipped too -
+ * it no longer produces a frozen recipe (it hands off to the SDK-integration agent, which generates
+ * `recipe.json` at eval time), so a case carries no frozen recipe to bootstrap.
+ */
+const BOOTSTRAP_STEPS = ["projectMapper", "pagesFinder", "kb", "entityAudit", "scenarioRecipe"];
 
 /** Artifacts to promote into the case (file or dir); missing ones are warned, not fatal. */
-const ARTIFACTS = [
-    "project-map.json",
-    "pages.json",
-    "AUTONOMA.md",
-    "skills",
-    "entity-audit.md",
-    "scenarios.md",
-    "recipe.json",
-];
+const ARTIFACTS = ["project-map.json", "pages.json", "AUTONOMA.md", "skills", "entity-audit.md", "scenarios.md"];
 
 interface Args {
     repo: string;

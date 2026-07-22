@@ -1,8 +1,6 @@
 import * as p from "@clack/prompts";
-import { type FullRecipeJson, buildFullRecipe, buildSubmittableRecipe, loadRecipe, saveRecipe } from "../recipe";
-import type { RecipeBuilderState } from "../state";
+import { type FullRecipeJson, RECIPE_FILE, loadRecipe } from "../recipe";
 
-const RECIPE_FILE = "recipe.json";
 const UPLOAD_COMMAND = "npx @autonoma-ai/planner@latest upload";
 
 export interface SubmitCredentials {
@@ -12,29 +10,31 @@ export interface SubmitCredentials {
 }
 
 export interface SubmitResult {
-    /** Local path (relative to the output dir) the recipe was written to. */
+    /** Local path (relative to the output dir) the recipe was read from. */
     recipePath: string;
     /** True only when the recipe was accepted by Autonoma. */
     uploaded: boolean;
 }
 
 /**
- * Build the recipe from the recipe-builder state, save it to disk, and submit it.
- * Returns whether the upload actually succeeded so the caller can fail the step
- * instead of masking a rejected upload as success.
+ * Submit the recipe that already sits on disk - the one the agent generated and
+ * validated (or, non-interactively, the drafted one). The CLI never rebuilds the
+ * recipe from its own state here: the agent may have written `recipe.json` directly
+ * during handoff, and that on-disk file is the source of truth. Returns whether the
+ * upload actually succeeded so the caller can fail the step instead of masking a
+ * rejected upload as success.
  */
 export async function runSubmit(
-    state: RecipeBuilderState,
     outputDir: string,
     autonomaApiUrl?: string,
     autonomaApiToken?: string,
     autonomaGenerationId?: string,
 ): Promise<SubmitResult> {
-    const fullCreate = buildFullRecipe(state.entityOrder, state.entities);
-    const recipe = buildSubmittableRecipe(fullCreate, "Standard test scenario with realistic data");
-
-    await saveRecipe(outputDir, recipe);
-    p.log.success(`Recipe saved to ${RECIPE_FILE}`);
+    const recipe = await loadRecipe(outputDir);
+    if (recipe == null) {
+        p.log.error(`No ${RECIPE_FILE} found in ${outputDir} to submit.`);
+        return { recipePath: RECIPE_FILE, uploaded: false };
+    }
 
     const uploaded = await submitRecipe(recipe, {
         apiUrl: autonomaApiUrl,

@@ -14,10 +14,12 @@ subprocess (`claude -p` for the SDK agent; the planner CLI for planner steps) ra
   tree, drives `claude -p` (Bedrock) to re-implement it, and an agentic judge (OpenRouter, direct)
   compares the agent's diff to golden. This is the primary eval.
 - **Layer 1 - planner-step evals** (`planner/`): re-runs one planner step (`kb`, `entityAudit`,
-  `scenarioRecipe`, `recipeBuilder`) fresh on the clean tree and grades the produced artifact
-  against an authored findings rubric with a single-shot judge.
-- **Bootstrap** (`planner/bootstrap.ts`): runs the planner end-to-end on the clean tree to generate
-  a case's frozen `artifacts/` (the spec both layers consume).
+  `scenarioRecipe`) fresh on the clean tree and grades the produced artifact against an authored
+  findings rubric with a single-shot judge.
+- **Bootstrap** (`planner/bootstrap.ts`): runs the planner steps through `scenarioRecipe` on the
+  clean tree to generate a case's frozen `artifacts/` (the spec both layers consume). `recipeBuilder`
+  is not bootstrapped - it hands off to the SDK-integration agent, which generates `recipe.json` at
+  eval time, so a case carries no frozen recipe.
 
 ## Directory map
 
@@ -25,7 +27,7 @@ subprocess (`claude -p` for the SDK agent; the planner CLI for planner steps) ra
 apps/cli/evals/
   framework/          # shared, public: checkout, drive-claude, run-planner-step, corpus, paths,
                       #   bedrock, env, git, judge-model
-  sdk-integration/    # Layer 2: run.ts, prompt.ts, judge.ts (agentic), verdict.ts, case.ts
+  sdk-integration/    # Layer 2: run.ts, judge.ts (agentic), verdict.ts, case.ts
   planner/            # Layer 1: run.ts, bootstrap.ts, steps.ts, judge.ts (single-shot), README
   cases/<repo>/       # the corpus - one folder per client repo (OPENSOURCE-IGNORED: client IP)
   .cache/  .runs/     # gitignored: repo cache, per-run outputs
@@ -37,7 +39,7 @@ apps/cli/evals/
 |------|------|--------------|
 | `input.json` | `{ owner, repo, sha, installationId }` - coordinates only, no source | both |
 | `strip.patch` | `git diff` sha->clean: the client's integration removed (manually), so the tree still boots | Layer 2 |
-| `artifacts/` | frozen planner spec: `project-map.json`, `pages.json`, `AUTONOMA.md`, `entity-audit.md`, `scenarios.md`, `recipe.json` | both |
+| `artifacts/` | frozen planner spec: `project-map.json`, `pages.json`, `AUTONOMA.md`, `entity-audit.md`, `scenarios.md` (no `recipe.json` - the SDK agent generates that at eval time) | both |
 | `context.json` | `{ description, testingGoal, criticalFlows }` - the planner's project context | Layer 1 / bootstrap |
 | `rubrics/<step>.md` | findings rubric per gradable step | Layer 1 |
 | `ENV.md` | dev-only, advisory local-boot notes (read by NO harness code) | humans |
@@ -99,4 +101,4 @@ through a proxy otherwise.
 - The judge's default model id (`anthropic/claude-sonnet-4.5`) must resolve on OpenRouter; override
   with `JUDGE_MODEL`.
 - Layer 1 seeds a step's *upstream* artifacts from `artifacts/` but never the step's own output, so a
-  resumable step (recipeBuilder) starts fresh and can't read its own answer.
+  step never grades against its own frozen answer.

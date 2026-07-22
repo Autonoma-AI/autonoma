@@ -16,7 +16,8 @@ Commands:
 
 ```bash
 autonoma-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] \
-                 [--model <id>] [--step <name>] [--resume] [--non-interactive]
+                 [--model <id>] [--step <name>] [--resume] [--non-interactive] \
+                 [--agent <name>] [--permission-mode <default|acceptEdits|bypassPermissions>]
 autonoma-planner status [--project <path>]
 autonoma-planner upload [--project <path>]
 ```
@@ -44,6 +45,29 @@ from a menu. To scope non-interactively, pass:
 
 For a single-app repo the mapper resolves the scope on its own and no flags are needed.
 
+## SDK integration handoff (test-data step)
+
+The "Set up test data" step wires the Autonoma SDK "environment factory" into your app so the
+platform can seed and tear down realistic test data through your app's own creation code. Instead
+of a copy-paste guide, the CLI hands the whole integration to your **locally-installed Claude** in
+one interactive, autonomous session - like `git commit` with no `-m` opening your editor. You watch
+it install the SDK, build the endpoint, write the factories, **generate the test-data recipe**, and
+validate each entity itself: for every entity it runs `up`, checks your database for the new rows,
+runs `down`, and checks they're gone. It drives the endpoint through the CLI's own signed client
+(`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing the platform
+uses. When it reports the session complete, the CLI uploads the recipe it produced and continues to
+test generation.
+
+- `--agent <name>` - preselect the agent to hand off to (currently `claude`). Omit to auto-detect.
+- `--permission-mode <mode>` - how much autonomy the agent runs with: `default` (approve each
+  command), `acceptEdits` (auto-edit files, approve commands), or `bypassPermissions` (fully
+  autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`.
+
+If no supported agent is installed (or you decline the handoff), the CLI writes the full
+integration instructions to `~/.autonoma/<app>/integration-prompt.md` and pauses so you can
+implement them in whatever assistant you have, then `--resume` to continue. `--non-interactive`
+runs are unchanged: they emit a data-only recipe with no implementation or validation.
+
 ## Output
 
 Artifacts are written to `~/.autonoma/<project-slug>/`:
@@ -54,7 +78,8 @@ Artifacts are written to `~/.autonoma/<project-slug>/`:
 ├── AUTONOMA.md       # knowledge base
 ├── scenarios.md      # test-data scenario descriptions
 ├── entity-audit.md   # database model audit
-├── recipe.json       # scenario recipes (SDK factories)
+├── recipe.json       # scenario recipes (SDK factories); the agent generates + validates it
+├── integration-prompt.md  # rendered SDK-integration instructions (drives the agent + manual fallback)
 └── qa-tests/         # generated test cases (markdown)
 ```
 

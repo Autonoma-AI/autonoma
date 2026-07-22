@@ -84,4 +84,34 @@ describe("interrupt handler", () => {
         expect(exitSpy).not.toHaveBeenCalled();
         expect(() => vi.advanceTimersByTime(2500)).toThrow("__exit__:130");
     });
+
+    test("suspend detaches the SIGINT handler; resume re-attaches it", async () => {
+        const findHandler = captureSigint();
+        const { installInterruptHandler, suspend, resume } = await loadFresh();
+        installInterruptHandler({ onExit: vi.fn() });
+        const handler = findHandler()!;
+
+        // Installed: the handler is on the process so Ctrl+C is intercepted.
+        expect(process.listeners("SIGINT")).toContain(handler);
+
+        // Suspended: detached so a spawned child owns Ctrl+C, not the CLI.
+        suspend();
+        expect(process.listeners("SIGINT")).not.toContain(handler);
+
+        // Resumed: re-armed for when control returns to the CLI.
+        resume();
+        expect(process.listeners("SIGINT")).toContain(handler);
+    });
+
+    test("resume does not double-register the SIGINT handler", async () => {
+        const findHandler = captureSigint();
+        const { installInterruptHandler, resume } = await loadFresh();
+        installInterruptHandler({ onExit: vi.fn() });
+        const handler = findHandler()!;
+
+        resume();
+        resume();
+        const count = process.listeners("SIGINT").filter((l) => l === handler).length;
+        expect(count).toBe(1);
+    });
 });

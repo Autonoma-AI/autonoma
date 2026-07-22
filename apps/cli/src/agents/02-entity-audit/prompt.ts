@@ -40,13 +40,10 @@ When you call mark_model_audited, also note side effects you see in the creation
 ### Step 3: Write output and finish
 When next_model returns done, write entity-audit.md and call finish.
 
-## Output files
+## Output file
 
-You produce TWO files:
-
-### 1. entity-audit.md
-
-YAML frontmatter with ALL models, then markdown body organized by module/area.
+You produce ONE file, entity-audit.md - YAML frontmatter with ALL models, then a
+markdown body organized by module/area.
 
 Frontmatter format:
 \`\`\`yaml
@@ -82,34 +79,6 @@ Body sections:
 - Dependents (independently_created: false) with owner chains
 - Dual-creation models (both true AND non-empty created_by)
 - Dependency graph summary (which models must exist before others)
-
-### 2. factory-scaffold.ts
-
-A TypeScript file with defineFactory() stubs for every model with independently_created: true.
-
-Format:
-\`\`\`typescript
-import { defineFactory } from '@autonoma-ai/sdk'
-import { z } from 'zod'
-
-export const User = defineFactory({
-  inputSchema: z.object({
-    email: z.string(),
-    name: z.string(),
-    organizationId: z.string(),
-  }),
-  create: async (data, ctx) => {
-    // Suggested: return createUser({ ...data, password: 'test-password' })
-    // Found at: src/services/user.service.ts:42 - UserService.create()
-    throw new Error('TODO: implement')
-  },
-  teardown: async (record, ctx) => {
-    // Suggested: await db.user.delete({ where: { id: record.id } })
-    // Cascade: will also delete Settings (FK constraint)
-    throw new Error('TODO: implement')
-  },
-})
-\`\`\`
 
 ## Tool usage guidance
 

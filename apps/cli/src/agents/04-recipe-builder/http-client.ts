@@ -3,6 +3,8 @@ import { createHmac } from "node:crypto";
 export interface SdkClientConfig {
     endpointUrl: string;
     sharedSecret: string;
+    /** Abort the request after this many ms so a hung handler can't stall the caller. */
+    timeoutMs?: number;
 }
 
 export interface SdkResponse {
@@ -26,6 +28,7 @@ async function sendRequest(config: SdkClientConfig, payload: unknown): Promise<S
             "x-signature": signature,
         },
         body: rawBody,
+        signal: config.timeoutMs != null ? AbortSignal.timeout(config.timeoutMs) : undefined,
     });
 
     let body: unknown;

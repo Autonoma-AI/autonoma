@@ -44,7 +44,7 @@ Never use file counts, directory sizes, or glob results as a proxy for feature c
 
 This package follows the monorepo conventions (see the root `CLAUDE.md`): ESM-only, strictest TypeScript, pnpm + turborepo, `undefined` over `null`, `??`/`!= null`, no `.js` import extensions.
 
-- **Package manager:** pnpm (shared root lockfile). Do NOT use bun for install/run - bun is only used by the dev-only `eval:classifier` script if at all.
+- **Package manager:** pnpm (shared root lockfile). Do NOT use bun for install/run.
 - **Build:** `tsup` -> `dist/index.js` (the published bin). Run `pnpm --filter @autonoma-ai/planner build`.
 - **Dev:** `pnpm --filter @autonoma-ai/planner dev` (`tsx src/index.ts`).
 - **Typecheck:** `tsc --noEmit`. **Lint:** `oxlint`. **Test:** `vitest run`.

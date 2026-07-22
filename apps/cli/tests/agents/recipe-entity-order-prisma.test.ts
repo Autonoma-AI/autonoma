@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AuditedModel } from "../../src/agents/04-recipe-builder/entity-order";
 import { resolveEntityOrder } from "../../src/agents/04-recipe-builder/entity-order";
-import { rankEntitiesByImportance } from "../../src/agents/04-recipe-builder/entity-relevance";
-import { getModel } from "../../src/core/model";
 
 /**
  * A faithful (if trimmed) `AuditedModel[]` derived from the real Autonoma Prisma
@@ -164,57 +162,4 @@ describe("recipe entity order - Autonoma Prisma schema", () => {
         expect(order).not.toContain("Account"); // pure dependent, built via User
         expect(order).not.toContain("OnboardingState"); // pure dependent, built via Application
     });
-});
-
-/**
- * Live validation that the AI itself ranks this schema sensibly. Skipped unless
- * AUTONOMA_API_TOKEN is set (keeps CI offline/deterministic), mirroring the
- * gated 00-pages-finder agent test. When run live it goes through the managed
- * LLM proxy at AUTONOMA_API_URL with that token.
- */
-function renderAuditMarkdown(models: AuditedModel[]): string {
-    const lines = ["---", `model_count: ${models.length}`, "models:"];
-    for (const m of models) {
-        lines.push(`  - name: ${m.name}`);
-        lines.push(`    independently_created: ${m.independently_created}`);
-        if (m.side_effects?.length) {
-            lines.push("    side_effects:");
-            for (const s of m.side_effects) lines.push(`      - ${s}`);
-        }
-        if (m.created_by.length) {
-            lines.push("    created_by:");
-            for (const c of m.created_by) {
-                lines.push(`      - owner: ${c.owner}`);
-                if (c.why) lines.push(`        why: ${c.why}`);
-            }
-        } else {
-            lines.push("    created_by: []");
-        }
-    }
-    lines.push("---", "# Entity Audit");
-    return lines.join("\n");
-}
-
-describe.skipIf(!process.env.AUTONOMA_API_TOKEN)("recipe entity order - live AI ranking", () => {
-    test("the AI ranks core entities above the niche client table", async () => {
-        const auditMarkdown = renderAuditMarkdown(SCHEMA_MODELS);
-        const rank = await rankEntitiesByImportance(SCHEMA_MODELS, auditMarkdown, getModel());
-
-        // Ranking must be complete and cover every model exactly once.
-        expect(rank.size).toBe(SCHEMA_MODELS.length);
-
-        const order = resolveEntityOrder(SCHEMA_MODELS, rank);
-
-        // The core, recognizable entities must beat the niche client table.
-        expect(before(order, "Organization", "AccessibilityReport")).toBe(true);
-        expect(before(order, "User", "AccessibilityReport")).toBe(true);
-        expect(before(order, "Application", "AccessibilityReport")).toBe(true);
-
-        // A core entity opens the loop; the niche table does not.
-        expect(CORE).toContain(order[0]);
-        expect(order[0]).not.toBe("AccessibilityReport");
-
-        // The niche table sits in the back half.
-        expect(order.indexOf("AccessibilityReport")).toBeGreaterThanOrEqual(Math.floor(order.length / 2));
-    }, 60_000);
 });

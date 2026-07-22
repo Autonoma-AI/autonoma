@@ -1,147 +1,66 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { toRecord } from "../../core/to-record";
-import type { AuditedModel } from "./entity-order";
-import type { EntityProgress } from "./state";
+import { z } from "zod";
+import { debugLog } from "../../core/debug";
 
-export type RecipePayload = Record<string, Record<string, unknown>[]>;
+const recipePayloadSchema = z.record(z.string(), z.array(z.record(z.string(), z.unknown())));
 
-/** Recursively collect every alias referenced via `{ _ref: "..." }` in a value. */
-function collectRefs(value: unknown, out: Set<string>): void {
-    if (Array.isArray(value)) {
-        for (const v of value) collectRefs(v, out);
-    } else if (value !== null && typeof value === "object") {
-        const obj = toRecord(value);
-        if (typeof obj._ref === "string") out.add(obj._ref);
-        for (const v of Object.values(obj)) collectRefs(v, out);
-    }
-}
+/** The recipe the agent generates and the CLI submits. Validated on read (below):
+ *  it comes from the agent, so we don't blindly trust its shape before uploading. */
+const fullRecipeSchema = z.object({
+    version: z.number(),
+    source: z.object({ discoverPath: z.string(), scenariosPath: z.string() }),
+    validationMode: z.string(),
+    recipes: z
+        .array(
+            z.object({
+                name: z.string(),
+                description: z.string(),
+                create: recipePayloadSchema,
+                validation: z.object({
+                    status: z.string(),
+                    method: z.string(),
+                    up_ms: z.number().optional(),
+                    down_ms: z.number().optional(),
+                }),
+            }),
+        )
+        .min(1),
+});
+
+export type RecipePayload = z.infer<typeof recipePayloadSchema>;
+export type FullRecipeJson = z.infer<typeof fullRecipeSchema>;
+
+export const RECIPE_FILE = "recipe.json";
 
 /**
- * Build the payload for testing a single entity: that entity plus every other
- * entity it depends on, emitted in dependency order (parents before children).
- *
- * The SDK resolves `_ref`s WITHIN the request body, so any alias a record
- * references must be declared by a record in the same request. The recipe agent
- * is free to `_ref` any already-completed entity (not just the audit's
- * `created_by` parents), so we can't rely on the audit chain alone - a `_ref`
- * the audit never recorded as a dependency would otherwise be missing from the
- * payload and fail with "references unknown alias(es)". We therefore include the
- * transitive closure of BOTH the audit's `created_by` owners AND the entities
- * whose aliases actually appear in the recipe data.
+ * Read and validate the recipe the agent generated from the output dir. Returns
+ * undefined when it's absent, unparseable, or malformed - callers treat any of
+ * those as "not ready" - so a broken recipe is never submitted as if it were real.
  */
-export function buildSingleEntityRecipe(
-    entityName: string,
-    models: AuditedModel[],
-    entityOrder: string[],
-    allEntities: Record<string, EntityProgress>,
-): RecipePayload {
-    const modelMap = new Map(models.map((m) => [m.name, m]));
-
-    // Which entity declares each alias, from the data we've accepted so far.
-    const aliasOwner = new Map<string, string>();
-    for (const [name, entity] of Object.entries(allEntities)) {
-        for (const rec of entity?.recipeData ?? []) {
-            if (typeof rec._alias === "string") aliasOwner.set(rec._alias, name);
-        }
-    }
-
-    const recipe: RecipePayload = {};
-    const done = new Set<string>();
-    const onStack = new Set<string>();
-
-    function include(name: string): void {
-        if (done.has(name) || onStack.has(name)) return; // skip done + break cycles
-        onStack.add(name);
-
-        const records = allEntities[name]?.recipeData ?? [];
-
-        // Dependencies must be created first: audit-declared owners…
-        for (const dep of modelMap.get(name)?.created_by ?? []) {
-            if (entityOrder.includes(dep.owner)) include(dep.owner);
-        }
-        // …plus every entity whose alias this one actually references.
-        const refs = new Set<string>();
-        collectRefs(records, refs);
-        for (const alias of refs) {
-            const owner = aliasOwner.get(alias);
-            if (owner && owner !== name) include(owner);
-        }
-
-        onStack.delete(name);
-        done.add(name);
-        // Insertion order = dependency order, since deps are added above.
-        if (records.length > 0) recipe[name] = records;
-    }
-
-    include(entityName);
-    return recipe;
-}
-
-export function buildFullRecipe(entityOrder: string[], allEntities: Record<string, EntityProgress>): RecipePayload {
-    const recipe: RecipePayload = {};
-
-    for (const name of entityOrder) {
-        const entity = allEntities[name];
-        if (entity?.recipeData && entity.recipeData.length > 0) {
-            recipe[name] = entity.recipeData;
-        }
-    }
-
-    return recipe;
-}
-
-export interface FullRecipeJson {
-    version: number;
-    source: { discoverPath: string; scenariosPath: string };
-    validationMode: string;
-    recipes: {
-        name: string;
-        description: string;
-        create: RecipePayload;
-        validation: {
-            status: string;
-            method: string;
-            up_ms?: number;
-            down_ms?: number;
-        };
-    }[];
-}
-
-export function buildSubmittableRecipe(create: RecipePayload, description: string): FullRecipeJson {
-    return {
-        version: 1,
-        source: {
-            discoverPath: "discover.json",
-            scenariosPath: "scenarios.md",
-        },
-        validationMode: "endpoint-lifecycle",
-        recipes: [
-            {
-                name: "standard",
-                description,
-                create,
-                validation: {
-                    status: "validated",
-                    method: "endpoint-up-down",
-                },
-            },
-        ],
-    };
-}
-
-const RECIPE_FILE = "recipe.json";
-
-export async function saveRecipe(outputDir: string, recipe: FullRecipeJson): Promise<void> {
-    await writeFile(join(outputDir, RECIPE_FILE), JSON.stringify(recipe, null, 2), "utf-8");
-}
-
 export async function loadRecipe(outputDir: string): Promise<FullRecipeJson | undefined> {
+    const path = join(outputDir, RECIPE_FILE);
+
+    let raw: string;
     try {
-        const raw = await readFile(join(outputDir, RECIPE_FILE), "utf-8");
-        const parsed: FullRecipeJson = JSON.parse(raw);
-        return parsed;
-    } catch {
+        raw = await readFile(path, "utf-8");
+    } catch (err) {
+        debugLog("No recipe.json yet", { path, err });
         return undefined;
     }
+
+    let json: unknown;
+    try {
+        json = JSON.parse(raw);
+    } catch (err) {
+        debugLog("recipe.json is not valid JSON", { path, err });
+        return undefined;
+    }
+
+    const parsed = fullRecipeSchema.safeParse(json);
+    if (!parsed.success) {
+        debugLog("recipe.json failed schema validation", { path, issues: parsed.error.issues });
+        return undefined;
+    }
+    return parsed.data;
 }

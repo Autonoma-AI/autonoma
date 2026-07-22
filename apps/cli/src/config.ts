@@ -13,12 +13,15 @@ export interface AppConfig {
     frontend?: string;
     backends?: string[];
     databaseUrl?: string;
-    sdkEndpointUrl?: string;
     sharedSecret?: string;
     signingSecret?: string;
     autonomaApiUrl?: string;
     autonomaApiToken?: string;
     autonomaGenerationId?: string;
+    // Step-04 handoff presets. `agent` picks the interactive agent (e.g. "claude");
+    // `permissionMode` presets its autonomy. Both come from CLI flags.
+    agent?: string;
+    permissionMode?: string;
 }
 
 function loadProjectEnv(projectRoot: string): void {
@@ -53,6 +56,8 @@ export function loadConfig(args: {
     slug?: string;
     frontend?: string;
     backends?: string[];
+    agent?: string;
+    permissionMode?: string;
 }): AppConfig {
     const projectRoot = resolve(args.project ?? process.cwd());
 
@@ -83,7 +88,6 @@ export function loadConfig(args: {
         frontend: args.frontend,
         backends: args.backends,
         databaseUrl: env.DATABASE_URL,
-        sdkEndpointUrl: env.SDK_ENDPOINT_URL,
         sharedSecret: env.AUTONOMA_SHARED_SECRET,
         signingSecret: env.AUTONOMA_SIGNING_SECRET,
         // Endpoint the CLI talks to. Defaults to production; override with
@@ -91,5 +95,7 @@ export function loadConfig(args: {
         autonomaApiUrl: env.AUTONOMA_API_URL ?? "https://autonoma.app",
         autonomaApiToken: env.AUTONOMA_API_TOKEN,
         autonomaGenerationId: env.AUTONOMA_GENERATION_ID,
+        agent: args.agent,
+        permissionMode: args.permissionMode,
     };
 }

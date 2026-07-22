@@ -9,7 +9,6 @@ const ENV_SCHEMA = {
     // Model id override (OpenRouter-style id, forwarded by the managed proxy).
     OPENROUTER_MODEL: z.string().optional(),
     DATABASE_URL: z.string().optional(),
-    SDK_ENDPOINT_URL: z.string().optional(),
     AUTONOMA_SHARED_SECRET: z.string().optional(),
     AUTONOMA_SIGNING_SECRET: z.string().optional(),
     AUTONOMA_API_URL: z.string().optional(),

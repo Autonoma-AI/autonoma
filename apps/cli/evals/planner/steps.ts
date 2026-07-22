@@ -21,7 +21,6 @@ export const PLANNER_STEPS: Record<string, PlannerStep> = {
     kb: { flag: "kb", outputs: ["AUTONOMA.md", "skills"], primary: "AUTONOMA.md" },
     entityAudit: { flag: "entityAudit", outputs: ["entity-audit.md"], primary: "entity-audit.md" },
     scenarioRecipe: { flag: "scenarioRecipe", outputs: ["scenarios.md"], primary: "scenarios.md" },
-    recipeBuilder: { flag: "recipeBuilder", outputs: ["recipe.json"], primary: "recipe.json" },
 };
 
 export function isPlannerStep(name: string): name is keyof typeof PLANNER_STEPS {

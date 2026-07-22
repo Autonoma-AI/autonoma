@@ -20,9 +20,10 @@ integration. Upstream artifacts are seeded from `artifacts/`; the step's own out
 
 ## Gradable steps
 
-`kb` -> `AUTONOMA.md`, `entityAudit` -> `entity-audit.md`, `scenarioRecipe` -> `scenarios.md`,
-`recipeBuilder` -> `recipe.json` (the non-interactive proposed recipe - statically gradable, no
-live endpoint needed).
+`kb` -> `AUTONOMA.md`, `entityAudit` -> `entity-audit.md`, `scenarioRecipe` -> `scenarios.md`.
+
+`recipeBuilder` is not gradable here: it no longer produces a recipe artifact - it hands off to the
+SDK-integration agent (Layer 2), which generates and validates `recipe.json` at eval time.
 
 ## Running
 

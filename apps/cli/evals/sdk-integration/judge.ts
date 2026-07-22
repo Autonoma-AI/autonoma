@@ -42,9 +42,14 @@ export async function judgeRun(input: JudgeInput): Promise<Verdict | undefined> 
   • golden/          the client's real integrated tree (the answer key)
   • agent.diff       the agent's additions, pre-extracted
   • golden.diff      the client's additions, pre-extracted
-  • spec/entity-audit.md, spec/recipe.json   the entities that required factories, and the recipe
-  • progress.log, claude.stream.jsonl        the agent's transcript - consult it for whether the
-                                             agent actually ran signed discover/up/down and got them green
+  • spec/entity-audit.md        the entities that required factories
+  • spec/recipe.agent.json      the recipe the AGENT generated (may be absent if it never finished)
+  • progress.log, claude.stream.jsonl        the agent's transcript - your evidence for HOW it validated
+
+In this flow the agent GENERATES the recipe itself and validates each entity by driving the CLI's
+\`sdk discover|up|down\` commands and querying the database directly (up -> confirm rows created ->
+down -> confirm rows gone), then writes a completion marker. The transcript is where you confirm
+that actually happened - do not trust the code alone.
 
 Grade these, verifying each with the tools:
   1. factoryCoverage: from spec/entity-audit.md, list every entity that needed a factory, then
@@ -55,9 +60,13 @@ Grade these, verifying each with the tools:
      inserts), not raw DB writes - compare against how golden does it.
   4. teardownScoped: teardown is scoped to test data and reverses dependency order.
   5. realAuth: the auth callback returns real usable credentials, not a placeholder.
-  passed = did the agent reach functional parity with golden across coverage + the four dimensions.
+  6. perEntityValidation: spec/recipe.agent.json exists and is populated, AND the transcript shows
+     the agent ran, per entity, \`sdk up\` -> a DB check that the rows exist -> \`sdk down\` -> a DB
+     check that they're gone, and those passed. A run that only implemented code without this
+     signed-lifecycle-plus-DB validation FAILS this dimension.
+  passed = did the agent reach functional parity with golden across coverage + all five dimensions.
 
-Explore with git/grep/read_file first; then call finish with the verdict.`;
+Explore with git/grep/read_file and the transcript first; then call finish with the verdict.`;
 
     await runAgent(
         {

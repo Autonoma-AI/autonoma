@@ -1,17 +1,13 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import * as p from "@clack/prompts";
 import type { AppConfig } from "../../config";
 import type { AgentResult } from "../../core/agent";
 import type { ProjectContext } from "../../core/context";
-import { getModel } from "../../core/model";
 import { readEnv } from "../../env";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
-import { rankEntitiesByImportance } from "./entity-relevance";
-import { runEntityLoop } from "./phases/entity-loop";
-import { runFullValidation } from "./phases/full-validation";
+import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
+import { runCompletionPhase, runHandoffPhase, type HandoffDeps, type PhaseOutcome } from "./phases/handoff";
 import { runSubmit } from "./phases/submit";
-import { detectTechStack } from "./phases/tech-detect";
 import { initialRecipeState, loadRecipeState, saveRecipeState } from "./state";
 
 export interface RecipeBuilderInput {
@@ -21,114 +17,95 @@ export interface RecipeBuilderInput {
     config: AppConfig;
     projectContext?: ProjectContext;
     nonInteractive?: boolean;
-    /** User guidance from a pipeline-level retry. The recipe builder has its own
-     *  per-entity recovery prompts, so this is accepted but currently unused. */
+    /** User guidance from a pipeline-level retry. Step-04 has its own recovery, so
+     *  this is accepted but currently unused. */
     retryGuidance?: string;
+    /** Preset agent id from the `--agent` flag. */
+    agent?: string;
+    /** Preset permission mode from the `--permission-mode` flag. */
+    permissionMode?: PermissionMode;
+    /** Test seam: inject the AgentLauncher(s) instead of building the real Claude one. */
+    launchers?: AgentLauncher[];
+    /** Override how the agent invokes this CLI's `sdk` tool (defaults to this process). */
+    cliCommand?: string;
+}
+
+function generateSharedSecret(): string {
+    return randomBytes(32).toString("hex");
+}
+
+/** Turn a phase outcome into the AgentResult the pipeline expects, or undefined to continue. */
+function outcomeToResult(outcome: PhaseOutcome): AgentResult | undefined {
+    if (outcome.kind === "advance") return undefined;
+    if (outcome.kind === "pause") {
+        return { success: false, paused: true, artifacts: [], summary: outcome.summary };
+    }
+    return { success: false, artifacts: [], summary: outcome.summary };
 }
 
 export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const { outputDir } = input;
 
-    let state = (await loadRecipeState(input.outputDir)) ?? initialRecipeState();
+    const state = (await loadRecipeState(outputDir)) ?? initialRecipeState();
 
-    // Prefer the shared secret provided by onboarding (the application's secret
-    // from the dashboard) so the deployment, dashboard, and CLI all sign with the
-    // same key. The entity loop only generates a fresh one when none was provided.
-    if (state.sharedSecret == null && input.config.sharedSecret != null) {
-        state.sharedSecret = input.config.sharedSecret;
-        await saveRecipeState(input.outputDir, state);
+    // Canonical shared secret: the app's onboarding secret when present, else a
+    // CLI-generated one persisted for the run. It flows CLI -> agent -> app via env
+    // inheritance, so the app and the agent's signed `sdk` calls use the same value.
+    if (state.sharedSecret == null) {
+        state.sharedSecret = input.config.sharedSecret ?? generateSharedSecret();
+        await saveRecipeState(outputDir, state);
     }
 
-    const models = await parseEntityAudit(input.outputDir);
+    const models = await parseEntityAudit(outputDir);
 
-    // Phase 1: Tech detection
+    // Phase 1: resolve a dependency order + seed state. The agent discovers the stack
+    // and generates the recipe itself, so this needs no LLM.
     if (state.phase === "tech-detect") {
-        state.techStack = await detectTechStack(input.projectRoot, input.modelId, input.nonInteractive);
-
-        let importanceRank: Map<string, number> | undefined;
-        try {
-            const auditMarkdown = await readFile(join(input.outputDir, "entity-audit.md"), "utf-8");
-            importanceRank = await rankEntitiesByImportance(models, auditMarkdown, model);
-        } catch {
-            // Ranking is a UX nicety; on any failure fall back to alphabetical order.
-            importanceRank = undefined;
-        }
-
-        const entityOrder = resolveEntityOrder(models, importanceRank);
-        state.entityOrder = entityOrder;
+        state.entityOrder = resolveEntityOrder(models);
         state.entities = {};
-        for (const name of entityOrder) {
-            state.entities[name] = {
-                entityName: name,
-                status: "pending",
-                errorLog: [],
-            };
+        for (const name of state.entityOrder) {
+            state.entities[name] = { entityName: name, status: "pending", errorLog: [] };
         }
-
-        state.phase = "entity-loop";
-
-        if (input.config.sdkEndpointUrl) {
-            state.sdkEndpointUrl = input.config.sdkEndpointUrl;
-        }
-
-        await saveRecipeState(input.outputDir, state);
-        p.log.info(
-            `Found ${entityOrder.length} entities needing factories. Processing core entities first, in dependency order.`,
-        );
+        state.phase = "handoff";
+        await saveRecipeState(outputDir, state);
+        p.log.info(`Found ${state.entityOrder.length} entities needing factories.`);
     }
 
-    // Phase 2: Entity-by-entity loop
-    if (state.phase === "entity-loop") {
-        await runEntityLoop(state, models, model, input.projectRoot, input.outputDir, input.nonInteractive);
+    const handoffDeps = buildHandoffDeps(input, state.sharedSecret);
 
-        const allDone = state.entityOrder.every((name) => {
-            const e = state.entities[name];
-            return e?.status === "tested-down" || e?.status === "skipped";
-        });
-
-        if (allDone) {
-            state.phase = input.nonInteractive ? "submit" : "full-validation";
-            await saveRecipeState(input.outputDir, state);
-        } else {
-            return {
-                success: false,
-                paused: true,
-                artifacts: [],
-                summary: "Paused - run again with --resume to continue from where you left off",
-            };
-        }
+    // Phase 2: Hand off to the developer's local agent - interactive (attached to the
+    // TTY) or, under --non-interactive, headless and autonomous.
+    if (state.phase === "handoff") {
+        const outcome = await runHandoffPhase(state, handoffDeps, outputDir);
+        // Completion is always next: on advance we fall through to it in the same run;
+        // on a manual fallback we pause here and a later --resume enters completion.
+        state.phase = "completion";
+        await saveRecipeState(outputDir, state);
+        const result = outcomeToResult(outcome);
+        if (result != null) return result;
     }
 
-    // Phase 3: Full validation
-    if (state.phase === "full-validation") {
-        const success = await runFullValidation(state, models, input.outputDir, model);
-        if (success) {
-            state.phase = "submit";
-            await saveRecipeState(input.outputDir, state);
-        } else {
-            return {
-                success: false,
-                paused: true,
-                artifacts: [],
-                summary: "Full validation skipped - run again with --resume to retry",
-            };
+    // Phase 3: Confirm the agent reported done (with a bounded re-launch to finish).
+    if (state.phase === "completion") {
+        const outcome = await runCompletionPhase(state, handoffDeps, outputDir);
+        if (outcome.kind !== "advance") {
+            const result = outcomeToResult(outcome);
+            if (result != null) return result;
         }
+        state.phase = "submit";
+        await saveRecipeState(outputDir, state);
     }
 
-    // Phase 4: Submit
+    // Phase 4: Submit the agent-validated recipe.
     if (state.phase === "submit") {
         const env = readEnv();
         const { recipePath, uploaded } = await runSubmit(
-            state,
-            input.outputDir,
+            outputDir,
             env.AUTONOMA_API_URL,
             env.AUTONOMA_API_TOKEN,
             env.AUTONOMA_GENERATION_ID,
         );
 
-        // Only advance past submit once the recipe is actually accepted; a rejected
-        // upload must fail the step (not mark it done with no recipe on the server)
-        // so `--resume` retries it.
         const uploadCredentialsPresent =
             env.AUTONOMA_API_URL != null && env.AUTONOMA_API_TOKEN != null && env.AUTONOMA_GENERATION_ID != null;
         if (uploadCredentialsPresent && !uploaded) {
@@ -140,7 +117,7 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
         }
 
         state.phase = "done";
-        await saveRecipeState(input.outputDir, state);
+        await saveRecipeState(outputDir, state);
 
         return {
             success: true,
@@ -149,9 +126,24 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
         };
     }
 
+    return { success: true, artifacts: [], summary: "Recipe builder already complete." };
+}
+
+/**
+ * Assemble the handoff dependencies. The canonical shared secret is placed in the
+ * env the agent (and the app it boots, and the `sdk` commands it runs) inherit, and
+ * `cliCommand` is how the agent invokes this CLI's endpoint tool.
+ */
+function buildHandoffDeps(input: RecipeBuilderInput, sharedSecret: string): HandoffDeps {
+    const agentEnv: NodeJS.ProcessEnv = { ...process.env, AUTONOMA_SHARED_SECRET: sharedSecret };
+    const launchers = input.launchers ?? buildAllLaunchers({ cwd: input.projectRoot, env: agentEnv });
+    const cliCommand = input.cliCommand ?? `${process.execPath} ${process.argv[1] ?? ""}`;
+
     return {
-        success: true,
-        artifacts: [],
-        summary: "Recipe builder already complete.",
+        launchers,
+        presetAgentId: input.agent,
+        presetPermissionMode: input.permissionMode,
+        cliCommand,
+        interactive: !input.nonInteractive,
     };
 }

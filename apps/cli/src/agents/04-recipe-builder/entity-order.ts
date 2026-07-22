@@ -240,25 +240,3 @@ export function resolveEntityOrder(models: AuditedModel[], importanceRank?: Map<
 
     return result;
 }
-
-export function getEntityDependencyChain(entityName: string, models: AuditedModel[], entityOrder: string[]): string[] {
-    const modelMap = new Map(models.map((m) => [m.name, m]));
-    const visited = new Set<string>();
-    const chain: string[] = [];
-
-    function walk(name: string) {
-        if (visited.has(name)) return;
-        visited.add(name);
-        const model = modelMap.get(name);
-        if (!model) return;
-        for (const dep of model.created_by) {
-            if (entityOrder.includes(dep.owner)) {
-                walk(dep.owner);
-            }
-        }
-        chain.push(name);
-    }
-
-    walk(entityName);
-    return chain;
-}
