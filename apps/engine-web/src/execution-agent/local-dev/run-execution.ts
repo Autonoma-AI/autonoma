@@ -22,7 +22,7 @@ async function main(testCasePath: string) {
     const browser = await chromium.launch({ headless: env.HEADLESS === "true" });
     const browserContext = await browser.newContext({
         viewport: DEFAULT_VIEWPORT,
-        recordVideo: { dir: os.tmpdir() },
+        recordVideo: { dir: os.tmpdir(), size: DEFAULT_VIEWPORT },
     });
     const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
 

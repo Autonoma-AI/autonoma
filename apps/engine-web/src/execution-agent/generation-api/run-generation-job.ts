@@ -59,7 +59,10 @@ export async function runWebGenerationJob(testGenerationId: string, urlOverride?
         const browser = await connectBrowser();
         const browserContext = await browser.newContext({
             viewport: DEFAULT_VIEWPORT,
-            recordVideo: { dir: os.tmpdir() },
+            // Without an explicit size Playwright scales the recording down to fit an 800x800 box, so a
+            // 1920x1080 viewport records at ~800x450 - blurry and low-res in the UI. Pin it to the viewport
+            // so the recording keeps full resolution (the reviewer's optimized mp4 is derived from this).
+            recordVideo: { dir: os.tmpdir(), size: DEFAULT_VIEWPORT },
             extraHTTPHeaders,
         });
         installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
