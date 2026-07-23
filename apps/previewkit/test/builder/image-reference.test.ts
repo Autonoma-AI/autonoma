@@ -21,7 +21,6 @@ describe("buildPreviewImageReference", () => {
         repo: "web",
         appName: "frontend",
         prNumber: 42,
-        shortSha: "abc1234",
     };
 
     it("stores every image under the single shared repository", () => {
@@ -29,15 +28,19 @@ describe("buildPreviewImageReference", () => {
         expect(ref.startsWith(`${REGISTRY}/previewkit/previews:`)).toBe(true);
     });
 
-    it("keeps the readable identity plus a PR/SHA suffix in the tag", () => {
+    it("keeps the readable identity plus a PR suffix in the tag, with no commit SHA", () => {
         const tag = tagOf(buildPreviewImageReference(base));
         expect(tag.startsWith("acme-web-frontend-")).toBe(true);
-        expect(tag.endsWith("-pr-42-abc1234")).toBe(true);
+        expect(tag.endsWith("-pr-42")).toBe(true);
     });
 
     it("inserts an 8-char hex discriminator between the slug and the PR suffix", () => {
         const tag = tagOf(buildPreviewImageReference(base));
-        expect(tag).toMatch(/^acme-web-frontend-[0-9a-f]{8}-pr-42-abc1234$/);
+        expect(tag).toMatch(/^acme-web-frontend-[0-9a-f]{8}-pr-42$/);
+    });
+
+    it("is stable across commits for the same (app, PR), so a rebuild overwrites the same tag", () => {
+        expect(buildPreviewImageReference(base)).toBe(buildPreviewImageReference({ ...base, prNumber: 42 }));
     });
 
     it("lowercases and replaces disallowed characters, preserving dots and underscores", () => {
@@ -53,7 +56,6 @@ describe("buildPreviewImageReference", () => {
                 repo: "b".repeat(100), // GitHub max repo length
                 appName: "c".repeat(100),
                 prNumber: 9999999,
-                shortSha: "abc1234",
             }),
         );
         expect(tag.length).toBeLessThanOrEqual(128);
@@ -68,7 +70,6 @@ describe("buildPreviewImageReference", () => {
             org: "a".repeat(40),
             repo: "b".repeat(50),
             prNumber: 7,
-            shortSha: "abc1234",
         };
         const web = buildPreviewImageReference({ ...shared, appName: "web" });
         const api = buildPreviewImageReference({ ...shared, appName: "api" });
@@ -114,7 +115,7 @@ describe("buildPreviewCacheReference", () => {
 
     it("matches the same discriminator buildPreviewImageReference uses for this identity", () => {
         const cacheTag = tagOf(buildPreviewCacheReference(base));
-        const imageTag = tagOf(buildPreviewImageReference({ ...base, prNumber: 1, shortSha: "abc1234" }));
+        const imageTag = tagOf(buildPreviewImageReference({ ...base, prNumber: 1 }));
         const discriminatorOf = (tag: string) => tag.match(/-([0-9a-f]{8})-/)?.[1];
         expect(discriminatorOf(cacheTag)).toBe(discriminatorOf(imageTag));
     });

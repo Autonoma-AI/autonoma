@@ -19,6 +19,14 @@ interface AppResourceOptions {
      * (e.g. AUTONOMA_SHARED_SECRET) until something else restarts it.
      */
     secretVersion?: string;
+    /**
+     * Commit SHA this deploy built from. `imageTag` is stable per (app, PR) -
+     * a new commit overwrites the same ECR tag rather than getting a new one -
+     * so without this, a rebuild at an unchanged image string would leave the
+     * pod template byte-identical and `kubectl apply` would never roll new
+     * pods even though the tag now points at different image content.
+     */
+    headSha: string;
 }
 
 const BASE_LABELS = {
@@ -106,6 +114,12 @@ export function buildCentralGatekeeperRoleBinding(
 // pods (env vars from `envFrom` are only read at pod start).
 export const SECRET_VERSION_ANNOTATION = "previewkit.dev/secret-version";
 
+// Pod-template annotation carrying the commit SHA this deploy built from.
+// `imageTag` is stable per (app, PR) - a new commit overwrites the same ECR
+// tag - so without this the pod template would be byte-identical across
+// commits and `kubectl apply` would never roll new pods onto the new image.
+export const BUILD_SHA_ANNOTATION = "previewkit.dev/build-sha";
+
 export function buildAppHostname(
     appName: string,
     prNumber: number,
@@ -123,7 +137,7 @@ export function buildAppHostname(
 }
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
-    const { app, namespace, imageTag, resolvedEnv, awsSecretName, secretVersion } = opts;
+    const { app, namespace, imageTag, resolvedEnv, awsSecretName, secretVersion, headSha } = opts;
     const labels = {
         ...BASE_LABELS,
         app: app.name,
@@ -172,12 +186,17 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
             template: {
                 metadata: {
                     labels: { ...labels, app: app.name },
-                    // Roll the pods whenever the mounted secret changes: envFrom is
-                    // captured at pod start, so a new secret version only reaches a
-                    // running pod via a rollout (which a pod-template change forces).
-                    ...(secretVersion != null && {
-                        annotations: { [SECRET_VERSION_ANNOTATION]: secretVersion },
-                    }),
+                    annotations: {
+                        // Roll the pods on every deploy: `imageTag` is stable per
+                        // (app, PR), so without a per-commit annotation the pod
+                        // template would be unchanged and `kubectl apply` would
+                        // never re-pull the overwritten tag's new content.
+                        [BUILD_SHA_ANNOTATION]: headSha,
+                        // Roll the pods whenever the mounted secret changes: envFrom is
+                        // captured at pod start, so a new secret version only reaches a
+                        // running pod via a rollout (which a pod-template change forces).
+                        ...(secretVersion != null && { [SECRET_VERSION_ANNOTATION]: secretVersion }),
+                    },
                 },
                 spec: {
                     nodeSelector: { "kubernetes.io/arch": "amd64" },

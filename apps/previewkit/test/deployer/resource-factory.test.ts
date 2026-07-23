@@ -25,6 +25,7 @@ const baseOpts = {
     resolvedEnv: { DATABASE_URL: "postgres://db:5432/preview" },
     prNumber: 42,
     publicUrl: "https://abc123def456.preview.autonoma.app",
+    headSha: "abc1234def5678900000000000000000000000",
 };
 
 describe("MANAGED_SELECTOR", () => {
@@ -97,6 +98,19 @@ describe("buildAppDeployment", () => {
 
         const v2 = buildAppDeployment({ ...baseOpts, awsSecretName: "web-secrets", secretVersion: "67890" });
         expect(v2.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBe("67890");
+    });
+
+    it("stamps the build-sha annotation on every deploy so a rebuild at an unchanged image tag still rolls the pods", () => {
+        const v1 = buildAppDeployment(baseOpts);
+        expect(v1.spec!.template.metadata?.annotations?.["previewkit.dev/build-sha"]).toBe(baseOpts.headSha);
+
+        const v2 = buildAppDeployment({ ...baseOpts, headSha: "1111111111111111111111111111111111111111" });
+        expect(v2.spec!.template.metadata?.annotations?.["previewkit.dev/build-sha"]).toBe(
+            "1111111111111111111111111111111111111111",
+        );
+        expect(v1.spec!.template.metadata?.annotations?.["previewkit.dev/build-sha"]).not.toBe(
+            v2.spec!.template.metadata?.annotations?.["previewkit.dev/build-sha"],
+        );
     });
 
     it("omits the secret-version annotation when the app has no secret", () => {

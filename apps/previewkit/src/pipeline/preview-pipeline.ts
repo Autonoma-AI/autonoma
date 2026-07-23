@@ -1524,7 +1524,6 @@ export class PreviewPipeline {
                 repo: ctx.repo,
                 appName: app.name,
                 prNumber: ctx.prNumber,
-                shortSha: ctx.shortSha,
             });
             const cacheRef = buildPreviewCacheReference({
                 registry: ctx.registry,

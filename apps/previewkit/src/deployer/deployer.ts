@@ -72,6 +72,7 @@ interface AppDeployContext {
     domain: string;
     secret: string;
     config: PreviewConfig;
+    headSha: string;
     imageTags: Record<string, string>;
     awsSecretsByApp: Map<string, AppSecretInfo>;
     addonOutputs: AddonOutputs;
@@ -267,7 +268,7 @@ export class Deployer {
      * failure (build skip or K8s apply error) does not stop other apps.
      */
     async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
-        const { repoFullName, prNumber, config, imageTags, addonOutputs = {} } = opts;
+        const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
         const { namespace, awsSecretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
 
@@ -283,6 +284,7 @@ export class Deployer {
             domain,
             secret: this.secret,
             config,
+            headSha,
             imageTags,
             awsSecretsByApp,
             addonOutputs,
@@ -332,7 +334,7 @@ export class Deployer {
      * resolution can reference sibling hosts/services.
      */
     async deploySingleApp(opts: DeployOptions, infraResult: InfraDeployResult, appName: string): Promise<DeployResult> {
-        const { repoFullName, prNumber, config, imageTags, addonOutputs = {} } = opts;
+        const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
         const { namespace, awsSecretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
         const owner = repoFullName.split("/")[0]!;
@@ -350,6 +352,7 @@ export class Deployer {
             domain,
             secret: this.secret,
             config,
+            headSha,
             imageTags,
             awsSecretsByApp,
             addonOutputs,
@@ -629,6 +632,7 @@ export class Deployer {
             domain,
             secret,
             config,
+            headSha,
             imageTags,
             awsSecretsByApp,
             addonOutputs,
@@ -663,8 +667,9 @@ export class Deployer {
             publicUrl: url,
             awsSecretName: secretInfo?.secretName,
             secretVersion: secretInfo?.secretVersion,
+            headSha,
         });
-        const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber, publicUrl: url });
+        const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber, publicUrl: url, headSha });
 
         await this.applyDeployment(namespace, deployment);
         await this.applyService(namespace, service);

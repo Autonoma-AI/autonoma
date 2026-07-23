@@ -20,8 +20,8 @@ const PREVIEW_IMAGE_REPOSITORY = "previewkit/previews";
 
 /**
  * Upper bound on the human-readable `{org}-{repo}-{app}` portion of the tag.
- * With the 8-char hash, `-pr-`, a generous PR number, and the 7-char short SHA,
- * the assembled tag stays comfortably under the 128-char Docker tag limit.
+ * With the 8-char hash, `-pr-`, and a generous PR number, the assembled tag
+ * stays comfortably under the 128-char Docker tag limit.
  */
 const MAX_READABLE_SLUG = 80;
 
@@ -35,16 +35,22 @@ export interface PreviewImageReferenceInput {
     /** App name from the preview config. */
     appName: string;
     prNumber: number;
-    /** 7-char short commit SHA. */
-    shortSha: string;
 }
 
+/**
+ * The tag carries no commit SHA - it is stable per (org, repo, app, PR), so
+ * every new build for the same app+PR overwrites the same ECR tag rather than
+ * accumulating a new image per commit. The deployed pod template forces its
+ * own rollout on an unchanged image string via `BUILD_SHA_ANNOTATION`
+ * (`deployer/resource-factory.ts`), so an overwritten tag still reaches
+ * running pods.
+ */
 export function buildPreviewImageReference(input: PreviewImageReferenceInput): string {
     const logger = rootLogger.child({ name: "buildPreviewImageReference" });
-    const { registry, org, repo, appName, prNumber, shortSha } = input;
+    const { registry, org, repo, appName, prNumber } = input;
 
     const { slug, discriminator } = identitySlug(org, repo, appName);
-    const tag = `${slug}-${discriminator}-pr-${prNumber}-${shortSha}`;
+    const tag = `${slug}-${discriminator}-pr-${prNumber}`;
     const reference = `${registry}/${PREVIEW_IMAGE_REPOSITORY}:${tag}`;
 
     logger.debug("Built preview image reference", {
