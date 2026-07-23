@@ -22,8 +22,8 @@
     "dependencies": {
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
-        "@prisma/adapter-pg": "^7.8.0",
-        "@prisma/client": "^7.8.0",
+        "@prisma/adapter-pg": "catalog:",
+        "@prisma/client": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },
@@ -33,7 +33,7 @@
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "dotenv-cli": "^11.0.0",
-        "prisma": "^7.8.0",
+        "prisma": "catalog:",
         "prisma-json-types-generator": "^5.1.1",
         "tsx": "catalog:",
         "typescript": "catalog:",

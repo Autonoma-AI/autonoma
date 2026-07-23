@@ -35,6 +35,8 @@ catalog:
   '@octokit/plugin-retry': ^8.1.0
   '@octokit/plugin-throttling': ^11.0.3
   '@octokit/webhooks': ^14.2.0
+  '@prisma/adapter-pg': ^7.9.0
+  '@prisma/client': ^7.9.0
   '@radix-ui/react-slot': ^1.2.4
   '@sentry/node': ^10.39.0
   '@sentry/react': ^10.39.0
@@ -62,6 +64,7 @@ catalog:
   '@modelcontextprotocol/sdk': ^1.29.0
   jose: ^6.2.3
   playwright: 1.56.1
+  prisma: ^7.9.0
   react: ^19.2.4
   react-dom: ^19.2.4
   rolldown: ^1.1.4

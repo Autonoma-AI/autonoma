@@ -17,8 +17,8 @@
         "db:migrate": "pnpm db migrate dev"
     },
     "dependencies": {
-        "@prisma/adapter-pg": "^7.7.0",
-        "@prisma/client": "^7.7.0",
+        "@prisma/adapter-pg": "catalog:",
+        "@prisma/client": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },
@@ -26,7 +26,7 @@
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "dotenv-cli": "^11.0.0",
-        "prisma": "^7.7.0",
+        "prisma": "catalog:",
         "tsx": "catalog:",
         "typescript": "catalog:"
     }
