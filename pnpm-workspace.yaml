@@ -28,7 +28,7 @@ catalog:
   '@ai-sdk/anthropic': ^3.0.0
   '@ai-sdk/google': ^3.0.30
   '@ai-sdk/groq': ^3.0.24
-  '@ai-sdk/openai': ^3.0.0
+  '@ai-sdk/openai': ^3.0.74
   '@kubernetes/client-node': ^1.4.0
   '@octokit/app': ^16.1.2
   '@octokit/core': ^7.0.6
@@ -57,15 +57,15 @@ catalog:
   '@better-auth/api-key': ^1.6.14
   better-auth: ^1.6.14
   dotenv: ^17.3.1
-  hono: ^4.12.25
+  hono: ^4.12.31
   '@hono/mcp': ^0.3.0
   '@modelcontextprotocol/sdk': ^1.29.0
-  jose: ^6.1.0
+  jose: ^6.2.3
   playwright: 1.56.1
   react: ^19.2.4
   react-dom: ^19.2.4
   rolldown: ^1.1.4
-  shell-quote: 1.8.4
+  shell-quote: 1.10.0
   tailwindcss: '^4.2.2'
   tsx: ^4.21.0
   typescript: ^7.0.2
@@ -74,7 +74,7 @@ catalog:
 
 minimumReleaseAgeExclude:
   - esbuild@0.28.1
-  - js-yaml@4.1.2
+  - js-yaml@4.1.2 || 4.3.0
   - '@opentelemetry/core@2.8.0'
   - undici@6.27.0
   - '@storybook/builder-vite@10.5.2'
@@ -87,6 +87,16 @@ minimumReleaseAgeExclude:
   - '@smithy/hash-node@4.4.12'
   - '@smithy/protocol-http@5.5.12'
   - '@smithy/signature-v4@5.6.8'
+  - axios@1.18.0
+  - brace-expansion@2.1.2 || 5.0.7
+  - shell-quote@1.8.5
+  - protobufjs@7.6.5
+  - hono@4.12.27
+  - '@hono/node-server@2.0.5'
+  - svgo@4.0.2
+  - dompurify@3.4.12
+  - fast-uri@3.1.3 || 3.1.4
+  - sharp@0.35.0
 
 onlyBuiltDependencies:
   - '@prisma/engines'
