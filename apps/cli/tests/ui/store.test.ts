@@ -206,6 +206,15 @@ describe("run store", () => {
         expect(store.getState().countdown).toBeUndefined();
     });
 
+    test("the welcome shows until dismissed, then resolves", async () => {
+        const store = makeStore();
+        const done = store.runWelcome({ title: "Welcome", lines: ["hi"], cta: "Press enter" });
+        expect(store.getState().welcome?.title).toBe("Welcome");
+        store.dismissWelcome();
+        await done;
+        expect(store.getState().welcome).toBeUndefined();
+    });
+
     test("finish freezes the run with an outcome", () => {
         const store = makeStore();
         store.finish({ kind: "complete" });

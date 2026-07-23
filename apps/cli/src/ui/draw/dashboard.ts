@@ -1,7 +1,7 @@
 import { titleOf } from "../artifacts/registry";
 import { renderContentWrapped } from "../components/render-content";
 import { agentNow } from "../eta";
-import type { Grid } from "../grid";
+import type { Grid, Rect } from "../grid";
 import { allArtifacts } from "../nav";
 import { STEP_DOCS, STEP_INTROS, STEP_OUTPUTS } from "../steps";
 import { theme } from "../theme";
@@ -10,6 +10,7 @@ import { drawHints, drawSpans, drawTopBar, type Hint } from "./chrome";
 import { drawCountdownModal } from "./countdown";
 import { drawHelpModal } from "./help";
 import { drawPromptModal } from "./prompt";
+import { drawWelcomeModal } from "./welcome";
 import { wrapPlain } from "./wrap";
 
 /**
@@ -185,7 +186,6 @@ function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom
     // newest write (which sits mid-list once tests sort alphabetically);
     // while browsing, it's wherever the user put it. Either way the list
     // never jumps away from the row that matters.
-    const showCursor = focused || !state.live.following;
     let start = 0;
     const sel = state.nav.selectedArtifactIdx;
     if (sel < start) start = sel;
@@ -195,16 +195,18 @@ function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom
     visible.forEach((a, i) => {
         const row = base + i * 3;
         const active = a.status === "WRITING";
-        const selected = showCursor && start + i === state.nav.selectedArtifactIdx;
+        // Lime highlight only while browsing the list. When a document is open
+        // the whole column dims (the caller's spotlight over everything but the
+        // viewer), so no row is singled out here - focus is on the right side.
+        const highlighted = focused && start + i === state.nav.selectedArtifactIdx;
         // ONE background per row: the fill and every text span must use the
         // same value, or the row renders as mismatched patches behind the
-        // text. Selection wins over the writing tint.
-        const rowBg = selected ? theme.selectionBg : active ? theme.activeBg : undefined;
+        // text. The highlighted row wins over the writing tint.
+        const rowBg = highlighted ? theme.selectionBg : active ? theme.activeBg : undefined;
         if (rowBg != null) {
             for (let y = row - 1; y <= row + 1; y++) g.fillBg(0, y, geo.div, rowBg);
         }
         const bg = rowBg;
-        if (selected) g.set(0, row, "›", { color: theme.accent, bold: true, bg });
         const icon = a.icon === "json" ? "{}" : "▤";
         g.text(2, row, icon, { color: theme.tertiary, bg });
         // Well-known files show their human title as the primary label with
@@ -212,15 +214,15 @@ function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom
         // (already descriptive) file name up top.
         const label = a.title ?? a.name;
         const detail = a.title != null ? [a.name, a.description].filter((s) => s != null).join(" · ") : a.description;
-        const nameColor = active || a.status === "DONE" ? theme.text : theme.secondary;
+        const nameColor = highlighted ? theme.accent : active || a.status === "DONE" ? theme.text : theme.secondary;
         const nameMax = geo.div - 2 - STATUS_CELL_W - 2 - 5;
         const shown = label.length > nameMax ? label.slice(0, Math.max(1, nameMax - 1)) + "…" : label;
-        g.text(5, row, shown, { color: nameColor, bold: active || selected, bg });
+        g.text(5, row, shown, { color: nameColor, bold: highlighted || active, bg });
         const st = artifactStatusCell(a, agentNow(state));
         g.textRight(geo.div - 2, row, st.t, { color: st.color, bg });
         if (detail != null && detail !== "") {
             g.text(5, row + 1, detail.slice(0, geo.div - 6), {
-                color: active || selected ? theme.secondary : theme.tertiary,
+                color: highlighted || active ? theme.secondary : theme.tertiary,
                 bg,
             });
         }
@@ -429,6 +431,11 @@ export function drawDashboard(g: Grid, state: RunState): void {
         ? { k: "Ctrl+C", label: "again to exit (progress saved)", color: theme.red }
         : { k: "^C ^C", label: "exit", color: theme.red };
 
+    if (state.welcome != null) {
+        drawHints(g, H - 1, [{ k: "enter", label: "begin", color: theme.accent }], [exitHint]);
+        drawWelcomeModal(g, state);
+        return;
+    }
     if (state.countdown != null) {
         drawHints(g, H - 1, [{ k: "enter", label: "continue now", color: theme.sky }], [exitHint]);
         drawCountdownModal(g, state);
@@ -458,6 +465,19 @@ export function drawDashboard(g: Grid, state: RunState): void {
     const focusHints: Hint[] = [{ k: "←→ / h l", label: "files / document", color: theme.sky }];
     if (state.nav.focus === "main") focusHints.push({ k: "esc", label: "back to files", color: theme.sky });
     drawHints(g, H - 1, focusHints, [exitHint]);
+
+    // Reading a document: shade the WHOLE dashboard - including the entire
+    // FILES column, the open file's row and all - leaving only the hero (the
+    // file's content) and the controls above the shade. Focus is unmistakably
+    // on the right side, not the list.
+    const viewingDoc = state.nav.focus === "main" && state.live.path != null;
+    if (viewingDoc) {
+        const protect: Rect[] = [
+            { x: geo.div, y: PANEL_TOP, w: W - geo.div, h: panelBottom - PANEL_TOP }, // the hero + its content
+            { x: 0, y: H - HINTS_ROWS, w: W, h: HINTS_ROWS }, // the controls stay live (esc to leave)
+        ];
+        g.dimExcept(protect);
+    }
 
     if (state.helpOpen) drawHelpModal(g, state);
 }

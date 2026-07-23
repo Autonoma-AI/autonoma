@@ -24,6 +24,7 @@ export function App({
   onHelp,
   prompt,
   onSkipCountdown,
+  onDismissWelcome,
   size,
 }: {
   state: RunState;
@@ -34,6 +35,8 @@ export function App({
   prompt?: PromptHandlers;
   /** Enter on the pre-handoff countdown: continue immediately. */
   onSkipCountdown?: () => void;
+  /** Enter on the opening welcome: begin the run. */
+  onDismissWelcome?: () => void;
   size?: TermSize;
 }) {
   const measured = useTerminalSize();
@@ -50,6 +53,12 @@ export function App({
     // While help is open it swallows the keyboard: ? / esc / q close it.
     if (state.helpOpen) {
       if (input === "?" || key.escape || input === "q") onHelp?.(false);
+      return;
+    }
+
+    // The opening welcome: enter begins, nothing else.
+    if (state.welcome != null) {
+      if (key.return) onDismissWelcome?.();
       return;
     }
 

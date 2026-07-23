@@ -185,6 +185,16 @@ export interface CountdownState {
     endsAt: number;
 }
 
+/** The opening welcome overlay, shown once before a fresh run begins. Waits
+ * for the user to press enter (no auto-dismiss). */
+export interface WelcomeState {
+    title: string;
+    /** Body paragraphs, wrapped at draw time. */
+    lines: string[];
+    /** The call to action, e.g. "Press enter to begin". */
+    cta: string;
+}
+
 export interface RunState {
     startedAt: number;
     now: number;
@@ -211,6 +221,8 @@ export interface RunState {
     prompt: PromptState;
     /** Active pre-handoff countdown overlay, if any. */
     countdown?: CountdownState;
+    /** Opening welcome overlay, shown once at the start of a fresh run. */
+    welcome?: WelcomeState;
     /** Total ms spent blocked on user questions - excluded from elapsed/ETA. */
     waitedMs: number;
     /** Size signals for the ETA model (sized step budgets). */

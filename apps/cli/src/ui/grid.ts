@@ -21,6 +21,22 @@ function bgCode(hex: string): string {
     return `48;2;${rgbOf(hex)}`;
 }
 
+/** Blend a hex color toward black, keeping `keep` (0..1) of each channel. */
+function dimHex(hex: string, keep: number): string {
+    const to2 = (n: number) =>
+        Math.round(n * keep)
+            .toString(16)
+            .padStart(2, "0");
+    return `#${to2(parseInt(hex.slice(1, 3), 16))}${to2(parseInt(hex.slice(3, 5), 16))}${to2(parseInt(hex.slice(5, 7), 16))}`;
+}
+
+export interface Rect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
 export interface Cell {
     ch: string;
     color?: string;
@@ -86,6 +102,26 @@ export class Grid {
     clearRect(x: number, y: number, w: number, h: number, bg?: string): void {
         for (let yy = y; yy < y + h; yy++) {
             for (let xx = x; xx < x + w; xx++) this.set(xx, yy, " ", { bg });
+        }
+    }
+
+    /**
+     * Shade every cell OUTSIDE the protected rectangles - a focus spotlight
+     * over the rest of the UI. Cells with no explicit fg get a dim gray so
+     * default-colored text (borders, plain rows) darkens too; bold is dropped.
+     */
+    dimExcept(protect: Rect[], keep = 0.38, defaultFg = "#3a3a3a"): void {
+        const inProtect = (x: number, y: number): boolean =>
+            protect.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        for (let y = 0; y < this.h; y++) {
+            const row = this.cells[y]!;
+            for (let x = 0; x < this.w; x++) {
+                if (inProtect(x, y)) continue;
+                const c = row[x]!;
+                c.bold = false;
+                c.color = c.color != null ? dimHex(c.color, keep) : defaultFg;
+                if (c.bg != null) c.bg = dimHex(c.bg, keep);
+            }
         }
     }
 

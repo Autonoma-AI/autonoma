@@ -56,6 +56,7 @@ function Gallery({ scenes: initialScenes, dir, onQuit }: { scenes: Scene[]; dir?
   );
   const onHelp = useCallback((open: boolean) => scene.store.setHelpOpen(open), [scene.store]);
   const onSkipCountdown = useCallback(() => scene.store.skipCountdown(), [scene.store]);
+  const onDismissWelcome = useCallback(() => scene.store.dismissWelcome(), [scene.store]);
   const prompt = useMemo(
     () => ({
       onAction: (a: Parameters<Scene["store"]["dispatchPrompt"]>[0]) => scene.store.dispatchPrompt(a),
@@ -73,7 +74,15 @@ function Gallery({ scenes: initialScenes, dir, onQuit }: { scenes: Scene[]; dir?
     <Box flexDirection="column">
       {/* One row shorter than the terminal so the gallery footer below never
           pushes the frame into scrollback (scrolled-out lines can't be cleared). */}
-      <App state={state} onNav={onNav} onHelp={onHelp} prompt={prompt} onSkipCountdown={onSkipCountdown} size={size} />
+      <App
+        state={state}
+        onNav={onNav}
+        onHelp={onHelp}
+        prompt={prompt}
+        onSkipCountdown={onSkipCountdown}
+        onDismissWelcome={onDismissWelcome}
+        size={size}
+      />
       <Text color={theme.tertiary}>
         Scene {idx + 1}/{scenes.length} · {scene.label} · Tab next · ⇧Tab prev · Ctrl+C quit
       </Text>

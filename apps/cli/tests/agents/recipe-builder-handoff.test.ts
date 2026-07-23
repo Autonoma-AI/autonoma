@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-// Step-04 is interactive, but with no TUI store mounted the prompts facade
-// resolves to safe defaults: confirm -> yes (the handoff is opt-in with a yes
-// default) and the permission mode/agent are pre-seeded in state, so no
-// select is ever reached.
+// Step-04 never asks the user whether to implement it or whether they've done
+// it - an available agent just launches, and completion is purely file-based
+// (marker + recipe). The permission mode/agent are pre-seeded in state, so no
+// prompt is ever reached with no TUI store mounted.
 vi.mock("../../src/core/notify", () => ({ notify: vi.fn() }));
 
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
@@ -95,6 +95,21 @@ async function seedHandoffPhase(withAgent: boolean): Promise<void> {
     await writeFile(join(dir, ".recipe-builder-state.json"), JSON.stringify(state), "utf-8");
 }
 
+/** Seed a run already stuck at the completion phase with no agent ever launched
+ *  (the shape a declined-then-persisted old run left behind). */
+async function seedStuckCompletionPhase(): Promise<void> {
+    await seedHandoffPhase(false);
+    const state: RecipeBuilderState = {
+        phase: "completion",
+        entityOrder: ["User"],
+        entities: { User: { entityName: "User", status: "recipe-accepted", errorLog: [] } },
+        sharedSecret: "handoff-test-secret",
+        permissionMode: "bypassPermissions",
+        // No agentId, no launchAttempts: nothing was ever launched.
+    };
+    await writeFile(join(dir, ".recipe-builder-state.json"), JSON.stringify(state), "utf-8");
+}
+
 function baseInput(launcher: AgentLauncher) {
     const config: AppConfig = { projectRoot: dir, projectSlug: "test" };
     return { projectRoot: dir, outputDir: dir, config, launchers: [launcher], cliCommand: "fake-cli" };
@@ -139,6 +154,32 @@ describe("runRecipeBuilder handoff + completion", () => {
         // Without the pre-launch cleanup the stale marker would read as done.
         expect(result.success).toBe(false);
         expect(launcher.calls).toBe(2); // initial launch + the bounded re-launch
+    });
+
+    test("a run stuck at completion with no agent ever launched self-heals by launching one", async () => {
+        // The colleague's bug: declining used to strand the run at completion,
+        // asking "have you implemented it?" forever. Now completion just
+        // launches the available agent to finish it.
+        await seedStuckCompletionPhase();
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: true, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        expect(result.success).toBe(true);
+        expect(launcher.calls).toBe(1);
+        expect((await loadState()).phase).toBe("done");
+    });
+
+    test("completion with no agent available hands back - it never asks the user", async () => {
+        await seedStuckCompletionPhase();
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, available: false, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        // A hand-back with instructions, not an interactive "did you do it?" pause.
+        expect(result.success).toBe(false);
+        expect(result.paused).toBeFalsy();
+        expect(launcher.calls).toBe(0);
     });
 
     test("no supported agent -> manual fallback pauses without launching", async () => {

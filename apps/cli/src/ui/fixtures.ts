@@ -221,6 +221,23 @@ function promptScene(): RunStore {
     return store;
 }
 
+function welcomeScene(): RunStore {
+    const store = makeStore();
+    store.startStep("projectMapper");
+    void store.runWelcome({
+        title: "Let's build your test suite.",
+        lines: [
+            "Autonoma analyzes your codebase - its pages, data models, and user flows - and generates a " +
+                "full suite of end-to-end test cases that cover them, so you get real test coverage without " +
+                "writing a single test yourself.",
+            "It takes a little while, and the whole run happens right here so you can watch it work.",
+            "This analysis is free for new accounts.",
+        ],
+        cta: "Press enter to begin",
+    });
+    return store;
+}
+
 function countdownScene(): RunStore {
     const store = makeStore();
     runStepsThrough(store, "scenarioRecipe");
@@ -244,6 +261,7 @@ function countdownScene(): RunStore {
 
 export function buildScenes(): Scene[] {
     return [
+        { id: "welcome", label: "welcome - the opening modal before a fresh run", store: welcomeScene() },
         { id: "early", label: "early - first step, nothing produced yet", store: earlyScene() },
         { id: "mid", label: "mid-run - knowledge base streaming", store: midRunScene() },
         { id: "prompt", label: "blocked on questions - answer them to clear the queue", store: promptScene() },

@@ -40,11 +40,11 @@ export type PhaseOutcome =
 
 /**
  * Hand the whole integration to the developer's own coding agent (e.g. Claude Code).
- * Interactive: ask to launch (Enter = go), pick an autonomy level, and attach it to
- * the terminal. Headless (--non-interactive): run it autonomously with no prompts and
- * hard-error when no agent is available (no manual fallback without a TTY).
- * Interactively, a missing agent or a decline drops to printing the instructions to
- * run by hand.
+ * When an agent is available it just launches - no "do you want to?" prompt; the
+ * whole point of this step is that the agent implements the integration. Interactive
+ * runs pick an autonomy level and attach it to the terminal. Only a genuinely missing
+ * agent drops to the manual fallback (a note, not a question): interactively it prints
+ * the instructions to run by hand; headless it hard-errors.
  */
 export async function runHandoffPhase(
     state: RecipeBuilderState,
@@ -65,17 +65,6 @@ export async function runHandoffPhase(
             };
         }
         return manualFallback(outputDir, recipePath, deps.cliCommand, "No supported agent found on your PATH.");
-    }
-
-    if (deps.interactive) {
-        const proceed = await p.confirm({
-            message: `Implement the SDK integration now with your local ${launcher.label}?`,
-            initialValue: true, // Enter = launch
-        });
-        if (p.isCancel(proceed)) throw new Error("Handoff cancelled");
-        if (!proceed) {
-            return manualFallback(outputDir, recipePath, deps.cliCommand, `You chose not to launch ${launcher.label}.`);
-        }
     }
 
     const permissionMode = deps.interactive
@@ -101,14 +90,14 @@ export async function runHandoffPhase(
 
 /**
  * CLI-side orchestration - the coding agent is a separate, already-exited process and
- * never runs this code. Confirm it finished and left a recipe to submit: the agent
- * owns all validation (per entity: up -> DB -> down -> DB), so "done" here is just the
- * completion marker it wrote plus a present recipe.json.
+ * never runs this code. "Done" is purely file-based: the completion marker the agent
+ * wrote plus a present recipe.json (the agent owns all validation - per entity: up ->
+ * DB -> down -> DB). We NEVER ask the user whether they implemented it.
  *
- * The loop is the CLI's bounded re-launch. On the AUTOMATED path (an agent ran) an
- * incomplete session re-launches the agent ONCE, then re-checks. On the MANUAL path
- * (interactive, no agent ran) we ask the developer whether they've implemented it.
- * Either way an unresolved case hands control back with a clear explanation.
+ * If it isn't done and a supported agent is available, (re-)launch it to finish, up to
+ * MAX_LAUNCH_ATTEMPTS. This also self-heals a run left mid-handoff - e.g. a prior
+ * session whose state advanced to this phase without an agent ever launching. When no
+ * agent is available or the attempts are spent, control hands back with instructions.
  */
 export async function runCompletionPhase(
     state: RecipeBuilderState,
@@ -116,7 +105,6 @@ export async function runCompletionPhase(
     outputDir: string,
 ): Promise<PhaseOutcome> {
     const recipePath = state.recipePath ?? join(outputDir, RECIPE_FILE);
-    const automated = (state.launchAttempts ?? 0) >= 1;
 
     while (true) {
         const complete = await readCompletion(outputDir);
@@ -131,44 +119,26 @@ export async function runCompletionPhase(
             ? "No completed recipe.json was produced, so there is nothing validated to submit."
             : "The agent exited without marking the integration complete (see its IMPLEMENTATION.md for what's left).";
 
-        if (automated) {
-            const launcher = await launcherFor(state, deps);
-            if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
-                p.log.warn("The integration isn't complete yet. Re-launching the agent once to finish it...");
-                state.priorFailure = failure;
-                await saveRecipeState(outputDir, state);
+        const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
+        if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
+            p.log.warn("The integration isn't complete yet. Launching the agent to finish it...");
+            state.agentId = launcher.id;
+            state.priorFailure = failure;
+            await saveRecipeState(outputDir, state);
 
-                await launchAgent(launcher, state.permissionMode ?? "bypassPermissions", {
-                    outputDir,
-                    recipePath,
-                    cliCommand: deps.cliCommand,
-                    interactive: deps.interactive,
-                    priorFailure: failure,
-                });
-                state.launchAttempts = (state.launchAttempts ?? 0) + 1;
-                await saveRecipeState(outputDir, state);
-                continue;
-            }
-            return { kind: "handback", summary: handbackSummary(failure, outputDir) };
+            await launchAgent(launcher, state.permissionMode ?? "bypassPermissions", {
+                outputDir,
+                recipePath,
+                cliCommand: deps.cliCommand,
+                interactive: deps.interactive,
+                priorFailure: failure,
+            });
+            state.launchAttempts = (state.launchAttempts ?? 0) + 1;
+            await saveRecipeState(outputDir, state);
+            continue;
         }
 
-        // Manual path is interactive-only; a non-interactive run can't ask, so it hands back.
-        if (!deps.interactive) return { kind: "handback", summary: handbackSummary(failure, outputDir) };
-
-        // No agent ran. If the developer's assistant wrote the marker we would have
-        // advanced above; otherwise ask whether they've finished.
-        const done = await p.confirm({
-            message: "Have you implemented the integration and is the recipe complete?",
-            initialValue: true,
-        });
-        if (p.isCancel(done)) throw new Error("Completion check cancelled");
-        if (done && recipeReady) return { kind: "advance" };
-        if (done && !recipeReady) {
-            p.log.warn(
-                `I couldn't find a completed ${RECIPE_FILE} in ${outputDir}. Make sure it's written before you resume.`,
-            );
-        }
-        return { kind: "pause", summary: "Resume when the integration is implemented and the recipe is written." };
+        return { kind: "handback", summary: handbackSummary(failure, outputDir) };
     }
 }
 
@@ -235,15 +205,6 @@ async function launchAgent(
     } finally {
         resume();
     }
-}
-
-/** Rebuild the chosen launcher from persisted state, without re-prompting. */
-async function launcherFor(state: RecipeBuilderState, deps: HandoffDeps): Promise<AgentLauncher | undefined> {
-    const id = state.agentId;
-    if (id == null) return undefined;
-    const match = deps.launchers.find((l) => l.id === id);
-    if (match == null) return undefined;
-    return (await match.isAvailable()) ? match : undefined;
 }
 
 /**

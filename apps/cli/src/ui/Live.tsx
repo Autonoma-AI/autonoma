@@ -28,6 +28,7 @@ export function Live({ store }: { store: RunStore }) {
   const onNav = useCallback((a: Parameters<RunStore["dispatchNav"]>[0]) => store.dispatchNav(a), [store]);
   const onHelp = useCallback((open: boolean) => store.setHelpOpen(open), [store]);
   const onSkipCountdown = useCallback(() => store.skipCountdown(), [store]);
+  const onDismissWelcome = useCallback(() => store.dismissWelcome(), [store]);
   const prompt = useMemo(
     () => ({
       onAction: (a: Parameters<RunStore["dispatchPrompt"]>[0]) => store.dispatchPrompt(a),
@@ -37,5 +38,14 @@ export function Live({ store }: { store: RunStore }) {
     [store],
   );
 
-  return <App state={state} onNav={onNav} onHelp={onHelp} prompt={prompt} onSkipCountdown={onSkipCountdown} />;
+  return (
+    <App
+      state={state}
+      onNav={onNav}
+      onHelp={onHelp}
+      prompt={prompt}
+      onSkipCountdown={onSkipCountdown}
+      onDismissWelcome={onDismissWelcome}
+    />
+  );
 }

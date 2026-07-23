@@ -95,6 +95,11 @@ export interface RunStore {
     runCountdown(opts: { title: string; lines: string[]; seconds: number }): Promise<void>;
     /** Enter on the countdown: dismiss it and resolve immediately. */
     skipCountdown(): void;
+
+    /** Show the opening welcome overlay; resolves when the user presses enter. */
+    runWelcome(opts: { title: string; lines: string[]; cta: string }): Promise<void>;
+    /** Enter on the welcome: dismiss it and resolve. */
+    dismissWelcome(): void;
 }
 
 const LOG_CAP = 500;
@@ -208,6 +213,7 @@ export function createStore(opts: StoreOptions): RunStore {
     const settleTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let countdownTimer: ReturnType<typeof setTimeout> | undefined;
     let countdownResolve: (() => void) | undefined;
+    let welcomeResolve: (() => void) | undefined;
     let clock: ReturnType<typeof setInterval> | undefined;
     let logSeq = 0;
     let activitySeq = 0;
@@ -576,6 +582,21 @@ export function createStore(opts: StoreOptions): RunStore {
             const resolve = countdownResolve;
             countdownResolve = undefined;
             if (state.countdown != null) set({ ...state, countdown: undefined });
+            resolve?.();
+        },
+
+        runWelcome({ title, lines, cta }) {
+            return new Promise<void>((resolve) => {
+                welcomeResolve = resolve;
+                if (process.stdout.isTTY) process.stdout.write(BELL);
+                set({ ...state, welcome: { title, lines, cta } });
+            });
+        },
+
+        dismissWelcome() {
+            const resolve = welcomeResolve;
+            welcomeResolve = undefined;
+            if (state.welcome != null) set({ ...state, welcome: undefined });
             resolve?.();
         },
     };

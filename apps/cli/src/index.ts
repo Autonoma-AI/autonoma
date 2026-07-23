@@ -704,6 +704,22 @@ async function main() {
 
     const hasProgress = Object.values(state.steps).some((s) => s === "done" || s === "running");
 
+    // A fresh, interactive run opens with a welcome. Skipped when resuming, on a
+    // targeted --step, or when a prior run left progress (nothing new to greet).
+    if (!nonInteractive && !isResuming && !hasProgress) {
+        await p.welcome({
+            title: "Let's build your test suite.",
+            lines: [
+                "Autonoma analyzes your codebase - its pages, data models, and user flows - and " +
+                    "generates a full suite of end-to-end test cases that cover them, so you get real " +
+                    "test coverage without writing a single test yourself.",
+                "It takes a little while, and the whole run happens right here so you can watch it work.",
+                "This analysis is free for new accounts.",
+            ],
+            cta: "Press enter to begin",
+        });
+    }
+
     if (!isResuming && !nonInteractive && hasProgress) {
         const completedSteps = Object.entries(state.steps)
             .filter(([, s]) => s === "done")

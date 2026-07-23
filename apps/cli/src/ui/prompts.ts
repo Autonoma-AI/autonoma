@@ -70,6 +70,19 @@ export function note(message: string, title?: string): void {
 }
 
 /**
+ * The opening welcome overlay, shown once before a fresh run. Resolves when the
+ * user presses enter. Headless runs print the intro and continue.
+ */
+export async function welcome(opts: { title: string; lines: string[]; cta: string }): Promise<void> {
+    const store = getActiveStore();
+    if (store == null) {
+        console.log(`◆ ${opts.title}\n${opts.lines.map((l) => `  ${l}`).join("\n")}`);
+        return;
+    }
+    await store.runWelcome(opts);
+}
+
+/**
  * A blocking countdown overlay explaining what happens next; resolves when it
  * runs out or the user presses enter to continue immediately. Headless runs
  * print the explanation and continue - a delay with nobody watching is waste.
