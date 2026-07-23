@@ -35,10 +35,13 @@ These cronjobs rely on:
 
 ## Deployment
 
-These scripts are designed to run as Kubernetes CronJobs. The Docker image runs
-on Node 24 Alpine (with OpenSSL installed for Prisma's query engine) as the
-unprivileged `node` user, and has no default job - the CronJob manifest's
-`command:` must select the script to run:
+These scripts are designed to run as Kubernetes CronJobs. The multi-stage Dockerfile
+bundles each script with Rolldown (`rolldown.config.ts`) into a self-contained
+`dist/<script>.js` (all deps inlined) in a builder stage, then the runtime image
+(Node 24 Alpine, with OpenSSL installed for Prisma's query engine) ships only
+`dist/` - no `node_modules`, no tsx - running as the unprivileged `node` user. The
+image has no default job - the CronJob manifest's `command:` must select the
+bundled script to run:
 
 ```yaml
 apiVersion: batch/v1
@@ -54,7 +57,7 @@ spec:
           containers:
           - name: billing-invoicer
             image: autonoma/cronjobs:latest
-            command: ["pnpm", "--filter", "@autonoma/cronjobs", "billing-invoicer"]
+            command: ["node", "--enable-source-maps", "dist/billing-invoicer.js"]
             env:
               - name: DATABASE_URL
                 valueFrom:
