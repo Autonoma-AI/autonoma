@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.260723.1](https://github.com/Autonoma-AI/agent/compare/v1.8.44...v1.260723.1) (2026-07-23)
+
+
+### Features
+
+* **analysis:** mission probe - verify the test's intended outcomes occurred ([#1707](https://github.com/Autonoma-AI/agent/issues/1707)) ([d9d2578](https://github.com/Autonoma-AI/agent/commit/d9d2578c1a5316a0ee7d8f151478bc027818a91a))
+* **billing:** enforce previewkit compute-billing credits at deploy time ([#1696](https://github.com/Autonoma-AI/agent/issues/1696)) ([92a6ef1](https://github.com/Autonoma-AI/agent/commit/92a6ef12773ea6e668eef72dd836689e6d0a94e9))
+* **ci:** switch root release-please version to CalVer ([#1695](https://github.com/Autonoma-AI/agent/issues/1695)) ([7824dac](https://github.com/Autonoma-AI/agent/commit/7824dac1c8154d5e4ad1b6c2c3ac1fe0f951cdbb))
+* **classifier:** use the optimized recording for every model video call ([#1711](https://github.com/Autonoma-AI/agent/issues/1711)) ([95e85c4](https://github.com/Autonoma-AI/agent/commit/95e85c4c3c59d3ea6783449502090e5dbcbce862))
+* **cli:** live Ink TUI for the planner - dashboard, in-TUI prompts, handoff reclaim ([#1683](https://github.com/Autonoma-AI/agent/issues/1683)) ([9dc9bc7](https://github.com/Autonoma-AI/agent/commit/9dc9bc7667b1f416f0fe255daa480e903504709e))
+* **cli:** TUI phase C - human file names, follow fixes, adaptive ETA ([#1704](https://github.com/Autonoma-AI/agent/issues/1704)) ([e2ddbe8](https://github.com/Autonoma-AI/agent/commit/e2ddbe81a8c4f6176744fa03f3b76b663092567e))
+* **diffs:** time-compress review recordings before the video model ([#1705](https://github.com/Autonoma-AI/agent/issues/1705)) ([3912fd8](https://github.com/Autonoma-AI/agent/commit/3912fd89be6705cc3c8b4211ad9a6d0bf2b9ee60))
+* hand the SDK-integration step to the user's local coding agent ([#1665](https://github.com/Autonoma-AI/agent/issues/1665)) ([0e8f461](https://github.com/Autonoma-AI/agent/commit/0e8f46167c5b46f17d816ba4ad4765f5c0c428a5))
+* persist the Investigator classifier conversation on findings ([#1682](https://github.com/Autonoma-AI/agent/issues/1682)) ([2a7b855](https://github.com/Autonoma-AI/agent/commit/2a7b855ba540fc29dde1740dd670147d8aef4b27))
+* **previewkit:** trigger the review for every org (remove per-org gate) ([#1703](https://github.com/Autonoma-AI/agent/issues/1703)) ([529374a](https://github.com/Autonoma-AI/agent/commit/529374a0d8355a0b91485079a2dbf71b13b8dc18))
+* **ui:** centralized run-recording VideoPlayer with optimized/original toggle ([#1709](https://github.com/Autonoma-AI/agent/issues/1709)) ([6023d2d](https://github.com/Autonoma-AI/agent/commit/6023d2d0c0721ad9446b5c5aa4cc18e626894a11))
+
+
+### Bug Fixes
+
+* **analysis:** reconciler + self-heal precision fixes for the classifier ([#1706](https://github.com/Autonoma-AI/agent/issues/1706)) ([4fff94d](https://github.com/Autonoma-AI/agent/commit/4fff94db46443d7b29e4c0ea9030968156fc9c7a))
+* **cli:** drop the manual SDK-handoff questions; brighter file highlight ([#1708](https://github.com/Autonoma-AI/agent/issues/1708)) ([aae35da](https://github.com/Autonoma-AI/agent/commit/aae35dae393db03392ec232ec8630f24719ac58b))
+* **engine-web:** record test video at full viewport resolution ([#1710](https://github.com/Autonoma-AI/agent/issues/1710)) ([59d441e](https://github.com/Autonoma-AI/agent/commit/59d441e436a4c9a099a0507dde944e01295e5627))
+* increase pvc storage ([#1693](https://github.com/Autonoma-AI/agent/issues/1693)) ([cebd184](https://github.com/Autonoma-AI/agent/commit/cebd184190ec88fdc45a81831e596904d3d6b6de))
+* **previewkit:** tune PreviewKit node image garbage collection ([#1702](https://github.com/Autonoma-AI/agent/issues/1702)) ([3f115dd](https://github.com/Autonoma-AI/agent/commit/3f115ddb8ea6a92e871828c8fcf93daed3e49fa0))
+* read AnalysisReport verdict for authoritative checkpoint summaries ([#1700](https://github.com/Autonoma-AI/agent/issues/1700)) ([a313e5f](https://github.com/Autonoma-AI/agent/commit/a313e5fcff110711e8a1eb93497a9c4e6ba2b91f))
+* uninstall flag to avoid having a pending to uninstall integration ([#1699](https://github.com/Autonoma-AI/agent/issues/1699)) ([301619e](https://github.com/Autonoma-AI/agent/commit/301619ea77739bdd8e3bc51a13930fb12bb79ad5))
+
+
+### Performance Improvements
+
+* **previewkit:** export build images with zstd compression ([#1691](https://github.com/Autonoma-AI/agent/issues/1691)) ([5cc8889](https://github.com/Autonoma-AI/agent/commit/5cc8889af47f031dece0cd4c299e1b7af1be51aa))
+
 ## [1.8.44](https://github.com/Autonoma-AI/agent/compare/v1.8.43...v1.8.44) (2026-07-21)
 
 
