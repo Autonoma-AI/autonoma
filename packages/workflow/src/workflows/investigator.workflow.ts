@@ -241,6 +241,7 @@ function toFindingReport(result: InvestigationTestResult): AnalysisFindingReport
         runTrace: result.runTrace,
         evidence: verdict?.evidence,
         videoKey: result.videoUrl,
+        optimizedVideoKey: result.optimizedVideoUrl,
         screenshotKey: result.finalScreenshotUrl,
         clipKey: result.clipUrl,
         classificationConversationUrl: result.classificationConversationUrl,

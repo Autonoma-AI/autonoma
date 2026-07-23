@@ -187,7 +187,9 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
           </figcaption>
         </figure>
       )}
-      {finding.videoUrl != null && <VideoPlayer src={finding.videoUrl} label="Run recording" />}
+      {finding.videoUrl != null && (
+        <VideoPlayer src={finding.videoUrl} optimizedSrc={finding.optimizedVideoUrl} label="Run recording" />
+      )}
     </div>
   );
 }

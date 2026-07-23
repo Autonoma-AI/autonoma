@@ -2578,6 +2578,9 @@ model AnalysisFinding {
 
   /// `s3://` keys, signed on read.
   videoKey      String? @map("video_key")
+  /// `s3://` key of the dead-time-stripped mp4 recording, signed on read. Backs the finding page's
+  /// Optimized/Original toggle; null for runs recorded before the optimizer landed.
+  optimizedVideoKey String? @map("optimized_video_key")
   screenshotKey String? @map("screenshot_key")
   /// Short GIF clip of the failure (client bugs only).
   clipKey String? @map("clip_key")

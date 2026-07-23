@@ -154,6 +154,7 @@ const analysisFindingSelect = {
     runTrace: true,
     evidence: true,
     videoKey: true,
+    optimizedVideoKey: true,
     screenshotKey: true,
     error: true,
     coveredSlugs: true,
@@ -213,6 +214,7 @@ function rowToAnalysisFinding(row: AnalysisFindingRow): InvestigationFinding {
         runTrace: row.runTrace ?? undefined,
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
         videoUrl: row.videoKey ?? undefined,
+        optimizedVideoUrl: row.optimizedVideoKey ?? undefined,
         finalScreenshotUrl: row.screenshotKey ?? undefined,
         error: row.error ?? undefined,
         coveredSlugs: row.coveredSlugs ?? undefined,
@@ -535,19 +537,15 @@ export class BranchesService extends Service {
 
     /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
     private async signFindingMedia(finding: InvestigationFinding): Promise<InvestigationFinding> {
-        const finalScreenshotUrl =
-            finding.finalScreenshotUrl != null
-                ? await this.storageProvider.getSignedUrl(finding.finalScreenshotUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
-                : undefined;
-        const videoUrl =
-            finding.videoUrl != null
-                ? await this.storageProvider.getSignedUrl(finding.videoUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
-                : undefined;
-        const runTrace =
-            finding.runTrace != null
-                ? await Promise.all(finding.runTrace.map((step) => this.signStep(step)))
-                : undefined;
-        return { ...finding, finalScreenshotUrl, videoUrl, runTrace };
+        const sign = (key: string | undefined) =>
+            key != null ? this.storageProvider.getSignedUrl(key, INVESTIGATION_MEDIA_TTL_SECONDS) : undefined;
+        const [finalScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace] = await Promise.all([
+            sign(finding.finalScreenshotUrl),
+            sign(finding.videoUrl),
+            sign(finding.optimizedVideoUrl),
+            finding.runTrace != null ? Promise.all(finding.runTrace.map((step) => this.signStep(step))) : undefined,
+        ]);
+        return { ...finding, finalScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace };
     }
 
     /** Sign one run-trace step's stored screenshot key; the coordinates and labels pass through untouched. */

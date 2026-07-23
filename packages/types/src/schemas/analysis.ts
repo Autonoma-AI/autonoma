@@ -162,6 +162,9 @@ export const analysisFindingReportSchema = z.object({
     evidence: z.array(investigationEvidenceSchema).optional(),
     /** `s3://` media keys, signed on read. */
     videoKey: z.string().optional(),
+    /** `s3://` key of the dead-time-stripped mp4 recording, signed on read. Backs the finding page's
+     *  Optimized/Original toggle; absent for runs recorded before the optimizer landed. */
+    optimizedVideoKey: z.string().optional(),
     screenshotKey: z.string().optional(),
     /** Short GIF clip of the failure (client bugs only), signed on read. */
     clipKey: z.string().optional(),

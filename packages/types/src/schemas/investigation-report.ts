@@ -74,6 +74,9 @@ export const investigationFindingSchema = z.object({
     runTrace: z.array(investigationRunStepSchema).optional(),
     /** Browser-openable HTTPS URL (the API signs the stored s3:// key on read). */
     videoUrl: z.string().optional(),
+    /** Browser-openable HTTPS URL of the dead-time-stripped mp4 recording, signed on read. When present, the
+     *  finding page shows an Optimized/Original toggle; absent for runs recorded before the optimizer landed. */
+    optimizedVideoUrl: z.string().optional(),
     finalScreenshotUrl: z.string().optional(),
     /** Present instead of the verdict fields when the model failed to classify this test. */
     error: z.string().optional(),

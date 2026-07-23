@@ -288,6 +288,7 @@ function buildFindingRows(
             evidence: report?.evidence,
             // These carry the raw s3:// keys (the API signs them on read), not URLs.
             videoKey: report?.videoKey,
+            optimizedVideoKey: report?.optimizedVideoKey,
             screenshotKey: report?.screenshotKey,
             clipKey: report?.clipKey,
             classificationConversationUrl: report?.classificationConversationUrl,
