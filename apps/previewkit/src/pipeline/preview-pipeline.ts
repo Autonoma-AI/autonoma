@@ -17,7 +17,7 @@ import type {
 } from "@autonoma/types";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
-import { buildPreviewImageReference } from "../builder/image-reference";
+import { buildPreviewCacheReference, buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
 import { loadConfig } from "../config/load-config";
 import {
@@ -1526,6 +1526,12 @@ export class PreviewPipeline {
                 prNumber: ctx.prNumber,
                 shortSha: ctx.shortSha,
             });
+            const cacheRef = buildPreviewCacheReference({
+                registry: ctx.registry,
+                org: ctx.org,
+                repo: ctx.repo,
+                appName: app.name,
+            });
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
             const appArn = ctx.arnByApp.get(app.name);
@@ -1566,6 +1572,7 @@ export class PreviewPipeline {
                 contextPath: buildInputs.contextPath,
                 buildArgs: resolvedBuildArgs,
                 imageTag,
+                cacheRef,
                 namespace: ctx.namespace,
                 repo: `${ctx.org}/${ctx.repo}`,
                 pr: ctx.prNumber,

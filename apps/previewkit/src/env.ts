@@ -41,8 +41,10 @@ export const env = createEnv({
 
         // BuildKit: each app-build attempt creates an isolated buildkitd Job in
         // the control cluster. The runner waits for its pod, dials the pod IP,
-        // and deletes the Job when the attempt settles. No remote layer cache
-        // is configured; each Job starts with empty local state.
+        // and deletes the Job when the attempt settles. Each Job starts with
+        // empty local state, but imports/exports a rolling per-app registry
+        // cache (see `buildPreviewCacheReference`) so a cold Job can still
+        // reuse a previous build's layers.
         BUILDKIT_BUILD_NAMESPACE: z.string().default("buildkit"),
         BUILDKIT_IMAGE: z
             .string()

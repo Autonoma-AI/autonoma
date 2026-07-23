@@ -205,7 +205,13 @@ headroom.
 The BestEffort Job can exhaust its dedicated node, but required anti-affinity isolates sibling
 builds from that failure. The ingress NetworkPolicy restricts other pods, but the
 unauthenticated BuildKit endpoint still assumes trusted build inputs because an executor in the same
-pod can reach it. No remote layer cache is currently configured, so every fresh Job starts cold.
+pod can reach it. Each fresh Job's local `emptyDir` cache is empty, but `buildWithBuildctl` /
+`buildWithGeneratedDockerfile` pass `--import-cache` / `--export-cache type=registry,ref=<cacheRef>,mode=max`
+against a per-(org, repo, app) rolling tag in the shared preview image repository
+(`buildPreviewCacheReference`, `builder/image-reference.ts`) - unlike the image tag, this ref carries
+no PR/SHA suffix, so every PR and commit for the same app imports the last build's layers and
+re-exports its own, and a brand-new app's first build simply misses (buildctl treats an absent cache
+ref as no cache, not an error).
 The image exporter (`buildctl --output type=image,...`) requests `compression=zstd` instead of
 buildkit's gzip default, so the export's per-layer compression is multi-threaded across the node's
 cores rather than pegging one core - the fix for a `runtime` build's single giant install/build

@@ -171,7 +171,7 @@ describe("BuildKitBuilder", () => {
         }
     });
 
-    it("omits remote cache flags from every build strategy and releases each Job", async () => {
+    it("omits remote cache flags when no cacheRef is set, and adds them for every build strategy when it is", async () => {
         const tempDir = await mkdtemp(join(tmpdir(), "previewkit-buildctl-test-"));
         const appDir = join(tempDir, "apps", "web");
         const binDir = join(tempDir, "bin");
@@ -200,7 +200,8 @@ describe("BuildKitBuilder", () => {
             });
 
             const imageTag = "registry.local:5000/acme/web:abc1234";
-            const strategies: Array<{ name: string; request: BuildRequest }> = [
+            const cacheRef = "registry.local:5000/previewkit/previews:acme-web-12345678-cache";
+            const strategies: Array<{ name: string; request: Omit<BuildRequest, "cacheRef"> }> = [
                 {
                     name: "on-disk Dockerfile",
                     request: {
@@ -232,8 +233,17 @@ describe("BuildKitBuilder", () => {
                 expect(capturedArgs, strategy.name).not.toContain("--export-cache");
                 expect(capturedArgs, strategy.name).not.toContain("type=s3");
             }
+
+            for (const strategy of strategies) {
+                await builder.build({ ...strategy.request, cacheRef });
+                const capturedArgs = await readFile(capturedArgsPath, "utf8");
+
+                expect(capturedArgs, strategy.name).toContain(`--import-cache\ntype=registry,ref=${cacheRef}`);
+                expect(capturedArgs, strategy.name).toContain(`--export-cache\ntype=registry,ref=${cacheRef},mode=max`);
+            }
+
             expect(jobManager.releasedNames).toEqual(
-                Array.from({ length: strategies.length }, () => "buildkit-success"),
+                Array.from({ length: strategies.length * 2 }, () => "buildkit-success"),
             );
         } finally {
             if (previousPath == null) delete process.env.PATH;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPreviewImageReference } from "../../src/builder/image-reference";
+import { buildPreviewCacheReference, buildPreviewImageReference } from "../../src/builder/image-reference";
 
 const REGISTRY = "140023360995.dkr.ecr.us-east-1.amazonaws.com";
 
@@ -96,5 +96,45 @@ describe("buildPreviewImageReference", () => {
 
     it("is stable for the same input (idempotent)", () => {
         expect(buildPreviewImageReference(base)).toBe(buildPreviewImageReference(base));
+    });
+});
+
+describe("buildPreviewCacheReference", () => {
+    const base = { registry: REGISTRY, org: "acme", repo: "web", appName: "frontend" };
+
+    it("stores the cache under the single shared repository", () => {
+        const ref = buildPreviewCacheReference(base);
+        expect(ref.startsWith(`${REGISTRY}/previewkit/previews:`)).toBe(true);
+    });
+
+    it("uses a `-cache` suffix with no PR/SHA in the tag", () => {
+        const tag = tagOf(buildPreviewCacheReference(base));
+        expect(tag).toMatch(/^acme-web-frontend-[0-9a-f]{8}-cache$/);
+    });
+
+    it("matches the same discriminator buildPreviewImageReference uses for this identity", () => {
+        const cacheTag = tagOf(buildPreviewCacheReference(base));
+        const imageTag = tagOf(buildPreviewImageReference({ ...base, prNumber: 1, shortSha: "abc1234" }));
+        const discriminatorOf = (tag: string) => tag.match(/-([0-9a-f]{8})-/)?.[1];
+        expect(discriminatorOf(cacheTag)).toBe(discriminatorOf(imageTag));
+    });
+
+    it("is stable across PRs and commits for the same app (idempotent)", () => {
+        expect(buildPreviewCacheReference(base)).toBe(buildPreviewCacheReference(base));
+    });
+
+    it("differs between apps in the same repo", () => {
+        expect(buildPreviewCacheReference(base)).not.toBe(buildPreviewCacheReference({ ...base, appName: "api" }));
+    });
+
+    it("produces a valid Docker tag across a range of inputs", () => {
+        const cases = [
+            { ...base },
+            { ...base, org: "BigCorp", repo: "some.repo", appName: "API_Server" },
+            { ...base, org: "x".repeat(60), repo: "y".repeat(60), appName: "z".repeat(60) },
+        ];
+        for (const input of cases) {
+            expect(tagOf(buildPreviewCacheReference(input))).toMatch(DOCKER_TAG_REGEX);
+        }
     });
 });

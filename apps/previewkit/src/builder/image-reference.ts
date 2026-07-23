@@ -43,15 +43,55 @@ export function buildPreviewImageReference(input: PreviewImageReferenceInput): s
     const logger = rootLogger.child({ name: "buildPreviewImageReference" });
     const { registry, org, repo, appName, prNumber, shortSha } = input;
 
-    const identity = `${org}/${repo}/${appName}`;
-    const discriminator = createHash("sha256").update(identity).digest("hex").slice(0, 8);
-    const slug = truncateTagSegment(sanitizeTagSegment(`${org}-${repo}-${appName}`), MAX_READABLE_SLUG);
-
+    const { slug, discriminator } = identitySlug(org, repo, appName);
     const tag = `${slug}-${discriminator}-pr-${prNumber}-${shortSha}`;
     const reference = `${registry}/${PREVIEW_IMAGE_REPOSITORY}:${tag}`;
 
-    logger.debug("Built preview image reference", { extra: { identity, reference, tagLength: tag.length } });
+    logger.debug("Built preview image reference", {
+        extra: { identity: `${org}/${repo}/${appName}`, reference, tagLength: tag.length },
+    });
     return reference;
+}
+
+export interface PreviewCacheReferenceInput {
+    /** Registry host (ECR or the in-cluster registry), without trailing slash. */
+    registry: string;
+    /** Lowercased GitHub owner/org. */
+    org: string;
+    /** Lowercased GitHub repository name. */
+    repo: string;
+    /** App name from the preview config. */
+    appName: string;
+}
+
+/**
+ * A single rolling BuildKit registry-cache reference per (org, repo, app),
+ * stable across PRs and commits - unlike `buildPreviewImageReference`'s tag,
+ * it carries no PR/SHA suffix. Every build for that app imports from and
+ * exports back to this same tag (`--import-cache` / `--export-cache
+ * type=registry`), so a later build's cache hits are not limited to its own
+ * PR's history. Lives in the same shared repository as preview images, so no
+ * separate ECR repository needs to be created for it.
+ */
+export function buildPreviewCacheReference(input: PreviewCacheReferenceInput): string {
+    const logger = rootLogger.child({ name: "buildPreviewCacheReference" });
+    const { registry, org, repo, appName } = input;
+
+    const { slug, discriminator } = identitySlug(org, repo, appName);
+    const tag = `${slug}-${discriminator}-cache`;
+    const reference = `${registry}/${PREVIEW_IMAGE_REPOSITORY}:${tag}`;
+
+    logger.debug("Built preview cache reference", {
+        extra: { identity: `${org}/${repo}/${appName}`, reference, tagLength: tag.length },
+    });
+    return reference;
+}
+
+function identitySlug(org: string, repo: string, appName: string): { slug: string; discriminator: string } {
+    const identity = `${org}/${repo}/${appName}`;
+    const discriminator = createHash("sha256").update(identity).digest("hex").slice(0, 8);
+    const slug = truncateTagSegment(sanitizeTagSegment(`${org}-${repo}-${appName}`), MAX_READABLE_SLUG);
+    return { slug, discriminator };
 }
 
 /**

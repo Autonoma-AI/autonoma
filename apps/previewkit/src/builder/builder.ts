@@ -24,6 +24,13 @@ export interface BuildRequest {
     generatedDockerfile?: string;
     buildArgs: Record<string, string>;
     imageTag: string;
+    // Stable per (org, repo, app) BuildKit registry-cache reference (see
+    // `buildPreviewCacheReference`), shared across every PR/commit for that
+    // app. When set, the build imports from and exports back to this ref
+    // (`--import-cache` / `--export-cache type=registry`) so a cold Job can
+    // reuse layers a previous build already pushed. Omitted (e.g. tests)
+    // disables cache import/export entirely.
+    cacheRef?: string;
     // Preview namespace this build belongs to (e.g. `preview-acme-bank-pr-42`).
     // Used as the key under which the builder streams live log output to the
     // build-log sink. Optional: when absent (or no sink is wired) the build runs

@@ -437,6 +437,7 @@ export class BuildKitBuilder implements Builder {
             if (request.target != null) {
                 args.push("--opt", `target=${request.target}`);
             }
+            args.push(...this.cacheArgs(request.cacheRef));
 
             // Every build arg is passed both as `--opt build-arg` (for Dockerfiles
             // that declare `ARG <key>` and read it as an env var) AND as a BuildKit
@@ -516,6 +517,7 @@ export class BuildKitBuilder implements Builder {
                 "--output",
                 `type=image,name=${request.imageTag},push=true,compression=zstd`,
             ];
+            args.push(...this.cacheArgs(request.cacheRef));
 
             const extraEnv: Record<string, string> = {};
             if (dockerConfigDir != null) {
@@ -538,6 +540,25 @@ export class BuildKitBuilder implements Builder {
                 );
             }
         }
+    }
+
+    /**
+     * `buildctl` flags for the rolling per-app registry cache. `mode=max`
+     * exports every intermediate layer (not just the final image's), which is
+     * what lets an unrelated later stage (e.g. a separate `RUN pnpm install`
+     * layer) hit cache too. buildctl treats a missing/unreadable cache ref as
+     * "no cache" rather than an error, so a brand-new app's first build is
+     * unaffected. Returns an empty array when no cache ref is set - unset only
+     * in tests.
+     */
+    private cacheArgs(cacheRef?: string): string[] {
+        if (cacheRef == null) return [];
+        return [
+            "--import-cache",
+            `type=registry,ref=${cacheRef}`,
+            "--export-cache",
+            `type=registry,ref=${cacheRef},mode=max`,
+        ];
     }
 
     private exec(
