@@ -1,6 +1,7 @@
-FROM node:24-slim
+FROM node:24-alpine
 
 RUN corepack enable
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 COPY . .
@@ -8,7 +9,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 
 ENV NODE_ENV=production
+USER node
 
-# Overridden per-job by the CronJob manifest's `command:` (billing-invoicer or
-# usage-reporter) - this default only matters if the image is run directly.
-CMD ["pnpm", "--filter", "@autonoma/cronjobs", "run", "billing-invoicer"]
+# The caller selects the job by overriding this command.
+CMD ["pnpm", "--filter", "@autonoma/cronjobs", "run"]

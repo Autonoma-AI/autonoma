@@ -1,5 +1,17 @@
 .git
 .github
+.claude/worktrees
+.codex
+.env
+.env.*
+.idea
+.turbo
 node_modules
 **/node_modules
 **/dist
+**/.nitro
+**/.output
+**/.turbo
+**/coverage
+apps/ui/screenshots
+storybook-static
