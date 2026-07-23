@@ -29,6 +29,7 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
+        "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@aws-sdk/client-secrets-manager": "^3.1048.0",
         "@t3-oss/env-core": "catalog:",

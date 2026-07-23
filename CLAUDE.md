@@ -330,6 +330,10 @@ function isStepAtOrPast(step: Step, target: Step): boolean {
 if (isStepAtOrPast(step, "verified")) { ... }
 ```
 
+### Reuse Before You Write a Helper
+
+**Before implementing an "obvious" utility - a `sleep`, a retry/backoff, a slugify, a date formatter, a type guard, a chunk/dedupe - assume this large monorepo very likely ALREADY has it, and search first.** Grep the shared packages (`@autonoma/utils`, `@autonoma/types`, ...) and the wider codebase for the behavior (by name and by shape, e.g. `setTimeout(resolve`) before adding your own. A re-implemented one-liner is not free: it silently drifts into N slightly different copies - we ended up with `sleep` / `delay` / `wait` duplicated ~20 times - and every copy is another place a fix has to be repeated. If it exists, import it. If it exists but lives in the wrong place (a local helper that three files now need), promote it to a shared package instead of copying it. Only write a new one when a genuine search comes up empty - and put it somewhere shared from the start.
+
 ### Never Swallow Errors in Empty Catches
 
 **Never write an empty `catch` block.** A bare `catch {}` (or a catch whose only content is a comment) silently swallows every error and makes future debugging nearly impossible - when the surrounding logic mysteriously stops working, there is no breadcrumb to follow. Every catch must at minimum log the error so it shows up in Sentry and in local logs.

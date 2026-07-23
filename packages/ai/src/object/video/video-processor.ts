@@ -1,5 +1,6 @@
 import { external } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import { FileState, type GoogleGenAI, type File as GoogleGenAIFile } from "@google/genai";
 import type { VideoInput } from "./video-input";
 
@@ -114,7 +115,7 @@ export class VideoProcessor implements VideoUploader {
                 pollInterval,
                 msWaited: Date.now() - startTime,
             });
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            await sleep(pollInterval);
 
             const getResult = await external(
                 // biome-ignore lint/style/noNonNullAssertion: I think this can't be null (trusting the API docs)

@@ -2,6 +2,7 @@ import { AI_REQUEST_TIMEOUT_MS, MODEL_MAX_RETRIES, type LanguageModel } from "@a
 import { external } from "@autonoma/errors";
 import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import {
     type StepResult as AIStepResult,
     type ModelMessage,
@@ -194,7 +195,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                 const startTime = Date.now();
                 this.logger.debug("Waiting for page to stabilize...");
 
-                await new Promise((resolve) => setTimeout(resolve, this.params.minTimeBetweenSteps));
+                await sleep(this.params.minTimeBetweenSteps);
 
                 await this.params.drivers.application.waitUntilStable();
 

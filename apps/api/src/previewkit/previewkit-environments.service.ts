@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 
 /** Env statuses at which a deploy has settled (nothing more will happen without a new trigger). */
 const TERMINAL_ENV_STATUSES = new Set(["ready", "failed", "torn_down"]);
@@ -248,11 +249,6 @@ function toWaitResult(progress: DeployProgress, settled: boolean): WaitForDeploy
         apps: progress.apps,
         reason: settled ? undefined : "Still in progress - call wait_for_deploy again to keep waiting.",
     };
-}
-
-/** Promise-based delay for the wait loop. */
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Identifies which Loki stream to relay and whether the build has already finished. */

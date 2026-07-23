@@ -1,11 +1,8 @@
 import { logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import type { DeviceDriver, PrepareDeviceOptions } from "../types";
 import { installContacts } from "./contacts";
 import { updateDateOnDevice } from "./date";
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Package prefixes for system-level and infrastructure apps (Google services, Amazon
@@ -66,10 +63,10 @@ export class AndroidPrepareDevice {
             }
         }
 
-        await wait(Math.floor(Math.random() * (2000 - 1000)) + 1000);
+        await sleep(Math.floor(Math.random() * (2000 - 1000)) + 1000);
         logger.info("Enabling wifi...");
         await driver.executeScript("mobile: shell", [{ command: "svc wifi enable" }]);
-        await wait(1000);
+        await sleep(1000);
 
         if (appPath != null) {
             logger.info("Installing app...");
@@ -118,7 +115,7 @@ export class AndroidPrepareDevice {
                 logger.warn(`Error checking app installation (attempt ${attempt}/${maxAttempts}): ${errorMessage}`);
             }
 
-            await wait(1_000);
+            await sleep(1_000);
         }
 
         throw new Error(`App ${packageName} was not installed after ${maxAttempts} attempts`);

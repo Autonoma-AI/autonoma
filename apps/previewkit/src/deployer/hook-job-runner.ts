@@ -1,3 +1,4 @@
+import { sleep } from "@autonoma/utils/sleep";
 import * as k8s from "@kubernetes/client-node";
 import { logger as rootLogger } from "../logger";
 
@@ -95,7 +96,7 @@ export async function runHookJob(
     const deadline = Date.now() + timeoutMs;
     logger.info(`Running hook job ${jobName}...`, { jobName });
     while (Date.now() < deadline) {
-        await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        await sleep(POLL_INTERVAL_MS);
 
         const { status } = await batchApi.readNamespacedJob({ name: jobName, namespace });
         const conditions = status?.conditions ?? [];

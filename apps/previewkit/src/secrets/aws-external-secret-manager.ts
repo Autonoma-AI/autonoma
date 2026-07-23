@@ -1,4 +1,5 @@
 import { db, type PrismaClient } from "@autonoma/db";
+import { sleep } from "@autonoma/utils/sleep";
 import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import { isConflict, isNotFound } from "../deployer/k8s-errors";
@@ -337,7 +338,7 @@ export class AwsExternalSecretManager {
             } else {
                 lastReason = sync.reason;
             }
-            await delay(SECRET_SYNC_POLL_INTERVAL_MS);
+            await sleep(SECRET_SYNC_POLL_INTERVAL_MS);
         }
         // Infra failure (ESO / ClusterSecretStore / AWS), not the customer's code -
         // surface it as a platform error so the runner logs it fatal and shows a
@@ -487,8 +488,4 @@ export class AwsExternalSecretManager {
             });
         }
     }
-}
-
-function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }

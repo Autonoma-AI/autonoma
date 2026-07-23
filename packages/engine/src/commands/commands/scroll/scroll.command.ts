@@ -1,3 +1,4 @@
+import { sleep } from "@autonoma/utils/sleep";
 import type { PointDetector, VisualConditionChecker } from "@autonoma/visual-ai";
 import type { BaseCommandContext, MouseDriver } from "../../../platform";
 import { Command } from "../../command";
@@ -8,10 +9,6 @@ const SETTLE_DELAY_MS = 500;
 
 export interface ScrollCommandContext extends BaseCommandContext {
     mouse: MouseDriver;
-}
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class ScrollConditionNotMetError extends Error {
@@ -78,7 +75,7 @@ export class ScrollCommand extends Command<ScrollCommandSpec, ScrollCommandConte
                     direction,
                 });
                 await mouse.scroll({ point: point ?? undefined, direction });
-                await wait(SETTLE_DELAY_MS);
+                await sleep(SETTLE_DELAY_MS);
                 await application.waitUntilStable();
             }
         }

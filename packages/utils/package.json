@@ -4,7 +4,8 @@
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./sleep": "./src/sleep.ts"
     },
     "scripts": {
         "build": "tsc --noCheck",

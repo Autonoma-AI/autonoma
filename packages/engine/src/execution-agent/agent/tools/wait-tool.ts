@@ -1,4 +1,5 @@
 import { logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import { tool } from "ai";
 import z from "zod";
 
@@ -13,7 +14,7 @@ export function buildWaitTool() {
         execute: async (input: { seconds: number }) => {
             logger.info("Waiting for", { seconds: input.seconds });
 
-            await new Promise((resolve) => setTimeout(resolve, input.seconds * 1000));
+            await sleep(input.seconds * 1000);
         },
     });
 }

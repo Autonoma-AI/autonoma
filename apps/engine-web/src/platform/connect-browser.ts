@@ -1,4 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import { chromium } from "playwright";
 import { connectRemoteBrowser } from "./drivers/connect-remote-browser";
 import { env } from "./env";
@@ -54,7 +55,7 @@ async function waitForRemoteBrowserHealth(endpoint: string, logger: ReturnType<t
             // Browser sidecar may still be starting up; keep polling.
         }
 
-        await new Promise((resolve) => setTimeout(resolve, REMOTE_BROWSER_HEALTH_POLL_MS));
+        await sleep(REMOTE_BROWSER_HEALTH_POLL_MS);
     }
 
     throw new Error(`Remote browser healthcheck timeout after ${REMOTE_BROWSER_HEALTH_TIMEOUT_MS}ms: ${healthUrl}`);

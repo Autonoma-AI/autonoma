@@ -24,6 +24,7 @@
         "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
+        "@autonoma/utils": "workspace:*",
         "@autonoma/visual-ai": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",

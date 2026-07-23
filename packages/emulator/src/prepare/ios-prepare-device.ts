@@ -1,10 +1,7 @@
 import { logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import type { Emulator } from "../emulator";
 import type { DeviceDriver, PrepareDeviceOptions } from "../types";
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export class IosPrepareDevice {
     constructor(private readonly emulator: Emulator) {}
@@ -54,7 +51,7 @@ export class IosPrepareDevice {
                 // pass
             }
 
-            await wait(1000);
+            await sleep(1000);
         }
 
         throw new Error(`WDA did not become ready after ${maxAttempts} attempts`);
@@ -85,7 +82,7 @@ export class IosPrepareDevice {
                 logger.warn(`Error checking app state (attempt ${attempt}/${maxAttempts}): ${errorMessage}`);
             }
 
-            await wait(1_000);
+            await sleep(1_000);
         }
 
         throw new Error(`App ${bundleId} was not registered with iOS after ${maxAttempts} attempts`);
@@ -134,7 +131,7 @@ export class IosPrepareDevice {
                         `App activation failed (attempt ${attempt}/${maxAttempts}), waiting ${waitTime}ms before retry...`,
                     );
                     logger.warn(`Error details: ${errorMessage}`);
-                    await wait(waitTime);
+                    await sleep(waitTime);
                 } else {
                     logger.error(`Failed to activate app after ${maxAttempts} attempts`);
                     throw activateError instanceof Error ? activateError : new Error(String(activateError));

@@ -1,12 +1,9 @@
 import { logger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 import { DaemonClient } from "./daemon/client";
 import { AndroidPrepareDevice } from "./prepare/android-prepare-device";
 import { IosPrepareDevice } from "./prepare/ios-prepare-device";
 import type { DeviceDriver, DeviceInfo, EmulatorConfig, EmulatorCreateOptions, PrepareDeviceOptions } from "./types";
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate the input. */
 function shuffled<T>(array: T[]): T[] {
@@ -90,7 +87,7 @@ export class Emulator {
             }
 
             const jitter = Math.floor(Math.random() * 2000);
-            await wait(1000 + jitter);
+            await sleep(1000 + jitter);
         }
     }
 
@@ -163,7 +160,7 @@ export class Emulator {
                     logger.warn(`Still waiting for Appium (attempt ${attempts}/${maxAttempts}): ${errorMessage}`);
                 }
             } finally {
-                await wait(500);
+                await sleep(500);
                 attempts++;
             }
         }

@@ -1,7 +1,6 @@
 /**
  * Adapted from https://github.com/vercel/ai/blob/main/packages/ai/src/util/retry-with-exponential-backoff.ts
  */
-
 import { APICallError } from "ai";
 import { getDefaultLogger } from "./logger";
 
@@ -107,6 +106,8 @@ export function buildRetry({
                 });
 
                 // Wait before retrying
+                // Inline rather than @autonoma/utils: this package is kept dependency-free
+                // so it bundles lean into the published planner CLI (see README).
                 await new Promise((resolve) => setTimeout(resolve, currentDelay));
 
                 // Increase delay for next retry (exponential backoff)

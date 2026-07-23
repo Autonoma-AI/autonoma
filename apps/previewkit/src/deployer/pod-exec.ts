@@ -1,4 +1,5 @@
 import { PassThrough } from "node:stream";
+import { sleep } from "@autonoma/utils/sleep";
 import * as k8s from "@kubernetes/client-node";
 import { logger as rootLogger } from "../logger";
 import { makeLineRelay } from "./line-relay";
@@ -138,7 +139,7 @@ async function findRunningPod(
             return containerStatuses.every((cs) => cs.state?.running != null);
         });
         if (running != null) return running;
-        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        await sleep(pollIntervalMs);
     }
 
     return undefined;

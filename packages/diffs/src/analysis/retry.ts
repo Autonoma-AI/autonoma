@@ -1,4 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
+import { sleep } from "@autonoma/utils/sleep";
 
 /**
  * Provider flakes that are safe to retry verbatim. "corrupted thought signature" is a Gemini
@@ -89,7 +90,7 @@ export async function withRetry<T>(fn: () => Promise<T>, opts?: { tries?: number
                 extra: { attempt, tries, label: opts?.label, delayMs },
                 err: error instanceof Error ? error.message : String(error),
             });
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            await sleep(delayMs);
         }
     }
     throw lastError;

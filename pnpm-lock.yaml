@@ -567,6 +567,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@autonoma/visual-ai':
         specifier: workspace:*
         version: link:../../packages/visual-ai
@@ -1346,6 +1349,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@google/genai':
         specifier: ^1.42.0
         version: 1.42.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
@@ -1696,6 +1702,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../workflow
@@ -1751,6 +1760,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -1782,6 +1794,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../storage
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@autonoma/visual-ai':
         specifier: workspace:*
         version: link:../visual-ai
@@ -1953,6 +1968,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
+      '@autonoma/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@aws-sdk/client-secrets-manager':
         specifier: ^3.1048.0
         version: 3.1048.0
@@ -13592,7 +13610,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.4
       '@types/mdast': 4.0.4
-      js-yaml: 4.2.0
+      js-yaml: 4.3.0
       picomatch: 4.0.4
       retext-smartypants: 6.2.0
       shiki: 4.0.2
