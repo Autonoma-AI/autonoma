@@ -18,7 +18,8 @@ import { basename, join } from "node:path";
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
 import { writeIntegrationPrompt } from "../../src/agents/04-recipe-builder/integration-prompt";
 import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
-import { ensureCachedCheckout } from "../framework/checkout";
+import { type CheckoutCoords, ensureCachedCheckout } from "../framework/checkout";
+import { stageContextCheckout } from "../framework/context-repos";
 import { driveClaude } from "../framework/drive-claude";
 import { DEFAULT_AWS_REGION, readHarnessEnv } from "../framework/env";
 import { commitAll, copyTree, git } from "../framework/git";
@@ -74,6 +75,38 @@ async function prepareSandbox(kase: LoadedCase, cacheDir: string, sandbox: strin
     await git(sandbox, ["apply", "--whitespace=nowarn", kase.stripPatchPath]);
     const cleanSha = await commitAll(sandbox, "eval: clean baseline (SDK stripped)");
     return cleanSha;
+}
+
+/**
+ * Clone each read-only context repo and stage a copy outside the sandbox, so the
+ * agent can read its polyrepo siblings without touching the pristine cache and
+ * without the reads showing up in the target sandbox's diff. Each is stripped of the
+ * SDK integration (via its context strip) exactly like the target. Returns the staged dirs.
+ */
+async function stageContextRepos(caseRepo: string, contextRepos: CheckoutCoords[], runDir: string): Promise<string[]> {
+    return Promise.all(
+        contextRepos.map(async (coords) => {
+            const staged = join(runDir, "context", `${coords.owner}__${coords.repo}`);
+            await stageContextCheckout(caseRepo, coords, staged);
+            return staged;
+        }),
+    );
+}
+
+/** A read-only-sibling-repos note appended to the drive prompt, or "" for single-repo cases. */
+function renderSiblingReposNote(contextRepoDirs: string[]): string {
+    if (contextRepoDirs.length === 0) return "";
+    const list = contextRepoDirs.map((dir) => `    ${dir}`).join("\n");
+    return `
+
+═══ SIBLING REPOS (read-only context) ═══
+This app spans multiple repos. Your integration lands ONLY in the checkout you are
+working in (the current directory); the models and creation paths you must mirror
+may live in these sibling checkouts, provided READ-ONLY for reference:
+${list}
+Read them to understand the models, their real creation paths, and the invariants the
+entity audit refers to. Do NOT edit anything under these directories - changes there
+are neither graded nor kept; all your work goes in the target checkout.`;
 }
 
 /** Stage everything the judge reads under one root, so its tools see both trees + transcript. */
@@ -134,9 +167,13 @@ async function main(): Promise<void> {
         return;
     }
 
-    // Stage the frozen artifacts OUTSIDE the sandbox so the agent reads them without polluting its diff.
+    // Stage the frozen artifacts + read-only context repos OUTSIDE the sandbox so the agent
+    // reads them without polluting its diff (or mutating the shared cache).
     const stagedArtifacts = join(runDir, "artifacts");
-    await copyTree(kase.artifactsDir, stagedArtifacts);
+    const [, contextRepoDirs] = await Promise.all([
+        copyTree(kase.artifactsDir, stagedArtifacts),
+        stageContextRepos(kase.repo, kase.contextRepos, runDir),
+    ]);
     // The agent GENERATES the recipe in this flow; drop the frozen one so it can't read/edit a
     // pre-made answer. The frozen recipe stays available to the judge from the case dir.
     await rm(join(stagedArtifacts, RECIPE_FILE), { force: true });
@@ -156,14 +193,15 @@ async function main(): Promise<void> {
     const prompt =
         `Read the file ${promptFile} and follow its instructions exactly to integrate ` +
         `Autonoma into this application. It is your complete spec. Do not stop until every ` +
-        `item in it is done and you have written the completion marker it describes.`;
+        `item in it is done and you have written the completion marker it describes.` +
+        renderSiblingReposNote(contextRepoDirs);
 
     const bedrockToken = env.AWS_BEARER_TOKEN_BEDROCK;
     if (bedrockToken == null) throw new Error("AWS_BEARER_TOKEN_BEDROCK is required for a drive.");
     log(`drive claude -p (model=${args.model}, timeout=${args.timeoutMin}m)`);
     const drive = await driveClaude({
         sandbox,
-        readableDirs: [stagedArtifacts],
+        readableDirs: [stagedArtifacts, ...contextRepoDirs],
         runHome,
         prompt,
         model: args.model,

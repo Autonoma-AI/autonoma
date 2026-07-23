@@ -48,7 +48,7 @@ Cases live in `../cases/<repo>/` (opensource-ignored - they hold client IP). Eac
 
 | file | contents |
 |------|----------|
-| `input.json` | `{ "owner", "repo", "sha", "installationId" }` - coordinates only, no source |
+| `input.json` | `{ "owner", "repo", "sha", "installationId" }` - target-repo coordinates only, no source. Optional `"contextRepos": [{ "owner", "repo", "sha", "installationId" }]` adds read-only sibling repos for a polyrepo app: cloned and exposed to the agent as `--add-dir` context, stripped (via `context-strips/`) but never graded (see below). |
 | `strip.patch` | `git diff` after manually deleting the SDK integration at `sha` (direction: `sha` -> clean). The stripped tree MUST still boot. |
 | `artifacts/` | the frozen planner artifacts fed to the agent as its spec: `AUTONOMA.md`, `entity-audit.md`, `scenarios.md`. There is no frozen `recipe.json` - the agent generates its own at run time. |
 | `ENV.md` | **dev-only, advisory** boot notes for engineers (optional, see below). Not read by any harness code. |
@@ -56,6 +56,18 @@ Cases live in `../cases/<repo>/` (opensource-ignored - they hold client IP). Eac
 There is no machine-read boot config: starting the app locally is the driven agent's own best-effort
 job. The SDK package (`@autonoma-ai/sdk`) and default endpoint path (`/api/autonoma`) are harness
 constants.
+
+### Multi-repo (polyrepo) apps
+
+Some apps span several repos: the SDK integration lands in one (the **target** repo), but the agent
+needs to read the other repos to understand the app's models and their real creation paths. Add
+those as `contextRepos` in `input.json` (SHAs pinned for reproducibility) - the case does not label
+any repo frontend/backend. The harness checks out each, stages a read-only copy outside the sandbox,
+and passes them to the drive as extra `--add-dir`s. Golden and the judge apply to the **target only**
+(context repos are never graded), but each context repo IS stripped to the same realism bar as the
+target: `context-strips/<contextRepo>.patch` (applied by `stageContextCheckout`) removes any autonoma
+trace so no staged tree tips the agent off. A context repo whose pinned sha predates the integration
+ships no strip.
 
 ### `ENV.md` (dev-only boot notes)
 

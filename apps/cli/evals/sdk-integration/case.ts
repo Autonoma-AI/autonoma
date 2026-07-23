@@ -1,12 +1,17 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckoutCoords } from "../framework/checkout";
-import { loadCoords } from "../framework/corpus";
+import { loadContextRepos, loadCoords } from "../framework/corpus";
 import { artifactsDir, caseDir } from "../framework/paths";
 
 export interface LoadedCase {
     repo: string;
     coords: CheckoutCoords;
+    /**
+     * Read-only sibling repos (polyrepo apps): cloned and exposed to the agent as
+     * context, stripped (via context-strips/) but never graded. Empty for single-repo cases.
+     */
+    contextRepos: CheckoutCoords[];
     /** `cases/<repo>/strip.patch` - sha -> clean (SDK removed). */
     stripPatchPath: string;
     /** `cases/<repo>/artifacts/` - the frozen planner artifacts fed to the agent. */
@@ -34,5 +39,6 @@ export function loadCase(repo: string): LoadedCase {
     }
 
     const coords = loadCoords(repo);
-    return { repo, coords, stripPatchPath, artifactsDir: artifacts };
+    const contextRepos = loadContextRepos(repo);
+    return { repo, coords, contextRepos, stripPatchPath, artifactsDir: artifacts };
 }

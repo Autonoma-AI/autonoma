@@ -14,9 +14,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { copyFile, cp } from "node:fs/promises";
 import { join } from "node:path";
-import { ensureCachedCheckout } from "../framework/checkout";
-import { contextPath, loadCoords, rubricPath } from "../framework/corpus";
-import { copyTree, git } from "../framework/git";
+import { contextPath, loadContextRepos, loadCoords, rubricPath } from "../framework/corpus";
+import { preparePlannerProject } from "../framework/planner-project";
 import { artifactsDir, caseDir, runDir as runDirFor } from "../framework/paths";
 import { runPlanner } from "../framework/run-planner-step";
 import { judgePlannerArtifact, plannerVerdictSchema } from "./judge";
@@ -69,6 +68,7 @@ async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
     const step = PLANNER_STEPS[args.step]!;
     const coords = loadCoords(args.repo);
+    const contextRepos = loadContextRepos(args.repo);
 
     const ctxPath = contextPath(args.repo);
     if (!existsSync(ctxPath)) {
@@ -84,16 +84,22 @@ async function main(): Promise<void> {
     const artifacts = artifactsDir(args.repo);
     if (!existsSync(artifacts)) mkdirSync(artifacts, { recursive: true });
 
-    const cacheDir = await ensureCachedCheckout(coords);
-
     const stamp = String(Date.now());
     const runDir = runDirFor(args.repo, `planner-${args.step}-${stamp}`);
     mkdirSync(runDir, { recursive: true });
-    const sandbox = join(runDir, "sandbox");
 
-    log("copy checkout -> sandbox, apply strip.patch (clean)");
-    await copyTree(cacheDir, sandbox);
-    await git(sandbox, ["apply", "--whitespace=nowarn", join(caseDir(args.repo), "strip.patch")]);
+    log(
+        contextRepos.length > 0
+            ? `stage combined project (target + ${contextRepos.length} context repo(s)), apply strip.patch (clean)`
+            : "copy checkout -> sandbox, apply strip.patch (clean)",
+    );
+    const { projectRoot } = await preparePlannerProject({
+        caseRepo: args.repo,
+        coords,
+        contextRepos,
+        stripPatchPath: join(caseDir(args.repo), "strip.patch"),
+        runDir,
+    });
 
     const home = join(runDir, "home");
     const outputDir = join(home, ".autonoma", OUTPUT_SLUG);
@@ -105,7 +111,7 @@ async function main(): Promise<void> {
     const run = await runPlanner({
         step: step.flag,
         label: step.flag,
-        projectRoot: sandbox,
+        projectRoot,
         home,
         slug: OUTPUT_SLUG,
         apiToken,

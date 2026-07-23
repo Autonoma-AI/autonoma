@@ -37,8 +37,9 @@ apps/cli/evals/
 
 | file | what | required for |
 |------|------|--------------|
-| `input.json` | `{ owner, repo, sha, installationId }` - coordinates only, no source | both |
+| `input.json` | `{ owner, repo, sha, installationId }` - target coords, no source. Optional `contextRepos: [{ owner, repo, sha, installationId }]` for a multi-repo app (see below) | both |
 | `strip.patch` | `git diff` sha->clean: the client's integration removed (manually), so the tree still boots | Layer 2 |
+| `context-strips/<contextRepo>.patch` | multi-repo only: the same sha->clean strip for a context repo, so no staged tree references autonoma (see below). Omit when the pinned context sha predates the integration | both (multi-repo) |
 | `artifacts/` | frozen planner spec: `project-map.json`, `pages.json`, `AUTONOMA.md`, `entity-audit.md`, `scenarios.md` (no `recipe.json` - the SDK agent generates that at eval time) | both |
 | `context.json` | `{ description, testingGoal, criticalFlows }` - the planner's project context | Layer 1 / bootstrap |
 | `rubrics/<step>.md` | findings rubric per gradable step | Layer 1 |
@@ -46,6 +47,29 @@ apps/cli/evals/
 
 Derived at run time: **clean** = `sha` + `strip.patch`; **golden** = the `sha` checkout as-is;
 **agent** = the sandbox after the drive (its `git diff` is the agent's integration).
+
+### Multi-repo (polyrepo) apps
+
+Some apps span several repos - the SDK integration lands in one (the **target**, named in `input.json`),
+but the planner and agent must read the others too. List those as `contextRepos` (SHAs pinned). The
+case does NOT label any repo frontend/backend; the planner's mapper discovers roles itself. The two
+layers just stage them:
+
+- **Layer 2** (`sdk-integration`): the sandbox is the target only; context repos are cloned, staged
+  read-only outside the sandbox, and handed to the drive as extra `--add-dir`s. Golden and the judge
+  apply to the **target only** - context repos are never graded.
+- **Layer 1** (`bootstrap` / `planner`): the harness assembles a **combined project root** with every
+  repo as a sibling subdir (named by its bare repo name) and applies `strip.patch` to the target
+  subdir (see `preparePlannerProject` in `framework/`). The mapper then resolves the scope on its own;
+  pass `--frontend <repo> --backends <repo,...>` only to override an ambiguous mapping.
+
+**Context repos are stripped too, to the same bar as the target.** For a realistic eval NO staged
+tree may reference `autonoma` - a leftover SDK import, endpoint, CI workflow, or host allowlist would
+tip the agent off. Each context repo is staged through `stageContextCheckout` (`framework/context-repos.ts`),
+which applies `cases/<repo>/context-strips/<contextRepo>.patch` (keyed by bare repo name) if present.
+When the pinned context sha already predates the integration (e.g. eon's `eon-rn-web@<sha>` - a clean
+tree, `git grep autonoma` empty), no patch is needed. NOTE: stripping only cleans the working tree;
+git history in every checkout still contains the integration - see the caveat below.
 
 ## Running
 
@@ -55,7 +79,10 @@ Derived at run time: **clean** = `sha` + `strip.patch`; **golden** = the `sha` c
 
 pnpm --filter @autonoma-ai/planner eval:sdk       -- --repo <name>          # Layer 2 (drive + judge)
 pnpm --filter @autonoma-ai/planner eval:planner   -- --repo <name> --step entityAudit [--promote]
-pnpm --filter @autonoma-ai/planner eval:bootstrap -- --repo <name> --frontend <app-dir>
+pnpm --filter @autonoma-ai/planner eval:bootstrap -- --repo <name> [--frontend <app-dir>] [--backends <a,b>]
+#   --frontend/--backends are optional: the mapper resolves scope itself, and only needs them to
+#   disambiguate (e.g. multiple candidate frontends). For a multi-repo case they name subdirs of the
+#   combined root (bare repo names). Omit them and let the mapper decide when the mapping is clear.
 ```
 
 Layer 2 flags: `--no-drive` (checkout+strip only, cheap), `--no-judge`, `--model`, `--judge-model`,
@@ -72,6 +99,9 @@ through a proxy otherwise.
    the remote `sha` (`eval:sdk --no-drive` does this).
 3. **Write `input.json`** (coords + real `installationId`) and **`context.json`** (derive the three
    fields from the repo README if you don't know them - the planner needs them non-interactively).
+   For a **multi-repo** case, list the siblings in `contextRepos`, then for each one confirm the
+   staged tree is autonoma-free: `git grep -i autonoma <contextSha>`. If it has any hit, capture a
+   `context-strips/<contextRepo>.patch` the same way as step 2; if it is already clean, add nothing.
 4. **Generate `artifacts/`**: `eval:bootstrap --repo <name> --frontend <app-dir>`.
 5. **Author `rubrics/<step>.md`** - a findings list a correct artifact MUST contain, grounded in the
    repo. Ground the `entityAudit` rubric in real creation functions; a good source is a passing SDK
@@ -102,3 +132,8 @@ through a proxy otherwise.
   with `JUDGE_MODEL`.
 - Layer 1 seeds a step's *upstream* artifacts from `artifacts/` but never the step's own output, so a
   step never grades against its own frozen answer.
+- **`strip.patch` / context strips only clean the working tree, not git history.** Every staged
+  checkout is a full clone, so the golden integration is still reachable via `git log`/`git show`
+  (`git log -p | grep autonoma` finds it). A `grep autonoma` over the files comes back empty, but an
+  agent that inspects history can still recover the answer. Making the sandbox history-clean (re-init
+  git after the strip so the clean baseline is the root commit) is a separate, harness-wide change.
