@@ -37,14 +37,18 @@ import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/pr
 import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
 import { useAuth } from "lib/auth";
 import {
+  useAvailableVercelProjects,
   useConfigureAndDiscoverSdkTarget,
   useConfigureAndDiscoverScenarios,
+  useDiscoverVercelDeploymentTarget,
   useOnboardingScenarios,
   useOnboardingState,
   usePrepareSdkTarget,
   useRedeploySdkDryRunTarget,
   useRunScenarioDryRun,
   useSdkDryRunTargets,
+  useVercelDeployments,
+  useVercelDeploymentStatus,
 } from "lib/onboarding/onboarding-api";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import {
@@ -583,7 +587,166 @@ function TargetBuildCause({
   );
 }
 
+/** One-line label for a Vercel deployment in the SDK-step picker. */
+function formatVercelDeploymentLabel(deployment: {
+  target: "production" | "preview";
+  branch?: string;
+  createdAt: string;
+}): string {
+  const kind = deployment.target === "production" ? "Production" : "Preview";
+  const branch = deployment.branch != null ? ` - ${deployment.branch}` : "";
+  return `${kind}${branch} (${new Date(deployment.createdAt).toLocaleString()})`;
+}
+
+/**
+ * SDK validation for a Vercel-linked app: pick a deployment from the same list
+ * the onboarding flow uses and validate against it with the shared secret we
+ * already injected into the project (no manual paste, no PR/main target picker).
+ * A deployment built before the injection fails discover with a secret-drift 401;
+ * the backend then redeploys it once and returns the new deployment id, which we
+ * poll to READY and auto-retry - mirroring the managed-target self-heal.
+ */
+function VercelSdkValidationSection({ applicationId }: { applicationId: string }) {
+  const { data: state } = useOnboardingState(applicationId);
+  const { data: deployments, isLoading } = useVercelDeployments(applicationId);
+  const discover = useDiscoverVercelDeploymentTarget();
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | undefined>(undefined);
+  // Set to the redeployed deployment id while a secret-drift redeploy is in
+  // flight; the poll below retries discover against it (allowRedeploy: false)
+  // once it is READY, then disarms so it can't loop.
+  const [retryDeploymentId, setRetryDeploymentId] = useState<string | undefined>(undefined);
+
+  const statusQuery = useVercelDeploymentStatus(applicationId, retryDeploymentId);
+  const discoverMutate = discover.mutate;
+  const isReady = statusQuery.data?.ready === true;
+  const isRedeploying = retryDeploymentId != null;
+  const isValidating = discover.isPending || state.discoveryInProgress || isRedeploying;
+  const showDiscoveryError = state.lastDiscoveryError != null && !isValidating;
+
+  useEffect(() => {
+    if (retryDeploymentId == null || !isReady || discover.isPending) return;
+    const readyDeploymentId = retryDeploymentId;
+    setRetryDeploymentId(undefined);
+    discoverMutate(
+      { applicationId, vercelDeploymentId: readyDeploymentId, allowRedeploy: false },
+      { onSuccess: () => toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" }) },
+    );
+  }, [retryDeploymentId, isReady, discover.isPending, discoverMutate, applicationId]);
+
+  function handleValidate() {
+    if (selectedDeploymentId == null) return;
+    discover.mutate(
+      { applicationId, vercelDeploymentId: selectedDeploymentId, allowRedeploy: true },
+      {
+        onSuccess: (data) => {
+          if (data.status === "redeploy_started") {
+            setRetryDeploymentId(data.deploymentId);
+            toastManager.add({
+              type: "info",
+              title: "Redeploying preview to sync secrets",
+              description:
+                "This deployment predates the shared secret - validation retries automatically once it redeploys.",
+            });
+            return;
+          }
+          toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" });
+        },
+      },
+    );
+  }
+
+  const hasDeployments = deployments != null && deployments.length > 0;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1.5">
+        <Label>Validation target</Label>
+        {isLoading ? (
+          <p className="text-sm text-text-secondary">Loading deployments...</p>
+        ) : !hasDeployments ? (
+          <p className="text-sm text-text-secondary">
+            No ready deployments found yet for this project. Deploy your SDK branch on Vercel and it will appear here.
+          </p>
+        ) : (
+          <Select
+            value={selectedDeploymentId ?? ""}
+            onValueChange={(value) => setSelectedDeploymentId(value != null && value.length > 0 ? value : undefined)}
+            disabled={isValidating}
+          >
+            <SelectTrigger className="max-w-lg">
+              <SelectValue placeholder="Select a Vercel deployment" />
+            </SelectTrigger>
+            <SelectContent>
+              {deployments.map((deployment) => (
+                <SelectItem key={deployment.id} value={deployment.id}>
+                  {formatVercelDeploymentLabel(deployment)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <p className="font-mono text-2xs text-text-secondary">
+          Autonoma validates with the <Code>AUTONOMA_SHARED_SECRET</Code> it injected into your Vercel project - no need
+          to paste it.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          variant="accent"
+          className="gap-2"
+          onClick={handleValidate}
+          disabled={selectedDeploymentId == null || isValidating}
+        >
+          {isValidating ? (
+            <SpinnerGapIcon size={16} weight="bold" className="animate-spin" />
+          ) : (
+            <GlobeIcon size={16} weight="bold" />
+          )}
+          {isRedeploying ? "Redeploying preview..." : isValidating ? "Validating..." : "Validate SDK"}
+        </Button>
+        {state.sdkConfigured && (
+          <span className="flex items-center gap-1.5 text-sm text-status-success">
+            <CheckCircleIcon size={16} weight="fill" />
+            Discovered{state.lastDiscoveredModels != null ? ` ${state.lastDiscoveredModels} models` : ""}
+          </span>
+        )}
+      </div>
+
+      {isRedeploying && (
+        <p className="text-2xs text-text-secondary">
+          Redeploying so the shared secret takes effect - this can take a couple of minutes.
+        </p>
+      )}
+
+      {showDiscoveryError && (
+        <div className="flex items-start gap-2 border border-status-critical/30 bg-status-critical/5 px-3 py-2">
+          <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
+          <p className="font-mono text-2xs text-status-critical">{state.lastDiscoveryError}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The SDK step splits by preview provider. A Vercel-linked app validates against
+ * a Vercel deployment picked from the same list the onboarding flow uses - the
+ * shared secret is already injected into the project, so there is no secret to
+ * paste and no PR/main target to choose. Everything else keeps the manual BYO
+ * flow (paste the shared secret, pick a PR/main preview target).
+ */
 function SdkStepBody({ applicationId }: { applicationId: string }) {
+  const vercelProjects = useAvailableVercelProjects(applicationId);
+
+  if (vercelProjects.isLoading) return <Skeleton className="h-40 w-full" />;
+  if (vercelProjects.data?.linkedProject != null) {
+    return <VercelSdkValidationSection applicationId={applicationId} />;
+  }
+  return <ExternalSdkStepBody applicationId={applicationId} />;
+}
+
+function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
   const app = useCurrentApplication();
   const { data: state } = useOnboardingState(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);

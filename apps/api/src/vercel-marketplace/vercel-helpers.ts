@@ -1,7 +1,11 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import { encryptionHelper } from "../context";
+import { upsertVercelEnvVar } from "./vercel-project-api";
 
 const VERCEL_MARKETPLACE_SSO_URL = "https://vercel.com/api/marketplace/sso";
+const AUTONOMA_SHARED_SECRET_KEY = "AUTONOMA_SHARED_SECRET";
+const SHARED_SECRET_ENV_TARGETS = ["production", "preview", "development"];
 
 /**
  * Builds a link that routes through Vercel's own marketplace SSO broker
@@ -166,4 +170,47 @@ export async function applyVercelProtectionBypassHeader(applicationId: string, b
     });
 
     logger.info("Applied Vercel protection bypass header to deployment", { applicationId, deploymentId });
+}
+
+/**
+ * Pushes the application's webhook shared secret into the linked Vercel project's
+ * own env vars as `AUTONOMA_SHARED_SECRET`, so the user never has to copy it into
+ * the Vercel dashboard by hand. Best-effort: never throws, since this is an
+ * automation on top of a project link/connect that must succeed either way.
+ */
+export async function applyVercelSharedSecretEnv(
+    applicationId: string,
+    vercelProjectId: string,
+    teamId: string | undefined,
+    accessToken: string,
+): Promise<void> {
+    const logger = rootLogger.child({ name: "applyVercelSharedSecretEnv" });
+
+    const app = await db.application.findUnique({
+        where: { id: applicationId },
+        select: { signingSecretEnc: true },
+    });
+    if (app?.signingSecretEnc == null) {
+        logger.info("Application has no shared secret yet, skipping Vercel env sync", { applicationId });
+        return;
+    }
+
+    try {
+        const sharedSecret = encryptionHelper.decrypt(app.signingSecretEnc);
+        await upsertVercelEnvVar(
+            vercelProjectId,
+            teamId,
+            accessToken,
+            AUTONOMA_SHARED_SECRET_KEY,
+            sharedSecret,
+            SHARED_SECRET_ENV_TARGETS,
+        );
+        logger.info("Synced AUTONOMA_SHARED_SECRET to Vercel project", { applicationId, vercelProjectId });
+    } catch (error) {
+        logger.error("Failed to sync AUTONOMA_SHARED_SECRET to Vercel project", {
+            applicationId,
+            vercelProjectId,
+            error,
+        });
+    }
 }

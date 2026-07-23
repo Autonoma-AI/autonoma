@@ -24,11 +24,14 @@ import {
     type ConfigureAndDiscoverSdkTargetResult,
     OnboardingSdkCapabilityService,
     type PrepareSdkTargetResult,
+    isSharedSecretDrift401,
 } from "./onboarding-sdk-capability";
 import { isStepAtOrPast } from "./onboarding-step-order";
 import {
     type ListAvailableVercelProjectsResult,
     OnboardingVercelCapabilityService,
+    type VercelDeploymentStatusResult,
+    type VercelRedeployResult,
 } from "./onboarding-vercel-capability";
 import {
     buildExistingDeploysReadiness,
@@ -62,6 +65,15 @@ import { PreviewkitDeployingState } from "./states/previewkit-deploying-state";
  * CLI work moved out into the Finish setup tab.
  */
 const INITIAL_STEP: OnboardingState["step"] = "github";
+
+/**
+ * Result of validating a Vercel deployment SDK target: discovered + persisted,
+ * or a secret-drift 401 kicked off a self-healing redeploy whose new deployment
+ * id the caller polls + retries once ready.
+ */
+export type DiscoverVercelDeploymentTargetResult =
+    | { status: "discovered" }
+    | { status: "redeploy_started"; deploymentId: string };
 
 /**
  * Facade for the onboarding state machine.
@@ -147,7 +159,6 @@ export class OnboardingManager {
         });
 
         const sdkConfigured = row.lastDiscoveredAt != null;
-        const dryRunPassed = row.dryRunPassedAt != null;
         const discoveryInProgress = row.discoveringStartedAt != null;
 
         // `stepComplete` (computed once, server-side) is the gate: the run completed
@@ -155,18 +166,30 @@ export class OnboardingManager {
         // tests/kb/scenarios while the recipe submit silently fails (missing factory,
         // rejected upload); without this the user advances to the SDK step and lands
         // on a dry-run with no scenarios to run.
-        const { stepComplete: artifactsUploaded } = await computeArtifactStatus(this.db, applicationId);
-
-        // `hasContent` only needs existence, so probe with `findFirst` (take: 1)
-        // rather than two full `count`s on every poll.
-        const [scenario, testCase] = await Promise.all([
+        const [artifactStatus, scenario, testCase, provisionable, validatedInstances] = await Promise.all([
+            computeArtifactStatus(this.db, applicationId),
             this.db.scenario.findFirst({ where: { applicationId }, select: { id: true } }),
             // Ignore investigation shadow cases - they are validation probes, not real onboarding content.
             this.db.testCase.findFirst({ where: { applicationId, shadow: false }, select: { id: true } }),
+            this.db.scenario.findMany({
+                where: { applicationId, isDisabled: false, activeRecipeVersionId: { not: null } },
+                select: { id: true },
+            }),
+            this.db.scenarioInstance.findMany({
+                where: { applicationId, status: "DOWN_SUCCESS" },
+                select: { scenarioId: true },
+                distinct: ["scenarioId"],
+            }),
         ]);
+        const artifactsUploaded = artifactStatus.stepComplete;
         const hasContent = scenario != null && testCase != null;
 
-        const setupComplete = (sdkConfigured && dryRunPassed && artifactsUploaded) || hasContent;
+        const validatedScenarioIds = new Set(validatedInstances.map((instance) => instance.scenarioId));
+        const dryRunPassed =
+            provisionable.length > 0 && provisionable.every((candidate) => validatedScenarioIds.has(candidate.id));
+
+        const setupComplete =
+            (sdkConfigured && dryRunPassed && artifactsUploaded) || (hasContent && !artifactsUploaded);
 
         return {
             ...row,
@@ -813,6 +836,97 @@ export class OnboardingManager {
         this.logger.info("Unlinking Vercel project", { applicationId });
         await this.vercelCapability.unlinkVercelProject(applicationId, organizationId);
         return this.getState(applicationId);
+    }
+
+    async listVercelDeployments(applicationId: string, organizationId: string) {
+        return this.vercelCapability.listVercelDeployments(applicationId, organizationId);
+    }
+
+    /**
+     * Redeploys a chosen Vercel deployment so it rebuilds with the injected
+     * `AUTONOMA_SHARED_SECRET`, returning the NEW deployment's id/url/state for
+     * the UI to poll. Committing the preview URL happens in `selectVercelDeployment`
+     * once the poll reports READY.
+     */
+    async redeployVercelDeployment(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<VercelRedeployResult> {
+        this.logger.info("Redeploying Vercel deployment", { applicationId, vercelDeploymentId });
+        return this.vercelCapability.redeployVercelDeployment(applicationId, organizationId, vercelDeploymentId);
+    }
+
+    /** Current build state of a (re)deployed Vercel deployment, for the UI's readiness poll. */
+    async getVercelDeploymentStatus(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<VercelDeploymentStatusResult> {
+        this.logger.info("Fetching Vercel deployment status", { applicationId, vercelDeploymentId });
+        return this.vercelCapability.getVercelDeploymentStatus(applicationId, organizationId, vercelDeploymentId);
+    }
+
+    async selectVercelDeployment(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<OnboardingStateView> {
+        this.logger.info("Selecting Vercel deployment", { applicationId, vercelDeploymentId });
+        await this.vercelCapability.selectVercelDeployment(applicationId, organizationId, vercelDeploymentId);
+        return this.getState(applicationId);
+    }
+
+    /**
+     * Finish-setup SDK validation for a Vercel app: discover against the chosen
+     * (READY) Vercel deployment using the stored shared secret. On a shared-secret
+     * drift 401 - the deployment was built before we injected the secret - and
+     * only when `allowRedeploy` is set, kicks off exactly one redeploy and returns
+     * its new deployment id so the UI can poll + auto-retry.
+     */
+    async discoverVercelDeploymentTarget(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+        allowRedeploy: boolean,
+    ): Promise<DiscoverVercelDeploymentTargetResult> {
+        this.logger.info("Discovering Vercel deployment SDK target", {
+            applicationId,
+            vercelDeploymentId,
+            extra: { allowRedeploy },
+        });
+
+        const sdkUrl = await this.vercelCapability.resolveReadyDeploymentSdkUrl(
+            applicationId,
+            organizationId,
+            vercelDeploymentId,
+        );
+
+        try {
+            await this.sdkCapability.configureAndDiscoverStoredSecret(applicationId, organizationId, sdkUrl);
+            return { status: "discovered" };
+        } catch (err) {
+            if (allowRedeploy && isSharedSecretDrift401(err)) {
+                const { deploymentId } = await this.vercelCapability.redeployVercelDeployment(
+                    applicationId,
+                    organizationId,
+                    vercelDeploymentId,
+                );
+                // A secret-drift 401 is not a terminal failure - we own the secret
+                // and are redeploying to sync it - so clear the error the discover
+                // attempt just persisted, mirroring the managed-target self-heal.
+                await this.db.onboardingState.update({
+                    where: { applicationId },
+                    data: { discoveringStartedAt: null, lastDiscoveryError: null },
+                });
+                this.logger.info("Vercel SDK discover hit secret drift; redeploy started", {
+                    applicationId,
+                    extra: { newDeploymentId: deploymentId },
+                });
+                return { status: "redeploy_started", deploymentId };
+            }
+            throw err;
+        }
     }
 
     async prepareSdkTarget(

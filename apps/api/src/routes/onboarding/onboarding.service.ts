@@ -131,6 +131,36 @@ export class OnboardingService extends Service {
         return this.manager.unlinkVercelProject(applicationId, organizationId);
     }
 
+    async listVercelDeployments(applicationId: string, organizationId: string) {
+        return this.manager.listVercelDeployments(applicationId, organizationId);
+    }
+
+    async redeployVercelDeployment(applicationId: string, organizationId: string, vercelDeploymentId: string) {
+        return this.manager.redeployVercelDeployment(applicationId, organizationId, vercelDeploymentId);
+    }
+
+    async getVercelDeploymentStatus(applicationId: string, organizationId: string, vercelDeploymentId: string) {
+        return this.manager.getVercelDeploymentStatus(applicationId, organizationId, vercelDeploymentId);
+    }
+
+    async selectVercelDeployment(applicationId: string, organizationId: string, vercelDeploymentId: string) {
+        return this.manager.selectVercelDeployment(applicationId, organizationId, vercelDeploymentId);
+    }
+
+    async discoverVercelDeploymentTarget(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+        allowRedeploy: boolean,
+    ) {
+        return this.manager.discoverVercelDeploymentTarget(
+            applicationId,
+            organizationId,
+            vercelDeploymentId,
+            allowRedeploy,
+        );
+    }
+
     async prepareSdkTarget(applicationId: string, organizationId: string, targetId: string) {
         return this.manager.prepareSdkTarget(applicationId, organizationId, targetId);
     }

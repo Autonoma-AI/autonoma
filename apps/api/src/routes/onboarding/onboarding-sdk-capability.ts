@@ -184,6 +184,25 @@ export class OnboardingSdkCapabilityService {
     }
 
     /**
+     * Vercel variant of `configureAndDiscover`: the browser sends only the SDK
+     * URL (resolved server-side from the chosen Vercel deployment). The shared
+     * secret is loaded from the application (we injected it into the Vercel
+     * project on link), so the user never pastes it. Reuses the same discover +
+     * persist path, including the header merge that folds in the stored Vercel
+     * `x-vercel-protection-bypass` header.
+     */
+    async configureAndDiscoverStoredSecret(
+        applicationId: string,
+        organizationId: string,
+        sdkUrl: string,
+    ): Promise<void> {
+        this.logger.info("Validating Vercel SDK target with stored shared secret", { applicationId, organizationId });
+
+        const sharedSecret = await this.loadApplicationSharedSecret(applicationId, organizationId, true);
+        await this.configureAndDiscover(applicationId, organizationId, sdkUrl, sharedSecret);
+    }
+
+    /**
      * Provision the managed target's secrets so it is ready to validate, without
      * touching the user. Autonoma owns both secrets for a PreviewKit-managed env:
      * `AUTONOMA_SHARED_SECRET` (the app's shared secret) is mounted, and
@@ -861,6 +880,15 @@ function resolveSdkAppName(config: PreviewConfig): string | undefined {
 function isInvalidHmacError(error: SdkHttpError): boolean {
     const haystack = `${error.detail ?? ""} ${error.message}`.toLowerCase();
     return haystack.includes("invalid hmac signature");
+}
+
+/**
+ * True when an arbitrary error is an SDK 401 caused by shared-secret drift
+ * (the deployed pod rejected our HMAC). Shared with the Vercel discover
+ * orchestration so it can trigger a single self-healing redeploy.
+ */
+export function isSharedSecretDrift401(error: unknown): boolean {
+    return error instanceof SdkHttpError && error.status === 401 && isInvalidHmacError(error);
 }
 
 /**

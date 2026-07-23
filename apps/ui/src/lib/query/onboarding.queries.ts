@@ -138,6 +138,83 @@ export function useLinkVercelProject() {
     });
 }
 
+/** Real deployments for the linked Vercel project, used to pick an onboarding preview URL directly. */
+export function useVercelDeployments(applicationId: string) {
+    return useQuery(
+        trpc.onboarding.listVercelDeployments.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }),
+    );
+}
+
+/**
+ * Redeploys a chosen Vercel deployment so it rebuilds with the injected
+ * `AUTONOMA_SHARED_SECRET` (which only takes effect on new builds). Returns the
+ * NEW deployment's id/url/state; the caller polls `useVercelDeploymentStatus`
+ * and commits with `useSelectVercelDeployment` once it is ready.
+ */
+export function useRedeployVercelDeployment() {
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.redeployVercelDeployment.mutationOptions({
+            onError: (error) => onStepMismatch(error),
+        }),
+        errorToast: { title: "Failed to redeploy deployment" },
+    });
+}
+
+/** Polls a (re)deployed Vercel deployment's build state until it is ready. Disabled until an id is set. */
+export function useVercelDeploymentStatus(applicationId: string, vercelDeploymentId: string | undefined) {
+    return useQuery(
+        trpc.onboarding.getVercelDeploymentStatus.queryOptions(
+            { applicationId, vercelDeploymentId: vercelDeploymentId ?? "" },
+            {
+                enabled: applicationId.length > 0 && vercelDeploymentId != null && vercelDeploymentId.length > 0,
+                // Stop polling once the deployment reaches a ready state.
+                refetchInterval: (query) => (query.state.data?.ready === true ? false : 5_000),
+            },
+        ),
+    );
+}
+
+/** Commits a READY (re)deployed Vercel deployment as the onboarding preview URL - skips the manual CI-signal wait. */
+export function useSelectVercelDeployment() {
+    const queryClient = useQueryClient();
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.selectVercelDeployment.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getDeploymentSignalStatus.queryKey() });
+            },
+            onError: (error) => onStepMismatch(error),
+        }),
+        successToast: { title: "Deployment selected" },
+        errorToast: { title: "Failed to select deployment" },
+    });
+}
+
+/**
+ * Finish-setup SDK validation for a Vercel app: discovers against the chosen
+ * Vercel deployment using the stored shared secret (no manual paste). A
+ * secret-drift 401 returns `redeploy_started`; the caller polls the new
+ * deployment and auto-retries with `allowRedeploy: false`.
+ */
+export function useDiscoverVercelDeploymentTarget() {
+    const queryClient = useQueryClient();
+    const onStepMismatch = useStepMismatchHandler();
+    return useAPIMutation({
+        ...trpc.onboarding.discoverVercelDeploymentTarget.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+            },
+            onError: (error) => onStepMismatch(error),
+        }),
+        errorToast: { title: "Failed to validate SDK target" },
+    });
+}
+
 /**
  * Provision the managed target's secrets (auto-run when the SDK step loads). It
  * may kick off a one-time PreviewKit redeploy; the UI tracks readiness off the

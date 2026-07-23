@@ -32,4 +32,9 @@ export {
     useSubmitAgentEnv,
     useAvailableVercelProjects,
     useLinkVercelProject,
+    useVercelDeployments,
+    useRedeployVercelDeployment,
+    useVercelDeploymentStatus,
+    useSelectVercelDeployment,
+    useDiscoverVercelDeploymentTarget,
 } from "lib/query/onboarding.queries";

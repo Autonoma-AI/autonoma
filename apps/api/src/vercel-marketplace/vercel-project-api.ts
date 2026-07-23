@@ -6,6 +6,28 @@ const logger = rootLogger.child({ name: "VercelProjectApi" });
 
 const VERCEL_API_BASE = "https://api.vercel.com";
 const AUTONOMA_CHECK_NAME = "Autonoma";
+const DEFAULT_DEPLOYMENT_LIST_LIMIT = 15;
+const VERCEL_DEPLOYMENT_CREATE_PATH = "/v13/deployments";
+
+export interface VercelDeploymentSummary {
+    id: string;
+    url: string;
+    target: "production" | "preview";
+    branch: string | undefined;
+    createdAt: string;
+}
+
+/**
+ * A single deployment's current build state, used to (re)deploy and then poll
+ * for readiness. `readyState` is Vercel's raw string (QUEUED / INITIALIZING /
+ * BUILDING / READY / ERROR / CANCELED) - call sites compare against "READY"
+ * rather than locking a Zod enum that would break if Vercel adds a state.
+ */
+export interface VercelDeploymentState {
+    id: string;
+    url: string;
+    readyState: string;
+}
 
 // ─── Vercel API response schemas ──────────────────────────────────────────────
 
@@ -42,6 +64,30 @@ const VercelCheckListResponseSchema = z.object({ checks: z.array(VercelCheckList
 // read - only the key (the secret) matters, so values are left unvalidated.
 const VercelProtectionBypassResponseSchema = z.object({
     protectionBypass: z.record(z.string(), z.unknown()),
+});
+
+const VercelDeploymentListItemSchema = z.object({
+    uid: z.string(),
+    url: z.string(),
+    created: z.number(),
+    // null on Vercel's side means "preview" - anything else (e.g. "production")
+    // is passed through as-is.
+    target: z.string().nullable().optional(),
+    meta: z.object({ githubCommitRef: z.string().optional() }).optional(),
+});
+
+const VercelDeploymentListResponseSchema = z.object({
+    deployments: z.array(VercelDeploymentListItemSchema),
+});
+
+const VercelEnvVarListItemSchema = z.object({ id: z.string(), key: z.string() });
+
+const VercelEnvVarListResponseSchema = z.object({ envs: z.array(VercelEnvVarListItemSchema) });
+
+const VercelDeploymentStateSchema = z.object({
+    id: z.string(),
+    url: z.string(),
+    readyState: z.string(),
 });
 
 // ─── API calls ─────────────────────────────────────────────────────────────────
@@ -203,4 +249,199 @@ export async function registerVercelCheck(
     const data = VercelCheckResponseSchema.parse(await res.json());
     logger.info("Vercel check registered", { projectId, checkId: data.id });
     return data.id;
+}
+
+export async function listVercelDeployments(
+    projectId: string,
+    teamId: string | undefined,
+    accessToken: string,
+    limit: number = DEFAULT_DEPLOYMENT_LIST_LIMIT,
+): Promise<VercelDeploymentSummary[]> {
+    logger.info("Listing Vercel deployments", { projectId, limit });
+
+    const url = withTeamId(`${VERCEL_API_BASE}/v6/deployments`, teamId);
+    const params = new URLSearchParams({ projectId, limit: String(limit), state: "READY" });
+    const joiner = url.includes("?") ? "&" : "?";
+
+    let res: Response;
+    try {
+        res = await fetch(`${url}${joiner}${params.toString()}`, {
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        throw new ThirdPartyError("vercel", error, "Network error listing Vercel deployments");
+    }
+
+    if (!res.ok) {
+        throw new ThirdPartyError(
+            "vercel",
+            new Error(`${res.status} ${res.statusText}`),
+            "Failed to list Vercel deployments",
+        );
+    }
+
+    const { deployments } = VercelDeploymentListResponseSchema.parse(await res.json());
+    const summaries = deployments.map((deployment) => ({
+        id: deployment.uid,
+        url: `https://${deployment.url}`,
+        target: deployment.target === "production" ? ("production" as const) : ("preview" as const),
+        branch: deployment.meta?.githubCommitRef?.replace(/^refs\/heads\//, ""),
+        createdAt: new Date(deployment.created).toISOString(),
+    }));
+
+    logger.info("Listed Vercel deployments", { projectId, count: summaries.length });
+    return summaries;
+}
+
+/**
+ * Redeploys an existing deployment so it rebuilds with the project's current env
+ * vars (e.g. the `AUTONOMA_SHARED_SECRET` we inject on link, which only takes
+ * effect on new builds). The redeploy gets a NEW id + URL and starts building
+ * immediately; the caller polls `getVercelDeployment` until `readyState` is
+ * "READY". `forceNew=1` bypasses Vercel's dedup so a re-pick always rebuilds.
+ */
+export async function redeployVercelDeployment(
+    projectName: string,
+    deploymentId: string,
+    teamId: string | undefined,
+    accessToken: string,
+): Promise<VercelDeploymentState> {
+    logger.info("Redeploying Vercel deployment", { projectName, deploymentId, teamId });
+
+    const url = withTeamId(`${VERCEL_API_BASE}${VERCEL_DEPLOYMENT_CREATE_PATH}`, teamId);
+    const joiner = url.includes("?") ? "&" : "?";
+
+    let res: Response;
+    try {
+        res = await fetch(`${url}${joiner}forceNew=1`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ name: projectName, deploymentId }),
+        });
+    } catch (error) {
+        throw new ThirdPartyError("vercel", error, "Network error redeploying Vercel deployment");
+    }
+
+    if (!res.ok) {
+        const body = await res.text();
+        throw new ThirdPartyError(
+            "vercel",
+            new Error(`${res.status} ${res.statusText}: ${body}`),
+            "Failed to redeploy Vercel deployment",
+        );
+    }
+
+    const deployment = VercelDeploymentStateSchema.parse(await res.json());
+    logger.info("Redeployed Vercel deployment", {
+        projectName,
+        deploymentId,
+        newDeploymentId: deployment.id,
+        readyState: deployment.readyState,
+    });
+    return { id: deployment.id, url: `https://${deployment.url}`, readyState: deployment.readyState };
+}
+
+/** Fetches a single deployment's current build state, for polling readiness after a redeploy. */
+export async function getVercelDeployment(
+    deploymentId: string,
+    teamId: string | undefined,
+    accessToken: string,
+): Promise<VercelDeploymentState> {
+    logger.info("Fetching Vercel deployment", { deploymentId, teamId });
+
+    let res: Response;
+    try {
+        res = await fetch(withTeamId(`${VERCEL_API_BASE}${VERCEL_DEPLOYMENT_CREATE_PATH}/${deploymentId}`, teamId), {
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        throw new ThirdPartyError("vercel", error, "Network error fetching Vercel deployment");
+    }
+
+    if (!res.ok) {
+        throw new ThirdPartyError(
+            "vercel",
+            new Error(`${res.status} ${res.statusText}`),
+            "Failed to fetch Vercel deployment",
+        );
+    }
+
+    const deployment = VercelDeploymentStateSchema.parse(await res.json());
+    logger.info("Fetched Vercel deployment", { deploymentId, readyState: deployment.readyState });
+    return { id: deployment.id, url: `https://${deployment.url}`, readyState: deployment.readyState };
+}
+
+async function findExistingVercelEnvVar(
+    projectId: string,
+    teamId: string | undefined,
+    accessToken: string,
+    key: string,
+): Promise<string | undefined> {
+    let res: Response;
+    try {
+        res = await fetch(withTeamId(`${VERCEL_API_BASE}/v9/projects/${projectId}/env`, teamId), {
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        });
+    } catch (error) {
+        throw new ThirdPartyError("vercel", error, "Network error listing Vercel env vars");
+    }
+
+    if (!res.ok) {
+        const body = await res.text();
+        logger.warn("Failed to list Vercel env vars, will attempt to create instead", {
+            projectId,
+            status: res.status,
+            body,
+        });
+        return undefined;
+    }
+
+    const { envs } = VercelEnvVarListResponseSchema.parse(await res.json());
+    return envs.find((env) => env.key === key)?.id;
+}
+
+/**
+ * Creates or updates a Vercel project env var. Looks the key up first (Vercel's
+ * create endpoint 409s on a duplicate key/target) so a re-link or a retried call
+ * updates the existing value instead of failing.
+ */
+export async function upsertVercelEnvVar(
+    projectId: string,
+    teamId: string | undefined,
+    accessToken: string,
+    key: string,
+    value: string,
+    targets: string[],
+): Promise<void> {
+    logger.info("Upserting Vercel project env var", { projectId, key, targets });
+
+    const existingEnvId = await findExistingVercelEnvVar(projectId, teamId, accessToken, key);
+
+    const path =
+        existingEnvId != null ? `/v10/projects/${projectId}/env/${existingEnvId}` : `/v10/projects/${projectId}/env`;
+    const method = existingEnvId != null ? "PATCH" : "POST";
+    const body =
+        existingEnvId != null ? { value, target: targets } : { key, value, type: "encrypted", target: targets };
+
+    let res: Response;
+    try {
+        res = await fetch(withTeamId(`${VERCEL_API_BASE}${path}`, teamId), {
+            method,
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+    } catch (error) {
+        throw new ThirdPartyError("vercel", error, "Network error upserting Vercel env var");
+    }
+
+    if (!res.ok) {
+        const resBody = await res.text();
+        throw new ThirdPartyError(
+            "vercel",
+            new Error(`${res.status} ${res.statusText}: ${resBody}`),
+            "Failed to upsert Vercel env var",
+        );
+    }
+
+    logger.info("Upserted Vercel project env var", { projectId, key, updated: existingEnvId != null });
 }

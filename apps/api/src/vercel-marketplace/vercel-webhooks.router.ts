@@ -11,7 +11,11 @@ import { env } from "../env";
 import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { buildSdkUrl } from "../routes/onboarding/sdk-url";
-import { applyVercelProtectionBypassHeader, buildVercelSsoRedirectUrl } from "./vercel-helpers";
+import {
+    applyVercelProtectionBypassHeader,
+    applyVercelSharedSecretEnv,
+    buildVercelSsoRedirectUrl,
+} from "./vercel-helpers";
 import { fetchVercelProjectDetails, registerVercelCheck, updateVercelProtectionBypass } from "./vercel-project-api";
 
 const logger = rootLogger.child({ name: "VercelWebhooksRouter" });
@@ -262,6 +266,7 @@ async function handleProjectConnected(payload: ProjectConnectPayload): Promise<v
     });
 
     await applyVercelProtectionBypassHeader(existingApp.id, secret);
+    await applyVercelSharedSecretEnv(existingApp.id, projectId, team.id, accessToken);
 
     logger.info("Linked Vercel project to existing application", {
         applicationId: existingApp.id,

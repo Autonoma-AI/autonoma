@@ -58,6 +58,62 @@ export const onboardingRouter = router({
             ctx.services.onboarding.unlinkVercelProject(input.applicationId, ctx.organizationId),
         ),
 
+    listVercelDeployments: protectedProcedure
+        .input(applicationIdInput)
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.listVercelDeployments(input.applicationId, ctx.organizationId),
+        ),
+
+    redeployVercelDeployment: protectedProcedure
+        .input(z.object({ applicationId: z.string(), vercelDeploymentId: z.string() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.redeployVercelDeployment(
+                input.applicationId,
+                ctx.organizationId,
+                input.vercelDeploymentId,
+            ),
+        ),
+
+    getVercelDeploymentStatus: protectedProcedure
+        .input(z.object({ applicationId: z.string(), vercelDeploymentId: z.string() }))
+        .query(({ ctx, input }) =>
+            ctx.services.onboarding.getVercelDeploymentStatus(
+                input.applicationId,
+                ctx.organizationId,
+                input.vercelDeploymentId,
+            ),
+        ),
+
+    selectVercelDeployment: protectedProcedure
+        .input(z.object({ applicationId: z.string(), vercelDeploymentId: z.string() }))
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.selectVercelDeployment(
+                input.applicationId,
+                ctx.organizationId,
+                input.vercelDeploymentId,
+            ),
+        ),
+
+    discoverVercelDeploymentTarget: protectedProcedure
+        .input(
+            z.object({
+                applicationId: z.string(),
+                vercelDeploymentId: z.string(),
+                // The UI sends true on the user's first Validate click and false on
+                // its single auto-retry, so a secret-drift 401 that survives one
+                // redeploy surfaces instead of looping.
+                allowRedeploy: z.boolean().default(false),
+            }),
+        )
+        .mutation(({ ctx, input }) =>
+            ctx.services.onboarding.discoverVercelDeploymentTarget(
+                input.applicationId,
+                ctx.organizationId,
+                input.vercelDeploymentId,
+                input.allowRedeploy,
+            ),
+        ),
+
     prepareSdkTarget: protectedProcedure
         .input(z.object({ applicationId: z.string(), targetId: z.string() }))
         .mutation(({ ctx, input }) =>

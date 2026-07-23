@@ -1,10 +1,32 @@
 import { type PrismaClient, VercelInstallationStatus } from "@autonoma/db";
-import { BadRequestError, ConflictError } from "@autonoma/errors";
+import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import { env } from "../../env";
-import { applyVercelProtectionBypassHeader } from "../../vercel-marketplace/vercel-helpers";
+import { applyVercelProtectionBypassHeader, applyVercelSharedSecretEnv } from "../../vercel-marketplace/vercel-helpers";
+import {
+    getVercelDeployment as getVercelDeploymentFromApi,
+    listVercelDeployments as listVercelDeploymentsFromApi,
+    redeployVercelDeployment as redeployVercelDeploymentFromApi,
+    type VercelDeploymentSummary,
+} from "../../vercel-marketplace/vercel-project-api";
 import type { OnboardingManagerOptions } from "./onboarding-dependencies";
+import { writePreviewUrl } from "./preview-readiness";
+import { buildSdkUrl } from "./sdk-url";
 import { OnboardingApplicationNotFoundError } from "./states/onboarding-state";
+
+const VERCEL_READY_STATE = "READY";
+
+export interface VercelRedeployResult {
+    deploymentId: string;
+    url: string;
+    readyState: string;
+}
+
+export interface VercelDeploymentStatusResult {
+    readyState: string;
+    url: string;
+    ready: boolean;
+}
 
 export interface AvailableVercelProject {
     id: string;
@@ -106,7 +128,7 @@ export class OnboardingVercelCapabilityService {
 
         const installation = await this.db.vercelInstallation.findFirst({
             where: { organizationId, status: VercelInstallationStatus.active },
-            select: { id: true },
+            select: { id: true, accessTokenEnc: true },
         });
         if (installation == null) {
             throw new BadRequestError("No active Vercel installation for this organization");
@@ -139,6 +161,16 @@ export class OnboardingVercelCapabilityService {
             await applyVercelProtectionBypassHeader(app.id, secret);
         }
 
+        if (installation.accessTokenEnc != null) {
+            const accessToken = this.getEncryptionHelper().decrypt(installation.accessTokenEnc);
+            await applyVercelSharedSecretEnv(app.id, vercelProjectId, undefined, accessToken);
+        } else {
+            this.logger.warn("Vercel installation has no access token, skipping shared secret env sync", {
+                applicationId,
+                vercelProjectId,
+            });
+        }
+
         this.logger.info("Linked Vercel project", { applicationId, vercelProjectId, connectionId: connection.id });
     }
 
@@ -157,5 +189,175 @@ export class OnboardingVercelCapabilityService {
         }
 
         this.logger.info("Unlinked Vercel project", { applicationId });
+    }
+
+    async listVercelDeployments(applicationId: string, organizationId: string): Promise<VercelDeploymentSummary[]> {
+        this.logger.info("Listing Vercel deployments", { applicationId, organizationId });
+
+        const { vercelProjectId, accessToken } = await this.getLinkedProjectAccess(applicationId, organizationId);
+        this.logger.info("Resolved linked Vercel project for deployment listing", { applicationId, vercelProjectId });
+        const deployments = await listVercelDeploymentsFromApi(vercelProjectId, undefined, accessToken);
+
+        if (deployments.length === 0) {
+            this.logger.warn("No ready Vercel deployments found for project", { applicationId, vercelProjectId });
+        } else {
+            this.logger.info("Listed Vercel deployments", {
+                applicationId,
+                vercelProjectId,
+                count: deployments.length,
+            });
+        }
+        return deployments;
+    }
+
+    /**
+     * Redeploys a chosen Vercel deployment so it rebuilds with the project's
+     * current env vars - most importantly the `AUTONOMA_SHARED_SECRET` we inject
+     * on link, which only takes effect on new builds. The redeploy gets a NEW id
+     * + URL, so this returns them for the caller to poll and then commit via
+     * `selectVercelDeployment`. Re-fetches the deployment list rather than
+     * trusting a client-supplied id, so a stale or tampered dropdown selection
+     * can't redeploy an arbitrary deployment. Does NOT write the preview URL -
+     * the new deployment is still building.
+     */
+    async redeployVercelDeployment(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<VercelRedeployResult> {
+        this.logger.info("Redeploying Vercel deployment", { applicationId, vercelDeploymentId });
+
+        const { vercelProjectId, projectName, accessToken } = await this.getLinkedProjectAccess(
+            applicationId,
+            organizationId,
+        );
+        const deployments = await listVercelDeploymentsFromApi(vercelProjectId, undefined, accessToken);
+        const deployment = deployments.find((candidate) => candidate.id === vercelDeploymentId);
+        if (deployment == null) {
+            throw new NotFoundError("Vercel deployment not found for this project");
+        }
+
+        const redeployed = await redeployVercelDeploymentFromApi(projectName, vercelDeploymentId, undefined, accessToken);
+
+        this.logger.info("Redeployed Vercel deployment for onboarding preview", {
+            applicationId,
+            vercelDeploymentId,
+            newDeploymentId: redeployed.id,
+        });
+        return { deploymentId: redeployed.id, url: redeployed.url, readyState: redeployed.readyState };
+    }
+
+    /** Current build state of a (re)deployed Vercel deployment, for the UI's readiness poll. */
+    async getVercelDeploymentStatus(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<VercelDeploymentStatusResult> {
+        this.logger.info("Fetching Vercel deployment status", { applicationId, vercelDeploymentId });
+
+        const { accessToken } = await this.getLinkedProjectAccess(applicationId, organizationId);
+        const deployment = await getVercelDeploymentFromApi(vercelDeploymentId, undefined, accessToken);
+
+        return {
+            readyState: deployment.readyState,
+            url: deployment.url,
+            ready: deployment.readyState === VERCEL_READY_STATE,
+        };
+    }
+
+    /**
+     * Commits a READY (re)deployed Vercel deployment as the onboarding preview
+     * URL, bypassing the manual CI-signal wait entirely. The UI only calls this
+     * once its readiness poll reports READY; we re-read the deployment server-side
+     * (never trusting a client URL) and reject anything not yet ready so the
+     * preview target can never point at a still-building deployment.
+     */
+    async selectVercelDeployment(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<void> {
+        this.logger.info("Selecting Vercel deployment", { applicationId, vercelDeploymentId });
+
+        const { accessToken } = await this.getLinkedProjectAccess(applicationId, organizationId);
+        const deployment = await getVercelDeploymentFromApi(vercelDeploymentId, undefined, accessToken);
+        if (deployment.readyState !== VERCEL_READY_STATE) {
+            throw new BadRequestError(`Vercel deployment is not ready yet (${deployment.readyState})`);
+        }
+
+        await writePreviewUrl(this.db, { applicationId, organizationId, previewUrl: deployment.url });
+
+        this.logger.info("Selected Vercel deployment as onboarding preview", {
+            applicationId,
+            vercelDeploymentId,
+            previewUrl: deployment.url,
+        });
+    }
+
+    /**
+     * Resolves a READY Vercel deployment's SDK endpoint URL (`<url>/api/autonoma`)
+     * for the finish-setup SDK validation step. Rejects a non-ready deployment so
+     * discovery never runs against a still-building preview.
+     */
+    async resolveReadyDeploymentSdkUrl(
+        applicationId: string,
+        organizationId: string,
+        vercelDeploymentId: string,
+    ): Promise<string> {
+        this.logger.info("Resolving ready Vercel deployment SDK URL", { applicationId, vercelDeploymentId });
+
+        const { accessToken } = await this.getLinkedProjectAccess(applicationId, organizationId);
+        const deployment = await getVercelDeploymentFromApi(vercelDeploymentId, undefined, accessToken);
+        if (deployment.readyState !== VERCEL_READY_STATE) {
+            throw new BadRequestError(`Vercel deployment is not ready yet (${deployment.readyState})`);
+        }
+
+        return buildSdkUrl(deployment.url);
+    }
+
+    /**
+     * Note: deliberately does not resolve/return a Vercel `teamId`.
+     * `VercelInstallation.vercelAccountId` is the Marketplace OIDC `account_id`
+     * (used for our own org resolution), not Vercel's REST API team ID - passing
+     * it as `teamId` gets the request rejected with 403 "Not authorized". The
+     * installation's access token is already scoped to its team, so omitting
+     * `teamId` entirely is both correct and required here. `projectName` is the
+     * required `name` in the redeploy body.
+     */
+    private async getLinkedProjectAccess(
+        applicationId: string,
+        organizationId: string,
+    ): Promise<{ vercelProjectId: string; projectName: string; accessToken: string }> {
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { id: true },
+        });
+        if (app == null) throw new OnboardingApplicationNotFoundError(applicationId);
+
+        const connection = await this.db.vercelProjectConnection.findFirst({
+            where: { applicationId },
+            select: {
+                project: {
+                    select: {
+                        vercelProjectId: true,
+                        name: true,
+                        installation: { select: { accessTokenEnc: true } },
+                    },
+                },
+            },
+        });
+        if (connection == null) {
+            throw new BadRequestError("No Vercel project linked to this application");
+        }
+        if (connection.project.installation.accessTokenEnc == null) {
+            throw new BadRequestError("Vercel installation has no access token");
+        }
+
+        const accessToken = this.getEncryptionHelper().decrypt(connection.project.installation.accessTokenEnc);
+        return {
+            vercelProjectId: connection.project.vercelProjectId,
+            projectName: connection.project.name,
+            accessToken,
+        };
     }
 }
