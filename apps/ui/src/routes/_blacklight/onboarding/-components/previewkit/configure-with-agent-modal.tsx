@@ -1,12 +1,12 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
-import { ConnectAgentDialog } from "components/connect-agent-dialog";
+import {
+  ConnectAgentDialog,
+  ONBOARDING_MCP_DOCS_URL,
+  ONBOARDING_MCP_SERVER_NAME,
+} from "components/connect-agent-dialog";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
-
-const MCP_SERVER_NAME = "autonoma-onboarding";
-/** Public docs page explaining the agentic onboarding flow (install, pairing, tools, secrets). */
-const DOCS_URL = "https://docs.autonoma.app/mcp/configure-preview";
 
 /**
  * Entry point for agentic onboarding: a button that mints a short-lived pairing
@@ -28,7 +28,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
 
   return (
     <>
-      <Button variant="accent" size="lg" className="shrink-0" onClick={openAndPair} disabled={createPairing.isPending}>
+      <Button variant="outline" size="lg" className="shrink-0" onClick={openAndPair} disabled={createPairing.isPending}>
         <RobotIcon weight="bold" />
         Configure with coding agent
       </Button>
@@ -37,9 +37,9 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
         onOpenChange={setOpen}
         title="Configure with a coding agent"
         description="Install the Autonoma MCP in your coding agent, then give it the pairing code below. It will configure and deploy your preview while you watch here."
-        serverName={MCP_SERVER_NAME}
+        serverName={ONBOARDING_MCP_SERVER_NAME}
         endpoint="onboarding"
-        docsUrl={DOCS_URL}
+        docsUrl={ONBOARDING_MCP_DOCS_URL}
         pairing={
           <PairingCode
             code={code}

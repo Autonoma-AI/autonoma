@@ -24,6 +24,12 @@ export type McpEndpoint = "onboarding" | "debug";
 /** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
 export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
+/** MCP server name the onboarding install snippets register (pins an app via a pairing code). */
+export const ONBOARDING_MCP_SERVER_NAME = "autonoma-onboarding";
+
+/** Public docs page for the agentic onboarding flow (install, pairing, tools, secrets). */
+export const ONBOARDING_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/configure-preview";
+
 /**
  * Resolve the Autonoma MCP endpoint the user's coding agent connects to. We point
  * at the dedicated API host (`api.<app-host>`), NOT the app origin: the app host
@@ -108,7 +114,6 @@ export function ConnectAgentDialog({
   tellAgent,
   pairing,
 }: ConnectAgentDialogProps) {
-  const url = mcpEndpointUrl(endpoint);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogBackdrop />
@@ -117,36 +122,70 @@ export function ConnectAgentDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-6">
-          {pairing}
-          <Tabs defaultValue="claude">
-            <TabsList>
-              {AGENT_TABS.map((tab) => (
-                <TabsTrigger key={tab.id} value={tab.id}>
-                  {tab.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            {AGENT_TABS.map((tab) => (
-              <TabsContent key={tab.id} value={tab.id} className="flex flex-col gap-2">
-                {tab.location != null && <p className="font-mono text-2xs text-text-secondary">{tab.location}</p>}
-                <CopyableCode code={tab.snippet(url, serverName)} />
-              </TabsContent>
-            ))}
-          </Tabs>
-          <p className="text-2xs text-text-secondary">{tellAgent}</p>
-          <a
-            href={docsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex w-fit items-center gap-1.5 text-2xs text-primary hover:underline"
-          >
-            <ArrowSquareOutIcon weight="bold" />
-            Learn more about configuring with a coding agent
-          </a>
+        <DialogBody>
+          <ConnectAgentInstall
+            serverName={serverName}
+            endpoint={endpoint}
+            docsUrl={docsUrl}
+            tellAgent={tellAgent}
+            pairing={pairing}
+          />
         </DialogBody>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export interface ConnectAgentInstallProps {
+  /** MCP server name the install snippets register (e.g. "autonoma", "autonoma-onboarding"). */
+  serverName: string;
+  endpoint: McpEndpoint;
+  /** Public docs page for this MCP flow. */
+  docsUrl: string;
+  /** The "Then tell your agent: ..." guidance under the install tabs. */
+  tellAgent: ReactNode;
+  /** Optional block above the install tabs (e.g. the onboarding pairing code). */
+  pairing?: ReactNode;
+}
+
+/**
+ * The install-instructions body of the connect-agent flow (per-client MCP
+ * snippets, the "tell your agent" line, and a docs link), with an optional
+ * pairing block on top. Rendered inside {@link ConnectAgentDialog} and, for the
+ * MCP-first onboarding, directly on the page (no dialog) - so `AGENT_TABS` stays
+ * a single source of truth across both surfaces.
+ */
+export function ConnectAgentInstall({ serverName, endpoint, docsUrl, tellAgent, pairing }: ConnectAgentInstallProps) {
+  const url = mcpEndpointUrl(endpoint);
+  return (
+    <div className="flex flex-col gap-6">
+      {pairing}
+      <Tabs defaultValue="claude">
+        <TabsList>
+          {AGENT_TABS.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {AGENT_TABS.map((tab) => (
+          <TabsContent key={tab.id} value={tab.id} className="flex flex-col gap-2">
+            {tab.location != null && <p className="font-mono text-2xs text-text-secondary">{tab.location}</p>}
+            <CopyableCode code={tab.snippet(url, serverName)} />
+          </TabsContent>
+        ))}
+      </Tabs>
+      <p className="text-2xs text-text-secondary">{tellAgent}</p>
+      <a
+        href={docsUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex w-fit items-center gap-1.5 text-2xs text-primary hover:underline"
+      >
+        <ArrowSquareOutIcon weight="bold" />
+        Learn more about configuring with a coding agent
+      </a>
+    </div>
   );
 }
 

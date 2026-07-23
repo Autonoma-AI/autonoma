@@ -48,6 +48,7 @@ import { ConfigureWithAgentModal } from "./-components/previewkit/configure-with
 import { DatabaseSection } from "./-components/previewkit/database-section";
 import { DeployBranchField } from "./-components/previewkit/deploy-branch-field";
 import { HooksSection } from "./-components/previewkit/hooks-section";
+import { McpFirstConfigView } from "./-components/previewkit/mcp-first-config-view";
 import { ReviewSection } from "./-components/previewkit/review-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import {
@@ -152,21 +153,34 @@ function AgentGate({ appId, ...rest }: { appId: string } & Omit<PreviewkitConfig
   // flashes for an agent-held app before the read-only screen swaps in.
   if (isLoading) return <PreviewkitConfigSkeleton />;
 
-  if (agentSession?.effectiveHolder === "agent") {
-    return <AgentConfiguringScreen applicationId={appId} />;
+  const agentHeld = agentSession?.effectiveHolder === "agent";
+  // The manual stepper is opt-in: a config sub-step (?configStep, set by the
+  // sidebar sub-nav or the "Configure manually" link) or a deploy-diagnostics
+  // focus deep-link (?focusApp/?focusField/?focusSection) both mean "take me to
+  // the hands-on form". Absent all of those, the coding-agent (MCP) path is the
+  // headline.
+  const wantsManualConfig =
+    rest.configStep != null || rest.focusApp != null || rest.focusField != null || rest.focusSection != null;
+
+  if (wantsManualConfig) {
+    // A coding agent that already holds the config makes the form read-only, so
+    // show the live configuring screen even from the manual entry points.
+    if (agentHeld) return <AgentConfiguringScreen applicationId={appId} />;
+    return <PreviewkitConfigContent appId={appId} {...rest} />;
   }
 
-  return <PreviewkitConfigContent appId={appId} {...rest} />;
+  return <McpFirstConfigView appId={appId} agentHeld={agentHeld} />;
 }
 
 /**
- * Entry point to hand the preview config off to a coding agent. Sits between the
- * back link and the config stepper so the manual flow reads as the headline and
- * the agent handoff as an alternative, rather than leading the page.
+ * Secondary entry point to hand the manual config back to a coding agent. On this
+ * (manual) surface the MCP path is deliberately understated - the user already met
+ * it as the headline on the MCP-first screen, so it reads as a neutral reminder,
+ * not a lime call-to-action.
  */
 function AgentHandoffBanner({ applicationId }: { applicationId: string }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 border border-primary/40 bg-primary/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-6 flex flex-col gap-4 border border-border-dim bg-surface-base p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-1">
         <span className="font-sans text-base text-text-primary">Let a coding agent configure this for you</span>
         <span className="max-w-xl text-2xs text-text-secondary">
@@ -351,8 +365,15 @@ function PreviewkitConfigContent({
     });
   }, [activeStep, configStep, focusApp, focusField, appId, navigate]);
 
+  // Clearing the deploy-diagnostics focus params keeps the user on the manual
+  // form (configStep set to the step they landed on): dropping every param would
+  // fall back to the MCP-first headline the moment the focus deep-link is consumed.
   function clearFocusParams() {
-    void navigate({ to: "/onboarding", replace: true, search: buildOnboardingSearch("previewkit-config", appId) });
+    void navigate({
+      to: "/onboarding",
+      replace: true,
+      search: buildOnboardingSearch("previewkit-config", appId, { configStep: activeStep }),
+    });
   }
 
   function backToPreviewOptions() {
