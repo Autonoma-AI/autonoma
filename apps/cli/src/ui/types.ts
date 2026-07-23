@@ -12,6 +12,9 @@ export interface SubProgress {
     done: number;
     total: number;
     unit: string;
+    /** Optional estimate shown alongside the ratio (e.g. "~120 tests" on the
+     * tests step, where the final test count isn't known upfront). */
+    note?: string;
 }
 
 export interface StepNode {
@@ -31,7 +34,11 @@ export interface StepNode {
 export interface Artifact {
     id: string;
     path: string;
+    /** The on-disk file name - the stable contract downstream steps reference. */
     name: string;
+    /** Human title for well-known pipeline files ("Knowledge Base"); the
+     * primary display label when present. Test files have none. */
+    title?: string;
     /** "what this file is" - the why line. */
     description?: string;
     status: ArtifactStatus;
@@ -93,6 +100,12 @@ export interface NavState {
     viewportRows?: number;
     /** Hero text width - the wrap measure for exact scroll bounds. */
     viewportCols?: number;
+}
+
+/** Project size signals, filled in as the pipeline learns them. Page count is
+ * known after the pages step and predicts the sized steps' budgets. */
+export interface ProjectSizes {
+    pages?: number;
 }
 
 export interface MetaInfo {
@@ -200,4 +213,6 @@ export interface RunState {
     countdown?: CountdownState;
     /** Total ms spent blocked on user questions - excluded from elapsed/ETA. */
     waitedMs: number;
+    /** Size signals for the ETA model (sized step budgets). */
+    sizes: ProjectSizes;
 }

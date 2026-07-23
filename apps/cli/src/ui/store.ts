@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { basename, describeArtifact, iconOf, isTestArtifact, kindOf } from "./artifacts/registry";
+import { basename, describeArtifact, iconOf, isTestArtifact, kindOf, titleOf } from "./artifacts/registry";
 import { renderContentWrapped } from "./components/render-content";
 import { agentNow, formatClock } from "./eta";
 import { navReducer, type NavAction } from "./nav";
@@ -12,6 +12,7 @@ import type {
     LogEntry,
     LogLevel,
     MetaInfo,
+    ProjectSizes,
     PromptAnswer,
     PromptRequest,
     RunOutcome,
@@ -47,6 +48,8 @@ export interface RunStore {
     endStep(name: StepName, status: StepStatus): void;
     setSubProgress(name: StepName, sub: SubProgress | undefined): void;
     setMeta(patch: Partial<MetaInfo>): void;
+    /** Record a learned project-size signal (drives sized ETA budgets). */
+    setSizes(patch: ProjectSizes): void;
 
     // activity + logs
     setActivity(text: string): void;
@@ -102,10 +105,11 @@ const EMIT_COALESCE_MS = 16;
 const WRITE_SETTLE_MS = 900;
 /** Scroll headroom kept below the last line when computing scroll bounds. */
 const SCROLL_TAIL_LINES = 5;
-// 250ms: fast enough that the strip spinner advances at a constant, visible
-// pace (its frame is keyed to `now`); Ink only rewrites the lines that
-// changed, so the cost is one strip row + the clock cell per tick.
-const CLOCK_TICK_MS = 250;
+// 100ms: the WRITING spinner in the FILES list runs at 200ms/frame (5fps) and
+// the strip spinner at 250ms - the clock must tick at least as fast as the
+// fastest spinner or frames skip. Ink only rewrites the lines that changed,
+// so the cost per tick is a few spinner cells.
+const CLOCK_TICK_MS = 100;
 /** Terminal bell, rung when a blocking question appears. */
 const BELL = "\x07";
 
@@ -196,6 +200,7 @@ export function createStore(opts: StoreOptions): RunStore {
         helpOpen: false,
         prompt: { queued: 0, draft: { index: 0, text: "", cursor: 0, checked: [] } },
         waitedMs: 0,
+        sizes: {},
     };
 
     const listeners = new Set<() => void>();
@@ -245,6 +250,7 @@ export function createStore(opts: StoreOptions): RunStore {
             id,
             path: relPath,
             name: basename(relPath),
+            title: titleOf(relPath),
             description: describeArtifact(relPath),
             status: stepDone && status === "WRITING" ? "DONE" : status,
             step,
@@ -352,7 +358,7 @@ export function createStore(opts: StoreOptions): RunStore {
             set({
                 ...state,
                 artifacts,
-                steps: { ...state.steps, [name]: { ...state.steps[name], status, endedAt: state.now } },
+                steps: { ...state.steps, [name]: { ...state.steps[name], status, endedAt: agentNow(state) } },
             });
         },
 
@@ -362,6 +368,10 @@ export function createStore(opts: StoreOptions): RunStore {
 
         setMeta(patch) {
             set({ ...state, meta: { ...state.meta, ...patch } });
+        },
+
+        setSizes(patch) {
+            set({ ...state, sizes: { ...state.sizes, ...patch } });
         },
 
         setActivity(text) {
@@ -436,10 +446,11 @@ export function createStore(opts: StoreOptions): RunStore {
         },
 
         handleFsChange(relPath) {
-            if (isInternal(relPath)) return;
-            // New file -> register it; otherwise just refresh if it's on screen.
-            if (!state.artifacts[relPath]) set(ensureArtifact(relPath, "WRITING"));
-            if (state.live.following || state.live.artifactId === relPath) void refresh(relPath);
+            // A change on disk IS a write, wherever it came from - a custom
+            // tool (register_pages), the coding agent, anything. Route it
+            // through noteWrite so WRITING status, the settle timer, and
+            // follow-the-newest behave identically to tool-driven writes.
+            store.noteWrite(relPath);
         },
 
         setLiveFile(relPath, text, kind) {

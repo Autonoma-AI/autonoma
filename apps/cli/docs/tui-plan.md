@@ -295,9 +295,10 @@ Measured from cli_step_completed (status=done, 90 days, project 233600;
       drives STEP_BUDGET) and "ETA heuristic dataset: duration vs size"
       (insight Qd9o9ado - raw rows of duration + page/entity/test/
       frontend/backend counts; size columns populate from the TUI release).
-- [ ] Later: regress duration on page_count/entity_count once enough data
-      accrues (the Qd9o9ado table is the dataset); and/or scale remaining
-      budgets by this run's actual-vs-budget ratio (adaptive ETA).
+- [x] Superseded by ETA v2 (see After-merge / follow-ups): sized budgets +
+      live pace + pace ratio shipped 2026-07-22; only the rate-constant
+      refinement (revisit priors once more repos accrue in Qd9o9ado) remains,
+      noted in steps.ts.
 
 ### The 4GB OOM, root-caused (2026-07-21)
 
@@ -483,9 +484,9 @@ the only terminal handover left is the claude handoff.
       the cleared dashboard (a full Done screen was dropped - the frame is
       cleared on exit by design, so scrollback gets text, not a banner).
 
-## Phase C - Polish (PR 3)
+## Phase C - Polish (PR 3, branch feat/cli-tui-polish)
 
-- [ ] Human names for generated files (Tom, 2026-07-22): the raw filenames
+- [x] Human names for generated files (Tom, 2026-07-22): the raw filenames
       are useless to a user - show a proper title as the primary label with
       the filename demoted to the dim secondary line, and richer descriptions
       where useful. E.g. AUTONOMA.md -> "Knowledge Base", entity-audit.md ->
@@ -497,6 +498,49 @@ the only terminal handover left is the claude handoff.
       reference them) and must not change. Lives in ui/artifacts/registry.ts
       (title + description per known file), plus the hero header showing the
       title next to the filename.
+### Feedback round 16 (Tom, kb-step run, 2026-07-22)
+
+- [x] Follow was dead for watcher-driven writes: files touched by custom
+      tools (register_pages) only reach the store via the fs watcher, which
+      registered them without moving the hero. Watcher events now route
+      through noteWrite - status, settle, and follow behave identically to
+      tool writes.
+- [x] WRITING status cell animates a braille spinner at 5fps (clock now
+      100ms; spinner periods are clock multiples so frames never skip).
+      DONE stays plain text. Gallery drives scene clocks + keeps one fixture
+      file writing so the spinner is inspectable.
+- [x] Row highlight unified: one background per row for fill and text - the
+      selected+writing combination rendered as mismatched patches.
+- [x] ETA v2 shipped here too (see After-merge / follow-ups).
+
+### Feedback round 17 (Tom, 2026-07-22)
+
+- [x] Hanging indent on wrapped lines: continuations align under the line's
+      first non-space column (generic in wrapStyledLines, capped at half the
+      measure), so the entity-audit's dim note lines read as one comment
+      block instead of snapping back to column 0.
+- [x] Turning follow OFF freezes the view at the tail that was on screen -
+      the stale scroll offset used to snap the document to the top, which
+      read as "f jumped me away".
+- [x] FILES counter says what it counts: "9 of 11 written" while writes are
+      in flight, "11 files" once everything is on disk (was "11 / 11 ready").
+- [x] Tom's follow-up: the done-of-total form was still meaningless - files
+      only ENTER the list at their first write, so it read N of N forever
+      (and WRITING only shows for the ~1s disk burst, since generation
+      happens before the file exists). Counter simplified to "N files", and
+      the real denominators wired instead: the agents' own trackers now
+      report sub-progress to the strip + ETA live-pace layer (kb pages read,
+      entityAudit models audited, testGenerator nodes processed) - nothing
+      in production called setSubProgress before; only gallery fixtures did.
+- [x] Strip sub-progress labels its unit ("32/41 nodes"), since the tests
+      step counts NODES not tests. The final test count isn't known upfront
+      (each node's test count is decided as its source is read), so the strip
+      also carries a self-correcting estimate ("· ~118 tests") from the run's
+      own tests/node ratio (prior 3/node until enough nodes are observed,
+      never below what's already written).
+
+### Remaining (deferred to a later polish PR - Tom: ship #1704 and release)
+
 - [ ] Spacing/typography sweep (glued labels, alignment, rhythm - brief §6).
 - [ ] Color-coded, context-sensitive controls bar (reference: Claude Code /
       treemux bottom bars, brief §8).
@@ -536,9 +580,18 @@ the only terminal handover left is the claude handoff.
 
 - [x] PR #1683 title + description rewritten to cover the full scope
       (2026-07-22).
-- [ ] ETA heuristic v2: once the Qd9o9ado PostHog dataset accrues, regress
-      step duration on size counts (pages/entities/tests) and scale remaining
-      budgets by the run's actual-vs-budget ratio (adaptive ETA).
+- [x] ETA heuristic v2 (2026-07-22, in the Phase C PR): three layers on top
+      of the flat budgets. (1) Sized budgets: page count (known after the
+      pages step) prices kb at 25s/page and test generation at 300s/page
+      (PostHog size-telemetry runs; priors leaning p75, n is small - revisit
+      when more repos accrue; 90s floor). Entities/tests can't pre-size their
+      own steps, so only pages qualify. (2) Live pace: once a running step
+      has >=3 sub-progress units over >=60s, its own elapsed/done rate
+      projects the remainder - the strongest signal, prices this repo on
+      this machine. (3) Pace ratio: pending agent-paced budgets scale by
+      actual/budget over completed steps (clamped 0.5-2x; user-paced steps
+      excluded both sides; endedAt now recorded in agent time to match
+      startedAt).
 - [x] #1701: Sponja closes it when this merges (this branch supersedes it).
 - [ ] npm release: publish a canary from main post-merge and smoke it on a
       client repo before tagging @latest.

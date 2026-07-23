@@ -63,6 +63,66 @@ describe("eta model", () => {
         expect(eta.etaMs).toBeGreaterThanOrEqual(30_000);
     });
 
+    test("a known page count sizes the page-scaled budgets", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        const flat = computeEta(store.getState()).etaMs;
+        // 4 pages: kb 4x25s=100s and tests 4x300s=20min replace the 12min/30min flat budgets.
+        store.setSizes({ pages: 4 });
+        const sized = computeEta(store.getState()).etaMs;
+        expect(sized).toBeLessThan(flat);
+        const expected = totalBudgetMs() - STEP_BUDGET.kb.ms - STEP_BUDGET.testGenerator.ms + 4 * 25_000 + 4 * 300_000;
+        expect(sized).toBe(expected);
+    });
+
+    test("a tiny page count never collapses a sized budget below the floor", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        store.setSizes({ pages: 1 });
+        const eta = computeEta(store.getState());
+        // kb at 1 page would be 25s; the 90s floor applies.
+        const expected = totalBudgetMs() - STEP_BUDGET.kb.ms - STEP_BUDGET.testGenerator.ms + 90_000 + 300_000;
+        expect(eta.etaMs).toBe(expected);
+    });
+
+    test("the running step's own pace overrides its budget once observed", () => {
+        vi.useFakeTimers();
+        const store = createStore({ outputDir: "/out", meta: META });
+        store.startClock();
+        store.startStep("kb");
+        vi.advanceTimersByTime(5 * 60_000); // 5 min in...
+        store.setSubProgress("kb", { done: 5, total: 20, unit: "pages" }); // ...5 of 20 pages
+        const eta = computeEta(store.getState());
+        // Live pace: 1 min/page x 15 pages left = ~15 min for kb, plus the
+        // other pending budgets untouched (no completed steps -> ratio 1).
+        const othersPending = totalBudgetMs() - STEP_BUDGET.kb.ms;
+        expect(eta.etaMs - othersPending).toBeGreaterThan(14 * 60_000);
+        expect(eta.etaMs - othersPending).toBeLessThan(16 * 60_000);
+        store.stopClock();
+        vi.useRealTimers();
+    });
+
+    test("a run pacing over budget scales the pending agent-paced budgets", () => {
+        vi.useFakeTimers();
+        const store = createStore({ outputDir: "/out", meta: META });
+        store.startClock();
+        // projectMapper takes 2x its 3-min budget.
+        store.startStep("projectMapper");
+        vi.advanceTimersByTime(6 * 60_000);
+        store.endStep("projectMapper", "done");
+        const eta = computeEta(store.getState());
+        // Pending agent-paced budgets double; user-paced ones stay flat.
+        const agentPaced = STEP_ORDER.filter((s) => s !== "projectMapper" && STEP_BUDGET[s].maxMs == null).reduce(
+            (n, s) => n + STEP_BUDGET[s].ms,
+            0,
+        );
+        const userPaced = STEP_ORDER.filter((s) => STEP_BUDGET[s].maxMs != null).reduce(
+            (n, s) => n + STEP_BUDGET[s].ms,
+            0,
+        );
+        expect(eta.etaMs).toBe(agentPaced * 2 + userPaced);
+        store.stopClock();
+        vi.useRealTimers();
+    });
+
     test("formatClock renders mm:ss then h:mm:ss", () => {
         expect(formatClock(65_000)).toBe("01:05");
         expect(formatClock(3_723_000)).toBe("1:02:03");

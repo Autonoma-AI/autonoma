@@ -43,6 +43,11 @@ function Gallery({ scenes: initialScenes, dir, onQuit }: { scenes: Scene[]; dir?
   });
 
   const scene = scenes[Math.min(idx, scenes.length - 1)]!;
+  // The active scene's clock drives its spinners, exactly as Live does.
+  useEffect(() => {
+    scene.store.startClock();
+    return () => scene.store.stopClock();
+  }, [scene.store]);
   const state = useStore(scene.store);
   const measured = useTerminalSize();
   const onNav = useCallback(

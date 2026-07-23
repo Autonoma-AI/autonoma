@@ -7,6 +7,7 @@ import { formatContext, type ProjectContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { getModel } from "../../core/model";
 import { pickString } from "../../core/pick-string";
+import { reportSubProgress } from "../../core/progress";
 import type { buildReadFileTool } from "../../tools";
 import { buildCodebaseTools } from "../../tools";
 import { SYSTEM_PROMPT } from "./prompt";
@@ -36,12 +37,14 @@ class PageTracker {
 
     register(pages: string[]) {
         for (const p of pages) this.registered.add(this.normalize(p));
+        reportSubProgress("kb", this.read.size, this.registered.size, "pages");
     }
 
     markRead(filePath: string) {
         const normalized = this.normalize(filePath);
         if (this.registered.has(normalized)) {
             this.read.add(normalized);
+            reportSubProgress("kb", this.read.size, this.registered.size, "pages");
         }
     }
 

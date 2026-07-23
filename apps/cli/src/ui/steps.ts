@@ -96,3 +96,20 @@ export const STEP_BUDGET: Record<StepName, { ms: number; maxMs?: number }> = {
     recipeBuilder: { ms: 45 * MIN, maxMs: 120 * MIN },
     testGenerator: { ms: 30 * MIN, maxMs: 60 * MIN },
 };
+
+/**
+ * Per-page budget rates for the steps whose duration scales with the page
+ * count, which is known once the pages step completes. Only pages qualify as
+ * a predictor today: the other size signals (entities, tests) are produced BY
+ * their own steps, so they can't size those budgets ahead of time - the live
+ * in-run rate (eta.ts) covers them instead.
+ *
+ * Measured from cli_step_completed events carrying size telemetry (PostHog,
+ * status=done, to 2026-07-23). Small sample (a handful of runs), so these are
+ * priors leaning toward the p75, not a regression - refine as data accrues.
+ * kb: 14-25s/page observed; testGenerator: ~3 tests/page x ~105s/test.
+ */
+export const STEP_MS_PER_PAGE: Partial<Record<StepName, number>> = {
+    kb: 25_000,
+    testGenerator: 300_000,
+};

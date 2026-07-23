@@ -1,3 +1,4 @@
+import { titleOf } from "../artifacts/registry";
 import { renderContentWrapped } from "../components/render-content";
 import { agentNow } from "../eta";
 import type { Grid } from "../grid";
@@ -32,9 +33,12 @@ const EMPTY_BODY_MAX_W = 72;
 const STATUS_CELL_W = 11;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-/** Matches the store clock tick so every repaint advances exactly one frame
- * forward - a mismatched period makes the spinner crawl or run backwards. */
+/** Both must be multiples of the store clock tick (100ms) so frames only ever
+ * advance forward - a mismatched period makes a spinner crawl or run backwards. */
 const SPINNER_STEP_MS = 250;
+/** The WRITING spinner in the FILES list - deliberately faster (5fps): it marks
+ * the file being produced right now. */
+const WRITING_SPINNER_MS = 200;
 
 interface Geometry {
     /** x of the vertical divider between the file list and the viewer. */
@@ -70,6 +74,13 @@ export function heroViewportCols(width: number): number {
 
 /* ---------------------------------------------------------- pipeline strip -- */
 
+/** The strip's sub-progress label: "28/41 nodes · ~120 tests". */
+function subLabel(sub: StepNode["sub"]): string | undefined {
+    if (sub == null) return undefined;
+    const base = `${sub.done}/${sub.total} ${sub.unit}`;
+    return sub.note != null ? `${base} · ${sub.note}` : base;
+}
+
 function stepGlyph(step: StepNode, now: number): { ch: string; color: string } {
     if (step.status === "done") return { ch: "✓", color: theme.accent };
     if (step.status === "running") {
@@ -94,7 +105,11 @@ function drawPipelineStrip(g: Grid, state: RunState, y: number): void {
         return {
             step,
             label: step.label,
-            sub: step.sub != null ? `${step.sub.done}/${step.sub.total}` : undefined,
+            // The unit matters: the tests step counts NODES (pages/features),
+            // not tests - the test count per node is only decided as each one
+            // is read, so a bare 28/41 would read as the wrong thing. An
+            // optional note carries the estimated final count (~120 tests).
+            sub: subLabel(step.sub),
         };
     });
 
@@ -139,12 +154,14 @@ function drawPipelineStrip(g: Grid, state: RunState, y: number): void {
 
 /* ---------------------------------------------------------------- file list -- */
 
-function artifactStatusCell(a: Artifact): { t: string; color: string } {
+function artifactStatusCell(a: Artifact, now: number): { t: string; color: string } {
     switch (a.status) {
         case "DONE":
             return { t: "DONE", color: theme.tertiary };
-        case "WRITING":
-            return { t: "● WRITING", color: theme.sky };
+        case "WRITING": {
+            const frame = SPINNER_FRAMES[Math.floor(now / WRITING_SPINNER_MS) % SPINNER_FRAMES.length]!;
+            return { t: `${frame} WRITING`, color: theme.sky };
+        }
         default:
             return { t: "PENDING", color: theme.faint };
     }
@@ -152,11 +169,15 @@ function artifactStatusCell(a: Artifact): { t: string; color: string } {
 
 function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom: number): void {
     const list = allArtifacts(state);
-    const done = list.filter((a) => a.status === "DONE").length;
     const focused = state.nav.focus === "artifacts";
 
     g.text(1, base - 2, "FILES", { color: focused ? theme.accent : theme.tertiary });
-    g.textRight(geo.div - 2, base - 2, `${done} / ${list.length} ready`, { color: theme.tertiary });
+    // Just the count: files only enter this list once written, so any
+    // done-of-total form here reads N of N forever. Real progress toward a
+    // planned total lives in the pipeline strip's sub-progress.
+    g.textRight(geo.div - 2, base - 2, `${list.length} ${list.length === 1 ? "file" : "files"}`, {
+        color: theme.tertiary,
+    });
 
     const maxRows = Math.max(1, Math.floor((bottom - base) / 3));
 
@@ -175,22 +196,30 @@ function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom
         const row = base + i * 3;
         const active = a.status === "WRITING";
         const selected = showCursor && start + i === state.nav.selectedArtifactIdx;
-        if (active || selected) {
-            const fill = selected && focused ? theme.selectionBg : active ? theme.activeBg : theme.selectionBg;
-            for (let y = row - 1; y <= row + 1; y++) g.fillBg(0, y, geo.div, fill);
+        // ONE background per row: the fill and every text span must use the
+        // same value, or the row renders as mismatched patches behind the
+        // text. Selection wins over the writing tint.
+        const rowBg = selected ? theme.selectionBg : active ? theme.activeBg : undefined;
+        if (rowBg != null) {
+            for (let y = row - 1; y <= row + 1; y++) g.fillBg(0, y, geo.div, rowBg);
         }
-        const bg = active && !selected ? theme.activeBg : selected ? theme.selectionBg : undefined;
+        const bg = rowBg;
         if (selected) g.set(0, row, "›", { color: theme.accent, bold: true, bg });
         const icon = a.icon === "json" ? "{}" : "▤";
         g.text(2, row, icon, { color: theme.tertiary, bg });
+        // Well-known files show their human title as the primary label with
+        // the on-disk name demoted to the detail line; tests keep their
+        // (already descriptive) file name up top.
+        const label = a.title ?? a.name;
+        const detail = a.title != null ? [a.name, a.description].filter((s) => s != null).join(" · ") : a.description;
         const nameColor = active || a.status === "DONE" ? theme.text : theme.secondary;
         const nameMax = geo.div - 2 - STATUS_CELL_W - 2 - 5;
-        const name = a.name.length > nameMax ? a.name.slice(0, Math.max(1, nameMax - 1)) + "…" : a.name;
-        g.text(5, row, name, { color: nameColor, bold: active || selected, bg });
-        const st = artifactStatusCell(a);
+        const shown = label.length > nameMax ? label.slice(0, Math.max(1, nameMax - 1)) + "…" : label;
+        g.text(5, row, shown, { color: nameColor, bold: active || selected, bg });
+        const st = artifactStatusCell(a, agentNow(state));
         g.textRight(geo.div - 2, row, st.t, { color: st.color, bg });
-        if (a.description != null) {
-            g.text(5, row + 1, a.description.slice(0, geo.div - 6), {
+        if (detail != null && detail !== "") {
+            g.text(5, row + 1, detail.slice(0, geo.div - 6), {
                 color: active || selected ? theme.secondary : theme.tertiary,
                 bg,
             });
@@ -213,8 +242,14 @@ function drawHeroHeader(g: Grid, geo: Geometry, state: RunState, y: number): voi
     }
     g.text(x, y, live.kind === "json" ? "{} " : "▤  ", { color: theme.tertiary });
     x += 3;
-    g.text(x, y, live.name ?? "", { color: theme.text, bold: true });
-    x += (live.name ?? "").length;
+    // Human title first; the on-disk name follows dim so the file stays findable.
+    const title = live.path != null ? titleOf(live.path) : undefined;
+    g.text(x, y, title ?? live.name ?? "", { color: theme.text, bold: true });
+    x += (title ?? live.name ?? "").length;
+    if (title != null && live.name != null) {
+        g.text(x + 2, y, live.name, { color: theme.tertiary });
+        x += live.name.length + 2;
+    }
     if (live.writingLive) g.text(x + 3, y, "● WRITING LIVE", { color: theme.sky });
     else g.text(x + 3, y, "✓ COMPLETE", { color: theme.green });
 

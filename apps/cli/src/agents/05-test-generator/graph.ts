@@ -1,5 +1,23 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { reportSubProgress } from "../../core/progress";
+
+/** Prior tests-per-node until the run has enough real data to measure its own. */
+const TESTS_PER_NODE_PRIOR = 3;
+/** Processed nodes needed before trusting the run's own tests/node ratio. */
+const LIVE_RATE_MIN_PROCESSED = 3;
+
+/**
+ * Estimate the final test count. The total isn't known upfront - each node's
+ * test count is only decided as its source is read - so project from the run's
+ * own tests/node ratio once a few nodes are done, a prior before that. Never
+ * below what's already written.
+ */
+export function estimateExpectedTests(written: number, processed: number, totalNodes: number): number {
+    if (totalNodes <= 0) return written;
+    const rate = written > 0 && processed >= LIVE_RATE_MIN_PROCESSED ? written / processed : TESTS_PER_NODE_PRIOR;
+    return Math.max(written, Math.round(rate * totalNodes));
+}
 
 export interface FeatureNode {
     id: string;
@@ -28,6 +46,7 @@ export class CoverageState {
         if (this.nodes.has(node.id)) return false;
         this.nodes.set(node.id, node);
         this.queue.push(node.id);
+        this.reportProgress();
         return true;
     }
 
@@ -36,6 +55,7 @@ export class CoverageState {
             const current = this.nodes.get(this.currentNode);
             if (current && current.status !== "tested") {
                 current.status = "skipped";
+                this.reportProgress();
             }
         }
 
@@ -59,6 +79,7 @@ export class CoverageState {
         this.currentNode = undefined;
         const existing = this.testsWritten.get(nodeId) ?? [];
         this.testsWritten.set(nodeId, [...existing, ...testPaths]);
+        this.reportProgress();
     }
 
     allTestPaths(): string[] {
@@ -67,6 +88,16 @@ export class CoverageState {
             paths.push(...tests);
         }
         return paths;
+    }
+
+    /** Processed nodes (tested or skipped) over the known graph size, plus a
+     * live estimate of the final test count - which isn't known upfront (each
+     * node's test count is decided as its source is read). */
+    private reportProgress(): void {
+        const stats = this.summary();
+        const processed = stats.tested + stats.skipped;
+        const expected = estimateExpectedTests(stats.totalTests, processed, stats.totalNodes);
+        reportSubProgress("testGenerator", processed, stats.totalNodes, "nodes", `~${expected} tests`);
     }
 
     summary(): {

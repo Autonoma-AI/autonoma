@@ -65,7 +65,24 @@ export function renderContentWrapped(
 
 let wrapMemo: { text: string; kind: ContentKind; name?: string; width: number; lines: StyledLine[] } | undefined;
 
-/** Fold styled lines at `width`, preserving span styles across the fold. */
+/** Leading space count of a styled line (across spans). */
+function leadingSpaces(line: StyledLine): number {
+    let n = 0;
+    for (const span of line) {
+        for (const ch of span.text) {
+            if (ch !== " ") return n;
+            n++;
+        }
+    }
+    return n;
+}
+
+/**
+ * Fold styled lines at `width`, preserving span styles across the fold.
+ * Indented lines get a hanging indent: continuations align under the line's
+ * first non-space column, so a wrapped detail line (a table's dim note, a
+ * nested path) reads as one block instead of snapping back to column 0.
+ */
 export function wrapStyledLines(lines: StyledLine[], width: number): StyledLine[] {
     if (width < 8) return lines;
     const out: StyledLine[] = [];
@@ -75,17 +92,21 @@ export function wrapStyledLines(lines: StyledLine[], width: number): StyledLine[
             out.push(line);
             continue;
         }
+        const leading = leadingSpaces(line);
+        const indent = leading > 0 && leading <= Math.floor(width / 2) ? leading : 0;
         // Flatten to a char stream so folds can cross span boundaries.
         const chars: { ch: string; span: Span }[] = [];
         for (const span of line) for (const ch of span.text) chars.push({ ch, span });
         let start = 0;
+        let first = true;
         while (start < chars.length) {
-            let end = Math.min(start + width, chars.length);
+            const avail = first ? width : width - indent;
+            let end = Math.min(start + avail, chars.length);
             if (end < chars.length) {
                 // Prefer breaking at the last space, unless it is too far back.
                 let back = end;
                 while (back > start && chars[back - 1]!.ch !== " ") back--;
-                if (back > start + Math.floor(width / 2)) end = back;
+                if (back > start + Math.floor(avail / 2)) end = back;
             }
             const folded: StyledLine = [];
             for (let i = start; i < end; i++) {
@@ -94,9 +115,11 @@ export function wrapStyledLines(lines: StyledLine[], width: number): StyledLine[
                 if (last != null && chars[i - 1]?.span === span && i > start) last.text += ch;
                 else folded.push({ text: ch, color: span.color, bold: span.bold, dim: span.dim });
             }
+            if (!first && indent > 0) folded.unshift({ text: " ".repeat(indent) });
             out.push(folded.length ? folded : [{ text: "" }]);
             start = end;
             while (start < chars.length && chars[start]!.ch === " ") start++;
+            first = false;
         }
     }
     return out;

@@ -115,8 +115,18 @@ export function navReducer(state: RunState, action: NavAction): RunState {
         case "scrollBottom":
             return { ...state, nav: { ...nav, mainScrollTop: maxTopOf(state) } };
 
-        case "toggleFollow":
-            return { ...state, live: { ...state.live, following: !state.live.following } };
+        case "toggleFollow": {
+            if (state.live.following) {
+                // Turning OFF freezes the view exactly where the tail was -
+                // the stale scroll offset would otherwise snap to the top.
+                return {
+                    ...state,
+                    nav: { ...state.nav, mainScrollTop: maxTopOf(state) },
+                    live: { ...state.live, following: false },
+                };
+            }
+            return { ...state, live: { ...state.live, following: true } };
+        }
 
         case "closeDocument": {
             // Back to the DEFAULT state: the step explainer, with follow-latest

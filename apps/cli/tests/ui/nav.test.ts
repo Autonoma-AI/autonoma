@@ -98,6 +98,19 @@ describe("nav reducer", () => {
         s = navReducer(s, { type: "toggleFollow" });
         expect(s.live.following).toBe(true);
     });
+
+    test("turning follow off freezes the view at the tail instead of snapping to top", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        store.setLiveFile("AUTONOMA.md", Array.from({ length: 50 }, (_, i) => `line ${i}`).join("\n"), "markdown");
+        let s = store.getState();
+        s = navReducer(s, { type: "setViewport", rows: 20, cols: 80 });
+        expect(s.live.following).toBe(true);
+
+        s = navReducer(s, { type: "toggleFollow" });
+        expect(s.live.following).toBe(false);
+        // The tail showed lines 30-49; the frozen view stays right there.
+        expect(s.nav.mainScrollTop).toBe(30);
+    });
 });
 
 describe("closeDocument", () => {

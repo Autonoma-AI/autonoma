@@ -64,6 +64,17 @@ describe("run store", () => {
         expect(store.getState().artifactOrder).toHaveLength(0);
     });
 
+    test("well-known files carry a human title; test files do not", () => {
+        const store = makeStore();
+        store.noteWrite("AUTONOMA.md");
+        store.noteWrite("entity-audit.md");
+        store.noteWrite("qa-tests/search/sort-by-price.md");
+        const s = store.getState();
+        expect(s.artifacts["AUTONOMA.md"]?.title).toBe("Knowledge Base");
+        expect(s.artifacts["entity-audit.md"]?.title).toBe("Database Entity Analysis");
+        expect(s.artifacts["qa-tests/search/sort-by-price.md"]?.title).toBeUndefined();
+    });
+
     test("nested test files carry their folder path as the description", () => {
         const store = makeStore();
         store.noteWrite("qa-tests/global/assistant/chat-with-ai-assistant.md");
@@ -72,11 +83,14 @@ describe("run store", () => {
         expect(art?.description).toBe("qa-tests/global/assistant/");
     });
 
-    test("a file discovered after its step settled registers as DONE, not WRITING", () => {
+    test("a file discovered by the fs watcher settles to DONE and follows into the hero", () => {
         const store = makeStore();
         store.startStep("projectMapper");
         store.endStep("projectMapper", "done");
         store.handleFsChange("project-map.json");
+        // Watcher events are writes: hero follows them like tool writes.
+        expect(store.getState().live.artifactId).toBe("project-map.json");
+        vi.advanceTimersByTime(1000);
         expect(store.getState().artifacts["project-map.json"]?.status).toBe("DONE");
     });
 

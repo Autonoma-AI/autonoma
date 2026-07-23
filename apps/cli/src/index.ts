@@ -208,6 +208,9 @@ async function runStep(
             projectContext = { ...projectContext, pages: [...pages.values()] };
         }
     }
+    // Page count sizes the page-scaled ETA budgets (kb, test generation).
+    const knownPages = projectContext?.pages?.length ?? 0;
+    if (knownPages > 0) getActiveStore()?.setSizes({ pages: knownPages });
 
     // Size signals for the analytics event - the measured-duration data shows
     // repo size dominates step time, so future ETA heuristics need these.
@@ -279,6 +282,7 @@ async function runStep(
                 });
                 await savePages(outputDir, pages);
                 stepMetrics = { page_count: pages.size };
+                if (pages.size > 0) getActiveStore()?.setSizes({ pages: pages.size });
                 break;
             }
             case "kb": {

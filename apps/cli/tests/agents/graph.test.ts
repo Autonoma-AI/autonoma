@@ -2,7 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { CoverageState, type FeatureNode, saveBfsState, loadBfsState } from "../../src/agents/05-test-generator/graph";
+import {
+    CoverageState,
+    estimateExpectedTests,
+    type FeatureNode,
+    saveBfsState,
+    loadBfsState,
+} from "../../src/agents/05-test-generator/graph";
 
 function makeNode(overrides: Partial<FeatureNode> = {}): FeatureNode {
     return {
@@ -139,5 +145,58 @@ describe("serialization", () => {
     test("loadBfsState returns null when file doesn't exist", async () => {
         const loaded = await loadBfsState(tempDir);
         expect(loaded).toBeUndefined();
+    });
+});
+
+describe("estimateExpectedTests", () => {
+    test("uses the ~3/node prior before enough nodes are processed", () => {
+        // 1 node done, 2 tests: too little data, prior 3/node x 40 nodes.
+        expect(estimateExpectedTests(2, 1, 40)).toBe(120);
+    });
+
+    test("projects from the run's own tests/node ratio once enough is observed", () => {
+        // 4 nodes done, 8 tests -> 2 tests/node x 40 nodes = 80.
+        expect(estimateExpectedTests(8, 4, 40)).toBe(80);
+    });
+
+    test("never estimates fewer than already written", () => {
+        // Sparse tail (many skips) would project low; clamp to written.
+        expect(estimateExpectedTests(50, 40, 41)).toBe(51);
+        expect(estimateExpectedTests(50, 40, 40)).toBe(50);
+    });
+
+    test("no nodes yet -> just what's written", () => {
+        expect(estimateExpectedTests(0, 0, 0)).toBe(0);
+    });
+});
+
+describe("dashboard sub-progress reporting", () => {
+    test("graph mutations report processed/total nodes to the active store", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const state = new CoverageState();
+            state.enqueue(makeNode({ id: "a" }));
+            state.enqueue(makeNode({ id: "b" }));
+            expect(store.getState().steps.testGenerator.sub).toEqual({
+                done: 0,
+                total: 2,
+                unit: "nodes",
+                note: "~6 tests",
+            });
+
+            state.nextNode();
+            state.markTested("a", ["qa-tests/a.md"]);
+            expect(store.getState().steps.testGenerator.sub).toEqual({
+                done: 1,
+                total: 2,
+                unit: "nodes",
+                note: "~6 tests",
+            });
+        } finally {
+            setActiveStore(undefined);
+        }
     });
 });

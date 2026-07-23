@@ -161,4 +161,30 @@ describe("wrapStyledLines", () => {
         expect(wrapped.length).toBe(4);
         expect(wrapped[0]![0]!.text.length).toBe(30);
     });
+
+    test("indented lines wrap with a hanging indent under their start column", () => {
+        const lines: StyledLine[] = [
+            [
+                { text: " ".repeat(10) },
+                { text: "packages/api/src/core/operations side effects: deletes previous documents" },
+            ],
+        ];
+        const wrapped = wrapStyledLines(lines, 40);
+        expect(wrapped.length).toBeGreaterThan(1);
+        for (const cont of wrapped.slice(1)) {
+            const flat = cont.map((s) => s.text).join("");
+            // Continuations align under column 10, never snap back to 0.
+            expect(flat.startsWith(" ".repeat(10))).toBe(true);
+            expect(flat.charAt(10)).not.toBe(" ");
+            expect(flat.length).toBeLessThanOrEqual(40);
+        }
+    });
+
+    test("an absurdly deep indent falls back to no hanging indent", () => {
+        const lines: StyledLine[] = [[{ text: " ".repeat(30) + "word ".repeat(20) }]];
+        const wrapped = wrapStyledLines(lines, 40);
+        for (const cont of wrapped.slice(1)) {
+            expect(cont.map((s) => s.text).join("").length).toBeLessThanOrEqual(40);
+        }
+    });
 });

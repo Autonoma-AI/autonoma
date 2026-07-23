@@ -161,9 +161,12 @@ function testWritingScene(): RunStore {
     const store = makeStore();
     runStepsThrough(store, "recipeBuilder");
     store.startStep("testGenerator");
-    store.setSubProgress("testGenerator", { done: 96, total: 142, unit: "tests" });
+    store.setSubProgress("testGenerator", { done: 32, total: 41, unit: "nodes", note: "~118 tests" });
     store.noteWrite("qa-tests/cart/add-to-cart.md");
     store.noteWrite("qa-tests/account/edit-profile.md");
+    // Keep one file actively WRITING so the list spinner is inspectable
+    // (fixture writes settle to DONE ~1s after scene creation otherwise).
+    setInterval(() => store.noteWrite("qa-tests/account/edit-profile.md"), 500).unref();
     store.setLiveFile("qa-tests/account/edit-profile.md", SAMPLE_MD, "markdown");
     store.pushActivity({ call: "test", arg: "qa-tests/cart/add-to-cart.md", metric: "passed" });
     store.pushActivity({ call: "read", arg: "src/app/account/settings.tsx", metric: "217 lines" });

@@ -8,6 +8,7 @@ import { type ProjectContext, formatContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { formatException } from "../../core/errors";
 import { getModel } from "../../core/model";
+import { reportSubProgress } from "../../core/progress";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
 import { SYSTEM_PROMPT } from "./prompt";
@@ -57,6 +58,7 @@ class ModelTracker {
 
     register(models: string[]) {
         for (const m of models) this.registered.add(m);
+        reportSubProgress("entityAudit", this.auditedModels.size, this.registered.size, "models");
     }
 
     initQueue() {
@@ -83,6 +85,7 @@ class ModelTracker {
 
     markAudited(model: AuditedModel) {
         this.auditedModels.set(model.name, model);
+        reportSubProgress("entityAudit", this.auditedModels.size, this.registered.size, "models");
     }
 
     markFileRead(filePath: string) {
