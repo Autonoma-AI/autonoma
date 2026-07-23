@@ -1,22 +1,19 @@
 import {
   Badge,
-  Button,
   cn,
   InteractionBadge,
   type OverlayPoint,
   ScreenshotWithOverlay,
   Separator,
   Skeleton,
+  VideoPlayer,
 } from "@autonoma/blacklight";
 import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CodeBlock, githubPermalink } from "components/investigation/code-block";
 import type { FindingBadgeVariant } from "components/investigation/finding-category";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
-import { type ReactNode, useRef, useState } from "react";
-
-const PLAYBACK_RATES = [1, 2, 4, 8];
-const DEFAULT_PLAYBACK_RATE = 8;
+import { type ReactNode, useState } from "react";
 
 export interface FindingBadgeMeta {
   label: string;
@@ -174,16 +171,7 @@ function FindingBody({
 }
 
 function MediaPanel({ finding }: { finding: InvestigationFinding }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  // These recordings are mostly dead time between agent actions, so default to the fastest rate - most reviewers
-  // immediately bumped it to 8x anyway. The element resets playbackRate on load, so we reapply on loadedmetadata.
-  const [speed, setSpeed] = useState(DEFAULT_PLAYBACK_RATE);
   if (finding.finalScreenshotUrl == null && finding.videoUrl == null) return null;
-
-  const applySpeed = (rate: number) => {
-    setSpeed(rate);
-    if (videoRef.current != null) videoRef.current.playbackRate = rate;
-  };
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -199,35 +187,7 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
           </figcaption>
         </figure>
       )}
-      {finding.videoUrl != null && (
-        <figure className="flex flex-col gap-1">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption -- agent run recording, no captions exist */}
-          <video
-            ref={videoRef}
-            src={finding.videoUrl}
-            controls
-            onLoadedMetadata={() => applySpeed(speed)}
-            className="w-full rounded-lg border border-border-dim"
-          />
-          <div className="flex items-center gap-2">
-            <figcaption className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
-              Run recording
-            </figcaption>
-            <div className="ml-auto flex items-center gap-1">
-              {PLAYBACK_RATES.map((rate) => (
-                <Button
-                  key={rate}
-                  variant={rate === speed ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => applySpeed(rate)}
-                >
-                  {rate}×
-                </Button>
-              ))}
-            </div>
-          </div>
-        </figure>
-      )}
+      {finding.videoUrl != null && <VideoPlayer src={finding.videoUrl} label="Run recording" />}
     </div>
   );
 }

@@ -9,13 +9,13 @@ import {
   Skeleton,
   stepInstruction as getStepInstruction,
   getStepOverlayPoints,
+  VideoPlayer,
 } from "@autonoma/blacklight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 import { StackIcon } from "@phosphor-icons/react/Stack";
-import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
@@ -184,6 +184,7 @@ function GenerationDetailPage() {
               failure={failure ?? undefined}
               reasoningScreenshot={generation.finalScreenshot ?? undefined}
               videoUrl={generation.videoUrl ?? undefined}
+              optimizedVideoUrl={generation.optimizedVideoUrl ?? undefined}
               test={generation.testCase ?? undefined}
               pullRequest={generation.pullRequest}
             />
@@ -265,6 +266,7 @@ interface GenerationDetailSidebarProps {
   failure?: { kind: string };
   reasoningScreenshot?: string;
   videoUrl?: string;
+  optimizedVideoUrl?: string;
   test?: { id: string; name: string; slug: string };
   pullRequest?: PullRequestRef;
 }
@@ -277,6 +279,7 @@ function GenerationDetailSidebar({
   failure,
   reasoningScreenshot,
   videoUrl,
+  optimizedVideoUrl,
   test,
   pullRequest,
 }: GenerationDetailSidebarProps) {
@@ -349,16 +352,7 @@ function GenerationDetailSidebar({
       {videoUrl != null && (
         <Panel>
           <PanelBody className="p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <VideoCameraIcon size={14} className="text-text-tertiary" />
-              <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">
-                Recording
-              </span>
-            </div>
-            <video controls className="w-full" playsInline>
-              <source src={videoUrl} type="video/webm" />
-              <track default kind="captions" label="English" src={`${videoUrl}.vtt`} srcLang="en" />
-            </video>
+            <VideoPlayer src={videoUrl} optimizedSrc={optimizedVideoUrl} label="Recording" />
           </PanelBody>
         </Panel>
       )}

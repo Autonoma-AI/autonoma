@@ -36,6 +36,7 @@ export class TestGenerationsService extends Service {
                 failure: true,
                 finalScreenshot: true,
                 videoUrl: true,
+                optimizedVideoUrl: true,
                 createdAt: true,
                 conversationUrl: true,
                 testPlan: {
@@ -135,42 +136,46 @@ export class TestGenerationsService extends Service {
                   })
                 : Promise.resolve([]);
 
-        const [steps, videoUrl, finalScreenshotUrl, temporalWorkflow, webhookCalls] = await Promise.all([
-            Promise.all(
-                attempts.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
-                    id: rest.id,
-                    order: rest.order,
-                    interaction: rest.interaction,
-                    params: rest.params,
-                    status: rest.status,
-                    output: rest.output ?? undefined,
-                    error: rest.error ?? undefined,
-                    errorName: rest.errorName ?? undefined,
-                    screenshotBefore: await (screenshotBefore &&
-                        this.storageProvider.getSignedUrl(screenshotBefore, 3600)),
-                    screenshotAfter: await (screenshotAfter &&
-                        this.storageProvider.getSignedUrl(screenshotAfter, 3600)),
-                })),
-            ),
-            generation.videoUrl != null
-                ? this.storageProvider.getSignedUrl(generation.videoUrl, 3600)
-                : Promise.resolve(undefined),
-            generation.finalScreenshot != null
-                ? this.storageProvider.getSignedUrl(generation.finalScreenshot, 3600)
-                : Promise.resolve(undefined),
-            findLatestWorkflowByGenerationId(generation.id)
-                .then((workflow) =>
-                    workflow != null ? { workflowId: workflow.workflowId, runId: workflow.runId } : undefined,
-                )
-                .catch((error) => {
-                    this.logger.warn("Could not resolve Temporal workflow for generation", {
-                        generationId: generation.id,
-                        error,
-                    });
-                    return undefined;
-                }),
-            webhookCallsPromise,
-        ]);
+        const [steps, videoUrl, optimizedVideoUrl, finalScreenshotUrl, temporalWorkflow, webhookCalls] =
+            await Promise.all([
+                Promise.all(
+                    attempts.map(async ({ screenshotBefore, screenshotAfter, ...rest }) => ({
+                        id: rest.id,
+                        order: rest.order,
+                        interaction: rest.interaction,
+                        params: rest.params,
+                        status: rest.status,
+                        output: rest.output ?? undefined,
+                        error: rest.error ?? undefined,
+                        errorName: rest.errorName ?? undefined,
+                        screenshotBefore: await (screenshotBefore &&
+                            this.storageProvider.getSignedUrl(screenshotBefore, 3600)),
+                        screenshotAfter: await (screenshotAfter &&
+                            this.storageProvider.getSignedUrl(screenshotAfter, 3600)),
+                    })),
+                ),
+                generation.videoUrl != null
+                    ? this.storageProvider.getSignedUrl(generation.videoUrl, 3600)
+                    : Promise.resolve(undefined),
+                generation.optimizedVideoUrl != null
+                    ? this.storageProvider.getSignedUrl(generation.optimizedVideoUrl, 3600)
+                    : Promise.resolve(undefined),
+                generation.finalScreenshot != null
+                    ? this.storageProvider.getSignedUrl(generation.finalScreenshot, 3600)
+                    : Promise.resolve(undefined),
+                findLatestWorkflowByGenerationId(generation.id)
+                    .then((workflow) =>
+                        workflow != null ? { workflowId: workflow.workflowId, runId: workflow.runId } : undefined,
+                    )
+                    .catch((error) => {
+                        this.logger.warn("Could not resolve Temporal workflow for generation", {
+                            generationId: generation.id,
+                            error,
+                        });
+                        return undefined;
+                    }),
+                webhookCallsPromise,
+            ]);
 
         const conversationUrl =
             isAdmin && generation.conversationUrl != null
@@ -199,6 +204,7 @@ export class TestGenerationsService extends Service {
             failure: generation.failure ?? undefined,
             finalScreenshot: finalScreenshotUrl,
             videoUrl,
+            optimizedVideoUrl,
             temporalWorkflow,
             conversationUrl,
             testPlan: {

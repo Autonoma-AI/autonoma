@@ -21,6 +21,7 @@ export {
     type BrailleSpinnerProps,
 } from "./components/ui/braille-spinner";
 export { Button, buttonVariants } from "./components/ui/button";
+export { VideoPlayer, type VideoPlayerProps } from "./components/ui/video-player";
 export {
     Card,
     CardHeader,

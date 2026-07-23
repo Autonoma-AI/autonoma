@@ -1,3 +1,4 @@
+import { VideoPlayer } from "@autonoma/blacklight";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import type { RouterOutputs } from "lib/trpc";
 
@@ -31,19 +32,12 @@ export function BugHeroMedia({ hero }: { hero: Hero }) {
         </figure>
       )}
       {video != null && (
-        <figure className="flex min-w-0 flex-col gap-2">
-          <figcaption className="font-mono text-2xs uppercase tracking-widest text-text-secondary">
-            Run recording
-          </figcaption>
-          <video
-            src={video.url}
-            controls
-            preload="metadata"
-            className="max-h-[520px] w-full border border-border-dim bg-black"
-          >
-            <track kind="captions" />
-          </video>
-        </figure>
+        <VideoPlayer
+          src={video.url}
+          label="Run recording"
+          videoClassName="max-h-[520px] bg-black"
+          className="min-w-0"
+        />
       )}
     </section>
   );
