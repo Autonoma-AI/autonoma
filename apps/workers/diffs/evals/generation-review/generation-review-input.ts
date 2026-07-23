@@ -36,6 +36,7 @@ export const generationReviewCaseInputSchema = z.object({
         conversation: z.array(z.custom<ModelMessage>()),
         reasoning: z.string().optional(),
         videoUrl: z.string().optional(),
+        optimizedVideoUrl: z.string().optional(),
         finalScreenshotKey: z.string().optional(),
         // Sourced from the StepAttempt timeline: `status` discriminates success
         // (carries `output`) from failure (carries `error` + `errorName`). The

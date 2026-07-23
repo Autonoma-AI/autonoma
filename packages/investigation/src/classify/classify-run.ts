@@ -39,7 +39,7 @@ type VisionMedia = { type: "file"; data: Uint8Array; mediaType: string } | { typ
 
 /** Pick the best media to scan: the full video if we have it, else the final screenshot. */
 function runMedia(run: ClassifierDeps["run"]): VisionMedia | undefined {
-    if (run.video != null) return { type: "file", data: run.video, mediaType: "video/webm" };
+    if (run.video != null) return { type: "file", data: run.video.data, mediaType: run.video.mediaType };
     if (run.finalScreenshot != null) return { type: "image", image: run.finalScreenshot };
     return undefined;
 }

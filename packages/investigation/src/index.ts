@@ -22,7 +22,7 @@ export { VerdictForModel, toRunVerdict } from "./classify/verdict-schema";
 export { classifyRun } from "./classify/classify-run";
 export type { ClassifyContext } from "./classify/classify-run";
 export { buildClassifierTools } from "./classify/tools";
-export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from "./classify/dependencies";
+export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts, RunVideo } from "./classify/dependencies";
 export { withRetry } from "./retry";
 export { buildReportMarkdown } from "./report/markdown";
 export { buildReportData, buildFindings } from "./report/report-data";

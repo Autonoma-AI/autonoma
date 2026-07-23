@@ -10,6 +10,15 @@ export interface CodebaseReader {
 }
 
 /**
+ * The run recording the classifier watches, with its MIME type. Prefer the dead-time-stripped mp4 (fewer
+ * frames the vision model bills); fall back to the original webm.
+ */
+export interface RunVideo {
+    data: Uint8Array;
+    mediaType: "video/mp4" | "video/webm";
+}
+
+/**
  * The artifacts of the browser run. Media (video / screenshots) is held in MEMORY as bytes rather than on
  * disk - the generation activity already stores them in S3, and the worker fetches them into memory for
  * analysis, so the classifier never touches the filesystem.
@@ -22,7 +31,7 @@ export interface RunArtifacts {
     reasoning?: string;
     startEpoch: number;
     endEpoch: number;
-    video?: Uint8Array;
+    video?: RunVideo;
     finalScreenshot?: Uint8Array;
     stepScreenshots: Uint8Array[];
 }

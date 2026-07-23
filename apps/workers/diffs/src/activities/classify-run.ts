@@ -5,6 +5,7 @@ import {
     PreviewSecrets,
     PriorRuns,
     type RunArtifacts,
+    type RunVideo,
     classifyRun,
     loadPreviewAppLogs,
     persistInvestigationCosts,
@@ -46,6 +47,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type GenerationRow = {
     status: string;
     videoUrl: string | null;
+    optimizedVideoUrl: string | null;
     finalScreenshot: string | null;
     reasoning: string | null;
     createdAt: Date;
@@ -75,6 +77,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         select: {
             status: true,
             videoUrl: true,
+            optimizedVideoUrl: true,
             finalScreenshot: true,
             reasoning: true,
             createdAt: true,
@@ -174,7 +177,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         // mechanically the last/failed one. When it named no step we show no screenshot rather than falling back
         // to the run's final frame, which is often a setup/blank/home screen and reads as a misleading "failure".
         const keyScreenshot = resolveKeyScreenshot(generation.attempts, verdict.keyStepIndex);
-        const clipUrl = await maybeGenerateClip(verdict.category, runArtifacts.video, testGenerationId, logger);
+        const clipUrl = await maybeGenerateClip(verdict.category, runArtifacts.video?.data, testGenerationId, logger);
         logger.info("Shadow run classified", {
             extra: { category: verdict.category, confidence: verdict.confidence, keyStepIndex: verdict.keyStepIndex },
         });
@@ -299,7 +302,13 @@ export async function buildRunArtifacts(generation: GenerationRow): Promise<RunA
     const steps = deriveSteps(generation.attempts);
     const storage = getStorage();
 
-    const video = generation.videoUrl != null ? await downloadMedia(generation.videoUrl) : undefined;
+    // Prefer the dead-time-stripped mp4 the vision model bills fewer frames for; fall back to the original webm.
+    const videoKey = generation.optimizedVideoUrl ?? generation.videoUrl;
+    const videoBytes = videoKey != null ? await downloadMedia(videoKey) : undefined;
+    const video: RunVideo | undefined =
+        videoBytes != null
+            ? { data: videoBytes, mediaType: generation.optimizedVideoUrl != null ? "video/mp4" : "video/webm" }
+            : undefined;
     const finalScreenshot =
         generation.finalScreenshot != null ? await downloadMedia(generation.finalScreenshot) : undefined;
 

@@ -227,7 +227,7 @@ export function createAnalyzeVideoTool(run: RunArtifacts, visionModel: LanguageM
                 const answer = await describeMedia(
                     visionModel,
                     `${question}\n\nThis is the full screen recording of the run, start to finish.`,
-                    { type: "file", data: run.video, mediaType: "video/webm" },
+                    { type: "file", data: run.video.data, mediaType: run.video.mediaType },
                 );
                 // truncate (not narrow): re-running a vision call is expensive; keep head+tail rather than ask again.
                 return cap(answer, { tool: "analyze_video", mode: "truncate", maxChars: COMPACT_MAX_CHARS });

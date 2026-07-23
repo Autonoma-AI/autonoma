@@ -26,7 +26,7 @@ export { VerdictForModel, toRunVerdict } from "./classify/verdict-schema";
 export { classifyRun } from "./classify/classify-run";
 export type { ClassifyContext, ClassifyRunResult } from "./classify/classify-run";
 export { buildClassifierTools } from "./classify/tools";
-export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from "./classify/dependencies";
+export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts, RunVideo } from "./classify/dependencies";
 export { withRetry } from "./retry";
 export { dedupeAnalysisFindings } from "./dedup";
 export type { AnalysisFinding, ReconciledAnalysisFinding, DedupAnalysisFindingsDeps } from "./dedup";
