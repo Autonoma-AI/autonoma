@@ -18,7 +18,8 @@ import type {
     OnboardingPreviewkitSecretsService,
     PreviewkitSecretsUpsertResult,
 } from "./onboarding-dependencies";
-import { listSdkDryRunTargets } from "./sdk-dry-run-targets";
+import type { OnboardingVercelCapabilityService } from "./onboarding-vercel-capability";
+import { listSdkDryRunTargets, type SdkDryRunTargets } from "./sdk-dry-run-targets";
 import { OnboardingApplicationNotFoundError, type ScenarioDryRunResult } from "./states/onboarding-state";
 
 /**
@@ -84,9 +85,22 @@ export class OnboardingSdkCapabilityService {
         private readonly db: PrismaClient,
         private readonly scenarioManager: ScenarioManager,
         private readonly encryption: EncryptionHelper,
+        private readonly vercelCapability: OnboardingVercelCapabilityService,
         private readonly options: OnboardingManagerOptions = {},
     ) {
         this.logger = logger.child({ name: this.constructor.name });
+    }
+
+    /**
+     * The dry-run targets every SDK operation resolves against: the PreviewKit /
+     * external previews plus any linked Vercel project's deployments. Routing all
+     * target lookups through here keeps the tRPC listing, dry run, and redeploy in
+     * agreement, so a Vercel target validated on the SDK step resolves cleanly on
+     * the dry-run step.
+     */
+    async listTargets(applicationId: string, organizationId: string): Promise<SdkDryRunTargets> {
+        const vercelTargets = await this.vercelCapability.listDryRunTargets(applicationId, organizationId);
+        return listSdkDryRunTargets(this.db, applicationId, organizationId, vercelTargets);
     }
 
     static isDiscoveryStuck(startedAt: Date | null | undefined): boolean {
@@ -512,7 +526,7 @@ export class OnboardingSdkCapabilityService {
     async redeployDryRunTarget(applicationId: string, organizationId: string, targetId: string): Promise<void> {
         this.logger.info("Redeploying dry-run target", { applicationId, organizationId, targetId });
 
-        const { targets } = await listSdkDryRunTargets(this.db, applicationId, organizationId);
+        const { targets } = await this.listTargets(applicationId, organizationId);
         const target = targets.find((candidate) => candidate.id === targetId);
         if (target == null) {
             throw new BadRequestError(`Unknown dry-run target "${targetId}"`);
@@ -547,7 +561,7 @@ export class OnboardingSdkCapabilityService {
         organizationId: string,
         targetId: string,
     ): Promise<void> {
-        const { targets } = await listSdkDryRunTargets(this.db, applicationId, organizationId);
+        const { targets } = await this.listTargets(applicationId, organizationId);
         const target = targets.find((candidate) => candidate.id === targetId);
         if (target == null) {
             throw new BadRequestError(`Unknown dry-run target "${targetId}"`);
@@ -616,7 +630,7 @@ export class OnboardingSdkCapabilityService {
         organizationId: string,
         targetId: string,
     ): Promise<ManagedTargetContext> {
-        const { targets } = await listSdkDryRunTargets(this.db, applicationId, organizationId);
+        const { targets } = await this.listTargets(applicationId, organizationId);
         const target = targets.find((candidate) => candidate.id === targetId);
         if (target == null) {
             throw new BadRequestError(`Unknown SDK target "${targetId}"`);

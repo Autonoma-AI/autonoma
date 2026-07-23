@@ -5,7 +5,7 @@ import { previewConfigSchema } from "@autonoma/types";
 import { z } from "zod";
 import { buildSdkUrl } from "./sdk-url";
 
-export type SdkDryRunTargetSource = "previewkit" | "external";
+export type SdkDryRunTargetSource = "previewkit" | "external" | "vercel";
 
 /**
  * Whether a target can be validated/dry-run against right now. Previews are
@@ -187,6 +187,7 @@ export async function listSdkDryRunTargets(
     db: PrismaClient,
     applicationId: string,
     organizationId: string,
+    vercelTargets: SdkDryRunTarget[] = [],
 ): Promise<SdkDryRunTargets> {
     const logger = rootLogger.child({ name: "listSdkDryRunTargets", applicationId });
     logger.info("Listing SDK dry-run targets");
@@ -349,6 +350,11 @@ export async function listSdkDryRunTargets(
         // First (highest/most recent) matching PR wins the default.
         if (isAutoDetected && autoDetectedTargetId == null) autoDetectedTargetId = id;
     }
+
+    // Vercel-linked apps validate against a Vercel deployment picked on the SDK
+    // step; those deployments are their own dry-run targets (id = deployment id),
+    // so the dry run points at exactly the preview the user validated.
+    targets.push(...vercelTargets);
 
     sortTargets(targets, autoDetectedTargetId);
 

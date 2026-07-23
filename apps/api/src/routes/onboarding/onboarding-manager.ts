@@ -47,7 +47,6 @@ import {
     type PreviewkitConfigValidationResult,
     type PreviewkitDependencyDocument,
 } from "./previewkit-config-service";
-import { listSdkDryRunTargets } from "./sdk-dry-run-targets";
 import { buildSdkUrl } from "./sdk-url";
 import { CompletedState } from "./states/completed-state";
 import { DiffTriggerState } from "./states/diff-trigger-state";
@@ -123,8 +122,14 @@ export class OnboardingManager {
     ) {
         this.logger = logger.child({ name: "OnboardingManager" });
         this.previewkitConfig = new PreviewkitConfigService(db, options);
-        this.sdkCapability = new OnboardingSdkCapabilityService(db, scenarioManager, encryption, options);
         this.vercelCapability = new OnboardingVercelCapabilityService(db, options);
+        this.sdkCapability = new OnboardingSdkCapabilityService(
+            db,
+            scenarioManager,
+            encryption,
+            this.vercelCapability,
+            options,
+        );
     }
 
     async getState(applicationId: string) {
@@ -970,7 +975,7 @@ export class OnboardingManager {
      */
     async listSdkDryRunTargets(applicationId: string, organizationId: string) {
         this.logger.info("Listing SDK dry-run targets", { applicationId, organizationId });
-        return listSdkDryRunTargets(this.db, applicationId, organizationId);
+        return this.sdkCapability.listTargets(applicationId, organizationId);
     }
 
     /**

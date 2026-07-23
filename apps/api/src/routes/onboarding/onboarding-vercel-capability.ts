@@ -11,10 +11,33 @@ import {
 } from "../../vercel-marketplace/vercel-project-api";
 import type { OnboardingManagerOptions } from "./onboarding-dependencies";
 import { writePreviewUrl } from "./preview-readiness";
+import type { SdkDryRunTarget } from "./sdk-dry-run-targets";
 import { buildSdkUrl } from "./sdk-url";
 import { OnboardingApplicationNotFoundError } from "./states/onboarding-state";
 
 const VERCEL_READY_STATE = "READY";
+
+/** Human label for a Vercel deployment in the dry-run target picker / summary. */
+function formatVercelTargetLabel(deployment: VercelDeploymentSummary): string {
+    const kind = deployment.target === "production" ? "Production" : "Preview";
+    const branch = deployment.branch != null ? ` - ${deployment.branch}` : "";
+    return `${kind}${branch}`;
+}
+
+/** A READY Vercel deployment as a dry-run target - its own id is the target id. */
+function vercelDeploymentToDryRunTarget(deployment: VercelDeploymentSummary): SdkDryRunTarget {
+    return {
+        id: deployment.id,
+        kind: deployment.target === "production" ? "main" : "pr",
+        source: "vercel",
+        label: formatVercelTargetLabel(deployment),
+        availability: "ready",
+        previewUrl: deployment.url,
+        sdkUrl: buildSdkUrl(deployment.url),
+        requiresSharedSecretInput: false,
+        isAutoDetected: false,
+    };
+}
 
 export interface VercelRedeployResult {
     deploymentId: string;
@@ -211,6 +234,37 @@ export class OnboardingVercelCapabilityService {
     }
 
     /**
+     * The linked project's READY deployments as dry-run targets, so the SDK step's
+     * validated Vercel deployment and the dry-run step's "run against" are the same
+     * target. Returns `[]` (never throws) when no Vercel project is linked or the
+     * Vercel API is unreachable, so the shared target listing degrades to the
+     * PreviewKit/external targets instead of failing the whole finish-setup page.
+     */
+    async listDryRunTargets(applicationId: string, organizationId: string): Promise<SdkDryRunTarget[]> {
+        const access = await this.tryGetLinkedProjectAccess(applicationId, organizationId);
+        if (access == null) return [];
+
+        try {
+            const deployments = await listVercelDeploymentsFromApi(
+                access.vercelProjectId,
+                undefined,
+                access.accessToken,
+            );
+            this.logger.info("Resolved Vercel dry-run targets", {
+                applicationId,
+                extra: { vercelProjectId: access.vercelProjectId, count: deployments.length },
+            });
+            return deployments.map(vercelDeploymentToDryRunTarget);
+        } catch (err) {
+            this.logger.warn("Failed to list Vercel deployments for dry-run targets; omitting them", {
+                applicationId,
+                extra: { vercelProjectId: access.vercelProjectId, err },
+            });
+            return [];
+        }
+    }
+
+    /**
      * Redeploys a chosen Vercel deployment so it rebuilds with the project's
      * current env vars - most importantly the `AUTONOMA_SHARED_SECRET` we inject
      * on link, which only takes effect on new builds. The redeploy gets a NEW id
@@ -237,7 +291,12 @@ export class OnboardingVercelCapabilityService {
             throw new NotFoundError("Vercel deployment not found for this project");
         }
 
-        const redeployed = await redeployVercelDeploymentFromApi(projectName, vercelDeploymentId, undefined, accessToken);
+        const redeployed = await redeployVercelDeploymentFromApi(
+            projectName,
+            vercelDeploymentId,
+            undefined,
+            accessToken,
+        );
 
         this.logger.info("Redeployed Vercel deployment for onboarding preview", {
             applicationId,
@@ -324,6 +383,19 @@ export class OnboardingVercelCapabilityService {
      * `teamId` entirely is both correct and required here. `projectName` is the
      * required `name` in the redeploy body.
      */
+    /** Like `getLinkedProjectAccess` but returns undefined instead of throwing when no project is linked. */
+    private async tryGetLinkedProjectAccess(
+        applicationId: string,
+        organizationId: string,
+    ): Promise<{ vercelProjectId: string; projectName: string; accessToken: string } | undefined> {
+        const connection = await this.db.vercelProjectConnection.findFirst({
+            where: { applicationId },
+            select: { id: true },
+        });
+        if (connection == null) return undefined;
+        return this.getLinkedProjectAccess(applicationId, organizationId);
+    }
+
     private async getLinkedProjectAccess(
         applicationId: string,
         organizationId: string,

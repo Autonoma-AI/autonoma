@@ -634,11 +634,17 @@ function formatVercelDeploymentLabel(deployment: {
  * the backend then redeploys it once and returns the new deployment id, which we
  * poll to READY and auto-retry - mirroring the managed-target self-heal.
  */
-function VercelSdkValidationSection({ applicationId }: { applicationId: string }) {
+function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectTarget }: SdkStepProps) {
   const { data: state } = useOnboardingState(applicationId);
-  const { data: deployments, isLoading } = useVercelDeployments(applicationId);
+  const { data: deployments, isLoading, refetch: refetchDeployments } = useVercelDeployments(applicationId);
   const discover = useDiscoverVercelDeploymentTarget();
-  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | undefined>(undefined);
+  // A Vercel deployment IS the dry-run target (its id is the target id), so the
+  // selection is the shared target owned by FinishSetupSteps - the dry-run step
+  // then runs against exactly the deployment validated here. Ignore a shared
+  // target that isn't one of this project's deployments (e.g. a stale/external
+  // pin) so we never validate against a non-Vercel id.
+  const selectedDeploymentId =
+    deployments?.some((deployment) => deployment.id === selectedTargetId) === true ? selectedTargetId : undefined;
   // Set to the redeployed deployment id while a secret-drift redeploy is in
   // flight; the poll below retries discover against it (allowRedeploy: false)
   // once it is READY, then disarms so it can't loop.
@@ -655,11 +661,24 @@ function VercelSdkValidationSection({ applicationId }: { applicationId: string }
     if (retryDeploymentId == null || !isReady || discover.isPending) return;
     const readyDeploymentId = retryDeploymentId;
     setRetryDeploymentId(undefined);
+    // The redeploy produced a fresh deployment id - make it the shared target so
+    // the dry-run step runs against the redeployed preview, and refetch so it
+    // appears in the picker now that it is READY.
+    onSelectTarget(readyDeploymentId);
+    void refetchDeployments();
     discoverMutate(
       { applicationId, vercelDeploymentId: readyDeploymentId, allowRedeploy: false },
       { onSuccess: () => toastManager.add({ type: "success", title: "SDK endpoint reachable - schema discovered" }) },
     );
-  }, [retryDeploymentId, isReady, discover.isPending, discoverMutate, applicationId]);
+  }, [
+    retryDeploymentId,
+    isReady,
+    discover.isPending,
+    discoverMutate,
+    applicationId,
+    onSelectTarget,
+    refetchDeployments,
+  ]);
 
   function handleValidate() {
     if (selectedDeploymentId == null) return;
@@ -698,7 +717,7 @@ function VercelSdkValidationSection({ applicationId }: { applicationId: string }
         ) : (
           <Select
             value={selectedDeploymentId ?? ""}
-            onValueChange={(value) => setSelectedDeploymentId(value != null && value.length > 0 ? value : undefined)}
+            onValueChange={(value) => onSelectTarget(value != null && value.length > 0 ? value : undefined)}
             disabled={isValidating}
           >
             <SelectTrigger className="max-w-lg">
@@ -775,7 +794,13 @@ function SdkStepBody({ applicationId, selectedTargetId, onSelectTarget }: SdkSte
 
   if (vercelProjects.isLoading) return <Skeleton className="h-40 w-full" />;
   if (vercelProjects.data?.linkedProject != null) {
-    return <VercelSdkValidationSection applicationId={applicationId} />;
+    return (
+      <VercelSdkValidationSection
+        applicationId={applicationId}
+        selectedTargetId={selectedTargetId}
+        onSelectTarget={onSelectTarget}
+      />
+    );
   }
   return (
     <ExternalSdkStepBody
