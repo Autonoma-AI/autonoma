@@ -35,6 +35,10 @@ export const env = createEnv({
         // real bugs, replacing diffs for the org). Two gates (this env switch + the per-org setting) so a flip is
         // deliberate, per-org, and instantly reversible for the whole fleet.
         ANALYSIS_AUTHORITATIVE_ENABLED: z.stringbool().default(false),
+        // Global master kill-switch for the Autonoma merge gate. OFF by default: while off, the gate posts no
+        // checks and honors no Skip no matter an org's per-org `mergeGateEnabled`. Effective gate =
+        // MERGE_GATE_ENABLED && org.mergeGateEnabled (&& analysisEnabled, enforced at enable time).
+        MERGE_GATE_ENABLED: z.stringbool().default(false),
         ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
         // Public origin where this API's own /v1/auth handler is reachable - NOT
         // the UI's origin (APP_URL). They coincide in prod/beta (unified behind

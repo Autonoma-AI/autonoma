@@ -980,6 +980,9 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../../../packages/ai
+      '@autonoma/analytics':
+        specifier: workspace:*
+        version: link:../../../packages/analytics
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../../../packages/billing

@@ -105,6 +105,18 @@ export const adminRouter = router({
             activeOrganizationId: ctx.organizationId,
         }),
     ),
+    /**
+     * Enable or disable the Autonoma merge gate for a specific org.
+     * Enabling requires the org's `analysisEnabled` (the gate reads the authoritative verdict) and
+     * registers `Autonoma` as a required status check on each linked repo's default branch.
+     */
+    setMergeGateEnabled: internalProcedure
+        .input(z.object({ organizationId: z.string().min(1), enabled: z.boolean() }))
+        .mutation(({ ctx: { services }, input }) =>
+            input.enabled
+                ? services.mergeGate.enableForOrg(input.organizationId)
+                : services.mergeGate.disableForOrg(input.organizationId),
+        ),
     listPendingOrgs: internalProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))

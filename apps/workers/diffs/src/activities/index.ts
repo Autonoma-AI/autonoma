@@ -14,6 +14,7 @@ export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
+import { applyMergeGateVerdict as applyMergeGateVerdictImpl } from "./analysis/apply-merge-gate-verdict";
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
 import { postAnalysisPrComment as postAnalysisPrCommentImpl } from "./analysis/post-analysis-comment";
@@ -64,6 +65,8 @@ export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
 export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
 // A DB read + a single GitHub API call - fast, but heartbeat for consistency with the other analysis activities.
 export const postAnalysisPrComment = withHeartbeat(postAnalysisPrCommentImpl);
+// DB reads + one or two GitHub API calls (map the verdict to the `Autonoma` check conclusion).
+export const applyMergeGateVerdict = withHeartbeat(applyMergeGateVerdictImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // The Investigator's own row-local writes on the detached snapshot: a self-heal plan rewrite (UpdateTest, queues
 // one generation) and the eager `delete` self-delete (RemoveTest, a single assignment delete). Both are fast, but
@@ -89,6 +92,7 @@ export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
     reconcileAnalysis,
     finalizeAnalysis,
     postAnalysisPrComment,
+    applyMergeGateVerdict,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
 // The Investigator's own row-local writes (self-heal + eager self-delete), on their own contract - only the diffs

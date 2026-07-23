@@ -13,6 +13,12 @@ const BRANCHES_PER_PAGE = 100;
 
 const installationAuthSchema = z.object({ token: z.string().min(1) });
 
+/** GitHub's create/get check-run response, narrowed to the numeric id we persist for later updates. */
+const checkRunResponseSchema = z.object({ id: z.number() });
+
+/** GitHub's repo-ruleset list response, narrowed to the id + name we match our own ruleset by. */
+const rulesetListSchema = z.array(z.object({ id: z.number(), name: z.string() }));
+
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
 export interface Repository {
@@ -72,6 +78,67 @@ export interface IssueComment {
     body: string;
 }
 
+/** The GitHub check-run lifecycle status. `completed` is the only status that carries a `conclusion`. */
+export type CheckRunStatus = "queued" | "in_progress" | "completed";
+
+/** The terminal outcomes GitHub accepts for a completed check run. The merge gate only uses a subset. */
+export type CheckRunConclusion =
+    | "success"
+    | "failure"
+    | "neutral"
+    | "cancelled"
+    | "timed_out"
+    | "action_required"
+    | "stale"
+    | "skipped";
+
+/**
+ * A button rendered on the check run's UI. Clicking one delivers a `check_run`
+ * `requested_action` webhook carrying this `identifier` and the acting user. GitHub caps the field lengths:
+ * `label` <= 20, `description` <= 40, `identifier` <= 20 characters.
+ */
+export interface CheckRunAction {
+    label: string;
+    description: string;
+    identifier: string;
+}
+
+export interface CreateCheckRunParams {
+    repoFullName: string;
+    headSha: string;
+    name: string;
+    status: CheckRunStatus;
+    conclusion?: CheckRunConclusion;
+    title: string;
+    summary: string;
+    actions?: CheckRunAction[];
+}
+
+export interface UpdateCheckRunParams {
+    repoFullName: string;
+    checkRunId: string;
+    status?: CheckRunStatus;
+    conclusion?: CheckRunConclusion;
+    title: string;
+    summary: string;
+    actions?: CheckRunAction[];
+}
+
+export interface RequiredCheckRulesetParams {
+    repoFullName: string;
+    /** The check context to require (e.g. `Autonoma`). */
+    contextName: string;
+    /** Stable name of the ruleset we create/find/delete, so the operation is idempotent and reversible. */
+    rulesetName: string;
+}
+
+/**
+ * Outcome of a required-status-check ruleset change. `applied` = the `Autonoma` check is now (or is no longer)
+ * required on all branches. `no_permission` = the App lacks `administration:write` on the repo (403) - the caller
+ * falls back to surfacing manual instructions.
+ */
+export type BranchProtectionResult = { status: "applied" } | { status: "no_permission" };
+
 /**
  * Result of a conditional open-PR list request. `unchanged` is returned when GitHub
  * answers `304 Not Modified` (the stored ETag still matches), in which case callers
@@ -126,6 +193,16 @@ export interface GitHubInstallationClient {
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
     deleteComment(repoFullName: string, commentId: string): Promise<void>;
+    /** Create a check run on `headSha`; returns GitHub's check-run id. */
+    createCheckRun(params: CreateCheckRunParams): Promise<string>;
+    /** Update an existing check run. Tolerates a 404 (the check was deleted on GitHub). */
+    updateCheckRun(params: UpdateCheckRunParams): Promise<void>;
+    /** Require `contextName` as a status check on ALL branches via a repo ruleset. */
+    requireStatusCheckOnAllBranches(params: RequiredCheckRulesetParams): Promise<BranchProtectionResult>;
+    /** Remove the ruleset named `rulesetName`, so the check is no longer required. */
+    removeRequiredStatusCheckRuleset(
+        params: Pick<RequiredCheckRulesetParams, "repoFullName" | "rulesetName">,
+    ): Promise<BranchProtectionResult>;
 }
 
 interface RawPullRequestLike {
@@ -487,6 +564,17 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         return error.status === 404;
     }
 
+    /**
+     * True when a request failed with a `403 Forbidden`. The branch-protection endpoints return 403 when the
+     * installation lacks `administration:write` on the repo; the caller maps this to `no_permission` and falls
+     * back to manual instructions rather than throwing.
+     */
+    private isForbidden(error: unknown): boolean {
+        if (error == null || typeof error !== "object") return false;
+        if (!("status" in error)) return false;
+        return error.status === 403;
+    }
+
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
         this.logger.info("Fetching pull requests associated with commit", { owner, repo, sha });
 
@@ -717,6 +805,165 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         }
 
         this.logger.info("Deleted PR comment", { repoFullName, commentId });
+    }
+
+    async createCheckRun(params: CreateCheckRunParams): Promise<string> {
+        const { owner, repo } = parseRepoFullName(params.repoFullName);
+        this.logger.info("Creating check run", {
+            repoFullName: params.repoFullName,
+            extra: { name: params.name, headSha: params.headSha, status: params.status },
+        });
+
+        const { data } = await this.octokit.request("POST /repos/{owner}/{repo}/check-runs", {
+            owner,
+            repo,
+            name: params.name,
+            head_sha: params.headSha,
+            status: params.status,
+            // GitHub rejects a conclusion unless the status is `completed`; only forward it for that status.
+            conclusion: params.status === "completed" ? params.conclusion : undefined,
+            output: { title: params.title, summary: params.summary },
+            actions: params.actions,
+        });
+
+        const checkRunId = String(checkRunResponseSchema.parse(data).id);
+        this.logger.info("Created check run", { repoFullName: params.repoFullName, extra: { checkRunId } });
+        return checkRunId;
+    }
+
+    async updateCheckRun(params: UpdateCheckRunParams): Promise<void> {
+        const { owner, repo } = parseRepoFullName(params.repoFullName);
+        this.logger.info("Updating check run", {
+            repoFullName: params.repoFullName,
+            extra: { checkRunId: params.checkRunId, status: params.status, conclusion: params.conclusion },
+        });
+
+        try {
+            await this.octokit.request("PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}", {
+                owner,
+                repo,
+                check_run_id: Number(params.checkRunId),
+                status: params.status,
+                conclusion: params.conclusion,
+                output: { title: params.title, summary: params.summary },
+                actions: params.actions,
+            });
+        } catch (error) {
+            // Tolerate a check that was deleted on GitHub (e.g. the head SHA was force-pushed away). Nothing to
+            // update, so treat it as a no-op rather than failing the caller.
+            if (this.isNotFound(error)) {
+                this.logger.warn("Check run not found on update (deleted on GitHub); no-op", {
+                    repoFullName: params.repoFullName,
+                    extra: { checkRunId: params.checkRunId },
+                });
+                return;
+            }
+            throw error;
+        }
+
+        this.logger.info("Updated check run", {
+            repoFullName: params.repoFullName,
+            extra: { checkRunId: params.checkRunId },
+        });
+    }
+
+    async requireStatusCheckOnAllBranches(params: RequiredCheckRulesetParams): Promise<BranchProtectionResult> {
+        const { owner, repo } = parseRepoFullName(params.repoFullName);
+        this.logger.info("Requiring status check on all branches via ruleset", {
+            repoFullName: params.repoFullName,
+            extra: { contextName: params.contextName, rulesetName: params.rulesetName },
+        });
+
+        try {
+            const existing = await this.findRulesetIdByName(owner, repo, params.rulesetName);
+            if (existing != null) {
+                this.logger.info("Required-status-check ruleset already present", {
+                    repoFullName: params.repoFullName,
+                    extra: { rulesetName: params.rulesetName },
+                });
+                return { status: "applied" };
+            }
+
+            // A branch ruleset targeting every branch (`~ALL`) that requires the check.
+            await this.octokit.request("POST /repos/{owner}/{repo}/rulesets", {
+                owner,
+                repo,
+                name: params.rulesetName,
+                target: "branch",
+                enforcement: "active",
+                conditions: { ref_name: { include: ["~ALL"], exclude: [] } },
+                rules: [
+                    {
+                        type: "required_status_checks",
+                        parameters: {
+                            required_status_checks: [{ context: params.contextName }],
+                            strict_required_status_checks_policy: false,
+                        },
+                    },
+                ],
+            });
+        } catch (error) {
+            return this.mapRulesetError(error, params.repoFullName, "create");
+        }
+
+        this.logger.info("Required status check on all branches", {
+            repoFullName: params.repoFullName,
+            extra: { rulesetName: params.rulesetName },
+        });
+        return { status: "applied" };
+    }
+
+    async removeRequiredStatusCheckRuleset(
+        params: Pick<RequiredCheckRulesetParams, "repoFullName" | "rulesetName">,
+    ): Promise<BranchProtectionResult> {
+        const { owner, repo } = parseRepoFullName(params.repoFullName);
+        this.logger.info("Removing required-status-check ruleset", {
+            repoFullName: params.repoFullName,
+            extra: { rulesetName: params.rulesetName },
+        });
+
+        try {
+            const rulesetId = await this.findRulesetIdByName(owner, repo, params.rulesetName);
+            if (rulesetId == null) {
+                return { status: "applied" };
+            }
+            await this.octokit.request("DELETE /repos/{owner}/{repo}/rulesets/{ruleset_id}", {
+                owner,
+                repo,
+                ruleset_id: rulesetId,
+            });
+        } catch (error) {
+            return this.mapRulesetError(error, params.repoFullName, "delete");
+        }
+
+        this.logger.info("Removed required-status-check ruleset", {
+            repoFullName: params.repoFullName,
+            extra: { rulesetName: params.rulesetName },
+        });
+        return { status: "applied" };
+    }
+
+    /** The id of the repo ruleset named `rulesetName`, or undefined when none exists. */
+    private async findRulesetIdByName(owner: string, repo: string, rulesetName: string): Promise<number | undefined> {
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/rulesets", { owner, repo });
+        const rulesets = rulesetListSchema.parse(data);
+        return rulesets.find((ruleset) => ruleset.name === rulesetName)?.id;
+    }
+
+    /** Map a ruleset request failure to a typed result, or rethrow anything unexpected. */
+    private mapRulesetError(
+        error: unknown,
+        repoFullName: string,
+        operation: "create" | "delete",
+    ): BranchProtectionResult {
+        if (this.isForbidden(error)) {
+            this.logger.warn("No permission to manage repo rulesets (lacks administration:write)", {
+                repoFullName,
+                extra: { operation },
+            });
+            return { status: "no_permission" };
+        }
+        throw error;
     }
 
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {

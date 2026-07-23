@@ -7,6 +7,8 @@ export const env = createEnv({
     extends: [loggerEnv],
     server: {
         SENTRY_DSN_WORKER_DIFFS: z.string().optional(),
+        POSTHOG_KEY: z.string().optional(),
+        POSTHOG_HOST: z.string().optional().default("https://us.i.posthog.com"),
         GITHUB_APP_ID: z.string().min(1),
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
@@ -31,6 +33,10 @@ export const env = createEnv({
         // INVESTIGATION_SHADOW_ENABLED gates the diffs fallback's investigation shadow.
         ANALYSIS_AUTHORITATIVE_ENABLED: z.stringbool().default(false),
         INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
+        // Global master kill-switch for the Autonoma merge gate. OFF by default: while off, the finalize seam never
+        // posts a verdict conclusion no matter an org's per-org `mergeGateEnabled`. Effective gate =
+        // MERGE_GATE_ENABLED && org.mergeGateEnabled (&& analysisEnabled, enforced at enable time).
+        MERGE_GATE_ENABLED: z.stringbool().default(false),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { analytics } from "@autonoma/analytics";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker, workflowsPath } from "@autonoma/workflow/worker";
@@ -9,6 +10,10 @@ import { sentryServiceInterceptor } from "./sentry-service-interceptor";
 
 runWithSentry({ name: "worker-diffs", dsn: env.SENTRY_DSN_WORKER_DIFFS }, async () => {
     logger.info("Starting diffs worker");
+
+    if (env.POSTHOG_KEY != null) {
+        analytics.init(env.POSTHOG_KEY, env.POSTHOG_HOST);
+    }
 
     const worker = await createTemporalWorker({
         taskQueue: TaskQueue.DIFFS,

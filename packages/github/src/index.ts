@@ -14,6 +14,13 @@ export {
     type CommitFile,
     type GitTree,
     type BranchList,
+    type CheckRunStatus,
+    type CheckRunConclusion,
+    type CheckRunAction,
+    type CreateCheckRunParams,
+    type UpdateCheckRunParams,
+    type RequiredCheckRulesetParams,
+    type BranchProtectionResult,
 } from "./github-installation-client";
 export type { EtagStore } from "./etag-store";
 export { FakeGitHubApp } from "./fake/fake-github-app";

@@ -15,8 +15,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, cp } from "node:fs/promises";
 import { join } from "node:path";
 import { contextPath, loadContextRepos, loadCoords } from "../framework/corpus";
-import { preparePlannerProject } from "../framework/planner-project";
 import { artifactsDir, caseDir, runDir as runDirFor } from "../framework/paths";
+import { preparePlannerProject } from "../framework/planner-project";
 import { runPlanner } from "../framework/run-planner-step";
 
 const OUTPUT_SLUG = "eval";

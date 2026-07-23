@@ -82,6 +82,20 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
                 extra: { message: rootFailureMessage(commentError) },
             });
         }
+
+        // Stage 6 - merge gate: map the verdict to the `Autonoma` check conclusion (flag-gated, per-org opt-in).
+        try {
+            const gate = await analysis.applyMergeGateVerdict({ snapshotId });
+            log.info("Merge gate step finished", {
+                ...ids,
+                extra: { status: gate.status, conclusion: gate.conclusion },
+            });
+        } catch (gateError) {
+            log.error("Merge gate step failed; run already completed, continuing", {
+                ...ids,
+                extra: { message: rootFailureMessage(gateError) },
+            });
+        }
     } catch (error) {
         const failureReason = rootFailureMessage(error);
         log.error("Analysis pipeline failed; finalizing the run as failed", { ...ids, extra: { failureReason } });

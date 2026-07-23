@@ -9,13 +9,14 @@ import {
     summarizeVerdictPlanes,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { ANALYSIS_VERDICT } from "@autonoma/types";
 import type {
     AnalysisCandidateFinding,
     ReconcileAnalysisInput,
     ReconcileAnalysisOutput,
 } from "@autonoma/workflow/activities";
 
-const CLIENT_BUG = "client_bug";
+const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 const DEDUP_TAG = "analysis-reconcile-dedup";
 const NARRATION_TAG = "analysis-reconcile-narration";
 

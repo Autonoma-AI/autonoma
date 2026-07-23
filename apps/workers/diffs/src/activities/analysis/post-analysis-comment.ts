@@ -8,7 +8,12 @@ import {
 } from "@autonoma/github/comment";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
-import { type CoverageSummary, coverageSummarySchema, investigationEvidenceSchema } from "@autonoma/types";
+import {
+    ANALYSIS_VERDICT,
+    type CoverageSummary,
+    coverageSummarySchema,
+    investigationEvidenceSchema,
+} from "@autonoma/types";
 import type { PostAnalysisPrCommentInput, PostAnalysisPrCommentOutput } from "@autonoma/workflow/activities";
 import { z } from "zod";
 import { resolvePrMeta } from "../../codebase/pr-meta";
@@ -21,7 +26,7 @@ import { type AnalysisClientBugFinding, buildAnalysisCommentPayload } from "./an
 const SCREENSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** The only finding category rendered as a card; coverage findings are summarized in the coverage line. */
-const CLIENT_BUG = "client_bug";
+const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 
 const evidenceListSchema = z.array(investigationEvidenceSchema);
 
@@ -164,7 +169,7 @@ async function loadReport(snapshotId: string): Promise<LoadedReport | undefined>
     if (report == null) return undefined;
 
     // The two-plane verdict stored as a string; anything other than `client_bug` is the app-health `passed` plane.
-    const verdict: AppHealthVerdict = report.verdict === CLIENT_BUG ? "client_bug" : "passed";
+    const verdict: AppHealthVerdict = report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed;
     const coverage = coverageSummarySchema.safeParse(report.coverage);
     return {
         verdict,

@@ -35,6 +35,8 @@ export const analysisVerdictSchema = z.enum([
 ]);
 export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 
+export const ANALYSIS_VERDICT = analysisVerdictSchema.enum;
+
 /**
  * The two planes the verdict taxonomy splits into. `app_health` is the only plane that counts against the PR;
  * `coverage` is the coverage-confidence plane (never a bug, never blocking).

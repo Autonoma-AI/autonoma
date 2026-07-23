@@ -1,3 +1,4 @@
+import { analytics } from "@autonoma/analytics";
 import { db } from "@autonoma/db";
 import { InsufficientPreviewCreditsError } from "@autonoma/errors";
 import type { GitHubApp } from "@autonoma/github";
@@ -11,6 +12,7 @@ import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.servi
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
+import { MergeGateService } from "./merge-gate.service";
 import { PullRequestCacheService } from "./pull-request-cache.service";
 
 type GitHubEnv = {
@@ -23,6 +25,7 @@ type GitHubEnv = {
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
+const mergeGateService = new MergeGateService(db, githubApp, env.MERGE_GATE_ENABLED, analytics);
 
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
@@ -118,6 +121,7 @@ const WEBHOOK_EVENT_TYPES = {
     "pull_request.closed": "pull_request_closed",
     "pull_request.reopened": "pull_request_reopened",
     "pull_request.ready_for_review": "pull_request_ready_for_review",
+    "check_run.requested_action": "check_run_requested_action",
     // push payloads carry no `action`; the event name alone is the key.
     push: "push",
 } as const;
@@ -213,14 +217,17 @@ async function dispatchWebhookEvent(
         case "pull_request_opened":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("opened", organizationId, payload);
+            await mergeGateService.postPendingFromWebhook(organizationId, payload);
             return;
         case "pull_request_synchronize":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("synchronize", organizationId, payload);
+            await mergeGateService.postPendingFromWebhook(organizationId, payload);
             return;
         case "pull_request_reopened":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("reopened", organizationId, payload);
+            await mergeGateService.postPendingFromWebhook(organizationId, payload);
             return;
         case "pull_request_ready_for_review":
             // A draft marked ready for review is no longer a draft, so the
@@ -228,11 +235,16 @@ async function dispatchWebhookEvent(
             // builds even for orgs that skip draft PRs.
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("ready_for_review", organizationId, payload);
+            await mergeGateService.postPendingFromWebhook(organizationId, payload);
             return;
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
             await startInvestigationMerge(organizationId, payload);
+            await mergeGateService.recordMergeFromWebhook(organizationId, payload);
+            return;
+        case "check_run_requested_action":
+            await mergeGateService.applySkipFromWebhook(organizationId, payload);
             return;
         case "push":
             await startMainBranchPushDeploy(organizationId, payload);

@@ -102,6 +102,8 @@ export type {
     FinalizeAnalysisOutput,
     PostAnalysisPrCommentInput,
     PostAnalysisPrCommentOutput,
+    ApplyMergeGateVerdictInput,
+    ApplyMergeGateVerdictOutput,
     InvestigatorActivities,
     SelfHealAnalysisTestInput,
     SelfHealAnalysisTestOutput,

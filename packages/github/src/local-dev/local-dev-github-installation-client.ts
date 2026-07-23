@@ -1,8 +1,10 @@
 import { type Logger, logger } from "@autonoma/logger";
 import type {
     BranchList,
+    BranchProtectionResult,
     CloneRepositoryParams,
     Commit,
+    CreateCheckRunParams,
     GitHubInstallationClient,
     GitTree,
     IssueComment,
@@ -10,6 +12,8 @@ import type {
     PullRequest,
     PullRequestCommit,
     Repository,
+    RequiredCheckRulesetParams,
+    UpdateCheckRunParams,
 } from "../github-installation-client";
 
 const NOT_SUPPORTED = "not supported in LOCAL_DEV mode";
@@ -205,5 +209,38 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
 
     async deleteComment(repoFullName: string, commentId: string): Promise<void> {
         this.logger.info("Skipping local-dev PR comment delete", { repoFullName, commentId });
+    }
+
+    async createCheckRun(params: CreateCheckRunParams): Promise<string> {
+        this.logger.info("Skipping local-dev check run create", {
+            repoFullName: params.repoFullName,
+            extra: { name: params.name, headSha: params.headSha, status: params.status },
+        });
+        return `local-dev-check-run-${params.repoFullName}-${params.headSha}`;
+    }
+
+    async updateCheckRun(params: UpdateCheckRunParams): Promise<void> {
+        this.logger.info("Skipping local-dev check run update", {
+            repoFullName: params.repoFullName,
+            extra: { checkRunId: params.checkRunId, conclusion: params.conclusion },
+        });
+    }
+
+    async requireStatusCheckOnAllBranches(params: RequiredCheckRulesetParams): Promise<BranchProtectionResult> {
+        this.logger.info("Skipping local-dev required-status-check ruleset create", {
+            repoFullName: params.repoFullName,
+            extra: { contextName: params.contextName, rulesetName: params.rulesetName },
+        });
+        return { status: "applied" };
+    }
+
+    async removeRequiredStatusCheckRuleset(
+        params: Pick<RequiredCheckRulesetParams, "repoFullName" | "rulesetName">,
+    ): Promise<BranchProtectionResult> {
+        this.logger.info("Skipping local-dev required-status-check ruleset remove", {
+            repoFullName: params.repoFullName,
+            extra: { rulesetName: params.rulesetName },
+        });
+        return { status: "applied" };
     }
 }

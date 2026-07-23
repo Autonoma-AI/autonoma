@@ -670,6 +670,12 @@ model FeatureBranchInfo {
   prUpdatedAt   DateTime?              @map("pr_updated_at") // GitHub's updated_at (drives the "Updated" column)
   prCachedAt    DateTime?              @map("pr_cached_at") // our last write time (drives the freshness/throttle gate)
 
+  // Merge outcome facts, written on `pull_request.closed` with `merged === true`. All nullable: a still-open or
+  // closed-unmerged PR leaves them absent.
+  mergedAt      DateTime? @map("merged_at")
+  mergeCommitSha String?  @map("merge_commit_sha")
+  mergedByLogin String?   @map("merged_by_login")
+
   branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -1816,6 +1822,13 @@ model OrganizationSettings {
   // Requires TEMPORAL_ADDRESS on the previewkit runner too - that's the fleet-wide capability, this is who fires.
   previewkitAutoTriggerEnabled Boolean @default(false) @map("previewkit_auto_trigger_enabled")
 
+  // Whether the Autonoma merge gate is active for this org: post the `Autonoma` check on every PR (any base
+  // branch), map the authoritative verdict to its conclusion, require the check across all branches via a repo
+  // ruleset, and honor the Skip button. Off by default - enabled per trusted org, never fleet-wide by flag.
+  // Requires analysisEnabled (the gate reads the authoritative verdict) and is additionally gated by the global
+  // MERGE_GATE_ENABLED kill switch.
+  mergeGateEnabled Boolean @default(false) @map("merge_gate_enabled")
+  
   // Whether previewkit compute-usage billing is enforced for this org: a new deploy/redeploy is declined once the
   // org's combined credit balance is at or below zero (already-running environments are never torn down for it).
   // Gated by the global PREVIEWKIT_BILLING_ENABLED master switch, so a flip is per-org and reversible for the
@@ -2020,6 +2033,44 @@ model GitHubPrComment {
 
   @@unique([repoFullName, prNumber, kind])
   @@map("github_pr_comment")
+}
+
+// The `Autonoma` merge-gate check run posted on a PR.
+model GitHubCheckRun {
+  id           String   @id @default(cuid())
+  repoFullName String   @map("repo_full_name")
+  prNumber     Int      @map("pr_number")
+  headSha      String   @map("head_sha")
+  checkRunId   String   @map("check_run_id") // GitHub's numeric check-run id, stored as string
+  conclusion   String? // last conclusion we set (in_progress while pending, then failure/success/neutral)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([repoFullName, headSha])
+  @@index([repoFullName, prNumber])
+  @@map("github_check_run")
+}
+
+// A first-class record of a developer clicking the merge-gate Skip button. Snapshots the open bugs at skip time
+// (count + finding keys + the snapshot whose verdict was skipped).
+model SkipRecord {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  repoFullName   String   @map("repo_full_name")
+  prNumber       Int      @map("pr_number")
+  headSha        String   @map("head_sha")
+  snapshotId     String?  @map("snapshot_id") // the snapshot whose verdict was skipped
+  actorLogin     String   @map("actor_login") // sender.login from the requested_action webhook
+  openBugCount   Int      @map("open_bug_count")
+  openFindingIds Json     @map("open_finding_ids") // findingKeys open at skip time
+  reason         String? // optional free-text reason
+  reasonCategory String?  @map("reason_category") // optional structured reason
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId, createdAt])
+  @@index([repoFullName, prNumber])
+  @@index([repoFullName, headSha])
+  @@map("skip_record")
 }
 
 model PreviewkitBuild {

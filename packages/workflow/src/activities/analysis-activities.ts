@@ -117,6 +117,18 @@ export interface PostAnalysisPrCommentOutput {
     commentId?: string;
 }
 
+export interface ApplyMergeGateVerdictInput {
+    /** The branch's real pending snapshot the run reconciled - the check reads its persisted AnalysisReport verdict. */
+    snapshotId: string;
+}
+
+export interface ApplyMergeGateVerdictOutput {
+    /** "posted" (the `Autonoma` check conclusion was set) | "skipped" (gate off for the org, or no PR). */
+    status: "posted" | "skipped";
+    /** The conclusion set on the check when posted; absent when skipped. */
+    conclusion?: "success" | "failure" | "neutral";
+}
+
 export interface SelfHealAnalysisTestInput {
     /** The snapshot the test's rows live on. */
     snapshotId: string;
@@ -165,6 +177,12 @@ export interface AnalysisActivities {
     reconcileAnalysis(input: ReconcileAnalysisInput): Promise<ReconcileAnalysisOutput>;
     finalizeAnalysis(input: FinalizeAnalysisInput): Promise<FinalizeAnalysisOutput>;
     postAnalysisPrComment(input: PostAnalysisPrCommentInput): Promise<PostAnalysisPrCommentOutput>;
+    /**
+     * Merge-gate finalize step: map the persisted `AnalysisReport.verdict` to the `Autonoma` check conclusion and
+     * post/update the check. Runs after finalize on the happy path, fully contained like postAnalysisPrComment, and
+     * gated OFF by default (per-org `mergeGateEnabled` + the global MERGE_GATE_ENABLED switch).
+     */
+    applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): Promise<ApplyMergeGateVerdictOutput>;
 }
 
 /**

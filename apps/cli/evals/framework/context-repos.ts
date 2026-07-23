@@ -13,11 +13,7 @@ import { copyTree, git } from "./git";
  * the integration there is nothing to strip and the patch is simply absent. Used by
  * both eval layers so the target and its siblings are cleaned the same way.
  */
-export async function stageContextCheckout(
-    caseRepo: string,
-    coords: CheckoutCoords,
-    destDir: string,
-): Promise<void> {
+export async function stageContextCheckout(caseRepo: string, coords: CheckoutCoords, destDir: string): Promise<void> {
     const cacheDir = await ensureCachedCheckout(coords);
     await copyTree(cacheDir, destDir);
 

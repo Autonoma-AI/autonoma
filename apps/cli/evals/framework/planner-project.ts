@@ -51,9 +51,7 @@ export async function preparePlannerProject(params: {
     await copyTree(targetCache, targetDir);
     await git(targetDir, ["apply", "--whitespace=nowarn", stripPatchPath]);
 
-    await Promise.all(
-        contextRepos.map((ctx) => stageContextCheckout(caseRepo, ctx, join(projectRoot, ctx.repo))),
-    );
+    await Promise.all(contextRepos.map((ctx) => stageContextCheckout(caseRepo, ctx, join(projectRoot, ctx.repo))));
 
     return { projectRoot, multiRepo: true };
 }

@@ -1,8 +1,13 @@
 import type {
     BranchList,
+    BranchProtectionResult,
+    CheckRunAction,
+    CheckRunConclusion,
+    CheckRunStatus,
     CloneRepositoryParams,
     Commit,
     CommitFile,
+    CreateCheckRunParams,
     GitHubInstallationClient,
     GitTree,
     IssueComment,
@@ -11,6 +16,8 @@ import type {
     PullRequestCommit,
     PullRequestState,
     Repository,
+    RequiredCheckRulesetParams,
+    UpdateCheckRunParams,
 } from "../github-installation-client";
 
 export interface CommitDetails {
@@ -81,10 +88,27 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         prNumber: number;
         body: string;
     }> = [];
+    /** Every check run created/updated through this client, in creation order. Inspected directly by tests. */
+    readonly checkRuns: Array<{
+        id: string;
+        repoFullName: string;
+        headSha: string;
+        name: string;
+        status: CheckRunStatus;
+        conclusion?: CheckRunConclusion;
+        title: string;
+        summary: string;
+        actions?: CheckRunAction[];
+    }> = [];
 
     private readonly repositories: Map<string, InternalRepo> = new Map();
     private readonly repoById: Map<number, InternalRepo> = new Map();
     private nextCommentId = 1;
+    private nextCheckRunId = 1;
+    // Required-status-check rulesets per repoFullName: rulesetName.
+    private readonly rulesets: Map<string, Map<string, string[]>> = new Map();
+    // Lets a test simulate a repo where the App lacks admin.
+    private branchProtectionBehavior: "protected" | "no_permission" = "protected";
 
     addRepository(setup: RepositorySetup): void {
         const metadata: Repository = {
@@ -366,6 +390,60 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         // Idempotent like the real client: deleting a missing comment is a no-op.
         if (index === -1) return;
         this.comments.splice(index, 1);
+    }
+
+    async createCheckRun(params: CreateCheckRunParams): Promise<string> {
+        this.requireRepo(params.repoFullName);
+        const id = String(this.nextCheckRunId++);
+        this.checkRuns.push({
+            id,
+            repoFullName: params.repoFullName,
+            headSha: params.headSha,
+            name: params.name,
+            status: params.status,
+            conclusion: params.status === "completed" ? params.conclusion : undefined,
+            title: params.title,
+            summary: params.summary,
+            actions: params.actions,
+        });
+        return id;
+    }
+
+    async updateCheckRun(params: UpdateCheckRunParams): Promise<void> {
+        this.requireRepo(params.repoFullName);
+        const checkRun = this.checkRuns.find((candidate) => candidate.id === params.checkRunId);
+        if (checkRun == null) return;
+        if (params.status != null) checkRun.status = params.status;
+        checkRun.conclusion = params.conclusion ?? checkRun.conclusion;
+        checkRun.title = params.title;
+        checkRun.summary = params.summary;
+        checkRun.actions = params.actions;
+    }
+
+    async requireStatusCheckOnAllBranches(params: RequiredCheckRulesetParams): Promise<BranchProtectionResult> {
+        if (this.branchProtectionBehavior !== "protected") return { status: this.branchProtectionBehavior };
+        const repoRulesets = this.rulesets.get(params.repoFullName) ?? new Map<string, string[]>();
+        repoRulesets.set(params.rulesetName, [params.contextName]);
+        this.rulesets.set(params.repoFullName, repoRulesets);
+        return { status: "applied" };
+    }
+
+    async removeRequiredStatusCheckRuleset(
+        params: Pick<RequiredCheckRulesetParams, "repoFullName" | "rulesetName">,
+    ): Promise<BranchProtectionResult> {
+        if (this.branchProtectionBehavior === "no_permission") return { status: "no_permission" };
+        this.rulesets.get(params.repoFullName)?.delete(params.rulesetName);
+        return { status: "applied" };
+    }
+
+    /** Test helper: simulate a repo where the App lacks admin (`no_permission`) on ruleset changes. */
+    setBranchProtectionBehavior(behavior: "protected" | "no_permission"): void {
+        this.branchProtectionBehavior = behavior;
+    }
+
+    /** Test inspection: the status-check contexts required across all branches by the named ruleset. */
+    requiredStatusCheckContexts(repoFullName: string, rulesetName: string): string[] {
+        return [...(this.rulesets.get(repoFullName)?.get(rulesetName) ?? [])];
     }
 
     private requireRepo(fullName: string): InternalRepo {

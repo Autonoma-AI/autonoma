@@ -6,10 +6,10 @@ import type {
     AutonomaCommentPayload,
     AutonomaCommentState,
 } from "@autonoma/github/comment";
-import type { AnalysisVerdict, CoverageSummary } from "@autonoma/types";
+import { ANALYSIS_VERDICT, type AnalysisVerdict, type CoverageSummary } from "@autonoma/types";
 
 /** The only finding category the comment renders as a card - every coverage finding is summarized in a line. */
-const CLIENT_BUG = "client_bug";
+const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 
 /**
  * A human noun for each verdict, keyed over the SSOT enum so a new verdict is a compile error until it is given
