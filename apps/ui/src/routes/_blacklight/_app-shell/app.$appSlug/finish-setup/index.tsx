@@ -67,12 +67,19 @@ import { useCurrentApplication } from "../../-use-current-application";
 
 type FinishStepId = "cli" | "sdk" | "dry-run";
 
+interface FinishStepRenderProps {
+  applicationId: string;
+  artifactStatus: ArtifactStatus;
+  selectedTargetId: string | undefined;
+  onSelectTarget: (id: string | undefined) => void;
+}
+
 interface FinishStepDefinition {
   id: FinishStepId;
   stepperLabel: string;
   title: string;
   description: ReactNode;
-  render: (props: { applicationId: string; artifactStatus: ArtifactStatus }) => ReactNode;
+  render: (props: FinishStepRenderProps) => ReactNode;
 }
 
 const CLI_FINISH_STEP: FinishStepDefinition = {
@@ -102,7 +109,13 @@ const SDK_FINISH_STEP: FinishStepDefinition = {
       </span>
     </>
   ),
-  render: (props) => <SdkStepBody applicationId={props.applicationId} />,
+  render: (props) => (
+    <SdkStepBody
+      applicationId={props.applicationId}
+      selectedTargetId={props.selectedTargetId}
+      onSelectTarget={props.onSelectTarget}
+    />
+  ),
 };
 
 const DRY_RUN_FINISH_STEP: FinishStepDefinition = {
@@ -115,7 +128,7 @@ const DRY_RUN_FINISH_STEP: FinishStepDefinition = {
       provisions cleanly.
     </>
   ),
-  render: (props) => <DryRunStepBody applicationId={props.applicationId} />,
+  render: (props) => <DryRunStepBody applicationId={props.applicationId} selectedTargetId={props.selectedTargetId} />,
 };
 
 const FINISH_STEPS = [CLI_FINISH_STEP, SDK_FINISH_STEP, DRY_RUN_FINISH_STEP];
@@ -180,7 +193,22 @@ function FinishSetupPage() {
 function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; appSlug: string }) {
   const { data: state } = useOnboardingState(applicationId);
   const { data: artifactStatus } = useArtifactStatus(applicationId);
+  const { data: targets } = useSdkDryRunTargets(applicationId);
+  const { target: pinnedTargetId } = Route.useSearch();
   const navigate = Route.useNavigate();
+
+  // The dry-run target is owned here, not inside a step, because the step bodies
+  // mount and unmount as you move between steps - local state would reset (the
+  // selection cleared on Back) and each step would recompute its own default, so
+  // the dry run could hit a different preview than the one validated. Seed from
+  // the URL pin (survives refresh), else the auto-detected SDK PR, else the first
+  // ready preview. Keep the pin in sync so a refresh restores the same target.
+  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(() =>
+    resolveInitialTargetId(pinnedTargetId, targets, targets.autoDetectedTargetId ?? pickInitialDryRunTargetId(targets)),
+  );
+  useEffect(() => {
+    void navigate({ search: (prev) => ({ ...prev, target: selectedTargetId }), replace: true });
+  }, [selectedTargetId, navigate]);
 
   const sdkImplemented = state.sdkConfigured;
   // Gate the CLI step on the live artifact status (`stepComplete`), not on
@@ -247,7 +275,7 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
           <h2 className="text-lg font-medium text-text-primary">{currentStep.title}</h2>
           <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{currentStep.description}</p>
         </header>
-        {currentStep.render({ applicationId, artifactStatus })}
+        {currentStep.render({ applicationId, artifactStatus, selectedTargetId, onSelectTarget: setSelectedTargetId })}
       </section>
 
       <div className="mt-8 flex items-center justify-between border-t border-border-dim pt-6">
@@ -736,17 +764,29 @@ function VercelSdkValidationSection({ applicationId }: { applicationId: string }
  * paste and no PR/main target to choose. Everything else keeps the manual BYO
  * flow (paste the shared secret, pick a PR/main preview target).
  */
-function SdkStepBody({ applicationId }: { applicationId: string }) {
+interface SdkStepProps {
+  applicationId: string;
+  selectedTargetId: string | undefined;
+  onSelectTarget: (id: string | undefined) => void;
+}
+
+function SdkStepBody({ applicationId, selectedTargetId, onSelectTarget }: SdkStepProps) {
   const vercelProjects = useAvailableVercelProjects(applicationId);
 
   if (vercelProjects.isLoading) return <Skeleton className="h-40 w-full" />;
   if (vercelProjects.data?.linkedProject != null) {
     return <VercelSdkValidationSection applicationId={applicationId} />;
   }
-  return <ExternalSdkStepBody applicationId={applicationId} />;
+  return (
+    <ExternalSdkStepBody
+      applicationId={applicationId}
+      selectedTargetId={selectedTargetId}
+      onSelectTarget={onSelectTarget}
+    />
+  );
 }
 
-function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
+function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }: SdkStepProps) {
   const app = useCurrentApplication();
   const { data: state } = useOnboardingState(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
@@ -757,14 +797,6 @@ function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
   const redeployTarget = useRedeploySdkDryRunTarget();
   const prepareMutate = prepareTarget.mutate;
 
-  const { target: pinnedTargetId } = Route.useSearch();
-  const navigate = Route.useNavigate();
-  // Seed from the URL-pinned target (shared with the dry-run step) so an explicit
-  // pick carries across steps and survives a refresh; fall back to the auto-detected
-  // SDK PR when nothing is pinned or the pin no longer exists.
-  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(() =>
-    resolveInitialTargetId(pinnedTargetId, targets, targets.autoDetectedTargetId ?? targets.targets[0]?.id),
-  );
   const [signingSecret, setSigningSecret] = useState("");
   const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -780,11 +812,6 @@ function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
   // returns to "ready". The retry sends allowSelfHeal=false, so a 401 that
   // survives the redeploy throws and surfaces instead of re-arming.
   const [retryDiscoverTargetId, setRetryDiscoverTargetId] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (pinnedTargetId != null || selectedTargetId == null) return;
-    void navigate({ search: (prev) => ({ ...prev, target: selectedTargetId }), replace: true });
-  }, [pinnedTargetId, selectedTargetId, navigate]);
 
   const serverSecret = sharedSecretQuery.data?.sharedSecret;
   useEffect(() => {
@@ -928,9 +955,7 @@ function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
           value={selectedTargetId ?? ""}
           onValueChange={(value) => {
             const nextTargetId = value != null && value.length > 0 ? value : undefined;
-            setSelectedTargetId(nextTargetId);
-            // Pin the explicit pick so it carries into the dry-run step and a refresh.
-            void navigate({ search: (prev) => ({ ...prev, target: nextTargetId }), replace: true });
+            onSelectTarget(nextTargetId);
             // A new target is a new deploy timeline - let the auto-switch drive again.
             setLogSourceOverride(undefined);
           }}
@@ -1270,8 +1295,14 @@ function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
 
 // ─── Step 3: Dry run scenarios ────────────────────────────────────────────────
 
-function DryRunStepBody({ applicationId }: { applicationId: string }) {
-  return <DryRunList applicationId={applicationId} />;
+function DryRunStepBody({
+  applicationId,
+  selectedTargetId,
+}: {
+  applicationId: string;
+  selectedTargetId: string | undefined;
+}) {
+  return <DryRunList applicationId={applicationId} selectedTargetId={selectedTargetId} />;
 }
 
 interface DryRunResult {
@@ -1288,20 +1319,22 @@ function formatDryRunError(error: unknown): string | undefined {
   return JSON.stringify(error);
 }
 
-function DryRunList({ applicationId }: { applicationId: string }) {
+function DryRunList({
+  applicationId,
+  selectedTargetId,
+}: {
+  applicationId: string;
+  selectedTargetId: string | undefined;
+}) {
   const { data: scenarios } = useOnboardingScenarios(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
   const runDryRun = useRunScenarioDryRun();
-  const { target: pinnedTargetId } = Route.useSearch();
   const [results, setResults] = useState<Record<string, DryRunResult>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
 
-  // The dry run runs against the target validated on the SDK step - inherited via
-  // the URL pin, so there is no second picker to keep in sync (and diverge). Fall
-  // back to the first ready target when nothing is pinned or the pin is gone (PR
-  // closed, preview torn down); the SDK step's Back button is where you change it.
-  const selectedTargetId = resolveInitialTargetId(pinnedTargetId, targets, pickInitialDryRunTargetId(targets));
+  // The target is owned by FinishSetupSteps and shared with the SDK step, so the
+  // dry run hits exactly the preview validated there.
   const list = scenarios ?? [];
   const selectedTarget = targets.targets.find((t) => t.id === selectedTargetId);
   const selectedTargetNote = selectedTarget != null ? targetAvailabilityNote(selectedTarget.availability) : undefined;
