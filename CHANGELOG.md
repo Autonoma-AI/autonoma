@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.260723.2](https://github.com/Autonoma-AI/agent/compare/v1.260723.1...v1.260723.2) (2026-07-23)
+
+
+### Features
+
+* **cronjobs:** build with Rolldown ([#1715](https://github.com/Autonoma-AI/agent/issues/1715)) ([8e3e374](https://github.com/Autonoma-AI/agent/commit/8e3e3744fdab7d40308a64607546cbcd6be4fe89))
+* **previewkit:** add BuildKit registry cache for image builds ([#1713](https://github.com/Autonoma-AI/agent/issues/1713)) ([28a5ae7](https://github.com/Autonoma-AI/agent/commit/28a5ae79a83996912856f4d473deaee7bfa5eb1f))
+* support multi-repo apps in SDK-integration eval ([#1582](https://github.com/Autonoma-AI/agent/issues/1582)) ([c1d3152](https://github.com/Autonoma-AI/agent/commit/c1d31522ba97bd9dd0d97f33128d4d5f5f3e6454))
+
+
+### Bug Fixes
+
+* **cronjobs:** deploy all cronjob manifests using the shared image ([#1716](https://github.com/Autonoma-AI/agent/issues/1716)) ([84972bb](https://github.com/Autonoma-AI/agent/commit/84972bb20e80e5f68cf43f2d537ff0d58410ca1d))
+* onboarding vercel issues ([#1681](https://github.com/Autonoma-AI/agent/issues/1681)) ([1b8f45e](https://github.com/Autonoma-AI/agent/commit/1b8f45e1a26c710d9921909cb6ec38e211751150))
+
+
+### Performance Improvements
+
+* **cronjobs:** optimize Docker image ([#1714](https://github.com/Autonoma-AI/agent/issues/1714)) ([8ad76e7](https://github.com/Autonoma-AI/agent/commit/8ad76e7a79e0550bdc6bd7f82225273277fe9dd9))
+
 ## [1.260723.1](https://github.com/Autonoma-AI/agent/compare/v1.8.44...v1.260723.1) (2026-07-23)
 
 
