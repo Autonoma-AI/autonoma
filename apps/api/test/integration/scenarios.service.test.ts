@@ -181,5 +181,17 @@ apiTestSuite({
             });
             expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
         });
+
+        test("dryRun rejects a scenario that belongs to another application", async ({ harness }) => {
+            const { service, app } = await createFixture(harness, "Scenario Dry Run Owner App");
+            const { scenario: foreignScenario } = await createFixture(harness, "Scenario Dry Run Other App");
+
+            // dryRun scopes the scenario to its application, so a scenario from another
+            // app is rejected up front - a caller can't run another tenant's recipe
+            // against their own (SDK-controlled) app.
+            await expect(service.dryRun(app.id, harness.organizationId, foreignScenario.id)).rejects.toThrow(
+                "Scenario not found",
+            );
+        });
     },
 });

@@ -88,6 +88,29 @@ integrationTestSuite({
             expect(generation.scenarioInstanceId).toBe(instance.id);
         });
 
+        test("up: rejects a scenario that belongs to another application", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            const otherOrgId = await harness.createOrg();
+            const { appId: otherAppId } = await harness.createApp(otherOrgId, {
+                webhookUrl: harness.webhookServer.url,
+                signingSecret: SIGNING_SECRET,
+            });
+            const foreignScenarioId = await harness.createScenario(otherOrgId, otherAppId, "foreign", {
+                Organization: [{ _alias: "org1", name: "Other Corp" }],
+            });
+
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+
+            await expect(manager.up(subject, foreignScenarioId)).rejects.toThrow(
+                `Scenario "${foreignScenarioId}" not found for application`,
+            );
+            // The tenant guard must trip before any SDK call goes out.
+            expect(harness.webhookServer.requests).toHaveLength(0);
+        });
+
         test("up: resolves literal variables before SDK call", async ({
             harness,
             seedResult: { orgId, appId, deploymentId, manager, recipeStore },

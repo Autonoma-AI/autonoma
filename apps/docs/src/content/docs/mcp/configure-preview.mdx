@@ -115,13 +115,18 @@ Client config formats change over time. If a snippet above no longer matches, ke
 
 Once paired, the agent works a loop, and the Autonoma UI streams every step:
 
-1. **Pair** - `pair(code)` claims your app's config for the agent and returns the current config.
+1. **Pair** - `pair(code)` claims your app's config for the agent and returns the current config. Your agent is told to pair **first**, before it analyzes your repo: pairing is low-risk (it makes no code changes and deploys nothing) and it is what flips the UI into "connected" and starts streaming activity, so you get immediate feedback instead of staring at an idle screen while the agent reads code.
 2. **Read and edit** - `get_config` / `apply_config` read and save the full preview environment config document. A save is validated; an invalid document returns the errors to fix. `apply_config` also takes an optional `branch` to set which branch the preview deploys from (defaults to your repo's default branch; setting it here does not deploy).
 3. **Deploy** - `trigger_deploy` deploys the configured deploy branch as the preview.
 4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
 5. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
+6. **Fix the test-data recipes** - a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"), and its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's own database. Before onboarding finishes a recipe often does not work yet. The agent lists scenarios with `list_scenarios`, reads one with `get_recipe`, saves a corrected version with `update_recipe` (validated against the recipe schema, so a bad shape comes back with the exact fields to fix), and tests it end-to-end with `dry_run_scenario` (which calls your SDK `up` to create the entities, then `down` to remove them) - looping until it passes.
+
+   There are two different things that can be wrong, and they iterate differently. A **recipe JSON** problem (a wrong field, an unresolved `{{variable}}`) is stored on Autonoma, so `update_recipe` -> `dry_run_scenario` takes effect immediately with no redeploy. A problem in your **SDK handler code** (the factory that turns the recipe into database rows) lives in your repo and only changes when the app is rebuilt: push the fix to the deploy branch (`get_config` / `pair` return which branch that is), redeploy - `trigger_deploy` for a PreviewKit preview, or wait for your own deployment to finish - and only then dry-run again, so you are not testing stale code. Fastest of all is to iterate the SDK handler against a local server and database first and confirm the rows land, then push a recipe you already know works.
 
 While the agent holds the config, the Autonoma UI is read-only and shows what it is doing in real time. You can press **Take over** at any point to reclaim the config and continue by hand; the agent stands down immediately. If the agent goes idle, control returns to you automatically.
+
+The server's connect-time instructions already tell your agent what Autonoma is and the order to use these tools, so even an agent that has never seen Autonoma knows where to start. Any client can also reach that guidance without a setup file: invoke the **`configure_preview`** prompt (a guided flow that pairs with your code and runs the loop), or read the **onboarding guide** resource (`autonoma://onboarding-guide`) on demand - useful when a long session has pushed the connect-time instructions out of the agent's context.
 
 ## Secrets stay yours
 
@@ -141,6 +146,10 @@ The agent should always ask you first whether to set env from your `.env` (you p
 | `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
 | `trigger_deploy` | applicationId | Deploys the configured deploy branch (repo default unless overridden) as the preview |
 | `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, diagnostics, and a `recentLogs` tail - build logs while building, the app's runtime logs once ready, both on failure |
+| `list_scenarios` | applicationId | Lists the app's scenarios (named test-data states) and whether each already has a recipe |
+| `get_recipe` | applicationId, scenarioId | Reads a scenario's current recipe - the JSON `create` graph and `variables` your SDK uses to build its entities |
+| `update_recipe` | applicationId, scenarioId, recipe | Saves a corrected recipe as the scenario's active version (the recipe name must stay the scenario's name) |
+| `dry_run_scenario` | applicationId, scenarioId | Runs a recipe against the deployed app (SDK `up` then `down`); on failure returns which phase failed and the SDK error |
 
 ## Troubleshooting
 

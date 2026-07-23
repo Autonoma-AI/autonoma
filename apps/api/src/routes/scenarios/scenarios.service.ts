@@ -4,6 +4,7 @@ import { NotFoundError } from "@autonoma/errors";
 import { type ScenarioManager, applyScenarioRecipeUpdate } from "@autonoma/scenario";
 import { ScenarioRecipeSchema } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
 
@@ -128,6 +129,16 @@ export class ScenariosService extends Service {
             where: { id: applicationId, organizationId },
         });
         if (application == null) throw new NotFoundError("Application not found");
+
+        // Scope the scenario to this application before provisioning. ScenarioManager.up
+        // enforces the same tenant boundary, so this is defense-in-depth - but doing it
+        // here fails a foreign/stale scenarioId early with a typed NotFoundError (surfaced
+        // as a clean "unavailable" over MCP) instead of after the deployment lookup.
+        const scenario = await this.db.scenario.findFirst({
+            where: { id: scenarioId, applicationId },
+            select: { id: true },
+        });
+        if (scenario == null) throw new NotFoundError("Scenario not found");
 
         const subject = new DryRunSubject(this.db, applicationId);
         const instance = await this.scenarioManager.up(subject, scenarioId);
@@ -257,9 +268,12 @@ export class ScenariosService extends Service {
 
         const validation = ScenarioRecipeSchema.safeParse(parsed);
         if (!validation.success) {
+            // Prettify to a per-field "path: message" list so the caller (the scenarios
+            // UI or the onboarding agent) sees exactly which fields are wrong and can fix
+            // them, instead of a raw serialized ZodError.
             throw new TRPCError({
                 code: "BAD_REQUEST",
-                message: `Invalid recipe: ${validation.error.message}`,
+                message: `Invalid recipe:\n${z.prettifyError(validation.error)}`,
             });
         }
 

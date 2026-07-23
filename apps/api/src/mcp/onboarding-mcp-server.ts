@@ -1,5 +1,10 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import { type AgentLogEntry, isProtectedPreviewkitEnvKey, previewConfigSchema } from "@autonoma/types";
+import {
+    type AgentLogEntry,
+    isProtectedPreviewkitEnvKey,
+    previewConfigSchema,
+    ScenarioRecipeSchema,
+} from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -40,9 +45,9 @@ interface RecentLogTail {
  */
 const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent configure that preview during onboarding: set up the build, databases, services and env, deploy off the default branch (or a branch you choose), and iterate until it comes up - while the user watches read-only in the Autonoma UI.
 
-Start every session by pairing:
+Start every session by pairing - and pair FIRST, before you analyze the repo, read files, or plan. Pairing is low-risk: it only claims the app's config so the UI can show you are connected, it changes NO code and deploys NOTHING, and the user can take over at any time. This matters because the user is watching the Autonoma UI live and sees no activity at all until you pair - pairing is what flips the UI into "your agent is connected and configuring" and starts streaming what you do as feedback. If you spend minutes inspecting the project before pairing, the user just stares at an idle screen with no idea anything is happening (and may give up). So do NOT front-load repo analysis; pair immediately, then investigate.
 1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
-2. Call pair(code) with it. That claims the app's config for you and returns its applicationId and current config. Use that applicationId for every other tool.
+2. Call pair(code) with it IMMEDIATELY, as your very first action - then do any repo analysis you need. That claims the app's config for you and returns its applicationId and current config. Use that applicationId for every other tool.
 
 Then loop until the preview is up:
 3. get_config(applicationId) - read the current preview config.
@@ -51,6 +56,10 @@ Then loop until the preview is up:
 6. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
 7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own. When it clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 8. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
+
+Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId) runs the recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (up/down) and the SDK's error. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first.
+
+How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, an unresolved \`{{variable}}\`): fix it with update_recipe and dry_run_scenario again immediately - the recipe lives on Autonoma, so a change takes effect with NO redeploy. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT. So commit the fix and push it to the deploy branch - get_config / pair return \`deployBranch\`, push to THAT branch (it defaults to the repo's default branch). Then, if the preview is Autonoma-managed (PreviewKit), call trigger_deploy to rebuild the base preview at the new commit and poll get_session_status until it is \`ready\` again BEFORE you dry_run; if the app runs on its own hosting (e.g. Vercel / an existing deploy), wait for that deployment to finish first. Do NOT dry_run against a preview that is still building - you would just be testing the old code. Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
 
 Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
 
@@ -446,6 +455,163 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     return toToolResult(err);
                 }
             }),
+    );
+
+    server.registerTool(
+        "list_scenarios",
+        {
+            title: "List scenarios",
+            description:
+                "List the app's scenarios (named test-data states a test depends on) and whether each already has a " +
+                "recipe. Use a returned scenarioId with get_recipe / update_recipe / dry_run_scenario. A recipe is the " +
+                "JSON your deployed Autonoma SDK follows to create that scenario's entities in the app's own database.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("list_scenarios", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const scenarios = await services.scenarios.listScenarios(applicationId, organizationId);
+                    return jsonResult({
+                        scenarios: scenarios.map((scenario) => ({
+                            id: scenario.id,
+                            name: scenario.name,
+                            isDisabled: scenario.isDisabled,
+                            hasRecipe: scenario.activeRecipeVersionId != null,
+                        })),
+                    });
+                } catch (err) {
+                    logger.warn("list_scenarios failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_recipe",
+        {
+            title: "Read a scenario recipe",
+            description:
+                "Read a scenario's current recipe - the JSON `create` graph (plus `variables`) your SDK endpoint uses " +
+                "to build that scenario's entities in the app's database. Edit it and send it back with update_recipe. " +
+                "Returns `fixtureJson: null` when the scenario has no recipe yet.",
+            inputSchema: { applicationId: z.string(), scenarioId: z.string() },
+        },
+        async ({ applicationId, scenarioId }) =>
+            analytics.track("get_recipe", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const recipe = await services.scenarios.getRecipe(scenarioId, organizationId);
+                    return jsonResult(recipe);
+                } catch (err) {
+                    logger.warn("get_recipe failed", { applicationId, scenarioId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "update_recipe",
+        {
+            title: "Update a scenario recipe",
+            description:
+                "Replace a scenario's recipe with a corrected version and make it the active one. The recipe's `name` " +
+                "must stay the scenario's existing name - this EDITS an existing scenario, it does not create one (the " +
+                "scenario and an initial recipe come from the planner upload). The recipe is validated against the " +
+                "recipe schema on save; an invalid shape is rejected with the exact field paths and messages that are " +
+                "wrong, so read them, fix those fields, and resend. After saving, call dry_run_scenario to run it " +
+                "against the deployed app and confirm it actually creates the entities; loop update_recipe -> " +
+                "dry_run_scenario until it passes. Pass a short `description` of what you changed - the user watches it " +
+                "on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                scenarioId: z.string(),
+                recipe: ScenarioRecipeSchema,
+                description: activityDescription,
+            },
+        },
+        async ({ applicationId, scenarioId, recipe, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "update_recipe",
+                    message: description ?? `Updating recipe for scenario "${recipe.name}"`,
+                    toolArguments: { scenarioId, scenario: recipe.name },
+                },
+                (org) => services.scenarios.updateRecipe(scenarioId, JSON.stringify(recipe), org),
+            ),
+    );
+
+    server.registerTool(
+        "dry_run_scenario",
+        {
+            title: "Test a scenario recipe",
+            description:
+                "Run a scenario's recipe end-to-end against the deployed app: calls your SDK endpoint `up` to create " +
+                "the entities in the app's database, then `down` to tear them back down. This is how you confirm a " +
+                "recipe works before onboarding completes. On failure it returns which phase failed (up/down) and the " +
+                "SDK's error, so you can fix the recipe with update_recipe and retry. Requires the app deployed with " +
+                "its SDK URL + signing secret configured - get the preview up first. Pass a short `description` - the " +
+                "user watches it on the activity feed.",
+            inputSchema: { applicationId: z.string(), scenarioId: z.string(), description: activityDescription },
+        },
+        async ({ applicationId, scenarioId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "dry_run_scenario",
+                    message: description ?? "Testing scenario recipe",
+                    toolArguments: { scenarioId },
+                },
+                (org) => services.scenarios.dryRun(applicationId, org, scenarioId),
+            ),
+    );
+
+    // ─── Prompt: a guided entry point the user can invoke ─────────────
+    server.registerPrompt(
+        "configure_preview",
+        {
+            title: "Configure my Autonoma preview",
+            description:
+                "Guided flow to configure, deploy, and verify this app's Autonoma preview during onboarding (and fix " +
+                "its scenario recipes), using the pairing code from the Autonoma UI.",
+            argsSchema: { code: z.string().optional() },
+        },
+        ({ code }) => {
+            const pairingStep =
+                code != null && code.length > 0
+                    ? `Pair with code ${code}, then work`
+                    : `Get the pairing code from the Autonoma UI ("Configure with coding agent") and call pair with it, then work`;
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text:
+                                `Configure my Autonoma preview during onboarding. ${pairingStep} the loop below until ` +
+                                `the preview is up and its scenario recipes pass.\n\n${ONBOARDING_INSTRUCTIONS}`,
+                        },
+                    },
+                ],
+            };
+        },
+    );
+
+    // ─── Resource: the onboarding guide, readable on demand ───────────
+    server.registerResource(
+        "onboarding-guide",
+        "autonoma://onboarding-guide",
+        {
+            title: "Autonoma preview onboarding guide",
+            description:
+                "What Autonoma is and how to configure, deploy, and verify this app's preview - and fix its scenario " +
+                "recipes - with these tools, in order.",
+            mimeType: "text/markdown",
+        },
+        (uri) => ({
+            contents: [{ uri: uri.href, text: ONBOARDING_INSTRUCTIONS, mimeType: "text/markdown" }],
+        }),
     );
 
     return server;

@@ -61,12 +61,15 @@ export class ScenarioManager {
         const { organizationId } = applicationData;
         const sdkClient = this.createSdkClient(applicationData);
 
-        const scenario = await this.db.scenario.findUnique({
-            where: { id: scenarioId },
+        // Scope the scenario to the resolved application, not just its id: this is the
+        // tenant-isolation boundary for provisioning. Loading by id alone would let a
+        // caller run another application's (another org's) recipe against this app.
+        const scenario = await this.db.scenario.findFirst({
+            where: { id: scenarioId, applicationId },
             select: { id: true, name: true },
         });
         if (scenario == null) {
-            throw new Error(`Scenario "${scenarioId}" not found`);
+            throw new Error(`Scenario "${scenarioId}" not found for application "${applicationId}"`);
         }
         const instanceId = randomUUID();
 
