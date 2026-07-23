@@ -1,3 +1,6 @@
+import { npmRegistryEnvLines } from "./npm-registry-env";
+import { quoteEnv } from "./quote-env";
+
 /**
  * The raw primitive every generated Dockerfile renders from, and the single
  * renderer for it. A framework preset and the raw runtime escape hatch both lower
@@ -8,6 +11,8 @@
  * `bootstrap` (cached, pre-`COPY`), then `COPY . .`, then `install` (before the
  * build-arg `ENV` lines, so dependency installs stay cache-stable across secret
  * changes), then the `ENV` lines, then `build` (which can read the build args).
+ * The npm registry mirror lines land earlier, right after `WORKDIR`, since
+ * `install` is exactly the step they need to affect.
  */
 
 export interface RawSpec {
@@ -28,6 +33,12 @@ export interface RawSpec {
 export interface GenerateDockerfileContext {
     /** ECR pull-through cache prefix for Docker Hub base images; "" disables mirroring. */
     registryMirror: string;
+    /**
+     * npm/bun package-registry cache URL (e.g. the in-cluster Verdaccio
+     * Service); emitted as `npm_config_registry`/`BUN_CONFIG_REGISTRY` `ENV`
+     * lines right after `WORKDIR`. "" disables injection.
+     */
+    npmRegistryMirror: string;
     /** Merged build args (build_args + resolved build_secrets); emitted as `ENV` lines. */
     buildArgs: Record<string, string>;
     /** Container port the app listens on; emitted as `ENV PORT` + `EXPOSE`. */
@@ -51,6 +62,10 @@ export function renderDockerfile(spec: RawSpec, ctx: GenerateDockerfileContext):
         `WORKDIR ${spec.workdir}`,
         "",
     ];
+
+    if (ctx.npmRegistryMirror !== "") {
+        lines.push(...npmRegistryEnvLines(ctx.npmRegistryMirror), "");
+    }
 
     for (const line of spec.bootstrap) {
         lines.push(line, "");
@@ -79,14 +94,4 @@ export function renderDockerfile(spec: RawSpec, ctx: GenerateDockerfileContext):
 
 function envLines(buildArgs: Record<string, string>): string[] {
     return Object.entries(buildArgs).map(([key, value]) => `ENV ${key}=${quoteEnv(value)}`);
-}
-
-/**
- * Quotes a build arg value for a Dockerfile `ENV` line: wraps in double quotes
- * and escapes the three characters special inside them (backslash, double quote,
- * dollar). Values are expected to be single-line.
- */
-function quoteEnv(value: string): string {
-    const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$");
-    return `"${escaped}"`;
 }

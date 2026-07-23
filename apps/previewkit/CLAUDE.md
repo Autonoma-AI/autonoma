@@ -308,7 +308,13 @@ reason=InvalidRoutes`).
 image resolving to Docker Hub - the recipe services - is
 rewritten through it via `deployer/image-mirror.ts`; the Gatekeeper proxy (public.ecr.aws) and client
 app images are never touched;
-empty string disables), `BUILDKIT_BUILD_NAMESPACE`, `BUILDKIT_IMAGE`, `BUILD_READINESS_TIMEOUT_MS`
+empty string disables), `NPM_REGISTRY_MIRROR` (npm/bun package-registry cache, e.g. the in-cluster
+Verdaccio Service proxying registry.npmjs.org; unlike `DOCKER_HUB_MIRROR` this covers package-manager
+installs run by `RUN` steps, not image pulls - injected as `npm_config_registry`/`BUN_CONFIG_REGISTRY`
+`ENV` lines into every generated Dockerfile (`dockerfile-builder/raw-spec.ts`) and, for user-authored
+Dockerfiles, after every stage's `FROM` in a rewritten copy `buildctl` reads instead of the original
+checkout (`dockerfile-builder/inject-npm-registry.ts` via `BuildKitBuilder`); empty string disables both),
+`BUILDKIT_BUILD_NAMESPACE`, `BUILDKIT_IMAGE`, `BUILD_READINESS_TIMEOUT_MS`
 (node provisioning), `BUILD_STARTUP_TIMEOUT_MS` (daemon startup), `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_NAMESPACE` (the shared edge namespace:
 Gateway + ingress-nginx + the central Gatekeeper), `GATEKEEPER_IDLE_TIMEOUT` (written per

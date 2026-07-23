@@ -63,6 +63,7 @@ describe("PreviewPipeline deploy supersede handling", () => {
             addonManager: {} as never,
             registryUrl: "registry.example.com",
             dockerHubMirror: "",
+            npmRegistryMirror: "",
         });
 
         await expect(

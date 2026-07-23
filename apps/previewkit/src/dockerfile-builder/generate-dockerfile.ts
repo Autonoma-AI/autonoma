@@ -29,6 +29,7 @@ export function generateDockerfile(build: GeneratedBuild, ctx: GenerateDockerfil
         runtimeVersion,
         buildContext: build.build_context,
         mirrorActive: ctx.registryMirror !== "",
+        npmMirrorActive: ctx.npmRegistryMirror !== "",
         buildArgCount: Object.keys(ctx.buildArgs).length,
     });
 

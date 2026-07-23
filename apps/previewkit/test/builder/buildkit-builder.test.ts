@@ -255,6 +255,87 @@ describe("BuildKitBuilder", () => {
             });
         }
     });
+
+    it("rewrites an on-disk Dockerfile through a tmp dir with npm registry ENV lines, leaving the customer's checkout untouched", async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), "previewkit-npm-mirror-test-"));
+        const binDir = join(tempDir, "bin");
+        const buildctlPath = join(binDir, "buildctl");
+        const capturedArgsPath = join(tempDir, "buildctl-args.txt");
+        const capturedDockerfilePath = join(tempDir, "buildctl-dockerfile.txt");
+        const previousPath = process.env.PATH;
+        const previousCapturePath = process.env.PREVIEWKIT_CAPTURE_ARGS;
+        const previousCaptureDockerfile = process.env.PREVIEWKIT_CAPTURE_DOCKERFILE;
+        const originalDockerfile = "FROM node:22-bookworm-slim\nRUN npm ci\n";
+        const mirror = "http://verdaccio.buildkit.svc.cluster.local:4873/";
+
+        try {
+            await mkdir(binDir, { recursive: true });
+            await writeFile(join(tempDir, "Dockerfile"), originalDockerfile);
+            // Captures argv AND, since the caller deletes the rewritten tmp dir as
+            // soon as buildctl exits, snapshots its Dockerfile's content first -
+            // by the time the test process reads it back, the real one is gone.
+            await writeFile(
+                buildctlPath,
+                [
+                    "#!/bin/sh",
+                    'printf "%s\\n" "$@" > "$PREVIEWKIT_CAPTURE_ARGS"',
+                    'prev=""',
+                    'for arg in "$@"; do',
+                    '  if [ "$prev" = "--local" ]; then',
+                    '    case "$arg" in',
+                    '      dockerfile=*) cp "${arg#dockerfile=}/Dockerfile" "$PREVIEWKIT_CAPTURE_DOCKERFILE" ;;',
+                    "    esac",
+                    "  fi",
+                    '  prev="$arg"',
+                    "done",
+                    "",
+                ].join("\n"),
+            );
+            await chmod(buildctlPath, 0o755);
+            process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+            process.env.PREVIEWKIT_CAPTURE_ARGS = capturedArgsPath;
+            process.env.PREVIEWKIT_CAPTURE_DOCKERFILE = capturedDockerfilePath;
+
+            const jobManager = new SuccessfulJobManager();
+            const builder = new BuildKitBuilder({
+                jobManager,
+                buildTimeoutMs: 5_000,
+                npmRegistryMirror: mirror,
+            });
+
+            await builder.build({
+                appName: "web",
+                contextPath: tempDir,
+                dockerfile: "Dockerfile",
+                buildArgs: {},
+                imageTag: "registry.local:5000/acme/web:abc1234",
+            });
+
+            const capturedArgs = await readFile(capturedArgsPath, "utf8");
+            const dockerfileDirLine = capturedArgs.split("\n").find((line) => line.startsWith("dockerfile="));
+            expect(dockerfileDirLine).toBeDefined();
+            expect(dockerfileDirLine?.slice("dockerfile=".length)).not.toBe(tempDir);
+
+            const rewrittenContent = await readFile(capturedDockerfilePath, "utf8");
+            expect(rewrittenContent).toContain(`ENV npm_config_registry="${mirror}"`);
+            expect(rewrittenContent).toContain(`BUN_CONFIG_REGISTRY="${mirror}"`);
+            expect(rewrittenContent.indexOf("npm_config_registry")).toBeLessThan(
+                rewrittenContent.indexOf("RUN npm ci"),
+            );
+
+            expect(await readFile(join(tempDir, "Dockerfile"), "utf8")).toBe(originalDockerfile);
+        } finally {
+            if (previousPath == null) delete process.env.PATH;
+            else process.env.PATH = previousPath;
+            if (previousCapturePath == null) delete process.env.PREVIEWKIT_CAPTURE_ARGS;
+            else process.env.PREVIEWKIT_CAPTURE_ARGS = previousCapturePath;
+            if (previousCaptureDockerfile == null) delete process.env.PREVIEWKIT_CAPTURE_DOCKERFILE;
+            else process.env.PREVIEWKIT_CAPTURE_DOCKERFILE = previousCaptureDockerfile;
+            await rm(tempDir, { recursive: true, force: true }).catch((err: unknown) => {
+                console.warn("Failed to remove PreviewKit npm-mirror test directory", err);
+            });
+        }
+    });
 });
 
 /** Mirrors the check in BuildKitBuilder.exec: any pattern hit in the combined output tail marks the failure transient. */

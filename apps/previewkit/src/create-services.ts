@@ -114,6 +114,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     const builder = new BuildKitBuilder({
         jobManager: buildkitJobManager,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
+        npmRegistryMirror: env.NPM_REGISTRY_MIRROR,
         ...(logSink != null ? { logSink } : {}),
     });
 
@@ -150,6 +151,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         dockerHubMirror: env.DOCKER_HUB_MIRROR,
+        npmRegistryMirror: env.NPM_REGISTRY_MIRROR,
         ...(logSink != null ? { logSink } : {}),
     });
 

@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
+import { injectNpmRegistryMirror } from "../dockerfile-builder/inject-npm-registry";
 import { logger as rootLogger, type Logger } from "../logger";
 import {
     BuildAbortedError,
@@ -93,6 +94,15 @@ interface BuildKitBuilderOptions {
      *  `request.namespace`) for live streaming and durable history, in
      *  addition to the temporary local log. */
     logSink?: BuildLogSink;
+    /**
+     * npm/bun package-registry cache URL, injected into user-authored
+     * Dockerfiles as `npm_config_registry`/`BUN_CONFIG_REGISTRY` right after
+     * every stage's `FROM` (see `injectNpmRegistryMirror`). Generated
+     * Dockerfiles get the same lines from the generator itself instead
+     * (`GenerateDockerfileContext.npmRegistryMirror`), so this only affects
+     * `buildWithBuildctl`. Undefined/"" disables injection.
+     */
+    npmRegistryMirror?: string;
 }
 
 interface BuildDispatchResult {
@@ -156,6 +166,7 @@ export class BuildKitBuilder implements Builder {
     private ecr: EcrRegistryClient;
     private readonly retryDelayMs: number;
     private readonly logSink?: BuildLogSink;
+    private readonly npmRegistryMirror: string;
     private readonly logger: Logger;
 
     constructor(options: BuildKitBuilderOptions) {
@@ -164,6 +175,7 @@ export class BuildKitBuilder implements Builder {
         this.ecr = new EcrRegistryClient();
         this.retryDelayMs = options.retryDelayMs ?? BUILDKIT_RETRY_DELAY_MS;
         this.logSink = options.logSink;
+        this.npmRegistryMirror = options.npmRegistryMirror ?? "";
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
@@ -394,8 +406,9 @@ export class BuildKitBuilder implements Builder {
         getBuildkitHost: GetBuildKitHost,
         logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
-        const dockerfileDir = dirname(dockerfilePath);
-        const dockerfileName = basename(dockerfilePath);
+        const rewrittenDockerfileDir = await this.prepareMirroredDockerfileDir(dockerfilePath);
+        const dockerfileDir = rewrittenDockerfileDir ?? dirname(dockerfilePath);
+        const dockerfileName = rewrittenDockerfileDir != null ? "Dockerfile" : basename(dockerfilePath);
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
         const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
         const buildContext = request.buildContext ?? request.contextPath;
@@ -460,6 +473,13 @@ export class BuildKitBuilder implements Builder {
             await this.exec("buildctl", args, extraEnv, logStream, request.signal);
             return { imageTag: request.imageTag, runtime: "docker-image" };
         } finally {
+            if (rewrittenDockerfileDir != null) {
+                await rm(rewrittenDockerfileDir, { recursive: true }).catch((err: unknown) => {
+                    this.logger.warn("Failed to clean up rewritten dockerfile dir", {
+                        extra: { rewrittenDockerfileDir, err },
+                    });
+                });
+            }
             if (dockerConfigDir != null) {
                 await rm(dockerConfigDir, { recursive: true }).catch((err: unknown) => {
                     this.logger.warn("Failed to clean up docker config dir", {
@@ -468,6 +488,25 @@ export class BuildKitBuilder implements Builder {
                 });
             }
         }
+    }
+
+    /**
+     * Reads a user-authored Dockerfile and, when the npm registry mirror is
+     * enabled, injects its `ENV` lines after every stage's `FROM`, writing the
+     * result to a fresh tmp dir that `buildWithBuildctl` reads the `dockerfile`
+     * local from instead of the original checkout - the customer's cloned repo
+     * on disk is never modified. Returns undefined when the mirror is
+     * disabled, so the caller falls back to the original on-disk path.
+     */
+    private async prepareMirroredDockerfileDir(dockerfilePath: string): Promise<string | undefined> {
+        if (this.npmRegistryMirror === "") return undefined;
+
+        const content = await readFile(dockerfilePath, "utf8");
+        const rewritten = injectNpmRegistryMirror(content, this.npmRegistryMirror);
+        const dir = join(tmpdir(), `previewkit-mirrored-dockerfile-${randomUUID()}`);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "Dockerfile"), rewritten);
+        return dir;
     }
 
     /**

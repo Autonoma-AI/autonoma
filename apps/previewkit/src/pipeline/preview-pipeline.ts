@@ -100,6 +100,10 @@ interface PreviewPipelineOptions {
     /** ECR pull-through cache prefix for Docker Hub; threaded into generated
      *  Dockerfile base images. "" disables mirroring (see mirrorDockerHubImage). */
     dockerHubMirror: string;
+    /** npm/bun package-registry cache URL, threaded into generated Dockerfiles
+     *  as ENV lines (see GenerateDockerfileContext.npmRegistryMirror). ""
+     *  disables injection. */
+    npmRegistryMirror: string;
     /** Build-log sink. When set, the pipeline mirrors phase transitions +
      *  terminal status into it (the builder mirrors raw output), keyed by
      *  namespace. Optional - absent disables mirroring entirely. */
@@ -122,6 +126,7 @@ export class PreviewPipeline {
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly dockerHubMirror: string;
+    private readonly npmRegistryMirror: string;
     private readonly logSink?: BuildLogSink;
     private readonly statusWriter: StatusWriter;
 
@@ -133,6 +138,7 @@ export class PreviewPipeline {
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.dockerHubMirror = options.dockerHubMirror;
+        this.npmRegistryMirror = options.npmRegistryMirror;
         this.logSink = options.logSink;
         this.statusWriter = new StatusWriter(this.deployer, this.logSink);
     }
@@ -1484,6 +1490,7 @@ export class PreviewPipeline {
             }
             const generatedDockerfile = generateDockerfile(build, {
                 registryMirror: this.dockerHubMirror,
+                npmRegistryMirror: this.npmRegistryMirror,
                 buildArgs: resolvedBuildArgs,
                 port: app.port,
                 appName: app.name,

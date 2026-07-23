@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { generateDockerfile, type GenerateDockerfileContext } from "../../src/dockerfile-builder/generate-dockerfile";
 
-const ctx: GenerateDockerfileContext = { registryMirror: "", buildArgs: {}, port: 3000, appName: "web" };
+const ctx: GenerateDockerfileContext = {
+    registryMirror: "",
+    npmRegistryMirror: "",
+    buildArgs: {},
+    port: 3000,
+    appName: "web",
+};
 
 describe("generateDockerfile", () => {
     it("generates a node + pnpm app-context Dockerfile with derived defaults", () => {
@@ -78,6 +84,22 @@ describe("generateDockerfile", () => {
             { ...ctx, registryMirror: "123.dkr.ecr.us-east-1.amazonaws.com/docker-hub" },
         );
         expect(df).toContain("FROM 123.dkr.ecr.us-east-1.amazonaws.com/docker-hub/library/node:22-bookworm-slim");
+    });
+
+    it("emits npm/bun registry mirror ENV lines before the install step when set", () => {
+        const df = generateDockerfile(
+            { framework: "node", package_manager: "pnpm", node_version: "22", build_context: "app" },
+            { ...ctx, npmRegistryMirror: "http://verdaccio.buildkit.svc.cluster.local:4873/" },
+        );
+        expect(df).toContain('ENV npm_config_registry="http://verdaccio.buildkit.svc.cluster.local:4873/"');
+        expect(df).toContain('BUN_CONFIG_REGISTRY="http://verdaccio.buildkit.svc.cluster.local:4873/"');
+        expect(df.indexOf("npm_config_registry")).toBeLessThan(df.indexOf("RUN pnpm install"));
+    });
+
+    it("omits npm/bun registry mirror ENV lines when unset", () => {
+        const df = generateDockerfile({ framework: "bun", build_context: "app" }, ctx);
+        expect(df).not.toContain("npm_config_registry");
+        expect(df).not.toContain("BUN_CONFIG_REGISTRY");
     });
 
     it("emits ENV lines for build args, quoted", () => {
