@@ -48,6 +48,8 @@ Recommended flow when Autonoma flags a problem on a pull request:
 
 Live vs. forensic surface: get_deploy_status, get_endpoints, and wait_for_deploy read the LIVE environment, which Autonoma tears down after testing - once it is gone they return status: "unavailable". The LOGS (get_build_logs, get_app_logs) are different: they persist ~30 days independent of the live environment. So an "unavailable" deploy status does NOT mean the logs are gone. For a post-mortem of a past deploy ("why did this PR's last preview fail?"), call the log tools directly even when status is unavailable.
 
+Cold starts: previews scale to zero after inactivity, so the FIRST request to a preview URL (from get_endpoints) can return a 503 or time out while the pod wakes - the request itself wakes it. That is warm-up, not a failure: wait a few seconds and retry before concluding the app is down. A genuine crash shows up in get_app_logs; a cold start does not.
+
 Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take prNumber. The organization is inferred from the repo (which you must be a member of), so everything is automatically scoped to it.`;
 
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
@@ -169,7 +171,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "entry per service. A service with `url: null` has no public HTTP endpoint (it's an internal " +
                 "service like a database or cache, reachable only by other services inside the preview, or it isn't " +
                 "exposed) - the entry carries a `reason`, so a service count higher than the number of URLs is " +
-                "expected, not a bug. Use the URLs to hit the deployed app directly.",
+                "expected, not a bug. Use the URLs to hit the deployed app directly. A preview that scaled to zero " +
+                "returns a 503 or times out on the first request while it wakes - retry after a few seconds before " +
+                "concluding the app is down.",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },

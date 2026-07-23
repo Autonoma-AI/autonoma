@@ -199,4 +199,6 @@ The MCP never returns a secret's value - not through `get_secret_status`, not th
 
 **Logs from a torn-down or old preview.** Build and app logs are retained for about 30 days and stay readable **after** the preview is torn down - so you can debug why a past deploy failed without redeploying. If the logs come back empty, the preview may never have deployed, or its logs have aged out; re-run the preview to get fresh ones.
 
+**A preview URL you hit directly 503s or times out on the first request.** This is only when *you* curl a preview URL (e.g. one from `get_endpoints`) - the debug tools themselves read platform state and are unaffected. Previews scale to zero when idle, so the first request wakes the pod and can 503 or time out in the meantime. That is a cold start, not a crash: wait a few seconds and retry. If it keeps failing after it has had time to wake, check `get_app_logs` - a real crash shows up there, a cold start does not.
+
 **Which pull requests can I use?** Any PR in a repo you have connected to Autonoma, in an organization you belong to.

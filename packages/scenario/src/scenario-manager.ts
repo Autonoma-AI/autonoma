@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient, ScenarioInstance } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import { RefsSchema, type DiscoverResponse, type ScenarioVariableScalar, type UpResponse } from "@autonoma/types";
+import { withColdStartRetry } from "./cold-start-retry";
 import { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 import type { EncryptionHelper } from "./encryption";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
@@ -53,9 +54,9 @@ export class ScenarioManager {
     async up(
         subject: ScenarioSubject,
         scenarioId: string,
-        opts?: { snapshotId?: string; sdkOptions?: SdkCallOptions; sdkUrlOverride?: string },
+        opts?: { snapshotId?: string; sdkOptions?: SdkCallOptions; sdkUrlOverride?: string; coldStartRetry?: boolean },
     ): Promise<ScenarioInstance> {
-        const { snapshotId, sdkOptions, sdkUrlOverride } = opts ?? {};
+        const { snapshotId, sdkOptions, sdkUrlOverride, coldStartRetry } = opts ?? {};
         const { applicationId, deploymentId } = await subject.resolveDeployment();
         const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId, sdkUrlOverride);
         const { organizationId } = applicationData;
@@ -107,10 +108,16 @@ export class ScenarioManager {
 
         let response: UpResponse;
         try {
-            response = await sdkClient.up(
-                { instanceId: instance.id, create: createPayload as Record<string, unknown[]> },
-                sdkOptions,
-            );
+            // A scaled-to-zero ("serverless") preview 503s on the first hit while it wakes.
+            // When the caller opts in (e.g. an onboarding dry-run), ride through that with a
+            // bounded retry so a cold environment isn't mistaken for a broken recipe.
+            const callUp = (): Promise<UpResponse> =>
+                sdkClient.up(
+                    { instanceId: instance.id, create: createPayload as Record<string, unknown[]> },
+                    sdkOptions,
+                );
+            response =
+                coldStartRetry === true ? await withColdStartRetry(callUp, { logger: this.logger }) : await callUp();
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.logger.error("Scenario up failed", { error: message, instanceId: instance.id });

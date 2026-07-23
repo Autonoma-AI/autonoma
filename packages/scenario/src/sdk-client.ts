@@ -111,9 +111,16 @@ export class SdkClient {
         } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
             const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
+            // undici surfaces a connection failure as a generic "fetch failed" and puts the
+            // real reason (ECONNREFUSED, ECONNRESET, ...) on error.cause. Fold that in so the
+            // persisted error is legible instead of a bare "fetch failed" - and so cold-start
+            // classification can actually see the connection reason.
+            const cause = error.cause instanceof Error ? error.cause.message : undefined;
             const message = isTimeout
                 ? `SDK call timed out after ${timeoutMs / 1000}s - ensure your endpoint is reachable and responds quickly`
-                : error.message;
+                : cause != null && cause !== error.message
+                  ? `${error.message}: ${cause}`
+                  : error.message;
             await this.recorder.record({
                 applicationId: this.applicationId,
                 instanceId,

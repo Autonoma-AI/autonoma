@@ -1,12 +1,24 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { type ScenarioManager, applyScenarioRecipeUpdate } from "@autonoma/scenario";
+import { type ScenarioManager, applyScenarioRecipeUpdate, isColdStartMessage } from "@autonoma/scenario";
 import { ScenarioRecipeSchema } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
+
+/**
+ * Replaces the raw SDK error on a dry-run `up` failure whose cause is a cold
+ * (scaled-to-zero) preview - the raw text ("SDK returned HTTP 503: Error parsing
+ * response: Unexpected token 'S'...") reads like a recipe bug when it just means the
+ * app is still starting. dryRun already waited out a bounded warm-up, so if it is
+ * STILL cold the environment is unusually slow (or not deployed).
+ */
+const COLD_START_DRY_RUN_MESSAGE =
+    "The app's preview appears to still be starting up (it returned 503 Service Unavailable). Previews scale to zero " +
+    "when idle, so this is a cold start, not a recipe problem - we already waited for it to wake. Give it a few more " +
+    "seconds and run the dry-run again, or confirm the preview is deployed and healthy.";
 
 export class ScenariosService extends Service {
     constructor(
@@ -141,11 +153,20 @@ export class ScenariosService extends Service {
         if (scenario == null) throw new NotFoundError("Scenario not found");
 
         const subject = new DryRunSubject(this.db, applicationId);
-        const instance = await this.scenarioManager.up(subject, scenarioId);
+        // Onboarding previews scale to zero, so the first hit often 503s while the pod
+        // wakes. Ride through that here so a cold environment is not reported as a
+        // broken recipe (the production test-time path can opt in the same way later).
+        const instance = await this.scenarioManager.up(subject, scenarioId, { coldStartRetry: true });
 
         if (instance.status === "UP_FAILED") {
-            this.logger.info("Dry run failed during up phase", { applicationId, scenarioId });
-            return { success: false as const, phase: "up" as const, error: instance.lastError };
+            const coldStart = instance.lastError != null && isColdStartMessage(instance.lastError.message);
+            this.logger.info("Dry run failed during up phase", { applicationId, scenarioId, extra: { coldStart } });
+            return {
+                success: false as const,
+                phase: "up" as const,
+                error: coldStart ? { message: COLD_START_DRY_RUN_MESSAGE } : instance.lastError,
+                coldStart,
+            };
         }
 
         const downResult = await this.scenarioManager.down(instance.id);
