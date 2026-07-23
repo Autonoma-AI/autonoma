@@ -781,6 +781,11 @@ function ExternalSdkStepBody({ applicationId }: { applicationId: string }) {
   // survives the redeploy throws and surfaces instead of re-arming.
   const [retryDiscoverTargetId, setRetryDiscoverTargetId] = useState<string | undefined>(undefined);
 
+  useEffect(() => {
+    if (pinnedTargetId != null || selectedTargetId == null) return;
+    void navigate({ search: (prev) => ({ ...prev, target: selectedTargetId }), replace: true });
+  }, [pinnedTargetId, selectedTargetId, navigate]);
+
   const serverSecret = sharedSecretQuery.data?.sharedSecret;
   useEffect(() => {
     if (serverSecret == null || serverSecret.length === 0) return;
