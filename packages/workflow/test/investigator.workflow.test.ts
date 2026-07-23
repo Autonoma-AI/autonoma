@@ -4,6 +4,7 @@ import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
+    ClassifyInvestigationRunInput,
     DeleteAnalysisTestInput,
     DeleteAnalysisTestOutput,
     InvestigationTestResult,
@@ -44,6 +45,8 @@ interface Harness {
      * containment). A run past the end throws a runaway-loop guard so an unbounded loop fails loudly.
      */
     classifyQueue: Array<InvestigationTestResult | Error>;
+    /** Every classify input, captured to assert the self-heal re-run carries the prior pass's verdict. */
+    classifyCalls: ClassifyInvestigationRunInput[];
     /** testGenerationIds actually handed to the web worker - i.e. how many times, and with what, the test ran. */
     webRuns: string[];
     /** Every plan-edit the loop authored, captured to assert scoping to this test's own (snapshot, testCase) rows. */
@@ -56,6 +59,7 @@ interface Harness {
 
 const harness: Harness = {
     classifyQueue: [],
+    classifyCalls: [],
     webRuns: [],
     selfHealCalls: [],
     selfHealOutput: {},
@@ -109,7 +113,8 @@ function expectedReport(overrides: Partial<AnalysisFindingReport> = {}): Analysi
 }
 
 const analysisActivities = {
-    async classifyInvestigationRun(): Promise<InvestigationTestResult> {
+    async classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
+        harness.classifyCalls.push(input);
         const next = harness.classifyQueue.shift();
         if (next == null) throw new Error("classify called more times than the test scripted (runaway loop?)");
         if (next instanceof Error) throw next;
@@ -167,6 +172,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     harness.classifyQueue = [];
+    harness.classifyCalls = [];
     harness.webRuns = [];
     harness.selfHealCalls = [];
     harness.selfHealOutput = { testGenerationId: HEALED_GENERATION, scenarioId: undefined };
@@ -212,6 +218,12 @@ describe("investigatorWorkflow verdict state machine", () => {
         // The plan-edit was authored against THIS test's own snapshot + test case, carrying the classifier's plan.
         expect(harness.selfHealCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG, plan: REVISED_PLAN }]);
         expect(harness.deleteCalls).toHaveLength(0);
+        // The re-run's classify carries the prior pass's verdict, so the second pass judges the corrected plan
+        // against the first pass's conclusion instead of re-investigating from scratch.
+        expect(harness.classifyCalls.map((call) => call.priorPass)).toEqual([
+            undefined,
+            { category: "outdated_test", headline: "stale assertion", rootCause: "n/a" },
+        ]);
     });
 
     it("resolves to delete and self-deletes the row when the test never heals (loop exhausted)", async () => {

@@ -10,21 +10,6 @@ import { withRetry } from "./retry";
 const DEDUP_TIMEOUT_MS = 3 * 60_000;
 const MODEL_CALL_TRIES = 2;
 
-/**
- * Severity order for choosing a merged group's headline category (lower = more severe). `client_bug` is the
- * app-health plane and always wins - a client bug anywhere in the group makes the whole group a client bug; the
- * coverage-plane order below mirrors the finding-category UI's actionability. A `Record` over the full verdict
- * taxonomy so adding a verdict is a compile error here until it is placed.
- */
-const CATEGORY_SEVERITY: Record<AnalysisVerdict, number> = {
-    client_bug: 0,
-    engine_artifact: 1,
-    scenario_issue: 2,
-    environment_failure: 3,
-    delete: 4,
-    passed: 5,
-};
-
 /** A candidate finding the Reconciler dedups - the shape the Investigators emit (one per test). */
 export interface AnalysisFinding {
     /** The test that surfaced this finding. Unique per candidate; what a cluster references. */
@@ -44,16 +29,17 @@ export interface AnalysisFinding {
  * A deduped finding: ONE underlying issue, carrying the union of every candidate (test) that surfaced it.
  * `coveredSlugs` (length >= 1) is the unioned evidence - length > 1 means several tests were merged into this
  * one finding. `members` keeps each source candidate (with its own `planEdited`) so the union is inspectable.
- * `category` is the most severe of the members (a client bug anywhere in the group makes the whole group one).
+ * `category` is the members' SHARED category - only same-category findings may merge, so a group can never be
+ * escalated by a single divergent member.
  */
 export interface ReconciledAnalysisFinding {
     category: AnalysisVerdict;
     headline: string;
     coveredSlugs: string[];
     members: AnalysisFinding[];
-    /** The rich evidence to display + persist for this finding: the representative member's report (the member
-     * whose verdict matches the merged category, so a merged group's client-bug evidence wins). Absent when no
-     * member reached a classifier verdict. */
+    /** The rich evidence to display + persist for this finding: the first member with a full classifier report
+     * (members share one category, so any member's report speaks for the verdict). Absent when no member
+     * reached a classifier verdict. */
     report?: AnalysisFindingReport;
 }
 
@@ -142,9 +128,13 @@ not a series of isolated pairwise comparisons.
 
 # What counts as the same issue
 Two findings are the same issue ONLY when they have the SAME underlying CAUSE (the same code defect, the same
-test-data gap, the same broken shared flow or dependency).
+test-data gap, the same broken shared flow or dependency). The cause is the specific mechanism named in the
+finding - not the feature area, not the page, not the symptom's shape.
 
 # What is NOT the same issue - do NOT merge
+- Findings with DIFFERENT categories. A different verdict is a different causal conclusion, so it is never the
+  same issue - a client_bug may only merge with another client_bug, an engine_artifact with an engine_artifact,
+  and so on. (Mixed-category clusters are rejected by validation regardless.)
 - Same feature area or same page, but different causes (two unrelated bugs on the same screen are two findings).
 - Same category label alone (two findings sharing a category are NOT automatically the same).
 - Similar-sounding headlines. Headlines are terse and can mislead - only merge when the shared cause is clear.
@@ -173,9 +163,13 @@ function buildDedupPrompt(findings: AnalysisFinding[]): string {
 
 /**
  * Normalize + VALIDATE the model's clusters, then materialize the deduped finding set. The model can hallucinate
- * slugs, claim one finding in two clusters, or propose a group of one - none of which we let through:
+ * slugs, claim one finding in two clusters, mix categories, or propose a group of one - none of which we let
+ * through:
  * - every memberSlug must be a real candidate slug (unknown slugs dropped);
- * - a cluster needs >= 2 distinct surviving members (else it is not a merge);
+ * - a cluster may only merge SAME-CATEGORY findings: a mixed cluster is SPLIT by category, and each same-category
+ *   sub-group stands (or falls) on its own - so one divergent member (e.g. a lone flaky client_bug among many
+ *   non-bug findings) can never be absorbed into, nor escalate, the rest;
+ * - a (sub-)cluster needs >= 2 distinct surviving members (else it is not a merge);
  * - a finding may belong to at most ONE cluster (a later cluster reusing a claimed slug loses it) - a clean
  *   partition.
  * Findings in no cluster pass through as singletons. Order is preserved: a merged finding sits where its first
@@ -191,27 +185,32 @@ function toReconciledFindings(
     const absorbed = new Set<string>();
 
     for (const cluster of clusters) {
-        const members: AnalysisFinding[] = [];
+        const resolved: AnalysisFinding[] = [];
         for (const slug of cluster.memberSlugs) {
             const finding = bySlug.get(slug);
-            if (finding != null && !claimed.has(slug)) members.push(finding);
+            if (finding != null && !claimed.has(slug)) resolved.push(finding);
         }
-        if (members.length < 2) continue;
 
-        const anchor = members[0];
-        if (anchor == null) continue;
-        for (const member of members) claimed.add(member.slug);
-        for (const member of members) {
-            if (member.slug !== anchor.slug) absorbed.add(member.slug);
+        for (const members of partitionByCategory(resolved)) {
+            if (members.length < 2) continue;
+            const anchor = members[0];
+            if (anchor == null) continue;
+            for (const member of members) claimed.add(member.slug);
+            for (const member of members) {
+                if (member.slug !== anchor.slug) absorbed.add(member.slug);
+            }
+            // The model's headline described the (possibly mixed) cluster as a whole; it only speaks for a
+            // sub-group that kept every resolved member. A split sub-group keeps its anchor's own headline.
+            const clusterIntact = members.length === resolved.length;
+            const headline = clusterIntact && cluster.headline.trim() !== "" ? cluster.headline : anchor.headline;
+            mergedByAnchor.set(anchor.slug, {
+                category: anchor.category,
+                headline,
+                coveredSlugs: members.map((member) => member.slug),
+                members,
+                report: representativeReport(members),
+            });
         }
-        const category = mostSevereCategory(members);
-        mergedByAnchor.set(anchor.slug, {
-            category,
-            headline: cluster.headline.trim() === "" ? anchor.headline : cluster.headline,
-            coveredSlugs: members.map((member) => member.slug),
-            members,
-            report: representativeReport(members, category),
-        });
     }
 
     const out: ReconciledAnalysisFinding[] = [];
@@ -220,6 +219,17 @@ function toReconciledFindings(
         out.push(mergedByAnchor.get(finding.slug) ?? toSingleton(finding));
     }
     return out;
+}
+
+/** Split a resolved cluster into same-category sub-groups, preserving member order within each group. */
+function partitionByCategory(members: AnalysisFinding[]): AnalysisFinding[][] {
+    const groups = new Map<AnalysisVerdict, AnalysisFinding[]>();
+    for (const member of members) {
+        const group = groups.get(member.category);
+        if (group != null) group.push(member);
+        else groups.set(member.category, [member]);
+    }
+    return [...groups.values()];
 }
 
 /** A standalone finding: itself as the sole member, carrying its own report. */
@@ -234,29 +244,10 @@ function toSingleton(finding: AnalysisFinding): ReconciledAnalysisFinding {
 }
 
 /**
- * The report to display for a merged group: the first member whose verdict IS the merged category, so a group
- * that is a client bug shows the client bug's evidence (not an absorbed passed/coverage member's), falling back
- * to the first member with any report. Undefined when no member reached a classifier verdict.
+ * The report to display for a merged group: the first member with a full classifier report (members share one
+ * category by construction, so any member's report speaks for the group's verdict). Undefined when no member
+ * reached a classifier verdict.
  */
-function representativeReport(
-    members: AnalysisFinding[],
-    category: AnalysisVerdict,
-): AnalysisFindingReport | undefined {
-    const representative = members.find((member) => member.category === category && member.report != null);
-    if (representative?.report != null) return representative.report;
+function representativeReport(members: AnalysisFinding[]): AnalysisFindingReport | undefined {
     return members.find((member) => member.report != null)?.report;
-}
-
-/**
- * The category of a merged group: the most severe of its members by CATEGORY_SEVERITY. A client bug anywhere in
- * the group makes the whole group a client bug (the app-health plane wins); otherwise the most actionable
- * coverage-plane category represents the shared cause.
- */
-function mostSevereCategory(members: AnalysisFinding[]): AnalysisVerdict {
-    // members is always non-empty (a cluster has >= 2, a singleton exactly 1); fail safe to the non-bug plane.
-    let severest: AnalysisVerdict = members[0]?.category ?? "passed";
-    for (const member of members) {
-        if (CATEGORY_SEVERITY[member.category] < CATEGORY_SEVERITY[severest]) severest = member.category;
-    }
-    return severest;
 }

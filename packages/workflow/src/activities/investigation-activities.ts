@@ -232,6 +232,17 @@ export interface ClassifyInvestigationRunInput {
     slug: string;
     reason: string;
     testGenerationId: string;
+    /**
+     * Present when this run is a SELF-HEAL RE-RUN: the prior pass's verdict on the original plan. The classifier
+     * needs this context - the prior pass concluded the app was healthy and the test itself was wrong, and this
+     * run executes the corrected plan - so a still-failing re-run is judged against that conclusion (the test
+     * could not be stabilized) instead of being re-investigated from scratch and flakily escalated to a bug.
+     */
+    priorPass?: {
+        category: string;
+        headline: string;
+        rootCause?: string;
+    };
 }
 
 // --- Validate->edit->retry loop (Objective 2c). Each iteration creates a shadow generation for a candidate

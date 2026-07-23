@@ -21,9 +21,16 @@ export interface ClassifyContext {
     provision: { status: string; detail: string; seeded?: string };
     /** A short diff stat for context (the full diff is available via the git_diff tool). */
     diffSummary: string;
-    /** The PR author's stated intent - decisive for telling an intended change from a bug. */
+    /** The PR author's stated intent. A hint only - often written at the first commit and never updated, so the
+     * diff + code comments are the authoritative intent signal (the prompt says so). */
     prTitle?: string;
     prBody?: string;
+    /**
+     * Present when this run is a SELF-HEAL RE-RUN of a corrected plan: the prior pass's verdict on the original
+     * plan. The prior pass concluded the app was healthy and the TEST was wrong; this run executes the plan it
+     * rewrote. The classifier judges the re-run against that conclusion (see the prompt's self-heal section).
+     */
+    priorPass?: { category: string; headline: string; rootCause?: string };
 }
 
 const INVESTIGATION_TIMEOUT_MS = 12 * 60_000;
@@ -84,8 +91,13 @@ function buildInvestigationPrompt(
     return [
         "Classify this test run.",
         ...(toolNote != null ? [`\n--- BACKEND INTROSPECTION UNAVAILABLE ---\n${toolNote}`] : []),
+        ...(context.priorPass != null ? [buildPriorPassSection(context.priorPass)] : []),
         `App: ${context.appSlug}  PR #${context.prNumber}  Test: ${context.test.slug}`,
-        "\nPR INTENT (the author's stated goal - a behavior change the PR set out to make is NOT a bug):",
+        "\nPR INTENT (the author's stated goal - a behavior change the PR set out to make is NOT a bug).",
+        "CAUTION: descriptions are usually written at the FIRST commit or two and rarely updated afterwards, so",
+        "the description may be stale or incomplete for later changes. The diff and the code's own comments are",
+        "the authoritative intent signal - a behavior clearly implemented on purpose in the diff (named constants,",
+        "explanatory comments, coherent supporting code) is intentional EVEN IF the description omits it:",
         `  title: ${context.prTitle != null && context.prTitle !== "" ? context.prTitle : "(unavailable)"}`,
         `  description: ${context.prBody != null && context.prBody !== "" ? context.prBody.slice(0, PR_BODY_LIMIT) : "(none)"}`,
         `\nTest instruction:\n${context.test.plan}`,
@@ -126,6 +138,30 @@ function buildInvestigationPrompt(
 export interface ClassifyRunResult {
     verdict: RunVerdict;
     conversation: ModelMessage[];
+}
+
+/**
+ * The self-heal re-run preamble: the prior pass already concluded the app was healthy and the TEST was wrong,
+ * and this run executes the plan that pass rewrote. Rendered FIRST so the classifier judges the re-run against
+ * that conclusion instead of re-investigating from scratch - the exact gap that let a still-failing corrected
+ * plan flakily escalate to client_bug on a healthy app.
+ */
+function buildPriorPassSection(priorPass: NonNullable<ClassifyContext["priorPass"]>): string {
+    return [
+        "\n--- SELF-HEAL RE-RUN: this run executes a CORRECTED plan ---",
+        `The prior pass classified the ORIGINAL plan as ${priorPass.category}: "${priorPass.headline}".`,
+        ...(priorPass.rootCause != null ? [`Its root cause: ${priorPass.rootCause}`] : []),
+        "That pass established the app was HEALTHY and the test itself did not match the app's (intentional)",
+        "behavior; the plan was rewritten accordingly and re-run. Judge THIS run against that conclusion:",
+        "- If the corrected plan PASSES, the heal worked - classify passed.",
+        "- If it STILL FAILS with the same shape of failure and NO new defect evidence (no new on-screen error,",
+        "  no log line, no queried-data proof), the test could not be stabilized - that is outdated_test/bad_test",
+        "  again (the pipeline resolves the exhausted loop; it is NOT your job to escalate). Do NOT flip to",
+        "  client_bug merely because the corrected plan also fails - your own prior pass already attributed the",
+        "  behavior to an intentional change, and a failing rewrite does not un-prove that.",
+        "- ONLY convict client_bug on a re-run if you observed NEW evidence of a real defect this PR introduced",
+        "  that the prior pass did not have (a new error state, a backend-confirmed failure) - and say what is new.",
+    ].join("\n");
 }
 
 /**
@@ -188,7 +224,7 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
         { label: "investigation" },
     );
 
-    const verdictPrompt = buildVerdictPrompt(context.test.plan, investigation.text);
+    const verdictPrompt = buildVerdictPrompt(context.test.plan, investigation.text, context.priorPass);
     const verdictGeneration = await withRetry(
         () =>
             generateText({

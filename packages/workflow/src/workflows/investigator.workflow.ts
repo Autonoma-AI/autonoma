@@ -131,9 +131,19 @@ async function runWithSelfHeal(
     let currentScenarioId = scenarioId;
     let currentReason = reason;
     let planEdited = false;
+    // The prior pass's verdict, carried into a self-heal re-run's classify call so the second pass judges the
+    // corrected plan against the first pass's conclusion instead of re-investigating from scratch.
+    let priorPass: { category: string; headline: string; rootCause?: string } | undefined;
 
     for (let iteration = 1; iteration <= MAX_INVESTIGATOR_ITERATIONS; iteration++) {
-        const outcome = await runAndClassify(snapshotId, slug, generationId, currentScenarioId, currentReason);
+        const outcome = await runAndClassify(
+            snapshotId,
+            slug,
+            generationId,
+            currentScenarioId,
+            currentReason,
+            priorPass,
+        );
         if (outcome.kind === "fault") {
             return { slug, category: outcome.category, headline: outcome.headline, planEdited, origin };
         }
@@ -166,6 +176,11 @@ async function runWithSelfHeal(
         generationId = rerun.testGenerationId;
         currentScenarioId = rerun.scenarioId;
         currentReason = SELF_HEAL_RERUN_REASON;
+        priorPass = {
+            category: outcome.verdict.category,
+            headline: outcome.verdict.headline,
+            rootCause: outcome.verdict.rootCause,
+        };
     }
 
     // The final iteration always returns (a terminal verdict, or `delete` when it withholds the re-run), so the
@@ -321,6 +336,7 @@ async function runAndClassify(
     testGenerationId: string,
     scenarioId: string | undefined,
     reason: string,
+    priorPass?: { category: string; headline: string; rootCause?: string },
 ): Promise<ClassifyOutcome> {
     let scenarioInstanceId: string | undefined;
     if (scenarioId != null) {
@@ -346,7 +362,13 @@ async function runAndClassify(
                 extra: { slug, message: rootFailureMessage(error) },
             });
         }
-        const result = await investigation.classifyInvestigationRun({ snapshotId, slug, reason, testGenerationId });
+        const result = await investigation.classifyInvestigationRun({
+            snapshotId,
+            slug,
+            reason,
+            testGenerationId,
+            priorPass,
+        });
         if (result.verdict == null) {
             log.warn("Classifier returned no verdict; containing this test as an engine artifact", {
                 snapshot: { snapshotId },

@@ -43,7 +43,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value != null && !Array.isArray(value);
 }
 
-type GenerationRow = {
+export type GenerationRow = {
     status: string;
     videoUrl: string | null;
     finalScreenshot: string | null;
@@ -63,7 +63,7 @@ type GenerationRow = {
  * "unavailable" note and the classifier degrades gracefully.
  */
 export async function classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
-    const { snapshotId, slug, reason, testGenerationId } = input;
+    const { snapshotId, slug, reason, testGenerationId, priorPass } = input;
     const logger = rootLogger.child({
         name: "classifyInvestigationRun",
         extra: { snapshotId, slug, testGenerationId },
@@ -130,6 +130,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 diffSummary: await reader.diffStat(),
                 prTitle: prMeta.prTitle,
                 prBody: prMeta.prBody,
+                priorPass,
             },
             {
                 codebase: reader,
@@ -235,7 +236,7 @@ function resolveKeyScreenshot(attempts: AttemptRow[], keyStepIndex: number | und
  * Previously this returned only the status, so `seeded` was always absent and the prompt rendered it as
  * "nothing provisioned" - causing the classifier to convict provisioning when auth+data were in fact present.
  */
-function describeProvision(generation: GenerationRow): { status: string; detail: string; seeded?: string } {
+export function describeProvision(generation: GenerationRow): { status: string; detail: string; seeded?: string } {
     const instance = generation.scenarioInstance;
     if (instance == null) {
         return { status: "no_scenario", detail: "No scenario was bound to this run - no auth or data was seeded." };
@@ -294,7 +295,7 @@ function upDurationSeconds(instance: ScenarioInstanceRow): number | undefined {
 }
 
 /** Build the in-memory run artifacts: derive the step trace from the attempts, fetch media from S3. */
-async function buildRunArtifacts(generation: GenerationRow): Promise<RunArtifacts> {
+export async function buildRunArtifacts(generation: GenerationRow): Promise<RunArtifacts> {
     const steps = deriveSteps(generation.attempts);
     const storage = getStorage();
 

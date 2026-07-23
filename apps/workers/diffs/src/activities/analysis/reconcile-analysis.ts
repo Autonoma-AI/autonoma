@@ -246,9 +246,10 @@ async function persistAnalysisReport(input: PersistAnalysisReportInput, logger: 
 /**
  * Map each deduped finding to an `AnalysisFinding` row (modeled on InvestigationFinding). `findingKey` is the
  * stable per-report routing id: the anchor slug, suffixed on the rare collision so the `(report, findingKey)`
- * unique never trips. The rich fields come from the finding's representative report; `planEdited`/`origin` from
- * the member whose verdict IS the merged category (the client bug in a merged group), falling back to the anchor.
- * `coveredSlugs` is set only on a merged finding (length > 1); a standalone one carries just its own `slug`.
+ * unique never trips. The rich fields come from the finding's report; `planEdited`/`origin` from the anchor
+ * member - a merged group is single-category by construction, so every member shares the verdict and the anchor
+ * is representative. `coveredSlugs` is set only on a merged finding (length > 1); a standalone one carries just
+ * its own `slug`.
  */
 function buildFindingRows(
     snapshotId: string,
@@ -262,8 +263,7 @@ function buildFindingRows(
         keyCounts.set(slug, seen + 1);
         const findingKey = seen === 0 ? slug : `${slug}-${seen + 1}`;
 
-        const representative =
-            finding.members.find((member) => member.category === finding.category) ?? finding.members[0];
+        const representative = finding.members[0];
         const report = finding.report;
         return {
             reportSnapshotId: snapshotId,

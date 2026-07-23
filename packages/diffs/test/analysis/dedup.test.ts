@@ -80,15 +80,37 @@ describe("dedupeAnalysisFindings", () => {
         expect(result[1]?.category).toBe("passed");
     });
 
-    it("raises the merged category to client_bug when any member is a client bug", async () => {
+    it("never merges across categories - a mixed cluster splits and cannot escalate to client_bug", async () => {
+        // The dangerous mode: one flaky client_bug proposed into a group of non-bug findings. The mixed cluster
+        // must SPLIT so the lone client_bug stays a singleton and never relabels the rest of the group.
         const findings = [finding("a", "passed"), finding("b", "client_bug")];
         const model = clustersModel([{ memberSlugs: ["a", "b"], headline: "Shared defect", reason: "same cause" }]);
 
         const result = await dedupeAnalysisFindings({ findings, model });
 
-        expect(result).toHaveLength(1);
-        expect(result[0]?.category).toBe("client_bug");
-        expect(result[0]?.coveredSlugs).toEqual(["a", "b"]);
+        expect(result).toHaveLength(2);
+        expect(result[0]).toMatchObject({ category: "passed", coveredSlugs: ["a"] });
+        expect(result[1]).toMatchObject({ category: "client_bug", coveredSlugs: ["b"] });
+    });
+
+    it("splits a mixed cluster by category, merging each same-category sub-group on its own", async () => {
+        // Two delete findings + one client_bug proposed as one cluster: the deletes merge (their sub-group keeps
+        // the anchor's own headline - the model's headline described the full mixed cluster, which did not
+        // survive), while the client_bug stands alone.
+        const findings = [finding("stale-a", "delete"), finding("bug", "client_bug"), finding("stale-b", "delete")];
+        const model = clustersModel([
+            { memberSlugs: ["stale-a", "bug", "stale-b"], headline: "One big issue", reason: "same area" },
+        ]);
+
+        const result = await dedupeAnalysisFindings({ findings, model });
+
+        expect(result).toHaveLength(2);
+        expect(result[0]).toMatchObject({
+            category: "delete",
+            headline: "stale-a headline",
+            coveredSlugs: ["stale-a", "stale-b"],
+        });
+        expect(result[1]).toMatchObject({ category: "client_bug", coveredSlugs: ["bug"] });
     });
 
     it("drops hallucinated slugs and clusters that fall below two members", async () => {
@@ -129,10 +151,8 @@ describe("dedupeAnalysisFindings", () => {
         expect(result.map((f) => f.coveredSlugs)).toEqual([["a"], ["b"], ["c"]]);
     });
 
-    it("picks the most severe coverage-plane category for a merged group with no client bug", async () => {
-        // No client bug in the group, so the app-health plane does not apply; the group takes the most severe
-        // coverage-plane category by CATEGORY_SEVERITY (engine_artifact is more severe than scenario_issue).
-        const findings = [finding("a", "scenario_issue"), finding("b", "engine_artifact")];
+    it("keeps a same-category merge intact and uses the model's headline for it", async () => {
+        const findings = [finding("a", "engine_artifact"), finding("b", "engine_artifact")];
         const model = clustersModel([
             { memberSlugs: ["a", "b"], headline: "shared infra fault", reason: "same cause" },
         ]);
@@ -140,8 +160,11 @@ describe("dedupeAnalysisFindings", () => {
         const result = await dedupeAnalysisFindings({ findings, model });
 
         expect(result).toHaveLength(1);
-        expect(result[0]?.category).toBe("engine_artifact");
-        expect(result[0]?.coveredSlugs).toEqual(["a", "b"]);
+        expect(result[0]).toMatchObject({
+            category: "engine_artifact",
+            headline: "shared infra fault",
+            coveredSlugs: ["a", "b"],
+        });
     });
 
     it("preserves each member's planEdited through a merge", async () => {
