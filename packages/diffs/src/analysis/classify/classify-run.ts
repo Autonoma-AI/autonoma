@@ -7,6 +7,7 @@ import {
     CLASSIFIER_SYSTEM_PROMPT,
     ERROR_PROBE_PROMPT,
     FIDELITY_PROBE_PROMPT,
+    MISSION_PROBE_PROMPT,
     VISUAL_SANITY_PROBE_PROMPT,
     buildVerdictPrompt,
 } from "./prompt";
@@ -86,6 +87,7 @@ function buildInvestigationPrompt(
     errorScan: string,
     fidelityScan: string,
     visualScan: string,
+    missionScan: string,
     toolNote: string | undefined,
 ): string {
     return [
@@ -121,6 +123,9 @@ function buildInvestigationPrompt(
         "\n--- AUTOMATED VISUAL-SANITY SCAN (does the app look broken, independent of the test?) ---",
         visualScan,
         "These are a vision model's HINTS about app problems a human would spot at a glance - regardless of what the test was doing. They are NOT confirmed: for each one, VERIFY it yourself (analyze_video to localize it, view_step_screenshot for the exact frame, and look at the attached final screenshot) and decide if it is real - YOU have the final say and may dismiss a false flag. Every visual problem you CONFIRM goes in `observedAppIssues`, ALWAYS, even when your main verdict is about something else (e.g. a bad test): a broken app surfaced by a test that was also broken is still a broken app and must be reported.",
+        "\n--- AUTOMATED MISSION SCAN (did the test's intended OUTCOMES actually occur - not just its steps?) ---",
+        missionScan,
+        "This is the OUTCOME check the step trace cannot give you: the trace shows a step SUCCEEDED (the action landed), but not whether its intended EFFECT happened. Treat a NOT ACHIEVED line as observed FACT (verify it yourself with analyze_video / view_step_screenshot on the before+after frames, then trust it): an expected change that visibly did NOT occur - an action that left the relevant region unchanged, something that should have updated but did not - is a REAL problem, and the run's literal assertions may simply have been too WEAK to catch it (they asserted something that stayed true regardless of whether the change happened). Do NOT return `passed` on a run whose core intended outcome did not occur just because the weak assertions held. Route it: (1) if the diff shows THIS PR changed the code behind that outcome and broke it -> client_bug (quote the line); (2) if the app is otherwise healthy and the test's OWN assertions never actually check that outcome (a weak test passed straight over a real break) -> bad_test, and emit a suggestedTestUpdate that ADDS an assertion which is only true AFTER the intended change occurs (not one that stays true regardless); (3) BUT if the outcome is absent because the PR INTENTIONALLY removed or changed that behavior and the test still expects the old one -> outdated_test, not a bug. When the mission scan and the passing assertions disagree, the mission scan is describing what the user would actually experience - do not let a weak green assertion overrule a feature that visibly did nothing.",
         run.finalScreenshot != null
             ? "\nThe FINAL screen the agent saw is attached below as an image - look at it DIRECTLY."
             : "",
@@ -178,18 +183,20 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
         extra: { success: deps.run.success, finishReason: deps.run.finishReason },
     });
 
-    // Deterministic probes FIRST - surface on-screen errors + plan divergence as fact before the classifier
-    // reasons, so neither signal can be missed in favour of a diff-based hypothesis.
-    const [errorScan, fidelityScan, visualScan] = await Promise.all([
+    // Deterministic probes FIRST - surface on-screen errors + plan divergence + whether the test's intended
+    // OUTCOMES occurred, as fact before the classifier reasons, so none can be missed in favour of a hypothesis.
+    const [errorScan, fidelityScan, visualScan, missionScan] = await Promise.all([
         visionProbe(deps, ERROR_PROBE_PROMPT, "error-probe"),
         visionProbe(deps, `${FIDELITY_PROBE_PROMPT}\n\nINTENDED STEPS:\n${context.test.plan}`, "fidelity-probe"),
         visionProbe(deps, VISUAL_SANITY_PROBE_PROMPT, "visual-sanity-probe"),
+        visionProbe(deps, `${MISSION_PROBE_PROMPT}\n\nTEST:\n${context.test.plan}`, "mission-probe"),
     ]);
     logger.info("Probes complete", {
         extra: {
             foundErrors: !errorScan.startsWith("NO VISIBLE ERRORS"),
             fidelity: fidelityScan.split("FIDELITY:").pop()?.trim().slice(0, 20),
             visualIssues: !visualScan.startsWith("NOTHING OBVIOUSLY WRONG"),
+            mission: missionScan.split("MISSION:").pop()?.trim().slice(0, 20),
         },
     });
 
@@ -201,6 +208,7 @@ export async function classifyRun(context: ClassifyContext, deps: ClassifierDeps
         errorScan,
         fidelityScan,
         visualScan,
+        missionScan,
         toolNote,
     );
     const userContent: Array<{ type: "text"; text: string } | { type: "image"; image: Uint8Array }> = [

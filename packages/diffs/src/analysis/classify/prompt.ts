@@ -44,7 +44,7 @@ A PR that INTENTIONALLY changes behavior, with a test that still asserts the OLD
 How to read INTENT (in order of authority):
 - The DIFF and the code's own comments are the authoritative intent signal. A behavior implemented deliberately - a named constant, an explanatory comment, coherent supporting code across files - is INTENTIONAL even when the PR description never mentions it.
 - The PR title/description is a HINT, not the truth: descriptions are typically written at the FIRST commit or two and rarely updated after, so they are often stale or incomplete for the changes that came later. A behavior present in the diff but absent from the description is NOT suspicious by itself - never convict (nor clear) on the description alone.
-- Default prior: a change a developer committed is USUALLY intentional and correct for the surface it touches. The bugs worth catching are rarely "this change looks wrong on its own screen" - they are "this change looks right and silently breaks something ELSE" (another flow, another screen, a shared dependency). Spend your skepticism on the change's BLAST RADIUS, not on re-litigating whether the author meant the change they plainly implemented.
+- Default prior: a committed change is USUALLY intentional for the surface it touches - do not re-litigate whether the author MEANT a behavior they plainly implemented. But intentional is not the same as WORKING. The author intends the feature they build to FUNCTION, so if the diff builds or changes something and it visibly does not do what it is plainly for, that is a real bug worth raising - judge whether what the PR built actually works, not merely whether it was deliberate. (A timing/auto-hide/expiry the PR designed IS working as intended - that is the app reaching its new state, not a break.) Separately, the quiet bugs are changes that look right on their own screen but silently break something ELSE (another flow, screen, shared dependency) - so weigh the BLAST RADIUS too.
 
 # What the scenario controls vs what it cannot (READ it - do not assume).
 A "scenario" is the test's data+auth setup: the client exposes a seeding/env-factory handler in their repo (commonly a /api/autonoma endpoint) plus the recipe it consumes. That handler is the SOURCE OF TRUTH for what an "up" seeds - it writes backend records (users, accounts, and whatever entities the app uses) to the client's database. It does NOT control third-party SDK keys, feature flags, or preview env vars - those live in the preview's configuration. So a scenario can fix "missing seeded rows"; it canNOT fix "a feature flag is off" or "an API key is absent" (that is environment_failure).
@@ -168,6 +168,37 @@ Report each occurrence, with WHERE it appears (page/area) and an approximate tim
 - obvious error or empty states, distorted or unstyled content, default browser styling where the app's own design should be
 
 These are HINTS for a reviewer to verify, NOT final judgments - describe exactly what you see, do not conclude it is a bug. If the app looks visually healthy throughout, reply EXACTLY: "NOTHING OBVIOUSLY WRONG".`;
+
+/**
+ * The MISSION probe - the pass that answers the question the other three do not: did the test's intended
+ * OUTCOMES actually happen (not just: were its steps clicked). A control that is clicked while its EFFECT never
+ * occurs - a toggle that changes nothing, a value that should update but does not, a mode that should switch but
+ * stays - passes the error/fidelity/visual scans and the weak literal assertions, and the classifier is left to
+ * GUESS whether the feature worked. This probe removes the guess: it extracts each validation the test intends
+ * and reports, per validation, whether it VISIBLY occurred - comparing before/after for every expected change.
+ * The test's plan (Setup/Intent/Steps/Expected Result) is appended after this prompt.
+ */
+export const MISSION_PROBE_PROMPT = `You are checking whether an automated test achieved its GOAL - the outcomes it set out to verify - NOT whether its steps were merely performed. A step can be carried out while its intended EFFECT never happens: an action that should change what is on screen leaves it unchanged, something that should update does not, a state the app should reach it never reaches. Your job is to catch exactly that.
+
+From the test below, identify each VALIDATION it intends: its stated intent / expected result, plus every assertion or expected STATE CHANGE in its steps. Then watch the ENTIRE recording and, for EACH validation, judge whether it ACTUALLY occurred on screen.
+
+Rules:
+- Judge the OUTCOME as a user would experience it: did the result the test is verifying actually happen on screen? A step can be performed while its effect never lands - a control that changes nothing, a value that never updates, a state the app never reaches - and that is exactly what you exist to catch.
+- Do not be fooled by a control's own movement: a switch sliding or a button depressing shows it was clicked, not that what it governs changed. Look at the region the action was meant to affect, not the widget.
+- Give normal behavior its due: judge the SETTLED result over the whole recording, not one frame. A transient state that resolves on its own (a brief loading/empty flash, a value that hydrates in a beat late) is normal - achieved. An intended change that never happens ANYWHERE in the recording did not occur.
+- Judge only what the test actually sets out to verify - do not invent expectations it never had. If the recording genuinely does not let you tell, say UNCLEAR.
+
+For EACH validation, output ONE line:
+- ACHIEVED: <validation> - <what you saw that confirms it>
+- NOT ACHIEVED: <validation> - <what you saw instead, describing the before-vs-after of the relevant region>
+- UNCLEAR: <validation> - <why>
+
+Then end with EXACTLY one final line:
+MISSION: achieved   (every validation the test intended actually occurred on screen)
+MISSION: partial    (some occurred, some did not)
+MISSION: not_achieved (the test's core intended outcome did not occur)
+
+The test follows.`;
 
 /** Build the per-call verdict prompt: instructs the model to commit to a category from the investigation.
  * `priorPass` is set on a SELF-HEAL RE-RUN (the prior pass's verdict on the original plan) so the commit step
