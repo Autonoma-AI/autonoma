@@ -114,7 +114,12 @@ export class GenerationReviewer extends Agent<
             stepCount: input.context.steps.length,
             selfReportedStatus: input.context.selfReportedStatus,
         });
-        const video = await tryUploadVideo(input.context.videoUrl, this.evidenceLoader, this.videoUploader);
+        const video = await tryUploadVideo(
+            input.context.videoUrl,
+            input.context.optimizedVideoUrl,
+            this.evidenceLoader,
+            this.videoUploader,
+        );
         return buildGenerationReviewMessages(input.context, video);
     }
 

@@ -877,6 +877,11 @@ model TestGeneration {
   finalScreenshot String?          @map("final_screenshot")
   videoUrl        String?          @map("video_url")
 
+  /// S3 key for the reviewer-optimized recording (dead time stripped, timeline collapsed), signed on read like
+  /// `videoUrl`. Present only once the optimization pass has run for this generation; the UI offers an
+  /// "optimized" playback toggle when set and falls back to `videoUrl` otherwise.
+  optimizedVideoUrl String? @map("optimized_video_url")
+
   /// A shadow generation created by the investigation agent (not a real user/diffs generation). Shadow rows
   /// are excluded from every user-facing generation view and from the refinement loop's per-test-case dedup,
   /// so orphaned `pending` shadow rows (the investigation workflow can stop mid-run) never pollute the

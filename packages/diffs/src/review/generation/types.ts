@@ -43,6 +43,8 @@ export interface GenerationContext {
     conversation: ModelMessage[];
     reasoning?: string;
     videoUrl?: string;
+    /** Dead-time-stripped mp4 (S3 key). Preferred over `videoUrl` for the video model - fewer billed frames. */
+    optimizedVideoUrl?: string;
     finalScreenshotKey?: string;
     steps: GenerationStepData[];
     /** Gates before-screenshot point annotation to WEB. */

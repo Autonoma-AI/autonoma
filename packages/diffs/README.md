@@ -103,6 +103,8 @@ Tools classify their failures explicitly:
 
 `@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` agent class and the loader interfaces it consumes (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runner (`runGenerationReview`), the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
 
+The reviewer uploads the run recording to the video model preferring the dead-time-stripped mp4 - `GenerationContext.optimizedVideoUrl` - over the original webm (`videoUrl`), cutting the frames Gemini bills, and falling back to the webm when the optimized recording is absent. The mp4 is produced upstream at record time by the engine (see `apps/engine-web/src/platform/optimize-recording.ts`), not here, so `packages/diffs` stays dep-light: `tryUploadVideo` only downloads whichever key it is given.
+
 ## Sub-packages
 
 | Path | Purpose |

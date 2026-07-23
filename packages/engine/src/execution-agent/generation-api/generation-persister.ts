@@ -26,6 +26,12 @@ export interface GenerationPersisterConfig {
     testGenerationId: string;
     /** The video extension */
     videoExtension: string;
+    /**
+     * Optional hook that turns the recorded video (given its on-disk path) into a dead-time-stripped mp4 for the
+     * reviewer and the UI's "optimized" playback toggle. ffmpeg lives in the engine app, so `packages/engine`
+     * never depends on it - the app injects the implementation. Returns `undefined` to skip (best-effort).
+     */
+    optimizeVideo?: (videoPath: string) => Promise<Buffer | undefined>;
 }
 
 export type PlanData = Awaited<ReturnType<(typeof GenerationPersister.prototype)["markRunning"]>>;
@@ -358,16 +364,21 @@ export class GenerationPersister<TSpec extends CommandSpec> {
 
         this.logger.info("Uploading video", { videoPath });
         const videoBuffer = await readFile(videoPath);
-        const videoUrl = await this.config.storageProvider.upload(
-            this.videoKey(this.id),
-            videoBuffer,
-            videoContentType(this.config.videoExtension),
-        );
+        // Independent: the original upload sends `videoBuffer` to one key while the optimizer reads `videoPath`
+        // itself, encodes, and writes a different key. Overlap the S3 upload with the slow ffmpeg encode.
+        const [videoUrl, optimizedVideoUrl] = await Promise.all([
+            this.config.storageProvider.upload(
+                this.videoKey(this.id),
+                videoBuffer,
+                videoContentType(this.config.videoExtension),
+            ),
+            this.tryUploadOptimizedVideo(videoPath),
+        ]);
 
         this.logger.info("Saving video URL to database");
         await this.db.testGeneration.update({
             where: { id: this.id },
-            data: { videoUrl },
+            data: { videoUrl, optimizedVideoUrl },
         });
 
         if (result.success && this.testCaseId != null && this.snapshotId != null) {
@@ -431,6 +442,30 @@ export class GenerationPersister<TSpec extends CommandSpec> {
 
     private videoKey(testGenerationId: string) {
         return `test-generation/${testGenerationId}/video.${this.config.videoExtension}`;
+    }
+
+    private optimizedVideoKey(testGenerationId: string) {
+        return `test-generation/${testGenerationId}/optimized.mp4`;
+    }
+
+    /**
+     * Run the injected optimizer over the recording, upload the result, and return its S3 key. Best-effort:
+     * resolves to `undefined` when no optimizer is configured, it declines, or anything fails - the generation
+     * keeps its original recording regardless.
+     */
+    private async tryUploadOptimizedVideo(videoPath: string): Promise<string | undefined> {
+        if (this.config.optimizeVideo == null) return undefined;
+        try {
+            const optimized = await this.config.optimizeVideo(videoPath);
+            if (optimized == null) return undefined;
+            const key = this.optimizedVideoKey(this.id);
+            await this.config.storageProvider.upload(key, optimized, "video/mp4");
+            this.logger.info("Uploaded optimized recording", { extra: { key } });
+            return key;
+        } catch (error) {
+            this.logger.warn("Could not upload optimized recording; keeping only the original", { err: error });
+            return undefined;
+        }
     }
 }
 

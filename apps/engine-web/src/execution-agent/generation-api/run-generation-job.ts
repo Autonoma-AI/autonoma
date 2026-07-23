@@ -8,6 +8,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { WebInstaller, env } from "../../platform";
 import { DEFAULT_VIEWPORT, connectBrowser } from "../../platform/connect-browser";
+import { optimizeRecording } from "../../platform/optimize-recording";
 import { createWebAgentFactory } from "../web-agent";
 import type { WebCommandSpec } from "../web-agent";
 import { WebGenerationAPIRunner } from "./web-generation-api-runner";
@@ -43,6 +44,7 @@ export async function runWebGenerationJob(testGenerationId: string, urlOverride?
         storageProvider,
         testGenerationId,
         videoExtension: VIDEO_EXTENSION,
+        optimizeVideo: (videoPath) => optimizeRecording(videoPath, logger),
     });
 
     let runner: WebGenerationAPIRunner | undefined;
