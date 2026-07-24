@@ -1,11 +1,18 @@
-import { previewConfigSchema, validatePreviewConfigSemantics } from "@autonoma/types";
+import {
+    authoringPreviewConfigSchema,
+    previewConfigSchema,
+    validatePreviewConfigSemantics,
+    zodIssuesToConfigIssues,
+} from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import {
     documentsFromDraft,
     draftFromConfig,
     envRow,
     envRowsFromDotenv,
+    fieldIssueKey,
     hookFieldErrors,
+    mapIssuesToDraft,
     nextDraftId,
     parseDotenv,
     type HooksDraft,
@@ -264,5 +271,54 @@ describe("envRowsFromDotenv", () => {
         const rows = envRowsFromDotenv(existing, [{ key: "STRIPE_KEY", value: "new" }]);
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ id: existing[0]!.id, value: "new", sensitive: true, buildTime: true });
+    });
+});
+
+describe("topology-draft retired build presets", () => {
+    function configWithPreset() {
+        return previewConfigSchema.parse({
+            version: 1,
+            apps: [
+                {
+                    name: "web",
+                    port: 3000,
+                    build: { framework: "next", package_manager: "pnpm", node_version: "22" },
+                },
+            ],
+        });
+    }
+
+    it("loads a stored preset without dropping it, so the current deploy is preserved", () => {
+        const draft = draftFromConfig(configWithPreset(), [], "saved");
+        // The selector cannot represent a preset, so the app sits in "auto" holding
+        // the block verbatim - editing an unrelated field never rewrites the build.
+        expect(draft.apps[0]?.buildMode).toBe("auto");
+        expect(draft.apps[0]?.buildPassthrough).toMatchObject({ framework: "next" });
+        const recompiled = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        expect(recompiled.apps[0]?.build).toMatchObject({ framework: "next" });
+    });
+
+    it("blocks the save and points the error at the build-method selector", () => {
+        const compiled = documentsFromDraft(draftFromConfig(configWithPreset(), [], "saved")).primary;
+        const parsed = authoringPreviewConfigSchema.safeParse(compiled.document);
+        expect(parsed.success).toBe(false);
+        if (parsed.success) return;
+
+        const issues = mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), compiled.indexToDraftId);
+        const draftId = compiled.indexToDraftId.get(0);
+        if (draftId == null) throw new Error("expected the first app to map to a draft");
+        expect(issues.fieldErrors.get(fieldIssueKey(draftId, "buildMode"))?.[0]).toContain('"runtime"');
+    });
+
+    it("saves once the user picks a method", () => {
+        const draft = draftFromConfig(configWithPreset(), [], "saved");
+        const app = draft.apps[0];
+        if (app == null) throw new Error("expected an app");
+        const converted = {
+            ...draft,
+            apps: [{ ...app, buildMode: "runtime" as const, buildPassthrough: undefined, entrypoint: "npm start" }],
+        };
+        const document = documentsFromDraft(converted).primary.document;
+        expect(authoringPreviewConfigSchema.safeParse(document).success).toBe(true);
     });
 });

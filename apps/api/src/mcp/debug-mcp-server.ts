@@ -1,11 +1,12 @@
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import { previewConfigSchema } from "@autonoma/types";
+import { authoringPreviewConfigSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
+import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { RepoContext } from "./resolve-repo-context";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
@@ -487,7 +488,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 try {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.previewkitWrite.getConfig(applicationId, organizationId);
-                    return jsonResult(result);
+                    return jsonResult({ ...result, deprecatedBuilds: deprecatedBuildNotice(result.document) });
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -503,14 +504,17 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "document back). This is how you change the SHAPE of the preview that a single-service edit can't: add " +
                 "or remove an app, or add or remove a service (a database, a cache like redis, or a side-container). " +
                 "Validated on save; an invalid document returns the errors to fix. Never include secret VALUES - " +
-                "declare secret keys in an app's build_secrets and set values with set_secret. Unless `apply` is " +
+                "declare secret keys in an app's build_secrets and set values with set_secret. An app's `build` is " +
+                "either `runtime` (pick a language runtime, write a bash build_script and a single-line entrypoint) " +
+                "or `dockerfile` (build a Dockerfile committed in the repo); if get_config handed you an app still " +
+                "on an older framework preset, convert it to `runtime` before saving. Unless `apply` is " +
                 "false, redeploys the WHOLE environment against the new document (a topology change touches more than " +
                 "one service). Rule of thumb: reshape the preview -> here; tweak one existing service's build/wiring " +
                 "-> edit_previewkit_config; a secret value -> set_secret. The redeploy is async - call " +
                 "wait_for_deploy(repoFullName, prNumber) afterward to block until it settles.",
             inputSchema: {
                 ...repoPrInput,
-                document: previewConfigSchema,
+                document: authoringPreviewConfigSchema,
                 apply: z.boolean().optional(),
             },
             annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },

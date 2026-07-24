@@ -1,6 +1,6 @@
 import {
   connectionTargets,
-  previewConfigSchema,
+  authoringPreviewConfigSchema,
   validatePreviewConfigSemantics,
   zodIssuesToConfigIssues,
 } from "@autonoma/types";
@@ -330,10 +330,10 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     saveConfig.mutate(
       {
         applicationId: appId,
-        document: previewConfigSchema.parse(submission.primary.document),
+        document: authoringPreviewConfigSchema.parse(submission.primary.document),
         dependencyDocuments: submission.dependencies.map((dependency) => ({
           repo: dependency.repo,
-          document: previewConfigSchema.parse(dependency.document),
+          document: authoringPreviewConfigSchema.parse(dependency.document),
         })),
         secrets: secrets.length > 0 ? secrets : undefined,
       },
@@ -463,7 +463,7 @@ function sameSnapshots(a: Record<string, string>, b: Record<string, string>): bo
  */
 function validatePrimaryDocument(primary: CompiledDocument): DraftIssues {
   const result = emptyDraftIssues();
-  const parsed = previewConfigSchema.safeParse(primary.document);
+  const parsed = authoringPreviewConfigSchema.safeParse(primary.document);
   if (!parsed.success) {
     mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), primary.indexToDraftId, result);
     return result;

@@ -4,7 +4,7 @@ import {
     PreviewkitConfigSecretsSchema,
     SecretItemSchema,
     UpsertSecretsInputSchema,
-    previewConfigSchema,
+    authoringPreviewConfigSchema,
 } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
@@ -189,8 +189,10 @@ export const onboardingRouter = router({
         .input(
             z.object({
                 applicationId: z.string(),
-                document: previewConfigSchema,
-                dependencyDocuments: z.array(z.object({ repo: z.string(), document: previewConfigSchema })).optional(),
+                document: authoringPreviewConfigSchema,
+                dependencyDocuments: z
+                    .array(z.object({ repo: z.string(), document: authoringPreviewConfigSchema }))
+                    .optional(),
                 secrets: PreviewkitConfigSecretsSchema.optional(),
             }),
         )

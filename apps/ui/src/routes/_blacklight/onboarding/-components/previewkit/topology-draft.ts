@@ -1138,23 +1138,27 @@ function compileMultirepo(draft: TopologyDraft): Record<string, unknown> | undef
 }
 
 /** Field keys the app card understands; everything else lands in `documentErrors`. */
-export type AppDraftField =
-    | "name"
-    | "path"
-    | "buildContext"
-    | "dockerfile"
-    | "runtime"
-    | "runtimeVersion"
-    | "buildScript"
-    | "entrypoint"
-    | "port"
-    | "command"
-    | "healthCheck"
-    | "primary"
-    | "dependsOn"
-    | "env"
-    | "connections"
-    | "buildSecrets";
+export const APP_DRAFT_FIELDS = [
+    "name",
+    "path",
+    "buildMode",
+    "buildContext",
+    "dockerfile",
+    "runtime",
+    "runtimeVersion",
+    "buildScript",
+    "entrypoint",
+    "port",
+    "command",
+    "healthCheck",
+    "primary",
+    "dependsOn",
+    "env",
+    "connections",
+    "buildSecrets",
+] as const;
+
+export type AppDraftField = (typeof APP_DRAFT_FIELDS)[number];
 
 export interface DraftIssues {
     /** Keyed `${draftId}:${field}`. */
@@ -1220,9 +1224,12 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     build_secrets: "buildSecrets",
 };
 
-// Raw-runtime schema errors carry a `build` path (`apps.i.build.entrypoint`);
-// map the build sub-key to its draft field so they surface inline on the editor.
-const RUNTIME_BUILD_FIELD_BY_KEY: Record<string, AppDraftField> = {
+// Build-block schema errors carry a `build` path (`apps.i.build.entrypoint`); map
+// the build sub-key to its draft field so they surface inline on the editor.
+// `framework` is the discriminator, so a build method the editor cannot author
+// (a retired framework preset) lands on the build-method selector itself.
+const BUILD_FIELD_BY_KEY: Record<string, AppDraftField> = {
+    framework: "buildMode",
     runtime: "runtime",
     version: "runtimeVersion",
     build_script: "buildScript",
@@ -1235,7 +1242,9 @@ function resolveAppField(path: Array<string | number>): AppDraftField | undefine
     if (typeof key !== "string") return undefined;
     if (key === "build") {
         const subKey = path[3];
-        return typeof subKey === "string" ? RUNTIME_BUILD_FIELD_BY_KEY[subKey] : undefined;
+        // A whole-block error (`apps.i.build`) is a rejected build method too.
+        if (subKey == null) return "buildMode";
+        return typeof subKey === "string" ? BUILD_FIELD_BY_KEY[subKey] : undefined;
     }
     return APP_FIELD_BY_DOCUMENT_KEY[key];
 }

@@ -123,11 +123,8 @@ hooks:
 
 **Build block (`build`):**
 
-An app may carry an optional `build` block that selects a build strategy explicitly instead of relying on a bare Dockerfile (see [Building Images](#building-images)). It is a discriminated union on `framework`:
+An app may carry an optional `build` block that selects a build strategy explicitly instead of relying on a bare Dockerfile (see [Building Images](#building-images)). It is a discriminated union on `framework`. Two arms can be **authored**:
 
-- **Framework presets** (`node`, `next`, `vite`) - generate a single-stage Dockerfile from a node base image. Fields: `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`), `build_context` (`app` | `root`, default `app`), and optional `install_command` / `build_command` / `run_command` overrides. `bun` is the same with a bun base image and no `package_manager` / `node_version`. With `build_context: root` the build runs from the repo root and defaults the build/run commands to `turbo run build`/`turbo run start` filtered by the app's **real workspace `package.json` name** (falling back to a path filter), so a turbo monorepo needs no command overrides.
-
-  **Next.js `output: 'standalone'`:** set an explicit `run_command`, e.g. `run_command: node apps/web/.next/standalone/server.js`. There is no autodetection of `next.config` - the `run_command` is the single source of truth for how the container starts.
 - **`dockerfile`** - build a user-authored Dockerfile. Fields: `dockerfile` (required, path relative to repo root) and optional `target` (multi-stage stage to build).
 - **`runtime`** - the **raw escape hatch**. You pick a language runtime or bare base image and write the build yourself; the generator emits a trivial `FROM <image>` / toolbelt / `RUN <build_script>` / `CMD <entrypoint>` Dockerfile with no autodetection. Fields:
 
@@ -140,6 +137,8 @@ An app may carry an optional `build` block that selects a build strategy explici
 | `build_context` | No       | `app`                            | `app` builds from the app directory; `root` builds from the repo root                                                                                                                                     |
 
 Every runtime is a Debian-family (`apt`) image, so the generator installs one common toolbelt (`git`, `curl`, `jq`, `rg`, `make`, `ssh`, ...) plus per-runtime setup (e.g. `corepack` for node, `uv` for python, `composer` for php), and switches the shell to bash. The generated image clones the repo to `/workspace/<app>`.
+
+**Retired framework presets** (`node`, `next`, `vite`, `bun`) generate a single-stage Dockerfile from a node/bun base image, with `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`, absent for `bun`), `build_context`, and optional `install_command` / `build_command` / `run_command` overrides; with `build_context: root` the build/run commands default to `turbo run build`/`turbo run start` filtered by the app's real workspace `package.json` name (path filter fallback). They are `runtime` with the base image and commands prefilled, and no editor renders one, so they can no longer be **authored**: `previewConfigSchema` still parses them and previewkit still builds them, but `authoringPreviewConfigSchema` - what the config editor and the MCP `apply_config` tools validate against - rejects them. Documents saved before the retirement keep deploying unchanged until someone converts the app to `runtime` (install + build commands into `build_script`, run command into `entrypoint`).
 
 **Service fields:**
 
@@ -338,7 +337,7 @@ Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress 
 
 Previewkit builds each app with BuildKit without a Docker daemon. Every app-build attempt creates an isolated privileged rootful buildkitd Kubernetes Job, connects `buildctl` directly to its ready pod, and deletes the Job when the attempt settles. Each Job's local cache is empty, but every build imports from and exports back to a rolling per-app registry cache (`--import-cache`/`--export-cache type=registry`, one stable tag per app shared across every PR and commit), so a cold Job can still reuse layers a previous build already pushed. The build model is deterministic - every build is a Dockerfile build, and there is no autodetection:
 
-1. **Generated Dockerfile** -- if the app has a `build` block with a framework preset (`node` / `next` / `vite` / `bun`) or the `runtime` escape hatch, previewkit synthesizes a single-stage Dockerfile and builds it via `buildctl`.
+1. **Generated Dockerfile** -- if the app has a `build` block with the `runtime` escape hatch (or a retired framework preset -- `node` / `next` / `vite` / `bun` -- from before it was retired), previewkit synthesizes a single-stage Dockerfile and builds it via `buildctl`.
 2. **User Dockerfile** -- if the app has `build.framework: dockerfile`, or a bare `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`. For a multi-stage Dockerfile, set `build.target` (with `build.framework: dockerfile`) to pick the stage to build, like `docker build --target` -- otherwise BuildKit builds the **last** stage, which builds the wrong service when a Dockerfile ends with a worker/sidecar stage after the deployable one.
 3. **Neither** -- the deploy fails with an actionable error naming the app. Add a `build` block or a Dockerfile.
 

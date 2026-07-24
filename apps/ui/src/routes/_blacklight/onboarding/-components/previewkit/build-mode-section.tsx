@@ -15,6 +15,7 @@ import {
   cn,
 } from "@autonoma/blacklight";
 import {
+  isDeprecatedBuildFramework,
   PREVIEWKIT_RUNTIME_CATALOG,
   PREVIEWKIT_RUNTIMES,
   PREVIEWKIT_TOOLBELT,
@@ -76,6 +77,7 @@ interface BuildModeSectionProps {
  */
 export function BuildModeSection({ app, applicationId, githubRepositoryId, issues, onChange }: BuildModeSectionProps) {
   const activeHint = MODE_OPTIONS.find((mode) => mode.id === app.buildMode)?.hint ?? "";
+  const modeInvalid = hasFieldError(issues, app.id, "buildMode");
 
   function selectMode(mode: AppBuildMode) {
     // Picking any mode is an explicit override, so drop a preserved framework-preset
@@ -96,7 +98,7 @@ export function BuildModeSection({ app, applicationId, githubRepositoryId, issue
   return (
     <div>
       <Label>Build method</Label>
-      <div className="mt-2 flex w-fit border border-border-dim">
+      <div className={cn("mt-2 flex w-fit border", modeInvalid ? "border-status-critical" : "border-border-dim")}>
         {MODE_OPTIONS.map((mode, index) => (
           <button
             key={mode.id}
@@ -116,18 +118,25 @@ export function BuildModeSection({ app, applicationId, githubRepositoryId, issue
         ))}
       </div>
       {activeHint !== "" ? <p className="mt-2 text-2xs text-text-secondary">{activeHint}</p> : undefined}
+      <FieldMessages issues={issues} draftId={app.id} field="buildMode" />
 
       {app.buildMode === "auto" ? (
         <p className="mt-2 text-2xs text-text-secondary">
-          {app.buildPassthrough != null ? (
+          {app.buildPassthrough == null ? (
+            "This app currently uses auto-detection. Pick a method above to configure it explicitly."
+          ) : isDeprecatedBuildFramework(app.buildPassthrough.framework) ? (
             <>
-              Keeping this app&apos;s existing{" "}
-              <span className="font-mono text-text-primary">{app.buildPassthrough.framework}</span> build config.
+              Its preview keeps deploying with the retired{" "}
+              <span className="font-mono text-text-primary">{app.buildPassthrough.framework}</span> preset until you
+              pick a method above.
             </>
           ) : (
-            "This app currently uses auto-detection."
-          )}{" "}
-          Pick a method above to configure it explicitly.
+            <>
+              Keeping this app&apos;s existing{" "}
+              <span className="font-mono text-text-primary">{app.buildPassthrough.framework}</span> build config. Pick a
+              method above to configure it explicitly.
+            </>
+          )}
         </p>
       ) : undefined}
 

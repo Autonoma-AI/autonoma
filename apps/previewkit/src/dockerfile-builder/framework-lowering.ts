@@ -4,7 +4,12 @@ import { mirrorDockerHubImage } from "../deployer/image-mirror";
 import { nodeBuildCommands } from "./node-package-manager";
 import type { GenerateDockerfileContext, RawSpec } from "./raw-spec";
 
-/** A framework preset (node / next / vite / bun) - excludes the user-Dockerfile and raw-runtime arms. */
+/**
+ * A framework preset (node / next / vite / bun) - excludes the user-Dockerfile and
+ * raw-runtime arms. Presets are retired from authoring (see
+ * `DEPRECATED_BUILD_FRAMEWORKS`), so this lowering only ever runs for documents
+ * saved before the retirement; it stays so those previews keep building unchanged.
+ */
 type FrameworkBuild = Exclude<Build, { framework: "dockerfile" | "runtime" }>;
 
 /** Bun ships its own image; the node frameworks resolve their base image through the shared runtime catalog. */

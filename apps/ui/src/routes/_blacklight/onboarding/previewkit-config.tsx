@@ -9,7 +9,7 @@ import {
   cn,
 } from "@autonoma/blacklight";
 import {
-  previewConfigSchema,
+  authoringPreviewConfigSchema,
   validatePreviewConfigSemantics,
   zodIssuesToConfigIssues,
   type ConfigIssue,
@@ -61,6 +61,7 @@ import {
   emptyDraftIssues,
   fieldIssueKey,
   hookFieldErrors,
+  APP_DRAFT_FIELDS,
   repoAliasFrom,
   serviceRecipeIsDatabase,
   uniqueServiceName,
@@ -69,7 +70,6 @@ import {
   pruneDanglingDependsOn,
   snapshotDocument,
   type AppDraft,
-  type AppDraftField,
   type DraftIssues,
   type RepoDraft,
   type ServiceDraft,
@@ -539,10 +539,10 @@ function PreviewkitConfigContent({
     saveConfig.mutate(
       {
         applicationId: appId,
-        document: previewConfigSchema.parse(submission.primary.document),
+        document: authoringPreviewConfigSchema.parse(submission.primary.document),
         dependencyDocuments: submission.dependencies.map((dependency) => ({
           repo: dependency.repo,
-          document: previewConfigSchema.parse(dependency.document),
+          document: authoringPreviewConfigSchema.parse(dependency.document),
         })),
         secrets: secrets.length > 0 ? secrets : undefined,
       },
@@ -1424,25 +1424,7 @@ function getConfigStepCompletion({
 }
 
 function hasAppFieldErrors(issues: DraftIssues, draftId: number): boolean {
-  const fields: AppDraftField[] = [
-    "name",
-    "path",
-    "buildContext",
-    "dockerfile",
-    "runtime",
-    "runtimeVersion",
-    "buildScript",
-    "entrypoint",
-    "port",
-    "command",
-    "healthCheck",
-    "primary",
-    "dependsOn",
-    "env",
-    "connections",
-    "buildSecrets",
-  ];
-  return fields.some((field) => issues.fieldErrors.has(fieldIssueKey(draftId, field)));
+  return APP_DRAFT_FIELDS.some((field) => issues.fieldErrors.has(fieldIssueKey(draftId, field)));
 }
 
 /**
@@ -1464,7 +1446,7 @@ function validateDraftClientSide(compiled: ReturnType<typeof documentsFromDraft>
   let mergedServices: unknown = compiled.primary.document.services;
 
   for (const entry of allDocuments) {
-    const parsed = previewConfigSchema.safeParse(entry.document);
+    const parsed = authoringPreviewConfigSchema.safeParse(entry.document);
     if (!parsed.success) {
       const issues = zodIssuesToConfigIssues(parsed.error).map((issue) =>
         labelDocumentIssue(issue, entry.label, allDocuments.length > 1),
@@ -1483,7 +1465,7 @@ function validateDraftClientSide(compiled: ReturnType<typeof documentsFromDraft>
   }
   if (!Array.isArray(mergedServices)) mergedServices = [];
 
-  const merged = previewConfigSchema.safeParse({
+  const merged = authoringPreviewConfigSchema.safeParse({
     version: 1,
     apps: mergedApps,
     services: mergedServices,

@@ -1,8 +1,8 @@
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
+    authoringPreviewConfigSchema,
     isProtectedPreviewkitEnvKey,
-    previewConfigSchema,
     ScenarioRecipeSchema,
 } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -10,6 +10,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
+import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import type { McpAnalytics } from "./mcp-analytics";
 import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
 
@@ -237,6 +238,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         currentConfig: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
+                        deprecatedBuilds: deprecatedBuildNotice(config.document),
                     });
                 } catch (err) {
                     logger.warn("pair failed", { err });
@@ -261,6 +263,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         document: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
+                        deprecatedBuilds: deprecatedBuildNotice(config.document),
                     });
                 } catch (err) {
                     logger.warn("get_config failed", { applicationId, err });
@@ -277,6 +280,10 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Save the FULL PreviewKit config document (read it with get_config first, edit it, send the whole " +
                 "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
                 "secret values - declare secret keys as build_secrets and set their values via request_env. " +
+                "An app's `build` is either `runtime` (pick a language runtime, write a bash build_script and a " +
+                "single-line entrypoint) or `dockerfile` (build a Dockerfile committed in the repo) - those are the " +
+                "only two methods, and the only two the user can edit in the Autonoma UI. If get_config handed you a " +
+                "document whose app still uses an older framework preset, convert it to `runtime` before saving. " +
                 "Services do not auto-inject env into apps: wire each app to the databases/services it uses via " +
                 "connections, e.g. { key: 'DATABASE_URL', value: '{{db.url}}' } ({{name.property}} tokens resolve " +
                 "at deploy time; {{service.url}} is the full connection string). " +
@@ -288,7 +295,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Pass a short `description` of what this save does - the user watches it on the activity feed.",
             inputSchema: {
                 applicationId: z.string(),
-                document: previewConfigSchema,
+                document: authoringPreviewConfigSchema,
                 branch: z
                     .string()
                     .min(1)

@@ -2,6 +2,7 @@ import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import {
+    authoringPreviewConfigSchema,
     previewConfigSchema,
     validatePreviewConfigSemantics,
     zodIssuesToConfigIssues,
@@ -376,7 +377,10 @@ export class PreviewkitConfigService {
             githubRepositoryId,
         });
 
-        const parsed = previewConfigSchema.safeParse(document);
+        // The authoring contract, matching `parseConfigShapeOrThrow`: this backs the
+        // editor's live validation, so it must report exactly what a save would
+        // reject - including an app still on a retired framework preset.
+        const parsed = authoringPreviewConfigSchema.safeParse(document);
         if (!parsed.success) {
             return { valid: false, issues: zodIssuesToConfigIssues(parsed.error) };
         }

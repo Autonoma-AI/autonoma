@@ -40,7 +40,7 @@ import {
     writePreviewUrl,
     type PreviewReadiness,
 } from "./preview-readiness";
-import { parseStoredDependencyDocuments } from "./previewkit-config-helpers";
+import { parseAuthoredConfigShapeOrThrow, parseStoredDependencyDocuments } from "./previewkit-config-helpers";
 import {
     PreviewkitConfigService,
     type OnboardingPreviewkitConfig,
@@ -270,6 +270,15 @@ export class OnboardingManager {
             organizationId,
             secretApps: secrets.length,
         });
+        // Onboarding never writes a build the config editor cannot render, so a
+        // retired framework preset is rejected here rather than at the shared save.
+        // Runs before any side effect (secrets, state) so a rejected document
+        // leaves nothing half-written.
+        parseAuthoredConfigShapeOrThrow(document);
+        for (const dependency of dependencyDocuments) {
+            parseAuthoredConfigShapeOrThrow(dependency.document);
+        }
+
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
         await this.assertSecretPathsAvailable(applicationId, organizationId, document, dependencyDocuments);

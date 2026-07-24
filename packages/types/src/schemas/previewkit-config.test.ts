@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
+    authoringPreviewConfigSchema,
     connectionTargets,
     connectionTokens,
+    DEPRECATED_BUILD_FRAMEWORKS,
+    deprecatedBuildApps,
     previewConfigSchema,
     validatePreviewConfigSemantics,
     validateHookSteps,
@@ -152,6 +156,63 @@ describe("previewConfigSchema runtime build block", () => {
             parseWithBuild({ framework: "runtime", runtime: "node", version: "20 && rm", entrypoint: "npm start" })
                 .success,
         ).toBe(false);
+    });
+});
+
+describe("authoringPreviewConfigSchema build block", () => {
+    function authorWithBuild(build: unknown) {
+        return authoringPreviewConfigSchema.safeParse({
+            version: 1,
+            apps: [{ name: "web", port: 3000, build }],
+        });
+    }
+
+    it.each(DEPRECATED_BUILD_FRAMEWORKS)("rejects the retired %s preset", (framework) => {
+        const result = authorWithBuild({ framework, package_manager: "pnpm", node_version: "22" });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            // The default "no matching discriminator" message leaves an agent with no
+            // way forward, so the error has to name the two methods it can use.
+            expect(result.error.issues[0]?.message).toContain('"runtime"');
+            expect(result.error.issues[0]?.message).toContain('"dockerfile"');
+        }
+    });
+
+    it.each(DEPRECATED_BUILD_FRAMEWORKS)("still reads a stored %s preset", (framework) => {
+        expect(parseWithBuild({ framework }).success).toBe(true);
+    });
+
+    it("accepts the two authorable methods", () => {
+        expect(authorWithBuild({ framework: "runtime", runtime: "node", entrypoint: "npm start" }).success).toBe(true);
+        expect(authorWithBuild({ framework: "dockerfile", dockerfile: "./Dockerfile" }).success).toBe(true);
+    });
+
+    it("offers only the two authorable methods in the JSON Schema an MCP client reads", () => {
+        const jsonSchema = z.toJSONSchema(authoringPreviewConfigSchema, { io: "input" });
+        const frameworks = JSON.stringify(jsonSchema).match(/"const":"[a-z]+"/g) ?? [];
+        for (const framework of DEPRECATED_BUILD_FRAMEWORKS) {
+            expect(frameworks).not.toContain(`"const":"${framework}"`);
+        }
+        expect(frameworks).toContain('"const":"runtime"');
+        expect(frameworks).toContain('"const":"dockerfile"');
+    });
+});
+
+describe("deprecatedBuildApps", () => {
+    it("names every app still on a retired preset, and nothing else", () => {
+        const parsed = previewConfigSchema.parse({
+            version: 1,
+            apps: [
+                { name: "legacy", port: 3000, build: { framework: "next" } },
+                {
+                    name: "modern",
+                    port: 3001,
+                    build: { framework: "runtime", runtime: "node", entrypoint: "npm start" },
+                },
+                { name: "bare", port: 3002 },
+            ],
+        });
+        expect(deprecatedBuildApps(parsed)).toEqual([{ app: "legacy", framework: "next" }]);
     });
 });
 

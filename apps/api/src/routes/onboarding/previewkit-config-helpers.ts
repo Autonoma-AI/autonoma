@@ -1,6 +1,11 @@
 import { Prisma, type PrismaClient } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
-import { PREVIEWKIT_RUNTIME_CATALOG, previewConfigSchema, type PreviewConfig } from "@autonoma/types";
+import {
+    authoringPreviewConfigSchema,
+    PREVIEWKIT_RUNTIME_CATALOG,
+    previewConfigSchema,
+    type PreviewConfig,
+} from "@autonoma/types";
 import { z } from "zod";
 
 const FALLBACK_APP_NAME = "web";
@@ -77,9 +82,30 @@ export function defaultPreviewkitConfig(applicationName?: string): PreviewConfig
  * errors. Semantic checks run separately on the merged multi-repo topology
  * (see `mergeConfigsForValidation`), because references like `depends_on` may
  * legitimately cross repo documents.
+ *
+ * This is the shared write path, so it accepts a retired framework preset: the
+ * debug surfaces read a stored document, patch one field and save it back, and
+ * must not be blocked by a build block they never touched. Onboarding holds
+ * itself to the stricter {@link parseAuthoredConfigShapeOrThrow}.
  */
 export function parseConfigShapeOrThrow(document: unknown): PreviewConfig {
-    const validation = previewConfigSchema.safeParse(document);
+    return parseOrThrow(previewConfigSchema, document);
+}
+
+/**
+ * Schema-validates a config document against the AUTHORING contract - everything
+ * {@link parseConfigShapeOrThrow} enforces, plus the rule that an app's build must
+ * be one of the two methods the config editor renders. Onboarding validates every
+ * write through this, so it can never introduce a build the user cannot open and
+ * edit; a document that already carries a retired preset has to convert that app
+ * before it saves again.
+ */
+export function parseAuthoredConfigShapeOrThrow(document: unknown): PreviewConfig {
+    return parseOrThrow(authoringPreviewConfigSchema, document);
+}
+
+function parseOrThrow(schema: z.ZodType<PreviewConfig>, document: unknown): PreviewConfig {
+    const validation = schema.safeParse(document);
     if (!validation.success) {
         throw new BadRequestError(`Invalid PreviewKit config: ${z.prettifyError(validation.error)}`);
     }

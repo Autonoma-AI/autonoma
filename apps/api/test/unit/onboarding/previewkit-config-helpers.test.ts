@@ -1,5 +1,11 @@
+import { DEPRECATED_BUILD_FRAMEWORKS } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
-import { defaultPreviewkitConfig, kebabCaseAppName } from "../../../src/routes/onboarding/previewkit-config-helpers";
+import {
+    defaultPreviewkitConfig,
+    kebabCaseAppName,
+    parseAuthoredConfigShapeOrThrow,
+    parseConfigShapeOrThrow,
+} from "../../../src/routes/onboarding/previewkit-config-helpers";
 
 describe("kebabCaseAppName", () => {
     it.each([
@@ -48,5 +54,36 @@ describe("defaultPreviewkitConfig", () => {
         if (build?.framework !== "runtime") throw new Error("expected a runtime build");
         expect(build.runtime).toBe("node");
         expect(build.entrypoint.trim()).not.toBe("");
+    });
+});
+
+describe("config write contracts", () => {
+    function documentWithBuild(build: unknown) {
+        return {
+            version: 1,
+            apps: [{ name: "web", port: 3000, build }],
+        };
+    }
+
+    const runtimeBuild = { framework: "runtime", runtime: "node", entrypoint: "npm start" };
+
+    it.each(DEPRECATED_BUILD_FRAMEWORKS)("keeps the shared write path open for a stored %s preset", (framework) => {
+        // The debug surfaces read a stored document, patch one field and save it
+        // back; a build block they never touched must not block that.
+        expect(() => parseConfigShapeOrThrow(documentWithBuild({ framework }))).not.toThrow();
+    });
+
+    it.each(DEPRECATED_BUILD_FRAMEWORKS)("refuses to let onboarding author a %s preset", (framework) => {
+        expect(() => parseAuthoredConfigShapeOrThrow(documentWithBuild({ framework }))).toThrow(/runtime/);
+    });
+
+    it("accepts an authorable build on both paths", () => {
+        expect(() => parseConfigShapeOrThrow(documentWithBuild(runtimeBuild))).not.toThrow();
+        expect(() => parseAuthoredConfigShapeOrThrow(documentWithBuild(runtimeBuild))).not.toThrow();
+    });
+
+    it("rejects a malformed document on both paths", () => {
+        expect(() => parseConfigShapeOrThrow({ version: 1, apps: [] })).toThrow();
+        expect(() => parseAuthoredConfigShapeOrThrow({ version: 1, apps: [] })).toThrow();
     });
 });

@@ -184,10 +184,9 @@ const databaseSetupTaskSchema = z.object({
     location: databaseSetupLocationSchema,
 });
 
-// `build` selects an app's build strategy, discriminated on `framework`:
-// - node / bun / next / vite: previewkit generates a Dockerfile from the
-//   install / build / run commands (defaulted from the framework + package
-//   manager + build context, each overridable).
+// `build` selects an app's build strategy, discriminated on `framework`. Two
+// methods can be AUTHORED (they are the two the dashboard editor renders and the
+// only two the onboarding MCP offers):
 // - dockerfile: build a user-authored Dockerfile at the given path. `target`
 //   selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`),
 //   matching `docker build --target`. Without it, buildkit builds the LAST
@@ -196,20 +195,18 @@ const databaseSetupTaskSchema = z.object({
 // - runtime: the raw escape hatch (see previewkit-runtimes.ts). The user picks a
 //   language runtime or bare base image and writes a bash `build_script` +
 //   `entrypoint`; the generator emits `FROM <image>` / `RUN <build_script>` /
-//   `CMD <entrypoint>` with a tiered toolbelt, skipping all autodetection. It is
-//   the most general generated build - the framework presets above are just this
-//   with the base image and commands prefilled.
+//   `CMD <entrypoint>` with a tiered toolbelt, skipping all autodetection.
+// A third group - the node / next / vite / bun framework presets - is RETIRED
+// from authoring and survives only so already-stored documents keep parsing and
+// deploying; see {@link DEPRECATED_BUILD_FRAMEWORKS}.
 // When `build` is omitted the app's bare `dockerfile` field (or a Dockerfile on
 // disk at the app path) is built via the same BuildKit Dockerfile path; there is
 // no autodetection, and an app with neither a `build` block nor any Dockerfile
 // fails the deploy with an actionable error. `build_context: root` builds from
-// the repository root so workspace dependencies resolve - this, plus a
-// turbo-filtered build/run command (filtered by the app's real workspace
-// package name), is how turbo monorepos build (turbo is not a bespoke
-// scenario - it is just `build_context: root` on a framework preset).
+// the repository root so workspace dependencies resolve.
 // Next.js `output: 'standalone'` is supported by setting an explicit
-// `run_command` (e.g. `node apps/web/.next/standalone/server.js`); there is no
-// autodetection of the next.config - the run command is the single source of
+// `entrypoint` (e.g. `node apps/web/.next/standalone/server.js`); there is no
+// autodetection of the next.config - the entrypoint is the single source of
 // truth for how the container starts.
 const nodeVersionRegex = /^\d+(\.\d+)?(\.\d+)?$/;
 const buildContextSchema = z.enum(["app", "root"]).default("app");
@@ -221,6 +218,35 @@ const buildContextSchema = z.enum(["app", "root"]).default("app");
  * generator reads this same constant - one source of truth.
  */
 export const PREVIEWKIT_BUILD_SCRIPT_HEREDOC = "AUTONOMA_BUILD_EOF";
+
+/**
+ * Framework presets retired from the authoring surface. They generate a
+ * Dockerfile from install / build / run commands defaulted per framework, which
+ * the `runtime` escape hatch expresses more generally (same base image, the
+ * commands written out). No editor can produce or render one, so they exist only
+ * as a READ path: documents saved before the retirement keep parsing and keep
+ * deploying exactly as they did. {@link authoringPreviewConfigSchema} rejects
+ * them, so no new document can acquire one.
+ */
+export const DEPRECATED_BUILD_FRAMEWORKS = ["node", "next", "vite", "bun"] as const;
+export type DeprecatedBuildFramework = (typeof DEPRECATED_BUILD_FRAMEWORKS)[number];
+
+export function isDeprecatedBuildFramework(framework: string): framework is DeprecatedBuildFramework {
+    const frameworks: readonly string[] = DEPRECATED_BUILD_FRAMEWORKS;
+    return frameworks.includes(framework);
+}
+
+/**
+ * What a caller sees when it authors a `build` block with an unknown or retired
+ * `framework`. Names both supported methods, because the discriminated union's
+ * default ("no matching discriminator") tells an agent nothing about what to do
+ * instead - and a coding agent driving the MCP is the caller most likely to hit it.
+ */
+const UNSUPPORTED_BUILD_METHOD_MESSAGE =
+    `Unsupported build method. Use "runtime" (pick a runtime, then write a bash build_script and a single-line ` +
+    `entrypoint) or "dockerfile" (build a Dockerfile committed in the repo). The ` +
+    `${DEPRECATED_BUILD_FRAMEWORKS.join(" / ")} framework presets are retired and can no longer be saved - express ` +
+    `them as "runtime" with the install and build commands in build_script and the start command as entrypoint.`;
 
 function nodeFrameworkBuildSchema<TFramework extends "node" | "next" | "vite">(framework: TFramework) {
     return z.object({
@@ -234,7 +260,8 @@ function nodeFrameworkBuildSchema<TFramework extends "node" | "next" | "vite">(f
     });
 }
 
-const buildSchema = z.discriminatedUnion("framework", [
+/** Read-only compatibility arms - see {@link DEPRECATED_BUILD_FRAMEWORKS}. */
+const deprecatedBuildArms = [
     nodeFrameworkBuildSchema("node"),
     nodeFrameworkBuildSchema("next"),
     nodeFrameworkBuildSchema("vite"),
@@ -245,6 +272,9 @@ const buildSchema = z.discriminatedUnion("framework", [
         run_command: z.string().min(1).optional(),
         build_context: buildContextSchema,
     }),
+] as const;
+
+const authoredBuildArms = [
     z.object({
         framework: z.literal("dockerfile"),
         dockerfile: z.string().min(1, "dockerfile path is required"),
@@ -286,7 +316,25 @@ const buildSchema = z.discriminatedUnion("framework", [
             .regex(/^[^\r\n]+$/, "entrypoint must be a single line (no line breaks)"),
         build_context: buildContextSchema,
     }),
-]);
+] as const;
+
+/**
+ * The build contract for every AUTHORING surface (the dashboard config editor and
+ * the onboarding/debug MCP `apply_config` tools). Only the two methods an editor
+ * can render, so a saved document is always representable in the UI - and the
+ * JSON Schema an MCP client reads offers nothing else. A retired framework preset
+ * is rejected here with {@link UNSUPPORTED_BUILD_METHOD_MESSAGE}.
+ */
+export const authoredBuildSchema = z.discriminatedUnion("framework", authoredBuildArms, {
+    error: () => UNSUPPORTED_BUILD_METHOD_MESSAGE,
+});
+
+/**
+ * The build contract for STORED documents: everything {@link authoredBuildSchema}
+ * accepts, plus the retired framework presets so pre-retirement documents keep
+ * reading and deploying.
+ */
+const storedBuildSchema = z.discriminatedUnion("framework", [...authoredBuildArms, ...deprecatedBuildArms]);
 
 /**
  * A runtime environment variable whose value is wired to the topology. Unlike a
@@ -324,19 +372,24 @@ const connectionSchema = z.object({
 });
 
 /**
- * Builds the preview config schema. `allowCustomResources` is the only knob: it
- * decides whether per-app/service `resources` overrides are honored (trusted,
- * platform-authored config) or discarded in favor of the standard tier (untrusted
- * client input). Every other validation rule is identical. See
- * {@link buildResourcesSchema}.
+ * Builds the preview config schema. Two knobs, both about what the caller is
+ * trusted to send:
+ * - `build` is the app build contract: {@link authoredBuildSchema} for anything a
+ *   client authors (so it can only produce a document an editor renders), or
+ *   {@link storedBuildSchema} when reading a document back out of storage.
+ * - `allowCustomResources` decides whether per-app/service `resources` overrides
+ *   are honored (trusted, platform-authored config) or discarded in favor of the
+ *   standard tier (untrusted client input). See {@link buildResourcesSchema}.
+ *
+ * Every other validation rule is identical across the variants.
  */
-function buildPreviewConfigSchema(allowCustomResources: boolean) {
+function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allowCustomResources: boolean) {
     const appSchema = z.object({
         name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
         path: z.string().default("."),
         build_context: z.string().optional(),
         dockerfile: z.string().optional(),
-        build: buildSchema.optional(),
+        build: build.optional(),
         // The AWS-secret keys to also inject at build time (Docker build args).
         // Runtime secret values live in AWS Secrets Manager, never in this document.
         build_secrets: z.array(z.string()).default([]),
@@ -401,9 +454,10 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
  * The untrusted client-config contract (e.g. the dashboard authoring form).
  * Per-app/service `resources` overrides are accepted but ignored here (every
  * container gets the standard tier); untrusted input cannot size its own
- * preview. Use this for any client-supplied config.
+ * preview. Accepts a retired framework preset so the dashboard can load, round-trip
+ * and re-save a pre-retirement document without rewriting a build it can't render.
  */
-export const previewConfigSchema = buildPreviewConfigSchema(false);
+export const previewConfigSchema = buildPreviewConfigSchema(storedBuildSchema, false);
 
 /**
  * Variant that honors per-app/service `resources` overrides. Use ONLY for
@@ -411,7 +465,17 @@ export const previewConfigSchema = buildPreviewConfigSchema(false);
  * deploy-time re-parse of an already-resolved merged config. NEVER parse
  * untrusted client input with this - that path must use {@link previewConfigSchema}.
  */
-export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
+export const trustedPreviewConfigSchema = buildPreviewConfigSchema(storedBuildSchema, true);
+
+/**
+ * The contract for a config an outside caller AUTHORS from scratch - today the
+ * onboarding and debug MCP `apply_config` tools, whose JSON Schema is the menu a
+ * coding agent picks from. Identical to {@link previewConfigSchema} except that an
+ * app's `build` must be one of the two methods the dashboard editor renders, so a
+ * saved document can never be one the user cannot open and edit. Retired framework
+ * presets neither appear in the generated JSON Schema nor validate.
+ */
+export const authoringPreviewConfigSchema = buildPreviewConfigSchema(authoredBuildSchema, false);
 
 // Both variants produce the same shape (resources is always the normalized
 // `{ cpu, memoryRequest, memoryLimit }`); only the source of the values differs.
@@ -467,9 +531,33 @@ export function hasConnectionToken(value: string): boolean {
     return connectionTargets(value).length > 0;
 }
 
-/** An app's build strategy. Discriminated union on `framework`. */
-export type Build = z.infer<typeof buildSchema>;
+/**
+ * An app's build strategy as it can appear in a STORED document - the two
+ * authorable methods plus the retired framework presets. Discriminated on
+ * `framework`. Deploy-side code must handle every arm; anything that produces a
+ * build block should use {@link AuthoredBuild}.
+ */
+export type Build = z.infer<typeof storedBuildSchema>;
 export type BuildFramework = Build["framework"];
+
+/** An app's build strategy as any authoring surface may write it: `dockerfile` or `runtime`. */
+export type AuthoredBuild = z.infer<typeof authoredBuildSchema>;
+
+/**
+ * The apps in a stored document still on a retired framework preset, in document
+ * order. They deploy fine, but no authoring surface can express one, so a caller
+ * that means to save the document back (the config editor, an MCP agent that read
+ * it with `get_config`) has to convert them first. Empty for a modern document.
+ */
+export function deprecatedBuildApps(
+    config: PreviewConfig,
+): Array<{ app: string; framework: DeprecatedBuildFramework }> {
+    return config.apps.flatMap((app) => {
+        const framework = app.build?.framework;
+        if (framework == null || !isDeprecatedBuildFramework(framework)) return [];
+        return [{ app: app.name, framework }];
+    });
+}
 
 export type ConfigIssueSeverity = "error" | "warning";
 
