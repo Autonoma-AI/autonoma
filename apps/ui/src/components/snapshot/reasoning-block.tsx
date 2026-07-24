@@ -1,10 +1,25 @@
 import { type OverlayPoint } from "@autonoma/blacklight";
-import { EVIDENCE_TOKEN_SCHEME } from "@autonoma/types";
+import { EVIDENCE_TOKEN_SCHEME, FINDING_TOKEN_SCHEME, ISSUE_TOKEN_SCHEME } from "@autonoma/types";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import Markdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
+
+// The inline-token schemes the renderer preserves through react-markdown's URL sanitizer (which strips unknown
+// protocols by default): the evidence image scheme plus the analysis issue/finding link schemes.
+const PRESERVED_TOKEN_SCHEMES = [EVIDENCE_TOKEN_SCHEME, ISSUE_TOKEN_SCHEME, FINDING_TOKEN_SCHEME];
+
+/**
+ * Resolve an `issue:`/`finding:` link token into a rendered node. The consumer supplies these (they know the
+ * route params and which ids/slugs actually exist): a known id/slug returns an in-app link, an unknown one
+ * returns the token's plain text - so a fabricated reference "renders as nothing", the link counterpart of an
+ * unbacked `evidence:` image rendering as no image.
+ */
+export interface ReasoningLinkResolvers {
+  renderIssueLink?: (issueId: string, children: ReactNode) => ReactNode;
+  renderFindingLink?: (slug: string, children: ReactNode) => ReactNode;
+}
 
 /**
  * One narrative-embedded evidence asset, resolved to a signed URL by the API.
@@ -51,15 +66,22 @@ export function ReasoningBlock({ label, content }: ReasoningBlockProps) {
   );
 }
 
-export function ReasoningMarkdown({ content, evidence }: { content: string; evidence?: InlineEvidence[] }) {
+export function ReasoningMarkdown({
+  content,
+  evidence,
+  renderIssueLink,
+  renderFindingLink,
+}: { content: string; evidence?: InlineEvidence[] } & ReasoningLinkResolvers) {
   const evidenceById = new Map((evidence ?? []).map((asset) => [asset.assetId, asset]));
 
   return (
     <article className="prose prose-sm prose-invert max-w-none">
       <Markdown
-        // Preserve our custom evidence: token scheme (react-markdown strips unknown
-        // protocols by default); everything else still goes through the safe transform.
-        urlTransform={(url) => (url.startsWith(EVIDENCE_TOKEN_SCHEME) ? url : defaultUrlTransform(url))}
+        // Preserve our custom token schemes (evidence:/issue:/finding:); react-markdown strips unknown
+        // protocols by default. Everything else still goes through the safe transform.
+        urlTransform={(url) =>
+          PRESERVED_TOKEN_SCHEMES.some((scheme) => url.startsWith(scheme)) ? url : defaultUrlTransform(url)
+        }
         components={{
           h1: ({ children }) => (
             <h1 className="mb-3 border-b border-border-dim pb-2 text-base font-semibold text-text-primary">
@@ -97,11 +119,46 @@ export function ReasoningMarkdown({ content, evidence }: { content: string; evid
               evidenceById={evidenceById}
             />
           ),
+          a: ({ href, children }) => (
+            <InlineTokenLink
+              href={typeof href === "string" ? href : undefined}
+              renderIssueLink={renderIssueLink}
+              renderFindingLink={renderFindingLink}
+            >
+              {children}
+            </InlineTokenLink>
+          ),
         }}
       >
         {content}
       </Markdown>
     </article>
+  );
+}
+
+/**
+ * Render a narrative link. An `issue:<id>` / `finding:<slug>` token is dispatched to the consumer's resolver,
+ * which returns an in-app link for a known id/slug or the plain text for an unknown one (so a fabricated token
+ * renders as nothing). A token with no resolver, and any other href, renders as an ordinary external link.
+ */
+function InlineTokenLink({
+  href,
+  children,
+  renderIssueLink,
+  renderFindingLink,
+}: { href?: string; children: ReactNode } & ReasoningLinkResolvers) {
+  if (href != null && href.startsWith(ISSUE_TOKEN_SCHEME)) {
+    const issueId = href.slice(ISSUE_TOKEN_SCHEME.length);
+    return <>{renderIssueLink != null ? renderIssueLink(issueId, children) : children}</>;
+  }
+  if (href != null && href.startsWith(FINDING_TOKEN_SCHEME)) {
+    const slug = href.slice(FINDING_TOKEN_SCHEME.length);
+    return <>{renderFindingLink != null ? renderFindingLink(slug, children) : children}</>;
+  }
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+      {children}
+    </a>
   );
 }
 

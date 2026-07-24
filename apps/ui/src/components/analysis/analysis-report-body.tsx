@@ -1,12 +1,17 @@
+import { Skeleton } from "@autonoma/blacklight";
 import type { AnalysisReportData } from "@autonoma/types";
 import { AnalysisFindingsPanel } from "components/analysis/findings-panel";
-import { ReasoningPanel } from "components/snapshot/reasoning-panel";
+import { PrVerdictHeadline } from "components/analysis/pr-verdict-headline";
+import { AnalysisReportProse } from "components/analysis/report-prose";
+import { SnapshotIssueChanges, SnapshotIssueChangesSkeleton } from "components/analysis/snapshot-issue-changes";
+import { useAnalysisIssues } from "lib/query/branches.queries";
+import { Suspense } from "react";
 
 /**
- * The authoritative snapshot report body (rendered when the snapshot has an `AnalysisReport`): the findings list
- * in the TESTS RUN slot, then IMPACT ANALYSIS (the selection reasoning) alongside FINDINGS SUMMARY (the two-plane
- * verdict narration). SUITE CHANGES THIS SNAPSHOT and BUGS FOUND are gone - every finding, client bug included,
- * lives in the findings list and opens its own evidence detail.
+ * The authoritative snapshot report body - the per-JOB view (one checkpoint's analysis run). The report prose as
+ * of this job leads, then the run's two-plane verdict + its findings list, then the issue-set changes this job
+ * made (issues opened / carried forward / resolved). The impact-analysis reasoning is admin-only and rendered by
+ * the route.
  */
 export function AnalysisReportBody({
   report,
@@ -19,19 +24,53 @@ export function AnalysisReportBody({
 }) {
   return (
     <div className="flex flex-col gap-6">
+      <PrVerdictHeadline findings={report.findings} />
+      {report.reportMarkdown != null && (
+        <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+          <SnapshotReportProse
+            markdown={report.reportMarkdown}
+            report={report}
+            prNumber={prNumber}
+            snapshotId={snapshotId}
+          />
+        </Suspense>
+      )}
       <AnalysisFindingsPanel findings={report.findings} prNumber={prNumber} snapshotId={snapshotId} />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ReasoningPanel
-          title="Impact analysis"
-          content={report.impactReasoning}
-          empty="Analysis has not produced a summary yet."
-        />
-        <ReasoningPanel
-          title="Findings summary"
-          content={report.narration}
-          empty="No summary was recorded for this checkpoint."
-        />
-      </div>
+      <Suspense fallback={<SnapshotIssueChangesSkeleton />}>
+        <SnapshotIssueChanges snapshotId={snapshotId} prNumber={prNumber} />
+      </Suspense>
     </div>
+  );
+}
+
+/**
+ * The prose, split out so its branch-issues query suspends on its own. The prose is PR-CUMULATIVE even on a
+ * per-job view, so it routinely references issues with no finding in this run - a carried-forward one, or one this
+ * run resolved. Resolving `issue:` tokens against the whole branch's issue set (not this run's findings) is what
+ * lets those link; only a genuinely fabricated id falls through to plain text.
+ */
+function SnapshotReportProse({
+  markdown,
+  report,
+  prNumber,
+  snapshotId,
+}: {
+  markdown: string;
+  report: AnalysisReportData;
+  prNumber: number;
+  snapshotId: string;
+}) {
+  const { data: issues } = useAnalysisIssues(report.branchId);
+  const issueIds = new Set(issues.map((issue) => issue.id));
+
+  return (
+    <AnalysisReportProse
+      markdown={markdown}
+      evidence={report.reportEvidence}
+      prNumber={prNumber}
+      snapshotId={snapshotId}
+      findings={report.findings}
+      issueIds={issueIds}
+    />
   );
 }

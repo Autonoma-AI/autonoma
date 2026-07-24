@@ -30,6 +30,7 @@ function issueContent(title: string, findingSlugs: string[]): ReporterIssueConte
         narrativeMarkdown: `${title} narrative`,
         evidenceManifest: [],
         findingSlugs,
+        primaryFindingSlug: findingSlugs[0] ?? "",
     };
 }
 
@@ -136,6 +137,7 @@ integrationTestSuite({
                     produceResult: fixedResult({
                         reportMarkdown: "## Report\nCheckout is broken.",
                         reportEvidenceManifest: [],
+                        summary: "One bug: the app misbehaves.",
                         issues: [openAction],
                     }),
                 },
@@ -177,6 +179,7 @@ integrationTestSuite({
                     produceResult: fixedResult({
                         reportMarkdown: "## Report\nLogin works now.",
                         reportEvidenceManifest: [],
+                        summary: "One bug: the app misbehaves.",
                         issues: [
                             {
                                 kind: "resolve",
@@ -220,6 +223,7 @@ integrationTestSuite({
                     produceResult: fixedResult({
                         reportMarkdown: "## Report\nStill broken.",
                         reportEvidenceManifest: [],
+                        summary: "One bug: the app misbehaves.",
                         issues: [carry],
                     }),
                 },
@@ -256,6 +260,7 @@ integrationTestSuite({
                     produceResult: fixedResult({
                         reportMarkdown: "## Report\nAll green.",
                         reportEvidenceManifest: [],
+                        summary: "One bug: the app misbehaves.",
                         issues: [],
                     }),
                 },
@@ -290,6 +295,7 @@ integrationTestSuite({
                     produceResult: fixedResult({
                         reportMarkdown: "## Report",
                         reportEvidenceManifest: [],
+                        summary: "One bug: the app misbehaves.",
                         issues: [{ kind: "open", content: issueContent("Checkout broken", ["checkout"]) }],
                     }),
                 },

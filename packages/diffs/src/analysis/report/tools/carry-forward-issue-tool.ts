@@ -1,6 +1,6 @@
 import { AgentTool } from "@autonoma/ai";
 import { z } from "zod";
-import { authoredIssueContentSchema } from "../issue-actions";
+import { assertPrimaryFindingSlugCovered, authoredIssueContentSchema } from "../issue-actions";
 import type { ReporterAgentLoop } from "../reporter-agent-loop";
 
 /** `carry_forward_issue` input: the shared authored content plus the existing issue id being re-confirmed. */
@@ -34,6 +34,7 @@ export class CarryForwardIssueTool extends AgentTool<
         loop.assertKnownAsset(input.primaryScreenshotAssetId);
 
         const { existingIssueId, ...content } = input;
+        assertPrimaryFindingSlugCovered(content);
         loop.recordIssueAction({ kind: "carry_forward", existingIssueId, content });
         return { recorded: true, existingIssueId };
     }

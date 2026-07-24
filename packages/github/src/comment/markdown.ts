@@ -252,6 +252,7 @@ function isRichBug(bug: AutonomaCommentBug): boolean {
         bug.description != null ||
         bug.screenshotUrl != null ||
         bug.remediation != null ||
+        bug.suspectedCause != null ||
         (bug.evidence != null && bug.evidence.length > 0)
     );
 }
@@ -276,6 +277,7 @@ function renderBugDetails(
     }
     if (bug.replayHref != null) body.push(renderCta(assetBaseUrl, "Watch replay", bug.replayHref));
     if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));
+    if (bug.suspectedCause != null) body.push(`**Suspected cause:** ${sanitizeRichMarkdown(bug.suspectedCause)}`);
     if (bug.remediation != null) body.push(`**Remediation:** ${sanitizeRichMarkdown(bug.remediation)}`);
     if (bug.evidence != null && bug.evidence.length > 0) body.push(renderEvidence(bug.evidence));
 

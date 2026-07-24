@@ -2578,13 +2578,18 @@ model AnalysisReport {
   /// ![{ byCategory: { category: string; count: number }[]; total: number; unestablishedProposed: number; obsoleteRemoved: number }]
   coverage Json?
 
-  /// The constrained prose narration of this run's two-plane verdict. Best-effort - absent when the narration
-  /// model call could not run. Derived from the FINAL verdict; it never alters it.
+  /// Dead column: nothing writes or reads it. Superseded by `summary`, which the Reporter authors directly.
+  /// Retained so its DROP can land in its own migration one deploy after the readers were removed.
   narration String?
+
+  /// The Reporter's short prose summary of the run (1-3 sentences, plain prose - no headings, no evidence/issue/
+  /// finding tokens). Drives the PR page's verdict subtitle and the GitHub comment's paragraph, both of which need
+  /// a paragraph rather than the full report document.
+  summary String @db.Text
 
   /// The Reporter agent's holistic, PR-cumulative report prose (Markdown), written at report birth. Its
   /// `evidence:<assetId>` image tokens resolve against `evidenceManifest`.
-  reportMarkdown String? @map("report_markdown") @db.Text
+  reportMarkdown String @map("report_markdown") @db.Text
 
   /// The assets the Reporter's `reportMarkdown` may embed inline by `evidence:<assetId>` token, derived from the
   /// evidence the Reporter actually fetched (never authored). Display-only blob, resolved to signed URLs on read.
@@ -2682,8 +2687,8 @@ model AnalysisFinding {
   displayOrder Int @map("display_order")
 
   /// The branch-scoped AnalysisIssue this finding is attributed to, backfilled by the Reporter after it authors
-  /// the issues. Additive and dormant: the live Reconciler never sets it. Nullable - a passing or coverage-plane
-  /// finding has no issue; SetNull so deleting an issue orphans its findings rather than cascading them away.
+  /// the issues. Nullable - a passing or coverage-plane finding has no issue, and findings written before the
+  /// Reporter have none; SetNull so deleting an issue orphans its findings rather than cascading them away.
   issueId String?        @map("issue_id")
   issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
 
@@ -2737,6 +2742,12 @@ model AnalysisIssue {
   /// (never authored raw). Signed on read; absent falls back to a covering finding's screenshot.
   /// [PrimaryScreenshot]
   primaryScreenshot Json? @map("primary_screenshot")
+
+  /// The slug of the covered test the Reporter designated as the clearest REPRODUCTION of the problem (one of
+  /// `findingSlugs`). Which test is the judgement call, so the agent makes it; which RUN of that test to show is
+  /// mechanical, so readers resolve the newest covering finding for this slug - so a carried-forward issue's media
+  /// tracks the PR's current head with no re-designation. Null when the model named a slug it was never shown.
+  primaryFindingSlug String? @map("primary_finding_slug")
 
   /// The hedged, code-level suspected cause (explanation + grounded file:line references), validated against the
   /// checked-out repo at author time so a fabricated reference never lands. Absent when nothing was grounded.

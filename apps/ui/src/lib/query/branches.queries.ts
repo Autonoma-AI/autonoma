@@ -118,8 +118,8 @@ export async function ensureInvestigationReportData(queryClient: QueryClient, sn
 }
 
 /**
- * The authoritative analysis report (merged-pipeline findings + narration) for a snapshot. This is the
- * page-level gate: when it resolves non-null the snapshot page renders the authoritative layout; otherwise the
+ * The authoritative analysis report (the Reporter's prose + summary, and this run's findings) for a snapshot. This
+ * is the page-level gate: when it resolves non-null the snapshot page renders the authoritative layout; otherwise the
  * diffs UI is left untouched. A suspense query prefetched in the snapshot route loader - the queryFn resolves to
  * `null` (a valid value) for a diffs snapshot, so the gate never flashes. User-facing (not internal-gated).
  */
@@ -133,8 +133,9 @@ export function useIsAuthoritativeSnapshot(snapshotId: string): boolean {
     return data != null;
 }
 
+/** Returns the report so a loader can chain the branch-scoped reads that need its `branchId`. */
 export async function ensureAnalysisReportData(queryClient: QueryClient, snapshotId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.analysisReport.queryOptions({ snapshotId }));
+    return await ensureAPIQueryData(queryClient, trpc.branches.analysisReport.queryOptions({ snapshotId }));
 }
 
 /**
@@ -167,6 +168,42 @@ export function useAnalysisJob(snapshotId: string) {
 
 export async function ensureAnalysisJobData(queryClient: QueryClient, snapshotId: string) {
     await ensureAPIQueryData(queryClient, trpc.branches.analysisJob.queryOptions({ snapshotId }));
+}
+
+/**
+ * The branch's analysis issues (all statuses, branch-scoped) for the PR page. The open ones drive the
+ * issues-first list + verdict headline; resolved ones are included so the report prose's `issue:` tokens can link
+ * them. A suspense query; empty for a branch with no issues. Only rendered once the run's report has landed (the
+ * job is terminal by then), so it does not poll - the report query drives the page's liveness.
+ */
+export function useAnalysisIssues(branchId: string) {
+    return useSuspenseQuery(trpc.branches.analysisIssues.queryOptions({ branchId }));
+}
+
+export async function ensureAnalysisIssuesData(queryClient: QueryClient, branchId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisIssues.queryOptions({ branchId }));
+}
+
+/**
+ * One analysis issue in full (narrative + signed evidence + cross-snapshot finding instances) for the PR-level
+ * issue-detail page. A plain (non-suspense) query because the value is legitimately `null` for an unknown or
+ * malformed issue - the page renders a graceful not-found for that, which useSuspenseQuery cannot express.
+ */
+export function useAnalysisIssueDetail(issueId: string) {
+    return useQuery(trpc.branches.analysisIssueDetail.queryOptions({ issueId }));
+}
+
+export async function ensureAnalysisIssueDetailData(queryClient: QueryClient, issueId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisIssueDetail.queryOptions({ issueId }));
+}
+
+/**
+ * The per-job issue-set changes (opened / carried-forward / resolved) for a snapshot's analysis run, for the
+ * snapshot per-job view. A suspense query; empty groups for a diffs snapshot. Fetched inside the report body's own
+ * Suspense boundary so a diffs snapshot (which never renders that body) pays for no query.
+ */
+export function useAnalysisSnapshotIssueChanges(snapshotId: string) {
+    return useSuspenseQuery(trpc.branches.analysisSnapshotIssueChanges.queryOptions({ snapshotId }));
 }
 
 export function useBranches(state: PullRequestStateFilter = "open") {

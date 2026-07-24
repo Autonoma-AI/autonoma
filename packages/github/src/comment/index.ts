@@ -1,3 +1,4 @@
+export { buildAgentHandoffLinks, capHandoffPrompt, MAX_HANDOFF_PROMPT_CHARS } from "./handoff-links";
 export { renderMarkdown, SEE_PREVIEW_CTA_LABEL } from "./markdown";
 export { stripCtaFromBody } from "./strip-cta";
 export { payloadBuilder } from "./payload";

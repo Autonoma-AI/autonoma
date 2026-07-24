@@ -32,14 +32,22 @@ export const AutonomaCommentBugSchema = z.object({
     markerState: AutonomaCommentStateSchema.optional(),
     occurrenceCount: z.number().int().positive().optional(),
     /**
-     * Rich detail (the investigation comment): when any of these are set, the bug renders as an expandable
-     * `<details>` - a screenshot linking to the replay, the short description, the remediation, and a nested
-     * Evidence collapsible for coding agents. Absent on the diffs comment, which keeps bugs as one-liners.
+     * Rich detail (the investigation and analysis comments): when any of these are set, the bug renders as an
+     * expandable `<details>` - a screenshot linking to the replay, the short description, the suspected cause or
+     * remediation, and a nested Evidence collapsible for coding agents. Absent on the diffs comment, which keeps
+     * bugs as one-liners.
      */
     screenshotUrl: z.string().optional(),
     replayHref: z.string().optional(),
     description: z.string().optional(),
     remediation: z.string().optional(),
+    /**
+     * The hedged, code-level diagnosis of what produces the misbehavior - the analysis comment's counterpart to
+     * `remediation`. It says where the problem probably IS, not how to fix it; the accompanying `evidence` items
+     * carry the file:line references it cites. Rendered as its own labelled line, so it is never mistaken for a
+     * prescription.
+     */
+    suspectedCause: z.string().optional(),
     evidence: z.array(AutonomaCommentEvidenceSchema).optional(),
     previewHref: z.string().optional(),
 });

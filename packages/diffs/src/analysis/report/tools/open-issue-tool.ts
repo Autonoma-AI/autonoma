@@ -1,5 +1,9 @@
 import { AgentTool } from "@autonoma/ai";
-import { type AuthoredIssueContent, authoredIssueContentSchema } from "../issue-actions";
+import {
+    assertPrimaryFindingSlugCovered,
+    type AuthoredIssueContent,
+    authoredIssueContentSchema,
+} from "../issue-actions";
 import type { ReporterAgentLoop } from "../reporter-agent-loop";
 
 type OpenIssueOutput = { recorded: true; findingSlugs: string[] };
@@ -19,6 +23,7 @@ export class OpenIssueTool extends AgentTool<AuthoredIssueContent, OpenIssueOutp
     protected async execute(input: AuthoredIssueContent, loop: ReporterAgentLoop): Promise<OpenIssueOutput> {
         loop.assertKnownFindingSlugs(input.findingSlugs);
         loop.assertKnownAsset(input.primaryScreenshotAssetId);
+        assertPrimaryFindingSlugCovered(input);
         loop.recordIssueAction({ kind: "open", content: input });
         return { recorded: true, findingSlugs: input.findingSlugs };
     }

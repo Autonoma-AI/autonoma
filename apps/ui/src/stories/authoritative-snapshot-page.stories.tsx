@@ -47,19 +47,61 @@ const PLACE_ORDER_SNIPPET = `function PlaceOrder({ form }: { form: CheckoutForm 
   );
 }`;
 
+// The Reporter's report-as-of-this-job prose. Exercises the inline tokens: a link to the issue this finding rolls
+// up to, a link to the finding itself, an evidence image backed by `reportEvidence`, and - because the prose is
+// PR-cumulative even here - a link to an issue with NO finding in this run, which resolves via the branch's issue
+// set rather than this job's findings.
+const REPORT_MARKDOWN = [
+  "## This checkpoint",
+  "",
+  "One client bug this run: the [Place order button never enables](issue:issue_place_order), traced through " +
+    "[checkout-place-order](finding:checkout-place-order).",
+  "",
+  "![The disabled Place order button](evidence:asset_report_1)",
+  "",
+  "The cart and add-to-cart flows passed. Two checks could not confirm app health and don't block the PR. The " +
+    "[cart badge miscount](issue:issue_cart_badge) carried over from an earlier checkpoint is still open.",
+].join("\n");
+
+// The branch's issues. This run's findings only touch the place-order bug, so the cart-badge issue is exactly the
+// carried-forward case: its `issue:` token must still link, which only works because the resolver reads the BRANCH.
+const analysisIssues: NonNullable<TrpcFixtures["branches"]>["analysisIssues"] = [
+  {
+    id: "issue_place_order",
+    title: "Place order button never enables on checkout",
+    kind: "bug",
+    severity: "critical",
+    status: "open",
+    runCount: 1,
+    thumbnailUrl: MOCK_SCREENSHOT,
+  },
+  {
+    id: "issue_cart_badge",
+    title: "Cart badge miscounts items after removal",
+    kind: "bug",
+    severity: "high",
+    status: "open",
+    runCount: 3,
+  },
+];
+
 // The authoritative analysis report: one client bug (the actionable finding), a pair of passed tests, and two
-// non-blocking coverage findings (scenario + engine), plus the impact-analysis and narration prose.
+// non-blocking coverage findings (scenario + engine), plus the report prose and impact-analysis reasoning.
 const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
   analysisReport: {
     impactReasoning:
       "This PR reworks the checkout submit handler and the cart badge counter. I re-ran the two existing " +
       "checkout tests that exercise those surfaces and authored one new test for the guest add-to-cart path the " +
       "diff opens up.",
-    narration:
-      "This checkpoint surfaced one client bug: on the checkout page the Place order button never enables even " +
-      "once the form is valid, so a customer cannot complete a purchase. The cart and add-to-cart flows behaved " +
-      "correctly. Two tests could not confirm app health this run - a coupon scenario was not seeded and the " +
-      "payment iframe did not load in the harness - so neither counts against the PR.",
+    reportMarkdown: REPORT_MARKDOWN,
+    summary:
+      "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so " +
+      "no customer can complete a purchase.",
+    reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
+    verdict: "client_bug",
+    clientBugCount: 1,
+    testCount: 5,
+    branchId: BRANCH_ID,
     findings: [
       {
         id: "checkout-place-order",
@@ -67,6 +109,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         category: "client_bug",
         headline: "Place order button never enables on the checkout page",
         confidence: "high",
+        issueId: "issue_place_order",
+        issueTitle: "Place order button never enables on checkout",
         whatHappened:
           "With a valid saved card and a complete shipping address, every field validated but the Place order " +
           "button stayed disabled, so the run could never submit the order.",
@@ -122,6 +166,64 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         category: "engine_artifact",
         headline: "The payment iframe did not load in the harness",
         evidence: [],
+      },
+    ],
+  },
+};
+
+// The one bug issue this run opened, as a list summary - shown in the snapshot's per-job "Issues this checkpoint".
+const PLACE_ORDER_ISSUE_SUMMARY = {
+  id: "issue_place_order",
+  title: "Place order button never enables on checkout",
+  kind: "bug" as const,
+  severity: "critical" as const,
+  status: "open" as const,
+  runCount: 1,
+  thumbnailUrl: MOCK_SCREENSHOT,
+};
+
+// The per-job issue-set changes: this run opened the place-order bug; nothing carried forward or resolved.
+const analysisSnapshotIssueChanges: NonNullable<TrpcFixtures["branches"]> = {
+  analysisSnapshotIssueChanges: { opened: [PLACE_ORDER_ISSUE_SUMMARY], carriedForward: [], resolved: [] },
+};
+
+// The full issue detail, reached from the PR list or a finding's up-link. Exercises the narrative's inline
+// `finding:` link + `evidence:` image, the suspected cause, and the cross-snapshot finding instances.
+const analysisIssueDetail: NonNullable<TrpcFixtures["branches"]> = {
+  analysisIssueDetail: {
+    id: "issue_place_order",
+    title: "Place order button never enables on checkout",
+    kind: "bug",
+    severity: "critical",
+    status: "open",
+    expectedBehavior:
+      "With a valid saved card and a complete shipping address, the Place order button should enable so the " +
+      "customer can submit the order.",
+    actualBehavior:
+      "Every field validated but the Place order button stayed disabled, so the order could never submit.",
+    narrativeMarkdown: [
+      "The checkout form validates correctly, but the submit button never enables - see " +
+        "[checkout-place-order](finding:checkout-place-order).",
+      "",
+      "![The disabled Place order button](evidence:asset_issue_1)",
+    ].join("\n"),
+    evidence: [{ assetId: "asset_issue_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
+    suspectedCause: {
+      explanation:
+        "The submit handler reads a `formValid` flag computed once on mount and never recomputed after the " +
+        "async address-validation promise resolves.",
+      codeReferences: [{ file: "src/checkout/PlaceOrder.tsx", lines: "42-58", snippet: PLACE_ORDER_SNIPPET }],
+    },
+    primaryScreenshot: { url: MOCK_SCREENSHOT, points: [] },
+    findingInstances: [
+      {
+        snapshotId: SNAPSHOT_ID,
+        snapshotCreatedAt: RUN_AT,
+        headSha: HEAD_SHA,
+        findingId: "checkout-place-order",
+        slug: "checkout-place-order",
+        category: "client_bug",
+        headline: "Place order button never enables on the checkout page",
       },
     ],
   },
@@ -269,6 +371,9 @@ const pageFixtures: TrpcFixtures = {
     ...snapshotReport,
     ...snapshotDetail,
     ...analysisReport,
+    ...analysisSnapshotIssueChanges,
+    ...analysisIssueDetail,
+    analysisIssues,
   },
 };
 
@@ -282,14 +387,21 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** The report tab: the findings list in the TESTS RUN slot, then IMPACT ANALYSIS + FINDINGS SUMMARY. */
+/** The per-job view: the report prose, the run's verdict + findings list, and the issue-set changes this job made. */
 export const Report: Story = {
   args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
 };
 
-/** A single finding's evidence detail, reached by clicking a finding row. */
+/** A single finding's evidence detail, reached by clicking a finding row - with the up-link to its issue. */
 export const Finding: Story = {
   args: {
     path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/findings/checkout-place-order`,
+  },
+};
+
+/** The PR-level issue detail: narrative + evidence + suspected cause + the issue's finding instances. */
+export const Issue: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/issues/issue_place_order`,
   },
 };

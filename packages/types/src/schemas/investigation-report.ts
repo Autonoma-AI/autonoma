@@ -90,6 +90,13 @@ export const investigationFindingSchema = z.object({
      * this is a merged finding (its narrative + evidence combine all of them); absent/length 1 means standalone.
      */
     coveredSlugs: z.array(z.string()).optional(),
+    /**
+     * The branch-scoped analysis issue this finding was attributed to, when the Reporter clustered it into one.
+     * Present only on analysis findings (never investigation-twin reports); lets the finding-detail page link
+     * UP to the stable, cross-snapshot issue. `issueTitle` is the issue's headline for the up-link's label.
+     */
+    issueId: z.string().optional(),
+    issueTitle: z.string().optional(),
 });
 export type InvestigationFinding = z.infer<typeof investigationFindingSchema>;
 

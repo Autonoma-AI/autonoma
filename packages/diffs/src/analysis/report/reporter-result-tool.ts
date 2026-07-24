@@ -3,6 +3,7 @@ import { z } from "zod";
 import { type CoverageViolations, hasCoverageViolations } from "./coverage";
 import type { AuthoredIssueContent } from "./issue-actions";
 import type { ReporterAgentLoop } from "./reporter-agent-loop";
+import { toPlainSummary } from "./summary";
 import type { ReporterIssueContent, ReporterIssueResult, ReporterResult } from "./types";
 
 const reporterFinishInputSchema = z.object({
@@ -11,6 +12,12 @@ const reporterFinishInputSchema = z.object({
         .min(1)
         .describe(
             "The holistic PR report in Markdown: what this PR does, what the run found across all tests, the open bugs first (headline), then environment/scenario/coverage color, and a brief note on any self-heals. Lead with the latest job. You may embed a fetched screenshot inline with `![caption](evidence:<assetId>)` - only fetched ids survive. Never manufacture a problem without a finding.",
+        ),
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            "The same verdict in ONE to THREE sentences of plain prose, for readers who see only a paragraph: the GitHub PR comment and the PR page's subtitle. Lead with whether the app misbehaved and what breaks for a user. Plain prose only - no Markdown headings, no bullet lists, no links, and no `evidence:`/`issue:`/`finding:` tokens, none of which render on those surfaces.",
         ),
 });
 
@@ -67,7 +74,12 @@ export class ReporterResultTool extends ReportResultTool<ReporterFinishInput, Re
 
         const issues = loop.issueActions.map((action) => this.resolveIssue(action, loop));
         const { markdown, manifest } = loop.groundNarrative(input.reportMarkdown);
-        return { reportMarkdown: markdown, reportEvidenceManifest: manifest, issues };
+        return {
+            reportMarkdown: markdown,
+            reportEvidenceManifest: manifest,
+            summary: toPlainSummary(input.summary),
+            issues,
+        };
     }
 
     /** Turn one recorded reconciliation into its grounded, persisted result shape. */
@@ -102,6 +114,7 @@ export class ReporterResultTool extends ReportResultTool<ReporterFinishInput, Re
             suspectedCause: loop.validateSuspectedCause(content.suspectedCause),
             primaryScreenshot: loop.resolvePrimaryScreenshot(content.primaryScreenshotAssetId),
             findingSlugs: content.findingSlugs,
+            primaryFindingSlug: content.primaryFindingSlug,
         };
     }
 }

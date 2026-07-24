@@ -31,12 +31,15 @@ export function FindingDetail({
   finding,
   meta,
   backLink,
+  issueLink,
   repoFullName,
   commitSha,
 }: {
   finding: InvestigationFinding;
   meta: FindingBadgeMeta;
   backLink: ReactNode;
+  /** An up-link to the branch-scoped issue this finding was clustered into (analysis findings only). */
+  issueLink?: ReactNode;
   repoFullName?: string;
   commitSha?: string;
 }) {
@@ -57,6 +60,7 @@ export function FindingDetail({
           {finding.planFidelity != null && <span>· plan: {finding.planFidelity}</span>}
           {finding.stepCount != null && <span>· {finding.stepCount} steps</span>}
         </div>
+        {issueLink}
       </header>
 
       {finding.error != null ? (

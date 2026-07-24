@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { overlayPointSchema } from "../types/step-overlay-points";
+
 /**
  * The reference-token contract that anchors inline evidence in a bug report's
  * narrative. The healing agent embeds a fetched screenshot as a Markdown image
@@ -10,6 +13,30 @@
  * the renderer (which matches the scheme) all agree on one grammar.
  */
 export const EVIDENCE_TOKEN_SCHEME = "evidence:";
+
+/**
+ * The link-token schemes the analysis report prose (and issue narratives) use to cross-reference the report's own
+ * entities: a branch-scoped, cross-snapshot issue (`[text](issue:<id>)`) and a per-snapshot finding
+ * (`[text](finding:<slug>)`). Unlike `evidence:` - a Markdown IMAGE that renders inline - these are Markdown
+ * LINKS the renderer resolves to in-app routes. A token that references an unknown id/slug renders as its plain
+ * text (no dangling link), the link counterpart of an unbacked `evidence:` image rendering as nothing.
+ */
+export const ISSUE_TOKEN_SCHEME = "issue:";
+export const FINDING_TOKEN_SCHEME = "finding:";
+
+/**
+ * One narrative-embedded evidence asset resolved for the client: a short-lived signed URL, never the raw storage
+ * key. The narrative references it by `evidence:<assetId>` token; the API resolves the referenced tokens against a
+ * report/issue evidence manifest, and the renderer looks each token up here to draw the image (with its pin) - or
+ * nothing when the token has no resolved asset. Shared across every surface that resolves an evidence manifest.
+ */
+export const resolvedEvidenceAssetSchema = z.object({
+    assetId: z.string(),
+    url: z.string(),
+    kind: z.enum(["screenshot", "step_output"]),
+    pin: overlayPointSchema.optional(),
+});
+export type ResolvedEvidenceAsset = z.infer<typeof resolvedEvidenceAssetSchema>;
 
 // Matches any Markdown image: `![alt](<src>)` (an optional title after the src is
 // tolerated). Group 1 is the src, which runs to the first whitespace or closing

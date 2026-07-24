@@ -6,12 +6,14 @@ import { AnalysisReportBody } from "components/analysis/analysis-report-body";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
 import { PipelineStrip } from "components/snapshot/pipeline-strip";
+import { ReasoningPanel } from "components/snapshot/reasoning-panel";
 import { SnapshotReportDocument, SnapshotReportDocumentSkeleton } from "components/snapshot/report-document";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
 import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
 import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import { useAuth } from "lib/auth";
 import {
+  ensureAnalysisIssuesData,
   ensureAnalysisReportData,
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
@@ -33,11 +35,17 @@ export const Route = createFileRoute(
   loader: async ({ context, params: { appSlug, snapshotId } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    await Promise.all([
+    const [, , analysisReport] = await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
       ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
       ensureAnalysisReportData(context.queryClient, snapshotId),
     ]);
+    // The report prose resolves its `issue:` tokens against the whole BRANCH's issues - it is PR-cumulative, so it
+    // routinely references issues with no finding in this run. Keyed by branch, which only the report can tell us,
+    // hence a second step rather than another entry above.
+    if (analysisReport != null) {
+      await ensureAnalysisIssuesData(context.queryClient, analysisReport.branchId);
+    }
   },
   component: SnapshotReportLayout,
 });
@@ -104,7 +112,16 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           <Outlet />
         </div>
       ) : analysisReport != null ? (
-        <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
+        <div className="flex flex-col gap-6">
+          <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
+          {isAdmin && analysisReport.impactReasoning != null && (
+            <ReasoningPanel
+              title="Impact analysis"
+              content={analysisReport.impactReasoning}
+              empty="Analysis has not produced a selection summary yet."
+            />
+          )}
+        </div>
       ) : (
         <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}

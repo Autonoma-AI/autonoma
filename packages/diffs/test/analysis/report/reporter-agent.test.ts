@@ -111,10 +111,17 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "the submit button 500s",
                     narrativeMarkdown: "Checkout 500s on submit. ![shot](evidence:checkout-final)",
                     findingSlugs: ["checkout"],
+                    primaryFindingSlug: "checkout",
                     primaryScreenshotAssetId: "checkout-final",
                 },
             },
-            { toolName: "finish", input: { reportMarkdown: "## Report\nCheckout is broken; login works." } },
+            {
+                toolName: "finish",
+                input: {
+                    reportMarkdown: "## Report\nCheckout is broken; login works.",
+                    summary: "One bug: checkout never completes.",
+                },
+            },
         ]);
         const input = makeInput({
             findings: [
@@ -147,6 +154,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "500 on submit",
                     narrativeMarkdown: "Bug. ![a](evidence:checkout-final) and ![b](evidence:checkout-step2)",
                     findingSlugs: ["checkout"],
+                    primaryFindingSlug: "checkout",
                     suspectedCause: {
                         explanation: "the count is read wrong",
                         codeReferences: [
@@ -158,7 +166,13 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     primaryScreenshotAssetId: "checkout-step2",
                 },
             },
-            { toolName: "finish", input: { reportMarkdown: "Report ![c](evidence:checkout-step2)" } },
+            {
+                toolName: "finish",
+                input: {
+                    reportMarkdown: "Report ![c](evidence:checkout-step2)",
+                    summary: "One bug: checkout never completes.",
+                },
+            },
         ]);
         const input = makeInput({
             findings: [
@@ -184,7 +198,10 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("guarantee 1: rejects finishing until every client_bug finding is covered, then self-corrects", async () => {
         const model = scriptedModel([
-            { toolName: "finish", input: { reportMarkdown: "premature" } },
+            {
+                toolName: "finish",
+                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
+            },
             {
                 toolName: "open_issue",
                 input: {
@@ -194,9 +211,10 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "500",
                     narrativeMarkdown: "It 500s.",
                     findingSlugs: ["checkout"],
+                    primaryFindingSlug: "checkout",
                 },
             },
-            { toolName: "finish", input: { reportMarkdown: "final" } },
+            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
         ]);
         const input = makeInput({ findings: [finding("checkout", "client_bug")] });
 
@@ -209,12 +227,15 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("guarantee 2: rejects finishing until an open issue whose test passed is resolved", async () => {
         const model = scriptedModel([
-            { toolName: "finish", input: { reportMarkdown: "premature" } },
+            {
+                toolName: "finish",
+                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
+            },
             {
                 toolName: "resolve_issue",
                 input: { existingIssueId: "iss-1", resolvingFindingSlug: "login", note: "login passes now" },
             },
-            { toolName: "finish", input: { reportMarkdown: "final" } },
+            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
         ]);
         const input = makeInput({
             findings: [finding("login", "passed")],
@@ -238,9 +259,13 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "500",
                     narrativeMarkdown: "It 500s.",
                     findingSlugs: ["checkout"],
+                    primaryFindingSlug: "checkout",
                 },
             },
-            { toolName: "finish", input: { reportMarkdown: "premature" } },
+            {
+                toolName: "finish",
+                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
+            },
             {
                 toolName: "carry_forward_issue",
                 input: {
@@ -251,9 +276,10 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "still 500",
                     narrativeMarkdown: "Still 500s.",
                     findingSlugs: ["checkout"],
+                    primaryFindingSlug: "checkout",
                 },
             },
-            { toolName: "finish", input: { reportMarkdown: "final" } },
+            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
         ]);
         const input = makeInput({
             findings: [finding("checkout", "client_bug")],
@@ -278,6 +304,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "broken",
                     narrativeMarkdown: "New.",
                     findingSlugs: ["a-new-bug"],
+                    primaryFindingSlug: "a-new-bug",
                 },
             },
             {
@@ -290,6 +317,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "still broken",
                     narrativeMarkdown: "Still.",
                     findingSlugs: ["b-still-broken"],
+                    primaryFindingSlug: "b-still-broken",
                 },
             },
             {
@@ -302,13 +330,17 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                     actualBehavior: "regressed",
                     narrativeMarkdown: "Back again.",
                     findingSlugs: ["d-regressed"],
+                    primaryFindingSlug: "d-regressed",
                 },
             },
             {
                 toolName: "resolve_issue",
                 input: { existingIssueId: "iss-passing", resolvingFindingSlug: "c-fixed", note: "passes now" },
             },
-            { toolName: "finish", input: { reportMarkdown: "Holistic report." } },
+            {
+                toolName: "finish",
+                input: { reportMarkdown: "Holistic report.", summary: "One bug: checkout never completes." },
+            },
         ]);
         const input = makeInput({
             findings: [

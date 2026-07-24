@@ -1,3 +1,4 @@
+import { buildAgentHandoffLinks, capHandoffPrompt } from "@autonoma/github/comment";
 import type {
     AutonomaCommentBug,
     AutonomaCommentCta,
@@ -10,10 +11,6 @@ import type { InvestigationTestResult } from "@autonoma/workflow/activities";
 
 /** Verdict categories that warrant action (a "warning" state) when there are no outright client bugs. */
 const ACTIONABLE_CATEGORIES = new Set(["scenario_issue", "environment_failure", "outdated_test", "bad_test"]);
-
-// The handoff prompt is capped so it can never blow GitHub's ~64KB comment limit; overflow points the reader
-// at the full in-app report instead. The same (capped) prompt feeds both the copy block and the deep-links.
-const MAX_HANDOFF_PROMPT_CHARS = 20_000;
 
 /** A `passed` result is the absence of a finding to act on, so it is the one category never shown as a card. */
 const HIDDEN_CATEGORY = "passed";
@@ -125,8 +122,8 @@ function buildHandoff(shown: InvestigationTestResult[], context: InvestigationCo
     // the agent should open with the whole context. Big prompts make long URLs: Claude Code accepts them
     // (~14k chars), while Cursor/ChatGPT truncate very large ones at their URL limits, so the copy block stays
     // the reliable full source. A signed prompt_url would carry it losslessly (follow-up).
-    const prompt = capPrompt(buildHandoffPrompt(shown, context), context.prUrl);
-    return { prompt, links: buildHandoffLinks(prompt, context) };
+    const prompt = capHandoffPrompt(buildHandoffPrompt(shown, context), context.prUrl);
+    return { prompt, links: buildAgentHandoffLinks(prompt, context.repoFullName) };
 }
 
 function buildHandoffPrompt(shown: InvestigationTestResult[], context: InvestigationCommentContext): string {
@@ -166,31 +163,6 @@ function renderEvidenceForPrompt(item: NonNullable<InvestigationTestResult["verd
     const head = `- [${item.source}]${location}${detail}`;
     if (item.snippet == null || item.snippet === "") return head;
     return `${head}\n\`\`\`\n${item.snippet}\n\`\`\``;
-}
-
-function buildHandoffLinks(prompt: string, context: InvestigationCommentContext): AutonomaCommentCta[] {
-    const encoded = encodeQueryParam(prompt);
-    // Cursor's deep-link truncates the text param at the first "&" (even percent-encoded), so strip it.
-    const cursorText = encodeQueryParam(prompt.replaceAll("&", "and"));
-    return [
-        {
-            label: "Open in Claude Code",
-            href: `https://claude.ai/code?prompt=${encoded}&repositories=${encodeQueryParam(context.repoFullName)}`,
-        },
-        { label: "Open in ChatGPT", href: `https://chatgpt.com/?q=${encoded}` },
-        { label: "Open in Cursor", href: `https://cursor.com/link/prompt?text=${cursorText}` },
-    ];
-}
-
-// encodeURIComponent leaves "(" and ")" unescaped, but an unescaped ")" prematurely closes the markdown
-// link destination the deep-link is rendered into - so encode them too.
-function encodeQueryParam(value: string): string {
-    return encodeURIComponent(value).replaceAll("(", "%28").replaceAll(")", "%29");
-}
-
-function capPrompt(prompt: string, prUrl: string): string {
-    if (prompt.length <= MAX_HANDOFF_PROMPT_CHARS) return prompt;
-    return `${prompt.slice(0, MAX_HANDOFF_PROMPT_CHARS)}\n\n… (truncated) - open the full findings in Autonoma: ${prUrl}`;
 }
 
 /**

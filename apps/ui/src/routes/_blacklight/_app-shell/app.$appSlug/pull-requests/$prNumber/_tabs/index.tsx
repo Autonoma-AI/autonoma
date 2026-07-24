@@ -5,8 +5,9 @@ import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
-import { AnalysisFindingsPanel } from "components/analysis/findings-panel";
-import { PrVerdictHeadline } from "components/analysis/pr-verdict-headline";
+import { AnalysisOpenIssuesList } from "components/analysis/open-issues-list";
+import { AnalysisPrIssuesHeadline } from "components/analysis/pr-issues-headline";
+import { AnalysisReportProse } from "components/analysis/report-prose";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ShaRange } from "components/snapshot/sha-range";
 import {
@@ -18,12 +19,14 @@ import {
 } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
 import {
+  ensureAnalysisIssuesData,
   ensureAnalysisJobData,
   ensureAnalysisReportData,
   ensureBranchByPrData,
   ensureSnapshotHistoryData,
   latestSnapshotOf,
   sortSnapshotsNewestFirst,
+  useAnalysisIssues,
   useAnalysisJob,
   useAuthoritativeAnalysisReport,
   useBranchByPr,
@@ -62,6 +65,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
       await Promise.all([
         ensureAnalysisJobData(context.queryClient, latest.id),
         ensureAnalysisReportData(context.queryClient, latest.id),
+        // Branch-scoped, so keyed by branch (not snapshot); prewarms the issues-first report column so it never
+        // suspends once the report lands. Empty for a diffs branch.
+        ensureAnalysisIssuesData(context.queryClient, branch.id),
       ]);
     }
   },
@@ -137,6 +143,7 @@ function PrOverview({
 
   return (
     <AuthoritativePrOverview
+      branchId={branchId}
       prNumber={prNumber}
       snapshots={snapshots}
       latestSnapshot={latestSnapshot}
@@ -145,16 +152,18 @@ function PrOverview({
   );
 }
 
-// The authoritative PR overview: the two-plane verdict headline + the latest snapshot's full findings list in the
-// main column, with the checkpoint-history rail retained. While the run is still in flight (no report yet), the
-// main column falls back to the `AnalysisJob` status and polls until the report lands. The cross-PR aggregation
-// card and the "Checkpoints in this PR" list are intentionally gone.
+// The authoritative PR overview: the Reporter's report prose hero + the issues-first verdict headline + the
+// branch's open-issues list in the main column, with the checkpoint-history rail retained. While the run is still
+// in flight (no report yet), the main column falls back to the `AnalysisJob` status and polls until the report
+// lands. The per-snapshot findings list and the standalone impact-analysis panel live on the snapshot per-job view.
 function AuthoritativePrOverview({
+  branchId,
   prNumber,
   snapshots,
   latestSnapshot,
   analysisJob,
 }: {
+  branchId: string;
   prNumber: number;
   snapshots: Snapshot[];
   latestSnapshot: Snapshot;
@@ -167,11 +176,14 @@ function AuthoritativePrOverview({
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="flex min-w-0 flex-col gap-4">
           {report != null ? (
-            <>
-              <PrVerdictHeadline findings={report.findings} />
-              <AnalysisFindingsPanel findings={report.findings} prNumber={prNumber} snapshotId={latestSnapshot.id} />
-              <LatestSnapshotLink prNumber={prNumber} snapshotId={latestSnapshot.id} />
-            </>
+            <Suspense fallback={<AuthoritativeReportSkeleton />}>
+              <AuthoritativeReportColumn
+                branchId={branchId}
+                prNumber={prNumber}
+                snapshotId={latestSnapshot.id}
+                report={report}
+              />
+            </Suspense>
           ) : (
             <AnalysisJobStatus job={analysisJob} />
           )}
@@ -179,6 +191,54 @@ function AuthoritativePrOverview({
         <CheckpointRail prNumber={prNumber} snapshots={snapshots} />
       </div>
     </div>
+  );
+}
+
+// The issues-first report column, split from the overview so it (and its open-issues query) only loads once the
+// report has landed - a still-running run never pays for it.
+function AuthoritativeReportColumn({
+  branchId,
+  prNumber,
+  snapshotId,
+  report,
+}: {
+  branchId: string;
+  prNumber: number;
+  snapshotId: string;
+  report: NonNullable<RouterOutputs["branches"]["analysisReport"]>;
+}) {
+  const { data: issues } = useAnalysisIssues(branchId);
+  // The list + headline surface only the open issues; the token resolver knows every issue id (open + resolved)
+  // so a report-prose `issue:` token to a resolved issue still links (a fabricated id stays plain text).
+  const openIssues = issues.filter((issue) => issue.status === "open");
+  const issueIds = new Set(issues.map((issue) => issue.id));
+
+  return (
+    <>
+      <AnalysisPrIssuesHeadline issues={openIssues} summary={report.summary} />
+      {report.reportMarkdown != null && (
+        <AnalysisReportProse
+          markdown={report.reportMarkdown}
+          evidence={report.reportEvidence}
+          prNumber={prNumber}
+          snapshotId={snapshotId}
+          findings={report.findings}
+          issueIds={issueIds}
+        />
+      )}
+      <AnalysisOpenIssuesList issues={openIssues} prNumber={prNumber} />
+      <LatestSnapshotLink prNumber={prNumber} snapshotId={snapshotId} />
+    </>
+  );
+}
+
+function AuthoritativeReportSkeleton() {
+  return (
+    <>
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-48 w-full" />
+      <Skeleton className="h-40 w-full" />
+    </>
   );
 }
 

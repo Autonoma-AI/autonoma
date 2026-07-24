@@ -1,4 +1,6 @@
+import type { InvestigationFinding } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { createFileRoute } from "@tanstack/react-router";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { FindingDetail } from "components/investigation/finding-detail";
@@ -31,7 +33,30 @@ function AnalysisFindingDetailPage() {
     );
   }
 
-  return <FindingDetail finding={finding} meta={analysisVerdictMeta(finding.category)} backLink={backLink} />;
+  return (
+    <FindingDetail
+      finding={finding}
+      meta={analysisVerdictMeta(finding.category)}
+      backLink={backLink}
+      issueLink={<IssueUpLink finding={finding} prNumber={prNumber} />}
+    />
+  );
+}
+
+// Link UP from a finding to the branch-scoped issue it was clustered into. Findings that carry no issue (a passing
+// or coverage-plane check, or a run before the Reporter attributed it) render nothing.
+function IssueUpLink({ finding, prNumber }: { finding: InvestigationFinding; prNumber: number }) {
+  if (finding.issueId == null) return null;
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/$prNumber/issues/$issueId"
+      params={{ prNumber, issueId: finding.issueId }}
+      className="inline-flex items-center gap-1 self-start font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary transition-colors hover:text-text-primary"
+    >
+      <ArrowUpRightIcon size={12} />
+      Part of issue{finding.issueTitle != null ? `: ${finding.issueTitle}` : ""}
+    </AppLink>
+  );
 }
 
 function BackLink({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {

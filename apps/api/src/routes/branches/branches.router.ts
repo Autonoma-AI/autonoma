@@ -84,6 +84,31 @@ export const branchesRouter = router({
             services.branches.getAnalysisJobStatus(input.snapshotId, organizationId),
         ),
 
+    // The branch's analysis issues (all statuses, branch-scoped) for the PR page: the open ones drive the
+    // issues-first list, and resolved ones let the report prose's `issue:` tokens link them. User-facing; returns
+    // an empty list for a branch with no issues (or a diffs branch).
+    analysisIssues: protectedProcedure
+        .input(z.object({ branchId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisIssues(input.branchId, organizationId),
+        ),
+
+    // One analysis issue in full (narrative + signed evidence + cross-snapshot finding instances) for the PR-level
+    // issue-detail page. User-facing; returns null for an unknown/malformed issue.
+    analysisIssueDetail: protectedProcedure
+        .input(z.object({ issueId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisIssueDetail(input.issueId, organizationId),
+        ),
+
+    // The per-job issue-set changes (opened / carried-forward / resolved) for a snapshot's analysis run, for the
+    // snapshot per-job view. User-facing; empty groups for a diffs snapshot.
+    analysisSnapshotIssueChanges: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisSnapshotIssueChanges(input.snapshotId, organizationId),
+        ),
+
     // The shadow investigation agent's report (a freshly-signed S3 URL), for comparing against the deployed
     // agent. Internal-only: gated to @autonoma.app users. Returns undefined when no shadow report exists.
     investigationReport: internalEmailProcedure

@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { overlayPointSchema } from "../types/step-overlay-points";
+import { resolvedEvidenceAssetSchema } from "./evidence-tokens";
 import {
     investigationEvidenceSchema,
     investigationFindingSchema,
     investigationRunStepSchema,
 } from "./investigation-report";
+import { suspectedCauseSchema } from "./suspected-cause";
 
 /**
  * The terminal verdict an Investigator emits for one test - the complete taxonomy the merged pipeline resolves
@@ -194,10 +197,146 @@ export type AnalysisFindingReport = z.infer<typeof analysisFindingReportSchema>;
  * layout, otherwise the diffs UI is left untouched.
  */
 export const analysisReportDataSchema = z.object({
-    /** The Impact Analysis stage's account of why it selected the tests it did (feeds IMPACT ANALYSIS). */
+    /**
+     * The branch the report's snapshot belongs to. Issues are branch-scoped, so the per-job view needs this to read
+     * the branch's issue set - which is what lets an `issue:` token in the (PR-cumulative) prose resolve even when
+     * the issue has no finding in THIS run.
+     */
+    branchId: z.string(),
+    /** The Impact Analysis stage's account of why it selected the tests it did (admin-only on the snapshot page). */
     impactReasoning: z.string().optional(),
-    /** The constrained prose narration of the two-plane verdict (feeds FINDINGS SUMMARY). */
-    narration: z.string().optional(),
+    /**
+     * The Reporter's holistic PR report prose (Markdown), the hero of the PR page and the snapshot per-job view.
+     * Absent while a run is still authoring it (the page keeps polling) or when the run degraded to a
+     * finding-derived verdict with no prose. Its inline `evidence:` image tokens resolve against `reportEvidence`;
+     * `issue:`/`finding:` link tokens resolve against the branch's issues and this report's findings.
+     */
+    reportMarkdown: z.string().optional(),
+    /**
+     * The Reporter's one-paragraph summary of the run, for the surfaces that show prose but not a document: the PR
+     * page's verdict subtitle. Absent on a run that predates the Reporter (those rows were backfilled to empty).
+     */
+    summary: z.string().optional(),
+    /** The signed assets `reportMarkdown` may embed inline by `evidence:<assetId>` token (referenced ones only). */
+    reportEvidence: z.array(resolvedEvidenceAssetSchema),
+    /** The persisted app-health verdict for the run (issue-derived at finalize): `client_bug` or `passed`. */
+    verdict: analysisVerdictSchema,
+    /** The run's open-bug count (issue-derived) and total investigated tests, for the per-job header. */
+    clientBugCount: z.number().int().nonnegative(),
+    testCount: z.number().int().nonnegative(),
     findings: z.array(investigationFindingSchema),
 });
 export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;
+
+/**
+ * A branch/PR-scoped issue's class, severity, and lifecycle - the single source of truth the Reporter (writer),
+ * the API read path, and the UI display metadata all validate against. Enum-shaped columns are stored as plain
+ * strings on `AnalysisIssue` (matching the analysis island) and parsed at each boundary; a row that fails to
+ * parse is skipped, never surfaced malformed.
+ */
+export const analysisIssueKindSchema = z.enum(["bug", "environment", "scenario"]);
+export type AnalysisIssueKind = z.infer<typeof analysisIssueKindSchema>;
+
+export const analysisIssueSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
+export type AnalysisIssueSeverity = z.infer<typeof analysisIssueSeveritySchema>;
+
+export const analysisIssueStatusSchema = z.enum(["open", "resolved"]);
+export type AnalysisIssueStatus = z.infer<typeof analysisIssueStatusSchema>;
+
+/** Severity ordering (most-severe first), keyed over the SSOT so a new severity is a compile error until ranked. */
+const ANALYSIS_ISSUE_SEVERITY_RANK: Record<AnalysisIssueSeverity, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+};
+
+/**
+ * The list ordering for the open-issues surfaces (PR page + PR comment): bugs first (the only app-health class),
+ * then by descending severity within each class. A single helper so every list agrees on the order.
+ */
+export function compareAnalysisIssues(
+    a: { kind: AnalysisIssueKind; severity: AnalysisIssueSeverity },
+    b: { kind: AnalysisIssueKind; severity: AnalysisIssueSeverity },
+): number {
+    const aBug = a.kind === "bug" ? 0 : 1;
+    const bBug = b.kind === "bug" ? 0 : 1;
+    if (aBug !== bBug) return aBug - bBug;
+    return ANALYSIS_ISSUE_SEVERITY_RANK[a.severity] - ANALYSIS_ISSUE_SEVERITY_RANK[b.severity];
+}
+
+/** A screenshot resolved into a signed hero (URL + overlay pins), how the API serves a `PrimaryScreenshot`. */
+export const resolvedPrimaryScreenshotSchema = z.object({
+    url: z.string(),
+    points: z.array(overlayPointSchema),
+});
+export type ResolvedPrimaryScreenshot = z.infer<typeof resolvedPrimaryScreenshotSchema>;
+
+/**
+ * One branch-scoped issue as the open-issues list (PR page) and the per-job issue-set changes (snapshot page)
+ * render it: the header fields plus an optional signed thumbnail and the number of runs it has recurred across.
+ * The full narrative/evidence lives on the detail read.
+ */
+export const analysisIssueSummarySchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: analysisIssueKindSchema,
+    severity: analysisIssueSeveritySchema,
+    status: analysisIssueStatusSchema,
+    /** Signed thumbnail from the issue's designated primary screenshot, when it has one. */
+    thumbnailUrl: z.string().optional(),
+    /** How many distinct runs (snapshots) this issue has been attributed to - its recurrence across the branch.
+     * Counts distinct snapshots, not finding rows: one run can attribute several findings to the same issue. */
+    runCount: z.number().int().nonnegative(),
+});
+export type AnalysisIssueSummary = z.infer<typeof analysisIssueSummarySchema>;
+
+/**
+ * One of an issue's finding instances, resolved for the issue-detail page's cross-snapshot timeline: which
+ * snapshot surfaced it (with its head sha + time) and the finding-detail routing id, so the row links to the
+ * per-snapshot finding page.
+ */
+export const analysisIssueFindingInstanceSchema = z.object({
+    snapshotId: z.string(),
+    snapshotCreatedAt: z.date(),
+    headSha: z.string().optional(),
+    /** The stable per-report routing id the finding-detail page is keyed on. */
+    findingId: z.string(),
+    slug: z.string(),
+    category: z.string(),
+    headline: z.string(),
+});
+export type AnalysisIssueFindingInstance = z.infer<typeof analysisIssueFindingInstanceSchema>;
+
+/**
+ * The full issue-detail read: the header, the grounded narrative (with its signed evidence + hero + suspected
+ * cause), and every finding instance the issue covers across the branch's snapshots. `evidence` resolves the
+ * narrative's `evidence:` tokens; a token with no resolved asset renders as nothing.
+ */
+export const analysisIssueDetailSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: analysisIssueKindSchema,
+    severity: analysisIssueSeveritySchema,
+    status: analysisIssueStatusSchema,
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string(),
+    narrativeMarkdown: z.string(),
+    evidence: z.array(resolvedEvidenceAssetSchema),
+    suspectedCause: suspectedCauseSchema.optional(),
+    primaryScreenshot: resolvedPrimaryScreenshotSchema.optional(),
+    resolvedAt: z.date().optional(),
+    findingInstances: z.array(analysisIssueFindingInstanceSchema),
+});
+export type AnalysisIssueDetail = z.infer<typeof analysisIssueDetailSchema>;
+
+/**
+ * The per-job issue-set changes the snapshot page shows: which branch issues this run opened, carried forward
+ * from an earlier run, or resolved. Derived from the run's `AnalysisJob` window and the findings it attributed.
+ */
+export const analysisSnapshotIssueChangesSchema = z.object({
+    opened: z.array(analysisIssueSummarySchema),
+    carriedForward: z.array(analysisIssueSummarySchema),
+    resolved: z.array(analysisIssueSummarySchema),
+});
+export type AnalysisSnapshotIssueChanges = z.infer<typeof analysisSnapshotIssueChangesSchema>;

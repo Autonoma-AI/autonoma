@@ -1,3 +1,4 @@
+import { FixableToolError } from "@autonoma/ai";
 import { suspectedCauseSchema } from "@autonoma/types";
 import { z } from "zod";
 import { reporterIssueKindSchema, reporterIssueSeveritySchema } from "./types";
@@ -42,9 +43,28 @@ export const authoredIssueContentSchema = z.object({
         .describe(
             "The assetId of the fetched screenshot that best shows the problem, to feature as the issue's hero. Must be an id you fetched via `fetch_evidence`; an unfetched/unknown id is dropped.",
         ),
+    primaryFindingSlug: z
+        .string()
+        .min(1)
+        .describe(
+            "Which ONE of the `findingSlugs` you just listed reproduces this problem most clearly - the run a reader should watch to see it happen. Pick the test whose failure demonstrates the problem most directly, not merely the first one.",
+        ),
 });
 
 export type AuthoredIssueContent = z.infer<typeof authoredIssueContentSchema>;
+
+/**
+ * Reject a `primaryFindingSlug` the same call did not list in `findingSlugs`. That slug is what readers resolve an
+ * issue's clip and "watch the run" deep-link from, so it has to name a test the issue genuinely covers. A fixable
+ * error rather than a silent drop: the model can simply pick again from a list it authored one field earlier.
+ */
+export function assertPrimaryFindingSlugCovered(content: AuthoredIssueContent): void {
+    if (!content.findingSlugs.includes(content.primaryFindingSlug)) {
+        throw new FixableToolError(
+            `primaryFindingSlug "${content.primaryFindingSlug}" is not one of this issue's findingSlugs (${content.findingSlugs.join(", ")}). Designate one of the slugs you listed.`,
+        );
+    }
+}
 
 /** A recorded `open_issue` call. */
 export interface RecordedOpenIssueAction {

@@ -47,6 +47,11 @@ Handle each existing issue at most once.
 - kind: \`bug\` (the app misbehaves), \`environment\` (a preview key/flag/service is wrong), or \`scenario\` (the seeded data/auth is missing or wrong).
 - severity: your call for a real user (critical/high/medium/low).
 - expected/actual + a narrative that walks the reader through what happened and why it is wrong, grounded in the evidence you inspected.
+- primaryFindingSlug: of the slugs this issue covers, the ONE whose run demonstrates the problem most directly. A reader is sent to that run to watch it happen, so choose on clarity of the reproduction - not list order, and not the test with the longest trace.
+
+# finish takes TWO pieces of prose, for two different readers.
+- reportMarkdown: the full report, read on a web page that renders Markdown and resolves your inline tokens.
+- summary: the same verdict in ONE to THREE sentences of plain prose, for a GitHub PR comment and a one-line page subtitle. Those surfaces render neither Markdown blocks nor our tokens, so headings, bullets, links and \`evidence:\`/\`issue:\`/\`finding:\` references are flattened out of it - write it as prose that stands alone. Lead with whether the app misbehaved and what breaks for a user.
 
 # Self-heals are color, never an issue.
 When a finding was reached after the Investigator rewrote the plan (planEdited / a self-heal note), that is retry context - mention it briefly in the report if useful, but never open an issue for it. Findings, not fix mechanics, are the source of truth.`;

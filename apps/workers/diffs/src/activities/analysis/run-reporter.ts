@@ -233,14 +233,14 @@ async function loadExistingIssues(branchId: string, logger: Logger): Promise<Rep
 /** The branch's most recent prior reports (excluding this snapshot) so the Reporter writes a cumulative narrative. */
 async function loadPriorReports(snapshotId: string, branchId: string): Promise<ReporterPriorReport[]> {
     const rows = await db.analysisReport.findMany({
-        where: { snapshot: { branchId }, reportMarkdown: { not: null }, NOT: { snapshotId } },
+        // Every Reporter-written row has prose; the empty ones are pre-Reporter rows with no narration to backfill
+        // from, and they are worth nothing as prior context.
+        where: { snapshot: { branchId }, reportMarkdown: { not: "" }, NOT: { snapshotId } },
         orderBy: { createdAt: "desc" },
         take: PRIOR_REPORTS_LIMIT,
         select: { snapshotId: true, reportMarkdown: true },
     });
-    return rows.flatMap((row) =>
-        row.reportMarkdown != null ? [{ snapshotId: row.snapshotId, reportMarkdown: row.reportMarkdown }] : [],
-    );
+    return rows.map((row) => ({ snapshotId: row.snapshotId, reportMarkdown: row.reportMarkdown }));
 }
 
 interface ScenarioContext {
@@ -381,6 +381,7 @@ async function writeReport(tx: PrismaWriteClient, input: WriteReportInput): Prom
         coverage: input.header.coverage,
         impactReasoning: reasoning,
         reportMarkdown: input.result.reportMarkdown,
+        summary: input.result.summary,
         evidenceManifest: input.result.reportEvidenceManifest,
     };
     await tx.analysisReport.upsert({
@@ -440,6 +441,7 @@ async function applyIssue(tx: PrismaWriteClient, issue: ReporterIssueResult, ids
         narrativeMarkdown: content.narrativeMarkdown,
         evidenceManifest: content.evidenceManifest,
         primaryScreenshot: content.primaryScreenshot,
+        primaryFindingSlug: content.primaryFindingSlug,
         suspectedCause: content.suspectedCause,
     };
 

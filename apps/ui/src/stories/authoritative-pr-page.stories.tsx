@@ -17,19 +17,83 @@ const HEAD_SHA = "b41d9c07e2f5a8c1d3e6f90a2b4c6d8e0f123456";
 const BASE_SHA = "a13c8b06d1e4a7b0c2d5e8f9012a3b4c5d6e7f80";
 const PREV_HEAD_SHA = "c52e0d18f3a6b9d2e4f7a01b3c5d7e9f10234567";
 
-// The two-plane authoritative report: one client bug (the only actionable finding), two passed tests, and two
-// non-blocking coverage findings (a scenario-data gap + an engine artifact), plus the impact-analysis and
-// narration prose the linked snapshot page shows in full.
+// An inline-SVG stand-in screenshot so the report's evidence token + the issue thumbnails render with no network.
+const MOCK_SCREENSHOT = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='760' viewBox='0 0 1200 760'>
+    <rect width='1200' height='760' fill='#f5f6f8'/>
+    <rect x='360' y='120' width='480' height='520' rx='12' fill='#ffffff' stroke='#e2e5ea'/>
+    <text x='400' y='184' font-family='sans-serif' font-size='24' font-weight='600' fill='#1f2430'>Checkout</text>
+    <rect x='400' y='444' width='400' height='48' rx='8' fill='#c7ccd6'/>
+    <text x='600' y='474' text-anchor='middle' font-family='sans-serif' font-size='16' font-weight='600' fill='#8a90a0'>Place order</text>
+  </svg>`,
+)}`;
+
+// The Reporter's holistic report prose. Exercises every inline token: a link to a known issue (resolves), a link
+// to a known finding (resolves), an evidence image backed by `reportEvidence`, and a fabricated issue reference
+// (renders as plain text, not a dangling link).
+const REPORT_MARKDOWN = [
+  "## Checkout rework",
+  "",
+  "This PR introduces one blocking bug: the [Place order button never enables](issue:issue_place_order), so a " +
+    "customer cannot complete a purchase. The run that surfaced it is [checkout-place-order](finding:checkout-place-order).",
+  "",
+  "![The disabled Place order button](evidence:asset_report_1)",
+  "",
+  "The cart and add-to-cart flows behaved correctly. A separate [coupon scenario gap](issue:issue_coupon) did not " +
+    "block the PR, and a [ghost reference](issue:ghost_missing) resolves to nothing.",
+  "",
+  "An earlier [cart badge miscount](issue:issue_cart_badge) was fixed by the latest push and is now resolved.",
+].join("\n");
+
+// The Reporter's one-paragraph summary - the PR verdict subtitle, replacing the old generic policy sentence.
+const REPORT_SUMMARY =
+  "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so no " +
+  "customer can complete a purchase. Cart and add-to-cart still work.";
+
+// The branch's issues, bugs-first then by severity. The list + headline show only the OPEN ones; the resolved one
+// is here so the prose's `issue:` token for it still links (a cross-snapshot reference, not a fabrication).
+const analysisIssues: NonNullable<TrpcFixtures["branches"]>["analysisIssues"] = [
+  {
+    id: "issue_place_order",
+    title: "Place order button never enables on checkout",
+    kind: "bug",
+    severity: "critical",
+    status: "open",
+    runCount: 2,
+    thumbnailUrl: MOCK_SCREENSHOT,
+  },
+  {
+    id: "issue_coupon",
+    title: "Coupon scenario is not seeded",
+    kind: "scenario",
+    severity: "medium",
+    status: "open",
+    runCount: 1,
+  },
+  {
+    id: "issue_cart_badge",
+    title: "Cart badge miscounts items after removal",
+    kind: "bug",
+    severity: "high",
+    status: "resolved",
+    runCount: 3,
+  },
+];
+
+// The two-plane authoritative report: the Reporter's prose hero + its findings. The PR page renders the prose and
+// the open-issues list; the per-snapshot findings live on the linked snapshot page.
 const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
   analysisReport: {
     impactReasoning:
       "This PR reworks the checkout submit handler and the cart badge counter. I re-ran the two existing " +
       "checkout tests that exercise those surfaces and authored one new test for the guest add-to-cart path.",
-    narration:
-      "This checkpoint surfaced one client bug: on the checkout page the Place order button never enables even " +
-      "once the form is valid, so a customer cannot complete a purchase. The cart and add-to-cart flows behaved " +
-      "correctly. Two tests could not confirm app health this run - a coupon scenario was not seeded and the " +
-      "payment iframe did not load in the harness - so neither counts against the PR.",
+    reportMarkdown: REPORT_MARKDOWN,
+    summary: REPORT_SUMMARY,
+    reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
+    verdict: "client_bug",
+    clientBugCount: 1,
+    testCount: 5,
+    branchId: BRANCH_ID,
     findings: [
       {
         id: "checkout-place-order",
@@ -37,6 +101,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         category: "client_bug",
         headline: "Place order button never enables on the checkout page",
         confidence: "high",
+        issueId: "issue_place_order",
+        issueTitle: "Place order button never enables on checkout",
         whatHappened:
           "With a valid saved card and a complete shipping address, every field validated but the Place order " +
           "button stayed disabled, so the run could never submit the order.",
@@ -310,6 +376,7 @@ export const Report: Story = {
       handlers: appShellHandlers(
         pageFixtures({
           ...analysisReport,
+          analysisIssues,
           analysisJob: { status: "completed", startedAt: STARTED_AT, completedAt: COMPLETED_AT },
         }),
       ),

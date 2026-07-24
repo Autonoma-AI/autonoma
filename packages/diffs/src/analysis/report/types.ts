@@ -1,12 +1,17 @@
-import type {
-    AnalysisVerdict,
-    EvidenceManifestEntry,
-    InvestigationEvidence,
-    OverlayPoint,
-    PrimaryScreenshot,
-    SuspectedCause,
+import {
+    type AnalysisIssueKind,
+    analysisIssueKindSchema,
+    type AnalysisIssueSeverity,
+    analysisIssueSeveritySchema,
+    type AnalysisIssueStatus,
+    analysisIssueStatusSchema,
+    type AnalysisVerdict,
+    type EvidenceManifestEntry,
+    type InvestigationEvidence,
+    type OverlayPoint,
+    type PrimaryScreenshot,
+    type SuspectedCause,
 } from "@autonoma/types";
-import { z } from "zod";
 import type { ScreenshotLoader } from "../../agents/tools/screenshot/screenshot-types";
 import type { Codebase } from "../../codebase";
 
@@ -15,19 +20,18 @@ import type { Codebase } from "../../codebase";
  * The agent consumes a job's findings plus the branch's evolving issues and prior reports, and authors de-duped,
  * branch-scoped Issues plus a holistic PR report. These types are the in-memory contract between the agent and the
  * reporter stage that persists its result.
+ *
+ * The issue kind/severity/status enums live in `@autonoma/types` (the single source of truth shared with the API
+ * read path and the UI); the Reporter names are thin aliases so the write side keeps its domain vocabulary.
  */
+export const reporterIssueKindSchema = analysisIssueKindSchema;
+export type ReporterIssueKind = AnalysisIssueKind;
 
-/** The class of problem an issue represents. */
-export const reporterIssueKindSchema = z.enum(["bug", "environment", "scenario"]);
-export type ReporterIssueKind = z.infer<typeof reporterIssueKindSchema>;
+export const reporterIssueSeveritySchema = analysisIssueSeveritySchema;
+export type ReporterIssueSeverity = AnalysisIssueSeverity;
 
-/** The Reporter's severity call for an issue. */
-export const reporterIssueSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
-export type ReporterIssueSeverity = z.infer<typeof reporterIssueSeveritySchema>;
-
-/** An issue's lifecycle state. */
-export const reporterIssueStatusSchema = z.enum(["open", "resolved"]);
-export type ReporterIssueStatus = z.infer<typeof reporterIssueStatusSchema>;
+export const reporterIssueStatusSchema = analysisIssueStatusSchema;
+export type ReporterIssueStatus = AnalysisIssueStatus;
 
 /** The PR the run analyzed - a tiny header the prompt embeds directly (no tool needed). */
 export interface ReporterPrMeta {
@@ -153,6 +157,12 @@ export interface ReporterIssueContent {
     primaryScreenshot?: PrimaryScreenshot;
     /** This job's finding slugs the issue now covers. */
     findingSlugs: string[];
+    /**
+     * The one covered slug the agent designated as the clearest reproduction. Readers resolve the newest covering
+     * finding for it to reach that run's clip and finding page - so which TEST to feature stays the agent's call
+     * while which RUN to show stays mechanical. Guaranteed to be a member of {@link findingSlugs}.
+     */
+    primaryFindingSlug: string;
 }
 
 /**
@@ -171,5 +181,10 @@ export interface ReporterResult {
     reportMarkdown: string;
     /** The assets `reportMarkdown` may embed inline by `evidence:<assetId>` token. */
     reportEvidenceManifest: EvidenceManifestEntry[];
+    /**
+     * The same verdict as one plain paragraph, for the surfaces that render prose but neither Markdown blocks nor
+     * our inline tokens: the GitHub PR comment body and the PR page's verdict subtitle. Flattened at persist.
+     */
+    summary: string;
     issues: ReporterIssueResult[];
 }

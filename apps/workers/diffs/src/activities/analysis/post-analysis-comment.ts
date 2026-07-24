@@ -1,5 +1,4 @@
-import { type Prisma, db } from "@autonoma/db";
-import type { AppHealthVerdict } from "@autonoma/diffs/analysis";
+import { db } from "@autonoma/db";
 import {
     createGitHubPrCommentStore,
     isOnboardingComplete,
@@ -8,36 +7,28 @@ import {
 } from "@autonoma/github/comment";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
-import {
-    ANALYSIS_VERDICT,
-    type CoverageSummary,
-    coverageSummarySchema,
-    investigationEvidenceSchema,
-} from "@autonoma/types";
 import type { PostAnalysisPrCommentInput, PostAnalysisPrCommentOutput } from "@autonoma/workflow/activities";
-import { z } from "zod";
 import { resolvePrMeta } from "../../codebase/pr-meta";
 import { resolveSnapshotMeta } from "../../codebase/snapshot-context";
 import { env } from "../../env";
 import { getStorage } from "../../services";
-import { type AnalysisClientBugFinding, buildAnalysisCommentPayload } from "./analysis-comment-payload";
+import { buildAnalysisCommentPayload } from "./analysis-comment-payload";
+import { loadAnalysisCommentInput } from "./load-analysis-comment-input";
 
 /** Screenshots are signed for the comment's lifetime; re-runs re-sign, so a week is plenty. */
 const SCREENSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-/** The only finding category rendered as a card; coverage findings are summarized in the coverage line. */
-const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
-
-const evidenceListSchema = z.array(investigationEvidenceSchema);
 
 /**
  * Post (or update in place) the authoritative analysis run's PR comment, through the shared comment system - the
  * same renderer the diffs/investigation comments use, and the DB-store updater that keeps exactly one comment per
  * `(repo, pr, analysis)`, so a re-run replaces its previous comment rather than spamming a new one. Flag-gated OFF
- * by default so it never touches real PRs until deliberately enabled. Anchors directly to the branch's real
- * pending snapshot - the run reconciled that snapshot, so the report/finding links use it with no checkpoint
- * indirection. Signed S3 report URLs are never posted (they carry a token) - the comment links the in-app
- * analysis view; only screenshots ride as short-lived signed image URLs.
+ * by default so it never touches real PRs until deliberately enabled. The bug cards deep-link to the branch-scoped
+ * issue-detail pages (stable across snapshots), not the per-snapshot findings, and the comment carries a
+ * coding-agent handoff: a paste-ready brief plus prefilled "open in <agent>" deep-links. Signed S3 report URLs are
+ * never posted (they carry a token) - the comment links the in-app view; only media rides as short-lived signed URLs.
+ *
+ * NOTE: the handoff prompt tells the agent to call the MCP tool `get_analysis`, which is not registered on the debug
+ * MCP server yet. It must land before this flag is enabled for real PRs.
  */
 export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): Promise<PostAnalysisPrCommentOutput> {
     const { snapshotId } = input;
@@ -63,9 +54,12 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
         return { status: "skipped" };
     }
 
-    // Both only need snapshotId and neither consumes the other; the reconciler always persisted a report before
-    // finalize ran, so the null-report branch is a defensive guard, not a hot path worth gating the preview read on.
-    const [report, previewUrl] = await Promise.all([loadReport(snapshotId), resolvePreviewUrl(snapshotId)]);
+    // Both only need snapshotId and neither consumes the other; the run always persists a report before finalize,
+    // so the null-report branch is a defensive guard, not a hot path worth gating the preview read on.
+    const [report, previewUrl] = await Promise.all([
+        loadAnalysisCommentInput(snapshotId, logger),
+        resolvePreviewUrl(snapshotId),
+    ]);
     if (report == null) {
         logger.info("Skipping analysis PR comment - no AnalysisReport persisted for this snapshot");
         return { status: "skipped" };
@@ -74,15 +68,17 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
     const payload = await buildAnalysisCommentPayload(
         {
             verdict: report.verdict,
-            clientBugs: report.clientBugs,
+            bugIssues: report.bugIssues,
             coverage: report.coverage,
-            narration: report.narration,
+            summary: report.summary,
         },
         {
             prNumber: prMeta.prNumber,
+            repoFullName: meta.repoFullName,
             commitSha: meta.headSha,
             prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
-            reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, snapshotId),
+            issueBaseUrl: buildIssueBaseUrl(meta.appSlug, prMeta.prNumber),
+            findingBaseUrl: buildFindingBaseUrl(meta.appSlug, prMeta.prNumber),
             previewUrl,
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
         },
@@ -115,9 +111,9 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
 
 /**
  * The media signer the payload builder is handed: turns an `s3://` key into a short-lived signed URL. It tags GIF
- * clips (client bugs) as image/gif so GitHub's image proxy animates them instead of mislabeling them as PNG;
- * static screenshots stay image/png. A signing failure is contained (logged + undefined) so a broken screenshot
- * never sinks the comment. Kept injectable so the builder stays hermetically testable (no S3 dependency).
+ * clips as image/gif so GitHub's image proxy animates them instead of mislabeling them as PNG; static screenshots
+ * stay image/png. A signing failure is contained (logged + undefined) so a broken screenshot never sinks the
+ * comment. Kept injectable so the builder stays hermetically testable (no S3 dependency).
  */
 function makeScreenshotSigner(storage: S3Storage, logger: Logger): (s3Key: string) => Promise<string | undefined> {
     return async (s3Key) => {
@@ -128,82 +124,6 @@ function makeScreenshotSigner(storage: S3Storage, logger: Logger): (s3Key: strin
             logger.warn("Failed to sign analysis screenshot for the PR comment", { extra: { s3Key, err } });
             return undefined;
         }
-    };
-}
-
-interface LoadedReport {
-    verdict: AppHealthVerdict;
-    clientBugs: AnalysisClientBugFinding[];
-    coverage?: CoverageSummary;
-    narration?: string;
-}
-
-/**
- * Read the persisted run: the app-health verdict, the constrained narration, the coverage-plane summary, and the
- * `client_bug` findings (the only ones the comment cards). The `coverage` blob and each finding's `evidence` are
- * JSON columns, so they are validated at the read boundary and degrade to absent/empty on a shape mismatch rather
- * than throwing. Returns undefined when the snapshot has no report (nothing to comment on).
- */
-async function loadReport(snapshotId: string): Promise<LoadedReport | undefined> {
-    const report = await db.analysisReport.findUnique({
-        where: { snapshotId },
-        select: { verdict: true, narration: true, coverage: true },
-    });
-    if (report == null) return undefined;
-
-    // Findings are keyed to the job; read the `client_bug` ones directly by the snapshot's PK.
-    const clientBugs = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId, category: CLIENT_BUG },
-        orderBy: { displayOrder: "asc" },
-        select: {
-            findingKey: true,
-            headline: true,
-            whatHappened: true,
-            remediation: true,
-            evidence: true,
-            clipKey: true,
-            screenshotKey: true,
-        },
-    });
-
-    // The two-plane verdict stored as a string; anything other than `client_bug` is the app-health `passed` plane.
-    const verdict: AppHealthVerdict = report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed;
-    const coverage = coverageSummarySchema.safeParse(report.coverage);
-    return {
-        verdict,
-        narration: report.narration ?? undefined,
-        coverage: coverage.success ? coverage.data : undefined,
-        clientBugs: clientBugs.map(toClientBugFinding),
-    };
-}
-
-function toClientBugFinding(finding: {
-    findingKey: string;
-    headline: string;
-    whatHappened: string | null;
-    remediation: string | null;
-    evidence: Prisma.JsonValue;
-    clipKey: string | null;
-    screenshotKey: string | null;
-}): AnalysisClientBugFinding {
-    const parsed = evidenceListSchema.safeParse(finding.evidence);
-    const evidence = parsed.success
-        ? parsed.data.map((item) => ({
-              source: item.source,
-              detail: item.detail,
-              file: item.file,
-              lines: item.lines,
-              snippet: item.snippet,
-          }))
-        : [];
-    return {
-        findingKey: finding.findingKey,
-        headline: finding.headline,
-        whatHappened: finding.whatHappened ?? undefined,
-        remediation: finding.remediation ?? undefined,
-        evidence,
-        clipKey: finding.clipKey ?? undefined,
-        screenshotKey: finding.screenshotKey ?? undefined,
     };
 }
 
@@ -225,12 +145,22 @@ function buildPrUrl(appSlug: string, prNumber: number): string {
 }
 
 /**
- * Absolute base URL of the in-app analysis report for this snapshot; each client-bug card appends its
- * `findingKey`. The `analysis` route segment is the authoritative counterpart to the frozen `investigation`
- * report, kept distinct so the two never collide.
+ * Absolute base URL of the in-app issue-detail pages for this PR; each bug card appends its `issueId`. Issues are
+ * branch-scoped (they evolve across snapshots), so the route lives at the PR level, above snapshots - fixing the
+ * old finding-key path that pointed at a single snapshot's finding.
  */
-function buildReportBaseUrl(appSlug: string, prNumber: number, snapshotId: string): string {
-    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/snapshots/${snapshotId}/analysis`;
+function buildIssueBaseUrl(appSlug: string, prNumber: number): string {
+    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/issues`;
+    return new URL(path, resolveAppUrl()).toString();
+}
+
+/**
+ * Absolute base URL of the in-app per-snapshot finding pages for this PR; a card's replay link appends
+ * `<snapshotId>/findings/<findingKey>`. An issue's card links here to the ONE run the Reporter designated as its
+ * clearest reproduction, while the card's title links to the branch-scoped issue itself.
+ */
+function buildFindingBaseUrl(appSlug: string, prNumber: number): string {
+    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/snapshots`;
     return new URL(path, resolveAppUrl()).toString();
 }
 
