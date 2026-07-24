@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.260724.1](https://github.com/Autonoma-AI/agent/compare/v1.260723.2...v1.260724.1) (2026-07-24)
+
+
+### Features
+
+* add Codex CLI support to the SDK-implementation handoff ([#1738](https://github.com/Autonoma-AI/agent/issues/1738)) ([30146c4](https://github.com/Autonoma-AI/agent/commit/30146c40e5544e229dcefe597cbaecbdd8e7d7ea))
+* add dormant Reporter agent for branch-scoped issues and PR report ([#1744](https://github.com/Autonoma-AI/agent/issues/1744)) ([160d1ff](https://github.com/Autonoma-AI/agent/commit/160d1ff5e6d335329ecdc718ee4f63e33be04dce))
+* **analysis:** surface the optimized run recording toggle on findings ([#1737](https://github.com/Autonoma-AI/agent/issues/1737)) ([0a23cff](https://github.com/Autonoma-AI/agent/commit/0a23cffd89d110cf9cf1ad289dbcaff5e0f8a675))
+* **buildkit:** add Verdaccio npm proxy cache ([#1727](https://github.com/Autonoma-AI/agent/issues/1727)) ([28755b9](https://github.com/Autonoma-AI/agent/commit/28755b9ce02f92ce52211b3c3648d11ef9df1ff6))
+* homa SDK-eval case + per-case agent notes/secrets support ([#1726](https://github.com/Autonoma-AI/agent/issues/1726)) ([6ff7358](https://github.com/Autonoma-AI/agent/commit/6ff73588537a377fc9f0bbd55b654d58b8ff7898))
+* iac vercel secret ([#1653](https://github.com/Autonoma-AI/agent/issues/1653)) ([9b540a0](https://github.com/Autonoma-AI/agent/commit/9b540a0d43fb08f03555fa584b8b54891048550e))
+* issues-first analysis UI ([#1734](https://github.com/Autonoma-AI/agent/issues/1734)) ([#1758](https://github.com/Autonoma-AI/agent/issues/1758)) ([4099a0d](https://github.com/Autonoma-AI/agent/commit/4099a0dbe7a4b5adc9376dbc727f081b1f3056e3))
+* **mcp:** add scenario recipe editing to the onboarding MCP ([#1723](https://github.com/Autonoma-AI/agent/issues/1723)) ([29bea0c](https://github.com/Autonoma-AI/agent/commit/29bea0cc5022ae0c883a92941803adc5ccd3c450))
+* **merge-gate:** per-org blocking PR check on client bugs with Skip button ([#1697](https://github.com/Autonoma-AI/agent/issues/1697)) ([f03af54](https://github.com/Autonoma-AI/agent/commit/f03af541a73bd37b19d6fbdffc33fcc3c2696fc5))
+* per-category finding verdict with expected/actual behavior ([#1740](https://github.com/Autonoma-AI/agent/issues/1740)) ([4fa3f01](https://github.com/Autonoma-AI/agent/commit/4fa3f013d0d8d0323a7ef7f4325fd36383fb4abb))
+* **preview:** front door that waits out preview cold starts ([#1747](https://github.com/Autonoma-AI/agent/issues/1747)) ([6998aa9](https://github.com/Autonoma-AI/agent/commit/6998aa9bd67910de8ecd30af8c5ddd2303238256))
+* **previewkit:** overwrite the preview image tag per app+PR instead of accumulating per commit ([#1728](https://github.com/Autonoma-AI/agent/issues/1728)) ([875cebb](https://github.com/Autonoma-AI/agent/commit/875cebb03b0f4ee6d4da09b83a3de226ab27757a))
+* **scenario:** ride through preview cold starts on dry-run ([#1741](https://github.com/Autonoma-AI/agent/issues/1741)) ([fd0b0a6](https://github.com/Autonoma-AI/agent/commit/fd0b0a623cfe18928989976e3a584545a3fc32b2))
+* swap the analysis Reconciler for the Reporter ([#1757](https://github.com/Autonoma-AI/agent/issues/1757)) ([e98af0f](https://github.com/Autonoma-AI/agent/commit/e98af0f6c6ef8c7249fb67321eef4258cc9647c9))
+* **ui:** MCP-first config-previews onboarding (experiment E3) ([#1724](https://github.com/Autonoma-AI/agent/issues/1724)) ([d65beec](https://github.com/Autonoma-AI/agent/commit/d65beec2643ff8f366e4f26f36fdea46f7a3721a))
+
+
+### Bug Fixes
+
+* **buildkit:** disable service-links env injection on Verdaccio pod ([#1732](https://github.com/Autonoma-AI/agent/issues/1732)) ([7d1d7f8](https://github.com/Autonoma-AI/agent/commit/7d1d7f8cd55d47bcec9b3ad781acdc73ed1e38e6))
+* **buildkit:** raise verdaccio memory limit to 2Gi ([#1749](https://github.com/Autonoma-AI/agent/issues/1749)) ([2fb5f3b](https://github.com/Autonoma-AI/agent/commit/2fb5f3bc32fceadf7ec9f8b89991059b5db7879b))
+* **cli:** always upload the recipe, even without AUTONOMA_API_URL ([#1755](https://github.com/Autonoma-AI/agent/issues/1755)) ([cac7134](https://github.com/Autonoma-AI/agent/commit/cac7134e6041c868bae96a22d16114062ae44fec))
+* **onboarding:** keep the agent polling until requested env values land ([#1752](https://github.com/Autonoma-AI/agent/issues/1752)) ([1e0b3b8](https://github.com/Autonoma-AI/agent/commit/1e0b3b84e6dc3b6a06cacd8d7ef33f1bdad5a891))
+* **onboarding:** make Vercel deployments first-class dry-run targets ([#1743](https://github.com/Autonoma-AI/agent/issues/1743)) ([0d0d1d5](https://github.com/Autonoma-AI/agent/commit/0d0d1d522d45c056e930509ebd79e4fd21b49abc))
+* **onboarding:** stop offering retired build presets on the authoring surfaces ([#1748](https://github.com/Autonoma-AI/agent/issues/1748)) ([504cc75](https://github.com/Autonoma-AI/agent/commit/504cc756f5420002457a0c47e4fe494e98491fdb))
+* **previewkit:** make the npm registry mirror best-effort ([#1750](https://github.com/Autonoma-AI/agent/issues/1750)) ([35a0b1f](https://github.com/Autonoma-AI/agent/commit/35a0b1f1acc61c0850ef1bd1e88f4cf18b9ea629))
+* **ui:** keep the dry-run target in sync with the validated one across finish-setup steps ([#1742](https://github.com/Autonoma-AI/agent/issues/1742)) ([1a1de76](https://github.com/Autonoma-AI/agent/commit/1a1de76457ecd6e716b2b064066c0ab07df2113d))
+* **ui:** pin resolved dry-run target so the dry run hits the validated preview ([#1739](https://github.com/Autonoma-AI/agent/issues/1739)) ([7a3da66](https://github.com/Autonoma-AI/agent/commit/7a3da664c07ece43cc670d2481cff62322e8ec11))
+
 ## [1.260723.2](https://github.com/Autonoma-AI/agent/compare/v1.260723.1...v1.260723.2) (2026-07-23)
 
 
