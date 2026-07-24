@@ -3,13 +3,16 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import type {
     AgentLogEntrySchema,
+    evidenceManifestEntrySchema,
     investigationDeployedComparisonSchema,
     investigationEvidenceSchema,
     investigationRunStepSchema,
     issueReportSchema,
     OnboardingAgentPendingRequestSchema,
+    primaryScreenshotSchema,
     ScenarioRecipeSchema,
     ScenarioStructureJsonSchema,
+    suspectedCauseSchema,
 } from "@autonoma/types";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { ModelMessage as AIModelMessage } from "ai";
@@ -146,6 +149,16 @@ declare global {
         export type InvestigationRunTrace = z.infer<typeof investigationRunStepSchema>[];
         /** The test slugs a MERGED finding represents (its own + absorbed duplicates), stored on covered_slugs. */
         export type InvestigationCoveredSlugs = string[];
+        /**
+         * The Reporter's grounded, branch-scoped issue store (and the report's) JSON columns. The manifest lists
+         * exactly the evidence assets the Reporter fetched (embeddable by `evidence:<assetId>` token); the primary
+         * screenshot is the issue's hero frame; the suspected cause is the hedged, repo-validated code cause; and
+         * the finding slugs are the tests the issue currently covers across snapshots.
+         */
+        export type EvidenceManifest = z.infer<typeof evidenceManifestEntrySchema>[];
+        export type PrimaryScreenshot = z.infer<typeof primaryScreenshotSchema>;
+        export type SuspectedCause = z.infer<typeof suspectedCauseSchema>;
+        export type IssueFindingSlugs = string[];
         export type ScenarioAuth = {
             cookies?: Array<{
                 name: string;

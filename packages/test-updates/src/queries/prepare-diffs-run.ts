@@ -250,6 +250,8 @@ export class DiffsRunPreparer {
     /** Create the status-tracking job for the snapshot: an AnalysisJob when analysis runs, else a DiffsJob. */
     private async createJob(snapshotId: string, organizationId: string, analysisEnabled: boolean): Promise<void> {
         if (analysisEnabled) {
+            // Only the job is created up-front; Investigators persist findings against it during fan-out. The
+            // AnalysisReport is authored later by the Reporter, so a report's existence means the Reporter ran.
             await this.db.analysisJob.create({
                 data: { snapshotId, organizationId, status: "running", startedAt: new Date() },
             });

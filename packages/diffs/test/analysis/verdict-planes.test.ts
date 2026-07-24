@@ -1,25 +1,19 @@
 import type { AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
-import type { AnalysisFinding, ReconciledAnalysisFinding } from "../../src/analysis/dedup";
-import { summarizeVerdictPlanes } from "../../src/analysis/verdict-planes";
+import { summarizeVerdictPlanes, type VerdictPlaneFinding } from "../../src/analysis/verdict-planes";
 
-function member(slug: string, category: AnalysisVerdict, origin: AnalysisTestOrigin = "pre_existing"): AnalysisFinding {
-    return { slug, category, headline: `${slug} headline`, planEdited: false, origin };
-}
-
-/** A standalone finding wrapping a single member. */
-function singleton(m: AnalysisFinding): ReconciledAnalysisFinding {
-    return { category: m.category, headline: m.headline, coveredSlugs: [m.slug], members: [m] };
+function finding(category: AnalysisVerdict, origin: AnalysisTestOrigin = "pre_existing"): VerdictPlaneFinding {
+    return { category, origin };
 }
 
 describe("summarizeVerdictPlanes", () => {
     it("stays on the passed plane and summarizes coverage findings + the delete-origin split", () => {
         const summary = summarizeVerdictPlanes([
-            singleton(member("flake", "engine_artifact")),
-            singleton(member("seed", "scenario_issue")),
-            singleton(member("gone-new", "delete", "proposed")),
-            singleton(member("gone-old", "delete", "pre_existing")),
-            singleton(member("gone-new-2", "delete", "proposed")),
+            finding("engine_artifact"),
+            finding("scenario_issue"),
+            finding("delete", "proposed"),
+            finding("delete", "pre_existing"),
+            finding("delete", "proposed"),
         ]);
 
         expect(summary.verdict).toBe("passed");
@@ -34,34 +28,19 @@ describe("summarizeVerdictPlanes", () => {
     });
 
     it("flips to client_bug when any finding is one, and never counts client_bug on the coverage plane", () => {
-        const summary = summarizeVerdictPlanes([
-            singleton(member("login", "client_bug")),
-            singleton(member("flake", "engine_artifact")),
-        ]);
+        const summary = summarizeVerdictPlanes([finding("client_bug"), finding("engine_artifact")]);
 
         expect(summary.verdict).toBe("client_bug");
         expect(summary.coverage.byCategory).toEqual([{ category: "engine_artifact", count: 1 }]);
         expect(summary.coverage.total).toBe(1);
     });
 
-    it("counts delete tests at the member level even when merged under a more severe finding", () => {
-        // A merged cluster whose headline category is client_bug still contains a proposed delete member; the
-        // delete split reads the members, so the unestablished-proposed test is not lost under the merge.
-        const merged: ReconciledAnalysisFinding = {
-            category: "client_bug",
-            headline: "shared cause",
-            coveredSlugs: ["login", "gone-new"],
-            members: [member("login", "client_bug"), member("gone-new", "delete", "proposed")],
-        };
+    it("keeps a passing app-health run off the coverage plane", () => {
+        const summary = summarizeVerdictPlanes([finding("passed"), finding("passed")]);
 
-        const summary = summarizeVerdictPlanes([merged]);
-
-        expect(summary.verdict).toBe("client_bug");
-        // The delete member is hidden under a client_bug finding, so it is not a distinct coverage finding...
-        expect(summary.coverage.byCategory).toEqual([]);
+        expect(summary.verdict).toBe("passed");
         expect(summary.coverage.total).toBe(0);
-        // ...but the test that could not be established is still counted from the members.
-        expect(summary.coverage.unestablishedProposed).toBe(1);
+        expect(summary.coverage.byCategory).toEqual([]);
     });
 
     it("treats an empty finding set as passed with an empty coverage summary", () => {

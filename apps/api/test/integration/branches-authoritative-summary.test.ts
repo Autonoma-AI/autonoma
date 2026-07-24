@@ -38,21 +38,19 @@ async function attachAnalysisReport(
         data: { snapshotId, status: "completed", organizationId: harness.organizationId },
     });
     await harness.db.analysisReport.create({
-        data: {
-            snapshotId,
-            verdict,
+        data: { snapshotId, verdict, organizationId: harness.organizationId },
+    });
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id.
+    await harness.db.analysisFinding.createMany({
+        data: categories.map((category, index) => ({
+            reportSnapshotId: snapshotId,
+            findingKey: `finding-${index}`,
+            slug: `slug-${index}`,
+            category,
+            headline: `Finding ${index}`,
+            displayOrder: index,
             organizationId: harness.organizationId,
-            findings: {
-                create: categories.map((category, index) => ({
-                    findingKey: `finding-${index}`,
-                    slug: `slug-${index}`,
-                    category,
-                    headline: `Finding ${index}`,
-                    displayOrder: index,
-                    organizationId: harness.organizationId,
-                })),
-            },
-        },
+        })),
     });
 }
 

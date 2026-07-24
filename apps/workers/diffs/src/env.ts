@@ -40,4 +40,8 @@ export const env = createEnv({
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
+    // Tests import modules that transitively load this env (e.g. the analysis activities pull in `services`);
+    // skip validation under TESTING so importing them never trips required-var checks, matching @autonoma/db and
+    // @autonoma/logger. Activities that actually need a key (createModelSession) still throw at call time.
+    skipValidation: process.env.TESTING === "true",
 });

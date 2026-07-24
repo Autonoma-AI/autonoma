@@ -26,10 +26,9 @@ export interface ReporterAgentConfig {
 
 /**
  * Reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic PR report, on the
- * AgentLoop harness. Unlike the classifier/reconciler (which bypass this harness), the Reporter uses it correctly:
+ * AgentLoop harness. Unlike the classifier (which bypasses this harness), the Reporter uses it correctly:
  * a per-run loop holds the minted-evidence allow-list, and the terminal tool enforces the coverage guarantees and
- * grounds every authored surface before the result is returned. Dormant - exercised by fixtures until the
- * reconciler->reporter swap.
+ * grounds every authored surface before the result is returned.
  */
 export class ReporterAgent extends Agent<ReporterInput, ReporterResult, ReporterAgentLoop> {
     private readonly logger: Logger;

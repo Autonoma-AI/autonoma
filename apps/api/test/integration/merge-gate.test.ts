@@ -362,22 +362,23 @@ async function createSnapshotWithBugs(
     const snapshot = await harness.db.branchSnapshot.create({
         data: { branchId: branch.id, source: "WEBHOOK", status: "active", headSha, baseSha: "base-1" },
     });
+    await harness.db.analysisJob.create({
+        data: { snapshotId: snapshot.id, status: "completed", organizationId: harness.organizationId },
+    });
     await harness.db.analysisReport.create({
-        data: {
-            snapshotId: snapshot.id,
-            verdict: "client_bug",
+        data: { snapshotId: snapshot.id, verdict: "client_bug", organizationId: harness.organizationId },
+    });
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id.
+    await harness.db.analysisFinding.createMany({
+        data: findingKeys.map((key, index) => ({
+            reportSnapshotId: snapshot.id,
+            findingKey: key,
+            slug: key,
+            category: "client_bug",
+            headline: `Bug ${key}`,
+            displayOrder: index,
             organizationId: harness.organizationId,
-            findings: {
-                create: findingKeys.map((key, index) => ({
-                    findingKey: key,
-                    slug: key,
-                    category: "client_bug",
-                    headline: `Bug ${key}`,
-                    displayOrder: index,
-                    organizationId: harness.organizationId,
-                })),
-            },
-        },
+        })),
     });
     return snapshot.id;
 }

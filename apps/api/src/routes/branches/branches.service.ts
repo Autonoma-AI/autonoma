@@ -438,18 +438,23 @@ export class BranchesService extends Service {
     async getAnalysisReportData(snapshotId: string, organizationId: string): Promise<AnalysisReportData | null> {
         this.logger.info("Getting analysis report data", { extra: { snapshotId } });
         try {
+            // The AnalysisReport exists only once the Reporter has authored it, so its presence means the run has
+            // landed; absence => still running or failed, and the page polls the AnalysisJob-status fallback.
+            // Checked first so a still-running poll never fetches findings it would discard.
             const report = await this.db.analysisReport.findFirst({
                 where: { snapshotId, organizationId },
-                select: {
-                    impactReasoning: true,
-                    narration: true,
-                    findings: { orderBy: { displayOrder: "asc" }, select: analysisFindingSelect },
-                },
+                select: { impactReasoning: true, narration: true },
             });
             if (report == null) return null;
 
+            // Findings are keyed to the job; load them separately, org-scoped.
+            const findingRows = await this.db.analysisFinding.findMany({
+                where: { reportSnapshotId: snapshotId, organizationId },
+                orderBy: { displayOrder: "asc" },
+                select: analysisFindingSelect,
+            });
             const findings = await Promise.all(
-                report.findings.map((finding) => this.signFindingMedia(rowToAnalysisFinding(finding))),
+                findingRows.map((finding) => this.signFindingMedia(rowToAnalysisFinding(finding))),
             );
             this.logger.info("Analysis report data assembled", {
                 extra: { snapshotId, findingCount: findings.length },
@@ -631,8 +636,12 @@ export class BranchesService extends Service {
         return branches.map(({ prInfo, activeSnapshot, pendingSnapshot, ...branch }) => {
             const authoritative = activeSnapshot != null ? authoritativeBySnapshot.get(activeSnapshot.id) : undefined;
             const legacyBugCount = activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0;
-            // An authoritative snapshot's bugs are its client-bug findings, not `Bug` rows (it files none).
-            const bugCount = authoritative?.findingBuckets != null ? authoritative.findingBuckets.bug : legacyBugCount;
+            // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),
+            // not `Bug` rows (it files none); a legacy snapshot uses its Bug-derived count.
+            const bugCount =
+                authoritative != null
+                    ? (authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0)
+                    : legacyBugCount;
 
             const summary =
                 activeSnapshot != null
@@ -978,9 +987,13 @@ export class BranchesService extends Service {
             const changeSummary = changeSummaries[index] as SnapshotChangeSummary;
             const openBugCount = bugCountBySnapshot.get(snapshot.id) ?? 0;
             const authoritative = authoritativeBySnapshot.get(snapshot.id);
-            // An authoritative snapshot's bugs are its client-bug findings, not `Bug` rows (it files none), and its
-            // health is derived from the same verdict so the rail's raw fields agree with the badge.
-            const bugCount = authoritative?.findingBuckets != null ? authoritative.findingBuckets.bug : openBugCount;
+            // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),
+            // not `Bug` rows (it files none); its health is derived from the same count so the rail's raw fields
+            // agree with the badge.
+            const bugCount =
+                authoritative != null
+                    ? (authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0)
+                    : openBugCount;
             const health =
                 authoritative != null
                     ? authoritativeSnapshotHealth(authoritative)
@@ -1419,6 +1432,7 @@ function summaryFromHealth(
         return buildAuthoritativeCheckpointSummary({
             jobStatus: options.authoritative.jobStatus,
             findingBuckets: options.authoritative.findingBuckets,
+            bugCount: options.authoritative.bugCount,
             totalTests: healthResult?.counts.totalTests,
             suiteChangeCount: options.suiteChangeCount,
         });

@@ -2543,19 +2543,26 @@ model AnalysisJob {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  /// The run's per-test findings, keyed on the job's snapshot PK. Each Investigator persists its own finding
+  /// against the job - which exists from the start of the run - during fan-out; the Reporter later reconciles
+  /// them into branch-scoped issues and authors the AnalysisReport.
+  findings AnalysisFinding[]
+
   @@map("analysis_job")
 }
 
-/// The merged analysis pipeline's rich per-snapshot report. One row per run holds the run header (verdict,
-/// counts), the Impact Analysis selection reasoning, the coverage-plane summary, and the constrained narration;
-/// its per-test findings live in the AnalysisFinding child table. These rows drive the user-facing snapshot/PR
-/// UI and are the single source of truth for every finding, `client_bug` included - the pipeline files NO
-/// Bug/Issue. Only FKs OUTWARD (snapshot / org, cascade); nothing in the core app FKs into it.
+/// The merged analysis pipeline's rich per-snapshot report, AUTHORED BY THE REPORTER once fan-out completes: the
+/// row's mere existence means the Reporter ran to completion (a Reporter failure fails the run, leaving no report).
+/// While the run is in flight it has only its AnalysisJob and the findings the Investigators persist. One row per
+/// run holds the run header (verdict, counts), the Impact Analysis selection reasoning, the coverage-plane summary,
+/// and the report prose. The run's per-test findings live in AnalysisFinding, keyed to the AnalysisJob (not here).
+/// Only FKs OUTWARD (snapshot / org, cascade); nothing in the core app FKs into it.
 model AnalysisReport {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
-  /// The app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`.
+  /// The app-health verdict for the PR: `client_bug` if the branch has any open bug-kind issue, else `passed`.
+  /// Written by the Reporter at report birth.
   verdict String
 
   testCount      Int @default(0) @map("test_count")
@@ -2565,7 +2572,7 @@ model AnalysisReport {
   /// display-only; absent when selection produced no reasoning.
   impactReasoning String? @map("impact_reasoning") @db.Text
 
-  /// The coverage-confidence plane summary: per-category counts of the deduped findings that are not app-health
+  /// The coverage-confidence plane summary: per-category counts of the run's findings that are not app-health
   /// (engine_artifact/environment_failure/scenario_issue/delete), plus the delete-origin split (proposed tests
   /// the run could not establish vs pre-existing tests removed as obsolete). Display-only blob.
   /// ![{ byCategory: { category: string; count: number }[]; total: number; unestablishedProposed: number; obsoleteRemoved: number }]
@@ -2575,8 +2582,7 @@ model AnalysisReport {
   /// model call could not run. Derived from the FINAL verdict; it never alters it.
   narration String?
 
-  /// The Reporter agent's holistic, PR-cumulative report prose (Markdown). Additive and dormant: the live
-  /// Reconciler never writes it (it writes `narration`); the Reporter authors it once it is wired in. Its
+  /// The Reporter agent's holistic, PR-cumulative report prose (Markdown), written at report birth. Its
   /// `evidence:<assetId>` image tokens resolve against `evidenceManifest`.
   reportMarkdown String? @map("report_markdown") @db.Text
 
@@ -2584,8 +2590,6 @@ model AnalysisReport {
   /// evidence the Reporter actually fetched (never authored). Display-only blob, resolved to signed URLs on read.
   /// [EvidenceManifest]
   evidenceManifest Json? @map("evidence_manifest")
-
-  findings AnalysisFinding[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -2603,9 +2607,12 @@ model AnalysisReport {
 /// across the full taxonomy (incl. `passed`); this store is the single source of truth for every finding,
 /// `client_bug` included (it carries its full evidence on the row) - the pipeline files no Bug/Issue.
 model AnalysisFinding {
-  id               String         @id @default(cuid())
-  reportSnapshotId String         @map("report_snapshot_id")
-  report           AnalysisReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
+  id               String @id @default(cuid())
+  /// The run this finding belongs to, keyed to the AnalysisJob's snapshot PK. An Investigator persists its finding
+  /// against the job (which exists from the start of the run) during fan-out; the Reporter authors the report later
+  /// over these findings. `report_snapshot_id` is that shared snapshot PK.
+  reportSnapshotId String      @map("report_snapshot_id")
+  job              AnalysisJob @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade, map: "analysis_finding_job_fkey")
 
   /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
   findingKey String @map("finding_key")
@@ -2635,6 +2642,13 @@ model AnalysisFinding {
   /// tells an obsolete-test `delete` apart from an un-establishable proposal.
   origin String?
 
+  /// Why Impact Analysis selected this test to investigate (the affected reason, or the new-test rationale). Ridden
+  /// onto the finding at persist so the Reporter has the selection provenance per test, not just the run summary.
+  selectionReason String? @map("selection_reason") @db.Text
+  /// A brief note on what the Investigator self-healed before reaching this verdict, present only when
+  /// `planEdited` - retry-context color for the Reporter, never a finding of its own.
+  selfHealNote String? @map("self_heal_note") @db.Text
+
   /// string[] run-step trace and InvestigationRunStep[] structured trace - display blobs, never queried.
   /// [InvestigationRunSteps]
   runSteps Json? @map("run_steps")
@@ -2660,9 +2674,8 @@ model AnalysisFinding {
   /// Present instead of the verdict fields when the model failed to classify this test.
   error String? @db.Text
 
-  /// When several tests surfaced the same underlying issue and the Reconciler unioned them into this one
-  /// finding, the slugs of every test it now represents (this finding's own slug plus the absorbed ones).
-  /// Length > 1 means a merged finding; absent/length 1 means standalone.
+  /// Unused: each finding is one test's verdict and is never merged, so this is always absent. Kept only until a
+  /// migration drops the column.
   /// [InvestigationCoveredSlugs]
   coveredSlugs Json? @map("covered_slugs")
 
@@ -2688,8 +2701,8 @@ model AnalysisFinding {
 /// A branch/PR-scoped "problem" the Reporter agent authors and evolves ACROSS snapshots - the de-duped, holistic
 /// unit above the per-snapshot AnalysisFinding. One issue clusters the findings (across time and across tests) that
 /// manifest the same underlying problem; its lifecycle is open/resolved (a carry-forward re-confirms or reopens, a
-/// resolve closes it once a covering test re-ran and passed). Additive and DORMANT: nothing in the live pipeline
-/// writes it yet - the Reporter is exercised by fixtures until the reconciler->reporter swap. Enum-shaped columns
+/// resolve closes it once a covering test re-ran and passed). The Reporter authors and evolves these during the
+/// reconcile stage. Enum-shaped columns
 /// (`kind`, `severity`, `status`) are plain strings, matching the rest of the analysis island; the values are
 /// Zod-validated at the boundary. Only FKs OUTWARD (branch / org, cascade); the island stays cleanly drop-able.
 model AnalysisIssue {

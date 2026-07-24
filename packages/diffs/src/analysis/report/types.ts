@@ -13,8 +13,8 @@ import type { Codebase } from "../../codebase";
 /**
  * The Reporter's own DTOs, kept analysis-native so nothing here depends on the deprecated healing/bugs path.
  * The agent consumes a job's findings plus the branch's evolving issues and prior reports, and authors de-duped,
- * branch-scoped Issues plus a holistic PR report. These types are the in-memory contract the fixtures/tests
- * exercise; the pipeline does not call the Reporter yet.
+ * branch-scoped Issues plus a holistic PR report. These types are the in-memory contract between the agent and the
+ * reporter stage that persists its result.
  */
 
 /** The class of problem an issue represents. */

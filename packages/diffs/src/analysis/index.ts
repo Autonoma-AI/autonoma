@@ -1,8 +1,8 @@
 // The analysis pipeline's classifier library - a COPY of the classifier (classifyRun + vision probes + its
-// tools), the deployed comparison, and the holistic dedup, re-homed out of packages/investigation so the merged
-// analysis pipeline (impact analysis -> investigators -> reconciler) shares no code with the frozen
-// investigation shadow. Exposed via the `@autonoma/diffs/analysis` subpath so it never collides with the diffs
-// package's own model-session exports on the main entrypoint.
+// tools) and the deployed comparison, re-homed out of packages/investigation so the merged analysis pipeline
+// (impact analysis -> investigators -> reporter) shares no code with the frozen investigation shadow. Exposed via
+// the `@autonoma/diffs/analysis` subpath so it never collides with the diffs package's own model-session exports
+// on the main entrypoint.
 //
 // Selection was intentionally NOT carried over: #1510 replaces Impact Analysis with the DiffsAgent
 // (`runDiffsAnalysis`) and the epic rejects the carry-forward the old selector did.
@@ -28,15 +28,17 @@ export type { ClassifyContext, ClassifyRunResult } from "./classify/classify-run
 export { buildClassifierTools } from "./classify/tools";
 export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts, RunVideo } from "./classify/dependencies";
 export { withRetry } from "./retry";
-export { dedupeAnalysisFindings } from "./dedup";
-export type { AnalysisFinding, ReconciledAnalysisFinding, DedupAnalysisFindingsDeps } from "./dedup";
 export { summarizeVerdictPlanes } from "./verdict-planes";
-export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
-export { narrateAnalysis } from "./narrate";
-export type { NarrateAnalysisDeps } from "./narrate";
+export type {
+    AppHealthVerdict,
+    CoverageCategoryCount,
+    CoverageSummary,
+    TwoPlaneSummary,
+    VerdictPlaneFinding,
+} from "./verdict-planes";
 
-// The Reporter agent (dormant): reconciles a job's findings into de-duped, branch-scoped issues and authors one
-// holistic PR report, on the AgentLoop harness. Not wired into the pipeline yet - exercised by fixtures/tests.
+// The Reporter agent: reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic
+// PR report, on the AgentLoop harness.
 export { ReporterAgent } from "./report";
 export type { ReporterAgentConfig } from "./report";
 export {

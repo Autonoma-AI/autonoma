@@ -73,6 +73,11 @@ export interface AuthoritativeCheckpointInputs {
     jobStatus: AuthoritativeAnalysisJobStatus;
     // Per-bucket tally of the AnalysisReport's findings; absent while the job is still running (no report yet).
     findingBuckets?: AnalysisFindingBucketCounts;
+    // The PR's bug count driving the verdict: the branch's OPEN bug-kind issues, which the Reporter authored onto
+    // AnalysisReport.clientBugCount. This, not the client_bug finding tally, is the authoritative red/green signal:
+    // a bug carried across snapshots keeps the PR red even when no test re-ran it this snapshot. Defaults to the
+    // finding buckets' bug count when absent.
+    bugCount?: number;
     // Assigned test count for the metrics fallback; defaults to the investigated finding total when omitted.
     totalTests?: number;
     suiteChangeCount?: number;
@@ -91,17 +96,20 @@ export function buildAuthoritativeCheckpointSummary(
     const investigated = buckets.bug + buckets.passed + buckets.coverage;
     const totalTests = inputs.totalTests ?? investigated;
     const suiteChangeCount = inputs.suiteChangeCount ?? 0;
+    // The verdict-bearing bug count is issue-derived (open bug issues), not the client_bug finding tally, so a bug
+    // carried across snapshots keeps the PR red even when no test re-ran it this snapshot.
+    const bugCount = inputs.bugCount ?? buckets.bug;
 
-    const { tone, label, reason, executionState } = deriveAuthoritativePresentation(inputs, buckets);
+    const { tone, label, reason, executionState } = deriveAuthoritativePresentation(inputs, buckets, bugCount);
 
     return {
         tone,
         label,
         reason,
         executionState,
-        // Client bugs are the authoritative equivalent of open app bugs; there are no separate occurrences.
-        openBugCount: buckets.bug,
-        issueOccurrenceCount: buckets.bug,
+        // Open bug issues are the authoritative equivalent of open app bugs; there are no separate occurrences.
+        openBugCount: bugCount,
+        issueOccurrenceCount: bugCount,
         testCounts: {
             assigned: totalTests,
             run: investigated,
@@ -116,7 +124,7 @@ export function buildAuthoritativeCheckpointSummary(
         suiteChangeCount,
         analysis: {
             jobStatus: inputs.jobStatus,
-            bugCount: buckets.bug,
+            bugCount,
             passedCount: buckets.passed,
             coverageCount: buckets.coverage,
         },
@@ -126,6 +134,7 @@ export function buildAuthoritativeCheckpointSummary(
 function deriveAuthoritativePresentation(
     inputs: AuthoritativeCheckpointInputs,
     buckets: AnalysisFindingBucketCounts,
+    bugCount: number,
 ): { tone: CheckpointTone; label: string; reason?: string; executionState: CheckpointExecutionState } {
     // The analysis pipeline itself failed.
     if (inputs.jobStatus === "failed") {
@@ -144,10 +153,10 @@ function deriveAuthoritativePresentation(
         return { tone: "neutral", label: ANALYZING_LABEL, executionState: "running" };
     }
 
-    // Completed with a report. Only client bugs count against the PR (the app-health plane); coverage findings are
+    // Completed with a report. Only open bugs count against the PR (the app-health plane); coverage findings are
     // non-blocking and never make the checkpoint red.
-    if (buckets.bug > 0) {
-        return { tone: "critical", label: `${buckets.bug} ${plural(buckets.bug, "bug")}`, executionState: "failed" };
+    if (bugCount > 0) {
+        return { tone: "critical", label: `${bugCount} ${plural(bugCount, "bug")}`, executionState: "failed" };
     }
 
     const reason = buckets.coverage > 0 ? `${buckets.coverage} couldn't confirm` : undefined;

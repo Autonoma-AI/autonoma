@@ -8,12 +8,11 @@ import type { FinalizeAnalysisInput, FinalizeAnalysisOutput } from "@autonoma/wo
  *
  * - `failureReason` present: the run failed upstream. Mark the AnalysisJob `failed` and do NOT promote.
  * - no failureReason: the happy path. Promote the branch's real pending snapshot through the proven
- *   `TestSuiteUpdater.finalize()` -> `SnapshotDraft.activate()` path (it is already `branch.pendingSnapshotId`),
- *   so the run's suite - surviving new tests included (they are real assignments already) - becomes the branch's
- *   active suite; a `delete`d test is simply absent. Then mark the AnalysisJob `completed`.
+ *   `TestSuiteUpdater.finalize()` path, and mark the AnalysisJob `completed`.
  *
- * A promotion failure is allowed to propagate: the workflow's catch calls finalize again with the failureReason,
- * marking the job failed (rather than leaving it stuck `running`).
+ * It handles only the run's lifecycle (promotion + job status): the verdict/counts were authored onto the report by
+ * the Reporter one stage earlier. A promotion failure propagates - the workflow's catch calls finalize again with
+ * the failureReason, marking the job failed rather than leaving it stuck `running`.
  */
 export async function finalizeAnalysis(input: FinalizeAnalysisInput): Promise<FinalizeAnalysisOutput> {
     const { snapshotId, failureReason } = input;
@@ -34,7 +33,6 @@ export async function finalizeAnalysis(input: FinalizeAnalysisInput): Promise<Fi
     // classified every target, so a stray pending job must not block activation. queued/running still block.
     const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
     await updater.finalize({ discardPendingGenerations: true });
-    logger.info("Snapshot promoted to the branch's active suite");
 
     await markJob(snapshotId, { status: "completed", completedAt: new Date() });
     logger.info("finalize stage finished; AnalysisJob completed, snapshot promoted");

@@ -5,11 +5,11 @@ import type { ModelMessage } from "ai";
 interface UploadConversationParams {
     storage: StorageProvider;
     snapshotId: string;
-    phase: "analysis" | "classify";
+    phase: "analysis" | "classify" | "reporter";
     /**
      * A per-conversation discriminator folded into the key so runs within one snapshot do not collide. The
-     * `analysis` phase is one-per-snapshot and omits it; the `classify` phase runs once per investigated test, so
-     * it passes the test slug.
+     * `analysis` and `reporter` phases are one-per-snapshot and omit it; the `classify` phase runs once per
+     * investigated test, so it passes the test slug.
      */
     slug?: string;
     conversation: ModelMessage[];

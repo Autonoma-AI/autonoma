@@ -470,18 +470,7 @@ export class MergeGateService {
         const snapshot = await this.db.branchSnapshot.findFirst({
             where: { headSha, branch: { application: { organizationId, githubRepositoryId } } },
             orderBy: { createdAt: "desc" },
-            select: {
-                id: true,
-                analysisReport: {
-                    select: {
-                        findings: {
-                            where: { category: CLIENT_BUG },
-                            orderBy: { displayOrder: "asc" },
-                            select: { findingKey: true },
-                        },
-                    },
-                },
-            },
+            select: { id: true },
         });
         if (snapshot == null) {
             this.logger.warn("Merge gate: no snapshot found for skipped head", {
@@ -490,9 +479,15 @@ export class MergeGateService {
             });
             return { findingKeys: [] };
         }
+        // Findings are keyed to the AnalysisJob; read them directly by the snapshot's PK.
+        const bugFindings = await this.db.analysisFinding.findMany({
+            where: { reportSnapshotId: snapshot.id, organizationId, category: CLIENT_BUG },
+            orderBy: { displayOrder: "asc" },
+            select: { findingKey: true },
+        });
         return {
             snapshotId: snapshot.id,
-            findingKeys: snapshot.analysisReport?.findings.map((finding) => finding.findingKey) ?? [],
+            findingKeys: bugFindings.map((finding) => finding.findingKey),
         };
     }
 

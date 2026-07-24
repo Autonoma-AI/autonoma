@@ -41,6 +41,9 @@ const TEST_IS_WRONG_CATEGORIES = new Set(["outdated_test", "bad_test"]);
 const SELF_HEAL_RERUN_REASON =
     "Re-running after a self-heal plan rewrite: the prior run indicated a stale/incorrect test on a healthy app.";
 
+/** The self-heal note carried onto a finding whose plan was rewritten - retry-context color for the Reporter. */
+const SELF_HEAL_NOTE = "The test's plan was rewritten during a self-heal re-run before this verdict was reached.";
+
 /** How much of a fault's underlying error message to carry into the finding headline (the rest is only logged). */
 const FAULT_DETAIL_CAP = 200;
 
@@ -98,6 +101,9 @@ export interface InvestigatorWorkflowInput {
  * the re-run), the test is a correct-app test we cannot stabilize, so it resolves to `delete` and the Investigator
  * eagerly self-deletes its own row. It ALWAYS returns a finding - a scenario/classify fault is contained as a
  * coverage-plane verdict (environment_failure / scenario_issue / engine_artifact), never a silent drop.
+ *
+ * The Investigator persists its OWN finding (idempotent upsert) before returning - the pipeline no longer has a
+ * cross-test Reconciler write; the parent files a contained finding only for a child that crashed before this.
  */
 export async function investigatorWorkflow(input: InvestigatorWorkflowInput): Promise<AnalysisCandidateFinding> {
     const { snapshotId, slug, testGenerationId, scenarioId, reason, origin } = input;
@@ -105,11 +111,20 @@ export async function investigatorWorkflow(input: InvestigatorWorkflowInput): Pr
     log.info("Investigator workflow started", { ...ids, extra: { slug, origin } });
 
     const finding = await runWithSelfHeal(snapshotId, slug, testGenerationId, scenarioId, reason, origin);
+    // Ride the per-test selection provenance + a self-heal note (color, only when the plan was edited) onto the
+    // finding the Reporter reads, then persist it. `reason` is the ORIGINAL selection reason (the loop reassigns a
+    // separate `currentReason` for re-runs), which is what the Reporter wants as provenance.
+    const enriched: AnalysisCandidateFinding = {
+        ...finding,
+        selectionReason: reason,
+        selfHealNote: finding.planEdited ? SELF_HEAL_NOTE : undefined,
+    };
+    await investigator.persistAnalysisFinding({ snapshotId, finding: enriched });
     log.info("Investigator workflow finished", {
         ...ids,
-        extra: { slug, category: finding.category, planEdited: finding.planEdited, origin: finding.origin },
+        extra: { slug, category: enriched.category, planEdited: enriched.planEdited, origin: enriched.origin },
     });
-    return finding;
+    return enriched;
 }
 
 /**

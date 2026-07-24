@@ -17,9 +17,10 @@ export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 import { applyMergeGateVerdict as applyMergeGateVerdictImpl } from "./analysis/apply-merge-gate-verdict";
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
+import { persistAnalysisFinding as persistAnalysisFindingImpl } from "./analysis/persist-finding";
 import { postAnalysisPrComment as postAnalysisPrCommentImpl } from "./analysis/post-analysis-comment";
-import { reconcileAnalysis as reconcileAnalysisImpl } from "./analysis/reconcile-analysis";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
+import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
 import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
@@ -56,23 +57,23 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
     };
 }
 
-// --- Merged analysis pipeline (shadow), re-homed from the investigation worker. runImpactAnalysis clones the
-// repo + runs the DiffsAgent selector, and classify runs the reasoning loop - both take MINUTES, so both MUST
-// heartbeat; reconcile (comparison lookup + shadow-store write) and finalize (plumbing) are fast but heartbeat
-// for consistency.
+// --- Merged analysis pipeline. runImpactAnalysis clones the repo + runs the DiffsAgent selector, classify runs
+// the reasoning loop, and the Reporter clones the repo + runs an agent loop - all take MINUTES, so all MUST
+// heartbeat; finalize (verdict derivation + promotion plumbing) is fast but heartbeats for consistency.
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
-export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
+export const runReporter = withHeartbeat(runReporterImpl);
 export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
 // A DB read + a single GitHub API call - fast, but heartbeat for consistency with the other analysis activities.
 export const postAnalysisPrComment = withHeartbeat(postAnalysisPrCommentImpl);
 // DB reads + one or two GitHub API calls (map the verdict to the `Autonoma` check conclusion).
 export const applyMergeGateVerdict = withHeartbeat(applyMergeGateVerdictImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
-// The Investigator's own row-local writes on the detached snapshot: a self-heal plan rewrite (UpdateTest, queues
-// one generation) and the eager `delete` self-delete (RemoveTest, a single assignment delete). Both are fast, but
-// heartbeat for consistency with the other analysis activities.
+// The Investigator's own writes: its row-local self-heal plan rewrite (UpdateTest) + eager `delete` self-delete
+// (RemoveTest), and the idempotent finding upsert with which it files its own finding. All fast, but heartbeat for
+// consistency with the other analysis activities.
 export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
+export const persistAnalysisFinding = withHeartbeat(persistAnalysisFindingImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
@@ -89,12 +90,13 @@ export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 // worker registers only that one method from it, so `Pick` rather than the full interface.
 ({
     runImpactAnalysis,
-    reconcileAnalysis,
+    runReporter,
     finalizeAnalysis,
     postAnalysisPrComment,
     applyMergeGateVerdict,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
-// The Investigator's own row-local writes (self-heal + eager self-delete), on their own contract - only the diffs
-// worker implements them, so they stay off the AnalysisActivities contract the frozen investigation worker shares.
-({ selfHealAnalysisTest, deleteAnalysisTest }) satisfies InvestigatorActivities;
+// The Investigator's own writes (self-heal, eager self-delete, own-finding persistence), on their own contract -
+// only the diffs worker implements them, so they stay off the AnalysisActivities contract the frozen investigation
+// worker shares.
+({ selfHealAnalysisTest, deleteAnalysisTest, persistAnalysisFinding }) satisfies InvestigatorActivities;

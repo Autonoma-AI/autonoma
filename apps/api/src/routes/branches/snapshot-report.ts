@@ -118,6 +118,7 @@ export async function loadSnapshotReport({
             ? buildAuthoritativeCheckpointSummary({
                   jobStatus: authoritative.jobStatus,
                   findingBuckets: authoritative.findingBuckets,
+                  bugCount: authoritative.bugCount,
                   totalTests: healthCounts.totalTests,
               })
             : buildCheckpointSummary({

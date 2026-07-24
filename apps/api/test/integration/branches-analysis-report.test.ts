@@ -17,30 +17,34 @@ apiTestSuite({
                     clientBugCount: 1,
                     impactReasoning: "Selected the checkout tests because the PR touches the cart.",
                     narration: "The checkout flow has a client bug: the submit button never enables.",
+                    reportMarkdown: "## Checkout is broken\nThe submit button never enables.",
                     organizationId: harness.organizationId,
-                    findings: {
-                        create: [
-                            {
-                                findingKey: "checkout-submit",
-                                slug: "checkout-submit",
-                                category: "client_bug",
-                                headline: "Submit never enables",
-                                whatHappened: "The submit button stays disabled after filling the form.",
-                                confidence: "high",
-                                displayOrder: 0,
-                                organizationId: harness.organizationId,
-                            },
-                            {
-                                findingKey: "cart-empties",
-                                slug: "cart-empties",
-                                category: "passed",
-                                headline: "Cart empties correctly",
-                                displayOrder: 1,
-                                organizationId: harness.organizationId,
-                            },
-                        ],
-                    },
                 },
+            });
+            // Findings key to the AnalysisJob (created by createAuthoritativeSnapshot).
+            await harness.db.analysisFinding.createMany({
+                data: [
+                    {
+                        reportSnapshotId: snapshotId,
+                        findingKey: "checkout-submit",
+                        slug: "checkout-submit",
+                        category: "client_bug",
+                        headline: "Submit never enables",
+                        whatHappened: "The submit button stays disabled after filling the form.",
+                        confidence: "high",
+                        displayOrder: 0,
+                        organizationId: harness.organizationId,
+                    },
+                    {
+                        reportSnapshotId: snapshotId,
+                        findingKey: "cart-empties",
+                        slug: "cart-empties",
+                        category: "passed",
+                        headline: "Cart empties correctly",
+                        displayOrder: 1,
+                        organizationId: harness.organizationId,
+                    },
+                ],
             });
 
             const report = await harness.request().branches.analysisReport({ snapshotId });

@@ -147,26 +147,24 @@ interface LoadedReport {
 async function loadReport(snapshotId: string): Promise<LoadedReport | undefined> {
     const report = await db.analysisReport.findUnique({
         where: { snapshotId },
-        select: {
-            verdict: true,
-            narration: true,
-            coverage: true,
-            findings: {
-                where: { category: CLIENT_BUG },
-                orderBy: { displayOrder: "asc" },
-                select: {
-                    findingKey: true,
-                    headline: true,
-                    whatHappened: true,
-                    remediation: true,
-                    evidence: true,
-                    clipKey: true,
-                    screenshotKey: true,
-                },
-            },
-        },
+        select: { verdict: true, narration: true, coverage: true },
     });
     if (report == null) return undefined;
+
+    // Findings are keyed to the job; read the `client_bug` ones directly by the snapshot's PK.
+    const clientBugs = await db.analysisFinding.findMany({
+        where: { reportSnapshotId: snapshotId, category: CLIENT_BUG },
+        orderBy: { displayOrder: "asc" },
+        select: {
+            findingKey: true,
+            headline: true,
+            whatHappened: true,
+            remediation: true,
+            evidence: true,
+            clipKey: true,
+            screenshotKey: true,
+        },
+    });
 
     // The two-plane verdict stored as a string; anything other than `client_bug` is the app-health `passed` plane.
     const verdict: AppHealthVerdict = report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed;
@@ -175,7 +173,7 @@ async function loadReport(snapshotId: string): Promise<LoadedReport | undefined>
         verdict,
         narration: report.narration ?? undefined,
         coverage: coverage.success ? coverage.data : undefined,
-        clientBugs: report.findings.map(toClientBugFinding),
+        clientBugs: clientBugs.map(toClientBugFinding),
     };
 }
 

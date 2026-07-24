@@ -9,6 +9,8 @@ import type {
     DeleteAnalysisTestOutput,
     InvestigationTestResult,
     InvestigationVerdict,
+    PersistAnalysisFindingInput,
+    PersistAnalysisFindingOutput,
     SelfHealAnalysisTestInput,
     SelfHealAnalysisTestOutput,
 } from "../src/activities";
@@ -55,6 +57,8 @@ interface Harness {
     selfHealOutput: SelfHealAnalysisTestOutput;
     /** Every self-delete the loop requested, captured to assert the eager delete of the test's own row. */
     deleteCalls: DeleteAnalysisTestInput[];
+    /** Every finding the Investigator persisted, captured to assert it files its own finding with its provenance. */
+    persistCalls: AnalysisCandidateFinding[];
 }
 
 const harness: Harness = {
@@ -64,6 +68,7 @@ const harness: Harness = {
     selfHealCalls: [],
     selfHealOutput: {},
     deleteCalls: [],
+    persistCalls: [],
 };
 
 /** Monotonic counter for unique workflow ids across executions (workflow ids must not collide within the run). */
@@ -128,6 +133,10 @@ const analysisActivities = {
         harness.deleteCalls.push(input);
         return { deleted: true };
     },
+    async persistAnalysisFinding(input: PersistAnalysisFindingInput): Promise<PersistAnalysisFindingOutput> {
+        harness.persistCalls.push(input.finding);
+        return { findingKey: input.finding.slug };
+    },
 };
 
 const webActivities = {
@@ -175,6 +184,7 @@ beforeEach(() => {
     harness.classifyCalls = [];
     harness.webRuns = [];
     harness.selfHealCalls = [];
+    harness.persistCalls = [];
     harness.selfHealOutput = { testGenerationId: HEALED_GENERATION, scenarioId: undefined };
     harness.deleteCalls = [];
 });
@@ -212,6 +222,8 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "healed and green",
             planEdited: true,
             origin: "pre_existing",
+            selectionReason: "diff touched checkout",
+            selfHealNote: expect.any(String),
             report: expectedReport({ runSuccess: true }),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
@@ -242,6 +254,8 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "still stale",
             planEdited: true,
             origin: "pre_existing",
+            selectionReason: "diff touched checkout",
+            selfHealNote: expect.any(String),
             report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
@@ -266,6 +280,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "asserts a removed feature",
             planEdited: false,
             origin: "proposed",
+            selectionReason: "diff touched checkout",
             report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
@@ -290,6 +305,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "cannot prepare",
             planEdited: false,
             origin: "pre_existing",
+            selectionReason: "diff touched checkout",
             report: expectedReport(),
         });
         // The rewrite was requested once, but no re-run happened (no HEALED_GENERATION).
@@ -309,11 +325,19 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "checkout total is wrong",
             planEdited: false,
             origin: "pre_existing",
+            selectionReason: "diff touched checkout",
             report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.selfHealCalls).toHaveLength(0);
         expect(harness.deleteCalls).toHaveLength(0);
+        // The Investigator files its OWN finding (no cross-test Reconciler write), carrying the selection reason.
+        expect(harness.persistCalls).toHaveLength(1);
+        expect(harness.persistCalls[0]).toMatchObject({
+            slug: SLUG,
+            category: "client_bug",
+            selectionReason: "diff touched checkout",
+        });
     });
 
     it("passes a coverage-plane terminal (scenario_issue) straight through without self-healing", async () => {
@@ -327,6 +351,7 @@ describe("investigatorWorkflow verdict state machine", () => {
             headline: "user was never seeded",
             planEdited: false,
             origin: "pre_existing",
+            selectionReason: "diff touched checkout",
             report: expectedReport(),
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);

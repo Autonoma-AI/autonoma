@@ -130,22 +130,21 @@ interface LoadedReport {
 async function loadReport(snapshotId: string): Promise<LoadedReport | undefined> {
     const report = await db.analysisReport.findUnique({
         where: { snapshotId },
-        select: {
-            verdict: true,
-            coverage: true,
-            findings: {
-                where: { category: CLIENT_BUG },
-                orderBy: { displayOrder: "asc" },
-                select: { headline: true },
-            },
-        },
+        select: { verdict: true, coverage: true },
     });
     if (report == null) return undefined;
+
+    // Findings are keyed to the job; read the `client_bug` headlines directly by the snapshot PK.
+    const clientBugs = await db.analysisFinding.findMany({
+        where: { reportSnapshotId: snapshotId, category: CLIENT_BUG },
+        orderBy: { displayOrder: "asc" },
+        select: { headline: true },
+    });
 
     const coverage = coverageSummarySchema.safeParse(report.coverage);
     return {
         verdict: report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed,
         coverageGapCount: coverage.success ? coverage.data.total : 0,
-        clientBugHeadlines: report.findings.map((finding) => finding.headline),
+        clientBugHeadlines: clientBugs.map((finding) => finding.headline),
     };
 }

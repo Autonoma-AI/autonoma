@@ -1,5 +1,4 @@
 import { type CoverageSummary, coverageVerdicts } from "@autonoma/types";
-import type { ReconciledAnalysisFinding } from "./dedup";
 
 export type { CoverageCategoryCount, CoverageSummary } from "@autonoma/types";
 
@@ -8,18 +7,28 @@ export type AppHealthVerdict = "client_bug" | "passed";
 
 /** The finalized two-plane verdict: the app-health headline and the coverage-confidence summary. */
 export interface TwoPlaneSummary {
-    /** App-health plane: `client_bug` if any deduped finding is one, else `passed`. Only this blocks the PR. */
+    /** App-health plane: `client_bug` if any finding is one, else `passed`. Only this blocks the PR. */
     verdict: AppHealthVerdict;
     coverage: CoverageSummary;
 }
 
 /**
- * Derive the two-plane verdict from the FINALIZED (deduped) finding set - deterministically, in code, never by a
- * model. The app-health plane is the headline (`client_bug` iff any finding is one); the coverage plane is
- * everything else, summarized per category plus the delete-origin split (proposed tests the run could not
- * establish vs pre-existing tests removed as obsolete), read straight off each finding's members' `origin` tag.
+ * One finding as the plane summary reads it: its terminal verdict `category` and, for a `delete`, the `origin`
+ * that tells an obsolete pre-existing test apart from an un-establishable proposed one. Each finding is one test's
+ * verdict (the pipeline no longer merges findings), so counts are taken straight off the finding list.
  */
-export function summarizeVerdictPlanes(findings: ReconciledAnalysisFinding[]): TwoPlaneSummary {
+export interface VerdictPlaneFinding {
+    category: string;
+    origin?: string;
+}
+
+/**
+ * Derive the two-plane verdict from the run's per-test findings - deterministically, in code, never by a model.
+ * The app-health plane is the headline (`client_bug` iff any finding is one); the coverage plane is everything
+ * else, summarized per category plus the delete-origin split (proposed tests the run could not establish vs
+ * pre-existing tests removed as obsolete), read straight off each finding's `origin` tag.
+ */
+export function summarizeVerdictPlanes(findings: readonly VerdictPlaneFinding[]): TwoPlaneSummary {
     const verdict: AppHealthVerdict = findings.some((finding) => finding.category === "client_bug")
         ? "client_bug"
         : "passed";
@@ -32,11 +41,9 @@ export function summarizeVerdictPlanes(findings: ReconciledAnalysisFinding[]): T
         .filter((entry) => entry.count > 0);
     const total = byCategory.reduce((sum, entry) => sum + entry.count, 0);
 
-    const deleteMembers = findings
-        .flatMap((finding) => finding.members)
-        .filter((member) => member.category === "delete");
-    const unestablishedProposed = deleteMembers.filter((member) => member.origin === "proposed").length;
-    const obsoleteRemoved = deleteMembers.filter((member) => member.origin === "pre_existing").length;
+    const deleteFindings = findings.filter((finding) => finding.category === "delete");
+    const unestablishedProposed = deleteFindings.filter((finding) => finding.origin === "proposed").length;
+    const obsoleteRemoved = deleteFindings.filter((finding) => finding.origin === "pre_existing").length;
 
     return { verdict, coverage: { byCategory, total, unestablishedProposed, obsoleteRemoved } };
 }

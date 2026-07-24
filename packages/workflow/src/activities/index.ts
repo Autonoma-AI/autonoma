@@ -96,8 +96,8 @@ export type {
     AnalysisCandidateFinding,
     RunImpactAnalysisInput,
     RunImpactAnalysisOutput,
-    ReconcileAnalysisInput,
-    ReconcileAnalysisOutput,
+    RunReporterInput,
+    RunReporterOutput,
     FinalizeAnalysisInput,
     FinalizeAnalysisOutput,
     PostAnalysisPrCommentInput,
@@ -109,5 +109,7 @@ export type {
     SelfHealAnalysisTestOutput,
     DeleteAnalysisTestInput,
     DeleteAnalysisTestOutput,
+    PersistAnalysisFindingInput,
+    PersistAnalysisFindingOutput,
 } from "./analysis-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";
