@@ -53,7 +53,7 @@ export interface AgentLauncher {
     launch(promptFile: string, permissionMode: PermissionMode, interactive: boolean): Promise<number | undefined>;
 }
 
-export interface ClaudeLauncherOptions {
+export interface LauncherOptions {
     /** Directory the agent runs in - the developer's repo. */
     cwd: string;
     /** Env the agent (and any app it boots) inherits, including AUTONOMA_SHARED_SECRET. */
@@ -61,6 +61,7 @@ export interface ClaudeLauncherOptions {
 }
 
 const CLAUDE_ID = "claude";
+const CODEX_ID = "codex";
 
 /** Points the agent at the rendered prompt file it must read and follow. */
 function launchMessage(promptFile: string): string {
@@ -71,54 +72,114 @@ function launchMessage(promptFile: string): string {
     );
 }
 
-/** Claude Code launcher. Authentication is Claude's own concern - it surfaces its
- *  login flow live in the attached terminal. */
-export class ClaudeLauncher implements AgentLauncher {
-    readonly id = CLAUDE_ID;
-    readonly label = "Claude Code";
+/**
+ * Shared launcher machinery: detect the binary on PATH, then spawn it over the
+ * rendered prompt file and manage the terminal handover. Every agent's `launch`
+ * is identical except for its argv, so the only thing a concrete launcher must
+ * supply is `buildArgs` (plus its id/label/binary). This is where "argument
+ * parsing" lives - each agent maps the shared `PermissionMode` onto its own CLI
+ * flags in one method, and the run/watch/reclaim flow never varies.
+ */
+export abstract class BaseLauncher implements AgentLauncher {
+    abstract readonly id: string;
+    abstract readonly label: string;
+    /** The binary to probe on PATH and spawn. */
+    protected abstract readonly command: string;
 
-    constructor(private readonly opts: ClaudeLauncherOptions) {}
+    constructor(protected readonly opts: LauncherOptions) {}
+
+    /**
+     * Translate the run into this agent's argv. `message` points the agent at the
+     * rendered prompt file; `interactive` selects the attached-TTY vs headless
+     * invocation (which differ per agent, e.g. Claude's `-p`, Codex's `exec`).
+     */
+    abstract buildArgs(message: string, permissionMode: PermissionMode, interactive: boolean): string[];
 
     async isAvailable(): Promise<boolean> {
-        const resolved = await which(CLAUDE_ID, { nothrow: true });
-        debugLog("Probed for claude on PATH", { found: resolved != null });
+        const resolved = await which(this.command, { nothrow: true });
+        debugLog("Probed for agent on PATH", { command: this.command, found: resolved != null });
         return resolved != null;
     }
 
     launch(promptFile: string, permissionMode: PermissionMode, interactive: boolean): Promise<number | undefined> {
-        debugLog("Launching Claude Code", { promptFile, permissionMode, interactive });
-        const message = launchMessage(promptFile);
-        // Interactive: attach the terminal so the developer watches/steers and Claude
-        // can surface its login. Headless (`-p`): autonomous print mode for
-        // --non-interactive runs, with output piped to our stdout/stderr for the logs.
-        const args = interactive
-            ? ["--permission-mode", permissionMode, message]
-            : ["-p", message, "--permission-mode", permissionMode, "--verbose"];
+        debugLog(`Launching ${this.label}`, { promptFile, permissionMode, interactive });
+        const args = this.buildArgs(launchMessage(promptFile), permissionMode, interactive);
+        // Interactive: attach the terminal so the developer watches/steers and the
+        // agent can surface its login. Headless: it runs autonomously to completion,
+        // output piped to our stdout/stderr for the logs.
         const stdio: StdioOptions = interactive ? "inherit" : ["ignore", "inherit", "inherit"];
 
         return new Promise<number | undefined>((resolve) => {
             // env carries the canonical shared secret through to the app and the `sdk` calls.
-            const proc = spawn(CLAUDE_ID, args, {
+            const proc = spawn(this.command, args, {
                 cwd: this.opts.cwd,
                 env: this.opts.env,
                 stdio,
             });
-            // An interactive session never exits on its own - after the final
-            // message it sits at its REPL. The completion marker is the real
-            // "done" signal, so watch for it and reclaim the terminal.
+            // An interactive session never exits on its own - it sits open after the
+            // final message. The completion marker is the real "done" signal, so watch
+            // for it and reclaim the terminal. Headless runs exit on their own; no watcher.
             const stopWatching = interactive ? watchForCompletion(dirname(promptFile), proc) : () => {};
             proc.on("error", (err: Error) => {
-                debugLog("Claude Code failed to spawn", { err });
-                p.log.error(`Couldn't launch Claude Code: ${err.message}`);
+                debugLog(`${this.label} failed to spawn`, { err });
+                p.log.error(`Couldn't launch ${this.label}: ${err.message}`);
                 stopWatching();
                 resolve(undefined);
             });
             proc.on("close", (code) => {
-                debugLog("Claude Code exited", { code });
+                debugLog(`${this.label} exited`, { code });
                 stopWatching();
                 resolve(code ?? undefined);
             });
         });
+    }
+}
+
+/** Claude Code launcher. Authentication is Claude's own concern - it surfaces its
+ *  login flow live in the attached terminal. */
+export class ClaudeLauncher extends BaseLauncher {
+    readonly id = CLAUDE_ID;
+    readonly label = "Claude Code";
+    protected readonly command = CLAUDE_ID;
+
+    buildArgs(message: string, permissionMode: PermissionMode, interactive: boolean): string[] {
+        // Headless uses `-p` (autonomous print mode) with verbose logs; interactive
+        // attaches the REPL. Both take the same `--permission-mode`.
+        return interactive
+            ? ["--permission-mode", permissionMode, message]
+            : ["-p", message, "--permission-mode", permissionMode, "--verbose"];
+    }
+}
+
+/** Codex CLI launcher. Authentication is Codex's own concern - it surfaces its
+ *  login flow live in the attached terminal. */
+export class CodexLauncher extends BaseLauncher {
+    readonly id = CODEX_ID;
+    readonly label = "Codex CLI";
+    protected readonly command = CODEX_ID;
+
+    /**
+     * Codex's autonomy is two orthogonal axes - `--sandbox` (what it may touch) and
+     * `--ask-for-approval` (when it pauses) - so we translate the shared,
+     * Claude-flavoured `PermissionMode` onto them.
+     *
+     * The handoff's whole job is to install the SDK, boot the app, and validate
+     * against a live DB, so the sandbox is always `danger-full-access` (Codex's
+     * `workspace-write` disables network, which breaks the install). The only real
+     * knob is approval strictness, which exists only interactively: headless `exec`
+     * can't prompt, so `default`/`acceptEdits` collapse to the same autonomous run.
+     */
+    buildArgs(message: string, permissionMode: PermissionMode, interactive: boolean): string[] {
+        if (permissionMode === "bypassPermissions") {
+            const bypass = ["--dangerously-bypass-approvals-and-sandbox"];
+            return interactive ? [...bypass, message] : ["exec", ...bypass, message];
+        }
+
+        const sandbox = ["--sandbox", "danger-full-access"];
+        if (!interactive) return ["exec", ...sandbox, message];
+
+        const approval = permissionMode === "acceptEdits" ? "on-failure" : "untrusted";
+        return [...sandbox, "--ask-for-approval", approval, message];
     }
 }
 
@@ -170,9 +231,9 @@ export function watchForCompletion(
     };
 }
 
-/** Every launcher this CLI knows how to build. Claude only, for now. */
-export function buildAllLaunchers(opts: ClaudeLauncherOptions): AgentLauncher[] {
-    return [new ClaudeLauncher(opts)];
+/** Every launcher this CLI knows how to build. */
+export function buildAllLaunchers(opts: LauncherOptions): AgentLauncher[] {
+    return [new ClaudeLauncher(opts), new CodexLauncher(opts)];
 }
 
 /**

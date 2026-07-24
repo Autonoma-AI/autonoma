@@ -70,7 +70,8 @@ For a single-app repo the mapper resolves the scope on its own and no flags are 
 
 The "Set up test data" step wires the Autonoma SDK "environment factory" into your app so the
 platform can seed and tear down realistic test data through your app's own creation code. Instead
-of a copy-paste guide, the CLI hands the whole integration to your **locally-installed Claude** in
+of a copy-paste guide, the CLI hands the whole integration to your **locally-installed coding agent**
+(Claude Code or Codex CLI) in
 one interactive, autonomous session - like `git commit` with no `-m` opening your editor. You watch
 it install the SDK, build the endpoint, write the factories, **generate the test-data recipe**, and
 validate each entity itself: for every entity it runs `up`, checks your database for the new rows,
@@ -79,10 +80,14 @@ runs `down`, and checks they're gone. It drives the endpoint through the CLI's o
 uses. When it reports the session complete, the CLI uploads the recipe it produced and continues to
 test generation.
 
-- `--agent <name>` - preselect the agent to hand off to (currently `claude`). Omit to auto-detect.
+- `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;
+  if both are installed you're prompted to pick.
 - `--permission-mode <mode>` - how much autonomy the agent runs with: `default` (approve each
   command), `acceptEdits` (auto-edit files, approve commands), or `bypassPermissions` (fully
-  autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`.
+  autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`. For
+  Codex these map onto its sandbox/approval model (always `--sandbox danger-full-access` because the
+  integration must install the SDK and reach the network, with approval strictness as the only lever;
+  `bypassPermissions` uses `--dangerously-bypass-approvals-and-sandbox`).
 
 If no supported agent is installed (or you decline the handoff), the CLI writes the full
 integration instructions to `~/.autonoma/<app>/integration-prompt.md` and pauses so you can

@@ -620,7 +620,7 @@ async function main() {
     if (command === "help" || args.help) {
         console.log("Usage:");
         console.log(
-            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive] [--agent <name>] [--permission-mode <default|acceptEdits|bypassPermissions>]",
+            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive] [--agent <claude|codex>] [--permission-mode <default|acceptEdits|bypassPermissions>]",
         );
         console.log("  test-planner status [--project <path>]");
         console.log("  test-planner upload [--project <path>]   # re-upload already-generated recipe + artifacts");

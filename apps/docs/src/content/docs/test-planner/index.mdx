@@ -39,7 +39,7 @@ Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produ
 
 ### Step 6: your coding agent wires the test data
 
-Setting up test data means wiring the [Environment Factory](/environment-factory/) into your backend - real code in your repo. Instead of handing you instructions to paste somewhere, the planner launches your **locally installed Claude** in one session, the same way `git commit` opens your editor: the dashboard steps aside, your agent takes the terminal, and control returns when it's done.
+Setting up test data means wiring the [Environment Factory](/environment-factory/) into your backend - real code in your repo. Instead of handing you instructions to paste somewhere, the planner launches your **locally installed coding agent** (Claude Code or Codex CLI) in one session, the same way `git commit` opens your editor: the dashboard steps aside, your agent takes the terminal, and control returns when it's done.
 
 The agent installs the SDK, builds the endpoint, registers factories that call your app's real creation code, generates the test-data recipe, and validates every entity against your locally running app - creating records, checking your database, tearing them down, and checking they're gone. When it reports the integration complete, the planner uploads the recipe and moves on to test generation.
 
@@ -64,7 +64,7 @@ autonoma-planner upload     # re-upload already-generated artifacts after a fail
 --resume                    # continue from where a previous run stopped
 --non-interactive           # run unattended, plain output (CI)
 --model <id>                # pick a different Autonoma-hosted model (still no key needed)
---agent <name>              # which coding agent handles the test-data step (default: auto-detect)
+--agent <name>              # which coding agent handles the test-data step: claude | codex (default: auto-detect)
 --permission-mode <mode>    # its autonomy: bypassPermissions (default) | acceptEdits | default
 ```
 

@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
 import type { AgentLauncher, PermissionMode } from "../../src/agents/04-recipe-builder/launcher";
 import {
+    buildAllLaunchers,
+    CodexLauncher,
     parsePermissionMode,
     selectLauncher,
     selectPermissionMode,
@@ -121,6 +123,53 @@ describe("watchForCompletion", () => {
         stop();
         await new Promise((r) => setTimeout(r, 100));
         expect(kill).not.toHaveBeenCalled();
+    });
+});
+
+describe("CodexLauncher.buildArgs", () => {
+    const MSG = "read the prompt file";
+    const codex = new CodexLauncher({ cwd: "/tmp/repo", env: {} });
+
+    test("bypassPermissions runs fully unsandboxed, interactive and headless alike", () => {
+        expect(codex.buildArgs(MSG, "bypassPermissions", true)).toEqual([
+            "--dangerously-bypass-approvals-and-sandbox",
+            MSG,
+        ]);
+        expect(codex.buildArgs(MSG, "bypassPermissions", false)).toEqual([
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            MSG,
+        ]);
+    });
+
+    test("interactive lower modes keep full access and differ only in approval strictness", () => {
+        expect(codex.buildArgs(MSG, "acceptEdits", true)).toEqual([
+            "--sandbox",
+            "danger-full-access",
+            "--ask-for-approval",
+            "on-failure",
+            MSG,
+        ]);
+        expect(codex.buildArgs(MSG, "default", true)).toEqual([
+            "--sandbox",
+            "danger-full-access",
+            "--ask-for-approval",
+            "untrusted",
+            MSG,
+        ]);
+    });
+
+    test("headless exec collapses default and acceptEdits - there is no prompt to gate on", () => {
+        const expected = ["exec", "--sandbox", "danger-full-access", MSG];
+        expect(codex.buildArgs(MSG, "default", false)).toEqual(expected);
+        expect(codex.buildArgs(MSG, "acceptEdits", false)).toEqual(expected);
+    });
+});
+
+describe("buildAllLaunchers", () => {
+    test("builds both the claude and codex launchers", () => {
+        const ids = buildAllLaunchers({ cwd: "/tmp/repo", env: {} }).map((l) => l.id);
+        expect(ids).toEqual(["claude", "codex"]);
     });
 });
 
