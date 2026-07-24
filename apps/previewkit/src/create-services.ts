@@ -10,6 +10,7 @@ import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
+import { resolveNpmRegistryMirror } from "./dockerfile-builder/resolve-npm-registry-mirror";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
@@ -111,10 +112,15 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         provisionTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
         startupTimeoutMs: env.BUILD_STARTUP_TIMEOUT_MS,
     });
+    // Probed once per deploy (this process is a per-deploy Job), so an unhealthy
+    // mirror degrades every install in this build to the public registry instead
+    // of failing it.
+    const npmRegistryMirror = await resolveNpmRegistryMirror(env.NPM_REGISTRY_MIRROR);
+
     const builder = new BuildKitBuilder({
         jobManager: buildkitJobManager,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
-        npmRegistryMirror: env.NPM_REGISTRY_MIRROR,
+        npmRegistryMirror,
         ...(logSink != null ? { logSink } : {}),
     });
 
@@ -151,7 +157,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         dockerHubMirror: env.DOCKER_HUB_MIRROR,
-        npmRegistryMirror: env.NPM_REGISTRY_MIRROR,
+        npmRegistryMirror,
         ...(logSink != null ? { logSink } : {}),
     });
 
