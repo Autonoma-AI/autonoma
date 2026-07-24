@@ -1,6 +1,7 @@
 import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
+import { isPreviewOrigin } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
@@ -323,8 +324,10 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             const alphaPattern = new RegExp(`^https://alpha-[a-f0-9]+\\.(?:alpha\\.)?${domainEscaped}$`);
             // Hash-only alpha hosts: <hash>.alpha.<domain> (no `alpha-` prefix).
             const hashAlphaPattern = new RegExp(`^https://[a-f0-9]+\\.alpha\\.${domainEscaped}$`);
-            const previewPattern = new RegExp(`^https://[a-f0-9]+\\.preview\\.${domainEscaped}$`);
-            const isDynamic = alphaPattern.test(origin) || hashAlphaPattern.test(origin) || previewPattern.test(origin);
+            const isDynamic =
+                alphaPattern.test(origin) ||
+                hashAlphaPattern.test(origin) ||
+                isPreviewOrigin(origin, env.INTERNAL_DOMAIN);
             return [...STATIC_ORIGINS, ...(isDynamic ? [origin] : [])];
         },
         advanced: {

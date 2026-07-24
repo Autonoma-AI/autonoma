@@ -1,4 +1,5 @@
 import { Badge, BrailleSpinner, Button } from "@autonoma/blacklight";
+import { isPreviewHostname } from "@autonoma/types";
 import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
 import { env } from "env";
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/_blacklight/(auth)/login/")({
 });
 
 function useIsPreviewEnvironment() {
-  return window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+  return isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
 }
 
 function useGoogleSignIn() {

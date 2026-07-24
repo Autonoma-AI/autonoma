@@ -1,5 +1,6 @@
 import { analytics } from "@autonoma/analytics";
 import { logger } from "@autonoma/logger";
+import { isPreviewOrigin } from "@autonoma/types";
 import * as Sentry from "@sentry/node";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-auth/plugins";
@@ -29,9 +30,6 @@ const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook", "/v1/vercel/webh
 // PUT /v1/installations/:installationId (Vercel's `credentials.access_token`).
 const BODY_LOG_BLOCKLIST_PREFIXES = ["/v1/previewkit/secrets", "/v1/installations"];
 
-const INTERNAL_DOMAIN_ESCAPED = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
-const PREVIEW_ORIGIN_PATTERN = new RegExp(`^https://[a-f0-9]+\\.preview\\.${INTERNAL_DOMAIN_ESCAPED}$`);
-
 const corsOptions = {
     origin: (origin: string) => {
         if (ALLOWED_ORIGINS.includes(origin)) return origin;
@@ -39,7 +37,7 @@ const corsOptions = {
         // New alpha scheme (hash-only host <hash>.alpha.autonoma.app); migrating off the .alpha.agent.* hosts.
         if (/^https:\/\/[a-f0-9]+\.alpha\.autonoma\.app$/.test(origin)) return origin;
         if (/^https:\/\/alpha-[a-f0-9]+\.agent\.autonoma\.app$/.test(origin)) return origin;
-        if (PREVIEW_ORIGIN_PATTERN.test(origin)) return origin;
+        if (isPreviewOrigin(origin, env.INTERNAL_DOMAIN)) return origin;
         return null;
     },
     credentials: true,

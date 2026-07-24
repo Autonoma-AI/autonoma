@@ -1,4 +1,5 @@
 import { Badge, BrailleSpinner, Card, cn } from "@autonoma/blacklight";
+import { isPreviewHostname } from "@autonoma/types";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
@@ -314,6 +315,6 @@ export function buildPreviewLogStreamUrl(
   if (filter != null && filter !== "") params.set("filter", filter);
   const query = params.toString();
   const path = `/v1/previewkit/environments/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${pr}/logs/stream${query !== "" ? `?${query}` : ""}`;
-  const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+  const isPreviewEnvironment = isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
   return isPreviewEnvironment ? `${env.VITE_API_URL}${path}` : path;
 }

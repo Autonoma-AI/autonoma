@@ -1,4 +1,5 @@
 import type { AppRouter } from "@autonoma/api/router";
+import { isPreviewHostname } from "@autonoma/types";
 import * as Sentry from "@sentry/react";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
@@ -60,7 +61,7 @@ export const queryClient = new QueryClient({
     }),
 });
 
-const isPreviewEnvironment = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+const isPreviewEnvironment = isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
 
 const linkOptions = {
     url: isPreviewEnvironment ? `${env.VITE_API_URL}/v1/trpc` : "/v1/trpc",

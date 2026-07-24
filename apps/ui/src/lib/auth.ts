@@ -1,3 +1,4 @@
+import { isPreviewHostname } from "@autonoma/types";
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { useRouteContext } from "@tanstack/react-router";
 import { inferAdditionalFields, organizationClient } from "better-auth/client/plugins";
@@ -8,7 +9,7 @@ import { useSession } from "lib/query/auth.queries";
 function getBaseURL() {
     const host = window.location.hostname;
     const internalDomain = env.VITE_INTERNAL_DOMAIN;
-    if (host.endsWith(`.preview.${internalDomain}`)) {
+    if (isPreviewHostname(host, internalDomain)) {
         return env.VITE_API_URL;
     }
     if (host.startsWith("alpha-") || host.endsWith(`.alpha.${internalDomain}`)) {

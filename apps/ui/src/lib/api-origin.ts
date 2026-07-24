@@ -1,3 +1,4 @@
+import { isPreviewHostname } from "@autonoma/types";
 import { env } from "env";
 
 /**
@@ -11,7 +12,7 @@ import { env } from "env";
  * uses - crossSubDomainCookies covers both.
  */
 export function getApiOrigin(): string {
-    const isPreview = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+    const isPreview = isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
     const isLocalhost = window.location.hostname === "localhost";
     return isPreview || isLocalhost ? env.VITE_API_URL : `https://api.${window.location.hostname}`;
 }
