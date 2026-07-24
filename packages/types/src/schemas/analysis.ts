@@ -146,6 +146,10 @@ export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
  */
 export const analysisFindingReportSchema = z.object({
     confidence: z.string().optional(),
+    /** What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields. */
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string().optional(),
+    /** Legacy free-form narrative fields (frozen investigation twin); the analysis path uses expected/actual. */
     whatHappened: z.string().optional(),
     rootCause: z.string().optional(),
     remediation: z.string().optional(),

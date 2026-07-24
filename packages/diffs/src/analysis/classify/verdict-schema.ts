@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { Category, Confidence, EvidenceSource, PlanFidelity, type RunVerdict } from "../schema";
+import { Category, Confidence, EvidenceSource, PlanFidelity, RunVerdict } from "../schema";
 
 /**
- * The schema the MODEL produces. It mirrors RunVerdict but makes the optional fields NULLABLE-and-required
- * rather than optional, because OpenAI's strict structured-output mode requires every property to appear in
- * `required`. The result is normalized back to the public RunVerdict shape (null -> undefined).
+ * The flat schema the MODEL fills. Every field is present (OpenAI's strict structured-output mode requires each
+ * property in `required`), with per-category-optional fields made NULLABLE rather than optional. It is piped into
+ * the {@link RunVerdict} discriminated union by {@link toRunVerdict}: the model sees a plain object, while
+ * consumers get per-category narrowing and the union enforces which fields a given category must carry (e.g. a
+ * `client_bug` must have expected/actual/falsePositiveRisk; a `passed` never carries falsePositiveRisk).
  */
 export const VerdictForModel = z.object({
     category: Category,
@@ -13,10 +15,13 @@ export const VerdictForModel = z.object({
     confidence: Confidence,
     planFidelity: PlanFidelity,
     headline: z.string(),
-    falsePositiveRisk: z.string(),
-    whatHappened: z.string(),
-    rootCause: z.string(),
-    remediation: z.string(),
+    // What the app SHOULD have done / what it actually did. Null only for engine_artifact (no app behavior to
+    // describe); every other category fills both, including a passed run (the behavior it confirmed correct).
+    expectedBehavior: z.string().nullable(),
+    actualBehavior: z.string().nullable(),
+    // The false-positive self-check. Set for a bug / setup failure; null for passed / engine_artifact / a wrong test.
+    falsePositiveRisk: z.string().nullable(),
+    // The COMPLETE revised test plan for a bad_test / outdated_test (or a fidelity tightening); null otherwise.
     suggestedTestUpdate: z.string().nullable(),
     // App problems VISIBLE in the video that are independent of this test's pass/fail (broken images, empty
     // content where data is expected, layout/overlap issues, things not loading). Null when the app looked healthy.
@@ -39,19 +44,23 @@ export const VerdictForModel = z.object({
 });
 export type VerdictForModel = z.infer<typeof VerdictForModel>;
 
-/** Normalize the model-output verdict (nullable fields) into the public RunVerdict shape (undefined for absent). */
+/**
+ * Normalize the flat model output (nullable fields -> undefined) and validate it into the discriminated
+ * {@link RunVerdict}. The union parse drops the fields that don't apply to the chosen category and enforces the
+ * ones that do, so a malformed verdict (e.g. a `client_bug` with no `expectedBehavior`) fails loudly here - the
+ * Investigator contains that as an engine artifact rather than persisting a half-filled finding.
+ */
 export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
-    return {
+    return RunVerdict.parse({
         category: modelVerdict.category,
         isClientBug: modelVerdict.isClientBug,
         ran: modelVerdict.ran,
         confidence: modelVerdict.confidence,
         planFidelity: modelVerdict.planFidelity,
         headline: modelVerdict.headline,
-        falsePositiveRisk: modelVerdict.falsePositiveRisk,
-        whatHappened: modelVerdict.whatHappened,
-        rootCause: modelVerdict.rootCause,
-        remediation: modelVerdict.remediation,
+        expectedBehavior: modelVerdict.expectedBehavior ?? undefined,
+        actualBehavior: modelVerdict.actualBehavior ?? undefined,
+        falsePositiveRisk: modelVerdict.falsePositiveRisk ?? undefined,
         suggestedTestUpdate: modelVerdict.suggestedTestUpdate ?? undefined,
         observedAppIssues: modelVerdict.observedAppIssues ?? undefined,
         evidence: modelVerdict.evidence.map((item) => ({
@@ -62,5 +71,5 @@ export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
             snippet: item.snippet ?? undefined,
         })),
         keyStepIndex: modelVerdict.keyStepIndex ?? undefined,
-    };
+    });
 }

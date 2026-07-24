@@ -100,6 +100,18 @@ function FindingBody({
         </div>
       )}
 
+      {finding.expectedBehavior != null && (
+        <Section title="Expected">
+          <p className="text-sm leading-relaxed text-text-primary">{finding.expectedBehavior}</p>
+        </Section>
+      )}
+
+      {finding.actualBehavior != null && (
+        <Section title="Actual">
+          <p className="text-sm leading-relaxed text-text-primary">{finding.actualBehavior}</p>
+        </Section>
+      )}
+
       {finding.whatHappened != null && (
         <Section title="What happened">
           <p className="text-sm leading-relaxed text-text-primary">{finding.whatHappened}</p>

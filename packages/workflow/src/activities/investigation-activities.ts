@@ -70,10 +70,17 @@ export interface InvestigationVerdict {
     confidence: string;
     planFidelity?: string;
     headline: string;
-    falsePositiveRisk: string;
-    whatHappened: string;
-    rootCause: string;
-    remediation: string;
+    /** What the app SHOULD have done / what it actually did. The analysis classifier's shape; absent on the
+     * frozen investigation twin, which still emits the legacy `whatHappened`/`rootCause`/`remediation` below. */
+    expectedBehavior?: string;
+    actualBehavior?: string;
+    /** The false-positive self-check. Set for a bug / setup failure; absent for a passed run or a harness fault. */
+    falsePositiveRisk?: string;
+    /** Legacy free-form narrative fields (frozen investigation twin only); the analysis path uses
+     * expected/actual above. Kept optional so both producers type-check during the twin's deprecation. */
+    whatHappened?: string;
+    rootCause?: string;
+    remediation?: string;
     suggestedTestUpdate?: string;
     /** App problems visible in the video independent of the test's pass/fail; absent if the app looked healthy. */
     observedAppIssues?: string;

@@ -274,6 +274,8 @@ function buildFindingRows(
             category: finding.category,
             confidence: report?.confidence,
             headline: finding.headline,
+            expectedBehavior: report?.expectedBehavior,
+            actualBehavior: report?.actualBehavior,
             whatHappened: report?.whatHappened,
             observedAppIssues: report?.observedAppIssues,
             remediation: report?.remediation,

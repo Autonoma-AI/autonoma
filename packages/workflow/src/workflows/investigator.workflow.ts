@@ -229,6 +229,8 @@ function toFindingReport(result: InvestigationTestResult): AnalysisFindingReport
     const verdict = result.verdict;
     return {
         confidence: verdict?.confidence,
+        expectedBehavior: verdict?.expectedBehavior,
+        actualBehavior: verdict?.actualBehavior,
         whatHappened: verdict?.whatHappened,
         rootCause: verdict?.rootCause,
         remediation: verdict?.remediation,

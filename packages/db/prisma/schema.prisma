@@ -2603,6 +2603,10 @@ model AnalysisFinding {
   category          String
   confidence        String?
   headline          String  @db.Text
+  /// What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields that
+  /// replace the free-form `whatHappened` (kept for findings written before the expected/actual split).
+  expectedBehavior  String? @map("expected_behavior") @db.Text
+  actualBehavior    String? @map("actual_behavior") @db.Text
   whatHappened      String? @map("what_happened") @db.Text
   observedAppIssues String? @map("observed_app_issues") @db.Text
   remediation       String? @db.Text

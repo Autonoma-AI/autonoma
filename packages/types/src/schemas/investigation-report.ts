@@ -45,6 +45,10 @@ export const investigationFindingSchema = z.object({
     confidence: z.string().optional(),
     planFidelity: z.string().optional(),
     headline: z.string(),
+    /** What the app SHOULD have done / what it actually did (analysis findings). The legacy `whatHappened`
+     * below is kept for investigation-twin reports written before the expected/actual split. */
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string().optional(),
     whatHappened: z.string().optional(),
     /** App problems seen in the run independent of this test's pass/fail. */
     observedAppIssues: z.string().optional(),

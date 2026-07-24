@@ -35,26 +35,24 @@ export const Evidence = z.object({
 });
 export type Evidence = z.infer<typeof Evidence>;
 
-export const RunVerdict = z.object({
-    category: Category,
+/**
+ * The fields every verdict arm carries, regardless of category. `expectedBehavior`/`actualBehavior` and the
+ * problem-only `falsePositiveRisk` are added per arm below - a `passed` finding never carries a false-positive
+ * check, an `engine_artifact` never carries expected/actual, so the shape can't force filler onto a category it
+ * doesn't apply to.
+ */
+const verdictBase = z.object({
     /** True iff `category === "client_bug"`. The only strict true positive. */
     isClientBug: z.boolean(),
     /** Did the test actually execute against the running app (vs blocked before it could run)? */
     ran: z.boolean(),
     confidence: Confidence,
     planFidelity: PlanFidelity.optional(),
-    /** The COMPLETE revised test plan when the run revealed the plan should change; absent otherwise. */
-    suggestedTestUpdate: z.string().optional(),
     /** App problems visible in the video independent of this test's pass/fail (broken images, empty content,
      * layout/overlap, things not loading). Absent when the app looked healthy. */
     observedAppIssues: z.string().optional(),
     headline: z.string().describe("ONE sentence: the takeaway, with the key `code`/file if relevant."),
-    /** The agent's explicit false-positive self-check (could this be an intended change / not a real bug?). */
-    falsePositiveRisk: z.string(),
-    whatHappened: z.string(),
-    rootCause: z.string(),
-    remediation: z.string(),
-    evidence: z.array(Evidence).min(1),
+    evidence: z.array(Evidence),
     /**
      * The 1-indexed trace step whose captured screenshot MOST clearly shows this finding to a human reviewer -
      * the frame to feature in the report. Deliberately the agent's call, not the failed step: an assertion can
@@ -63,4 +61,44 @@ export const RunVerdict = z.object({
      */
     keyStepIndex: z.number().int().positive().optional(),
 });
+
+/** Verdicts that describe app behavior carry expected-vs-actual, replacing the old free-form `whatHappened`. */
+const behaviorVerdictBase = verdictBase.extend({
+    /** What the app SHOULD have done. Always stated; when the correct behavior genuinely cannot be determined
+     * the agent says so explicitly here rather than leaving it blank. */
+    expectedBehavior: z.string(),
+    /** What the app actually did in the run - including any observed errors and the proven mechanism. */
+    actualBehavior: z.string(),
+});
+
+/** Problem verdicts (a bug or a setup failure) add the explicit false-positive self-check. */
+const problemVerdictBase = behaviorVerdictBase.extend({
+    /** The agent's explicit false-positive self-check (could this be an intended change / setup gap, not a defect?). */
+    falsePositiveRisk: z.string(),
+});
+
+/** A transient "the test itself is wrong on a healthy app" verdict; carries the complete revised plan to re-run. */
+const testIsWrongVerdictBase = verdictBase.extend({
+    /** The COMPLETE revised test plan the self-heal loop re-runs. */
+    suggestedTestUpdate: z.string(),
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string().optional(),
+});
+
+/**
+ * The outcome of classifying one run, as a per-category discriminated union: each arm carries exactly the fields
+ * that category needs. `passed` and the problem verdicts describe behavior (expected/actual); `engine_artifact`
+ * carries only the base account; `outdated_test`/`bad_test` carry the revised plan. The wire schema the model
+ * fills is a flat object (see `VerdictForModel`) piped into this union, so the model sees a plain object while
+ * consumers get per-category narrowing and no category is forced to emit fields that don't apply to it.
+ */
+export const RunVerdict = z.discriminatedUnion("category", [
+    behaviorVerdictBase.extend({ category: z.literal("passed") }),
+    problemVerdictBase.extend({ category: z.literal("client_bug"), evidence: z.array(Evidence).min(1) }),
+    problemVerdictBase.extend({ category: z.literal("environment_failure") }),
+    problemVerdictBase.extend({ category: z.literal("scenario_issue") }),
+    verdictBase.extend({ category: z.literal("engine_artifact") }),
+    testIsWrongVerdictBase.extend({ category: z.literal("outdated_test") }),
+    testIsWrongVerdictBase.extend({ category: z.literal("bad_test") }),
+]);
 export type RunVerdict = z.infer<typeof RunVerdict>;

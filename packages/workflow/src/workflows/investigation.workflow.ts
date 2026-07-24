@@ -274,7 +274,7 @@ async function diagnoseOne(snapshotId: string, result: InvestigationTestResult):
         const diagnosis = await investigation.diagnoseInvestigationScenario({
             snapshotId,
             slug: result.slug,
-            failureDetail: verdict.whatHappened,
+            failureDetail: verdict.whatHappened ?? verdict.actualBehavior ?? "",
             runObservation,
         });
         if (diagnosis != null) result.scenarioDiagnosis = diagnosis;

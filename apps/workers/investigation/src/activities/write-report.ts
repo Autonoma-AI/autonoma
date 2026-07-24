@@ -89,7 +89,24 @@ async function loadDeployedComparison(headSha: string, logger: Logger): Promise<
 
 /** Map one classified shadow run to the report's per-test section (single "investigation" model column). */
 export function toTestReport(result: InvestigationTestResult): TestReport {
-    const modelVerdict: ModelVerdict = { model: "investigation", verdict: result.verdict, error: result.error };
+    const verdict = result.verdict;
+    // The legacy narrative fields are optional on InvestigationVerdict (the analysis path emits expected/actual
+    // instead), but this frozen report still requires them; the investigation classifier always fills them, so
+    // default only bridges the type gap.
+    const modelVerdict: ModelVerdict = {
+        model: "investigation",
+        verdict:
+            verdict == null
+                ? undefined
+                : {
+                      ...verdict,
+                      falsePositiveRisk: verdict.falsePositiveRisk ?? "",
+                      whatHappened: verdict.whatHappened ?? verdict.actualBehavior ?? "",
+                      rootCause: verdict.rootCause ?? "",
+                      remediation: verdict.remediation ?? "",
+                  },
+        error: result.error,
+    };
     return {
         slug: result.slug,
         plan: result.plan,
