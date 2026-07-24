@@ -1,4 +1,4 @@
-import type { Build } from "@autonoma/types";
+import type { AuthoredBuild } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import { type BuildDecisions, migratePreviewConfigBuild } from "../../../src/scripts/migrate-preview-config-build.lib";
 
@@ -12,14 +12,19 @@ function docWithApp(app: Record<string, unknown>): Record<string, unknown> {
     };
 }
 
-const NEXT_TURBO: Build = {
-    framework: "next",
-    package_manager: "pnpm",
-    node_version: "22",
+// A turbo monorepo app expressed the only way a decision now can be: the
+// `runtime` escape hatch, with the install/build commands written out and the
+// start command as the entrypoint.
+const NEXT_TURBO: AuthoredBuild = {
+    framework: "runtime",
+    runtime: "node",
+    version: "22",
+    build_script: "corepack enable\npnpm install --frozen-lockfile\npnpm exec turbo run build --filter=./apps/web",
+    entrypoint: "pnpm exec turbo run start --filter=./apps/web",
     build_context: "root",
 };
 
-function decisions(entries: Record<string, Build>): BuildDecisions {
+function decisions(entries: Record<string, AuthoredBuild>): BuildDecisions {
     return new Map(Object.entries(entries));
 }
 
@@ -62,7 +67,7 @@ describe("migratePreviewConfigBuild", () => {
         expect(result.migrations[0]).toMatchObject({ from: "monorepo_turbo", action: "unresolved" });
     });
 
-    it("migrates a turbo app with a Next.js decision and removes the monorepo field", () => {
+    it("migrates a turbo app with a runtime decision and removes the monorepo field", () => {
         const result = migratePreviewConfigBuild(docWithApp({ monorepo: "turbo" }), decisions({ web: NEXT_TURBO }));
 
         expect(result.changed).toBe(true);
@@ -70,7 +75,7 @@ describe("migratePreviewConfigBuild", () => {
         expect(result.migrations[0]).toMatchObject({ from: "monorepo_turbo", action: "migrated_decision" });
 
         const app = result.document?.apps[0];
-        expect(app?.build).toMatchObject({ framework: "next", package_manager: "pnpm", build_context: "root" });
+        expect(app?.build).toMatchObject({ framework: "runtime", runtime: "node", build_context: "root" });
         expect(app?.monorepo).toBeUndefined();
     });
 

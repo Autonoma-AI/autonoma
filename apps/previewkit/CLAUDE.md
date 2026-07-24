@@ -84,8 +84,9 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `buildkit-job-manager.ts` (one
   privileged rootful buildkitd Job per app-build attempt).
-- `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
-  framework preset (`node`/`next`/`vite`/`bun`) when an app uses the new `build` config block.
+- `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from an app's
+  `build` block: the `runtime` escape hatch, or a retired framework preset a pre-retirement document
+  still carries (`node`/`next`/`vite`/`bun`).
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
   validate), `load-config.ts` (`loadConfig` reads the Application's single `PreviewkitConfig` row -
   latest-only, no revision history), `dependency-config.ts` (`resolveDependencyConfig` - multirepo
@@ -160,9 +161,14 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
       selects a stage in a multi-stage Dockerfile (buildctl `--opt target=`, like `docker build --target`);
       without it buildkit builds the LAST stage, which silently builds the wrong service when a Dockerfile
       ends with a worker/sidecar stage after the deployable one.
-    - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
-      single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
-      sets the context (`root` enables a turbo `--filter` for monorepos).
+    - `framework: node | next | vite | bun` - RETIRED from authoring; a read/deploy path only, for the
+      documents saved before the retirement. `generateDockerfile()` (`dockerfile-builder/`) still
+      synthesizes a single-stage Dockerfile from install/build/run defaults + overrides, and
+      `build_context: app | root` still sets the context (`root` enables a turbo `--filter` for
+      monorepos), so those previews keep building unchanged. Nothing can WRITE one: the two
+      authoring surfaces (the dashboard config editor and the MCP `apply_config` tools) validate
+      against `authoringPreviewConfigSchema`, which admits only `dockerfile` and `runtime`. Do not
+      add a new preset - express it as `runtime`.
     - `framework: runtime` - the manual escape hatch. The user picks a language runtime or the bare Debian
       base image (the `previewkit-runtimes.ts` catalog in `packages/types`) + writes a bash `build_script` +
       `entrypoint`; the generator `FROM`s the runtime image at the chosen `version`, installs the common apt

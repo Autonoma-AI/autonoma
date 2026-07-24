@@ -1,6 +1,6 @@
 import { createClient, type PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { Build, PreviewConfig } from "@autonoma/types";
+import type { AuthoredBuild, PreviewConfig } from "@autonoma/types";
 import {
     type DependencyDocument,
     parseStoredDependencyDocuments,
@@ -27,28 +27,15 @@ import { type BuildDecisions, migratePreviewConfigBuild } from "./migrate-previe
  * guessed, never half-written). Fill {@link DECISIONS}, then re-run.
  */
 
-// Per-app framework decisions for the turbo/railpack buckets, keyed by
-// applicationId then by the app's `name` (unique across a config's merged
-// primary + dependency topology).
+// Per-app build decisions for the turbo/railpack buckets, keyed by applicationId
+// then by the app's `name` (unique across a config's merged primary + dependency
+// topology). Empty because every decision entered so far has been applied - a
+// migrated app lands in the `has_build` bucket and is skipped on a re-run.
 //
-// Sandstone (sandstone-team/sandstone) is a BUN + Turborepo monorepo
-// (bun.lock, packageManager: bun@1.3.13; the repo also has a root Cargo.toml,
-// a non-issue on the generated-Dockerfile path). So main-app maps to
-// `framework: bun` + `build_context: root`, which generates:
-//   install:  bun install
-//   build:    bunx turbo run build --filter=main-app   (-> main-app's own
-//             `next build --experimental-build-mode compile`)
-//   run:      bunx turbo run start  --filter=main-app   (-> `next start`)
-// No overrides: turbo runs main-app's own scripts, preserving the custom build flag.
-const SANDSTONE_MAIN_APP: Build = {
-    framework: "bun",
-    build_context: "root",
-};
-
-const DECISIONS: Record<string, Record<string, Build>> = {
-    // sandstone / Sandstone
-    cmn5hjbt0000o018koj0o5ugc: { "main-app": SANDSTONE_MAIN_APP },
-};
+// An `AuthoredBuild` is either `runtime` or `dockerfile`: the framework presets
+// are retired, so a decision cannot reintroduce a build the config editor and the
+// MCP `apply_config` tools would refuse to save.
+const DECISIONS: Record<string, Record<string, AuthoredBuild>> = {};
 
 interface CliArgs {
     connectionString: string;

@@ -1,4 +1,9 @@
-import { type Build, type PreviewConfig, previewConfigSchema, trustedPreviewConfigSchema } from "@autonoma/types";
+import {
+    type AuthoredBuild,
+    authoringPreviewConfigSchema,
+    type PreviewConfig,
+    trustedPreviewConfigSchema,
+} from "@autonoma/types";
 import { z } from "zod";
 
 /**
@@ -47,9 +52,11 @@ export interface DocumentMigrationResult {
     validationError?: string;
 }
 
-// A per-app framework decision for the turbo/railpack buckets: the explicit
-// `build` block to apply, keyed by the app's `name` within the document.
-export type BuildDecisions = Map<string, Build>;
+// A per-app decision for the turbo/railpack buckets: the explicit `build` block
+// to apply, keyed by the app's `name` within the document. Typed as an
+// `AuthoredBuild`, so a decision naming a retired framework preset fails to
+// compile rather than writing a config no editor can reopen.
+export type BuildDecisions = Map<string, AuthoredBuild>;
 
 const legacyAppSchema = z
     .object({
@@ -98,11 +105,12 @@ export function migratePreviewConfigBuild(document: unknown, decisions: BuildDec
         return { changed, migrations, unresolved };
     }
 
-    // Validity gate: the untrusted client schema must accept the migrated
-    // document (the ticket's explicit requirement). The document we return is
+    // Validity gate: this writes stored config, so it holds to the same bar as the
+    // dashboard editor - the migrated document must be one an editor can reopen,
+    // which rules out a retired framework preset. The document we return is
     // produced by the trusted schema so platform-authored `resources` overrides
     // survive the round-trip instead of being reset to the standard tier.
-    const validation = previewConfigSchema.safeParse(candidate);
+    const validation = authoringPreviewConfigSchema.safeParse(candidate);
     if (!validation.success) {
         return {
             changed,
@@ -117,7 +125,7 @@ export function migratePreviewConfigBuild(document: unknown, decisions: BuildDec
 
 function migrateApp(
     app: LegacyApp,
-    decision: Build | undefined,
+    decision: AuthoredBuild | undefined,
 ): { app: LegacyApp; from: LegacyBucket; action: AppMigrationAction } {
     const bucket = classifyApp(app);
 
@@ -126,7 +134,7 @@ function migrateApp(
     }
 
     if (bucket === "bare_dockerfile" && app.dockerfile != null) {
-        const build: Build = {
+        const build: AuthoredBuild = {
             framework: "dockerfile",
             dockerfile: app.dockerfile,
             build_context: mapDockerfileBuildContext(app),
@@ -163,7 +171,7 @@ function mapDockerfileBuildContext(app: LegacyApp): "app" | "root" {
 
 // Returns a copy of the app with the explicit `build` block set and every legacy
 // build key dropped.
-function applyBuild(app: LegacyApp, build: Build): LegacyApp {
+function applyBuild(app: LegacyApp, build: AuthoredBuild): LegacyApp {
     const next: Record<string, unknown> = { ...app };
     for (const key of LEGACY_BUILD_KEYS) delete next[key];
     next["build"] = build;
