@@ -94,7 +94,7 @@ async function patchJson(url: string, token: string, body: unknown): Promise<voi
 export async function uploadArtifacts(config: AppConfig, outputDir: string): Promise<void> {
     const { autonomaApiUrl, autonomaApiToken, autonomaGenerationId } = config;
 
-    if (autonomaApiUrl == null || autonomaApiToken == null || autonomaGenerationId == null) {
+    if (autonomaApiToken == null || autonomaGenerationId == null) {
         p.log.info(
             "Autonoma upload credentials not configured - artifacts saved locally only. " +
                 `They live in ${outputDir}.`,
@@ -102,8 +102,7 @@ export async function uploadArtifacts(config: AppConfig, outputDir: string): Pro
         return;
     }
 
-    const baseUrl = autonomaApiUrl.replace(/\/+$/, "");
-    const setupUrl = `${baseUrl}/v1/setup/setups/${autonomaGenerationId}`;
+    const setupUrl = `${autonomaApiUrl}/v1/setup/setups/${autonomaGenerationId}`;
 
     p.log.step("Uploading artifacts to Autonoma...");
 

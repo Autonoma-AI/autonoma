@@ -49,9 +49,10 @@ backed by real files, so navigation and scrolling can be tested on real document
 `upload` re-uploads everything already generated in `~/.autonoma/<app>/` - the recipe and the
 artifacts (test cases, `AUTONOMA.md`, `scenarios.md`, `entity-audit.md`) - without re-running the
 whole planner. Useful when an upload failed. Both the recipe and artifact endpoints are idempotent,
-so it is safe to run repeatedly. It needs the same `AUTONOMA_API_URL`, `AUTONOMA_API_TOKEN`, and
-`AUTONOMA_GENERATION_ID` env vars as a run. Note that if a recipe submit fails during a run, the full
-recipe JSON is also printed to stdout so it can be recovered even from an ephemeral container.
+so it is safe to run repeatedly. It needs the same `AUTONOMA_API_TOKEN` and `AUTONOMA_GENERATION_ID`
+env vars as a run (`AUTONOMA_API_URL` stays optional - the host defaults to production). Note that if
+a recipe submit fails during a run, the full recipe JSON is also printed to stdout so it can be
+recovered even from an ephemeral container.
 
 ### Monorepos
 

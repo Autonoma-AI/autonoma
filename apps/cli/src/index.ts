@@ -595,11 +595,7 @@ async function main() {
         // first (so scenarios exist before tests reference them), then the artifacts
         // (tests/kb/scenarios), which also marks the setup completed. Both endpoints
         // are idempotent, so this is safe to run repeatedly to recover a failed run.
-        const recipeUploaded = await uploadRecipeFromDisk(outputDir, {
-            apiUrl: config.autonomaApiUrl,
-            apiToken: config.autonomaApiToken,
-            generationId: config.autonomaGenerationId,
-        });
+        const recipeUploaded = await uploadRecipeFromDisk(outputDir, config);
         await uploadArtifacts(config, outputDir);
         await flushAnalytics();
         process.exit(recipeUploaded ? 0 : 1);

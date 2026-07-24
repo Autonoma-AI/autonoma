@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { resolveApiUrl } from "./core/api-url";
 import { loadGlobalEnv } from "./core/global-env";
 import { ENV_KEYS, readEnv } from "./env";
 
@@ -15,7 +16,8 @@ export interface AppConfig {
     databaseUrl?: string;
     sharedSecret?: string;
     signingSecret?: string;
-    autonomaApiUrl?: string;
+    /** Always resolved (production by default), so no caller has to re-derive the host. */
+    autonomaApiUrl: string;
     autonomaApiToken?: string;
     autonomaGenerationId?: string;
     // Step-04 handoff presets. `agent` picks the interactive agent (e.g. "claude");
@@ -90,9 +92,7 @@ export function loadConfig(args: {
         databaseUrl: env.DATABASE_URL,
         sharedSecret: env.AUTONOMA_SHARED_SECRET,
         signingSecret: env.AUTONOMA_SIGNING_SECRET,
-        // Endpoint the CLI talks to. Defaults to production; override with
-        // AUTONOMA_API_URL to point at an alpha/preview host (alpha-<sha>.autonoma.app, ...).
-        autonomaApiUrl: env.AUTONOMA_API_URL ?? "https://autonoma.app",
+        autonomaApiUrl: resolveApiUrl(env.AUTONOMA_API_URL),
         autonomaApiToken: env.AUTONOMA_API_TOKEN,
         autonomaGenerationId: env.AUTONOMA_GENERATION_ID,
         agent: args.agent,

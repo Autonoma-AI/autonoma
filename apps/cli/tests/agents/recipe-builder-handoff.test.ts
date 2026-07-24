@@ -111,7 +111,7 @@ async function seedStuckCompletionPhase(): Promise<void> {
 }
 
 function baseInput(launcher: AgentLauncher) {
-    const config: AppConfig = { projectRoot: dir, projectSlug: "test" };
+    const config: AppConfig = { projectRoot: dir, projectSlug: "test", autonomaApiUrl: "https://autonoma.test" };
     return { projectRoot: dir, outputDir: dir, config, launchers: [launcher], cliCommand: "fake-cli" };
 }
 

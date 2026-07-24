@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../../config";
 import type { AgentResult } from "../../core/agent";
 import type { ProjectContext } from "../../core/context";
-import { readEnv } from "../../env";
 import * as p from "../../ui/prompts";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
 import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
@@ -98,17 +97,12 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
 
     // Phase 4: Submit the agent-validated recipe.
     if (state.phase === "submit") {
-        const env = readEnv();
-        const { recipePath, uploaded } = await runSubmit(
-            outputDir,
-            env.AUTONOMA_API_URL,
-            env.AUTONOMA_API_TOKEN,
-            env.AUTONOMA_GENERATION_ID,
-        );
+        const { recipePath, outcome } = await runSubmit(outputDir, input.config);
 
-        const uploadCredentialsPresent =
-            env.AUTONOMA_API_URL != null && env.AUTONOMA_API_TOKEN != null && env.AUTONOMA_GENERATION_ID != null;
-        if (uploadCredentialsPresent && !uploaded) {
+        // Only "there is nowhere to upload to" is survivable. Anything else means an
+        // onboarding run just lost its recipe, and finishing the pipeline would publish
+        // a test suite with no scenarios behind it.
+        if (!outcome.uploaded && outcome.failure !== "no-credentials") {
             return {
                 success: false,
                 artifacts: [recipePath],

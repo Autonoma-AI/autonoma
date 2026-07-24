@@ -1,5 +1,6 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { readEnv } from "../env";
+import { resolveApiUrl } from "./api-url";
 
 export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
 
@@ -7,10 +8,6 @@ export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
 // transient provider blips after 3 attempts; 10 rides them out. The SDK handles the backoff and
 // only retries retryable (429/5xx/network) errors, failing fast on 4xx.
 export const AI_MAX_RETRIES = 10;
-
-// Production API host. Overridable with AUTONOMA_API_URL to target an
-// alpha/preview host. Keep in sync with config.ts.
-const DEFAULT_API_URL = "https://autonoma.app";
 
 let provider: ReturnType<typeof createOpenRouter> | undefined;
 
@@ -29,7 +26,7 @@ function getProvider() {
         throw new Error("Not authenticated - launch the planner from the Autonoma app, or set AUTONOMA_API_TOKEN.");
     }
 
-    const apiUrl = (readEnv().AUTONOMA_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, "");
+    const apiUrl = resolveApiUrl(readEnv().AUTONOMA_API_URL);
     provider = createOpenRouter({ apiKey: token, baseURL: `${apiUrl}/v1/llm-proxy` });
     return provider;
 }
