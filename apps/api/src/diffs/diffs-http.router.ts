@@ -67,7 +67,12 @@ const externalRouter = new Hono<{ Variables: UserAuthVariables }>()
                 organizationId,
                 extra: { repoId: body.repo_id },
             });
-            return ctx.json({ ok: true, ignored: true, deprecated: true, message: PREVIEWKIT_ACTION_DEPRECATED_MESSAGE });
+            return ctx.json({
+                ok: true,
+                ignored: true,
+                deprecated: true,
+                message: PREVIEWKIT_ACTION_DEPRECATED_MESSAGE,
+            });
         }
 
         try {

@@ -20,4 +20,9 @@ const diffsRunPreparer = new DiffsRunPreparer({
     },
 });
 
-export const diffsTriggerService = new DiffsTriggerService(db, githubService, diffsRunPreparer, temporalPipelineWorkflows);
+export const diffsTriggerService = new DiffsTriggerService(
+    db,
+    githubService,
+    diffsRunPreparer,
+    temporalPipelineWorkflows,
+);

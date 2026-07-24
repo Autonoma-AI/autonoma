@@ -36,9 +36,7 @@ export interface PrepareDiffsRunParams {
     webhookHeaders?: Record<string, string>;
 }
 
-export type PrepareDiffsRunResult =
-    | { skipped: true }
-    | { skipped: false; snapshotId: string; deploymentId: string };
+export type PrepareDiffsRunResult = { skipped: true } | { skipped: false; snapshotId: string; deploymentId: string };
 
 /**
  * The reusable "start a PR run" core, extracted from the API's DiffsTriggerService so the API webhook paths and
