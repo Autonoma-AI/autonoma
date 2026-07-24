@@ -138,6 +138,8 @@ When your app needs a secret value the agent does not have - an API key, a datab
 
 The agent should always ask you first whether to set env from your `.env` (you paste it into the UI) or to configure it yourself - so you decide, every time, what Autonoma stores.
 
+Take as long as you need. While a request is pending the agent keeps polling `get_session_status`, so it picks the values up on its own once you submit them - you do not have to go back to the agent and tell it you are done (though you can, and it will check).
+
 ## What your agent can do
 
 | Tool | Input | Does |
