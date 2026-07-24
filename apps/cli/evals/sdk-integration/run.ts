@@ -14,7 +14,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { copyFile, mkdir, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
 import { writeIntegrationPrompt } from "../../src/agents/04-recipe-builder/integration-prompt";
 import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
@@ -190,18 +190,42 @@ async function main(): Promise<void> {
         recipePath: join(stagedArtifacts, RECIPE_FILE),
         cliCommand,
     });
+    // Extra directives to the driven agent live here, in the harness's own drive prompt - NOT in
+    // the framework-agnostic integration prompt (which must stay free of any eval/project
+    // specifics) and NOT in ENV.md (human-only, never fed to the agent). Two optional sources:
+    // per-case `agent-notes.md` (repo-specific, committed) and an operator secrets file.
+    const secretsFile = env.SDK_EVAL_SECRETS_FILE;
+    const bootSecretsNote =
+        secretsFile != null
+            ? `\n\nBOOT CREDENTIALS: the real environment this app needs to run locally - including ` +
+              `any hosted external-service credentials that cannot be mocked - is in the file ` +
+              `${secretsFile}. Read it and use those values when you bring the app up (put them wherever ` +
+              `this stack loads env from). Do not commit it. Do not set AUTONOMA_SHARED_SECRET from it - ` +
+              `that is already provisioned in the environment.`
+            : "";
+    const caseNotes =
+        kase.agentNotes != null
+            ? `\n\nCASE-SPECIFIC INSTRUCTIONS for this app (follow them exactly):\n${kase.agentNotes}`
+            : "";
     const prompt =
         `Read the file ${promptFile} and follow its instructions exactly to integrate ` +
         `Autonoma into this application. It is your complete spec. Do not stop until every ` +
         `item in it is done and you have written the completion marker it describes.` +
+        caseNotes +
+        bootSecretsNote +
         renderSiblingReposNote(contextRepoDirs);
+
+    // Read-only dirs for the agent, all OUTSIDE the sandbox so they never enter its diff: the
+    // staged artifacts, the polyrepo sibling checkouts, and (if set) the operator secrets file's dir.
+    const readableDirs = [stagedArtifacts, ...contextRepoDirs];
+    if (secretsFile != null) readableDirs.push(dirname(secretsFile));
 
     const bedrockToken = env.AWS_BEARER_TOKEN_BEDROCK;
     if (bedrockToken == null) throw new Error("AWS_BEARER_TOKEN_BEDROCK is required for a drive.");
     log(`drive claude -p (model=${args.model}, timeout=${args.timeoutMin}m)`);
     const drive = await driveClaude({
         sandbox,
-        readableDirs: [stagedArtifacts, ...contextRepoDirs],
+        readableDirs,
         runHome,
         prompt,
         model: args.model,

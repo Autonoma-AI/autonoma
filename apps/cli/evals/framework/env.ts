@@ -25,6 +25,14 @@ const ENV_SCHEMA = {
     SDK_INTEGRATION_MODEL: z.string().optional(),
     /** Model id for the judge (OpenRouter-style id, forwarded by the CLI proxy). */
     JUDGE_MODEL: z.string().optional(),
+    /**
+     * Path to an operator-provided env/secrets file (uncommitted, e.g. under `/tmp`) holding the
+     * real external-service credentials the driven agent needs to boot a case's app - ones that
+     * genuinely can't be discovered or mocked (e.g. a hosted auth provider's key). Its directory
+     * is exposed to the agent via `--add-dir` and the drive prompt points the agent at the file.
+     * Never commit the file; keep it outside the repo.
+     */
+    SDK_EVAL_SECRETS_FILE: z.string().optional(),
 } satisfies Record<string, z.ZodTypeAny>;
 
 export function readHarnessEnv() {

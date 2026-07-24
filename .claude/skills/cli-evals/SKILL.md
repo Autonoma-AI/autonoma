@@ -43,6 +43,7 @@ apps/cli/evals/
 | `artifacts/` | frozen planner spec: `project-map.json`, `pages.json`, `AUTONOMA.md`, `entity-audit.md`, `scenarios.md` (no `recipe.json` - the SDK agent generates that at eval time) | both |
 | `context.json` | `{ description, testingGoal, criticalFlows }` - the planner's project context | Layer 1 / bootstrap |
 | `rubrics/<step>.md` | findings rubric per gradable step | Layer 1 |
+| `agent-notes.md` | optional per-case instructions appended verbatim to the driven agent's drive prompt (repo-specific seeding conventions); most cases have none | Layer 2 |
 | `ENV.md` | dev-only, advisory local-boot notes (read by NO harness code) | humans |
 
 Derived at run time: **clean** = `sha` + `strip.patch`; **golden** = the `sha` checkout as-is;
