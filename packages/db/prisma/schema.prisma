@@ -147,6 +147,7 @@ model Organization {
   investigationReports   InvestigationReport[]
   analysisReports        AnalysisReport[]
   analysisFindings       AnalysisFinding[]
+  analysisIssues         AnalysisIssue[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
   vercelInstallations    VercelInstallation[]
@@ -635,6 +636,7 @@ model Branch {
   snapshots         BranchSnapshot[]
   deployments       BranchDeployment[]
   bugs              Bug[]
+  analysisIssues    AnalysisIssue[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -2573,6 +2575,16 @@ model AnalysisReport {
   /// model call could not run. Derived from the FINAL verdict; it never alters it.
   narration String?
 
+  /// The Reporter agent's holistic, PR-cumulative report prose (Markdown). Additive and dormant: the live
+  /// Reconciler never writes it (it writes `narration`); the Reporter authors it once it is wired in. Its
+  /// `evidence:<assetId>` image tokens resolve against `evidenceManifest`.
+  reportMarkdown String? @map("report_markdown") @db.Text
+
+  /// The assets the Reporter's `reportMarkdown` may embed inline by `evidence:<assetId>` token, derived from the
+  /// evidence the Reporter actually fetched (never authored). Display-only blob, resolved to signed URLs on read.
+  /// [EvidenceManifest]
+  evidenceManifest Json? @map("evidence_manifest")
+
   findings AnalysisFinding[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -2656,6 +2668,12 @@ model AnalysisFinding {
 
   displayOrder Int @map("display_order")
 
+  /// The branch-scoped AnalysisIssue this finding is attributed to, backfilled by the Reporter after it authors
+  /// the issues. Additive and dormant: the live Reconciler never sets it. Nullable - a passing or coverage-plane
+  /// finding has no issue; SetNull so deleting an issue orphans its findings rather than cascading them away.
+  issueId String?        @map("issue_id")
+  issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
   createdAt      DateTime     @default(now()) @map("created_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -2663,7 +2681,67 @@ model AnalysisFinding {
   @@unique([reportSnapshotId, findingKey])
   @@index([reportSnapshotId])
   @@index([organizationId, category])
+  @@index([issueId])
   @@map("analysis_finding")
+}
+
+/// A branch/PR-scoped "problem" the Reporter agent authors and evolves ACROSS snapshots - the de-duped, holistic
+/// unit above the per-snapshot AnalysisFinding. One issue clusters the findings (across time and across tests) that
+/// manifest the same underlying problem; its lifecycle is open/resolved (a carry-forward re-confirms or reopens, a
+/// resolve closes it once a covering test re-ran and passed). Additive and DORMANT: nothing in the live pipeline
+/// writes it yet - the Reporter is exercised by fixtures until the reconciler->reporter swap. Enum-shaped columns
+/// (`kind`, `severity`, `status`) are plain strings, matching the rest of the analysis island; the values are
+/// Zod-validated at the boundary. Only FKs OUTWARD (branch / org, cascade); the island stays cleanly drop-able.
+model AnalysisIssue {
+  id String @id @default(cuid())
+
+  branchId String @map("branch_id")
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  title String @db.Text
+  /// The problem's class: "bug" | "environment" | "scenario".
+  kind String
+  /// The Reporter's severity call: "critical" | "high" | "medium" | "low".
+  severity String
+  /// Lifecycle: "open" | "resolved".
+  status String @default("open")
+
+  expectedBehavior  String? @map("expected_behavior") @db.Text
+  actualBehavior    String  @map("actual_behavior") @db.Text
+  narrativeMarkdown String  @map("narrative_markdown") @db.Text
+
+  /// The slugs of every finding (across snapshots) this issue currently covers. Grounds the coverage guarantee
+  /// and lets a covering test's later pass resolve the issue.
+  /// [IssueFindingSlugs]
+  findingSlugs Json @map("finding_slugs")
+
+  /// The assets the narrative may embed inline by `evidence:<assetId>` token, derived from what the Reporter
+  /// actually fetched (never authored). Signed to URLs on read.
+  /// [EvidenceManifest]
+  evidenceManifest Json? @map("evidence_manifest")
+
+  /// The frame the Reporter designated as the clearest view of the problem, resolved to a concrete `s3://` key
+  /// (never authored raw). Signed on read; absent falls back to a covering finding's screenshot.
+  /// [PrimaryScreenshot]
+  primaryScreenshot Json? @map("primary_screenshot")
+
+  /// The hedged, code-level suspected cause (explanation + grounded file:line references), validated against the
+  /// checked-out repo at author time so a fabricated reference never lands. Absent when nothing was grounded.
+  /// [SuspectedCause]
+  suspectedCause Json? @map("suspected_cause")
+
+  resolvedAt DateTime? @map("resolved_at")
+
+  findings AnalysisFinding[]
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+  @@index([organizationId])
+  @@map("analysis_issue")
 }
 
 // Generic durable fixed-window rate-limit counter. One row per limiter key (e.g.

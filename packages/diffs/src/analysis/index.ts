@@ -34,3 +34,35 @@ export { summarizeVerdictPlanes } from "./verdict-planes";
 export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
 export { narrateAnalysis } from "./narrate";
 export type { NarrateAnalysisDeps } from "./narrate";
+
+// The Reporter agent (dormant): reconciles a job's findings into de-duped, branch-scoped issues and authors one
+// holistic PR report, on the AgentLoop harness. Not wired into the pipeline yet - exercised by fixtures/tests.
+export { ReporterAgent } from "./report";
+export type { ReporterAgentConfig } from "./report";
+export {
+    REPORTER_SYSTEM_PROMPT,
+    buildReporterPrompt,
+    reporterIssueKindSchema,
+    reporterIssueSeveritySchema,
+    reporterIssueStatusSchema,
+    authoredIssueContentSchema,
+} from "./report";
+export type {
+    ReporterInput,
+    ReporterResult,
+    ReporterFinding,
+    ReporterExistingIssue,
+    ReporterPriorReport,
+    ReporterScenarioSummary,
+    ReporterScenarioRecipe,
+    ReporterScenarioLoader,
+    ReporterEvidenceAsset,
+    ReporterIssueContent,
+    ReporterIssueResult,
+    ReporterIssueKind,
+    ReporterIssueSeverity,
+    ReporterIssueStatus,
+    ReporterPrMeta,
+    AuthoredIssueContent,
+    RecordedIssueAction,
+} from "./report";
