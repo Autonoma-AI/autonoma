@@ -11,12 +11,12 @@
  * - {@link isPreviewHostname} asks "am I, the running app, served from a preview?"
  *   That is self-knowledge with no attacker in the loop, so a suffix check is
  *   enough and a false negative just picks the wrong API origin.
- * - {@link isPreviewOrigin} asks "should I trust this origin?" That is a security
- *   decision, so it additionally requires https and the hex label that
- *   `buildAppHostname` actually produces.
+ * - {@link isPreviewOrigin} and {@link isPreviewUrl} ask "should I trust / send a
+ *   browser to this?" Those are security decisions, so they additionally require
+ *   https and the hex label that `buildAppHostname` actually produces.
  *
- * Keeping the strict one strict is what stops `evil-preview.autonoma.app` and
- * `x.preview.autonoma.app.attacker.com` from being trusted.
+ * Keeping the strict pair strict is what stops `evil-preview.autonoma.app` and
+ * `x.preview.autonoma.app.attacker.com` from passing.
  */
 
 /**
@@ -31,8 +31,8 @@ const PREVIEW_LABEL_PATTERN = /^[a-f0-9]+$/;
  * scheme, no label shape - matching what the UI has always used to decide whether
  * it is itself running inside a preview environment.
  *
- * Do NOT use this to validate something you are about to trust; use
- * {@link isPreviewOrigin}, which also pins the scheme and the label.
+ * Do NOT use this to validate a URL you are about to trust or navigate to; use
+ * {@link isPreviewUrl}, which also pins the scheme and the label.
  */
 export function isPreviewHostname(hostname: string, internalDomain: string): boolean {
     return hostname.endsWith(`.preview.${internalDomain}`);
@@ -47,7 +47,40 @@ export function isPreviewOrigin(candidate: string, internalDomain: string): bool
     const url = parseUrl(candidate);
     if (url == null) return false;
     if (url.href.replace(/\/$/, "") !== url.origin) return false;
+    return isTrustedPreviewUrl(url, internalDomain);
+}
+
+/**
+ * Whether a URL points at a preview and is safe to send a browser to. Same
+ * strictness as {@link isPreviewOrigin} but a path, query and fragment are allowed,
+ * because a link can point deep into the app (a per-bug "Open preview" href goes
+ * straight to the failing screen).
+ */
+export function isPreviewUrl(candidate: string, internalDomain: string): boolean {
+    const url = parseUrl(candidate);
+    if (url == null) return false;
+    return isTrustedPreviewUrl(url, internalDomain);
+}
+
+/**
+ * The origin of a preview URL, which is the form `PreviewkitAppInstance.url` is
+ * stored in. Anything looking an environment up by URL must normalize first, or a
+ * valid deep link resolves to nothing.
+ *
+ * Returns undefined for input that is not a parseable URL; callers should have
+ * validated with {@link isPreviewUrl} first.
+ */
+export function previewOrigin(candidate: string): string | undefined {
+    return parseUrl(candidate)?.origin;
+}
+
+function isTrustedPreviewUrl(url: URL, internalDomain: string): boolean {
     if (url.protocol !== "https:") return false;
+    // Previews are only ever served on 443, so a non-default port is not one of
+    // ours. `url.port` is "" for both an absent port and an explicit :443, which
+    // the parser normalizes away - so this rejects :8443 while still accepting the
+    // redundant-but-identical :443 spelling.
+    if (url.port !== "") return false;
     if (!isPreviewHostname(url.hostname, internalDomain)) return false;
 
     // The boundary dot is part of the suffix above, so what remains is the single
@@ -61,8 +94,11 @@ function parseUrl(candidate: string): URL | undefined {
     try {
         return new URL(candidate);
     } catch {
-        // Not a parseable URL - the caller treats that the same as a disallowed
-        // host, so there is nothing to report beyond the rejection itself.
+        // Parse-or-default, not swallowed error handling: `new URL` throwing IS the
+        // answer to "is this a URL", and every caller turns undefined into a plain
+        // rejection. Deliberately not logged - the strings reaching here are
+        // unauthenticated, attacker-controlled `to` values, so a log line per parse
+        // failure would be a free log-spam vector for no diagnostic value.
         return undefined;
     }
 }

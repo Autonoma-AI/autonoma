@@ -11,6 +11,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { auth } from "../context";
 import { env } from "../env";
+import { previewFrontDoor } from "../routes/preview-access/preview-front-door";
 import { openApiSpec } from "./openapi-spec";
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
 import { PreviewkitSecretsService } from "./previewkit-secrets.service";
@@ -429,6 +430,13 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         return c.json({ accepted: true, repoFullName, prNumber: pr, app, mode }, 202);
     })
+    // Browser entry point for a preview link. Unauthenticated by design (it only
+    // redirects, and the caller already holds the URL it passes in), so it sits
+    // outside `requireAuth`. Both spellings are registered because Hono treats a
+    // trailing slash as a different path, and a stray one in a pasted link would
+    // otherwise 404.
+    .get("/open", previewFrontDoor)
+    .get("/open/", previewFrontDoor)
     .get("/openapi.json", (c) => c.json(openApiSpec));
 
 function callerOrgId(caller: AuthCaller): string | undefined {
