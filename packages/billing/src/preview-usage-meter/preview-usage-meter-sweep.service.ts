@@ -69,6 +69,16 @@ function liveEdge(now: Date): Date {
     return floorToWindowBoundary(new Date(now.getTime() - INGESTION_LAG_MS));
 }
 
+/**
+ * Whether a window sits behind the live edge. Such a window can never gain samples
+ * (they would have landed long ago), so an empty result is missing history; at the
+ * live edge the same emptiness means the scrape pipeline just stopped. Exported for
+ * the boundary test - flipping this comparison would silence every live outage.
+ */
+export function isBackfilledWindow(windowEnd: Date, now: Date): boolean {
+    return windowEnd < liveEdge(now);
+}
+
 function earliestCeiledCheckpoint(environments: Array<Pick<MeteredEnvironment, "checkpoint">>): Date | undefined {
     return environments
         .map((env) => ceilToWindowBoundary(env.checkpoint))
@@ -251,7 +261,7 @@ export class PreviewUsageMeterSweepService extends Service {
      * keeps a fleet-wide outage from multiplying by the size of the fleet.
      */
     private reportFleetWideGap(windowStart: Date, windowEnd: Date, now: Date): void {
-        if (windowEnd < liveEdge(now)) {
+        if (isBackfilledWindow(windowEnd, now)) {
             this.logger.warn("No previewkit samples for this backfilled window - closing it as a data gap", {
                 windowStart,
                 windowEnd,
