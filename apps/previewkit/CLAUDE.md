@@ -80,7 +80,12 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /
   `deployEnvironment` / `finalize` / `fail` / `restartApp`), per-app build loop (`buildOneApp`),
-  final-outcome computation, PR-comment payload.
+  final-outcome computation, PR-comment payload. A deploy can die before step 6 writes the per-app
+  terminal states (a failed pre-deploy hook or setup task is the common case), so `fail` also calls
+  `failInFlightApps` - an app row left `built`/`deploying` under a `failed` environment reads as
+  "still building" in every rollup that treats the app rows as the source of truth. A failed
+  POST-deploy hook stays non-fatal but is returned as a PR-comment warning instead of vanishing
+  into Sentry.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `buildkit-job-manager.ts` (one
   privileged rootful buildkitd Job per app-build attempt).
@@ -254,7 +259,10 @@ app lines in a recent window.
   `deploying` -> `ready`, or terminal `build_failed` / `deploy_failed` / `skipped`) via `recordAppStates`.
   Carries `status`, `imageTag` (null until built), `error`, `url`, `port`. A built-but-undeployed
   app is therefore a distinct queryable row, not an inferred absence. `recordEnvironmentReady` only owns the
-  environment row now (status/urls/deployedAt/bypass token); the per-app rows are written separately.
+  environment row now (status/urls/deployedAt/bypass token); the per-app rows are written separately. Because
+  these rows outrank the environment row in the API's rollups, no failure path may leave one in flight -
+  `failInFlightApps` (called from `PreviewPipeline.fail` and the per-app redeploy) gives every unfinished row
+  the deploy's error, leaving rows that already recorded a terminal verdict alone.
 - `PreviewkitBuild` + `PreviewkitAppBuild` - per-push build + per-app build rows (normalized out
   of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok"). `PreviewkitBuild`
   is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across

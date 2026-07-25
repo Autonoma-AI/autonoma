@@ -425,8 +425,15 @@ function deriveAppStatus(
     build: PreviewkitAppBuildOutcome | undefined,
 ): PreviewServiceStatus {
     if (environmentStatus === "torn_down") return "stopped";
-    // The per-app lifecycle row is the source of truth once it exists.
-    if (instance != null) return mapAppStatus(instance.status);
+    // The per-app lifecycle row is the source of truth once it exists - except
+    // under a `failed` environment, which is terminal: nothing is left running to
+    // advance a row that is still in flight (a deploy that died before writing the
+    // per-app verdicts leaves them behind), so report the failure rather than a
+    // build that never finishes.
+    if (instance != null) {
+        if (environmentStatus === "failed" && isAppInFlight(instance.status)) return "failed";
+        return mapAppStatus(instance.status);
+    }
     // No per-app row yet (config not resolved, or a service/addon handled
     // elsewhere): fall back to the build outcome and the env-level status.
     if (build?.status === "failed") return "failed";
@@ -441,6 +448,11 @@ function mapAppStatus(status: PreviewkitAppStatus): PreviewServiceStatus {
     if (status === "build_failed" || status === "deploy_failed" || status === "skipped") return "failed";
     // pending | building | built | deploying are all in-flight.
     return "building";
+}
+
+/** An app row that has not reached a verdict yet - it maps to `building`. */
+function isAppInFlight(status: PreviewkitAppStatus): boolean {
+    return mapAppStatus(status) === "building";
 }
 
 function mapAddonStatus(status: "pending" | "ok" | "failed" | "deprovisioned" | undefined): PreviewServiceStatus {
@@ -569,6 +581,11 @@ export type PreviewEnvironmentHealth = "ready" | "building" | "degraded" | "fail
  * finalization failed - status stamped `failed`, yet every app `ready` - read
  * as `ready` instead of a misleading `failed`. The raw `status`/`phase` are
  * still returned for admins who want the underlying pipeline state.
+ *
+ * The one place the environment `status` still overrides the app rows is `failed`:
+ * it is terminal, so an app row left in flight (a deploy that died before writing
+ * the per-app verdicts - historically a failed pre-deploy hook) is stale, and
+ * reporting `building` for it would leave the environment building forever.
  */
 export function deriveEnvironmentHealth(
     status: PreviewkitStatus,
@@ -586,15 +603,9 @@ export function deriveEnvironmentHealth(
     }
 
     const readyCount = apps.filter((app) => app.status === "ready").length;
-    const inFlightCount = apps.filter(
-        (app) =>
-            app.status === "pending" ||
-            app.status === "building" ||
-            app.status === "built" ||
-            app.status === "deploying",
-    ).length;
+    const anyInFlight = apps.some((app) => isAppInFlight(app.status));
 
-    if (inFlightCount > 0) return "building";
+    if (anyInFlight && status !== "failed") return "building";
     if (readyCount === 0) return "failed";
     if (hasFailedAddon || readyCount < apps.length) return "degraded";
     return "ready";

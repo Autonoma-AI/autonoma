@@ -1,5 +1,10 @@
+import type { PreviewkitAppStatus, PreviewkitStatus } from "@autonoma/db";
 import { describe, expect, it } from "vitest";
-import { buildPreviewAppSummaries, deriveEnvironmentHealth } from "../../../src/routes/deployments/preview-summary";
+import {
+    buildPreviewAppSummaries,
+    buildServiceSummaries,
+    deriveEnvironmentHealth,
+} from "../../../src/routes/deployments/preview-summary";
 
 describe("deriveEnvironmentHealth", () => {
     it("reads ready when every app is ready, even if the pipeline stamped the environment failed", () => {
@@ -57,6 +62,58 @@ describe("deriveEnvironmentHealth", () => {
 
     it("reads unknown for a torn-down environment", () => {
         expect(deriveEnvironmentHealth("torn_down", [{ status: "ready" }], [])).toBe("unknown");
+    });
+
+    it("never reads building under a failed environment, whose in-flight app rows are stale", () => {
+        // A deploy that died mid-flight (e.g. a failed pre-deploy hook) stamps the
+        // environment `failed` while its app rows still say built/deploying. Nothing
+        // is left to advance them, so the rollup must not report building forever.
+        expect(deriveEnvironmentHealth("failed", [{ status: "built" }, { status: "deploying" }], [])).toBe("failed");
+        expect(deriveEnvironmentHealth("failed", [{ status: "ready" }, { status: "built" }], [])).toBe("degraded");
+    });
+});
+
+describe("buildServiceSummaries", () => {
+    const environment = (status: PreviewkitStatus, appStatus: PreviewkitAppStatus) => ({
+        status,
+        phase: null,
+        deployedAt: null,
+        appInstances: [
+            {
+                appName: "web",
+                status: appStatus,
+                imageTag: "web:v1",
+                error: null,
+                url: null,
+                port: 3000,
+                updatedAt: new Date(0),
+            },
+        ],
+        addons: [],
+    });
+
+    it("reports an in-flight app as building while the deploy is still running", () => {
+        const [web] = buildServiceSummaries({
+            branchName: "feature/login",
+            environment: environment("deploying", "deploying"),
+            manifest: {},
+            latestBuild: null,
+            appBuilds: {},
+        });
+
+        expect(web!.status).toBe("building");
+    });
+
+    it("reports an in-flight app as failed once the environment failed", () => {
+        const [web] = buildServiceSummaries({
+            branchName: "feature/login",
+            environment: environment("failed", "built"),
+            manifest: {},
+            latestBuild: null,
+            appBuilds: {},
+        });
+
+        expect(web!.status).toBe("failed");
     });
 });
 

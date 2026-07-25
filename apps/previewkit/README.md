@@ -207,6 +207,17 @@ Services never auto-inject env into apps - a database is reachable only by the a
 
 A `build_time` connection is also passed as a Docker build arg (for values baked into the image, e.g. a Vite frontend's API URL). At runtime a connection is injected as an env var and wins over a stored secret of the same key.
 
+### Hooks
+
+Each entry in `hooks.pre_deploy` / `hooks.post_deploy` is `{ app, command }` and runs as a one-off Kubernetes Job built from that app's image, with the app's connections resolved as env. Hooks run in the order they are listed, and their output is relayed to the app's build-log viewer.
+
+The two phases differ in what a failure means:
+
+- **`pre_deploy`** runs before any app Deployment starts (typical use: migrations, so no app boots against a missing schema). A failure is **fatal**: the deploy stops, the environment and every app that had not finished yet are recorded `failed` / `deploy_failed` with the hook's error, and the PR comment + commit status report the failure.
+- **`post_deploy`** runs after the apps are up and ready. A failure is **not fatal** - the apps are already serving and these commands are usually idempotent - so the environment stays `ready` and the failure is reported as a warning on the PR comment (with the tail of the hook's output; the full log is in the build-log viewer).
+
+Service `setup_tasks` run just before `pre_deploy` and fail the deploy the same way.
+
 ### Built-in Environment Variables
 
 Every app pod is injected with these at deploy time (`Deployer.deployApp`). The names are reserved - the secrets API rejects uploads using them, and they always override any user-set value (a connection or a stored secret):

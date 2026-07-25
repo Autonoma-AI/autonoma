@@ -29,6 +29,7 @@ import {
 import {
     type AppBuildOutcome,
     type AppStateUpdate,
+    failInFlightApps,
     recordAppRedeployOutcome,
     recordAppsPending,
     recordAppStates,
@@ -53,6 +54,12 @@ import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
 import { StatusWriter } from "./status-writer";
+
+// A failed hook's error carries the Job's whole log, while a PR-comment warning
+// renders as a single blockquote bullet - these bound what a post-deploy hook
+// failure contributes to that callout (see summarizeHookFailure).
+const HOOK_WARNING_TAIL_LINES = 3;
+const HOOK_WARNING_MAX_CHARS = 300;
 
 /**
  * Shared input to every per-app build. Computed once at the top of
@@ -790,7 +797,7 @@ export class PreviewPipeline {
             namespace: result.namespace,
             hooks: mergedConfig.hooks.post_deploy.length,
         });
-        await this.runPostDeployHooks(
+        const hookWarnings = await this.runPostDeployHooks(
             mergedConfig,
             result,
             readyAppNamesForHooks,
@@ -803,6 +810,7 @@ export class PreviewPipeline {
             repo: repoFullName,
             pr: prNumber,
             namespace: result.namespace,
+            failedHooks: hookWarnings.length,
         });
 
         signal?.throwIfAborted();
@@ -918,7 +926,7 @@ export class PreviewPipeline {
             urls: result.urls,
             services,
             addons,
-            warnings,
+            warnings: [...warnings, ...hookWarnings],
         };
         if (previewUrl != null) output.previewUrl = previewUrl;
         if (primaryUrl != null) output.primaryUrl = primaryUrl;
@@ -943,8 +951,34 @@ export class PreviewPipeline {
      * environment row's status/urls are MERGED (`recordAppRedeployOutcome`),
      * never overwritten. The caller skips `finalize`, so there is no PR-comment
      * or commit-status churn.
+     *
+     * There is no env-level failure finalizer on this path (the runner only logs),
+     * so the target's terminal state is recorded here on the way out - see
+     * `runScopedDeploy`.
      */
     private async deployScopedApp(
+        input: DeployPreviewEnvironmentInput,
+        appName: string,
+        signal?: AbortSignal,
+    ): Promise<DeployPreviewEnvironmentOutput> {
+        try {
+            return await this.runScopedDeploy(input, appName, signal);
+        } catch (err) {
+            // A supersede leaves the rows to the successor that now owns them
+            // (mirrors `restartApp` and `markBuildSuperseded`).
+            if (signal?.aborted === true) throw err;
+            // Otherwise the target must not be left claiming to be in flight: a
+            // throw before its terminal write (a failed pre-deploy hook, an infra
+            // error) would strand the row at `built`/`deploying` forever. Scoped to
+            // the target, and a row that already recorded a terminal state keeps its
+            // own error.
+            const error = err instanceof Error ? err.message : String(err);
+            await recordSafe(() => failInFlightApps(input.namespace, error, appName));
+            throw err;
+        }
+    }
+
+    private async runScopedDeploy(
         input: DeployPreviewEnvironmentInput,
         appName: string,
         signal?: AbortSignal,
@@ -1010,7 +1044,7 @@ export class PreviewPipeline {
         const result = await this.deployer.deploySingleApp(deployOpts, infraResult, appName);
 
         const ready = result.appOutcomes[appName]?.status === "ok";
-        await this.runPostDeployHooks(
+        const hookWarnings = await this.runPostDeployHooks(
             scopedHookConfig,
             result,
             new Set(ready ? [appName] : []),
@@ -1074,7 +1108,7 @@ export class PreviewPipeline {
             urls: result.urls,
             services,
             addons,
-            warnings,
+            warnings: [...warnings, ...hookWarnings],
         };
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
         if (previewUrl != null) output.previewUrl = previewUrl;
@@ -1263,8 +1297,9 @@ export class PreviewPipeline {
     }
 
     /**
-     * Failure finalizer - records the failed status/phase and surfaces the error on
-     * the PR comment + commit status. Best-effort: never throws.
+     * Failure finalizer - records the failed status/phase (environment row plus any
+     * app row still in flight) and surfaces the error on the PR comment + commit
+     * status. Best-effort: never throws.
      */
     async fail(
         event: PullRequestEvent,
@@ -1277,11 +1312,18 @@ export class PreviewPipeline {
         logger.error("Preview deployment failed", { repo: repoFullName, pr: prNumber, namespace, error });
 
         logger.info("Fail step 1/3 recording failed status", { repo: repoFullName, pr: prNumber, namespace });
-        await this.deployer
-            .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
-            .catch((e) => logger.error("Failed to record failed status", e));
-
-        await recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error }));
+        // Three independent sinks - the namespace annotations, the environment row,
+        // and the app rows. The last one matters because the deploy can die before
+        // step 6 writes the per-app terminal states (a failed pre-deploy hook or
+        // database setup task is the common case): an app row left in flight keeps
+        // the status rollups reading the environment as building.
+        await Promise.all([
+            this.deployer
+                .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
+                .catch((e) => logger.error("Failed to record failed status", e)),
+            recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error })),
+            recordSafe(() => failInFlightApps(namespace, error)),
+        ]);
         void this.logSink?.append(namespace, { kind: "status", message: "failed" });
         void this.logSink?.seal(namespace);
         logger.info("Fail step 1/3 recorded failed status", { repo: repoFullName, pr: prNumber, namespace });
@@ -1698,6 +1740,12 @@ export class PreviewPipeline {
         logger.info("Finished running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
     }
 
+    /**
+     * Runs the post-deploy hooks whose app came up. A failure here is non-fatal (the
+     * apps are already serving), so instead of aborting it is returned as a
+     * PR-comment warning - otherwise the failure would only ever exist in Sentry and
+     * the deploy would report a clean success.
+     */
     private async runPostDeployHooks(
         config: PreviewConfig,
         result: DeployResult,
@@ -1706,8 +1754,8 @@ export class PreviewPipeline {
         prNumber: number,
         imageTags: Record<string, string>,
         addonOutputs: AddonOutputs,
-    ): Promise<void> {
-        if (config.hooks.post_deploy.length === 0) return;
+    ): Promise<string[]> {
+        if (config.hooks.post_deploy.length === 0) return [];
 
         const runnable = config.hooks.post_deploy.filter((h) => readyAppNames.has(h.app));
         const skipped = config.hooks.post_deploy.filter((h) => !readyAppNames.has(h.app));
@@ -1717,13 +1765,14 @@ export class PreviewPipeline {
                 command: hook.command,
             });
         }
-        if (runnable.length === 0) return;
+        if (runnable.length === 0) return [];
 
         logger.info("Running post-deploy hooks", {
             namespace: result.namespace,
             hooks: runnable.length,
         });
 
+        const warnings: string[] = [];
         for (const hook of runnable) {
             logger.info("Executing post-deploy hook Job", { app: hook.app, command: hook.command });
             try {
@@ -1749,9 +1798,15 @@ export class PreviewPipeline {
                     app: hook.app,
                     command: hook.command,
                 });
+                warnings.push(summarizeHookFailure(hook.app, hook.command, err));
             }
         }
-        logger.info("Finished running post-deploy hooks", { namespace: result.namespace, hooks: runnable.length });
+        logger.info("Finished running post-deploy hooks", {
+            namespace: result.namespace,
+            hooks: runnable.length,
+            failed: warnings.length,
+        });
+        return warnings;
     }
 
     /**
@@ -1913,6 +1968,23 @@ async function recordSafe(fn: () => Promise<void>): Promise<void> {
     } catch (err) {
         logger.error("Failed to record Previewkit DB event", err);
     }
+}
+
+/**
+ * Collapses a failed post-deploy hook into one PR-comment warning line. The
+ * interesting part of a hook error is the tail of the Job's log, so the last few
+ * non-empty lines are joined onto a single line and truncated; the full output is
+ * already in the build-log viewer (every hook line is relayed there).
+ */
+function summarizeHookFailure(app: string, command: string, err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    const lines = message
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+    const tail = lines.slice(-HOOK_WARNING_TAIL_LINES).join(" | ");
+    const detail = tail.length > HOOK_WARNING_MAX_CHARS ? `${tail.slice(0, HOOK_WARNING_MAX_CHARS)}...` : tail;
+    return `Post-deploy hook for "${app}" failed, deploy continued: ${command} - ${detail}`;
 }
 
 /**

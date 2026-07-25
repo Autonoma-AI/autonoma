@@ -21,6 +21,12 @@ export type PreviewkitAppStatus =
     | "deploy_failed"
     | "skipped";
 
+// The app statuses that already carry a final verdict. Everything else in
+// `PreviewkitAppStatus` is in flight, so `failInFlightApps` derives its target
+// set by excluding these rather than by listing the in-flight ones - a new
+// intermediate status is then covered automatically.
+const TERMINAL_APP_STATUSES: PreviewkitAppStatus[] = ["ready", "build_failed", "deploy_failed", "skipped"];
+
 // One per-app state transition written to PreviewkitAppInstance. The mutable
 // fields are overwritten wholesale on every write (an absent field clears the
 // column), so a caller transitioning an app must pass the complete intended
@@ -416,6 +422,35 @@ export async function recordAppStates(namespace: string, updates: AppStateUpdate
             });
         }
     });
+}
+
+// Stamps every app still in flight (pending / building / built / deploying) as
+// `deploy_failed`, carrying the deploy's error. The failure finalizer calls this
+// so a deploy that dies mid-flight - a failed pre-deploy hook or database setup
+// task, or any throw before the per-app terminal states of step 6 - leaves no app
+// row claiming to still be in progress. Without it the environment row reads
+// `failed` while its app rows read in-flight, and every status rollup that treats
+// the app rows as the source of truth (see `deriveEnvironmentHealth` in apps/api)
+// reports the environment as building forever. Rows that already reached a
+// terminal state keep it, so a `build_failed` app is not relabelled. Pass
+// `appName` to scope the write to one app - a per-app redeploy owns only its
+// target and must not stamp a sibling with this app's error.
+export async function failInFlightApps(namespace: string, error: string, appName?: string): Promise<void> {
+    const logger = rootLogger.child({ name: "failInFlightApps" });
+    logger.info("Failing in-flight app rows", { namespace, appName });
+
+    const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+    if (envRow == null) {
+        logger.warn("Cannot fail in-flight apps: no environment row found", { namespace });
+        return;
+    }
+
+    const { count } = await db.previewkitAppInstance.updateMany({
+        // `appName: undefined` is Prisma's "no filter", i.e. every app in the env.
+        where: { environmentId: envRow.id, status: { notIn: TERMINAL_APP_STATUSES }, appName },
+        data: { status: "deploy_failed", error },
+    });
+    logger.info("Failed in-flight app rows", { namespace, appName, count });
 }
 
 // Per-app redeploy: write ONE app's terminal state and merge it into the

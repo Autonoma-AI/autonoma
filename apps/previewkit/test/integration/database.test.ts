@@ -1,6 +1,7 @@
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import {
+    failInFlightApps,
     markBuildSuperseded,
     recordAppRedeployOutcome,
     recordAppsPending,
@@ -624,6 +625,49 @@ integrationTestSuite({
             expect(byName.worker!.error).toBe("CrashLoopBackOff");
             // worker built successfully, so its image tag is retained even though the deploy failed.
             expect(byName.worker!.imageTag).toBe("worker:v1");
+        });
+
+        test("failInFlightApps fails every unfinished app and leaves finished ones alone", async ({ harness }) => {
+            const organizationId = await harness.createInstallationForOwner("acme");
+            await recordEnvironmentCreated({
+                repoFullName: "acme/web",
+                organizationId,
+                prNumber: 7,
+                headSha: "abc1234",
+                headRef: "main",
+                namespace: "preview-acme-web-pr-7",
+            });
+            const ns = "preview-acme-web-pr-7";
+            await recordAppsPending(ns, [
+                { appName: "web", port: 3000 },
+                { appName: "api", port: 4000 },
+                { appName: "docs", port: 4100 },
+                { appName: "worker", port: 5000 },
+            ]);
+
+            // The shape a failed pre-deploy hook leaves behind: the built apps never
+            // got a deploy verdict, while the build failure and the ready sibling did.
+            await recordAppStates(ns, [
+                { appName: "web", status: "built", port: 3000, imageTag: "web:v1" },
+                { appName: "api", status: "build_failed", port: 4000, error: "tsc failed" },
+                { appName: "docs", status: "ready", port: 4100, imageTag: "docs:v1", url: "https://docs" },
+                { appName: "worker", status: "deploying", port: 5000, imageTag: "worker:v1" },
+            ]);
+
+            await failInFlightApps(ns, 'Hook Job "web-hook-a1b2" failed.');
+
+            const instances = await harness.db.previewkitAppInstance.findMany({ orderBy: { appName: "asc" } });
+            const byName = Object.fromEntries(instances.map((i) => [i.appName, i]));
+            expect(byName.web!.status).toBe("deploy_failed");
+            expect(byName.web!.error).toBe('Hook Job "web-hook-a1b2" failed.');
+            // The image the app did build is kept - only status/error are rewritten.
+            expect(byName.web!.imageTag).toBe("web:v1");
+            expect(byName.worker!.status).toBe("deploy_failed");
+            // Already-terminal rows keep their own verdict and error.
+            expect(byName.api!.status).toBe("build_failed");
+            expect(byName.api!.error).toBe("tsc failed");
+            expect(byName.docs!.status).toBe("ready");
+            expect(byName.docs!.url).toBe("https://docs");
         });
 
         test("recordAppStates overwrites mutable fields on redeploy", async ({ harness }) => {
