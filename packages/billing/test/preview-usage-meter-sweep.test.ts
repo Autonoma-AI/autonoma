@@ -1,10 +1,10 @@
 import { CreditTransactionType, PreviewkitStatus } from "@autonoma/db";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
-import { AmpPrometheusClient } from "../src/preview-usage-meter/amp-prometheus-client";
 import { PreviewUsageMeterSweepService } from "../src/preview-usage-meter/preview-usage-meter-sweep.service";
+import { PrometheusClient } from "../src/preview-usage-meter/prometheus-client";
 import { BillingTestHarness } from "./billing-harness";
-import { FakeAmpRequestSender } from "./fake-amp-request-sender";
+import { FakeQuerySender } from "./fake-query-sender";
 
 /** Always throws - stands in for a transient billing-service failure (DB hiccup, network blip). */
 const throwingBillingService = {
@@ -28,8 +28,8 @@ async function setPreviewUsageRates(harness: BillingTestHarness, organizationId:
     });
 }
 
-function buildSweep(harness: BillingTestHarness, sender: FakeAmpRequestSender): PreviewUsageMeterSweepService {
-    return new PreviewUsageMeterSweepService(harness.db, new AmpPrometheusClient(sender), harness.billingService);
+function buildSweep(harness: BillingTestHarness, sender: FakeQuerySender): PreviewUsageMeterSweepService {
+    return new PreviewUsageMeterSweepService(harness.db, new PrometheusClient(sender), harness.billingService);
 }
 
 integrationTestSuite({
@@ -44,7 +44,7 @@ integrationTestSuite({
                 deployedAt: new Date("2026-07-21T12:30:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const windowEnd = new Date("2026-07-21T12:45:00.000Z");
             sender.respondAt(windowEnd, {
                 cpu: [{ namespace: env.namespace, value: 900 }], // 0.25h * 10 credits/h = 2.5
@@ -91,7 +91,7 @@ integrationTestSuite({
                 deployedAt: new Date("2026-07-21T12:30:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const now = new Date("2026-07-21T13:00:00.000Z");
             const sweep = buildSweep(harness, sender);
 
@@ -112,7 +112,7 @@ integrationTestSuite({
                 deployedAt: new Date("2026-07-21T18:45:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const now = new Date("2026-07-22T00:00:00.000Z");
             const sweep = buildSweep(harness, sender);
 
@@ -126,6 +126,30 @@ integrationTestSuite({
             expect(third).toEqual({ windowsClosed: 0, environmentsMetered: 0 });
         });
 
+        test("resumes at the retention horizon instead of backfilling an ancient checkpoint", async ({ harness }) => {
+            const orgId = await harness.createOrgWithBalance(100_000);
+            await setPreviewUsageRates(harness, orgId);
+            const env = await harness.createPreviewkitEnvironment({
+                organizationId: orgId,
+                deployedAt: new Date("2026-05-21T20:00:00.000Z"),
+            });
+
+            const sender = new FakeQuerySender();
+            const now = new Date("2026-07-22T00:00:00.000Z");
+            const firstWindowEnd = new Date("2026-07-21T00:15:00.000Z");
+            sender.respondAt(firstWindowEnd, { cpu: [{ namespace: env.namespace, value: 900 }] });
+
+            const result = await buildSweep(harness, sender).run(now);
+            expect(result).toEqual({ windowsClosed: 16, environmentsMetered: 16 });
+
+            const earliest = await harness.db.previewkitUsageWindow.findFirstOrThrow({
+                where: { environmentId: env.id },
+                orderBy: { windowStart: "asc" },
+            });
+            expect(earliest.windowStart).toEqual(new Date("2026-07-21T00:00:00.000Z"));
+            expect(earliest.vcpuSeconds).toBe(900);
+        });
+
         test("closes the trailing window for a recently torn-down environment then stops metering it", async ({
             harness,
         }) => {
@@ -137,7 +161,7 @@ integrationTestSuite({
                 tornDownAt: new Date("2026-07-21T09:25:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const now = new Date("2026-07-21T10:00:00.000Z");
             const sweep = buildSweep(harness, sender);
 
@@ -151,14 +175,14 @@ integrationTestSuite({
             expect(second).toEqual({ windowsClosed: 0, environmentsMetered: 0 });
         });
 
-        test("does not advance the checkpoint when an AMP query fails", async ({ harness }) => {
+        test("does not advance the checkpoint when a Prometheus query fails", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             const env = await harness.createPreviewkitEnvironment({
                 organizationId: orgId,
                 deployedAt: new Date("2026-07-21T12:30:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             sender.respondAt(new Date("2026-07-21T12:45:00.000Z"), { cpu: "error" });
 
             const result = await buildSweep(harness, sender).run(new Date("2026-07-21T13:00:00.000Z"));
@@ -180,7 +204,7 @@ integrationTestSuite({
 
             // No respondAt configured for either window - the fake sender defaults to
             // an empty result vector, simulating a scraper that isn't collecting.
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const now = new Date("2026-07-21T13:00:00.000Z");
 
             const result = await buildSweep(harness, sender).run(now);
@@ -209,7 +233,7 @@ integrationTestSuite({
                 deployedAt: new Date("2026-07-21T12:30:00.000Z"),
             });
 
-            const sender = new FakeAmpRequestSender();
+            const sender = new FakeQuerySender();
             const windowEnd = new Date("2026-07-21T12:45:00.000Z");
             sender.respondAt(windowEnd, {
                 cpu: [{ namespace: env.namespace, value: 900 }],
@@ -219,7 +243,7 @@ integrationTestSuite({
 
             const failingSweep = new PreviewUsageMeterSweepService(
                 harness.db,
-                new AmpPrometheusClient(sender),
+                new PrometheusClient(sender),
                 throwingBillingService,
             );
             const failedResult = await failingSweep.run(now);

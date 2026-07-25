@@ -4,7 +4,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { EncryptionHelper } from "@autonoma/utils";
 import { captureCheckIn } from "@sentry/node";
 import { z } from "zod";
-import { env } from "../env";
+import { env } from "../vercel-env";
 
 const logger = rootLogger.child({ name: "VercelBillingInvoicer" });
 const encryptionHelper = new EncryptionHelper(env.VERCEL_ENCRYPTION_KEY);

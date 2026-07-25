@@ -2,7 +2,7 @@ import { CreditTransactionType, db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { EncryptionHelper } from "@autonoma/utils";
 import { captureCheckIn } from "@sentry/node";
-import { env } from "../env";
+import { env } from "../vercel-env";
 
 const logger = rootLogger.child({ name: "VercelUsageReporter" });
 const encryptionHelper = new EncryptionHelper(env.VERCEL_ENCRYPTION_KEY);

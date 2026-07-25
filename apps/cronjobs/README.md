@@ -8,7 +8,7 @@ Scheduled tasks that run periodically for background maintenance and billing ope
 |--------|---------|----------|
 | `vercel-billing-invoicer` | Creates and submits invoices to Vercel for pending billing periods. Marks periods as active and creates next billing period. | Daily (00:00 UTC) |
 | `vercel-usage-reporter` | Reports daily usage metrics (test runs, test generations) to Vercel billing API for all active installations. | Daily (01:00 UTC) |
-| `preview-usage-meter` | Closes wall-clock-aligned 15-minute previewkit compute-usage windows from AMP (Amazon Managed Prometheus) and deducts the corresponding credits. See `@autonoma/billing`'s `preview-usage-meter/` for the sweep/AMP-client implementation. | Every 15 minutes |
+| `preview-usage-meter` | Closes wall-clock-aligned 15-minute previewkit compute-usage windows from the self-hosted Prometheus and deducts the corresponding credits. See `@autonoma/billing`'s `preview-usage-meter/` for the sweep/Prometheus-client implementation. | Every 15 minutes |
 
 ## Running Locally
 
@@ -26,12 +26,19 @@ pnpm usage-meter
 
 ## Environment Variables
 
-These cronjobs rely on:
+Every cronjob needs (`scripts/env.ts`):
 - `DATABASE_URL` - PostgreSQL connection string (from `@autonoma/db`)
-- `VERCEL_ENCRYPTION_KEY` - 64-char hex key used to decrypt `VercelInstallation.accessTokenEnc` (must match the key `apps/api` uses to encrypt it)
 - `SENTRY_DSN` - Sentry DSN for error tracking (from `@autonoma/logger`)
 - `NODE_ENV` - Environment (default: `development`)
-- `AMP_WORKSPACE_URL` / `AMP_REGION` - only used by `preview-usage-meter`; default to the shared production AMP workspace (`deployment/amp/README.md`). The sweep signs requests with SigV4 via the default AWS credential provider chain (EKS Pod Identity in-cluster) - its ServiceAccount's IAM role needs `aps:QueryMetrics` on the workspace ARN, granted out-of-band (see `deployment/cronjob/preview-usage-meter.yaml`).
+
+Anything else belongs to a single job, declared in that job's own env module so its manifest carries only the secrets it uses.
+
+`vercel-billing-invoicer` and `vercel-usage-reporter` (`scripts/vercel-env.ts`):
+- `VERCEL_ENCRYPTION_KEY` - 64-char hex key used to decrypt `VercelInstallation.accessTokenEnc` (must match the key `apps/api` uses to encrypt it)
+
+`preview-usage-meter` (`scripts/preview-usage-meter/env.ts`):
+- `PROMETHEUS_URL` - defaults to `https://prometheus.autonoma.app:9090`, the self-hosted Prometheus both clusters remote_write to (`deployment/prometheus-agent/README.md`)
+- `PROMETHEUS_USERNAME` / `PROMETHEUS_PASSWORD` - HTTP basic auth for `/api/v1/query`; in-cluster these come from the `prometheus-basic-auth` Secret in the `cronjob` namespace (see `deployment/cronjob/preview-usage-meter.yaml`)
 
 ## Deployment
 

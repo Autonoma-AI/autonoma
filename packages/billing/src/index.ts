@@ -12,8 +12,9 @@ export {
     processVercelInvoiceRefunded,
     syncVercelPlanPricing,
 } from "./vercel-webhook-handlers";
-export type { AmpRequestSender } from "./preview-usage-meter/amp-request-sender";
-export { SigV4AmpRequestSender } from "./preview-usage-meter/sigv4-amp-request-sender";
-export { AmpPrometheusClient } from "./preview-usage-meter/amp-prometheus-client";
+export type { QuerySender } from "./preview-usage-meter/query-sender";
+export { HttpQuerySender } from "./preview-usage-meter/http-query-sender";
+export type { PrometheusCredentials } from "./preview-usage-meter/http-query-sender";
+export { PrometheusClient } from "./preview-usage-meter/prometheus-client";
 export { PreviewUsageMeterSweepService } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { PreviewUsageMeterSweepResult } from "./preview-usage-meter/preview-usage-meter-sweep.service";

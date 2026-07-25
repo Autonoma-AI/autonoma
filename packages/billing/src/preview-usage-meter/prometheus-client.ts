@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Service } from "../service";
-import type { AmpRequestSender } from "./amp-request-sender";
+import type { QuerySender } from "./query-sender";
 
 const NAMESPACE_LABEL_PATTERN = "preview-.+";
 const BYTES_PER_GB = 1024 * 1024 * 1024;
@@ -32,8 +32,8 @@ const PrometheusQueryResponseSchema = z.union([PrometheusQuerySuccessSchema, Pro
  * cluster. Both queries are grouped `by (namespace)` so one call prices the
  * whole fleet at once, regardless of how many environments are due.
  */
-export class AmpPrometheusClient extends Service {
-    constructor(private readonly sender: AmpRequestSender) {
+export class PrometheusClient extends Service {
+    constructor(private readonly sender: QuerySender) {
         super();
     }
 
@@ -54,17 +54,19 @@ export class AmpPrometheusClient extends Service {
     }
 
     private async queryByNamespace(query: string, time: Date): Promise<Map<string, number>> {
-        this.logger.info("Querying AMP", { query, time });
+        this.logger.info("Querying Prometheus", { query, time });
 
         const raw = await this.sender.send(query, time);
         const parsed = PrometheusQueryResponseSchema.safeParse(raw);
 
         if (!parsed.success) {
-            throw new Error(`AMP query returned an unexpected response shape: ${parsed.error.message}`);
+            throw new Error(`Prometheus query returned an unexpected response shape: ${parsed.error.message}`);
         }
 
         if (parsed.data.status === "error") {
-            throw new Error(`AMP query error: ${parsed.data.errorType ?? "unknown"} - ${parsed.data.error ?? ""}`);
+            throw new Error(
+                `Prometheus query error: ${parsed.data.errorType ?? "unknown"} - ${parsed.data.error ?? ""}`,
+            );
         }
 
         const byNamespace = new Map<string, number>();
@@ -74,7 +76,7 @@ export class AmpPrometheusClient extends Service {
             byNamespace.set(namespace, Number(sample.value[1]));
         }
 
-        this.logger.info("AMP query complete", { query, namespaceCount: byNamespace.size });
+        this.logger.info("Prometheus query complete", { query, namespaceCount: byNamespace.size });
         return byNamespace;
     }
 }

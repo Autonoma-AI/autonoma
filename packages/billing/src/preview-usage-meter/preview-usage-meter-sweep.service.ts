@@ -2,22 +2,25 @@ import type { PrismaClient } from "@autonoma/db";
 import { PreviewkitStatus } from "@autonoma/db";
 import { Service } from "../service";
 import type { BillingService } from "../types";
-import type { AmpPrometheusClient } from "./amp-prometheus-client";
+import type { PrometheusClient } from "./prometheus-client";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const WINDOW_SECONDS = WINDOW_MS / 1000;
-// Windows close this far behind wall clock to give AMP ingestion time to land
-// the trailing samples of the window before it's queried.
+// Windows close this far behind wall clock to give remote_write ingestion time
+// to land the trailing samples of the window before it's queried.
 const INGESTION_LAG_MS = 5 * 60 * 1000;
-// Bounds one sweep run's AMP query cost/duration: a stale checkpoint catches up
+// Bounds one sweep run's query cost/duration: a stale checkpoint catches up
 // in 4-hour chunks across multiple sweep runs rather than one giant backfill.
 const CATCH_UP_CAP_WINDOWS = 16;
 // Recently-torn-down environments still need their trailing windows closed from
-// AMP's retained historical samples - comfortably wider than the 15-min sweep
+// Prometheus's retained history - comfortably wider than the 15-min sweep
 // cadence so a missed sweep cycle or two doesn't drop a torn-down environment.
 const RECENT_TEARDOWN_LOOKBACK_MS = 2 * 60 * 60 * 1000;
-// A window with zero samples in both series pages once its predecessor was
-// also zero-sample - one missed scrape is noise, two in a row is a dead scraper.
+// Prometheus keeps 7d/25GB (deployment/prometheus-agent/README.md) and evicts on
+// whichever bound hits first, so samples much older than a day aren't reliably
+// there. A checkpoint behind this horizon can only ever close empty, degraded
+// windows, so metering resumes from the horizon instead of grinding through them.
+const MAX_BACKFILL_MS = 24 * 60 * 60 * 1000;
 
 // Caps the ready-environments query so a runaway fleet can't OOM the cronjob.
 // Least-recently-metered environments sort first, so a fleet past this size
@@ -31,6 +34,18 @@ interface MeteredEnvironment {
     checkpoint: Date;
     /** Exclusive upper bound on windowEnd - now (aligned) for a running environment, tornDownAt (aligned) for a torn-down one. */
     boundary: Date;
+}
+
+interface WindowClosure {
+    env: MeteredEnvironment;
+    windowStart: Date;
+    windowEnd: Date;
+    vcpuSeconds: number;
+    gbSeconds: number;
+    /** This environment had no samples in either series - it alone looks unscraped. */
+    degraded: boolean;
+    /** No environment in the fleet had samples: a hole in the metrics, alerted on per window rather than per environment. */
+    fleetWideGap: boolean;
 }
 
 export interface PreviewUsageMeterSweepResult {
@@ -49,6 +64,11 @@ function ceilToWindowBoundary(date: Date): Date {
     return new Date(Math.ceil(date.getTime() / WINDOW_MS) * WINDOW_MS);
 }
 
+/** Newest window boundary far enough behind wall clock for its samples to have landed. */
+function liveEdge(now: Date): Date {
+    return floorToWindowBoundary(new Date(now.getTime() - INGESTION_LAG_MS));
+}
+
 function earliestCeiledCheckpoint(environments: Array<Pick<MeteredEnvironment, "checkpoint">>): Date | undefined {
     return environments
         .map((env) => ceilToWindowBoundary(env.checkpoint))
@@ -59,15 +79,15 @@ function earliestCeiledCheckpoint(environments: Array<Pick<MeteredEnvironment, "
 }
 
 /**
- * Closes wall-clock-aligned 15-minute previewkit compute-usage windows from AMP
- * (Amazon Managed Prometheus) and deducts the corresponding credits. Run every
+ * Closes wall-clock-aligned 15-minute previewkit compute-usage windows from the
+ * self-hosted Prometheus and deducts the corresponding credits. Run every
  * 15 minutes; safe to re-run (or crash mid-run) since every write is keyed on
  * (environmentId, windowStart) or the window id, so a retry is a no-op.
  */
 export class PreviewUsageMeterSweepService extends Service {
     constructor(
         private readonly db: PrismaClient,
-        private readonly amp: AmpPrometheusClient,
+        private readonly prometheus: PrometheusClient,
         private readonly billingService: PreviewUsageBillingService,
     ) {
         super();
@@ -102,31 +122,33 @@ export class PreviewUsageMeterSweepService extends Service {
             let averageGbByNamespace: Map<string, number>;
             try {
                 [cpuByNamespace, averageGbByNamespace] = await Promise.all([
-                    this.amp.queryVcpuSecondsByNamespace(windowEnd),
-                    this.amp.queryAverageGbByNamespace(windowEnd),
+                    this.prometheus.queryVcpuSecondsByNamespace(windowEnd),
+                    this.prometheus.queryAverageGbByNamespace(windowEnd),
                 ]);
             } catch (error) {
-                this.logger.error("AMP query failed; stopping sweep without advancing past this window", error, {
+                this.logger.error("Prometheus query failed; stopping sweep without advancing past this window", error, {
                     windowStart: currentWindowStart,
                     windowEnd,
                 });
                 break;
             }
 
+            const fleetWideGap = cpuByNamespace.size === 0 && averageGbByNamespace.size === 0;
+            if (fleetWideGap) {
+                this.reportFleetWideGap(currentWindowStart, windowEnd, now);
+            }
+
             const results = await Promise.all(
                 due.map(async (env) => {
-                    const vcpuSeconds = cpuByNamespace.get(env.namespace) ?? 0;
-                    const gbSeconds = (averageGbByNamespace.get(env.namespace) ?? 0) * WINDOW_SECONDS;
-                    const degraded = !cpuByNamespace.has(env.namespace) && !averageGbByNamespace.has(env.namespace);
-
-                    const succeeded = await this.closeWindow(
+                    const succeeded = await this.closeWindow({
                         env,
-                        currentWindowStart,
+                        windowStart: currentWindowStart,
                         windowEnd,
-                        vcpuSeconds,
-                        gbSeconds,
-                        degraded,
-                    );
+                        vcpuSeconds: cpuByNamespace.get(env.namespace) ?? 0,
+                        gbSeconds: (averageGbByNamespace.get(env.namespace) ?? 0) * WINDOW_SECONDS,
+                        degraded: !cpuByNamespace.has(env.namespace) && !averageGbByNamespace.has(env.namespace),
+                        fleetWideGap,
+                    });
                     return { env, succeeded };
                 }),
             );
@@ -155,9 +177,10 @@ export class PreviewUsageMeterSweepService extends Service {
         return { windowsClosed, environmentsMetered };
     }
 
-    /** Ready environments (open-ended) plus recently-torn-down ones still owed a trailing window from AMP's retained history. */
+    /** Ready environments (open-ended) plus recently-torn-down ones still owed a trailing window from Prometheus's retained history. */
     private async selectEnvironments(now: Date): Promise<MeteredEnvironment[]> {
-        const globalWindowEnd = floorToWindowBoundary(new Date(now.getTime() - INGESTION_LAG_MS));
+        const globalWindowEnd = liveEdge(now);
+        const backfillHorizon = ceilToWindowBoundary(new Date(now.getTime() - MAX_BACKFILL_MS));
 
         const [readyEnvs, recentlyTornDown] = await Promise.all([
             this.db.previewkitEnvironment.findMany({
@@ -185,7 +208,7 @@ export class PreviewUsageMeterSweepService extends Service {
         const environments: MeteredEnvironment[] = [];
 
         for (const env of readyEnvs) {
-            const checkpoint = env.meteredAt ?? env.deployedAt;
+            const checkpoint = this.clampToHorizon(env.meteredAt ?? env.deployedAt, backfillHorizon, env.id);
             if (checkpoint == null) continue;
             if (checkpoint >= globalWindowEnd) continue;
             environments.push({
@@ -199,7 +222,7 @@ export class PreviewUsageMeterSweepService extends Service {
 
         for (const env of recentlyTornDown) {
             if (env.tornDownAt == null) continue;
-            const checkpoint = env.meteredAt ?? env.deployedAt;
+            const checkpoint = this.clampToHorizon(env.meteredAt ?? env.deployedAt, backfillHorizon, env.id);
             if (checkpoint == null) continue;
 
             const boundary = new Date(
@@ -220,6 +243,47 @@ export class PreviewUsageMeterSweepService extends Service {
     }
 
     /**
+     * A window where no environment at all had samples. Backfilled windows predate
+     * the metrics and are expected to be empty, but the live edge coming back empty
+     * means ~15 minutes with no scrapes landing - the pipeline is down, and nothing
+     * hosted inside Prometheus can report that, since those alerts query the same
+     * empty Prometheus. Alerting here (once per window) rather than per environment
+     * keeps a fleet-wide outage from multiplying by the size of the fleet.
+     */
+    private reportFleetWideGap(windowStart: Date, windowEnd: Date, now: Date): void {
+        if (windowEnd < liveEdge(now)) {
+            this.logger.warn("No previewkit samples for this backfilled window - closing it as a data gap", {
+                windowStart,
+                windowEnd,
+            });
+            return;
+        }
+
+        this.logger.fatal("No previewkit samples for the current window - scrape agents or Prometheus likely down", {
+            windowStart,
+            windowEnd,
+        });
+    }
+
+    /**
+     * Moves a checkpoint that predates the retention horizon up to it, so an
+     * environment that went unmetered for days (a stuck cronjob, a fresh
+     * Prometheus) resumes from queryable samples instead of closing hundreds of
+     * empty windows and firing the degraded-scraper alert on every one.
+     */
+    private clampToHorizon(checkpoint: Date | null, horizon: Date, environmentId: string): Date | undefined {
+        if (checkpoint == null) return undefined;
+        if (checkpoint >= horizon) return checkpoint;
+
+        this.logger.warn("Usage-meter checkpoint predates the retention horizon; skipping ahead", {
+            environmentId,
+            checkpoint,
+            horizon,
+        });
+        return horizon;
+    }
+
+    /**
      * Writes the window row and (if it wasn't already recorded) deducts credits for
      * it. Returns whether the environment's checkpoint may advance past this window -
      * `false` only when the deduction itself threw, so a transient billing failure
@@ -227,14 +291,15 @@ export class PreviewUsageMeterSweepService extends Service {
      * useful usage data on its own), but the checkpoint stays behind until a retry
      * succeeds.
      */
-    private async closeWindow(
-        env: MeteredEnvironment,
-        windowStart: Date,
-        windowEnd: Date,
-        vcpuSeconds: number,
-        gbSeconds: number,
-        degraded: boolean,
-    ): Promise<boolean> {
+    private async closeWindow({
+        env,
+        windowStart,
+        windowEnd,
+        vcpuSeconds,
+        gbSeconds,
+        degraded,
+        fleetWideGap,
+    }: WindowClosure): Promise<boolean> {
         const window = await this.db.previewkitUsageWindow.upsert({
             where: { environmentId_windowStart: { environmentId: env.id, windowStart } },
             create: {
@@ -259,7 +324,9 @@ export class PreviewUsageMeterSweepService extends Service {
             degraded,
         });
 
-        if (degraded) {
+        // A fleet-wide gap is reported once for the whole window (escalating to fatal at
+        // the live edge), so the per-environment path would only restate it N times.
+        if (degraded && !fleetWideGap) {
             await this.alertIfConsecutivelyDegraded(env, windowStart);
         }
 

@@ -1,13 +1,13 @@
 import {
-    AmpPrometheusClient,
     createBillingService,
+    HttpQuerySender,
     PreviewUsageMeterSweepService,
-    SigV4AmpRequestSender,
+    PrometheusClient,
 } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { runWithSentry } from "@autonoma/logger";
 import { captureCheckIn } from "@sentry/node";
-import { env } from "../env";
+import { env } from "./env";
 
 const JOB_NAME = "preview-usage-meter";
 
@@ -15,10 +15,13 @@ async function main() {
     const checkInId = captureCheckIn({ monitorSlug: JOB_NAME, status: "in_progress" });
 
     try {
-        const sender = new SigV4AmpRequestSender(env.AMP_WORKSPACE_URL, env.AMP_REGION);
-        const amp = new AmpPrometheusClient(sender);
+        const sender = new HttpQuerySender(env.PROMETHEUS_URL, {
+            username: env.PROMETHEUS_USERNAME,
+            password: env.PROMETHEUS_PASSWORD,
+        });
+        const prometheus = new PrometheusClient(sender);
         const billingService = createBillingService(db);
-        const sweep = new PreviewUsageMeterSweepService(db, amp, billingService);
+        const sweep = new PreviewUsageMeterSweepService(db, prometheus, billingService);
 
         const result = await sweep.run(new Date());
 
