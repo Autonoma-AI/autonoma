@@ -24,11 +24,9 @@ function formatReason(reason: string): string {
     return reason.replace(/\s+/g, " ").trim();
 }
 
-/** The `Autonoma` check summary shown after a skip, on the check's own detail page. */
-function buildSkipCheckSummary(actorLogin: string, openBugCount: number, reason: string | undefined): string {
-    const base = `@${actorLogin} skipped this check with ${openBugCount} bug(s) open.`;
-    if (reason == null) return base;
-    return `${base} Reason: ${formatReason(reason)}.`;
+/** The `Autonoma` check summary shown after a skip, on the check's own detail page. The reason is pre-formatted. */
+function buildSkipCheckSummary(actorLogin: string, openBugCount: number, reason: string): string {
+    return `@${actorLogin} skipped this check with ${openBugCount} bug(s) open. Reason: ${reason}.`;
 }
 
 /** PR payload fields the gate reads on open/synchronize/reopen/ready. */
@@ -76,8 +74,11 @@ export interface ApplySkipParams {
     githubRepositoryId: number;
     prNumber: number;
     actorLogin: string;
-    /** The free-text reason from the `/autonoma-skip <reason>` comment; absent when the developer gave none. */
-    reason?: string;
+    /**
+     * The free-text reason from the `/autonoma-skip <reason>` comment. Required and non-empty: a skip with no
+     * reason is rejected before it reaches here (the reason is the public-disclosure nudge, so it is mandatory).
+     */
+    reason: string;
 }
 
 export interface RecordMergeParams {
@@ -206,13 +207,36 @@ export class MergeGateService {
         const command = parseSkipCommand(parsed.data.comment.body);
         if (command == null) return; // any other PR comment
 
+        const repoFullName = parsed.data.repository.full_name;
+        const prNumber = parsed.data.issue.number;
+        const actorLogin = parsed.data.comment.user.login;
+
+        // Stay silent on orgs that have not opted into the gate - never comment on a non-gated repo.
+        if (!(await this.isEnabledForOrg(organizationId))) {
+            this.logger.info("Merge gate: ignoring /autonoma-skip (gate not enabled for org)", { organizationId });
+            return;
+        }
+
+        // A reason is mandatory - it is the public-disclosure nudge and the raw material for the customer
+        // conversation. Reject a bare or whitespace-only command with a reply asking for one, and do not skip.
+        const reason = command.reason != null ? formatReason(command.reason) : "";
+        if (reason === "") {
+            this.logger.info("Merge gate: /autonoma-skip rejected - no reason provided", {
+                organizationId,
+                extra: { repoFullName, prNumber, actorLogin },
+            });
+            const client = await this.getInstallationClient(organizationId);
+            await this.postReasonRequiredReply(client, repoFullName, prNumber);
+            return;
+        }
+
         await this.applySkip({
             organizationId,
-            repoFullName: parsed.data.repository.full_name,
+            repoFullName,
             githubRepositoryId: parsed.data.repository.id,
-            prNumber: parsed.data.issue.number,
-            actorLogin: parsed.data.comment.user.login,
-            reason: command.reason,
+            prNumber,
+            actorLogin,
+            reason,
         });
     }
 
@@ -328,7 +352,6 @@ export class MergeGateService {
                     headSha: check.headSha,
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
-                    hasReason: params.reason != null,
                     snapshotId: openBugs.snapshotId,
                 },
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
@@ -349,7 +372,6 @@ export class MergeGateService {
                     prNumber: params.prNumber,
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
-                    hasReason: params.reason != null,
                 },
             });
         });
@@ -517,6 +539,29 @@ export class MergeGateService {
     }
 
     /**
+     * Reply to a `/autonoma-skip` comment that carried no reason, asking for one. Best-effort: a failure is logged,
+     * never thrown - the developer can just comment again.
+     */
+    private async postReasonRequiredReply(
+        client: GitHubInstallationClient,
+        repoFullName: string,
+        prNumber: number,
+    ): Promise<void> {
+        const body =
+            "To skip the Autonoma check, please include a reason: `/autonoma-skip <why>`. " +
+            "It will be posted publicly on this PR.";
+        try {
+            await client.postComment(repoFullName, prNumber, body);
+            this.logger.info("Merge gate: posted reason-required reply", { extra: { repoFullName, prNumber } });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to post reason-required reply", {
+                extra: { repoFullName, prNumber },
+                err,
+            });
+        }
+    }
+
+    /**
      * Post a standalone PR comment attributing the skip, so the bypass is visible in the PR conversation.
      */
     private async postSkipNote(params: {
@@ -525,12 +570,11 @@ export class MergeGateService {
         prNumber: number;
         actorLogin: string;
         openBugCount: number;
-        reason?: string;
+        reason: string;
     }): Promise<string | undefined> {
         const bugCount = params.openBugCount;
-        const becauseClause = params.reason != null ? ` because ${formatReason(params.reason)}` : "";
         const bugsClause = `${bugCount} ${bugCount === 1 ? "bug was" : "bugs were"} open`;
-        const headline = `@${params.actorLogin} skipped the Autonoma check${becauseClause} (${bugsClause}).`;
+        const headline = `@${params.actorLogin} skipped the Autonoma check because ${params.reason} (${bugsClause}).`;
         const body = renderMarkdown(
             payloadBuilder({ state: "skipped", prNumber: params.prNumber, message: headline }),
             {

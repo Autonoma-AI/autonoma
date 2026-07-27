@@ -121,7 +121,6 @@ apiTestSuite({
                 headSha: "head-1",
                 actorLogin: "dev-who-skipped",
                 openBugCount: 2,
-                hasReason: true,
                 snapshotId,
             });
 
@@ -148,7 +147,7 @@ apiTestSuite({
             await service.postPending({ ...fixture.postParams });
             await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
 
-            const payload = skipCommentPayload(fixture, "/autonoma-skip", "dev");
+            const payload = skipCommentPayload(fixture, "/autonoma-skip fixing later", "dev");
             await service.applySkipFromCommentWebhook(harness.organizationId, payload);
             await service.applySkipFromCommentWebhook(harness.organizationId, payload);
 
@@ -156,12 +155,49 @@ apiTestSuite({
                 where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
             });
             expect(records).toHaveLength(1);
-            expect(records[0]?.reason).toBeNull();
+            expect(records[0]?.reason).toBe("fixing later");
             expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("neutral");
             expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(1);
             expect(
                 fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check")),
             ).toHaveLength(1);
+        });
+
+        test("a /autonoma-skip with no reason is rejected: no skip, and a reply asks for a reason", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const fixture = await createRepoApp(harness, "gate-skip-noreason");
+            await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
+
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+
+            // A bare command and a whitespace-only reason are both rejected.
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip", "dev"),
+            );
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip    ", "dev"),
+            );
+
+            // Nothing was skipped: the check stays failing, no SkipRecord, no skip event, no attribution note.
+            expect(await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } })).toBeNull();
+            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("failure");
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(0);
+            expect(
+                fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check")),
+            ).toHaveLength(0);
+
+            // Each invocation replies asking for a reason.
+            const replies = fixture.fakeClient.comments.filter((c) => c.body.includes("please include a reason"));
+            expect(replies).toHaveLength(2);
+            expect(replies[0]?.prNumber).toBe(42);
+            expect(replies[0]?.body).toContain("/autonoma-skip <why>");
         });
 
         test("applySkipFromCommentWebhook ignores non-command comments and comments on a passing check", async ({

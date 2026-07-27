@@ -15,11 +15,12 @@ import { ANALYSIS_VERDICT, type AnalysisVerdict, type CoverageSummary, type Susp
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 
 /**
- * The skip-instruction callout appended under the headline when the merge gate is blocking this PR.
+ * The skip-instruction callout appended under the headline when the merge gate is blocking this PR. States that a
+ * reason is required (a bare `/autonoma-skip` is rejected) and that it is posted publicly on the PR.
  */
 const MERGE_GATE_SKIP_CALLOUT =
     `> 🔒 This check blocks merging. Fix the reported bug(s), or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
-    "on this PR to merge anyway.";
+    "on this PR to merge anyway. A reason is required, and it is posted publicly on the PR.";
 
 /**
  * A human noun for each verdict, keyed over the SSOT enum so a new verdict is a compile error until it is given

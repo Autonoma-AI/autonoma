@@ -121,8 +121,9 @@ authoritative analysis verdict).
   check on `pull_request.opened/synchronize/reopened/ready_for_review`; honor a `/autonoma-skip <reason>` comment on
   an `issue_comment.created` webhook (resolve the PR's current check, write a `SkipRecord` snapshotting the open
   bugs + the reason, flip the check to `neutral`, post a `skipped`-state attribution comment, and fire a best-effort
-  Slack alert via `MergeGateSlackNotifier` - the `SLACK_BOT_TOKEN` bot posting to `MERGE_GATE_SLACK_CHANNEL`);
-  persist merge
+  Slack alert via `MergeGateSlackNotifier` - the `SLACK_BOT_TOKEN` bot posting to `MERGE_GATE_SLACK_CHANNEL`); a
+  reason is mandatory, so a bare or whitespace-only `/autonoma-skip` does not skip - it replies asking for a reason
+  and leaves the check failing; persist merge
   facts and detect a "merged around us" bypass on `pull_request.closed`; and, on enable/disable, create/remove a
   repo ruleset that requires the `Autonoma` check on ALL branches - so every PR is gated regardless of its base
   branch, not only the default branch. The check, verdict, and skip already apply to every PR on any branch; the
