@@ -111,7 +111,19 @@ apiTestSuite({
                 where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
             });
             expect(row?.conclusion).toBe("neutral");
-            expect(analytics.captures.map((c) => c.event)).toContain("merge_gate.skipped");
+
+            const skipEvents = analytics.captures.filter((c) => c.event === "merge_gate.skipped");
+            expect(skipEvents).toHaveLength(1);
+            expect(skipEvents[0]?.properties).toMatchObject({
+                organizationId: harness.organizationId,
+                repoFullName: fixture.repoFullName,
+                prNumber: 42,
+                headSha: "head-1",
+                actorLogin: "dev-who-skipped",
+                openBugCount: 2,
+                hasReason: true,
+                snapshotId,
+            });
 
             // A standalone PR comment makes the skip visible, attributing who + the open-bug count + the reason.
             const skipNotes = fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check"));

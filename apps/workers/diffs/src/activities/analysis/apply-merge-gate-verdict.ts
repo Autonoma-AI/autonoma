@@ -106,7 +106,15 @@ export async function concludeMergeGate({
     analytics.capture(
         meta.organizationId,
         MERGE_GATE_EVENT.checkPosted,
-        { conclusion: result.conclusion, prNumber: prMeta.prNumber, repoFullName: github.repoFullName },
+        {
+            organizationId: meta.organizationId,
+            repoFullName: github.repoFullName,
+            prNumber: prMeta.prNumber,
+            headSha: meta.headSha,
+            conclusion: result.conclusion,
+            snapshotId: meta.snapshotId,
+            openBugCount: report?.clientBugHeadlines.length ?? 0,
+        },
         { [MERGE_GATE_ANALYTICS_GROUP]: meta.organizationId },
     );
 

@@ -322,11 +322,14 @@ export class MergeGateService {
                 params.organizationId,
                 MERGE_GATE_EVENT.skipped,
                 {
+                    organizationId: params.organizationId,
+                    repoFullName: params.repoFullName,
+                    prNumber: params.prNumber,
+                    headSha: check.headSha,
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
                     hasReason: params.reason != null,
-                    prNumber: params.prNumber,
-                    repoFullName: params.repoFullName,
+                    snapshotId: openBugs.snapshotId,
                 },
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
             );
