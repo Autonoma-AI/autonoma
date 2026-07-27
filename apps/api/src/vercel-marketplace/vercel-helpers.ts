@@ -1,11 +1,9 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { encryptionHelper } from "../encryption";
-import { upsertVercelEnvVar } from "./vercel-project-api";
+import { getVercelEncryptionHelper } from "../context";
 
 const VERCEL_MARKETPLACE_SSO_URL = "https://vercel.com/api/marketplace/sso";
-const AUTONOMA_SHARED_SECRET_KEY = "AUTONOMA_SHARED_SECRET";
-const SHARED_SECRET_ENV_TARGETS = ["production", "preview", "development"];
 
 /**
  * Builds a link that routes through Vercel's own marketplace SSO broker
@@ -173,43 +171,49 @@ export async function applyVercelProtectionBypassHeader(applicationId: string, b
 }
 
 /**
- * Pushes the application's webhook shared secret into the linked Vercel project's
- * own env vars as `AUTONOMA_SHARED_SECRET`, so the user never has to copy it into
- * the Vercel dashboard by hand. Best-effort: never throws, since this is an
- * automation on top of a project link/connect that must succeed either way.
+ * Copies the Vercel installation's fixed shared secret onto the application's
+ * own `signingSecretEnc`, so our webhook-signature verification matches what
+ * Vercel already injected into the project's env as `AUTONOMA_SHARED_SECRET`
+ * (via the resource's `secrets` response at provisioning time - see
+ * `createResourceSecrets`). There is no write-path to Vercel's env API here on
+ * purpose: the installation's OAuth token has no `env:write` scope on any
+ * installation observed so far, so pushing a value through the REST env API
+ * silently fails - Vercel's own Marketplace resource-secret injection is the
+ * only channel that reliably reaches the customer's project. Best-effort:
+ * never throws, since this runs on top of a project link/connect that must
+ * succeed either way.
  */
-export async function applyVercelSharedSecretEnv(
+export async function adoptVercelInstallationSharedSecret(
     applicationId: string,
-    vercelProjectId: string,
-    teamId: string | undefined,
-    accessToken: string,
+    vercelInstallationId: string,
 ): Promise<void> {
-    const logger = rootLogger.child({ name: "applyVercelSharedSecretEnv" });
-
-    const app = await db.application.findUnique({
-        where: { id: applicationId },
-        select: { signingSecretEnc: true },
-    });
-    if (app?.signingSecretEnc == null) {
-        logger.info("Application has no shared secret yet, skipping Vercel env sync", { applicationId });
-        return;
-    }
+    const logger = rootLogger.child({ name: "adoptVercelInstallationSharedSecret" });
 
     try {
-        const sharedSecret = encryptionHelper.decrypt(app.signingSecretEnc);
-        await upsertVercelEnvVar(
-            vercelProjectId,
-            teamId,
-            accessToken,
-            AUTONOMA_SHARED_SECRET_KEY,
-            sharedSecret,
-            SHARED_SECRET_ENV_TARGETS,
-        );
-        logger.info("Synced AUTONOMA_SHARED_SECRET to Vercel project", { applicationId, vercelProjectId });
-    } catch (error) {
-        logger.error("Failed to sync AUTONOMA_SHARED_SECRET to Vercel project", {
+        const installation = await db.vercelInstallation.findUnique({
+            where: { id: vercelInstallationId },
+            select: { sharedSecretEnc: true },
+        });
+        if (installation?.sharedSecretEnc == null) {
+            logger.warn("Vercel installation has no shared secret to adopt", {
+                applicationId,
+                vercelInstallationId,
+            });
+            return;
+        }
+
+        const sharedSecret = getVercelEncryptionHelper().decrypt(installation.sharedSecretEnc);
+        const signingSecretEnc = encryptionHelper.encrypt(sharedSecret);
+        await db.application.update({ where: { id: applicationId }, data: { signingSecretEnc } });
+
+        logger.info("Adopted Vercel installation shared secret onto application", {
             applicationId,
-            vercelProjectId,
+            vercelInstallationId,
+        });
+    } catch (error) {
+        logger.error("Failed to adopt Vercel installation shared secret onto application", {
+            applicationId,
+            vercelInstallationId,
             error,
         });
     }

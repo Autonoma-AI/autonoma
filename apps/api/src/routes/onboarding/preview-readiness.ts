@@ -258,10 +258,14 @@ export async function buildExistingDeploysReadiness(
 
     // Only persist the verified transition once. Readiness is polled, so
     // re-writing on every poll bumps `updatedAt` (breaking the signal
-    // `acceptedAt` reading) and would roll a `completed` onboarding back.
-    const alreadyVerified = step === "preview_verified" && previewVerificationStatus === "ready";
-    const isCompleted = step === "completed";
-    if (!alreadyVerified && !isCompleted) {
+    // `acceptedAt` reading) and, worse, would roll an onboarding that already
+    // advanced past `preview_verified` (`diff_trigger`/`completed`) back down.
+    // Still re-persist when the app sits at `preview_verified` with a non-ready
+    // status, so a stale status recovers to `ready`.
+    const alreadyAtOrPastVerified =
+        isStepAtOrPast(step, "preview_verified") &&
+        (step !== "preview_verified" || previewVerificationStatus === "ready");
+    if (!alreadyAtOrPastVerified) {
         await db.onboardingState.update({
             where: { applicationId },
             data: {
@@ -557,15 +561,18 @@ export async function writePreviewUrl(
             update: { url: previewUrl },
         });
 
-        // Keep the URL fresh but never roll a finished onboarding back to
-        // `preview_verified` - that would drop it out of the completed state.
-        const isCompleted = application?.onboardingState?.step === "completed";
+        // Keep the URL fresh but never roll an onboarding that already reached
+        // `preview_verified` back down - a signal firing for a `diff_trigger` (or
+        // `completed`) app must not demote it to `preview_verified` and strand it
+        // short of go-live. Only stamp the verified transition when still before it.
+        const step = application?.onboardingState?.step ?? "github";
+        const alreadyAtOrPastVerified = isStepAtOrPast(step, "preview_verified");
         await tx.onboardingState.update({
             where: { applicationId },
             data: {
                 previewUrl,
                 productionUrl: previewUrl,
-                ...(isCompleted ? {} : { step: "preview_verified", previewVerificationStatus: "ready" }),
+                ...(alreadyAtOrPastVerified ? {} : { step: "preview_verified", previewVerificationStatus: "ready" }),
             },
         });
     });

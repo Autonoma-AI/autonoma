@@ -2847,6 +2847,11 @@ model VercelInstallation {
   userId               String                   @map("user_id")
   status               VercelInstallationStatus @default(active)
   accessTokenEnc       String?                  @map("access_token_enc")
+  /// Fixed per-installation secret, generated once at resource-provisioning time and
+  /// handed to Vercel as `AUTONOMA_SHARED_SECRET` in the resource's `secrets` response so
+  /// Vercel injects it into every connected project itself - the installation's OAuth
+  /// token has no `env:write` scope, so writing it via the REST env API is not reliable.
+  sharedSecretEnc      String?                  @map("shared_secret_enc")
   billingPlanId        String?                  @map("billing_plan_id")
   createdAt            DateTime                 @default(now()) @map("created_at")
   updatedAt            DateTime                 @updatedAt @map("updated_at")

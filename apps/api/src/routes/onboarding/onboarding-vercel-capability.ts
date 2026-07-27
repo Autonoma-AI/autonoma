@@ -2,7 +2,10 @@ import { type PrismaClient, VercelInstallationStatus } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import { env } from "../../env";
-import { applyVercelProtectionBypassHeader, applyVercelSharedSecretEnv } from "../../vercel-marketplace/vercel-helpers";
+import {
+    adoptVercelInstallationSharedSecret,
+    applyVercelProtectionBypassHeader,
+} from "../../vercel-marketplace/vercel-helpers";
 import {
     getVercelDeployment as getVercelDeploymentFromApi,
     listVercelDeployments as listVercelDeploymentsFromApi,
@@ -151,7 +154,7 @@ export class OnboardingVercelCapabilityService {
 
         const installation = await this.db.vercelInstallation.findFirst({
             where: { organizationId, status: VercelInstallationStatus.active },
-            select: { id: true, accessTokenEnc: true },
+            select: { id: true },
         });
         if (installation == null) {
             throw new BadRequestError("No active Vercel installation for this organization");
@@ -184,15 +187,7 @@ export class OnboardingVercelCapabilityService {
             await applyVercelProtectionBypassHeader(app.id, secret);
         }
 
-        if (installation.accessTokenEnc != null) {
-            const accessToken = this.getEncryptionHelper().decrypt(installation.accessTokenEnc);
-            await applyVercelSharedSecretEnv(app.id, vercelProjectId, undefined, accessToken);
-        } else {
-            this.logger.warn("Vercel installation has no access token, skipping shared secret env sync", {
-                applicationId,
-                vercelProjectId,
-            });
-        }
+        await adoptVercelInstallationSharedSecret(app.id, installation.id);
 
         this.logger.info("Linked Vercel project", { applicationId, vercelProjectId, connectionId: connection.id });
     }
@@ -266,13 +261,15 @@ export class OnboardingVercelCapabilityService {
 
     /**
      * Redeploys a chosen Vercel deployment so it rebuilds with the project's
-     * current env vars - most importantly the `AUTONOMA_SHARED_SECRET` we inject
-     * on link, which only takes effect on new builds. The redeploy gets a NEW id
-     * + URL, so this returns them for the caller to poll and then commit via
-     * `selectVercelDeployment`. Re-fetches the deployment list rather than
-     * trusting a client-supplied id, so a stale or tampered dropdown selection
-     * can't redeploy an arbitrary deployment. Does NOT write the preview URL -
-     * the new deployment is still building.
+     * current env vars. `AUTONOMA_SHARED_SECRET` no longer depends on this - it's
+     * injected by Vercel itself at resource-provisioning time (see
+     * `createResourceSecrets`) and present on every build from the start - but
+     * other env var changes still only take effect on a new build. The redeploy
+     * gets a NEW id + URL, so this returns them for the caller to poll and then
+     * commit via `selectVercelDeployment`. Re-fetches the deployment list rather
+     * than trusting a client-supplied id, so a stale or tampered dropdown
+     * selection can't redeploy an arbitrary deployment. Does NOT write the
+     * preview URL - the new deployment is still building.
      */
     async redeployVercelDeployment(
         applicationId: string,

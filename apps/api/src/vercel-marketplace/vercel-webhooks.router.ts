@@ -12,8 +12,8 @@ import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { buildSdkUrl } from "../routes/onboarding/sdk-url";
 import {
+    adoptVercelInstallationSharedSecret,
     applyVercelProtectionBypassHeader,
-    applyVercelSharedSecretEnv,
     buildVercelSsoRedirectUrl,
 } from "./vercel-helpers";
 import { fetchVercelProjectDetails, registerVercelCheck, updateVercelProtectionBypass } from "./vercel-project-api";
@@ -266,7 +266,7 @@ async function handleProjectConnected(payload: ProjectConnectPayload): Promise<v
     });
 
     await applyVercelProtectionBypassHeader(existingApp.id, secret);
-    await applyVercelSharedSecretEnv(existingApp.id, projectId, team.id, accessToken);
+    await adoptVercelInstallationSharedSecret(existingApp.id, installation.id);
 
     logger.info("Linked Vercel project to existing application", {
         applicationId: existingApp.id,

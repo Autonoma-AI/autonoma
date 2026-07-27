@@ -80,10 +80,6 @@ const VercelDeploymentListResponseSchema = z.object({
     deployments: z.array(VercelDeploymentListItemSchema),
 });
 
-const VercelEnvVarListItemSchema = z.object({ id: z.string(), key: z.string() });
-
-const VercelEnvVarListResponseSchema = z.object({ envs: z.array(VercelEnvVarListItemSchema) });
-
 const VercelDeploymentStateSchema = z.object({
     id: z.string(),
     url: z.string(),
@@ -369,79 +365,4 @@ export async function getVercelDeployment(
     const deployment = VercelDeploymentStateSchema.parse(await res.json());
     logger.info("Fetched Vercel deployment", { deploymentId, readyState: deployment.readyState });
     return { id: deployment.id, url: `https://${deployment.url}`, readyState: deployment.readyState };
-}
-
-async function findExistingVercelEnvVar(
-    projectId: string,
-    teamId: string | undefined,
-    accessToken: string,
-    key: string,
-): Promise<string | undefined> {
-    let res: Response;
-    try {
-        res = await fetch(withTeamId(`${VERCEL_API_BASE}/v9/projects/${projectId}/env`, teamId), {
-            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        });
-    } catch (error) {
-        throw new ThirdPartyError("vercel", error, "Network error listing Vercel env vars");
-    }
-
-    if (!res.ok) {
-        const body = await res.text();
-        logger.warn("Failed to list Vercel env vars, will attempt to create instead", {
-            projectId,
-            status: res.status,
-            body,
-        });
-        return undefined;
-    }
-
-    const { envs } = VercelEnvVarListResponseSchema.parse(await res.json());
-    return envs.find((env) => env.key === key)?.id;
-}
-
-/**
- * Creates or updates a Vercel project env var. Looks the key up first (Vercel's
- * create endpoint 409s on a duplicate key/target) so a re-link or a retried call
- * updates the existing value instead of failing.
- */
-export async function upsertVercelEnvVar(
-    projectId: string,
-    teamId: string | undefined,
-    accessToken: string,
-    key: string,
-    value: string,
-    targets: string[],
-): Promise<void> {
-    logger.info("Upserting Vercel project env var", { projectId, key, targets });
-
-    const existingEnvId = await findExistingVercelEnvVar(projectId, teamId, accessToken, key);
-
-    const path =
-        existingEnvId != null ? `/v10/projects/${projectId}/env/${existingEnvId}` : `/v10/projects/${projectId}/env`;
-    const method = existingEnvId != null ? "PATCH" : "POST";
-    const body =
-        existingEnvId != null ? { value, target: targets } : { key, value, type: "encrypted", target: targets };
-
-    let res: Response;
-    try {
-        res = await fetch(withTeamId(`${VERCEL_API_BASE}${path}`, teamId), {
-            method,
-            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-        });
-    } catch (error) {
-        throw new ThirdPartyError("vercel", error, "Network error upserting Vercel env var");
-    }
-
-    if (!res.ok) {
-        const resBody = await res.text();
-        throw new ThirdPartyError(
-            "vercel",
-            new Error(`${res.status} ${res.statusText}: ${resBody}`),
-            "Failed to upsert Vercel env var",
-        );
-    }
-
-    logger.info("Upserted Vercel project env var", { projectId, key, updated: existingEnvId != null });
 }

@@ -18,6 +18,7 @@ const logger = rootLogger.child({ name: "VercelInstallationsRouter" });
 interface ProvisionedResourceSecrets {
     clientId: string;
     secretId: string;
+    sharedSecret: string;
 }
 
 // ─── Request body schemas ─────────────────────────────────────────────────────
@@ -118,11 +119,18 @@ async function getDefaultPlan() {
 }
 
 /**
- * Creates an API key for the org's first member, to hand back to Vercel as
- * resource secrets. Returns the secrets on success, or `undefined` when no
- * member exists to own the key - callers log and fall back accordingly.
+ * Creates an API key for the org's first member and a fixed per-installation
+ * shared secret, to hand back to Vercel as resource secrets. Vercel injects
+ * these into every project later connected to the resource - this is the
+ * only reliable env-var channel here, since the installation's OAuth token
+ * has no `env:write` scope on any installation we've observed. Returns the
+ * secrets on success, or `undefined` when no member exists to own the API
+ * key - callers log and fall back accordingly.
  */
-async function createResourceSecrets(organizationId: string): Promise<ProvisionedResourceSecrets | undefined> {
+async function createResourceSecrets(
+    organizationId: string,
+    installationId: string,
+): Promise<ProvisionedResourceSecrets | undefined> {
     const member = await db.member.findFirst({
         where: { organizationId },
         select: { userId: true },
@@ -147,8 +155,14 @@ async function createResourceSecrets(organizationId: string): Promise<Provisione
         select: { id: true },
     });
 
-    logger.info("API key created for Vercel resource", { organizationId });
-    return { clientId: apiKey.id, secretId: rawKey };
+    const sharedSecret = randomBytes(32).toString("hex");
+    await db.vercelInstallation.update({
+        where: { id: installationId },
+        data: { sharedSecretEnc: getVercelEncryptionHelper().encrypt(sharedSecret) },
+    });
+
+    logger.info("API key and shared secret created for Vercel resource", { organizationId, installationId });
+    return { clientId: apiKey.id, secretId: rawKey, sharedSecret };
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -623,7 +637,7 @@ vercelInstallationsRouter.post("/:installationId/resources", async (c) => {
     // the resource's API key secrets touch unrelated rows, so they run concurrently.
     const [, secrets] = await Promise.all([
         syncVercelPlanPricing(installation.organizationId, plan.creditsPerCycle),
-        createResourceSecrets(installation.organizationId),
+        createResourceSecrets(installation.organizationId, installation.id),
     ]);
 
     // Create billing period and invoice
@@ -662,6 +676,7 @@ vercelInstallationsRouter.post("/:installationId/resources", async (c) => {
             secrets: [
                 { name: "AUTONOMA_CLIENT_ID", value: secrets.clientId },
                 { name: "AUTONOMA_SECRET_ID", value: secrets.secretId },
+                { name: "AUTONOMA_SHARED_SECRET", value: secrets.sharedSecret },
             ],
         },
         201,
