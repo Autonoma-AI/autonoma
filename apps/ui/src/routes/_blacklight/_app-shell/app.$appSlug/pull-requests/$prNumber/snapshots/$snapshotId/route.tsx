@@ -2,6 +2,7 @@ import { Button, cn, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from 
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
+import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisReportBody } from "components/analysis/analysis-report-body";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
@@ -14,10 +15,12 @@ import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import { useAuth } from "lib/auth";
 import {
   ensureAnalysisIssuesData,
+  ensureAnalysisJobData,
   ensureAnalysisReportData,
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
   FULL_SNAPSHOT_DETAIL,
+  useAnalysisJob,
   useAnalysisReport,
   useSnapshotDetail,
   useSnapshotReport,
@@ -35,9 +38,10 @@ export const Route = createFileRoute(
   loader: async ({ context, params: { appSlug, snapshotId } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    const [, , analysisReport] = await Promise.all([
+    const [, , , analysisReport] = await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
       ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
+      ensureAnalysisJobData(context.queryClient, snapshotId),
       ensureAnalysisReportData(context.queryClient, snapshotId),
     ]);
     // The report prose resolves its `issue:` tokens against the whole BRANCH's issues - it is PR-cumulative, so it
@@ -64,9 +68,12 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
   const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
-  // Presence of an authoritative analysis report is the page-level gate: when set, render the new findings-first
-  // layout; otherwise leave the diffs sections untouched. Prefetched in the loader, so this never flashes.
-  const { data: analysisReport } = useAnalysisReport(snapshotId);
+  // The `AnalysisJob` (null for a diffs snapshot) is the page-level gate: its presence means the merged pipeline
+  // ran, so render the authoritative layout even before a report exists. The report supplies the content once it
+  // lands and polls until then (driven by the job's status); while it is still null the run's lifecycle status
+  // stands in. Both are prefetched in the loader, so neither flashes.
+  const { data: analysisJob } = useAnalysisJob(snapshotId);
+  const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
   const { isAdmin } = useAuth();
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
@@ -77,7 +84,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const showingFindings = location.pathname.includes("/findings");
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const { changes, createdTests, diffsJob, refinementLoop } = detail;
-  const isAuthoritative = analysisReport != null;
+  const isAuthoritative = analysisJob != null;
 
   if (showingInvestigation || showingFindings) return <Outlet />;
 
@@ -111,17 +118,21 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
         <div className="flex flex-col lg:min-h-0 lg:flex-1">
           <Outlet />
         </div>
-      ) : analysisReport != null ? (
-        <div className="flex flex-col gap-6">
-          <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
-          {isAdmin && analysisReport.impactReasoning != null && (
-            <ReasoningPanel
-              title="Impact analysis"
-              content={analysisReport.impactReasoning}
-              empty="Analysis has not produced a selection summary yet."
-            />
-          )}
-        </div>
+      ) : analysisJob != null ? (
+        analysisReport != null ? (
+          <div className="flex flex-col gap-6">
+            <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
+            {isAdmin && analysisReport.impactReasoning != null && (
+              <ReasoningPanel
+                title="Impact analysis"
+                content={analysisReport.impactReasoning}
+                empty="Analysis has not produced a selection summary yet."
+              />
+            )}
+          </div>
+        ) : (
+          <AnalysisJobStatus job={analysisJob} />
+        )
       ) : (
         <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}

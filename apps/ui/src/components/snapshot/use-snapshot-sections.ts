@@ -1,4 +1,4 @@
-import { FULL_SNAPSHOT_DETAIL, useAnalysisReport, useSnapshotDetail } from "lib/query/branches.queries";
+import { FULL_SNAPSHOT_DETAIL, useAnalysisJob, useAnalysisReport, useSnapshotDetail } from "lib/query/branches.queries";
 import { useMemo } from "react";
 import { buildAnalysisSections } from "./analysis-entries";
 import { buildSections, type Section, type TestEntry } from "./snapshot-entries";
@@ -10,14 +10,19 @@ import { buildSections, type Section, type TestEntry } from "./snapshot-entries"
 // react-query's cache, so calling this in several components is cheap.
 export function useSnapshotSections(snapshotId: string): Section[] {
     const { data } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
-    const { data: analysisReport } = useAnalysisReport(snapshotId);
+    const { data: analysisJob } = useAnalysisJob(snapshotId);
+    const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
     const { changes, diffsJob, createdTests } = data;
     const findings = analysisReport?.findings;
+    const isAuthoritative = analysisJob != null;
 
     return useMemo(() => {
-        if (findings != null) return buildAnalysisSections({ findings, changes });
+        // An authoritative run's suite changes are its findings. Until the report lands (running) or when the run
+        // failed, there are no authoritative sections - and the raw plan diff must NOT be shown, since a failed
+        // run's changes are discarded. The changes page renders a run-status empty state in that case.
+        if (isAuthoritative) return findings != null ? buildAnalysisSections({ findings, changes }) : [];
         return buildSections({ changes, affectedTests: diffsJob.affectedTests, createdTests });
-    }, [findings, changes, diffsJob.affectedTests, createdTests]);
+    }, [isAuthoritative, findings, changes, diffsJob.affectedTests, createdTests]);
 }
 
 // Resolves the single test entry addressed by `testId` (its `urlId`) within the snapshot.

@@ -117,17 +117,30 @@ export async function ensureInvestigationReportData(queryClient: QueryClient, sn
     await ensureAPIQueryData(queryClient, trpc.branches.investigationReportData.queryOptions({ snapshotId }));
 }
 
+/** The AnalysisJob lifecycle status, mirrored from the router output (the db enum is not importable here). */
+export type AnalysisJobStatus = NonNullable<RouterOutputs["branches"]["analysisJob"]>["status"];
+
 /**
- * The authoritative analysis report (the Reporter's prose + summary, and this run's findings) for a snapshot. This
- * is the page-level gate: when it resolves non-null the snapshot page renders the authoritative layout; otherwise the
- * diffs UI is left untouched. A suspense query prefetched in the snapshot route loader - the queryFn resolves to
- * `null` (a valid value) for a diffs snapshot, so the gate never flashes. User-facing (not internal-gated).
+ * The authoritative analysis report (the Reporter's prose + summary, and this run's findings) for a snapshot,
+ * `null` for a diffs snapshot. A suspense query prefetched in the route loaders.
+ *
+ * Pass the run's `jobStatus` to keep the query polling while a run that has not produced a report yet is still
+ * expected to - `running`, or `completed` but not yet observed (settlement writes the report before it flips the
+ * job, so the completed-with-no-report window is transient and this closes it). A `failed` run never produces a
+ * report and a diffs snapshot has no job, so both settle to no polling. Content-only callers (finding detail, the
+ * changes list) omit `jobStatus` and never poll - they render a report a page above has already settled.
  */
-export function useAnalysisReport(snapshotId: string) {
-    return useSuspenseQuery(trpc.branches.analysisReport.queryOptions({ snapshotId }));
+export function useAnalysisReport(snapshotId: string, opts?: { jobStatus?: AnalysisJobStatus }) {
+    const jobStatus = opts?.jobStatus;
+    return useSuspenseQuery({
+        ...trpc.branches.analysisReport.queryOptions({ snapshotId }),
+        refetchInterval: (query) =>
+            query.state.data == null && jobStatus != null && jobStatus !== "failed" ? 5000 : false,
+        refetchIntervalInBackground: true,
+    });
 }
 
-/** True when the snapshot has an authoritative analysis report (drives the authoritative page/changes layout). */
+/** True when the snapshot has an authoritative analysis report (drives the authoritative changes-detail layout). */
 export function useIsAuthoritativeSnapshot(snapshotId: string): boolean {
     const { data } = useAnalysisReport(snapshotId);
     return data != null;
@@ -136,20 +149,6 @@ export function useIsAuthoritativeSnapshot(snapshotId: string): boolean {
 /** Returns the report so a loader can chain the branch-scoped reads that need its `branchId`. */
 export async function ensureAnalysisReportData(queryClient: QueryClient, snapshotId: string) {
     return await ensureAPIQueryData(queryClient, trpc.branches.analysisReport.queryOptions({ snapshotId }));
-}
-
-/**
- * The authoritative analysis report for the PR page, polled while the run is still in flight so the page flips
- * from the AnalysisJob-status fallback to the findings list the moment finalize writes the report. Terminal jobs
- * never poll (a completed run already has its report, a failed one never will). Shares the `analysisReport` query
- * key with `useAnalysisReport`, so both observers re-render together when the report lands.
- */
-export function useAuthoritativeAnalysisReport(snapshotId: string, jobRunning: boolean) {
-    return useSuspenseQuery({
-        ...trpc.branches.analysisReport.queryOptions({ snapshotId }),
-        refetchInterval: (query) => (query.state.data == null && jobRunning ? 5000 : false),
-        refetchIntervalInBackground: true,
-    });
 }
 
 /**

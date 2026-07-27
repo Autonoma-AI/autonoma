@@ -2,6 +2,7 @@ import { Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight"
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { SnapshotChangesList } from "components/snapshot/snapshot-changes-list";
 import { useSnapshotSections } from "components/snapshot/use-snapshot-sections";
+import { useAnalysisJob, useAnalysisReport } from "lib/query/branches.queries";
 
 export const Route = createFileRoute(
   "/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes",
@@ -12,6 +13,11 @@ export const Route = createFileRoute(
 function ChangesLayout() {
   const { snapshotId } = Route.useParams();
   const sections = useSnapshotSections(snapshotId);
+  // A report-less authoritative run has no suite changes to show yet: the sections are empty and the raw plan diff
+  // is deliberately withheld (a failed run's changes are discarded), so render the run's status instead.
+  const { data: analysisJob } = useAnalysisJob(snapshotId);
+  const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
+  const awaitingReport = analysisJob != null && analysisReport == null;
 
   const total = sections.reduce((sum, s) => sum + s.entries.length, 0);
 
@@ -24,7 +30,9 @@ function ChangesLayout() {
         </span>
       </PanelHeader>
       <PanelBody className="p-0 lg:min-h-0 lg:overflow-hidden">
-        {total === 0 ? (
+        {awaitingReport ? (
+          <ChangesRunStatus failed={analysisJob.status === "failed"} />
+        ) : total === 0 ? (
           <div className="px-5 py-8">
             <p className="text-xs text-text-tertiary">No test suite changes recorded for this checkpoint.</p>
           </div>
@@ -40,5 +48,19 @@ function ChangesLayout() {
         )}
       </PanelBody>
     </Panel>
+  );
+}
+
+// The changes-tab body for an authoritative run whose report has not landed. A failed run's suite changes were
+// discarded (they are recomputed on the next push); a running one has none to show yet.
+function ChangesRunStatus({ failed }: { failed: boolean }) {
+  return (
+    <div className="px-5 py-8">
+      <p className="text-xs text-text-tertiary">
+        {failed
+          ? "The analysis run failed for this checkpoint, so its test suite changes were discarded. They will be recomputed on the next push."
+          : "Analyzing this checkpoint. Test suite changes will appear here as soon as the run completes."}
+      </p>
+    </div>
   );
 }

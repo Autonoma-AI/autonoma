@@ -401,6 +401,10 @@ const shellFixtures: TrpcFixtures = {
   },
 };
 
+// The completed run behind the report-first stories. The snapshot page gates on the AnalysisJob's presence, so
+// every authoritative story needs one; a completed job is the happy path the report + findings stories render.
+const completedJob = { status: "completed" as const, startedAt: FIXTURE_EPOCH, completedAt: RUN_AT };
+
 const pageFixtures: TrpcFixtures = {
   ...shellFixtures,
   branches: {
@@ -411,8 +415,42 @@ const pageFixtures: TrpcFixtures = {
     ...analysisSnapshotIssueChanges,
     ...analysisIssueDetail,
     analysisIssues,
+    analysisJob: completedJob,
   },
 };
+
+// The two run-in-progress states share the report-first chrome but replace the report with a status: the page
+// gates on the job, so a running/failed job with a null report renders the AnalysisJob-status fallback. The
+// header's `snapshotReport.summary` is server-derived from the job, so it must track the job here too - otherwise
+// the badge would show a stale completed tally over a failed/running body.
+function jobStateFixtures(
+  analysisJob: NonNullable<NonNullable<TrpcFixtures["branches"]>["analysisJob"]>,
+): TrpcFixtures {
+  const failed = analysisJob.status === "failed";
+  const baseReport = snapshotReport.snapshotReport!;
+  return {
+    ...pageFixtures,
+    branches: {
+      ...pageFixtures.branches,
+      analysisReport: null,
+      analysisJob,
+      snapshotReport: {
+        ...baseReport,
+        health: failed ? "critical" : "running",
+        summary: {
+          ...baseReport.summary!,
+          tone: failed ? "critical" : "neutral",
+          label: failed ? "Checkpoint failed" : "Analyzing",
+          reason: failed ? "pipeline error" : undefined,
+          executionState: failed ? "pipeline_failed" : "running",
+          openBugCount: 0,
+          issueOccurrenceCount: 0,
+          analysis: { jobStatus: analysisJob.status, bugCount: 0, passedCount: 0, coverageCount: 0 },
+        },
+      },
+    },
+  };
+}
 
 const meta = {
   title: "Pages/AuthoritativeSnapshotPage",
@@ -451,5 +489,44 @@ export const Finding: Story = {
 export const Issue: Story = {
   args: {
     path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/issues/issue_place_order`,
+  },
+};
+
+/** A run still in flight: no report yet, so the page shows the AnalysisJob "Analyzing" status instead of findings. */
+export const Running: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
+  parameters: {
+    msw: { handlers: appShellHandlers(jobStateFixtures({ status: "running", startedAt: RUN_AT })) },
+  },
+};
+
+/**
+ * A run that died before producing a report. The page shows the failure and its reason where the report would be -
+ * previously it fell through to the diffs body and rendered a false "0 bugs".
+ */
+export const Failed: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(
+        jobStateFixtures({
+          status: "failed",
+          startedAt: FIXTURE_EPOCH,
+          completedAt: RUN_AT,
+          failureReason:
+            "The Reporter timed out after 20m (3 suite changes discarded; they will be recomputed on the next push)",
+        }),
+      ),
+    },
+  },
+};
+
+/** The suite-changes tab for a failed run: the discarded-changes notice, not the raw plan diff. */
+export const ChangesFailed: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(jobStateFixtures({ status: "failed", startedAt: FIXTURE_EPOCH, completedAt: RUN_AT })),
+    },
   },
 };

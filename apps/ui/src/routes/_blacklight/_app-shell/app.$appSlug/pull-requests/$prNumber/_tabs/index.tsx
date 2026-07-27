@@ -28,7 +28,7 @@ import {
   sortSnapshotsNewestFirst,
   useAnalysisIssues,
   useAnalysisJob,
-  useAuthoritativeAnalysisReport,
+  useAnalysisReport,
   useBranchByPr,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
@@ -169,7 +169,7 @@ function AuthoritativePrOverview({
   latestSnapshot: Snapshot;
   analysisJob: NonNullable<RouterOutputs["branches"]["analysisJob"]>;
 }) {
-  const { data: report } = useAuthoritativeAnalysisReport(latestSnapshot.id, analysisJob.status === "running");
+  const { data: report } = useAnalysisReport(latestSnapshot.id, { jobStatus: analysisJob.status });
 
   return (
     <div className="p-6">
