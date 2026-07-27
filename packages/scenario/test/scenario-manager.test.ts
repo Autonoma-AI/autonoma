@@ -518,36 +518,23 @@ integrationTestSuite({
 
         test("up: fails clearly on unsupported faker generator", async ({
             harness,
-            seedResult: { orgId, appId, deploymentId, manager, recipeStore },
+            seedResult: { orgId, appId, deploymentId, manager },
         }) => {
-            const snapshotId = await harness.getMainBranchSnapshotId(appId);
-            await recipeStore.replaceScenarioRecipes({
-                snapshotId,
-                applicationId: appId,
-                recipesFile: makeRecipesFile([
-                    {
-                        name: "bad-faker",
-                        description: "Bad faker",
-                        create: {
-                            User: [{ email: "{{owner_email}}" }],
-                        },
-                        variables: {
-                            owner_email: { strategy: "faker", generator: "internet.userHandle" },
-                        },
-                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
-                    },
-                    makeRecipe("empty", "Empty state", "Empty Org"),
-                    makeRecipe("large", "Large state", "Large Org"),
-                ]),
+            // The upload gate resolves the recipe, so a bad generator can only reach the DB by a direct write.
+            const scenarioId = await harness.createScenario(orgId, appId, "bad-faker", {
+                Organization: [{ name: "Acme Corp" }],
             });
-            const scenario = await harness.db.scenario.findUniqueOrThrow({
-                where: { applicationId_name: { applicationId: appId, name: "bad-faker" } },
-                select: { id: true },
+            await harness.overwriteRecipeFixture(scenarioId, {
+                name: "bad-faker",
+                description: "Bad faker",
+                create: { User: [{ email: "{{owner_email}}" }] },
+                variables: { owner_email: { strategy: "faker", generator: "internet.userHandle" } },
+                validation: { status: "validated", method: "checkScenario", phase: "ok" },
             });
             const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
 
-            await expect(manager.up(subject, scenario.id)).rejects.toThrow(
+            await expect(manager.up(subject, scenarioId)).rejects.toThrow(
                 "Unsupported faker generator: internet.userHandle",
             );
             expect(harness.webhookServer.requests).toHaveLength(0);

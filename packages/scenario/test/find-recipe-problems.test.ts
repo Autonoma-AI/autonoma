@@ -21,6 +21,24 @@ describe("findRecipeProblems", () => {
         expect(findRecipeProblems(recipe)).toEqual([]);
     });
 
+    it("passes a stored recipe whose tokens its own variables block declares", () => {
+        const recipe: ScenarioRecipe = {
+            ...recipeWithCreate({ User: [{ firstName: "{{owner_first_name}}" }] }),
+            variables: { owner_first_name: { strategy: "faker", generator: "person.firstName" } },
+        };
+
+        expect(findRecipeProblems(recipe)).toEqual([]);
+    });
+
+    it("reports a variables block that cannot resolve, which only the rehearsal sees", () => {
+        const recipe: ScenarioRecipe = {
+            ...recipeWithCreate({ User: [{ firstName: "{{owner_first_name}}" }] }),
+            variables: { owner_first_name: { strategy: "faker", generator: "person.nickname" } },
+        };
+
+        expect(findRecipeProblems(recipe)).toEqual([expect.stringContaining("person.nickname")]);
+    });
+
     it("reports a token that will not resolve at provisioning time", () => {
         const recipe = recipeWithCreate({ User: [{ email: "{{ownerEmail}}" }] });
 

@@ -195,15 +195,23 @@ export function isBuiltInRecipeToken(tokenName: string): boolean {
     return BUILT_IN_RECIPE_TOKENS.has(tokenName);
 }
 
-/** Every `{{token}}` anywhere in `value` that Autonoma will not substitute, deduplicated and in first-seen order. */
-export function findUnknownRecipeTokens(value: unknown): string[] {
+/**
+ * Every `{{token}}` anywhere in `value` that nothing will substitute, deduplicated and in first-seen order.
+ *
+ * `declaredTokens` names the tokens the surrounding recipe resolves itself through its `variables` block. Callers
+ * holding only a `create` graph - the planner CLI, which strips `variables` before upload, and the repair agent,
+ * which authors a graph from scratch - pass nothing and get the built-ins only.
+ */
+export function findUnknownRecipeTokens(value: unknown, declaredTokens: ReadonlySet<string> = new Set()): string[] {
     const unknown = new Set<string>();
 
     const walk = (node: unknown): void => {
         if (typeof node === "string") {
             for (const match of node.matchAll(RECIPE_TEMPLATE_PATTERN)) {
                 const tokenName = match[1];
-                if (tokenName != null && !isBuiltInRecipeToken(tokenName)) unknown.add(tokenName);
+                if (tokenName == null) continue;
+                if (isBuiltInRecipeToken(tokenName) || declaredTokens.has(tokenName)) continue;
+                unknown.add(tokenName);
             }
             return;
         }
@@ -227,8 +235,15 @@ export function findUnknownRecipeTokens(value: unknown): string[] {
  *
  * This is the single definition every gate shares - the planner CLI before it uploads, the API on save, and the
  * investigation repair agent before it spends a dry-run seed - so a recipe cannot pass one check and fail another.
+ *
+ * `declaredTokens` names the tokens the surrounding recipe's `variables` block resolves. A caller holding a whole
+ * recipe must pass them, or a stored recipe that provisions today is reported as broken; a caller holding only a
+ * graph passes nothing.
  */
-export function findRecipeCreateGraphProblems(create: unknown): string[] {
+export function findRecipeCreateGraphProblems(
+    create: unknown,
+    declaredTokens: ReadonlySet<string> = new Set(),
+): string[] {
     const graph = ScenarioCreateGraphSchema.safeParse(create);
     if (!graph.success) {
         // Without a readable graph the remaining checks have nothing to walk, and the factory would reject the
@@ -250,7 +265,7 @@ export function findRecipeCreateGraphProblems(create: unknown): string[] {
         );
     }
 
-    const unknownTokens = findUnknownRecipeTokens(graph.data);
+    const unknownTokens = findUnknownRecipeTokens(graph.data, declaredTokens);
     if (unknownTokens.length > 0) {
         problems.push(
             `These tokens resolve to nothing: ${unknownTokens.map((token) => `{{${token}}}`).join(", ")}. ` +

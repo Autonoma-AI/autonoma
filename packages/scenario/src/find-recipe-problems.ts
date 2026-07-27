@@ -30,7 +30,7 @@ export function findRecipeProblems(recipe: ScenarioRecipe): string[] {
     const logger = rootLogger.child({ name: "findRecipeProblems" });
     logger.info("Checking recipe for provisioning-time problems", { extra: { scenarioName: recipe.name } });
 
-    const problems = findRecipeCreateGraphProblems(recipe.create);
+    const problems = findRecipeCreateGraphProblems(recipe.create, new Set(Object.keys(recipe.variables ?? {})));
     if (problems.length === 0) {
         try {
             resolveRecipePayload(recipe, SAMPLE_TEST_RUN_ID);
