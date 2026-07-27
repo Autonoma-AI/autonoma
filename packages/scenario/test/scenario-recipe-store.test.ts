@@ -279,6 +279,87 @@ integrationTestSuite({
             ).rejects.toThrow("Application nonexistent-app not found");
         });
 
+        test("replaceScenarioRecipes: rejects a recipe whose tokens cannot resolve, storing nothing", async ({
+            harness,
+            seedResult: { appId, store },
+        }) => {
+            const snapshotId = await harness.getMainBranchSnapshotId(appId);
+
+            await expect(
+                store.replaceScenarioRecipes({
+                    snapshotId,
+                    applicationId: appId,
+                    recipesFile: makeRecipesFile([
+                        {
+                            name: "bad-token",
+                            description: "Uses a token Autonoma does not substitute",
+                            create: { User: [{ email: "{{owner_email}}" }] },
+                            validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow("owner_email");
+
+            const stored = await harness.db.scenario.findUnique({
+                where: { applicationId_name: { applicationId: appId, name: "bad-token" } },
+            });
+            expect(stored).toBeNull();
+        });
+
+        test("replaceScenarioRecipes: rejects a recipe whose _ref points at no _alias", async ({
+            harness,
+            seedResult: { appId, store },
+        }) => {
+            const snapshotId = await harness.getMainBranchSnapshotId(appId);
+
+            await expect(
+                store.replaceScenarioRecipes({
+                    snapshotId,
+                    applicationId: appId,
+                    recipesFile: makeRecipesFile([
+                        {
+                            name: "dangling-ref",
+                            description: "References an alias nothing declares",
+                            create: { User: [{ organizationId: { _ref: "org" } }] },
+                            validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow("_ref");
+
+            const stored = await harness.db.scenario.findUnique({
+                where: { applicationId_name: { applicationId: appId, name: "dangling-ref" } },
+            });
+            expect(stored).toBeNull();
+        });
+
+        test("replaceScenarioRecipes: accepts the built-in run-identity tokens", async ({
+            harness,
+            seedResult: { appId, store },
+        }) => {
+            const snapshotId = await harness.getMainBranchSnapshotId(appId);
+
+            await store.replaceScenarioRecipes({
+                snapshotId,
+                applicationId: appId,
+                recipesFile: makeRecipesFile([
+                    {
+                        name: "run-identity",
+                        description: "Uses the built-in tokens",
+                        create: { User: [{ email: "admin-{{testRunShortId}}@acme.test" }] },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                ]),
+            });
+
+            const scenario = await harness.db.scenario.findUniqueOrThrow({
+                where: { applicationId_name: { applicationId: appId, name: "run-identity" } },
+                select: { id: true },
+            });
+            const resolved = await store.loadRecipePayload({ scenarioId: scenario.id, testRunId: "run-123" });
+            expect(JSON.stringify(resolved?.createPayload)).toMatch(/admin-[0-9a-f]{8}@acme\.test/);
+        });
+
         test("loadRecipePayload: resolves faker variables deterministically for the same testRunId", async ({
             harness,
             seedResult: { appId, store },

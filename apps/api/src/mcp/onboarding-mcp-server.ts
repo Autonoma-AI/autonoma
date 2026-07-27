@@ -548,9 +548,13 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             description:
                 "Replace a scenario's recipe with a corrected version and make it the active one. The recipe's `name` " +
                 "must stay the scenario's existing name - this EDITS an existing scenario, it does not create one (the " +
-                "scenario and an initial recipe come from the planner upload). The recipe is validated against the " +
-                "recipe schema on save; an invalid shape is rejected with the exact field paths and messages that are " +
-                "wrong, so read them, fix those fields, and resend. After saving, call dry_run_scenario to run it " +
+                "scenario and an initial recipe come from the planner upload). Every value in `create` must be " +
+                "concrete except two built-in tokens, which need no declaration: `{{testRunId}}` (the id of this " +
+                "provisioning run, the same value your SDK receives as the request's `testRunId`) and " +
+                "`{{testRunShortId}}` (an 8-character hash of it, for columns too short for a UUID). Use them wherever " +
+                "a value must be unique per run; any OTHER `{{token}}` is rejected. The recipe is validated on save - " +
+                "an invalid shape, a `_ref` matching no `_alias`, or a token that cannot resolve is rejected with the " +
+                "exact problem, so read it, fix it, and resend. After saving, call dry_run_scenario to run it " +
                 "against the deployed app and confirm it actually creates the entities; loop update_recipe -> " +
                 "dry_run_scenario until it passes. Pass a short `description` of what you changed - the user watches it " +
                 "on the activity feed.",

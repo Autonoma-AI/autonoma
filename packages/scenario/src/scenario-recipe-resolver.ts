@@ -6,6 +6,9 @@ import {
     type ScenarioStructureJson,
     type ScenarioVariableDefinition,
     type ScenarioVariableScalar,
+    TEST_RUN_SHORT_ID_TOKEN,
+    BUILT_IN_RECIPE_TOKEN_LIST,
+    isBuiltInRecipeToken,
     isRecord,
     isScenarioRef,
 } from "@autonoma/types";
@@ -13,6 +16,9 @@ import {
 const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_]+)\}\}/g;
 const FULL_TEMPLATE_PATTERN = /^\{\{([a-zA-Z0-9_]+)\}\}$/;
 const DERIVED_PLACEHOLDER_PATTERN = /\{([a-zA-Z0-9_]+)\}/g;
+
+/** Characters of the SHA-256 digest a short id keeps - enough to stay unique per run, short enough for a slug. */
+const SHORT_ID_LENGTH = 8;
 
 const FIRST_NAMES = ["Alex", "Jordan", "Taylor", "Morgan", "Riley", "Casey", "Avery", "Quinn"];
 const LAST_NAMES = ["Smith", "Johnson", "Lee", "Garcia", "Patel", "Nguyen", "Brown", "Wilson"];
@@ -64,7 +70,7 @@ export function resolveRecipePayload(fixtureJson: unknown, testRunId: string): R
         return { createPayload: recipe.create, resolvedVariables: {} };
     }
 
-    const resolvedVariables = resolveRecipeVariables(variables, { testRunId });
+    const resolvedVariables = resolveAllTokens({ usedTokens, variables, testRunId });
     const populatedPayload = replaceTemplateTokens(recipe.create, resolvedVariables);
 
     assertNoUnresolvedTokens(populatedPayload);
@@ -172,10 +178,42 @@ function collectTemplateTokens(value: unknown, tokens = new Set<string>()): Set<
     return tokens;
 }
 
+/**
+ * Resolve every token the `create` graph uses. An explicit definition always wins
+ * over the built-in of the same name, so a recipe that declared its own
+ * `testRunId` variable before the built-ins existed keeps behaving identically.
+ */
+function resolveAllTokens(params: {
+    usedTokens: Set<string>;
+    variables: ScenarioRecipeVariables;
+    testRunId: string;
+}): Record<string, ScenarioVariableScalar> {
+    const { usedTokens, variables, testRunId } = params;
+
+    const resolved: Record<string, ScenarioVariableScalar> = {};
+    for (const tokenName of usedTokens) {
+        if (isBuiltInRecipeToken(tokenName) && !(tokenName in variables)) {
+            resolved[tokenName] = builtInTokenValue(tokenName, testRunId);
+        }
+    }
+
+    for (const [tokenName, value] of Object.entries(resolveRecipeVariables(variables, { testRunId }))) {
+        resolved[tokenName] = value;
+    }
+    return resolved;
+}
+
+function builtInTokenValue(tokenName: string, testRunId: string): string {
+    return tokenName === TEST_RUN_SHORT_ID_TOKEN ? shortHash(testRunId) : testRunId;
+}
+
 function validateRecipeVariables(params: { usedTokens: Set<string>; variables: ScenarioRecipeVariables }): void {
     for (const tokenName of params.usedTokens) {
-        if (!(tokenName in params.variables)) {
-            throw new Error(`Unknown recipe variable: ${tokenName}`);
+        if (!(tokenName in params.variables) && !isBuiltInRecipeToken(tokenName)) {
+            throw new Error(
+                `Unknown recipe variable: ${tokenName}. The only tokens a recipe can use are ` +
+                    `${BUILT_IN_RECIPE_TOKEN_LIST}; every other value must be concrete.`,
+            );
         }
     }
 
@@ -301,7 +339,7 @@ function indexFromSeed(seed: string, label: string, length: number): number {
 }
 
 function shortHash(seed: string): string {
-    return createHash("sha256").update(seed).digest("hex").slice(0, 8);
+    return createHash("sha256").update(seed).digest("hex").slice(0, SHORT_ID_LENGTH);
 }
 
 function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<string, string> {

@@ -304,6 +304,26 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return generation.id;
     }
 
+    /**
+     * Overwrite a stored recipe's payload directly, bypassing every validation the
+     * write paths perform. Reproduces a row that predates those checks (or arrived
+     * some other way), so the provisioning-time guards can be exercised on a recipe
+     * no current upload would accept.
+     */
+    async overwriteRecipeFixture(scenarioId: string, fixtureJson: Record<string, unknown>): Promise<void> {
+        const scenario = await this.db.scenario.findUniqueOrThrow({
+            where: { id: scenarioId },
+            select: { activeRecipeVersionId: true },
+        });
+        if (scenario.activeRecipeVersionId == null) {
+            throw new Error(`Scenario ${scenarioId} has no active recipe version to overwrite`);
+        }
+        await this.db.scenarioRecipeVersion.update({
+            where: { id: scenario.activeRecipeVersionId },
+            data: { fixtureJson },
+        });
+    }
+
     async createScenarioInstance(
         organizationId: string,
         applicationId: string,

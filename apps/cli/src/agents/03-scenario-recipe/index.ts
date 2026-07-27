@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BUILT_IN_RECIPE_TOKEN_LIST } from "@autonoma/types";
 import { tool } from "ai";
 import { z } from "zod";
 import type { AppConfig } from "../../config";
@@ -65,7 +66,8 @@ export function buildFinishTool(
             if (concretenessErrors.length > 0) {
                 return {
                     error:
-                        `Cannot finish: scenario data must be fully concrete - no variables, tokens, or placeholders.\n` +
+                        `Cannot finish: scenario data must be fully concrete - the only tokens Autonoma ` +
+                        `substitutes are ${BUILT_IN_RECIPE_TOKEN_LIST}.\n` +
                         `Fix these before calling finish:\n` +
                         concretenessErrors.map((e) => `  - ${e}`).join("\n"),
                 };

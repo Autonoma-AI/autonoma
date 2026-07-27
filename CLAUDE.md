@@ -314,6 +314,34 @@ const FACTORY_ERROR_CAP = 300; // <- reader has to hunt for this
 function sanitize(msg: string) { return msg.slice(0, FACTORY_ERROR_CAP); }
 ```
 
+### Membership Constants Are `Set`s Behind a Named Predicate
+
+**A module-level constant collection that exists only to answer "is this value one of them?" must be a `Set`, and call sites must ask a named predicate rather than reach into the collection.** An array forces every check to be a scan (`.includes`, or worse `.some((x) => x === value)` - a hand-rolled `.has` that reads like it might be doing something cleverer). A `Set` says "membership" in the type itself, is O(1), and makes the wrong usage awkward to write. Type it `ReadonlySet<T>` so nothing mutates it.
+
+Keep an array when the collection is genuinely ordered (a priority list, a step sequence, anything indexed or compared by position) or when the check is a *predicate* rather than an equality - regexes, prefixes, substrings - since those need `.some(...)` by nature.
+
+Export the predicate, not the collection. A caller that can see the raw set will eventually iterate it, mutate it, or re-derive a subset of it; a caller given `isBuiltInRecipeToken(name)` cannot. When the members need to be rendered (an error message listing what IS allowed), export a second function that formats them, so the formatting stays with the definition instead of being re-invented at each call site.
+
+```ts
+// BAD - an ordered container doing a membership job, scanned by hand at every call site
+const TRANSIENT_ERROR_NAMES = ["AI_NoOutputGeneratedError", "AI_NoObjectGeneratedError"];
+if (TRANSIENT_ERROR_NAMES.includes(error.name)) { ... }
+if (BUILT_IN_TOKENS.some((token) => token === name)) { ... }
+
+// GOOD - a set, and the question asked by name
+const TRANSIENT_ERROR_NAMES: ReadonlySet<string> = new Set([
+    "AI_NoOutputGeneratedError",
+    "AI_NoObjectGeneratedError",
+]);
+export function isTransientErrorName(name: string): boolean {
+    return TRANSIENT_ERROR_NAMES.has(name);
+}
+
+// GOOD - still an array: these are patterns, not values
+const COLD_START_PATTERNS = [/ECONNREFUSED/i, /socket hang up/i];
+const isColdStart = COLD_START_PATTERNS.some((pattern) => pattern.test(message));
+```
+
 ### Single Source of Truth
 
 **Never hardcode a subset, slice, or projection of a canonical constant, enum, or type union - derive it.** A literal (array, `Set`, `Map`, object, or a repeated value) that copies part of an existing source of truth is type-checked only for *valid members*, not for staying *in sync*: it silently rots the moment the canonical source is reordered, renamed, or extended, and nothing catches it. Compute from the single source instead (index/compare/filter over it, or a small shared helper), and extract a shared named constant when the same literal value - a key, path, status, route, threshold - appears in more than one file. A deliberate denormalization is allowed only with a comment explaining why the copy exists and how it stays correct.

@@ -34,10 +34,15 @@ describe("validateScenarioIsConcrete", () => {
         expect(validateScenarioIsConcrete(CONCRETE_SCENARIO)).toEqual([]);
     });
 
-    test("rejects a {{token}} placeholder", () => {
+    test("rejects a {{token}} that Autonoma does not substitute", () => {
         const errors = validateScenarioIsConcrete(`| email | {{user_email}} |`);
         expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain("{{token}} placeholder");
+        expect(errors[0]).toContain("{{user_email}}");
+    });
+
+    test("accepts the built-in run-identity tokens", () => {
+        expect(validateScenarioIsConcrete(`| email | admin-{{testRunShortId}}@acme.test |`)).toEqual([]);
+        expect(validateScenarioIsConcrete(`| externalId | {{testRunId}} |`)).toEqual([]);
     });
 
     test("rejects a bare {variable} placeholder", () => {

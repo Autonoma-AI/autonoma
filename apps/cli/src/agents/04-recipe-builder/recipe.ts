@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { findRecipeCreateGraphProblems } from "@autonoma/types";
 import { z } from "zod";
 import { debugLog } from "../../core/debug";
 
@@ -63,4 +64,21 @@ export async function loadRecipe(outputDir: string): Promise<FullRecipeJson | un
         return undefined;
     }
     return parsed.data;
+}
+
+/**
+ * Everything in this recipe file that Autonoma will reject on upload, one message per
+ * offending recipe. The schema above cannot catch any of it - a `create` graph is an
+ * arbitrary record, so a dangling `_ref` or a `"{{userEmail}}"` that resolves to
+ * nothing is a perfectly valid string as far as it is concerned.
+ *
+ * The checks are `findRecipeCreateGraphProblems` from `@autonoma/types` - literally the
+ * function the API runs on ingest - so this gate cannot drift from what the server
+ * accepts. Running it here turns a rejected upload (or, worse, a dry run that fails
+ * minutes later) into a fix the agent makes before it finishes.
+ */
+export function findRecipeUploadProblems(recipe: FullRecipeJson): string[] {
+    return recipe.recipes.flatMap((entry) =>
+        findRecipeCreateGraphProblems(entry.create).map((problem) => `"${entry.name}": ${problem}`),
+    );
 }

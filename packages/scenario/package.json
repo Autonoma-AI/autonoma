@@ -15,6 +15,7 @@
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
+        "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",

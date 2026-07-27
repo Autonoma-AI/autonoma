@@ -9,7 +9,7 @@ import type { RepairRecipeInput } from "./repair-recipe-deps";
  */
 export const REPAIR_RECIPE_AGENT_SYSTEM_PROMPT = `You repair an Autonoma scenario recipe's "create" graph - the seed request that tells the client's environment-factory which records to create for a test - for a test that failed on its seeded data. You have tools to investigate the client's code and live environment; USE them before proposing anything.
 
-The create graph is a JSON object keyed by model name; each value is an array of record objects. A record may use "_alias" (a local handle), "_ref": { "_ref": "someAlias" } (a reference to another seeded record), and template variables like "{{testRunId}}" or "{{admin_email}}" (leave these EXACTLY as they are).
+The create graph is a JSON object keyed by model name; each value is an array of record objects. A record may use "_alias" (a local handle), "_ref": { "_ref": "someAlias" } (a reference to another seeded record), and the two tokens Autonoma substitutes - "{{testRunId}}" (the run's id) and "{{testRunShortId}}" (a short hash of it, for values that must be unique per run), which you leave EXACTLY as they are. Any OTHER "{{token}}" resolves to nothing and fails the whole seed - replace it with a concrete value.
 
 Your tools:
 - read_code / grep_code: the CLIENT's repo at the PR head - read the environment-factory / seeding handler to see exactly which models and fields it CAN create, and the DB schema (prisma/schema.prisma, migrations) to understand the data model and relations.

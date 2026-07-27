@@ -169,6 +169,98 @@ export function findDanglingScenarioRefs(graph: ScenarioCreateGraph): string[] {
     return [...new Set(collectScenarioRefs(graph))].filter((ref) => !aliases.has(ref));
 }
 
+/**
+ * The only tokens Autonoma substitutes into a `create` graph. Everything else in a recipe must be a concrete
+ * value - there is no general variable mechanism.
+ *
+ * `testRunId` is the id sent to the Environment Factory as the `up` request's `testRunId`, so a recipe and the
+ * handler receiving it agree on one identity; `testRunShortId` is a hash of it, for columns too short to hold a
+ * UUID. They exist because concurrent runs of the same scenario would otherwise collide on unique columns - the
+ * one thing a recipe genuinely cannot hardcode.
+ */
+export const TEST_RUN_ID_TOKEN = "testRunId";
+export const TEST_RUN_SHORT_ID_TOKEN = "testRunShortId";
+const BUILT_IN_RECIPE_TOKENS: ReadonlySet<string> = new Set([TEST_RUN_ID_TOKEN, TEST_RUN_SHORT_ID_TOKEN]);
+
+/**
+ * The built-in tokens written as they appear in a recipe, for error messages and prompts. Rendered once at module
+ * load: the set never changes, and this string is built on error paths where recomputing it earns nothing.
+ */
+export const BUILT_IN_RECIPE_TOKEN_LIST = [...BUILT_IN_RECIPE_TOKENS].map((token) => `{{${token}}}`).join(" and ");
+
+const RECIPE_TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_]+)\}\}/g;
+
+/** Whether Autonoma substitutes this token name without the recipe declaring anything. */
+export function isBuiltInRecipeToken(tokenName: string): boolean {
+    return BUILT_IN_RECIPE_TOKENS.has(tokenName);
+}
+
+/** Every `{{token}}` anywhere in `value` that Autonoma will not substitute, deduplicated and in first-seen order. */
+export function findUnknownRecipeTokens(value: unknown): string[] {
+    const unknown = new Set<string>();
+
+    const walk = (node: unknown): void => {
+        if (typeof node === "string") {
+            for (const match of node.matchAll(RECIPE_TEMPLATE_PATTERN)) {
+                const tokenName = match[1];
+                if (tokenName != null && !isBuiltInRecipeToken(tokenName)) unknown.add(tokenName);
+            }
+            return;
+        }
+        if (Array.isArray(node)) {
+            for (const item of node) walk(item);
+            return;
+        }
+        if (isRecord(node)) {
+            for (const nested of Object.values(node)) walk(nested);
+        }
+    };
+    walk(value);
+
+    return [...unknown];
+}
+
+/**
+ * Everything wrong with a candidate `create` graph that is knowable without provisioning: a shape the client's
+ * factory cannot read, a `_ref` matching no `_alias`, and tokens that resolve to nothing. One human-readable
+ * message per problem, most-structural first; empty means the graph is sound.
+ *
+ * This is the single definition every gate shares - the planner CLI before it uploads, the API on save, and the
+ * investigation repair agent before it spends a dry-run seed - so a recipe cannot pass one check and fail another.
+ */
+export function findRecipeCreateGraphProblems(create: unknown): string[] {
+    const graph = ScenarioCreateGraphSchema.safeParse(create);
+    if (!graph.success) {
+        // Without a readable graph the remaining checks have nothing to walk, and the factory would reject the
+        // whole seed in this shape anyway.
+        const issues = graph.error.issues.map((issue) => {
+            const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+            return `${path}: ${issue.message}`;
+        });
+        return [`The create graph must map each model name to an array of records. ${issues.join("; ")}`];
+    }
+
+    const problems: string[] = [];
+
+    const danglingRefs = findDanglingScenarioRefs(graph.data);
+    if (danglingRefs.length > 0) {
+        problems.push(
+            `These \`_ref\` targets match no \`_alias\` in the graph: ${danglingRefs.join(", ")}. ` +
+                "Declare the alias on the record being referenced, or drop the reference.",
+        );
+    }
+
+    const unknownTokens = findUnknownRecipeTokens(graph.data);
+    if (unknownTokens.length > 0) {
+        problems.push(
+            `These tokens resolve to nothing: ${unknownTokens.map((token) => `{{${token}}}`).join(", ")}. ` +
+                `Autonoma only substitutes ${BUILT_IN_RECIPE_TOKEN_LIST}; replace the rest with concrete values.`,
+        );
+    }
+
+    return problems;
+}
+
 export const ScenarioRecipesFileSchema = z.object({
     version: z.literal(1),
     source: z

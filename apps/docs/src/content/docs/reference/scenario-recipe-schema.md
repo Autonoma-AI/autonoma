@@ -57,7 +57,7 @@ POST /v1/setup/setups/:setupId/scenario-recipe-versions
 | `name`                 | string                                   | yes      | Stable identifier. Must match the scenario name used in the LLM-facing docs. |
 | `description`          | string                                   | yes      | Human-readable summary of the scenario state. |
 | `create`               | object                                   | yes      | The model graph passed to the SDK's `createScenario` / `up` flow. A flat map: keys are model names, values are arrays of seeded rows. Rows link with `_alias` / `_ref` (no nesting). Extra keys are preserved. |
-| `variables`            | object (map of name → definition)        | no       | Per-recipe dynamic values. See **Variable definitions** below. |
+| `variables`            | object (map of name → definition)        | no       | **Deprecated.** Still accepted for recipes that already declare it, but no longer generated or documented. Use the built-in tokens below instead. |
 | `validation`           | object                                   | yes      | Proof that the recipe was validated. All fields must be present. |
 | `validation.status`    | literal string `"validated"`             | yes      | |
 | `validation.method`    | one of `"checkScenario"`, `"checkAllScenarios"`, `"endpoint-up-down"` | yes | Which validator produced this result. |
@@ -65,59 +65,32 @@ POST /v1/setup/setups/:setupId/scenario-recipe-versions
 | `validation.up_ms`     | non-negative integer                     | no       | Milliseconds the `up` phase took. |
 | `validation.down_ms`   | non-negative integer                     | no       | Milliseconds the `down` phase took. |
 
-## Variable definitions
+## Built-in tokens
 
-`variables` is a map from variable name to a **tagged union** discriminated by the `strategy` field. Exactly one of the three shapes below is valid per entry. Unknown `strategy` values are rejected.
+Every value in `create` must be concrete, with exactly two exceptions. These tokens are written in **double braces** and need no declaration - Autonoma substitutes them when it provisions the scenario.
 
-### `literal`
+| Token                | Value |
+|----------------------|-------|
+| `{{testRunId}}`      | The id of this provisioning run - the same value Autonoma sends the Environment Factory as the `up` request's `testRunId`, so your recipe and your handler agree on one identity. |
+| `{{testRunShortId}}` | An 8-character hash of `{{testRunId}}`, for columns too short to hold a UUID (usernames, slugs, subdomains). |
 
-Emits a fixed scalar on every run.
-
-```json
-{
-  "strategy": "literal",
-  "value": "admin@example.com"
-}
-```
-
-| Field      | Type                               | Required | Notes |
-|------------|------------------------------------|----------|-------|
-| `strategy` | literal `"literal"`                | yes      | |
-| `value`    | string \| number \| boolean \| null | yes      | Any JSON scalar. Objects and arrays are **not** allowed. |
-
-### `derived`
-
-Derives a deterministic value from the test run ID (so every invocation of the same test gets the same value, but different runs get different values).
+They exist for one reason: concurrent runs of the same scenario would otherwise collide on unique columns. Use them anywhere a value must be unique per run, including inside a longer string.
 
 ```json
-{
-  "strategy": "derived",
-  "source": "testRunId",
-  "format": "user-{shortId}@example.com"
-}
+"User": [
+  {
+    "_alias": "admin",
+    "email": "admin-{{testRunShortId}}@acme.test",
+    "externalId": "{{testRunId}}"
+  }
+]
 ```
 
-| Field      | Type                   | Required | Notes |
-|------------|------------------------|----------|-------|
-| `strategy` | literal `"derived"`    | yes      | |
-| `source`   | literal `"testRunId"`  | yes      | Only `testRunId` is supported today. |
-| `format`   | string                 | yes      | Template. The token `{shortId}` is replaced with a short hash of the run ID. |
+Any other `{{token}}` is rejected on upload - there is no general variable mechanism.
 
-### `faker`
-
-Generates a fresh random value per run using Faker.
-
-```json
-{
-  "strategy": "faker",
-  "generator": "internet.email"
-}
-```
-
-| Field       | Type                     | Required | Notes |
-|-------------|--------------------------|----------|-------|
-| `strategy`  | literal `"faker"`        | yes      | |
-| `generator` | dotted Faker method path | yes      | e.g. `internet.email`, `person.firstName`, `commerce.productName`. |
+:::caution[Deprecated: the `variables` block]
+Recipes could once declare a `variables` map of `literal` / `derived` / `faker` definitions. Autonoma still resolves it for recipes that already carry one, but it is no longer generated and should not be added to new recipes. The two built-in tokens above cover the only case it was needed for.
+:::
 
 ## Full example
 
@@ -137,7 +110,7 @@ Generates a fresh random value per run using Faker.
         "Organization": [{ "_alias": "org-1", "name": "Acme" }],
         "User": [
           {
-            "email": "{adminEmail}",
+            "email": "admin-{{testRunShortId}}@acme.test",
             "role": "admin",
             "organizationId": { "_ref": "org-1" }
           }
@@ -146,13 +119,6 @@ Generates a fresh random value per run using Faker.
           { "name": "Alpha", "organizationId": { "_ref": "org-1" } },
           { "name": "Beta",  "organizationId": { "_ref": "org-1" } }
         ]
-      },
-      "variables": {
-        "adminEmail": {
-          "strategy": "derived",
-          "source": "testRunId",
-          "format": "admin-{shortId}@acme.test"
-        }
       },
       "validation": {
         "status": "validated",
@@ -169,7 +135,9 @@ Generates a fresh random value per run using Faker.
 ## Common rejection reasons
 
 - **`expected string, received undefined` under `source.discoverPath`** - the `source` object is missing `discoverPath`. Both `discoverPath` and `scenariosPath` are required.
-- **Discriminated union error under `recipes[n].variables.<name>`** - an unknown or missing `strategy` key. Use exactly one of `"literal"`, `"derived"`, `"faker"`.
+- **`Unknown recipe variable: <name>`** - the `create` graph uses a `{{token}}` that is not one of the two built-ins. Replace it with a concrete value.
+- **`These _ref targets match no _alias in the graph`** - a row references an alias no row declares. Add the `_alias`, or drop the reference.
+- **`The create graph must map each model name to an array of records`** - a model maps to a scalar or a bare array of non-objects. The Environment Factory rejects the whole seed in that shape.
 - **`version` must be literal `1`** - don't send `"1"` or `"1.0"`. Integer `1`.
 - **`recipes` must contain at least 1 element** - empty arrays are rejected.
 - **`validation.status` / `validation.phase` mismatch** - both are fixed literals (`"validated"` / `"ok"`). Any other value fails.

@@ -1,6 +1,6 @@
 import type { AppConfig } from "../../../config";
 import * as p from "../../../ui/prompts";
-import { type FullRecipeJson, RECIPE_FILE, loadRecipe } from "../recipe";
+import { type FullRecipeJson, RECIPE_FILE, findRecipeUploadProblems, loadRecipe } from "../recipe";
 
 const UPLOAD_COMMAND = "npx @autonoma-ai/planner@latest upload";
 
@@ -83,6 +83,18 @@ export async function uploadRecipeFromDisk(outputDir: string, config: AppConfig)
  */
 export async function submitRecipe(recipe: FullRecipeJson, creds: SubmitCredentials): Promise<SubmitOutcome> {
     const { apiUrl, apiToken, generationId } = creds;
+
+    // Autonoma runs this exact check on ingest; failing here keeps the reason legible
+    // (and the recipe printed for recovery) instead of surfacing as an HTTP 400.
+    const uploadProblems = findRecipeUploadProblems(recipe);
+    if (uploadProblems.length > 0) {
+        p.log.error(
+            `Recipe cannot be submitted - Autonoma would reject it:\n` +
+                uploadProblems.map((problem) => `  - ${problem}`).join("\n"),
+        );
+        printRecipeForRecovery(recipe);
+        return { uploaded: false, failure: "rejected" };
+    }
 
     const missing = [
         apiToken == null ? "AUTONOMA_API_TOKEN" : undefined,

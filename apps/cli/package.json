@@ -45,6 +45,7 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/types": "workspace:*",
         "@octokit/app": "catalog:",
         "@types/cross-spawn": "^6.0.6",
         "@types/node": "catalog:",

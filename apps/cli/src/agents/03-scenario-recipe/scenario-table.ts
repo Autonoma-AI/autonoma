@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BUILT_IN_RECIPE_TOKEN_LIST, findUnknownRecipeTokens } from "@autonoma/types";
 import matter from "gray-matter";
 
 const RESET = "\x1b[0m";
@@ -50,17 +51,20 @@ export async function parseScenario(outputDir: string): Promise<ParsedScenario> 
 }
 
 /**
- * Scenario data must be fully concrete - there is no variable mechanism. Catch
- * any placeholder, token, or leftover `variable_fields` block the design agent
- * might still emit, so it can be handed back for self-correction. This is a soft
- * check: it returns one human-readable error per problem (empty array = clean)
- * and never throws, so a stray placeholder is something the agent fixes, not a
- * fatal failure.
+ * Scenario data must be fully concrete apart from the run-identity tokens Autonoma
+ * substitutes. Catch any other placeholder, or a leftover `variable_fields` block,
+ * so it can be handed back for self-correction. This is a soft check: it returns one
+ * human-readable error per problem (empty array = clean) and never throws, so a
+ * stray placeholder is something the agent fixes, not a fatal failure.
  */
 export function validateScenarioIsConcrete(content: string): string[] {
-    const errors: string[] = [];
+    const errors: string[] = findUnknownRecipeTokens(content).map(
+        (token) =>
+            `unknown token "{{${token}}}" - scenario values must be concrete. Replace it with the exact static ` +
+            `value; the only tokens Autonoma substitutes are ${BUILT_IN_RECIPE_TOKEN_LIST}.`,
+    );
+
     const checks: { pattern: RegExp; label: string }[] = [
-        { pattern: /\{\{[a-zA-Z0-9_]+\}\}/g, label: "{{token}} placeholder" },
         { pattern: /(?<!\{)\{[a-z][a-zA-Z]*\}(?!\})/g, label: "bare {variable} placeholder" },
         { pattern: /^\s*variable_fields\s*:/m, label: "variable_fields block" },
     ];
@@ -70,7 +74,8 @@ export function validateScenarioIsConcrete(content: string): string[] {
         if (match && match.length > 0) {
             errors.push(
                 `${label}: "${match[0].trim()}" - scenario values must be concrete. ` +
-                    `Replace it with the exact static value (there is no variable mechanism).`,
+                    `Replace it with the exact static value; the only tokens Autonoma substitutes are ` +
+                    `${BUILT_IN_RECIPE_TOKEN_LIST}.`,
             );
         }
     }

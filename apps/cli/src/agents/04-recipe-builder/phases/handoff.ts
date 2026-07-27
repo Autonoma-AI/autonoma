@@ -8,7 +8,7 @@ import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
 import { INTEGRATION_PROMPT_FILE, writeIntegrationPrompt } from "../integration-prompt";
 import type { AgentLauncher, PermissionMode } from "../launcher";
 import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../launcher";
-import { loadRecipe, RECIPE_FILE } from "../recipe";
+import { findRecipeUploadProblems, loadRecipe, RECIPE_FILE } from "../recipe";
 import type { RecipeBuilderState } from "../state";
 import { saveRecipeState } from "../state";
 
@@ -108,16 +108,19 @@ export async function runCompletionPhase(
 
     while (true) {
         const complete = await readCompletion(outputDir);
-        const recipeReady = (await loadRecipe(outputDir)) != null;
+        const recipe = await loadRecipe(outputDir);
+        // A recipe that parses can still be unsubmittable - a dangling `_ref`, a token
+        // that resolves to nothing - so treat that as not-ready and hand the exact
+        // problems back for the agent to fix, rather than uploading into a rejection.
+        const uploadProblems = recipe != null ? findRecipeUploadProblems(recipe) : [];
+        const recipeReady = recipe != null && uploadProblems.length === 0;
 
         if (complete && recipeReady) {
             p.log.success("The agent reported the integration complete and validated.");
             return { kind: "advance" };
         }
 
-        const failure = !recipeReady
-            ? "No completed recipe.json was produced, so there is nothing validated to submit."
-            : "The agent exited without marking the integration complete (see its IMPLEMENTATION.md for what's left).";
+        const failure = describeIncompleteRecipe(recipe != null, uploadProblems);
 
         const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
         if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
@@ -205,6 +208,19 @@ async function launchAgent(
     } finally {
         resume();
     }
+}
+
+/** Why the recipe isn't submittable yet, phrased for the agent that has to fix it. */
+function describeIncompleteRecipe(recipeExists: boolean, uploadProblems: string[]): string {
+    if (!recipeExists) {
+        return "No completed recipe.json was produced, so there is nothing validated to submit.";
+    }
+    if (uploadProblems.length > 0) {
+        return (
+            `recipe.json will be rejected on upload:\n` + uploadProblems.map((problem) => `  - ${problem}`).join("\n")
+        );
+    }
+    return "The agent exited without marking the integration complete (see its IMPLEMENTATION.md for what's left).";
 }
 
 /**

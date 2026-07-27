@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { type ScenarioManager, applyScenarioRecipeUpdate, isColdStartMessage } from "@autonoma/scenario";
+import {
+    type ScenarioManager,
+    applyScenarioRecipeUpdate,
+    findRecipeProblems,
+    isColdStartMessage,
+} from "@autonoma/scenario";
 import { ScenarioRecipeSchema } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -302,6 +307,17 @@ export class ScenariosService extends Service {
             throw new TRPCError({
                 code: "BAD_REQUEST",
                 message: `Recipe name must remain "${scenario.name}"`,
+            });
+        }
+
+        // Everything below only fails at provisioning time, which is minutes and a
+        // deploy away - reject here instead, with the reason, so the editor (or the
+        // agent) can fix it on the spot.
+        const problems = findRecipeProblems(validation.data);
+        if (problems.length > 0) {
+            throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Recipe will not provision:\n${problems.map((problem) => `- ${problem}`).join("\n")}`,
             });
         }
 

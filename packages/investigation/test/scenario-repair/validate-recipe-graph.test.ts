@@ -35,6 +35,13 @@ describe("validateRecipeGraph", () => {
         expect(result.errors.some((e) => e.includes("missing_admin"))).toBe(true);
     });
 
+    it("flags a token the agent invented while rewriting a value", () => {
+        const graph = JSON.stringify({ User: [{ email: "{{owner_email}}" }] });
+        const result = validateRecipeGraph(graph);
+        expect(result.valid).toBe(false);
+        expect(result.errors.some((e) => e.includes("{{owner_email}}"))).toBe(true);
+    });
+
     it("resolves refs nested deep inside fields", () => {
         const graph = JSON.stringify({
             Org: [{ _alias: "org" }],

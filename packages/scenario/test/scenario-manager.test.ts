@@ -434,7 +434,7 @@ integrationTestSuite({
             await expect(manager.up(subject, scenarioId)).rejects.toThrow("does not have a stored recipe version");
         });
 
-        test("up: fails clearly when token exists in create but no variable definition exists", async ({
+        test("up: substitutes the built-in run-identity tokens with the id sent to the SDK", async ({
             harness,
             seedResult: { orgId, appId, deploymentId, manager, recipeStore },
         }) => {
@@ -444,10 +444,10 @@ integrationTestSuite({
                 applicationId: appId,
                 recipesFile: makeRecipesFile([
                     {
-                        name: "missing-variable",
-                        description: "Missing variable",
+                        name: "run-identity",
+                        description: "Uses the built-in tokens",
                         create: {
-                            User: [{ email: "{{owner_email}}" }],
+                            User: [{ externalId: "{{testRunId}}", username: "admin-{{testRunShortId}}" }],
                         },
                         validation: { status: "validated", method: "checkScenario", phase: "ok" },
                     },
@@ -456,52 +456,63 @@ integrationTestSuite({
                 ]),
             });
             const scenario = await harness.db.scenario.findUniqueOrThrow({
-                where: { applicationId_name: { applicationId: appId, name: "missing-variable" } },
+                where: { applicationId_name: { applicationId: appId, name: "run-identity" } },
                 select: { id: true },
             });
             const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
 
-            await expect(manager.up(subject, scenario.id)).rejects.toThrow("Unknown recipe variable: owner_email");
+            const instance = await manager.up(subject, scenario.id);
+
+            expect(instance.status).toBe("UP_SUCCESS");
+            const request = harness.webhookServer.requests[0];
+            expect(request?.body.testRunId).toBe(instance.id);
+            expect(request?.body.create.User[0].externalId).toBe(instance.id);
+            expect(request?.body.create.User[0].username).toMatch(/^admin-[0-9a-f]{8}$/);
+        });
+
+        test("up: refuses to provision a stored recipe whose tokens cannot resolve", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            // Predates the upload-time check, so it can only arrive by a direct write.
+            const scenarioId = await harness.createScenario(orgId, appId, "missing-variable", {
+                Organization: [{ name: "Acme Corp" }],
+            });
+            await harness.overwriteRecipeFixture(scenarioId, {
+                name: "missing-variable",
+                description: "Missing variable",
+                create: { User: [{ email: "{{owner_email}}" }] },
+                validation: { status: "validated", method: "checkScenario", phase: "ok" },
+            });
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+
+            await expect(manager.up(subject, scenarioId)).rejects.toThrow("Unknown recipe variable: owner_email");
             expect(harness.webhookServer.requests).toHaveLength(0);
         });
 
-        test("up: fails clearly when variable definition is unused", async ({
+        test("up: refuses to provision a stored recipe with an unused variable definition", async ({
             harness,
-            seedResult: { orgId, appId, deploymentId, manager, recipeStore },
+            seedResult: { orgId, appId, deploymentId, manager },
         }) => {
-            const snapshotId = await harness.getMainBranchSnapshotId(appId);
-            await recipeStore.replaceScenarioRecipes({
-                snapshotId,
-                applicationId: appId,
-                recipesFile: makeRecipesFile([
-                    {
-                        name: "unused-variable",
-                        description: "Unused variable",
-                        create: {
-                            Organization: [{ name: "Acme Corp" }],
-                        },
-                        variables: {
-                            owner_email: {
-                                strategy: "derived",
-                                source: "testRunId",
-                                format: "owner+{testRunId}@example.com",
-                            },
-                        },
-                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
-                    },
-                    makeRecipe("empty", "Empty state", "Empty Org"),
-                    makeRecipe("large", "Large state", "Large Org"),
-                ]),
+            const scenarioId = await harness.createScenario(orgId, appId, "unused-variable", {
+                Organization: [{ name: "Acme Corp" }],
             });
-            const scenario = await harness.db.scenario.findUniqueOrThrow({
-                where: { applicationId_name: { applicationId: appId, name: "unused-variable" } },
-                select: { id: true },
+            await harness.overwriteRecipeFixture(scenarioId, {
+                name: "unused-variable",
+                description: "Unused variable",
+                create: { Organization: [{ name: "Acme Corp", note: "{{owner_email}}" }] },
+                variables: {
+                    owner_email: { strategy: "derived", source: "testRunId", format: "owner+{testRunId}@example.com" },
+                    unused_token: { strategy: "literal", value: "never referenced" },
+                },
+                validation: { status: "validated", method: "checkScenario", phase: "ok" },
             });
             const generationId = await harness.createGeneration(orgId, appId, deploymentId);
             const subject = new GenerationSubject(harness.db, generationId);
 
-            await expect(manager.up(subject, scenario.id)).rejects.toThrow("Unused variable definition: owner_email");
+            await expect(manager.up(subject, scenarioId)).rejects.toThrow("Unused variable definition: unused_token");
             expect(harness.webhookServer.requests).toHaveLength(0);
         });
 

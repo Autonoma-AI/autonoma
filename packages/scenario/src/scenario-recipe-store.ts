@@ -1,4 +1,5 @@
 import { type PrismaClient } from "@autonoma/db";
+import { BadRequestError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import {
     type ScenarioRecipe,
@@ -6,6 +7,7 @@ import {
     type ScenarioRecipesFile,
     type ScenarioVariableScalar,
 } from "@autonoma/types";
+import { findRecipeProblems } from "./find-recipe-problems";
 import { extractStructure, hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
 
 interface ReplaceParams {
@@ -72,6 +74,8 @@ export class ScenarioRecipeStore {
             throw new Error(`Application ${applicationId} not found`);
         }
         const { organizationId } = application;
+
+        assertRecipesCanProvision(recipesFile.recipes);
 
         const recipeNames = recipesFile.recipes.map((recipe) => recipe.name);
         const now = new Date();
@@ -251,5 +255,23 @@ export class ScenarioRecipeStore {
             select: { activeRecipeVersion: { select: { fixtureJson: true } } },
         });
         return scenario?.activeRecipeVersion?.fixtureJson ?? null;
+    }
+}
+
+/**
+ * Reject an upload carrying a recipe that cannot provision. Storing one only defers
+ * the failure to test time, where it costs a deploy and a full run to discover -
+ * and the uploader is an agent that can fix and re-post immediately, so the message
+ * names the offending recipe and every problem in it.
+ */
+function assertRecipesCanProvision(recipes: ScenarioRecipe[]): void {
+    const rejections = recipes.flatMap((recipe) => {
+        const problems = findRecipeProblems(recipe);
+        if (problems.length === 0) return [];
+        return [`"${recipe.name}":\n${problems.map((problem) => `  - ${problem}`).join("\n")}`];
+    });
+
+    if (rejections.length > 0) {
+        throw new BadRequestError(`Scenario recipes will not provision:\n${rejections.join("\n")}`);
     }
 }
